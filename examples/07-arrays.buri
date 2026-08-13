@@ -1,0 +1,95 @@
+// 07 — Arrays
+//
+// `[T]` is an immutable, densely packed sequence. Note which operations need a
+// context and which do not: anything whose result size depends on runtime data
+// must allocate, and allocation is a capability.
+
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/order" import * as order;
+from "core/cap" import { Alloc, Stdout };
+
+// --- Pure: no context parameter, therefore no allocation, no effects --------
+
+fn total(xs: [Int]): Int {
+  xs.fold(fn(acc, x) => acc + x, 0)
+}
+
+fn maximum(xs: [Int]): Option<Int> {
+  xs.fold(fn(best, x) => match (best) {
+      .None => .Some(x),
+      .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
+    }, .None)
+}
+
+fn countMatching(pred: fn(Int) => Bool, xs: [Int]): Int {
+  xs.fold(fn(acc, x) => if (pred(x)) { acc + 1 } else { acc }, 0)
+}
+
+// Indexing yields Option<T>. There is no way to read out of bounds.
+fn secondOr(fallback: Int, xs: [Int]): Int {
+  xs[1] ?? fallback
+}
+
+fn safeAverage(xs: [Int]): Option<Int> {
+  if (xs.isEmpty()) {
+    .None
+  } else {
+    .Some(total(xs) / xs.len())
+  }
+}
+
+// --- Deterministic but allocating: takes { alloc: Alloc, .. } ---------------
+
+fn evensDoubled(ctx: { alloc: Alloc, .. }, xs: [Int]): [Int] {
+  xs.filter(ctx, fn(x) => x % 2 == 0).map(ctx, fn(x) => x * 2)
+}
+
+fn descending(ctx: { alloc: Alloc, .. }, xs: [Int]): [Int] {
+  xs.sortBy(ctx, order.reverse(order.int))
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  // An array literal has a statically known length, so it is not an
+  // allocation the programmer has to account for.
+  let xs: [Int] = [5, 3, 9, 1, 4, 8];
+  let empty: [Int] = [];
+
+  let _ = io.println(ctx, "len          = ${xs.len()}");
+  let _ = io.println(ctx, "isEmpty      = ${empty.isEmpty()}");
+  let _ = io.println(ctx, "total        = ${total(xs)}");
+  let _ = io.println(ctx, "count even   = ${countMatching(fn(x) => x % 2 == 0, xs)}");
+  let _ = io.println(ctx, "xs[1]        = ${secondOr(-1, xs)}");
+  let _ = io.println(ctx, "xs[99]       = ${secondOr(-1, empty)}");
+
+  // Option-returning results are matched, not unwrapped by faith.
+  let _ = match (maximum(xs)) {
+    .Some(m) => io.println(ctx, "max          = ${m}"),
+    .None => io.println(ctx, "max          = (empty)"),
+  };
+
+  let _ = match (safeAverage(xs)) {
+    .Some(a) => io.println(ctx, "average      = ${a}"),
+    .None => io.println(ctx, "average      = (empty)"),
+  };
+
+  let doubled = evensDoubled(ctx, xs);
+  let sorted = descending(ctx, xs);
+  // A lambda may not capture `ctx`, so a mapper that itself needs to allocate
+  // takes the context as its first parameter and goes through `mapCtx`.
+  // Writing `sorted.map(ctx, fn(n) => str.fromInt(ctx, n))` is an error.
+  let rendered = sorted.mapCtx(ctx, fn(c, n) => str.fromInt(c, n));
+  let joined = rendered.join(ctx, ", ");
+
+  let _ = io.println(ctx, "evensDoubled = ${doubled.len()} items");
+  let _ = io.println(ctx, "descending   = ${joined}");
+
+  // Zipping, taking, dropping, ranges — all size-dependent, all take ctx.
+  let indices = list.range(ctx, 0, xs.len());
+  let pairs = indices.zip(ctx, xs);
+  let firstThree = xs.take(ctx, 3);
+  let _ = io.println(ctx, "pairs        = ${pairs.len()}, firstThree = ${firstThree.len()}");
+
+  .Ok({})
+}

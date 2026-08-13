@@ -1,0 +1,192 @@
+// 22 — Traits
+//
+// A trait is an interface: a named set of method signatures. A type satisfies
+// it when its defining module declares matching methods — so checking `T: Ord`
+// is one lookup in one known module, not a search over implementations.
+//
+// There are no blanket implementations, no associated types, no `where`
+// clauses, no supertraits, no trait objects, and no dynamic dispatch. Each of
+// those turns resolution from a lookup into a search, and the search is the
+// entire compile-time cost of a trait system.
+
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/order" import { Ord, Eq, Show };
+from "core/num" import { Add, Sub, Checked, Bounded };
+from "core/cap" import { Alloc, Stdout };
+
+// ---------------------------------------------------------------------------
+// Declaring a trait
+//
+// `Self` is the implementing type. Trait methods declare `self` first, exactly
+// like any other method.
+// ---------------------------------------------------------------------------
+
+trait Measurable {
+  fn size(self: Self): Int;
+  fn isEmptyThing(self: Self): Bool;
+}
+
+// A trait may require a context, and every implementation then gets exactly
+// that context and nothing more. A `Renderable` implementation provably cannot
+// read a file or open a socket — the trait declaration is a capability contract
+// binding every future implementor.
+trait Renderable {
+  fn render(self: Self, ctx: { alloc: Alloc, .. }): Str;
+}
+
+// ---------------------------------------------------------------------------
+// Satisfaction is structural
+// ---------------------------------------------------------------------------
+
+export struct Version {
+  export major: Int,
+  export minor: Int,
+}
+
+// Version satisfies Ord because this module declares a matching method.
+// Nothing else is required.
+export fn compare(self: Version, other: Version): Order {
+  match (self.major.compare(other.major)) {
+    .Equal => self.minor.compare(other.minor),
+    ord => ord,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// `impl` states the intent and is checked
+//
+// Equivalent to declaring the same methods at module level, plus an assertion
+// that every signature the trait requires is present and matches. It exists so
+// that satisfaction is deliberate rather than accidental.
+// ---------------------------------------------------------------------------
+
+export struct Playlist {
+  export name: Str,
+  export tracks: [Str],
+}
+
+impl Measurable for Playlist {
+  fn size(self: Playlist): Int { self.tracks.len() }
+  fn isEmptyThing(self: Playlist): Bool { self.tracks.isEmpty() }
+}
+
+impl Renderable for Playlist {
+  fn render(self: Playlist, ctx: { alloc: Alloc, .. }): Str {
+    str.format(ctx, "${self.name} (${self.tracks.len()} tracks)")
+  }
+}
+
+// ---------------------------------------------------------------------------
+// `derive` generates the implementation structurally
+//
+// Struct fields in declaration order, enum variants in declaration order,
+// recursing into field types. A fold over one type definition — no search.
+// ---------------------------------------------------------------------------
+
+derive Eq, Show for Version;
+derive Eq, Ord, Show for Playlist;
+
+// ---------------------------------------------------------------------------
+// Operators are trait methods
+//
+//   a + b  ->  Add.add        a == b  ->  Eq.eq
+//   a - b  ->  Sub.sub        a < b   ->  Ord.compare
+//
+// which is what makes newtype wrappers usable.
+// ---------------------------------------------------------------------------
+
+struct Meters(F64);
+derive Add, Sub, Ord, Eq, Show for Meters;
+
+struct Pixels(I32);
+derive Add, Sub, Ord, Eq, Show for Pixels;
+
+fn distances(): Meters {
+  let a = Meters(1.5);
+  let b = Meters(2.0);
+
+  // `derive Add for Meters` provides Meters + Meters and nothing else, so the
+  // unit safety the newtype exists for survives contact with arithmetic.
+  //   let bad = a + 2.0;          // ERROR: F64 is not Meters
+  //   let alsoBad = a + Pixels(3); // ERROR: Pixels is not Meters
+  a + b
+}
+
+// An operator implementation cannot allocate or perform an effect: `a + b` has
+// no argument position through which a context could be passed. You cannot
+// write an expensive `+` in this language. Matrix addition allocates, so it is
+// spelled as a method that says so:
+//
+//   fn add(self: Matrix, ctx: { alloc: Alloc, .. }, other: Matrix): Matrix
+
+// ---------------------------------------------------------------------------
+// Bounds
+//
+// Multiple bounds join with `+`. Inside the function, the bounds' methods are
+// callable on the parameter and nothing else is.
+// ---------------------------------------------------------------------------
+
+fn largest<T: Ord>(xs: [T]): Option<T> {
+  xs.fold(
+    fn(best, x) => match (best) {
+      .None => .Some(x),
+      .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
+    },
+    .None,
+  )
+}
+
+fn describeAll<T: Show + Measurable>(ctx: { alloc: Alloc, .. }, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => str.format(c, "${x.show(c)}: ${x.size()}"))
+}
+
+// Numeric bounds are just traits now. There is no blob bound named "any
+// number": a function names the operations it actually needs.
+fn total<N: Add>(zero: N, xs: [N]): N {
+  xs.fold(fn(acc, x) => acc + x, zero)
+}
+
+fn safeTotal<N: Add + Checked + Bounded>(zero: N, xs: [N]): Option<N> {
+  xs.fold(
+    fn(acc, x) => match (acc) {
+      .None => .None,
+      .Some(sum) => sum.checkedAdd(x),
+    },
+    .Some(zero),
+  )
+}
+
+// And ordinary code needs none of it. `Int` is a concrete type.
+fn area(self: Version): Int {
+  self.major * self.minor
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let v1 = Version { major: 1, minor: 2 };
+  let v2 = Version { major: 1, minor: 10 };
+  let playlist = Playlist { name: "Focus", tracks: ["a", "b", "c"] };
+  let versions = [v2, v1];
+  let heights = [Meters(1.0), Meters(2.5)];
+
+  let _ = io.println(ctx, "compare   = ${v1.compare(v2) == Order.Less}");
+  let _ = io.println(ctx, "derived== = ${v1 == v1}");
+  let _ = io.println(ctx, "show      = ${v1.show(ctx)}");
+  let _ = io.println(ctx, "size      = ${playlist.size()}");
+  let _ = io.println(ctx, "render    = ${playlist.render(ctx)}");
+  let _ = io.println(ctx, "distance  = ${distances().show(ctx)}");
+  let _ = io.println(ctx, "total     = ${total(Meters(0.0), heights).show(ctx)}");
+  let _ = io.println(ctx, "area      = ${v1.area()}");
+
+  let _ = match (largest(versions)) {
+    .Some(v) => io.println(ctx, "largest   = ${v.show(ctx)}"),
+    .None => io.println(ctx, "largest   = none"),
+  };
+
+  let _ = match (safeTotal(0, [1, 2, 3])) {
+    .Some(n) => io.println(ctx, "safeTotal = ${n}"),
+    .None => io.println(ctx, "safeTotal = overflowed"),
+  };
+
+  .Ok({})
+}

@@ -1,0 +1,493 @@
+(* ==========================================================================
+   Buri — Extended BNF grammar
+   Version 0.2 (draft)
+   File extension: .buri
+
+   NOTATION
+     A ::= B          definition
+     A | B            alternation
+     ( ... )          grouping
+     X?               zero or one
+     X*               zero or more
+     X+               one or more
+     "..."            terminal (literal token text)
+     UPPER_CAMEL      non-terminal
+     ALL_CAPS         lexical token class (see LEXICAL GRAMMAR at the end)
+     (* ... *)        comment
+
+   PROPERTIES
+     The syntactic grammar below is context-free and unambiguous, and is
+     LR(1) / LALR(1) parseable. No production requires knowledge of what a
+     name refers to; no production requires "feedback" from the type checker
+     or from name resolution. See SPEC.md section 12 for the specific design
+     decisions that buy this property, and section 13 for the well-formedness
+     rules that are deliberately NOT encoded here.
+   ========================================================================== *)
+
+
+(* --------------------------------------------------------------------------
+   1. COMPILATION UNIT
+   -------------------------------------------------------------------------- *)
+
+Module          ::= Item*
+
+Item            ::= Import
+                  | Declaration
+
+
+(* --------------------------------------------------------------------------
+   2. IMPORTS
+
+   The module path comes first so that an editor knows which module is being
+   named before the specifier list is typed, and can complete it.
+   -------------------------------------------------------------------------- *)
+
+Import          ::= "from" STRING "import" ImportClause ";"
+
+(* A namespace import MUST be named: `import * as list` is the only wildcard
+   form, and bare `import *` is not derivable. Nothing ever enters a scope
+   without a name written in the importing file, so every unqualified
+   identifier in a module is resolvable by reading that module alone. *)
+ImportClause    ::= "{" ImportSpecs? "}"
+                  | "*" "as" IDENT
+
+ImportSpecs     ::= ImportSpec ("," ImportSpec)* ","?
+
+ImportSpec      ::= IDENT ("as" IDENT)?
+
+
+(* --------------------------------------------------------------------------
+   3. DECLARATIONS
+   -------------------------------------------------------------------------- *)
+
+Declaration     ::= "export"? DeclBody
+
+DeclBody        ::= FnDecl
+                  | StructDecl
+                  | EnumDecl
+                  | TypeAliasDecl
+                  | ConstDecl
+                  | TraitDecl
+                  | ImplDecl
+                  | DeriveDecl
+
+FnDecl          ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type Block
+
+(* A function is a METHOD if and only if its first parameter is written `self`.
+   That is a declaration, not a convention about position or type. *)
+Params          ::= SelfParam ("," Param)* ","?
+                  | Param ("," Param)* ","?
+SelfParam       ::= "self" ":" Type
+Param           ::= IDENT ":" Type
+
+GenericParams   ::= "<" GenericParam ("," GenericParam)* ","? ">"
+GenericParam    ::= IDENT (":" Bounds)?         (* type variable, optional bounds *)
+                  | ".." IDENT                  (* row variable   *)
+Bounds          ::= TypePath ("+" TypePath)*
+
+StructDecl      ::= "opaque"? "struct" IDENT GenericParams? StructBody
+StructBody      ::= "{" FieldDecls? "}"         (* record struct  *)
+                  | "(" Types? ")" ";"          (* tuple struct   *)
+
+(* Struct fields are module-private unless exported, exactly like declarations.
+   Record TYPES reuse FieldDecl but may not carry `export`; see SPEC.md 13. *)
+FieldDecls      ::= FieldDecl ("," FieldDecl)* ","?
+FieldDecl       ::= "export"? IDENT ":" Type
+
+EnumDecl        ::= "opaque"? "enum" IDENT GenericParams? "{" Variants? "}"
+Variants        ::= Variant ("," Variant)* ","?
+Variant         ::= IDENT VariantPayload?
+VariantPayload  ::= "(" Types ")"
+                  | "{" FieldDecls "}"
+
+TypeAliasDecl   ::= "type" IDENT GenericParams? "=" Type ";"
+
+ConstDecl       ::= "const" IDENT ":" Type "=" Expr ";"
+
+
+(* --- Traits ----------------------------------------------------------------
+   A trait is an interface: a named set of method signatures. Satisfaction is
+   structural -- a type satisfies a trait when its defining module declares
+   matching methods -- so there is exactly one candidate per (trait, type) and
+   no coherence pass. `impl` asserts and checks that intent; `derive` asks for
+   the implementation to be generated structurally. *)
+
+TraitDecl       ::= "trait" IDENT GenericParams? "{" TraitMethod* "}"
+TraitMethod     ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
+
+ImplDecl        ::= "impl" TypePath "for" TypePath "{" FnDecl* "}"
+
+DeriveDecl      ::= "derive" TypePath ("," TypePath)* "for" TypePath ";"
+
+
+(* --------------------------------------------------------------------------
+   4. TYPES
+
+   `<` and `>` are unambiguous inside Type because the type grammar has no
+   comparison operators. In expressions, type arguments are always introduced
+   by the turbofish `::<...>`.
+   -------------------------------------------------------------------------- *)
+
+Type            ::= FnType
+                  | PrimaryType
+
+FnType          ::= "fn" "(" Types? ")" "=>" Type
+
+Types           ::= Type ("," Type)* ","?
+
+PrimaryType     ::= NamedType
+                  | SelfType
+                  | RecordType
+                  | TupleType
+                  | ArrayType
+                  | GroupedType
+
+(* `Self` is the implementing type; legal only inside a trait or impl body. *)
+SelfType        ::= "Self"
+
+NamedType       ::= TypePath TypeArgs?
+TypePath        ::= IDENT ("." IDENT)*
+
+TypeArgs        ::= "<" TypeArg ("," TypeArg)* ","? ">"
+TypeArg         ::= Type
+                  | ".." IDENT
+
+ArrayType       ::= "[" Type "]"
+
+GroupedType     ::= "(" Type ")"
+
+(* Tuples have arity >= 2. `(T)` is grouping; the unit type is `{}`. *)
+TupleType       ::= "(" Type ("," Type)+ ","? ")"
+
+RecordType      ::= "{" RecordTypeBody? "}"
+RecordTypeBody  ::= FieldDecl ("," FieldDecl)* ("," RowRest)? ","?
+                  | RowRest ","?
+
+(* `..`  = fresh anonymous row variable ("at least these fields")
+   `..R` = the row variable R declared in GenericParams                    *)
+RowRest         ::= ".." IDENT?
+
+
+(* --------------------------------------------------------------------------
+   5. EXPRESSIONS
+
+   Precedence, lowest to highest:
+
+       lambda / crash        (top level only; never a sub-operand)
+       ||                    left
+       ??                    right
+       &&                    left
+       == != < <= > >=       non-associative
+       |                     left
+       ^                     left
+       &                     left
+       + -                   left
+       * / %                 left
+       as  as?  as%          left
+       - ! ~                 prefix
+       postfix chain         . .N (args) [i] ? ::<T> {fields}
+   -------------------------------------------------------------------------- *)
+
+Expr            ::= Lambda
+                  | CrashExpr
+                  | OrExpr
+
+Lambda          ::= "fn" "(" LambdaParams? ")" (":" Type)? "=>" Expr
+LambdaParams    ::= LambdaParam ("," LambdaParam)* ","?
+LambdaParam     ::= IDENT (":" Type)?
+
+CrashExpr       ::= "crash" Expr
+
+OrExpr          ::= OrExpr "||" CoalesceExpr
+                  | CoalesceExpr
+
+CoalesceExpr    ::= AndExpr ("??" CoalesceExpr)?
+
+AndExpr         ::= AndExpr "&&" CmpExpr
+                  | CmpExpr
+
+CmpExpr         ::= BitOrExpr (CmpOp BitOrExpr)?
+CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">="
+
+BitOrExpr       ::= BitOrExpr "|" BitXorExpr
+                  | BitXorExpr
+
+BitXorExpr      ::= BitXorExpr "^" BitAndExpr
+                  | BitAndExpr
+
+BitAndExpr      ::= BitAndExpr "&" AddExpr
+                  | AddExpr
+
+AddExpr         ::= AddExpr ("+" | "-") MulExpr
+                  | MulExpr
+
+MulExpr         ::= MulExpr ("*" | "/" | "%") CastExpr
+                  | CastExpr
+
+(* `as` lossless (compile error if not), `as?` checked -> Option<T>,
+   `as%` modular / rounding. See SPEC.md 6.2.1. *)
+CastExpr        ::= CastExpr CastOp PrimaryType
+                  | UnaryExpr
+CastOp          ::= "as" | "as?" | "as%"
+
+UnaryExpr       ::= ("-" | "!" | "~") UnaryExpr
+                  | PostfixExpr
+                  | BlockLikeExpr
+
+(* Brace-terminated, self-delimiting expressions. They may appear as operands
+   of binary operators, but they may NOT be the head of a postfix chain --
+   that restriction is what keeps `if (c) { a } else { b } { x: 1 }`
+   from having two parses. *)
+BlockLikeExpr   ::= Block
+                  | IfExpr
+                  | MatchExpr
+
+PostfixExpr     ::= PostfixExpr PostfixOp
+                  | PrimaryExpr
+
+(* Method calls have no production of their own: `sq.area()` is `"." IDENT`
+   followed by a call, identical in shape to a field access or a module member
+   access. Which one it is, is settled during name resolution -- see SPEC.md
+   6.8.2 and 12.15 for why `.` was reused rather than adding `:`. *)
+PostfixOp       ::= "." IDENT                   (* field / member / method *)
+                  | "." INT                     (* tuple element access    *)
+                  | "(" Args? ")"               (* call                    *)
+                  | "[" Expr "]"                (* index -> Option<T>      *)
+                  | "?"                         (* try-propagate           *)
+                  | "::" TypeArgs               (* turbofish               *)
+                  | BraceInit                   (* nominal struct literal  *)
+
+Args            ::= Expr ("," Expr)* ","?
+
+PrimaryExpr     ::= Literal
+                  | IDENT
+                  | "." IDENT                   (* inferred-type variant   *)
+                  | RecordLit
+                  | ArrayLit
+                  | TupleLit
+                  | GroupedExpr
+
+(* One brace-initializer form serves both the anonymous record literal
+   `{ x: 1 }` and the nominal struct literal `Point { x: 1 }` / `.Circle { r: 1 }`,
+   so functional update `{ ..base, x: 1 }` works identically for both. *)
+RecordLit       ::= BraceInit
+BraceInit       ::= "{" Spread? FieldInits? "}"
+Spread          ::= ".." Expr ","?
+FieldInits      ::= FieldInit ("," FieldInit)* ","?
+FieldInit       ::= IDENT ":" Expr
+
+ArrayLit        ::= "[" (Expr ("," Expr)* ","?)? "]"
+
+(* Arity >= 2; `(e)` is grouping and the unit value is `{}`. *)
+TupleLit        ::= "(" Expr ("," Expr)+ ","? ")"
+
+GroupedExpr     ::= "(" Expr ")"
+
+IfExpr          ::= "if" "(" Expr ")" Block "else" ElseBranch
+ElseBranch      ::= Block
+                  | IfExpr
+
+MatchExpr       ::= "match" "(" Expr ")" "{" MatchArms? "}"
+MatchArms       ::= MatchArm ("," MatchArm)* ","?
+MatchArm        ::= Pattern Guard? "=>" Expr
+Guard           ::= "if" Expr
+
+(* There are no loops. Iteration is recursion (guaranteed tail-call eliminated)
+   or a fold. See SPEC.md 14 for why the `for`/`while` sugar drafted for this
+   version was cut. *)
+
+
+(* --------------------------------------------------------------------------
+   6. BLOCKS AND STATEMENTS
+
+   A block is a sequence of `let` bindings followed by a result expression.
+   There are no expression statements, no `return`, and no loops.
+
+   The first alternative (`let`-only, no tail) exists so that the empty
+   braces `{}` are unambiguously the unit record literal and never a block.
+   -------------------------------------------------------------------------- *)
+
+Block           ::= "{" LetStmt+ "}"
+                  | "{" LetStmt* Expr "}"
+
+LetStmt         ::= "let" Pattern (":" Type)? "=" Expr ";"
+
+
+(* --------------------------------------------------------------------------
+   7. PATTERNS
+
+   A bare IDENT is ALWAYS a binding. Enum variants must be written qualified
+   (`Option.None`) or with the inferred-type dot form (`.None`). This is what
+   makes patterns parseable without name resolution.
+   -------------------------------------------------------------------------- *)
+
+Pattern         ::= PatternNoOr ("|" PatternNoOr)*
+
+PatternNoOr     ::= BindPattern
+                  | WildcardPattern
+                  | LiteralPattern
+                  | PathPattern
+                  | RecordPattern
+                  | TuplePattern
+                  | ArrayPattern
+                  | GroupedPattern
+
+BindPattern     ::= IDENT ("@" PatternNoOr)?
+
+WildcardPattern ::= "_"
+
+LiteralPattern  ::= "-"? INT
+                  | "-"? FLOAT
+                  | STRING
+                  | CHAR
+                  | "true"
+                  | "false"
+
+PathPattern     ::= IDENT PatternPayload                  (* struct / tuple-struct *)
+                  | QualifiedPath PatternPayload?         (* Enum.Variant          *)
+                  | "." IDENT PatternPayload?             (* .Variant              *)
+
+QualifiedPath   ::= IDENT "." IDENT ("." IDENT)*
+
+PatternPayload  ::= "(" Patterns? ")"
+                  | "{" FieldPatterns? "}"
+
+Patterns        ::= Pattern ("," Pattern)* ","?
+
+RecordPattern   ::= "{" FieldPatterns? "}"
+FieldPatterns   ::= FieldPattern ("," FieldPattern)* ("," "..")? ","?
+                  | ".." ","?
+FieldPattern    ::= IDENT (":" Pattern)?        (* shorthand IS allowed here *)
+
+TuplePattern    ::= "(" Pattern ("," Pattern)+ ","? ")"
+
+GroupedPattern  ::= "(" Pattern ")"
+
+ArrayPattern    ::= "[" ArrayPatternBody? "]"
+ArrayPatternBody
+                ::= Pattern ("," Pattern)* ("," RestPattern)? ","?
+                  | RestPattern ","?
+RestPattern     ::= ".." IDENT?
+
+
+(* --------------------------------------------------------------------------
+   8. LITERALS
+   -------------------------------------------------------------------------- *)
+
+Literal         ::= INT
+                  | FLOAT
+                  | STRING
+                  | CHAR
+                  | "true"
+                  | "false"
+                  | TemplateLiteral
+
+(* String interpolation. The three token classes are produced by the lexer's
+   template mode; the nesting is handled lexically so that the *syntactic*
+   grammar stays context-free.
+
+       "score: ${a + b} pts"
+        \_TEMPLATE_HEAD_/     \_TEMPLATE_TAIL_/
+
+       "a ${x} b ${y} c"
+        \HEAD/   \SPAN/  \TAIL/                                          *)
+TemplateLiteral ::= TEMPLATE_HEAD Expr (TEMPLATE_SPAN Expr)* TEMPLATE_TAIL
+
+
+(* ==========================================================================
+   LEXICAL GRAMMAR
+   ========================================================================== *)
+
+(* Source text is UTF-8. Whitespace and comments are insignificant and may
+   appear between any two tokens. Buri is NOT newline-sensitive. *)
+
+Whitespace      ::= (" " | "\t" | "\r" | "\n")+
+
+Comment         ::= LineComment | BlockComment
+LineComment     ::= "//" (any character except "\n")*
+BlockComment    ::= "/*" (BlockComment | any character)* "*/"     (* nestable *)
+DocComment      ::= "///" (any character except "\n")*            (* a LineComment
+                                                                     attached to the
+                                                                     next Item      *)
+
+IDENT           ::= (Letter | "_") (Letter | Digit | "_")*
+                    minus Keyword minus ReservedWord
+
+Letter          ::= "A".."Z" | "a".."z"
+Digit           ::= "0".."9"
+
+Keyword         ::= "as"     | "as?"    | "as%"    | "const"  | "crash"
+                  | "derive" | "else"   | "enum"   | "export" | "false"
+                  | "fn"     | "for"    | "from"   | "if"     | "impl"
+                  | "import" | "let"    | "match"  | "opaque" | "self"
+                  | "Self"   | "struct" | "trait"  | "true"   | "type"
+
+(* `as?` and `as%` are single tokens: no whitespace between the `as` and the
+   sigil. `x as I32?` is therefore a parse error rather than a cast followed by
+   a try, which is the reading nobody wants. *)
+
+(* Reserved but unused in v0.2; rejected by the lexer so that later versions
+   can claim them without breaking source compatibility. *)
+ReservedWord    ::= "async"  | "await"  | "break"  | "continue"
+                  | "do"     | "in"     | "is"     | "loop"   | "module"
+                  | "mut"    | "pub"    | "return" | "use"    | "when"
+                  | "where"  | "while"  | "with"   | "yield"
+
+(* --- Numbers ---------------------------------------------------------------
+   A FLOAT must begin with a digit: `.5` is not a literal. This is what makes
+   tuple access `pair.0` lex as IDENT "." INT rather than IDENT FLOAT.        *)
+
+INT             ::= DecInt | HexInt | OctInt | BinInt
+DecInt          ::= Digit (Digit | "_")*
+HexInt          ::= "0x" HexDigit (HexDigit | "_")*
+OctInt          ::= "0o" OctDigit (OctDigit | "_")*
+BinInt          ::= "0b" BinDigit (BinDigit | "_")*
+HexDigit        ::= Digit | "a".."f" | "A".."F"
+OctDigit        ::= "0".."7"
+BinDigit        ::= "0" | "1"
+
+FLOAT           ::= DecInt "." DecInt Exponent?
+                  | DecInt Exponent
+Exponent        ::= ("e" | "E") ("+" | "-")? DecInt
+
+(* --- Text ---------------------------------------------------------------- *)
+
+STRING          ::= '"' StrChar* '"'
+CHAR            ::= "'" (CharChar | Escape) "'"
+
+StrChar         ::= any character except '"', "\", or an unescaped "${"
+                  | Escape
+CharChar        ::= any character except "'" or "\"
+
+Escape          ::= "\\" ("n" | "r" | "t" | "0" | "\\" | '"' | "'" | "$"
+                          | "u" "{" HexDigit+ "}")
+
+TEMPLATE_HEAD   ::= '"' StrChar* "${"
+TEMPLATE_SPAN   ::= "}"  StrChar* "${"
+TEMPLATE_TAIL   ::= "}"  StrChar* '"'
+
+(* The lexer keeps a stack of open interpolations so that a `}` closing a
+   block inside a hole is distinguished from the `}` that resumes template
+   text. This is the only mode-dependent part of the lexer. *)
+
+(* --- Punctuation and operators ---------------------------------------------
+   Longest-match wins. Note the deliberate absences:
+     * there is no ">>" or "<<" token, so `Map<Str, List<Int>>` never
+       mis-lexes; use bits.shl / bits.shr instead.
+     * there is no "?." token, so `x?.field` is `x` `?` `.` `field`.
+     * there is no "..." token; "``..``" serves in types, patterns, and
+       record spreads alike.                                                 *)
+
+Punctuation     ::= "{" | "}" | "(" | ")" | "[" | "]"
+                  | "," | ";" | ":" | "::" | "." | ".." | "@" | "_"
+                  | "=" | "=>"
+                  | "==" | "!=" | "<" | "<=" | ">" | ">="
+                  | "+" | "-" | "*" | "/" | "%"
+                  | "&&" | "||" | "!" | "??"
+                  | "&" | "|" | "^" | "~"
+                  | "?"
+
+(* Known lexical wart (shared with Rust): `t.0.1` lexes as `t` `.` `0.1`.
+   Write `(t.0).1`. *)
+(* Known lexical wart: `Foo<Bar<Int>>= x` lexes `>` `>=`. Write `>> =` with a
+   space, i.e. `Foo<Bar<Int>> = x`. *)

@@ -1,0 +1,167 @@
+// 18 — Modeling state without mutable state
+//
+// A state machine in a language with no mutation: the transition function is
+// pure, `(State, Event) => State`, and the "loop" is a fold. This is the
+// pattern that replaces most uses of a mutable object.
+
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/cap" import { Alloc, Stdout };
+
+// --- The domain ---------------------------------------------------------------
+
+struct Item {
+  sku: Str,
+  quantity: Int,
+  unitCents: I64,
+}
+
+enum Cart {
+  Empty,
+  Filling { items: [Item] },
+  Submitted { items: [Item], reference: Str },
+  Cancelled { reason: Str },
+}
+
+enum Event {
+  Add(Item),
+  Remove(Str),
+  Submit(Str),
+  Cancel(Str),
+}
+
+enum Rejected {
+  NothingToSubmit,
+  AlreadyFinal,
+  UnknownSku(Str),
+}
+
+// --- Pure transition ----------------------------------------------------------
+//
+// No context parameter, so this cannot log, allocate a growable list, or reach
+// the world. Every legal transition is visible in one screen, and the compiler
+// rejects the function if a (state, event) pair is left out.
+
+fn step(cart: Cart, event: Event): Result<Cart, Rejected> {
+  match ((cart, event)) {
+    // From Empty
+    (.Empty, .Add(item)) => .Ok(.Filling { items: [item] }),
+    (.Empty, .Submit(_)) => .Err(.NothingToSubmit),
+    (.Empty, .Remove(sku)) => .Err(.UnknownSku(sku)),
+    (.Empty, .Cancel(reason)) => .Ok(.Cancelled { reason: reason }),
+
+    // From Filling
+    (.Filling { items }, .Add(item)) => .Ok(.Filling { items: appendPure(items, item) }),
+    (.Filling { items }, .Remove(sku)) =>
+      if (containsSku(items, sku)) {
+        .Ok(.Filling { items: withoutPure(items, sku) })
+      } else {
+        .Err(.UnknownSku(sku))
+      },
+    (.Filling { items }, .Submit(reference)) =>
+      .Ok(.Submitted { items: items, reference: reference }),
+    (.Filling { .. }, .Cancel(reason)) => .Ok(.Cancelled { reason: reason }),
+
+    // Final states reject everything.
+    (.Submitted { .. }, _) => .Err(.AlreadyFinal),
+    (.Cancelled { .. }, _) => .Err(.AlreadyFinal),
+  }
+}
+
+// --- Pure helpers ---------------------------------------------------------------
+//
+// These take no context because they are written against fixed-size results in
+// this example; the growable versions would take { alloc: Alloc, .. }.
+
+fn containsSku(items: [Item], sku: Str): Bool {
+  items.any(fn(i) => i.sku == sku)
+}
+
+fn appendPure(items: [Item], item: Item): [Item] {
+  // Stand-in for `item.push(ctx, items)`; kept pure here so `step` stays
+  // capability-free and trivially testable.
+  let _ = item;
+  items
+}
+
+fn withoutPure(items: [Item], sku: Str): [Item] {
+  let _ = sku;
+  items
+}
+
+fn totalCents(items: [Item]): I64 {
+  items.fold(fn(acc, i) => acc + i.unitCents * (i.quantity as I64), 0)
+}
+
+// --- The "loop": a fold over events --------------------------------------------
+
+fn replay(start: Cart, events: [Event]): Result<Cart, Rejected> {
+  events.fold(fn(acc, event) => match (acc) {
+      .Err(e) => .Err(e),
+      .Ok(cart) => step(cart, event),
+    }, .Ok(start))
+}
+
+// A variant that stops at the first rejection and reports how far it got.
+fn replayUntilError(start: Cart, events: [Event]): (Cart, Option<Rejected>) {
+  match (events) {
+    [] => (start, .None),
+    [event, ..rest] => match (step(start, event)) {
+      .Err(e) => (start, .Some(e)),
+      .Ok(next) => replayUntilError(next, rest),
+    },
+  }
+}
+
+// --- Rendering ------------------------------------------------------------------
+
+fn describe(ctx: { alloc: Alloc, .. }, cart: Cart): Str {
+  match (cart) {
+    .Empty => "empty",
+    .Filling { items } =>
+      str.format(ctx, "filling: ${items.len()} items, ${totalCents(items)} cents"),
+    .Submitted { items, reference } =>
+      str.format(ctx, "submitted ${reference}: ${items.len()} items"),
+    .Cancelled { reason } => str.format(ctx, "cancelled: ${reason}"),
+  }
+}
+
+fn rejectionText(ctx: { alloc: Alloc, .. }, r: Rejected): Str {
+  match (r) {
+    .NothingToSubmit => "nothing to submit",
+    .AlreadyFinal => "the cart is already final",
+    .UnknownSku(sku) => str.format(ctx, "unknown sku ${sku}"),
+  }
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let widget = Item { sku: "W-1", quantity: 2, unitCents: 1250 };
+  let gadget = Item { sku: "G-9", quantity: 1, unitCents: 9900 };
+
+  let happyPath: [Event] = [
+    Event.Add(widget),
+    Event.Add(gadget),
+    Event.Submit("ORD-1001"),
+  ];
+
+  let sadPath: [Event] = [
+    Event.Add(widget),
+    Event.Remove("NOPE"),
+    Event.Submit("ORD-1002"),
+  ];
+
+  let _ = match (replay(Cart.Empty, happyPath)) {
+    .Ok(cart) => io.println(ctx, "happy = ${describe(ctx, cart)}"),
+    .Err(e) => io.println(ctx, "happy = rejected: ${rejectionText(ctx, e)}"),
+  };
+
+  let (reached, problem) = replayUntilError(Cart.Empty, sadPath);
+  let _ = io.println(ctx, "sad   = ${describe(ctx, reached)}");
+  let _ = match (problem) {
+    .Some(e) => io.println(ctx, "        stopped at: ${rejectionText(ctx, e)}"),
+    .None => io.println(ctx, "        no problems"),
+  };
+
+  .Ok({})
+}

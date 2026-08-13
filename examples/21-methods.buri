@@ -1,0 +1,162 @@
+// 21 — Methods
+//
+// A function is a method IF AND ONLY IF its first parameter is written `self`.
+// That is a declaration, not a convention about argument order or type.
+//
+// `x.f(a, b)` calls `f(x, a, b)`, resolving `f` in the DEFINING MODULE of x's
+// type. The point of the feature is that resolution rule, not the punctuation:
+// a type's operations are available wherever a value of that type is, with no
+// import and no possibility of a name collision.
+//
+// This is not a method in the OO sense. There is no dispatch, no vtable, no
+// hidden receiver. `sq.area()` and `area(sq)` are the same call.
+
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/cap" import { Alloc, Stdout };
+
+// ---------------------------------------------------------------------------
+// Declaring methods
+// ---------------------------------------------------------------------------
+
+export struct Square {
+  export height: Int,
+  export width: Int,
+}
+
+export fn area(self: Square): Int {
+  self.height * self.width
+}
+
+export fn perimeter(self: Square): Int {
+  2 * (self.height + self.width)
+}
+
+// The receiver comes first; everything else follows in the order you would
+// write it at the call site.
+export fn scaled(self: Square, factor: Int): Square {
+  Square { height: self.height * factor, width: self.width * factor }
+}
+
+export fn isTall(self: Square): Bool {
+  self.height > self.width
+}
+
+// No `self`, so this is an ordinary function and not a method. Neither
+// `a.combine(b)` nor `b.combine(a)` resolves.
+export fn combine(a: Square, b: Square): Square {
+  Square { height: a.height + b.height, width: a.width + b.width }
+}
+
+// ---------------------------------------------------------------------------
+// Calling them
+// ---------------------------------------------------------------------------
+
+fn equivalentForms(self: Square): Int {
+  // These are the identical call. The method form differs only in how `area`
+  // is found — through the receiver's type rather than through scope.
+  let viaMethod = self.area();
+  let viaCall = area(self);
+
+  viaMethod + viaCall
+}
+
+fn chaining(self: Square): Int {
+  // Arguments follow the receiver, exactly as in the underlying function:
+  // scaled(self, 2), then scaled(_, 3), then area(_).
+  self.scaled(2).scaled(3).area()
+}
+
+// A method whose receiver has private fields can still read them, because it
+// lives in the declaring module. Nothing outside this module can.
+struct Account {
+  export id: Str,
+  balanceCents: I64,          // private
+}
+
+fn isOverdrawn(self: Account): Bool {
+  self.balanceCents < 0
+}
+
+// ---------------------------------------------------------------------------
+// The standard library came out of this for free
+//
+// Every stdlib operation on a value declares that value as `self`, so all of
+// them are methods. None of the lines below imports anything.
+// ---------------------------------------------------------------------------
+
+fn stdlibAsMethods(ctx: { alloc: Alloc, .. }, words: [Str], maybe: Option<Int>): Int {
+  let n = words.len();                       // list.len(words)
+  let trimmed = words.map(ctx, str.trim);    // list.map(words, ctx, str.trim)
+  let joined = trimmed.join(ctx, ", ");      // str.join(trimmed, ctx, ", ")
+  let fallback = maybe.withDefault(0);       // option.withDefault(maybe, 0)
+
+  // Explicit type arguments work on methods too, via the turbofish.
+  let empty = words.take::<Str>(ctx, 0);
+
+  n + joined.len() + fallback + empty.len()
+}
+
+// ---------------------------------------------------------------------------
+// Where methods stop
+// ---------------------------------------------------------------------------
+
+// `slugify` lives in THIS module, not in core/str, so it is not a method on
+// Str. Methods are not extensible — you cannot bolt an operation onto someone
+// else's type — and that restriction is exactly what keeps method resolution
+// import-free and collision-free.
+fn slugify(ctx: { alloc: Alloc, .. }, title: Str): Str {
+  title.toLower(ctx).split(ctx, " ").join(ctx, "-")
+}
+
+fn mixed(ctx: { alloc: Alloc, .. }, title: Str): Int {
+  // Methods for the type's own operations; an ordinary call for ours.
+  title.trim().len() + slugify(ctx, title).len()
+}
+
+// A generic function cannot call a method on a bare type parameter: `T` has no
+// defining module to look in.
+//
+//   fn describe<T>(x: T): Str { x.show(ctx) }     // ERROR
+//
+// Either bound the parameter with a trait that declares the method (see
+// 22-traits.buri), or take the operation as an argument.
+fn describeWith<T>(show: fn(T) => Str, x: T): Str {
+  show(x)
+}
+
+// ---------------------------------------------------------------------------
+// Fields win over methods
+// ---------------------------------------------------------------------------
+
+struct Handler {
+  export name: Str,
+  export run: fn(Int) => Int,        // a FIELD that happens to hold a function
+}
+
+fn fieldVersusMethod(self: Handler): Int {
+  // `self.run` is a field access, so calling it needs the parenthesized form.
+  // A method named `run` on Handler would be rejected at its declaration: a
+  // method may not share a name with a field of its self type.
+  (self.run)(21)
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let sq = Square { height: 3, width: 4 };
+  let words: [Str] = ["  alpha ", "beta", " gamma "];
+  let title = "  Hello World  ";
+  let handler = Handler { name: "double", run: fn(x) => x * 2 };
+  let account = Account { id: "a-1", balanceCents: -250 };
+
+  let _ = io.println(ctx, "area/perim = ${sq.area()}, ${sq.perimeter()}");
+  let _ = io.println(ctx, "tall       = ${sq.isTall()}");
+  let _ = io.println(ctx, "equivalent = ${sq.equivalentForms()}");
+  let _ = io.println(ctx, "chained    = ${sq.chaining()}");
+  let _ = io.println(ctx, "combined   = ${combine(sq, sq).area()}");
+  let _ = io.println(ctx, "overdrawn  = ${account.isOverdrawn()}");
+  let _ = io.println(ctx, "stdlib     = ${stdlibAsMethods(ctx, words, .Some(7))}");
+  let _ = io.println(ctx, "mixed      = ${mixed(ctx, title)}");
+  let _ = io.println(ctx, "handler    = ${fieldVersusMethod(handler)}");
+
+  .Ok({})
+}

@@ -1,0 +1,218 @@
+// 20 — A complete program: word frequency counter
+//
+// Usage: wordcount <path> [--top N] [--min-length N]
+//
+// Notice the shape of the program. Everything between reading the file and
+// printing the report is pure or merely allocating; the two ends of the program
+// are the only places that name Fs, Env, or Stdout. That split is not
+// discipline — it is what the signatures enforce.
+
+from "core/io" import * as io;
+from "core/fs" import * as fs;
+from "core/env" import * as env;
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/order" import * as order;
+from "core/result" import * as result;
+from "core/fs" import { IoError };
+from "core/cap" import { Alloc, Env, Fs, Stdout };
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+struct Options {
+  path: Str,
+  top: Int,
+  minLength: Int,
+}
+
+struct Count {
+  word: Str,
+  n: Int,
+}
+
+enum AppError {
+  NoPath,
+  BadFlag(Str),
+  BadNumber { flag: Str, value: Str },
+  Read { path: Str },
+}
+
+const DEFAULT_TOP: Int = 10;
+const DEFAULT_MIN_LENGTH: Int = 1;
+
+// ---------------------------------------------------------------------------
+// Argument parsing — pure
+//
+// No context parameter, so this is a total function of its input and can be
+// tested by calling it. There is nothing to stub, because there was never a
+// global to read.
+// ---------------------------------------------------------------------------
+
+fn parseArgs(args: [Str]): Result<Options, AppError> {
+  match (args) {
+    [] => .Err(.NoPath),
+    [path, ..flags] => parseFlags(
+      flags,
+      Options { path: path, top: DEFAULT_TOP, minLength: DEFAULT_MIN_LENGTH },
+    ),
+  }
+}
+
+fn parseFlags(flags: [Str], acc: Options): Result<Options, AppError> {
+  match (flags) {
+    [] => .Ok(acc),
+    [flag, value, ..rest] => {
+      let next = applyFlag(acc, flag, value)?;
+      parseFlags(rest, next)
+    },
+    [flag] => .Err(.BadFlag(flag)),
+  }
+}
+
+fn applyFlag(acc: Options, flag: Str, value: Str): Result<Options, AppError> {
+  match (flag) {
+    "--top" => .Ok(Options { ..acc, top: parseNumber(flag, value)? }),
+    "--min-length" => .Ok(Options { ..acc, minLength: parseNumber(flag, value)? }),
+    other => .Err(.BadFlag(other)),
+  }
+}
+
+fn parseNumber(flag: Str, value: Str): Result<Int, AppError> {
+  match (value.toInt()) {
+    .Some(n) if n > 0 => .Ok(n),
+    .Some(_) => .Err(.BadNumber { flag: flag, value: value }),
+    .None => .Err(.BadNumber { flag: flag, value: value }),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Analysis — deterministic, allocating
+//
+// Requires { alloc: Alloc, .. } and nothing else. It cannot log, cannot time
+// itself, cannot phone home.
+// ---------------------------------------------------------------------------
+
+fn tokenize(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
+  text.toLower(ctx).splitAny(ctx, " \t\n\r.,;:!?()[]{}\"'").map(ctx, fn(w) => w.trim()).filter(ctx, fn(w) => w.len() >= minLength)
+}
+
+fn tally(ctx: { alloc: Alloc, .. }, words: [Str]): [Count] {
+  // No dictionary type in v0.2, so this sorts and then runs the equal words
+  // together. Sorting is the operation that needs to allocate.
+  runLengths(ctx, words.sortBy(ctx, order.str))
+}
+
+// Not a method: `[T]` is defined by core/list, and a method may only be
+// declared in its receiver type's defining module.
+fn runLengths(ctx: { alloc: Alloc, .. }, sorted: [Str]): [Count] {
+  match (sorted) {
+    [] => [],
+    [first, ..rest] => runLengthsFrom(ctx, rest, Count { word: first, n: 1 }, []),
+  }
+}
+
+fn runLengthsFrom(
+  ctx: { alloc: Alloc, .. },
+  remaining: [Str],
+  current: Count,
+  done: [Count],
+): [Count] {
+  match (remaining) {
+    [] => done.push(ctx, current),
+    [word, ..rest] =>
+      if (word == current.word) {
+        runLengthsFrom(ctx, rest, Count { ..current, n: current.n + 1 }, done)
+      } else {
+        runLengthsFrom(
+          ctx,
+          rest,
+          Count { word: word, n: 1 },
+          done.push(ctx, current),
+        )
+      },
+  }
+}
+
+fn rank(ctx: { alloc: Alloc, .. }, counts: [Count], top: Int): [Count] {
+  counts.sortBy(ctx, fn(a, b) => byCountThenWord(a, b)).take(ctx, top)
+}
+
+// Pure comparator. With no traits there is no `Ord` to derive, so ordering is
+// a value you pass — which also means the tie-break is explicit and reviewable.
+fn byCountThenWord(a: Count, b: Count): Order {
+  match (order.int(b.n, a.n)) {
+    .Equal => order.str(a.word, b.word),
+    other => other,
+  }
+}
+
+fn totalWords(counts: [Count]): Int {
+  counts.fold(fn(acc, c) => acc + c.n, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Presentation — allocating
+// ---------------------------------------------------------------------------
+
+fn renderRow(ctx: { alloc: Alloc, .. }, c: Count, width: Int): Str {
+  let padding = " ".repeat(ctx, width - c.word.len());
+  str.format(ctx, "${c.word}${padding}  ${c.n}")
+}
+
+fn widestWord(counts: [Count]): Int {
+  counts.fold(fn(w, c) => if (c.word.len() > w) { c.word.len() } else { w }, 0)
+}
+
+fn renderReport(ctx: { alloc: Alloc, .. }, counts: [Count]): Str {
+  let width = widestWord(counts);
+  // The renderer allocates, so it cannot capture `ctx` in a lambda; it takes
+  // the context as a parameter and goes through `mapCtx`.
+  counts.mapCtx(ctx, fn(c, count) => renderRow(c, count, width)).join(ctx, "\n")
+}
+
+fn errorText(ctx: { alloc: Alloc, .. }, e: AppError): Str {
+  match (e) {
+    .NoPath => "usage: wordcount <path> [--top N] [--min-length N]",
+    .BadFlag(flag) => str.format(ctx, "unrecognized or incomplete flag: ${flag}"),
+    .BadNumber { flag, value } =>
+      str.format(ctx, "${flag} expects a positive integer, got ${value}"),
+    .Read { path } => str.format(ctx, "could not read ${path}"),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The two effectful ends of the program
+// ---------------------------------------------------------------------------
+
+fn readInput(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str): Result<Str, AppError> {
+  fs.readText(ctx, path).mapErr(fn(_) => AppError.Read { path: path })
+}
+
+fn run(
+  ctx: { alloc: Alloc, fs: Fs, env: Env, stdout: Stdout, .. },
+): Result<{}, AppError> {
+  let options = parseArgs(env.args(ctx))?;
+  let text = readInput(ctx, options.path)?;
+
+  let words = tokenize(ctx, text, options.minLength);
+  let counts = tally(ctx, words);
+  let top = rank(ctx, counts, options.top);
+
+  let _ = io.println(ctx, "${totalWords(counts)} words, ${counts.len()} distinct");
+  let _ = io.println(ctx, "");
+  let _ = io.println(ctx, renderReport(ctx, top));
+
+  .Ok({})
+}
+
+// The context is closed: exactly alloc, fs, env, and stdout. This program
+// cannot open a socket, spawn a process, or read the clock, and neither can
+// any library it depends on, because none of them were ever given the means.
+export fn main(ctx: { alloc: Alloc, fs: Fs, env: Env, stdout: Stdout }): Result<{}, Str> {
+  match (run(ctx)) {
+    .Ok(_) => .Ok({}),
+    .Err(e) => .Err(errorText(ctx, e)),
+  }
+}

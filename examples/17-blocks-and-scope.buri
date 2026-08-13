@@ -1,0 +1,136 @@
+// 17 — Method chains, blocks, shadowing, and evaluation order
+
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/order" import * as order;
+from "core/math" import * as math;
+from "core/cap" import { Alloc, Stdout };
+
+// --- Method chains -------------------------------------------------------------
+//
+//   x.f(a, b)   ==   f(x, a, b)
+//
+// The receiver comes first and the context second, so a chain reads in the order
+// the data actually moves. This is what replaced the `|>` operator: every step
+// here is an operation on the type it is called on, which is exactly the case
+// method resolution covers.
+
+fn topWords(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
+  text
+    .toLower(ctx)
+    .split(ctx, " ")
+    .filter(ctx, fn(w) => w.len() >= minLength)
+    .sortBy(ctx, order.str)
+    .take(ctx, 5)
+}
+
+// The same thing written as nested calls. Identical program; the chain above
+// reads outward-in rather than inside-out.
+fn topWordsNested(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
+  list.take(
+    list.sortBy(
+      list.filter(str.split(str.toLower(text, ctx), ctx, " "), ctx, fn(w) => w.len() >= minLength),
+      ctx,
+      order.str,
+    ),
+    ctx,
+    5,
+  )
+}
+
+// A step that is NOT an operation on the receiver's type cannot be a method —
+// `slugify` below lives in this module, not in core/str. Bind it with `let`.
+fn headline(ctx: { alloc: Alloc, .. }, text: Str): Str {
+  let words = text.toLower(ctx).split(ctx, " ").take(ctx, 3);
+  let joined = words.join(ctx, " ");
+  joined.trim()
+}
+
+// --- Blocks --------------------------------------------------------------------
+//
+// A block is `let` bindings followed by a result expression. It is an
+// expression, so it can appear anywhere a value can.
+
+fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> {
+  let discriminant = {
+    let squared = b * b;
+    squared - 4.0 * a * c
+  };
+
+  if (discriminant < 0.0) {
+    .None
+  } else {
+    let root = math.sqrt(discriminant);
+    let denominator = 2.0 * a;
+    .Some(((-b + root) / denominator, (-b - root) / denominator))
+  }
+}
+
+// A block whose last item is a `let` has type `{}`. That is the shape of a
+// function that exists only for its effects.
+fn banner(ctx: { stdout: Stdout, .. }, title: Str): {} {
+  let line = "------------------------";
+  let _ = io.println(ctx, line);
+  let _ = io.println(ctx, title);
+  let _ = io.println(ctx, line);
+}
+
+// --- Shadowing ------------------------------------------------------------------
+//
+// Rebinding a name is legal, including in the same block. Nothing mutates: the
+// earlier binding still exists, it is just no longer reachable by that name.
+
+fn cleanup(ctx: { alloc: Alloc, .. }, raw: Str): Str {
+  let value = raw.trim();
+  let value = value.toLower(ctx);
+  let value = value.replace(ctx, "  ", " ");
+  value
+}
+
+// --- Evaluation order ------------------------------------------------------------
+//
+// Buri is strict, and the order is specified: `let` bindings run top to bottom,
+// arguments left to right, and `&&`, `||`, `??` short-circuit. This is what
+// makes effect sequencing meaningful in a language where effects are performed
+// by ordinary calls instead of by a monad.
+
+fn ordered(ctx: { stdout: Stdout, .. }): {} {
+  let _ = io.println(ctx, "one");
+  let _ = io.println(ctx, "two");    // always after "one"
+  let _ = io.println(ctx, "three");  // always after "two"
+}
+
+fn shortCircuit(xs: [Int]): Bool {
+  // `xs.len() > 0` is checked first; `xs[0] ?? 0` is only reached if it
+  // holds. `??` evaluates its right operand only on None.
+  xs.len() > 0 && (xs[0] ?? 0) > 100
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let text = "the quick brown fox jumps over the lazy dog";
+
+  let _ = banner(ctx, "method chains");
+  let chained = topWords(ctx, text, 4);
+  let nested = topWordsNested(ctx, text, 4);
+  let space = " ";
+  let _ = io.println(ctx, "chained = ${chained.join(ctx, space)}");
+  let _ = io.println(ctx, "nested  = ${nested.join(ctx, space)}");
+  let _ = io.println(ctx, "headline= ${headline(ctx, text)}");
+
+  let _ = banner(ctx, "blocks");
+  let _ = match (quadratic(1.0, -3.0, 2.0)) {
+    .Some(roots) => io.println(ctx, "roots  = ${roots.0}, ${roots.1}"),
+    .None => io.println(ctx, "roots  = none"),
+  };
+
+  let _ = banner(ctx, "shadowing");
+  let messy = "   Mixed   CASE Input   ";
+  let _ = io.println(ctx, "cleaned = ${cleanup(ctx, messy)}");
+
+  let _ = banner(ctx, "order");
+  let _ = ordered(ctx);
+  let _ = io.println(ctx, "shortCircuit = ${shortCircuit([])}");
+
+  .Ok({})
+}

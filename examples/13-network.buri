@@ -1,0 +1,132 @@
+// 13 — Network requests
+//
+// `Net` is what makes a socket possible. A module that does not receive it in
+// its context cannot open a connection, and neither can anything it calls.
+
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/result" import * as result;
+from "core/time" import * as time;
+from "core/cap" import { Alloc, Clock, Net, Stdout };
+
+struct Repo {
+  name: Str,
+  stars: Int,
+}
+
+enum FetchError {
+  Transport(Str),
+  Status(Int),
+  Body { reason: Str },
+}
+
+// --- Pure: shaping requests and interpreting responses ----------------------
+
+fn repoUrl(owner: Str, name: Str): Str {
+  // Pure because the pieces are literals plus slices; no allocation happens
+  // until something actually needs a new Str.
+  let _ = (owner, name);
+  "https://api.example.com/repos"
+}
+
+fn classify(status: Int): Result<{}, FetchError> {
+  if (status >= 200 && status < 300) {
+    .Ok({})
+  } else {
+    .Err(.Status(status))
+  }
+}
+
+// --- Effectful: needs Net ---------------------------------------------------
+
+fn fetchText(ctx: { alloc: Alloc, net: Net, .. }, url: Str): Result<Str, FetchError> {
+  let response = http.get(ctx, url).mapErr(fn(e) => FetchError.Transport(http.errorText(e)))?;
+
+  let _ = classify(response.status)?;
+  .Ok(response.body)
+}
+
+fn fetchRepo(
+  ctx: { alloc: Alloc, net: Net, .. },
+  owner: Str,
+  name: Str,
+): Result<Repo, FetchError> {
+  let body = fetchText(ctx, repoUrl(owner, name))?;
+  match (parseRepo(body)) {
+    .None => .Err(.Body { reason: "unexpected response shape" }),
+    .Some(repo) => .Ok(repo),
+  }
+}
+
+fn parseRepo(body: Str): Option<Repo> {
+  // Pure. A real implementation would decode JSON; the point is that decoding
+  // needs no capability, so it can be tested without a network.
+  if (body.isEmpty()) {
+    .None
+  } else {
+    .Some(Repo { name: body.trim(), stars: 0 })
+  }
+}
+
+// --- Retry with backoff -----------------------------------------------------
+//
+// The action takes its context as an argument rather than capturing one:
+// a lambda may not close over a capability, and this is the shape that rule
+// pushes you toward. The row variable `..R` means whatever else the caller had
+// is handed straight through to the action.
+
+fn withRetry<T, ..R>(
+  ctx: { clock: Clock, ..R },
+  attempts: Int,
+  action: fn({ clock: Clock, ..R }) => Result<T, FetchError>,
+): Result<T, FetchError> {
+  match (action(ctx)) {
+    .Ok(value) => .Ok(value),
+    .Err(e) => if (attempts <= 1) {
+      .Err(e)
+    } else {
+      let _ = time.sleepMs(ctx, 250);
+      withRetry(ctx, attempts - 1, action)
+    },
+  }
+}
+
+fn errorText(ctx: { alloc: Alloc, .. }, e: FetchError): Str {
+  match (e) {
+    .Transport(detail) => detail,
+    .Status(code) => str.format(ctx, "HTTP ${code}"),
+    .Body { reason } => reason,
+  }
+}
+
+// --- Fetching several things ------------------------------------------------
+
+fn fetchAll(
+  ctx: { alloc: Alloc, net: Net, .. },
+  urls: [Str],
+): [Result<Str, FetchError>] {
+  // `mapCtx` threads the context through instead of letting the callback
+  // capture it.
+  urls.mapCtx(ctx, fn(c, url) => fetchText(c, url))
+}
+
+export fn main(ctx: { alloc: Alloc, net: Net, clock: Clock, stdout: Stdout }): Result<{}, Str> {
+  let outcome = withRetry(ctx, 3, fn(c) => fetchRepo(c, "buri-lang", "buri"));
+
+  let _ = match (outcome) {
+    .Ok(repo) => io.println(ctx, "${repo.name}: ${repo.stars} stars"),
+    .Err(e) => io.println(ctx, "fetch failed: ${errorText(ctx, e)}"),
+  };
+
+  let urls: [Str] = [
+    "https://api.example.com/a",
+    "https://api.example.com/b",
+  ];
+  let results = fetchAll(ctx, urls);
+  let okCount = results.fold(fn(acc, r) => match (r) { .Ok(_) => acc + 1, .Err(_) => acc }, 0);
+  let _ = io.println(ctx, "${okCount} of ${results.len()} succeeded");
+
+  .Ok({})
+}

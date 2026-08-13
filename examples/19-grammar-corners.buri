@@ -1,0 +1,215 @@
+// 19 — Grammar corners
+//
+// Every construct in this file exists to demonstrate a specific decision that
+// keeps the grammar context-free and unambiguous. Cross-references are to
+// SPEC.md section 12.
+
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/bits" import * as bits;
+from "core/cap" import { Alloc, Stdout };
+
+struct Point { x: Int, y: Int }
+struct Wrapper<T> { value: T }
+
+enum Choice { Yes, No }
+
+// --- 12.1 Parenthesized conditions -------------------------------------------
+//
+// `if (c) { ... }` closes the condition at `)`, so the `{` that follows is
+// always a block and never a struct literal. Unparenthesized conditions are
+// exactly what forces Rust to ban struct literals in condition position.
+
+fn conditions(p: Point): Str {
+  if (p == Point { x: 0, y: 0 }) { "origin" } else { "elsewhere" }
+}
+
+// --- 12.2 No expression statements -------------------------------------------
+//
+// A block is `let`s then a result expression. A call made only for its effect
+// has to be bound.
+
+fn effects(ctx: { stdout: Stdout, .. }): Int {
+  let _ = io.println(ctx, "side effect");
+  let _ = io.println(ctx, "another");
+  42
+}
+
+// --- 12.3 Record literals have no field shorthand ----------------------------
+//
+// `{ x }` would be ambiguous: a record with a shorthand field, or a block whose
+// result expression is `x`. Requiring `x: x` makes one token of lookahead
+// decide it. Patterns keep the shorthand, because patterns are never blocks.
+
+fn shorthand(x: Int, y: Int): Int {
+  let record = { x: x, y: y };     // literal: explicit
+  let { x: a, y: b } = record;     // pattern: could also be written { x, y }
+  let { x, y } = record;           // shorthand IS allowed here
+  a + b + x + y
+}
+
+// A block and a record literal, side by side, to show the one-token decision:
+fn blockOrRecord(n: Int): Int {
+  let asRecord = { value: n };     // `{` IDENT `:`  -> record literal
+  let asBlock = { n + 1 };         // `{` IDENT `+`  -> block
+  let unit = {};                   // `{` `}`        -> the unit value
+  let _ = unit;
+  asRecord.value + asBlock
+}
+
+// --- 12.4 Turbofish -----------------------------------------------------------
+
+fn identity<T>(x: T): T { x }
+
+fn typeArguments(): Int {
+  // In a *type*, angle brackets are unambiguous because types have no
+  // comparison operators.
+  let boxed: Wrapper<Wrapper<Int>> = Wrapper { value: Wrapper { value: 1 } };
+
+  // In an *expression*, `f<a>(b)` would be two comparisons, so explicit type
+  // arguments use `::<>`.
+  let n = identity::<Int>(7);
+  (boxed.value).value + n
+}
+
+// --- 12.5 No `<<` / `>>` tokens ------------------------------------------------
+//
+// Longest-match lexing would turn the `>>` closing nested type arguments into a
+// shift operator. Removing the operators removes the problem.
+
+fn shifting(x: Int): Int {
+  bits.shl(x, 3) + bits.shr(x, 1)
+}
+
+// Note the space in `>> =` below: `Wrapper<Wrapper<Int>>= v` would lex as
+// `>` `>=`. This is the one lexical wart that remains.
+fn nestedGenerics(v: Wrapper<Wrapper<Int>>): Int {
+  let w: Wrapper<Wrapper<Int>> = v;
+  (w.value).value
+}
+
+// --- 12.6 Variants must be qualified or dot-prefixed in patterns ---------------
+
+fn variantPatterns(c: Choice, o: Option<Int>): Str {
+  let a = match (c) {
+    // `Yes =>` would bind every Choice to a variable named `Yes`. The dot
+    // makes it a variant, and makes the parser independent of name resolution.
+    .Yes => "yes",
+    Choice.No => "no",
+  };
+
+  let b = match (o) {
+    .Some(n) if n > 0 => "positive",
+    .Some(_) => "non-positive",
+    .None => "nothing",
+  };
+
+  if (a == "yes") { b } else { a }
+}
+
+// A bare identifier in a pattern is always a binding; `IDENT(` and `IDENT{`
+// are struct patterns. The token after the identifier decides, always.
+fn bindingVersusPattern(p: Point): Int {
+  match (p) {
+    Point { x: 0, y } => y,          // IDENT `{` -> struct pattern
+    anything => anything.x,          // IDENT alone -> binding
+  }
+}
+
+// --- 12.7 Tuples have arity >= 2; unit is `{}` ---------------------------------
+
+fn tuples(): Int {
+  let grouped = (1 + 2);           // parentheses, not a 1-tuple
+  let pair = (1, 2);               // 2-tuple
+  let triple = (1, 2, 3);          // 3-tuple
+  let nothing: {} = {};            // unit
+  let _ = nothing;
+  grouped + pair.0 + triple.2
+}
+
+// --- 12.8 Lambdas begin with `fn` ------------------------------------------------
+
+fn lambdaForms(): Int {
+  let a = fn(x) => x + 1;
+  let b = fn(x: Int): Int => x * 2;
+  let c = fn(x: Int) => { let doubled = x * 2; doubled + 1 };
+
+  // 12.10: a lambda body extends maximally right, so a lambda is never a bare
+  // operand. `2 * fn(x) => x` does not parse; parenthesize.
+  let d = 2 * (fn(x: Int) => x)(3);
+
+  a(1) + b(2) + c(3) + d
+}
+
+// --- 12.9 / 12.10 Block-like expressions as operands ------------------------------
+//
+// `if`, `match`, and blocks are brace-terminated and self-delimiting, so they
+// CAN be operands. `else` is mandatory, which kills dangling-else outright.
+
+fn blockLikeOperands(n: Int): Int {
+  let a = 1 + if (n > 0) { n } else { 0 };
+  let b = 10 * match (n) { 0 => 1, _ => 2 };
+  let c = { let t = n * n; t } - 1;
+  a + b + c
+}
+
+// --- 12.11 Match arms are comma-separated, always ---------------------------------
+//
+// Without a required separator, an arm body `x` followed by an arm starting
+// `-1 =>` would greedily parse as `x - 1`.
+
+fn commas(n: Int): Int {
+  match (n) {
+    0 => 100,
+    -1 => 200,
+    _ => { let doubled = n * 2; doubled },   // comma required even after `}`
+  }
+}
+
+// --- 12.12 Block-like expressions cannot head a postfix chain ----------------------
+
+fn postfixHeads(o: Option<Point>): Int {
+  // `match (o) { ... }.x` is a parse error; parenthesize instead.
+  let p = (match (o) {
+    .Some(v) => v,
+    .None => Point { x: 0, y: 0 },
+  }).x;
+
+  // Struct literals are a postfix form, which is why the head must be a path.
+  let q = Point { x: 1, y: 2 }.y;
+
+  p + q
+}
+
+// --- 12.13 Floats start with a digit ------------------------------------------------
+
+fn floatsAndTuples(t: (Int, (Int, Int))): Int {
+  let half = 0.5;              // `.5` is not a literal
+  let _ = half;
+  let outer = t.0;             // lexes as IDENT `.` INT
+  let inner = (t.1).0;         // `t.1.0` would lex `1.0` as a float
+  outer + inner
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let p = Point { x: 3, y: 4 };
+
+  let _ = io.println(ctx, "conditions   = ${conditions(p)}");
+  let _ = io.println(ctx, "effects      = ${effects(ctx)}");
+  let _ = io.println(ctx, "shorthand    = ${shorthand(1, 2)}");
+  let _ = io.println(ctx, "blockRecord  = ${blockOrRecord(5)}");
+  let _ = io.println(ctx, "typeArgs     = ${typeArguments()}");
+  let _ = io.println(ctx, "shifting     = ${shifting(8)}");
+  let _ = io.println(ctx, "nested       = ${nestedGenerics(Wrapper { value: Wrapper { value: 9 } })}");
+  let _ = io.println(ctx, "variants     = ${variantPatterns(Choice.Yes, .Some(1))}");
+  let _ = io.println(ctx, "binding      = ${bindingVersusPattern(p)}");
+  let _ = io.println(ctx, "tuples       = ${tuples()}");
+  let _ = io.println(ctx, "lambdas      = ${lambdaForms()}");
+  let _ = io.println(ctx, "blockLike    = ${blockLikeOperands(3)}");
+  let _ = io.println(ctx, "commas       = ${commas(-1)}");
+  let _ = io.println(ctx, "postfix      = ${postfixHeads(.Some(p))}");
+  let _ = io.println(ctx, "floats       = ${floatsAndTuples((1, (2, 3)))}");
+  let _ = io.println(ctx, "list         = ${[1, 2, 3].len()}");
+
+  .Ok({})
+}

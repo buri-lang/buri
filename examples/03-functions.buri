@@ -1,0 +1,93 @@
+// 03 — Functions, lambdas, and function types
+//
+// Functions are the only abstraction in Buri. No methods, no classes,
+// no objects, no `self`.
+
+from "core/list" import * as list;
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/math" import * as math;
+from "core/cap" import { Alloc, Stdout };
+
+const GREETING: Str = "two";
+
+// Top-level functions always annotate parameter and return types.
+fn add(a: Int, b: Int): Int {
+  a + b
+}
+
+// A function body is a block: `let` bindings, then a result expression.
+fn hypotenuse(a: F64, b: F64): F64 {
+  let a2 = a * a;
+  let b2 = b * b;
+  math.sqrt(a2 + b2)
+}
+
+// Declaration order does not matter; these two are mutually recursive.
+fn isEven(n: Int): Bool {
+  if (n == 0) { true } else { isOdd(n - 1) }
+}
+
+fn isOdd(n: Int): Bool {
+  if (n == 0) { false } else { isEven(n - 1) }
+}
+
+// Functions are values. A function *type* is written with `fn`, matching the
+// way lambdas are written.
+fn applyTwice(f: fn(Int) => Int, x: Int): Int {
+  f(f(x))
+}
+
+fn compose<A, B, C>(f: fn(B) => C, g: fn(A) => B): fn(A) => C {
+  // Capturing `f` and `g` is fine: function values here are capability-free.
+  fn(x) => f(g(x))
+}
+
+fn lambdas(): Int {
+  // Lambdas begin with `fn`, which is what keeps `(x)` unambiguous.
+  let inc = fn(x) => x + 1;
+
+  // Types may be annotated when inference needs help or documentation helps.
+  let mul = fn(a: Int, b: Int): Int => a * b;
+
+  // A lambda body can be a block.
+  let clamp = fn(x: Int) => {
+    let low = if (x < 0) { 0 } else { x };
+    if (low > 100) { 100 } else { low }
+  };
+
+  // A lambda's body extends as far right as possible, so a lambda cannot be a
+  // bare operand of a binary operator. `2 * fn(x) => x` is a parse error.
+  let doubled = 2 * (fn(x: Int) => x)(21);
+
+  applyTwice(inc, mul(clamp(500), doubled))
+}
+
+// Trailing commas are allowed everywhere a list is.
+fn manyArgs(
+  first: Int,
+  second: Str,
+  third: Bool,
+): Int {
+  if (third) { first } else { second.len() }
+}
+
+// Explicit type arguments in expression position use the turbofish.
+fn identity<T>(x: T): T { x }
+
+fn turbofish(): Int {
+  let intId = identity::<Int>;
+  intId(3)
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let sums = [1, 2, 3].map(ctx, fn(x) => add(x, 10));
+  let _ = io.println(ctx, "add:      ${sums.sum()}");
+  let _ = io.println(ctx, "hyp:      ${hypotenuse(3.0, 4.0)}");
+  let _ = io.println(ctx, "even:     ${isEven(10)}");
+  let _ = io.println(ctx, "lambdas:  ${lambdas()}");
+  let _ = io.println(ctx, "compose:  ${compose(fn(x: Int) => x + 1, fn(x: Int) => x * 2)(5)}");
+  let _ = io.println(ctx, "many:     ${manyArgs(1, GREETING, false)}");
+  let _ = io.println(ctx, "turbo:    ${turbofish()}");
+  .Ok({})
+}

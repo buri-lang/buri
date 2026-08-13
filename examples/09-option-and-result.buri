@@ -1,0 +1,131 @@
+// 09 — Option, Result, `?`, and `??`
+//
+// There is no null, no undefined, and no exceptions. Absence is Option<T>;
+// failure is Result<T, E>. `?` is the only early exit in the language.
+
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/result" import * as result;
+from "core/option" import * as option;
+from "core/cap" import { Alloc, Stdout };
+
+struct Config {
+  host: Str,
+  port: Int,
+  retries: Int,
+}
+
+enum ConfigError {
+  Missing(Str),
+  NotANumber { key: Str, value: Str },
+  OutOfRange { key: Str, value: Int },
+}
+
+// --- Producing Option -------------------------------------------------------
+
+fn lookup(pairs: [(Str, Str)], key: Str): Option<Str> {
+  match (pairs.find(fn(p) => p.0 == key)) {
+    .Some(pair) => .Some(pair.1),
+    .None => .None,
+  }
+}
+
+// --- Producing Result -------------------------------------------------------
+
+fn requireKey(pairs: [(Str, Str)], key: Str): Result<Str, ConfigError> {
+  match (lookup(pairs, key)) {
+    .Some(v) => .Ok(v),
+    .None => .Err(.Missing(key)),
+  }
+}
+
+fn requireInt(pairs: [(Str, Str)], key: Str): Result<Int, ConfigError> {
+  // `?` unwraps Ok and returns early on Err. The enclosing function must
+  // return Result with the same error type — there is no automatic
+  // conversion in v0.2.
+  let raw = requireKey(pairs, key)?;
+  match (raw.toInt()) {
+    .Some(n) => .Ok(n),
+    .None => .Err(.NotANumber { key: key, value: raw }),
+  }
+}
+
+fn requirePort(pairs: [(Str, Str)], key: Str): Result<Int, ConfigError> {
+  let n = requireInt(pairs, key)?;
+  if (n < 1 || n > 65535) {
+    .Err(.OutOfRange { key: key, value: n })
+  } else {
+    .Ok(n)
+  }
+}
+
+fn parseConfig(pairs: [(Str, Str)]): Result<Config, ConfigError> {
+  let host = requireKey(pairs, "host")?;
+  let port = requirePort(pairs, "port")?;
+
+  // `??` supplies a default for an Option or a Result, and is right
+  // associative, so defaults can chain.
+  let retries = lookup(pairs, "retries") ?? "3".toInt() ?? 3;
+
+  .Ok(Config { host: host, port: port, retries: retries })
+}
+
+// --- `?` on Option ----------------------------------------------------------
+//
+// When the enclosing function returns Option, `?` propagates None.
+
+fn firstWordLength(lines: [Str]): Option<Int> {
+  // `xs[i]` yields Option<T>, so `?` composes with indexing directly.
+  let first = lines[0]?;
+  // `splitOnce` is pure: it returns two slices, which is a fixed-size result,
+  // so no allocator is needed. `split` (which returns [Str]) does need one.
+  let parts = first.splitOnce(' ')?;
+  .Some(parts.0.len())
+}
+
+// --- Combinators instead of nesting -----------------------------------------
+
+fn describe(r: Result<Config, ConfigError>): Str {
+  r.map(fn(c) => c.host).withDefault("<unconfigured>")
+}
+
+fn errorText(e: ConfigError): Str {
+  match (e) {
+    .Missing(key) => key,
+    .NotANumber { key, .. } => key,
+    .OutOfRange { key, .. } => key,
+  }
+}
+
+// Mapping an error type is explicit, which keeps `?` honest about what it can
+// propagate.
+fn asStringError(r: Result<Config, ConfigError>): Result<Config, Str> {
+  r.mapErr(fn(e) => errorText(e))
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let good: [(Str, Str)] = [("host", "example.com"), ("port", "8080")];
+  let bad: [(Str, Str)] = [("host", "example.com"), ("port", "not-a-number")];
+  let outOfRange: [(Str, Str)] = [("host", "h"), ("port", "99999")];
+
+  let _ = io.println(ctx, "good      = ${describe(parseConfig(good))}");
+  let _ = io.println(ctx, "bad       = ${describe(parseConfig(bad))}");
+  let _ = io.println(ctx, "range     = ${describe(parseConfig(outOfRange))}");
+
+  let _ = match (parseConfig(bad)) {
+    .Ok(c) => io.println(ctx, "parsed ${c.host}:${c.port}"),
+    .Err(.NotANumber { key, value }) => io.println(ctx, "key ${key} had ${value}"),
+    .Err(e) => io.println(ctx, "failed: ${errorText(e)}"),
+  };
+
+  let lines: [Str] = ["hello world", "second line"];
+  let _ = io.println(ctx, "optionMap = ${firstWordLength(lines).withDefault(0)}");
+
+  // `main` returns Result<{}, Str>, so `?` works here too once the error type
+  // is mapped.
+  let cfg = asStringError(parseConfig(good))?;
+  let _ = io.println(ctx, "retries   = ${cfg.retries}");
+
+  .Ok({})
+}

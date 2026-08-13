@@ -1,0 +1,109 @@
+// 15 — Modules, imports, exports, and opaque types
+//
+// A file is a module. Declarations are private unless exported. Declaration
+// order does not matter anywhere.
+
+// Namespace import: everything reachable as `list.<name>`.
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/io" import * as io;
+
+// Named imports, with optional renaming.
+from "core/cap" import { Alloc, Stdout };
+from "core/list" import { map as mapList, filter as filterList };
+
+// Importing a sibling module by path.
+// from "./money" import * as money;
+// from "./money" import { Cents };
+
+// --- Visibility --------------------------------------------------------------
+
+// Private to this module.
+fn normalizeKey(k: Str): Str {
+  k.trim()
+}
+
+// Part of the public surface.
+export fn lookupKey(pairs: [(Str, Str)], key: Str): Option<Str> {
+  let wanted = normalizeKey(key);
+  match (pairs.find(fn(p) => normalizeKey(p.0) == wanted)) {
+    .Some(p) => .Some(p.1),
+    .None => .None,
+  }
+}
+
+// --- Opaque types: exporting a name without its representation ---------------
+
+/// Cents are exported, but the fact that they are an I64 is not. Outside this
+/// module you cannot write `Cents(500)` and you cannot pattern-match one open.
+export opaque struct Cents(I64);
+
+export fn fromDollars(d: I64): Cents { Cents(d * 100) }
+export fn fromCents(c: I64): Cents { Cents(c) }
+export fn addMoney(a: Cents, b: Cents): Cents { Cents(a.0 + b.0) }
+
+export fn formatMoney(ctx: { alloc: Alloc, .. }, c: Cents): Str {
+  let dollars = c.0 / 100;
+  let remainder = c.0 % 100;
+  let pad = if (remainder < 10) { "0" } else { "" };
+  // `\$` escapes a literal dollar sign so it does not start a hole.
+  str.format(ctx, "\$${dollars}.${pad}${remainder}")
+}
+
+// The invariant that money is never a raw integer is enforced by the type, not
+// by convention: there is no way to add a Cents to a plain I64.
+
+// --- Opaque enums work the same way -----------------------------------------
+
+/// The variants are hidden; callers go through the constructors and the
+/// inspector below.
+export opaque enum Status {
+  Draft,
+  Published { at: Str },
+  Archived,
+}
+
+export fn draft(): Status { Status.Draft }
+export fn publish(at: Str): Status { Status.Published { at: at } }
+
+export fn isVisible(s: Status): Bool {
+  match (s) {
+    .Draft => false,
+    .Published { .. } => true,
+    .Archived => false,
+  }
+}
+
+// --- Type aliases are transparent -------------------------------------------
+
+type Row = (Str, Str);
+type Table = [Row];
+type Renderer = fn(Row) => Str;
+
+// `Row` and `(Str, Str)` are the same type; aliases document, they do not
+// protect. Use a tuple struct when you want a distinct type.
+export fn renderTable(ctx: { alloc: Alloc, .. }, render: Renderer, t: Table): Str {
+  t.mapList(ctx, render).join(ctx, "\n")
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  let table: Table = [("host", "localhost"), ("port", "8080"), ("tls", "false")];
+
+  let paddedKey = "  port  ";
+  let unknown = "?";
+  let _ = io.println(ctx, "lookup = ${lookupKey(table, paddedKey) ?? unknown}");
+
+  let subtotal = fromDollars(19);
+  let shipping = fromCents(499);
+  let total = addMoney(subtotal, shipping);
+  let _ = io.println(ctx, "total  = ${formatMoney(ctx, total)}");
+
+  let today = "2026-08-13";
+  let _ = io.println(ctx, "visible = ${isVisible(publish(today))}");
+
+  let onlyLong = filterList(ctx, fn(r) => r.1.len() > 4, table);
+  let rendered = renderTable(ctx, fn(r) => r.0, onlyLong);
+  let _ = io.println(ctx, "rows   = ${rendered}");
+
+  .Ok({})
+}

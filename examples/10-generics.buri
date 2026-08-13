@@ -1,0 +1,132 @@
+// 10 — Generics and row variables
+//
+// Type parameters have no bounds, because there are no traits. Code that needs
+// an operation takes that operation as an argument.
+
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/order" import * as order;
+from "core/cap" import { Alloc, Stdout };
+
+// --- Type parameters --------------------------------------------------------
+
+fn identity<T>(x: T): T { x }
+
+fn constant<A, B>(a: A, b: B): A {
+  let _ = b;
+  a
+}
+
+fn flip<A, B, C>(f: fn(A, B) => C, b: B, a: A): C {
+  f(a, b)
+}
+
+// Generic data types.
+struct Pair<A, B> {
+  first: A,
+  second: B,
+}
+
+enum Tree<T> {
+  Leaf,
+  Node(Tree<T>, T, Tree<T>),
+}
+
+enum Validation<T, E> {
+  Valid(T),
+  Invalid([E]),
+}
+
+// --- Passing operations instead of constraining types -----------------------
+//
+// There is no `T: Ord`. `insert` takes the comparison it needs. That is more
+// typing at the call site and less machinery in the language.
+
+fn insert<T>(self: Tree<T>, cmp: fn(T, T) => Order, value: T): Tree<T> {
+  match (self) {
+    .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
+    .Node(left, here, right) => match (cmp(value, here)) {
+      .Less => Tree.Node(left.insert(cmp, value), here, right),
+      .Greater => Tree.Node(left, here, right.insert(cmp, value)),
+      .Equal => Tree.Node(left, here, right),
+    },
+  }
+}
+
+fn contains<T>(self: Tree<T>, cmp: fn(T, T) => Order, value: T): Bool {
+  match (self) {
+    .Leaf => false,
+    .Node(left, here, right) => match (cmp(value, here)) {
+      .Equal => true,
+      .Less => left.contains(cmp, value),
+      .Greater => right.contains(cmp, value),
+    },
+  }
+}
+
+fn size<T>(self: Tree<T>): Int {
+  match (self) {
+    .Leaf => 0,
+    .Node(l, _, r) => 1 + l.size() + r.size(),
+  }
+}
+
+// --- Generic functions that allocate ----------------------------------------
+
+fn duplicate<T>(ctx: { alloc: Alloc, .. }, xs: [T]): [T] {
+  xs.concat(ctx, xs)
+}
+
+fn mapPair<A, B, C>(f: fn(A) => C, g: fn(B) => C, p: Pair<A, B>): Pair<C, C> {
+  Pair { first: f(p.first), second: g(p.second) }
+}
+
+// --- Row variables ----------------------------------------------------------
+//
+// `..R` is a row variable: an unknown set of remaining fields. It lets a
+// function accept a richer context and hand the same one to a callback.
+
+fn withLogging<T, ..R>(
+  ctx: { stdout: Stdout, ..R },
+  label: Str,
+  action: fn({ stdout: Stdout, ..R }) => T,
+): T {
+  let _ = io.println(ctx, "-> ${label}");
+  let out = action(ctx);
+  let _ = io.println(ctx, "<- ${label}");
+  out
+}
+
+// The anonymous form `..` introduces a fresh row variable when you do not need
+// to name it.
+fn requiresOnlyAlloc(ctx: { alloc: Alloc, .. }, n: Int): [Int] {
+  list.range(ctx, 0, n)
+}
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+  // Turbofish supplies explicit type arguments in expression position.
+  let n = identity::<Int>(7);
+  let s = identity("seven");
+
+  let tree =
+    Tree.Leaf.insert(order.int, 5).insert(order.int, 3).insert(order.int, 8).insert(order.int, 3);
+
+  let _ = io.println(ctx, "identity  = ${n} / ${s}");
+  let _ = io.println(ctx, "constant  = ${constant(1, s)}");
+  let _ = io.println(ctx, "tree size = ${tree.size()}");
+  let _ = io.println(ctx, "has 8     = ${tree.contains(order.int, 8)}");
+  let _ = io.println(ctx, "has 9     = ${tree.contains(order.int, 9)}");
+  let _ = io.println(ctx, "flip      = ${flip(fn(a: Int, b: Int) => a - b, 1, 10)}");
+
+  let p = mapPair(fn(x: Int) => x * 2, fn(b: Bool) => if (b) { 1 } else { 0 }, Pair { first: 21, second: true });
+  let _ = io.println(ctx, "mapPair   = ${p.first}, ${p.second}");
+
+  // `withLogging` receives a context with both alloc and stdout, requires only
+  // stdout, and passes the whole thing through to the callback — which is
+  // therefore free to allocate.
+  let doubled = withLogging(ctx, "duplicate", fn(c) => duplicate(c, [1, 2, 3]));
+  let _ = io.println(ctx, "duplicate = ${doubled.len()} items");
+  let _ = io.println(ctx, "range     = ${requiresOnlyAlloc(ctx, 5).len()} items");
+
+  .Ok({})
+}
