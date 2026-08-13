@@ -19,7 +19,7 @@ compiler exists.
 | [`11-purity-and-context.buri`](./11-purity-and-context.buri) | **The core idea.** Pure / deterministic / effectful |
 | [`12-file-io.buri`](./12-file-io.buri) | `Fs`, keeping the parsing pure and the I/O at the edge |
 | [`13-network.buri`](./13-network.buri) | `Net`, retries, threading context through callbacks |
-| [`14-capability-attenuation.buri`](./14-capability-attenuation.buri) | Narrowing authority with `opaque` wrappers |
+| [`14-capability-attenuation.buri`](./14-capability-attenuation.buri) | Static confinement by bound; attenuation by wrapper |
 | [`15-modules.buri`](./15-modules.buri) | Imports, exports, opaque types, type aliases |
 | [`16-recursion.buri`](./16-recursion.buri) | Accumulators, guaranteed tail calls, trees |
 | [`17-blocks-and-scope.buri`](./17-blocks-and-scope.buri) | Method chains, blocks, shadowing, evaluation order |
@@ -36,19 +36,21 @@ sort them into three piles:
 
 ```buri
 fn area(self: Shape): F64                                     // pure
-fn normalize(self: [F64], ctx: { alloc: Alloc, .. }): [F64]   // deterministic, allocates
-fn loadConfig(ctx: { alloc: Alloc, fs: Fs, .. }, p: Str): ... // touches the world
+fn normalize<C: Alloc>(self: [F64], ctx: C): [F64]            // deterministic, allocates
+fn loadConfig<C: Alloc + Fs>(ctx: C, p: Str): ...             // touches the world
 ```
 
-No parameter can hide a capability, because capability types are opaque and
-unconstructable outside the platform, and because a lambda may not capture one.
-So the pile a function belongs in is decided by its signature alone — you never
-have to read its body, or its callees' bodies, to know what it can do.
+No parameter can hide a capability: one must be named `self` or `ctx`, and a
+lambda may not capture one. So the pile a function belongs in is decided by its
+first two parameters — you never read its body, or its callees' bodies, to know
+what it can do.
 
 ## Conventions the examples follow
 
-- **Receiver first, context second.** `map(self, ctx, f)`, called as
-  `xs.map(ctx, f)`. A signature reads as "this value, in this world, does X."
+- **Receiver first, context second** — enforced, not merely conventional.
+  `map(self, ctx, f)`, called as `xs.map(ctx, f)`.
+- **Capabilities are trait bounds.** `<C: Alloc + Fs>` is the same feature as
+  `<T: Ord + Show>`; there is one constraint mechanism in the language.
 - **`..` on context types.** Write the minimum you need and let row
   polymorphism accept richer contexts. Close the record (no `..`) at `main` when
   you want an exact grant.

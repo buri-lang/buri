@@ -1,0 +1,5 @@
+// The surface of //lib/store. `encodeLine` in ./codec is internal — the log
+// format is this library's business, and keeping it off the surface is what
+// makes changing it a one-package change.
+
+from "./file_store" export { append, readLog, StoreError };

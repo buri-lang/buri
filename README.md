@@ -13,7 +13,7 @@ Those goals are why the design looks the way it does:
 
 | Goal | What it bought, and what it cost |
 |---|---|
-| **Safe** | No `null`, no exceptions, no mutation, no aliasing. Exhaustive `match`. Indexing returns `Option`. `Result` is must-use. Effects require a capability you were handed. Out-of-range numeric literals are compile errors. |
+| **Safe** | No `null`, no exceptions, no mutation, no aliasing. Exhaustive `match`. Indexing returns `Option`. `Result` is must-use. Effects require a capability you were handed, in a parameter position the compiler enforces. Out-of-range numeric literals are compile errors. |
 | **Fast to run** | Strict evaluation with fully specified order — no thunks, no space leaks. Monomorphized generics, no dictionaries. Guaranteed tail calls. Immutability lets the runtime reuse memory in place when a value is provably unshared. `Alloc` as a capability makes allocation visible at every call site that does it. |
 | **Fast to compile** | An unambiguous LR(1) grammar with no name-resolution or type feedback into the parser, so parsing is one pass and trivially parallel across files. Mandatory top-level signatures make type inference local to each function body, so modules check independently and incrementally. No macros, no reflection, no overload resolution. Traits are structural and satisfied by one module, so there is no coherence pass and no instance search — a bound is a lookup. The one concession: method resolution needs the receiver's type, but it is a single lookup in one known module. |
 | **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow crashes rather than wrapping, and evaluation order is specified rather than left to the backend. The capability model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply grants a different context to `main`. |
@@ -49,7 +49,7 @@ fn area(self: Shape): Float {
   }
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, area).sum();
   let _ = io.println(ctx, "total area: ${total}");
@@ -65,31 +65,42 @@ runtime is expected to make that cheap through structural sharing and in-place
 update when a value is provably unshared — an implementation strategy that is
 never observable.
 
-**2. Effects travel through arguments.** The ability to allocate, read a file, or
-open a socket is a *value* of an opaque, unforgeable type. A context is an
-ordinary record of such values, conventionally the first parameter:
+**2. Effects travel through arguments.** A capability is a **trait** — allocating,
+reading a file, opening a socket — and a function names the ones it needs as
+bounds on its context parameter:
 
 ```buri
-fn loadUser(ctx: { alloc: Alloc, fs: Fs, .. }, id: Str): Result<User, LoadError>
+capability trait Fs {
+  fn readFile(self: Self, path: Str): Result<Str, IoError>;
+  fn writeFile(self: Self, path: Str, body: Str): Result<{}, IoError>;
+}
+
+fn loadUser<C: Alloc + Fs>(ctx: C, id: Str): Result<User, LoadError>
 ```
 
-Capability types can only be constructed by the platform, which hands `main`
-exactly the context its signature requests. A program whose `main` never mentions
-`Net` cannot open a socket anywhere in its transitive call graph — not in a
-dependency, not by accident.
+The compiler enforces where they may appear: **a capability-carrying parameter
+must be `self` or `ctx`**, never any other name or position. So the question "can
+this function touch the world?" is answered by reading the first two parameters
+and stopping.
+
+The platform supplies the one implementation that really does anything, and hands
+it to `main`. A program whose `main` never names `Net` in its bounds cannot open
+a socket anywhere in its transitive call graph — nothing anywhere can obtain a
+value bounded by `Net`.
 
 Purity is therefore not a keyword, not an inferred effect row, and not something
-to propagate through signatures. It is the *absence* of an argument:
+to propagate through signatures. It is the *absence* of one argument:
 
-> If every parameter type of a function is capability-free, and it captures no
-> capability, then it is deterministic, effect-free, and freely cacheable.
+> If a function has no `ctx` parameter, no capability-carrying `self`, and
+> captures no capability, then it is deterministic, effect-free, and freely
+> cacheable.
 
 Three tiers fall out, and each is visible at a glance:
 
 ```buri
-fn sum(self: [Int]): Int                                        // pure
-fn map<A,B>(self: [A], ctx: { alloc: Alloc, .. }, f: fn(A)=>B): [B]  // deterministic, allocates
-fn readText(ctx: { alloc: Alloc, fs: Fs, .. }, p: Str): Result<Str, IoError>  // effectful
+fn sum(self: [Int]): Int                                       // pure
+fn map<A,B,C: Alloc>(self: [A], ctx: C, f: fn(A)=>B): [B]      // deterministic, allocates
+fn readText<C: Alloc + Fs>(ctx: C, p: Str): Result<Str, IoError>   // effectful
 ```
 
 Allocation is tracked separately from I/O, so "does no I/O" and "does not
@@ -187,6 +198,33 @@ has no argument position for a context. You cannot write an expensive `+` in thi
 language, which is why operator overloading is safe here in a way it isn't
 elsewhere.
 
+## Restricting what propagates
+
+Because capabilities are bounds, giving a callee less is just naming fewer of
+them. It receives the same value and cannot use — or pass on — anything its
+bounds omit:
+
+```buri
+fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
+  let _ = io.println(ctx, msg);
+  // fs.readText(ctx, "/etc/passwd")   // ERROR: C is not bounded by Fs
+}
+
+export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<{}, Str> {
+  let _ = logOnly(ctx, "starting");    // same value, confined by its bound
+  .Ok({})
+}
+```
+
+No copy, no wrapper, no runtime cost, and confinement is transitive — `C` is
+opaque at every downstream call site. When you want the value itself to lack the
+capability rather than merely be unable to name it, wrap the context in a type
+that satisfies fewer traits ([SPEC.md §10.8](./SPEC.md)).
+
+One more thing falls out of capabilities being ordinary interfaces: **a test
+double is a struct with methods.** No mocking framework, and the call site does
+not change.
+
 ## Errors are not ignorable
 
 `Result` is must-use: `let _ = fs.writeText(ctx, p, body);` does not compile.
@@ -210,8 +248,8 @@ module's scope without appearing in that module's own source.
 ## What's in v0.2
 
 Primitives with explicit widths, arrays, tuples, records, structs (with private
-fields), enums, functions, methods, and traits. Generics with row polymorphism
-and trait bounds. Pattern matching with exhaustiveness checking. `Option`,
+fields), enums, functions, methods, and traits — including `capability trait`,
+which is how effects are declared. Generics with trait bounds. Pattern matching with exhaustiveness checking. `Option`,
 `Result`, `?`, `??`.
 
 Methods and traits, neither of which introduces a runtime mechanism.

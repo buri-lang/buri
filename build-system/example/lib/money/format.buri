@@ -1,0 +1,15 @@
+from "core/cap" import { Alloc };
+from "core/str" import * as str;
+
+// Importing the type is enough to call its methods — inside the library, where
+// `toCents` is in scope. SPEC.md 6.7.
+from "./cents" import { Cents };
+
+/// Receiver first, context second, as everything callable as a method is.
+/// Allocates, and says so; performs no I/O, and says that too by omission.
+export fn format(self: Cents, ctx: { alloc: Alloc, .. }): Str {
+  let whole = self.toCents() / 100;
+  let rest = self.toCents() % 100;
+  let pad = if (rest < 10) { "0" } else { "" };
+  str.format(ctx, "\$${whole}.${pad}${rest}")
+}

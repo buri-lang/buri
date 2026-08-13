@@ -9,7 +9,8 @@ from "core/list" import * as list;
 from "core/bits" import * as bits;
 from "core/cap" import { Alloc, Stdout };
 
-struct Point { x: Int, y: Int }
+struct Point { export x: Int, export y: Int }
+derive Eq for Point;   // `==` on a struct is opt-in
 struct Wrapper<T> { value: T }
 
 enum Choice { Yes, No }
@@ -29,7 +30,7 @@ fn conditions(p: Point): Str {
 // A block is `let`s then a result expression. A call made only for its effect
 // has to be bound.
 
-fn effects(ctx: { stdout: Stdout, .. }): Int {
+fn effects<C: Stdout>(ctx: C): Int {
   let _ = io.println(ctx, "side effect");
   let _ = io.println(ctx, "another");
   42
@@ -191,7 +192,7 @@ fn floatsAndTuples(t: (Int, (Int, Int))): Int {
   outer + inner
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let p = Point { x: 3, y: 4 };
 
   let _ = io.println(ctx, "conditions   = ${conditions(p)}");

@@ -84,7 +84,7 @@ fn unwrapMeters(m: Meters): F64 {
 }
 
 // Anonymous record patterns, used constantly for contexts.
-fn hasAlloc(ctx: { alloc: Alloc, .. }): Bool {
+fn hasAlloc<C: Alloc>(ctx: C): Bool {
   match (ctx) {
     { alloc, .. } => {
       let _ = alloc;
@@ -142,7 +142,7 @@ fn destructuring(p: Point, pair: (Int, Str)): Int {
   x + y + n
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let p = Point { x: 3, y: -2 };
   let _ = io.println(ctx, "classify(-5)  = ${classify(-5)}");
   let _ = io.println(ctx, "token         = ${tokenText(Token.Symbol(';'))}");

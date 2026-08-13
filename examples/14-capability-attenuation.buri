@@ -1,61 +1,86 @@
 // 14 — Attenuating capabilities
 //
-// A capability is a value, so narrowing authority is just a function. Wrap a
-// capability in an `opaque` type and export only the operations you are willing
-// to permit. Outside the defining module the wrapper cannot be destructured, so
-// the capability inside cannot be recovered.
+// Two ways to give a callee less than you hold, with different guarantees.
 //
-// This file shows three modules' worth of code in one file for readability;
-// in a real project each `// module:` section would be its own file.
+//   Static confinement — bound the callee to fewer capability traits. It
+//   receives the same value and cannot use, or pass on, anything its bounds do
+//   not name. Free, and enough almost always.
+//
+//   Attenuation — hand it a wrapper that satisfies fewer traits, so the value
+//   itself lacks the rest. Stronger, and worth the ceremony at trust
+//   boundaries.
+//
+// Note that attenuation narrows the CONTEXT rather than extracting one
+// capability out of it. That is what keeps the `ctx` rule satisfiable: there is
+// still exactly one capability-carrying parameter.
 
 from "core/io" import * as io;
 from "core/fs" import * as fs;
-from "core/str" import * as str;
-from "core/num" import * as num;
-from "core/random" import * as random;
 from "core/fs" import { IoError };
-from "core/cap" import { Alloc, Fs, Rand, Stdout };
+from "core/cap" import { Alloc, Fs, Rand, Stdout, Region };
+
+// ---------------------------------------------------------------------------
+// Static confinement
+// ---------------------------------------------------------------------------
+
+// `logOnly` can print. It cannot read a file, and neither can anything it
+// calls, because it has nothing bounded by Fs to hand on. No wrapper, no copy,
+// no runtime cost — the bound is the whole mechanism.
+fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
+  let _ = io.println(ctx, msg);
+  // fs.readText(ctx, "/etc/passwd")   // ERROR: C is not bounded by Fs
+  // loadTemplate(ctx, "x")            // ERROR: loadTemplate needs C: Fs
+}
+
+// Confinement is transitive: `C` is opaque at every call site downstream, so
+// there is no way to recover the capabilities the bound left out.
+fn loadTemplate<C: Alloc + Fs>(ctx: C, name: Str): Str {
+  match (fs.readText(ctx, name)) {
+    .Ok(text) => text,
+    .Err(_) => "<missing>",
+  }
+}
 
 // ---------------------------------------------------------------------------
 // module: safe/readonly
 //
-// Grants reading and nothing else.
+// Attenuation. `ReadOnly<C>` wraps a whole context and forwards only the
+// operations this module chooses to expose.
 // ---------------------------------------------------------------------------
 
-/// A file capability that can only read.
-export opaque struct ReadOnlyFs(Fs);
+export opaque struct ReadOnly<C>(C);
 
-export fn readOnly(handle: Fs): ReadOnlyFs {
+export fn readOnly<C>(ctx: C): ReadOnly<C> {
   // Constructing an opaque type is legal only inside its defining module.
-  ReadOnlyFs(handle)
+  ReadOnly(ctx)
 }
 
-export fn readText(
-  ctx: { alloc: Alloc, .. },
-  rfs: ReadOnlyFs,
-  path: Str,
-): Result<Str, IoError> {
-  // Inside this module the wrapper can be opened, so a full context can be
-  // reconstructed for the underlying call.
-  fs.readText({ alloc: ctx.alloc, fs: rfs.0 }, path)
+// Forwards allocation, so ReadOnly<C> satisfies Alloc whenever C does.
+impl<C: Alloc> Alloc for ReadOnly<C> {
+  fn allocate(self: ReadOnly<C>, bytes: Int): Region { self.0.allocate(bytes) }
 }
 
-// There is deliberately no `writeText` here. A caller holding a ReadOnlyFs has
-// no path to one: `rfs.0` is a compile error outside this module.
+// Forwards reading — and deliberately not writing. Because Fs requires both
+// `readFile` and `writeFile`, ReadOnly<C> does not satisfy Fs no matter what C
+// is, so it cannot be passed anywhere that asks for it.
+export fn readFile<C: Fs>(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
+  self.0.readFile(path)
+}
 
 // ---------------------------------------------------------------------------
 // module: safe/scoped
 //
-// Grants reading, but only under one directory prefix.
+// The same shape, with a runtime check the wrapper can enforce because it is
+// the only path to the underlying capability.
 // ---------------------------------------------------------------------------
 
-export opaque struct ScopedFs {
-  handle: Fs,
+export opaque struct Scoped<C> {
+  inner: C,
   prefix: Str,
 }
 
-export fn scopeTo(handle: Fs, prefix: Str): ScopedFs {
-  ScopedFs { handle: handle, prefix: prefix }
+export fn scopeTo<C>(ctx: C, prefix: Str): Scoped<C> {
+  Scoped { inner: ctx, prefix: prefix }
 }
 
 enum ScopeError {
@@ -63,15 +88,15 @@ enum ScopeError {
   Io(IoError),
 }
 
-export fn readScoped(
-  ctx: { alloc: Alloc, .. },
-  sfs: ScopedFs,
-  path: Str,
-): Result<Str, ScopeError> {
-  if (!path.startsWith(sfs.prefix) || path.contains("..")) {
+impl<C: Alloc> Alloc for Scoped<C> {
+  fn allocate(self: Scoped<C>, bytes: Int): Region { self.inner.allocate(bytes) }
+}
+
+export fn readFileScoped<C: Fs>(self: Scoped<C>, path: Str): Result<Str, ScopeError> {
+  if (!path.startsWith(self.prefix) || path.contains("..")) {
     .Err(.Escapes(path))
   } else {
-    match (fs.readText({ alloc: ctx.alloc, fs: sfs.handle }, path)) {
+    match (self.inner.readFile(path)) {
       .Ok(text) => .Ok(text),
       .Err(e) => .Err(.Io(e)),
     }
@@ -81,76 +106,73 @@ export fn readScoped(
 // ---------------------------------------------------------------------------
 // module: safe/seeded
 //
-// A deterministic stand-in for Rand, so that tests of "random" code are
-// reproducible without a mocking framework.
+// A deterministic stand-in for Rand. Because capability traits are ordinary
+// interfaces, a fake is just a struct with the right methods — no mocking
+// framework, and the call site does not change.
 // ---------------------------------------------------------------------------
 
-export opaque struct Seeded(U64);
+export struct Seeded { export state: U64 }
 
-export fn seeded(seed: U64): Seeded { Seeded(seed) }
+export fn seeded(seed: U64): Seeded { Seeded { state: seed } }
 
 /// Returns the next value and the next generator; no mutation anywhere.
-export fn nextInt(g: Seeded, lo: Int, hi: Int): (Int, Seeded) {
-  // A linear congruential generator relies on wrapping, and `+`/`*` crash on
-  // overflow, so the wrapping intent is spelled out. The literals are typed U64
-  // by unification with `g.0`, and checked against U64's range at compile time.
-  let state = g.0.wrappingMul(6364136223846793005).wrappingAdd(1442695040888963407);
+export fn nextInt(self: Seeded, lo: Int, hi: Int): (Int, Seeded) {
+  // An LCG relies on wrapping, and `+`/`*` crash on overflow, so the wrapping
+  // intent is spelled out. The literals are typed U64 by unification with
+  // `self.state`, and range-checked at compile time.
+  let next = self.state.wrappingMul(6364136223846793005).wrappingAdd(1442695040888963407);
   let span = hi - lo;
   // U64 -> I64 is not lossless, so this is `as%` rather than `as`.
-  let value = lo + ((state / 65536) as% Int) % span;
-  (value, Seeded(state))
+  let value = lo + ((next / 65536) as% Int) % span;
+  (value, Seeded { state: next })
 }
 
 // ---------------------------------------------------------------------------
 // Application code
 // ---------------------------------------------------------------------------
 
-// This function can read a file. It cannot write one, and no amount of code
-// inside it can, because ReadOnlyFs is all it was given.
-fn loadTemplate(ctx: { alloc: Alloc, .. }, rfs: ReadOnlyFs, name: Str): Str {
-  match (readText(ctx, rfs, name)) {
+// Takes a ReadOnly context. It can read and allocate; there is no expression it
+// could write that reaches the file system for writing.
+fn render<C: Alloc + Fs>(ctx: ReadOnly<C>, name: Str): Str {
+  match (ctx.readFile(name)) {
     .Ok(text) => text,
     .Err(_) => "<missing>",
   }
 }
 
-// This one is stuck inside `/etc/app/`.
-fn loadConfig(ctx: { alloc: Alloc, .. }, sfs: ScopedFs, name: Str): Str {
-  match (readScoped(ctx, sfs, name)) {
+fn loadConfig<C: Alloc + Fs>(ctx: Scoped<C>, name: Str): Str {
+  match (ctx.readFileScoped(name)) {
     .Ok(text) => text,
     .Err(.Escapes(_)) => "<denied>",
     .Err(.Io(_)) => "<missing>",
   }
 }
 
-// Pure: given a seed, the sequence is fixed. Same shape as the real thing, so
-// production code and test code call the identical function.
+// Pure: given a seed, the sequence is fixed. Production and test code call the
+// identical function.
 fn threeRolls(g: Seeded): ([Int], Seeded) {
-  let (a, g1) = nextInt(g, 1, 7);
-  let (b, g2) = nextInt(g1, 1, 7);
-  let (c, g3) = nextInt(g2, 1, 7);
+  let (a, g1) = g.nextInt(1, 7);
+  let (b, g2) = g1.nextInt(1, 7);
+  let (c, g3) = g2.nextInt(1, 7);
   ([a, b, c], g3)
 }
 
-export fn main(ctx: { alloc: Alloc, fs: Fs, rand: Rand, stdout: Stdout }): Result<{}, Str> {
-  // Hand out narrowed capabilities at the top of the program, once.
-  let rfs = readOnly(ctx.fs);
-  let sfs = scopeTo(ctx.fs, "/etc/app/");
+export fn main<C: Alloc + Fs + Rand + Stdout>(ctx: C): Result<{}, Str> {
+  // Hand out narrowed contexts once, at the top of the program.
+  let reader = readOnly(ctx);
+  let scoped = scopeTo(ctx, "/etc/app/");
 
   let templateName = "greeting.txt";
   let allowedPath = "/etc/app/config.toml";
   let deniedPath = "/etc/shadow";
 
-  let _ = io.println(ctx, "template = ${loadTemplate(ctx, rfs, templateName)}");
-  let _ = io.println(ctx, "allowed  = ${loadConfig(ctx, sfs, allowedPath)}");
-  let _ = io.println(ctx, "denied   = ${loadConfig(ctx, sfs, deniedPath)}");
+  let _ = logOnly(ctx, "starting");
+  let _ = io.println(ctx, "template = ${render(reader, templateName)}");
+  let _ = io.println(ctx, "allowed  = ${loadConfig(scoped, allowedPath)}");
+  let _ = io.println(ctx, "denied   = ${loadConfig(scoped, deniedPath)}");
 
   let (rolls, _) = threeRolls(seeded(42));
   let _ = io.println(ctx, "seeded   = ${rolls[0] ?? 0} ${rolls[1] ?? 0} ${rolls[2] ?? 0}");
-
-  // The real generator is still available where genuine nondeterminism is
-  // wanted, and it announces itself by requiring `rand`.
-  let _ = io.println(ctx, "real     = ${random.int(ctx, 1, 7)}");
 
   .Ok({})
 }

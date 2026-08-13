@@ -74,7 +74,7 @@ fn describe(p: Point): Str {
   }
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let a = origin();
   let b = translate(a, 3.0, 4.0);
 

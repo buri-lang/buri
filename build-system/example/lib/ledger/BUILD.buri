@@ -1,0 +1,20 @@
+# //lib/ledger — a library with a subdirectory. `posting/` has no BUILD.buri,
+# so it is part of this package: organization, not a boundary.
+
+library {
+  name: "ledger"
+  srcs: [
+    "entry.buri",
+    "posting/rules.buri",
+  ]
+  deps: ["//lib/money"]
+  visibility: [
+    "//cmd/...",
+    "//lib/store",
+    "//tools/report",
+  ]
+
+  test {
+    srcs: ["test/ledger.buri"]
+  }
+}

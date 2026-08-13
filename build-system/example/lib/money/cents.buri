@@ -1,0 +1,22 @@
+// Internal to //lib/money. Reachable from ./format and from ./lib, and from
+// nothing outside the library.
+
+/// Money is never a raw integer. The representation is not exported, so there
+/// is no way to add a Cents to an I64 anywhere — including inside this library,
+/// outside this module.
+export opaque struct Cents(I64);
+
+derive Eq, Ord, Show for Cents;
+
+export fn fromDollars(d: I64): Cents { Cents(d * 100) }
+
+export fn fromCents(c: I64): Cents { Cents(c) }
+
+export fn add(self: Cents, other: Cents): Cents { Cents(self.0 + other.0) }
+
+export fn isZero(self: Cents): Bool { self.0 == 0 }
+
+/// Exported from this module so that ./format can render one, since `Cents` is
+/// opaque and `.0` is not visible there. Not re-exported by lib.buri: dependents
+/// get `format`, not the number behind it.
+export fn toCents(self: Cents): I64 { self.0 }

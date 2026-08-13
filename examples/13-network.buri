@@ -41,15 +41,15 @@ fn classify(status: Int): Result<{}, FetchError> {
 
 // --- Effectful: needs Net ---------------------------------------------------
 
-fn fetchText(ctx: { alloc: Alloc, net: Net, .. }, url: Str): Result<Str, FetchError> {
+fn fetchText<C: Alloc + Net>(ctx: C, url: Str): Result<Str, FetchError> {
   let response = http.get(ctx, url).mapErr(fn(e) => FetchError.Transport(http.errorText(e)))?;
 
   let _ = classify(response.status)?;
   .Ok(response.body)
 }
 
-fn fetchRepo(
-  ctx: { alloc: Alloc, net: Net, .. },
+fn fetchRepo<C: Alloc + Net>(
+  ctx: C,
   owner: Str,
   name: Str,
 ): Result<Repo, FetchError> {
@@ -77,8 +77,8 @@ fn parseRepo(body: Str): Option<Repo> {
 // pushes you toward. The row variable `..R` means whatever else the caller had
 // is handed straight through to the action.
 
-fn withRetry<T, ..R>(
-  ctx: { clock: Clock, ..R },
+fn withRetry<C: Clock, T>(
+  ctx: C,
   attempts: Int,
   action: fn({ clock: Clock, ..R }) => Result<T, FetchError>,
 ): Result<T, FetchError> {
@@ -93,7 +93,7 @@ fn withRetry<T, ..R>(
   }
 }
 
-fn errorText(ctx: { alloc: Alloc, .. }, e: FetchError): Str {
+fn errorText<C: Alloc>(ctx: C, e: FetchError): Str {
   match (e) {
     .Transport(detail) => detail,
     .Status(code) => str.format(ctx, "HTTP ${code}"),
@@ -103,8 +103,8 @@ fn errorText(ctx: { alloc: Alloc, .. }, e: FetchError): Str {
 
 // --- Fetching several things ------------------------------------------------
 
-fn fetchAll(
-  ctx: { alloc: Alloc, net: Net, .. },
+fn fetchAll<C: Alloc + Net>(
+  ctx: C,
   urls: [Str],
 ): [Result<Str, FetchError>] {
   // `mapCtx` threads the context through instead of letting the callback
@@ -112,7 +112,7 @@ fn fetchAll(
   urls.mapCtx(ctx, fn(c, url) => fetchText(c, url))
 }
 
-export fn main(ctx: { alloc: Alloc, net: Net, clock: Clock, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Net + Clock + Stdout>(ctx: C): Result<{}, Str> {
   let outcome = withRetry(ctx, 3, fn(c) => fetchRepo(c, "buri-lang", "buri"));
 
   let _ = match (outcome) {

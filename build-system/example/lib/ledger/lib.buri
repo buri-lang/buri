@@ -1,0 +1,6 @@
+// The surface of //lib/ledger. Re-exports come from wherever the names live,
+// including from a subdirectory — the file layout inside a library is nobody
+// else's business.
+
+from "./entry" export { Entry, entry, total };
+from "./posting/rules" export { Rule, apply };

@@ -1,0 +1,35 @@
+// The suite for //lib/ledger. It may import the library under test, the
+// library's own deps (//lib/money), anything in `test.deps`, and core/*.
+
+from "//lib/ledger" import { Entry, entry, total, Rule, apply };
+from "//lib/money" import { fromCents, fromDollars };
+from "core/cap" import { Alloc };
+from "core/test" import { Expect };
+from "core/test" import * as t;
+
+// A private helper. Test files may not `export`, since nothing can import them.
+fn sample(): [Entry] {
+  [
+    entry("coffee", fromCents(450)),
+    entry("refund", fromCents(0)),
+    entry("books", fromDollars(32)),
+  ]
+}
+
+test "total sums every entry" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  t.eq(ctx, sample().total(), fromCents(3650))?;
+  .Ok({})
+}
+
+test "DropZero removes zero-amount entries" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let kept = sample().apply(ctx, Rule.DropZero);
+  t.eq(ctx, kept.len(), 2)?;
+  t.eq(ctx, kept.total(), fromCents(3650))?;
+  .Ok({})
+}
+
+test "MemoPrefix keeps matching memos" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let kept = sample().apply(ctx, Rule.MemoPrefix { prefix: "co" });
+  t.eq(ctx, kept.len(), 1)?;
+  .Ok({})
+}

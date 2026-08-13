@@ -1,0 +1,29 @@
+// Tests for //lib/money. They import the library by label, exactly as any
+// dependent does, so they can only assert on what dependents can call.
+
+from "//lib/money" import { Cents, fromDollars, fromCents, add, isZero };
+from "core/cap" import { Alloc };
+from "core/test" import { Expect };
+from "core/test" import * as t;
+
+test "dollars are a hundred cents" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  t.eq(ctx, fromDollars(3), fromCents(300))?;
+  .Ok({})
+}
+
+test "addition composes" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let subtotal = fromDollars(19);
+  let shipping = fromCents(499);
+  t.eq(ctx, subtotal.add(shipping), fromCents(2399))?;
+  .Ok({})
+}
+
+test "zero is recognized" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  t.isTrue(ctx, fromCents(0).isZero())?;
+  .Ok({})
+}
+
+// t.eq(ctx, fromCents(300).toCents(), 300)
+//   ERROR: `toCents` is not on //lib/money's surface. Either it belongs there —
+//   in which case add it to lib.buri and every dependent gets it — or this test
+//   is asserting on an implementation detail.

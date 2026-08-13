@@ -102,7 +102,9 @@ fn operators(a: Int, b: Int, p: Bool, q: Bool): {} {
   let compared = a < b;
   let equal = a == b;
 
-  // Structural equality works for any capability-free data type.
+  // Equality is structural, never referential — there are no references to
+  // compare. Tuples, arrays, and records have `Eq` built in; your own structs
+  // and enums opt in with `derive Eq`.
   let sameTuple = (1, "one") == (1, "one");
 
   // Logical operators short-circuit. There is no truthiness: conditions must
@@ -121,7 +123,7 @@ fn operators(a: Int, b: Int, p: Bool, q: Bool): {} {
   {}
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let _ = numbers();
   let _ = text();
   let _ = operators(6, 7, true, false);

@@ -74,10 +74,14 @@ DeclBody        ::= FnDecl
 FnDecl          ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type Block
 
 (* A function is a METHOD if and only if its first parameter is written `self`.
-   That is a declaration, not a convention about position or type. *)
-Params          ::= SelfParam ("," Param)* ","?
+   A function is EFFECTFUL if and only if it has a `ctx` parameter, which must
+   come first, or immediately after `self`. Both are declarations, not
+   conventions about position or type. *)
+Params          ::= SelfParam ("," CtxParam)? ("," Param)* ","?
+                  | CtxParam ("," Param)* ","?
                   | Param ("," Param)* ","?
 SelfParam       ::= "self" ":" Type
+CtxParam        ::= "ctx" ":" Type
 Param           ::= IDENT ":" Type
 
 GenericParams   ::= "<" GenericParam ("," GenericParam)* ","? ">"
@@ -112,12 +116,14 @@ ConstDecl       ::= "const" IDENT ":" Type "=" Expr ";"
    no coherence pass. `impl` asserts and checks that intent; `derive` asks for
    the implementation to be generated structurally. *)
 
-TraitDecl       ::= "trait" IDENT GenericParams? "{" TraitMethod* "}"
+(* A `capability trait` declares an effect. Any parameter whose type carries one
+   must be the function's `ctx` parameter -- see SPEC.md 10.2. *)
+TraitDecl       ::= "capability"? "trait" IDENT GenericParams? "{" TraitMethod* "}"
 TraitMethod     ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
 
-ImplDecl        ::= "impl" TypePath "for" TypePath "{" FnDecl* "}"
+ImplDecl        ::= "impl" GenericParams? TypePath "for" NamedType "{" FnDecl* "}"
 
-DeriveDecl      ::= "derive" TypePath ("," TypePath)* "for" TypePath ";"
+DeriveDecl      ::= "derive" TypePath ("," TypePath)* "for" NamedType ";"
 
 
 (* --------------------------------------------------------------------------
@@ -416,11 +422,12 @@ IDENT           ::= (Letter | "_") (Letter | Digit | "_")*
 Letter          ::= "A".."Z" | "a".."z"
 Digit           ::= "0".."9"
 
-Keyword         ::= "as"     | "as?"    | "as%"    | "const"  | "crash"
-                  | "derive" | "else"   | "enum"   | "export" | "false"
-                  | "fn"     | "for"    | "from"   | "if"     | "impl"
-                  | "import" | "let"    | "match"  | "opaque" | "self"
-                  | "Self"   | "struct" | "trait"  | "true"   | "type"
+Keyword         ::= "as"     | "as?"    | "as%"    | "capability"
+                  | "const"  | "crash"  | "ctx"    | "derive" | "else"
+                  | "enum"   | "export" | "false"  | "fn"     | "for"
+                  | "from"   | "if"     | "impl"   | "import" | "let"
+                  | "match"  | "opaque" | "self"   | "Self"   | "struct"
+                  | "trait"  | "true"   | "type"
 
 (* `as?` and `as%` are single tokens: no whitespace between the `as` and the
    sigil. `x as I32?` is therefore a parse error rather than a cast followed by

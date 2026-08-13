@@ -63,19 +63,19 @@ fn mean(xs: [F64]): Option<F64> {
 // ---------------------------------------------------------------------------
 // TIER 2: DETERMINISTIC BUT ALLOCATING
 //
-// Requires { alloc: Alloc, .. } and nothing else. Still referentially
+// Bounded by <C: Alloc> and nothing else. Still referentially
 // transparent — it just needs memory, which can fail and which costs
 // something. `Alloc` is a resource capability, not an effect capability.
 // ---------------------------------------------------------------------------
 
-fn normalize(ctx: { alloc: Alloc, .. }, values: [F64]): [F64] {
+fn normalize<C: Alloc>(ctx: C, values: [F64]): [F64] {
   match (mean(values)) {
     .None => [],
     .Some(m) => values.map(ctx, fn(v) => v - m),
   }
 }
 
-fn slugify(ctx: { alloc: Alloc, .. }, title: Str): Str {
+fn slugify<C: Alloc>(ctx: C, title: Str): Str {
   title.toLower(ctx).split(ctx, " ").join(ctx, "-")
 }
 
@@ -87,8 +87,8 @@ fn slugify(ctx: { alloc: Alloc, .. }, title: Str): Str {
 // makes the wider record acceptable.
 // ---------------------------------------------------------------------------
 
-fn timed<T>(
-  ctx: { clock: Clock, stdout: Stdout, .. },
+fn timed<C: Clock + Stdout, T>(
+  ctx: C,
   label: Str,
   value: T,
 ): T {
@@ -99,7 +99,7 @@ fn timed<T>(
   value
 }
 
-fn rollDice(ctx: { rand: Rand, .. }, sides: Int): Int {
+fn rollDice<C: Rand>(ctx: C, sides: Int): Int {
   random.int(ctx, 1, sides + 1)
 }
 
@@ -118,11 +118,11 @@ fn provablyPure(xs: [Int], k: Int): Int {
 // This one takes only Alloc. It cannot log, cannot read the clock, cannot
 // reach the network — a reviewer knows that without reading the body, and a
 // reviewer of *its callees* does not have to be consulted either.
-fn deterministicPipeline(ctx: { alloc: Alloc, .. }, xs: [F64]): [F64] {
+fn deterministicPipeline<C: Alloc>(ctx: C, xs: [F64]): [F64] {
   normalize(ctx, xs)
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout, clock: Clock, rand: Rand }): Result<{}, Str> {
+export fn main<C: Alloc + Clock + Rand + Stdout>(ctx: C): Result<{}, Str> {
   let temps: [F64] = [12.0, 18.5, 21.0, 9.5];
 
   let word = "racecar";

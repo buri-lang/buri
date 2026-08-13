@@ -93,7 +93,7 @@ fn depth<T>(t: Tree<T>): Int {
   }
 }
 
-fn toArray<T>(ctx: { alloc: Alloc, .. }, t: Tree<T>): [T] {
+fn toArray<C: Alloc, T>(ctx: C, t: Tree<T>): [T] {
   match (t) {
     .Leaf => [],
     .Node(l, v, r) => {
@@ -140,7 +140,7 @@ fn collatzFrom(n: Int, steps: Int): Int {
   }
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let xs: [Int] = [4, 8, 15, 16, 23, 42];
 
   let tree =

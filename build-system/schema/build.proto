@@ -1,0 +1,249 @@
+// The normative schema for `BUILD.buri` and `REPO.buri`.
+//
+// Both files are textproto. `BUILD.buri` parses as `buri.build.v1.BuildFile`;
+// `REPO.buri` parses as `buri.build.v1.RepoConfig`. Neither file is a program:
+// there is no expression language, no glob, no macro, and no import. A build
+// file is data, and reading it is the whole of understanding what it declares.
+//
+// The tool parses these with the same .proto reader the language uses for
+// `from "./foo.proto" import ...`, so unknown fields are an error rather than a
+// silent no-op, and the CLI can point at the offending line.
+
+syntax = "proto3";
+
+package buri.build.v1;
+
+// ---------------------------------------------------------------------------
+// BUILD.buri
+// ---------------------------------------------------------------------------
+
+// A directory containing a BUILD.buri file is a *package*. Files in
+// subdirectories that do not themselves contain a BUILD.buri belong to the
+// nearest ancestor package.
+//
+// A package declares at most one library and at most one binary. That is what
+// makes `//lib/money` an unambiguous name for both a directory and a library,
+// and it is why `deps` never needs a `:target` suffix.
+message BuildFile {
+  // Optional defaults applied to the rules in this file.
+  Package package = 1;
+
+  // The library rooted at this package's `lib.buri`.
+  Library library = 2;
+
+  // The binary rooted at this package's `main.buri`.
+  Binary binary = 3;
+}
+
+message Package {
+  // Visibility for rules in this file that do not declare their own.
+  // Falls back to `RepoConfig.defaults.visibility` when unset.
+  repeated string default_visibility = 1;
+}
+
+// A `library` requires `lib.buri` to exist in the package directory. That file
+// is the library's entire public surface: another target that depends on this
+// library can import exactly the names `lib.buri` exports, and nothing else.
+message Library {
+  // Target name. Conventionally the directory name. Addressable as
+  // `//path/to/pkg:name`, or just `//path/to/pkg`. Required — proto3 has no
+  // `required`, so the build file parser enforces it and points at the block.
+  string name = 1;
+
+  // Every .buri file in this package other than `lib.buri`, the binary's
+  // sources, and the test sources. Paths are package-relative and may descend
+  // into subdirectories. No globs: a file that exists on disk but appears in no
+  // rule is a build error, not a silently ignored file.
+  repeated string srcs = 2;
+
+  // Labels of libraries this one may import. `core/*` is always available and
+  // is never listed. Cycles are an error.
+  repeated string deps = 3;
+
+  // Constraints on where this library may be linked. Each entry is a value of
+  // a dimension declared in REPO.buri, written `value` or `dimension=value`.
+  // Listing no value for a dimension means "any value of it is acceptable".
+  // See TAGS in REPO-CONFIG.md.
+  repeated string tags = 4;
+
+  // Who may depend on this library. See VISIBILITY in BUILD-FILES.md.
+  repeated string visibility = 5;
+
+  // Tests that exercise this library through `lib.buri`.
+  TestSuite test = 6;
+}
+
+// A `binary` requires `main.buri` to exist in the package directory, and that
+// file must export `main`. `main.buri` is the binary's surface for tests, the
+// same way `lib.buri` is a library's surface for dependents.
+message Binary {
+  // Required, as above.
+  string name = 1;
+
+  // Every .buri file in this package that belongs to the binary rather than to
+  // the co-located library, excluding `main.buri` and the test sources.
+  repeated string srcs = 2;
+
+  repeated string deps = 3;
+
+  // Values this binary pins for dimensions that its outputs do not already
+  // determine — `server`, `client`, and so on.
+  repeated string tags = 4;
+
+  // What to produce. One artifact per entry. Each entry is a separate
+  // configuration, so the tag check runs once per output.
+  repeated Output outputs = 5;
+
+  // Tests that exercise this binary through `main.buri`.
+  TestSuite test = 6;
+}
+
+message Output {
+  Platform platform = 1;
+
+  // Ignored, and must be unset, when platform is JS.
+  Arch arch = 2;
+
+  // Artifact filename. Defaults to the target name (plus `.mjs` for JS).
+  string artifact_name = 3;
+
+  JsOptions js = 4;
+}
+
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  LINUX = 1;
+  MACOS = 2;
+  JS = 3;
+}
+
+enum Arch {
+  ARCH_UNSPECIFIED = 0;
+  X86_64 = 1;
+  ARM64 = 2;
+}
+
+message JsOptions {
+  Module module = 1;
+
+  enum Module {
+    MODULE_UNSPECIFIED = 0;  // ESM
+    ESM = 1;
+    CJS = 2;
+  }
+}
+
+// Tests live in the package's `test/` directory and are declared here. A test
+// source may import the target under test *by label* and may not reach into it
+// with a relative import, which is what confines tests to the public surface.
+message TestSuite {
+  // Package-relative paths, conventionally under `test/`.
+  repeated string srcs = 1;
+
+  // Libraries available to the test sources in addition to the target's own
+  // `deps`. Fakes, fixtures, golden-file helpers.
+  repeated string deps = 2;
+
+  // Files the test may read through the test platform's in-memory `Fs`, rooted
+  // at the package directory. Nothing else on disk is visible.
+  repeated string data = 3;
+
+  // Wall-clock ceiling per test declaration. Defaults to
+  // `RepoConfig.defaults.test_timeout_seconds`.
+  uint32 timeout_seconds = 4;
+
+  // Configurations to run this suite in, one run per value listed of any
+  // dimension. Unset means one run, in the host configuration, restricted by
+  // the target's own tags. See TAGS.md.
+  repeated string tags = 5;
+}
+
+// ---------------------------------------------------------------------------
+// REPO.buri
+// ---------------------------------------------------------------------------
+
+// One per repository, at the root. Marks the repository root, pins the
+// toolchain, and declares the tag vocabulary that every BUILD.buri draws from.
+message RepoConfig {
+  // Used in diagnostics and as the default artifact prefix.
+  string name = 1;
+
+  Toolchain toolchain = 2;
+
+  // The axes along which a build can vary. `platform` and `arch` are
+  // predeclared and may be redeclared only to restrict their value sets.
+  repeated Dimension dimension = 3;
+
+  // Cross-dimension policy: which combinations of values are legal at all.
+  repeated Constraint constraint = 4;
+
+  Defaults defaults = 5;
+
+  Lint lint = 6;
+}
+
+message Toolchain {
+  // Exact compiler version. A range is not accepted: two checkouts of the same
+  // commit must not build with two different compilers.
+  string version = 1;
+
+  // Hex SHA-256 of the compiler release archive. The CLI refuses to run if the
+  // resolved toolchain does not hash to this.
+  string sha256 = 2;
+
+  // Flags applied to every compile action in the repository. Part of the cache
+  // key, so changing one invalidates the world.
+  repeated string flags = 3;
+}
+
+message Dimension {
+  // Lowercase identifier: `platform`, `tier`, `surface`.
+  string name = 1;
+
+  repeated Value value = 2;
+
+  // Value assumed for a binary that does not pin this dimension. When unset,
+  // every binary must pin it explicitly.
+  string default = 3;
+
+  message Value {
+    // Must be unique across all dimensions, so `tags: ["server"]` is
+    // unambiguous and `tier=server` is only ever needed for emphasis.
+    string name = 1;
+
+    // Shown in the error message when this value is what rules a library out.
+    string doc = 2;
+  }
+}
+
+// Reads as: in any configuration where `when` holds, the listed requirements
+// hold too. Evaluated once per binary output, before any library is consulted.
+message Constraint {
+  // A single `dimension=value` or bare `value`.
+  string when = 1;
+
+  // Values that must also be present in the configuration.
+  repeated string require = 2;
+
+  // Values that must not.
+  repeated string forbid = 3;
+
+  // Appended to the diagnostic. Write the reason, not the rule.
+  string message = 4;
+}
+
+message Defaults {
+  // Visibility for rules that declare none and whose package declares none.
+  repeated string visibility = 1;
+
+  uint32 test_timeout_seconds = 2;
+}
+
+message Lint {
+  // Diagnostics promoted to errors. See CLI.md for the catalogue.
+  repeated string error = 1;
+
+  // Diagnostics silenced repository-wide. Prefer narrowing the rule to
+  // silencing it.
+  repeated string allow = 2;
+}

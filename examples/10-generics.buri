@@ -73,7 +73,7 @@ fn size<T>(self: Tree<T>): Int {
 
 // --- Generic functions that allocate ----------------------------------------
 
-fn duplicate<T>(ctx: { alloc: Alloc, .. }, xs: [T]): [T] {
+fn duplicate<C: Alloc, T>(ctx: C, xs: [T]): [T] {
   xs.concat(ctx, xs)
 }
 
@@ -86,8 +86,8 @@ fn mapPair<A, B, C>(f: fn(A) => C, g: fn(B) => C, p: Pair<A, B>): Pair<C, C> {
 // `..R` is a row variable: an unknown set of remaining fields. It lets a
 // function accept a richer context and hand the same one to a callback.
 
-fn withLogging<T, ..R>(
-  ctx: { stdout: Stdout, ..R },
+fn withLogging<C: Stdout, T>(
+  ctx: C,
   label: Str,
   action: fn({ stdout: Stdout, ..R }) => T,
 ): T {
@@ -99,11 +99,11 @@ fn withLogging<T, ..R>(
 
 // The anonymous form `..` introduces a fresh row variable when you do not need
 // to name it.
-fn requiresOnlyAlloc(ctx: { alloc: Alloc, .. }, n: Int): [Int] {
+fn requiresOnlyAlloc<C: Alloc>(ctx: C, n: Int): [Int] {
   list.range(ctx, 0, n)
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   // Turbofish supplies explicit type arguments in expression position.
   let n = identity::<Int>(7);
   let s = identity("seven");

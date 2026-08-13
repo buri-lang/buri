@@ -40,17 +40,17 @@ fn safeAverage(xs: [Int]): Option<Int> {
   }
 }
 
-// --- Deterministic but allocating: takes { alloc: Alloc, .. } ---------------
+// --- Deterministic but allocating: bounded by <C: Alloc> --------------------
 
-fn evensDoubled(ctx: { alloc: Alloc, .. }, xs: [Int]): [Int] {
+fn evensDoubled<C: Alloc>(ctx: C, xs: [Int]): [Int] {
   xs.filter(ctx, fn(x) => x % 2 == 0).map(ctx, fn(x) => x * 2)
 }
 
-fn descending(ctx: { alloc: Alloc, .. }, xs: [Int]): [Int] {
+fn descending<C: Alloc>(ctx: C, xs: [Int]): [Int] {
   xs.sortBy(ctx, order.reverse(order.int))
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   // An array literal has a statically known length, so it is not an
   // allocation the programmer has to account for.
   let xs: [Int] = [5, 3, 9, 1, 4, 8];

@@ -23,7 +23,7 @@ from "core/cap" import { Alloc, Stdout };
 // ---------------------------------------------------------------------------
 
 trait Measurable {
-  fn size(self: Self): Int;
+  fn size<C: Alloc>(self: Self): Int;
   fn isEmptyThing(self: Self): Bool;
 }
 
@@ -32,7 +32,7 @@ trait Measurable {
 // read a file or open a socket — the trait declaration is a capability contract
 // binding every future implementor.
 trait Renderable {
-  fn render(self: Self, ctx: { alloc: Alloc, .. }): Str;
+  fn render(self: Self, ctx: C): Str;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,12 +67,12 @@ export struct Playlist {
 }
 
 impl Measurable for Playlist {
-  fn size(self: Playlist): Int { self.tracks.len() }
+  fn size(self: Playlist): Int { self.tracks.len() } 
   fn isEmptyThing(self: Playlist): Bool { self.tracks.isEmpty() }
 }
 
 impl Renderable for Playlist {
-  fn render(self: Playlist, ctx: { alloc: Alloc, .. }): Str {
+  fn render<C: Alloc>(self: Playlist, ctx: C): Str {
     str.format(ctx, "${self.name} (${self.tracks.len()} tracks)")
   }
 }
@@ -118,7 +118,7 @@ fn distances(): Meters {
 // write an expensive `+` in this language. Matrix addition allocates, so it is
 // spelled as a method that says so:
 //
-//   fn add(self: Matrix, ctx: { alloc: Alloc, .. }, other: Matrix): Matrix
+//   fn add<C: Alloc>(self: Matrix, ctx: C, other: Matrix): Matrix
 
 // ---------------------------------------------------------------------------
 // Bounds
@@ -137,7 +137,7 @@ fn largest<T: Ord>(xs: [T]): Option<T> {
   )
 }
 
-fn describeAll<T: Show + Measurable>(ctx: { alloc: Alloc, .. }, xs: [T]): [Str] {
+fn describeAll<C: Alloc, T: Show + Measurable>(ctx: C, xs: [T]): [Str] {
   xs.mapCtx(ctx, fn(c, x) => str.format(c, "${x.show(c)}: ${x.size()}"))
 }
 
@@ -162,7 +162,7 @@ fn area(self: Version): Int {
   self.major * self.minor
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let v1 = Version { major: 1, minor: 2 };
   let v2 = Version { major: 1, minor: 10 };
   let playlist = Playlist { name: "Focus", tracks: ["a", "b", "c"] };

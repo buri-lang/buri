@@ -80,7 +80,7 @@ fn turbofish(): Int {
   intId(3)
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let sums = [1, 2, 3].map(ctx, fn(x) => add(x, 10));
   let _ = io.println(ctx, "add:      ${sums.sum()}");
   let _ = io.println(ctx, "hyp:      ${hypotenuse(3.0, 4.0)}");

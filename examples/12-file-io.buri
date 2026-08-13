@@ -46,7 +46,7 @@ fn best(records: [Record]): Option<Record> {
 
 // --- Allocating but deterministic --------------------------------------------
 
-fn parseAll(ctx: { alloc: Alloc, .. }, text: Str): Result<[Record], LoadError> {
+fn parseAll<C: Alloc>(ctx: C, text: Str): Result<[Record], LoadError> {
   let lines = text.split(ctx, "\n");
   let nonEmpty = lines.filter(ctx, fn(l) => !l.trim().isEmpty());
   let indices = list.range(ctx, 0, nonEmpty.len());
@@ -60,8 +60,8 @@ fn parseAll(ctx: { alloc: Alloc, .. }, text: Str): Result<[Record], LoadError> {
   parseFrom(ctx, numbered, [])
 }
 
-fn parseFrom(
-  ctx: { alloc: Alloc, .. },
+fn parseFrom<C: Alloc>(
+  ctx: C,
   remaining: [(Int, Str)],
   done: [Record],
 ): Result<[Record], LoadError> {
@@ -76,15 +76,15 @@ fn parseFrom(
 
 // --- Effectful: needs Fs ------------------------------------------------------
 
-fn loadScores(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str): Result<[Record], LoadError> {
+fn loadScores<C: Alloc + Fs>(ctx: C, path: Str): Result<[Record], LoadError> {
   // `?` propagates the Err case. The error types must match, so the IoError
   // is wrapped explicitly.
   let text = fs.readText(ctx, path).mapErr(fn(e) => LoadError.Io(e))?;
   parseAll(ctx, text)
 }
 
-fn saveReport(
-  ctx: { alloc: Alloc, fs: Fs, .. },
+fn saveReport<C: Alloc + Fs>(
+  ctx: C,
   path: Str,
   records: [Record],
 ): Result<{}, IoError> {
@@ -95,7 +95,7 @@ fn saveReport(
   fs.writeText(ctx, path, body)
 }
 
-fn errorText(ctx: { alloc: Alloc, .. }, e: LoadError): Str {
+fn errorText<C: Alloc>(ctx: C, e: LoadError): Str {
   match (e) {
     .Io(_) => "could not read the file",
     .Parse { line, text } => str.format(ctx, "line ${line} is malformed: ${text}"),
@@ -107,7 +107,7 @@ fn errorText(ctx: { alloc: Alloc, .. }, e: LoadError): Str {
 // This context is closed — no trailing `..`. The platform grants exactly
 // alloc, fs, and stdout, and nothing in the program can do anything else.
 
-export fn main(ctx: { alloc: Alloc, fs: Fs, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Fs + Stdout>(ctx: C): Result<{}, Str> {
   let inputPath = "scores.csv";
   let outputPath = "report.txt";
 

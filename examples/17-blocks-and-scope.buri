@@ -16,7 +16,7 @@ from "core/cap" import { Alloc, Stdout };
 // here is an operation on the type it is called on, which is exactly the case
 // method resolution covers.
 
-fn topWords(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
+fn topWords<C: Alloc>(ctx: C, text: Str, minLength: Int): [Str] {
   text
     .toLower(ctx)
     .split(ctx, " ")
@@ -27,7 +27,7 @@ fn topWords(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
 
 // The same thing written as nested calls. Identical program; the chain above
 // reads outward-in rather than inside-out.
-fn topWordsNested(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
+fn topWordsNested<C: Alloc>(ctx: C, text: Str, minLength: Int): [Str] {
   list.take(
     list.sortBy(
       list.filter(str.split(str.toLower(text, ctx), ctx, " "), ctx, fn(w) => w.len() >= minLength),
@@ -41,7 +41,7 @@ fn topWordsNested(ctx: { alloc: Alloc, .. }, text: Str, minLength: Int): [Str] {
 
 // A step that is NOT an operation on the receiver's type cannot be a method —
 // `slugify` below lives in this module, not in core/str. Bind it with `let`.
-fn headline(ctx: { alloc: Alloc, .. }, text: Str): Str {
+fn headline<C: Alloc>(ctx: C, text: Str): Str {
   let words = text.toLower(ctx).split(ctx, " ").take(ctx, 3);
   let joined = words.join(ctx, " ");
   joined.trim()
@@ -69,7 +69,7 @@ fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> {
 
 // A block whose last item is a `let` has type `{}`. That is the shape of a
 // function that exists only for its effects.
-fn banner(ctx: { stdout: Stdout, .. }, title: Str): {} {
+fn banner<C: Stdout>(ctx: C, title: Str): {} {
   let line = "------------------------";
   let _ = io.println(ctx, line);
   let _ = io.println(ctx, title);
@@ -81,7 +81,7 @@ fn banner(ctx: { stdout: Stdout, .. }, title: Str): {} {
 // Rebinding a name is legal, including in the same block. Nothing mutates: the
 // earlier binding still exists, it is just no longer reachable by that name.
 
-fn cleanup(ctx: { alloc: Alloc, .. }, raw: Str): Str {
+fn cleanup<C: Alloc>(ctx: C, raw: Str): Str {
   let value = raw.trim();
   let value = value.toLower(ctx);
   let value = value.replace(ctx, "  ", " ");
@@ -95,7 +95,7 @@ fn cleanup(ctx: { alloc: Alloc, .. }, raw: Str): Str {
 // makes effect sequencing meaningful in a language where effects are performed
 // by ordinary calls instead of by a monad.
 
-fn ordered(ctx: { stdout: Stdout, .. }): {} {
+fn ordered<C: Stdout>(ctx: C): {} {
   let _ = io.println(ctx, "one");
   let _ = io.println(ctx, "two");    // always after "one"
   let _ = io.println(ctx, "three");  // always after "two"
@@ -107,7 +107,7 @@ fn shortCircuit(xs: [Int]): Bool {
   xs.len() > 0 && (xs[0] ?? 0) > 100
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let text = "the quick brown fox jumps over the lazy dog";
 
   let _ = banner(ctx, "method chains");

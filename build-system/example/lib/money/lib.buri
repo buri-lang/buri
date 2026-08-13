@@ -1,0 +1,9 @@
+// The public surface of //lib/money, complete. Every name another target can
+// see is on one of these two lines.
+//
+// `toCents` is exported by ./cents so that ./format can use it, and is absent
+// here, so it stops at the library boundary — as a free function and as a
+// method. `c.toCents()` outside this library does not resolve.
+
+from "./cents" export { Cents, fromDollars, fromCents, add, isZero };
+from "./format" export { format };

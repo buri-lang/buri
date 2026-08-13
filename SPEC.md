@@ -61,7 +61,7 @@ fn area(self: Shape): Float {
 }
 
 // Takes a context, so it may allocate and print.
-export fn main(ctx: { alloc: Alloc, stdout: Stdout, .. }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, area).sum();
   let _ = io.println(ctx, "total area: ${total}");
@@ -117,12 +117,13 @@ that depends on capitalization is a parser that depends on convention:
 
 ### 3.4 Keywords
 
-`as` `as?` `as%` `const` `crash` `derive` `else` `enum` `export` `false` `fn`
-`for` `from` `if` `impl` `import` `let` `match` `opaque` `self` `Self` `struct`
-`trait` `true` `type`
+`as` `as?` `as%` `capability` `const` `crash` `ctx` `derive` `else` `enum`
+`export` `false` `fn` `for` `from` `if` `impl` `import` `let` `match` `opaque`
+`self` `Self` `struct` `trait` `true` `type`
 
 `for` appears only in `impl ... for ...` and `derive ... for ...`. `self` is
-legal only as a method's first parameter; `Self` only inside a trait or `impl`.
+legal only as a method's first parameter and `ctx` only as the parameter after
+it (Section 10.2); `Self` only inside a trait or `impl`.
 
 Reserved for future versions and rejected today: `async` `await` `break`
 `continue` `do` `in` `is` `loop` `module` `mut` `pub` `return` `use` `when`
@@ -406,11 +407,15 @@ An open record type accepts any record that has at least the listed fields with
 the listed types. Use `..R` when two positions must share the same unknown tail:
 
 ```buri
-fn passThrough<..R>(ctx: { alloc: Alloc, ..R }): { alloc: Alloc, ..R } { ctx }
+fn passThrough<C: Alloc>(ctx: C): C { ctx }
 ```
 
 Buri uses row polymorphism, not subtyping. There is no `Any`, no top type, and no
 variance to reason about.
+
+Row polymorphism applies to plain data records only. Contexts were its original
+motivation, but capabilities are trait bounds now (Section 10.1) — see Section 14
+open question 6.
 
 ### 5.6 Structs
 
@@ -545,7 +550,6 @@ there are no polymorphic function *values* in v0.2.
 ```buri
 type UserId = Str;
 type Handler<T> = fn(T) => Result<{}, Str>;
-type IoCtx = { alloc: Alloc, stdout: Stdout, stderr: Stderr };
 ```
 
 Aliases are transparent: `type UserId = Str` makes `UserId` and `Str` the same
@@ -558,8 +562,8 @@ Type parameters are declared in angle brackets; row parameters are prefixed with
 
 ```buri
 fn identity<T>(x: T): T { x }
-fn map<A, B>(ctx: { alloc: Alloc, .. }, f: fn(A) => B, xs: [A]): [B] { ... }
-fn tee<T, ..R>(ctx: { stdout: Stdout, ..R }, x: T): T { ... }
+fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B] { ... }
+fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
 ```
 
 A parameter may carry one or more **bounds**, naming traits the argument type
@@ -567,7 +571,7 @@ must satisfy. Multiple bounds are joined with `+`:
 
 ```buri
 fn largest<T: Ord>(xs: [T]): Option<T> { ... }
-fn report<T: Ord + Show>(ctx: { alloc: Alloc, .. }, xs: [T]): Str { ... }
+fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
 
 Inside such a function, the bound's methods are callable on the parameter —
@@ -587,20 +591,50 @@ let e: [Int] = list.empty::<Int>();
 
 ### 5.11 Equality and ordering
 
+**Equality is structural, never referential.** `a == b` compares values: fields
+in declaration order for a struct, the variant plus its payload for an enum,
+element-wise for arrays and tuples, recursively all the way down. Two separately
+constructed values with equal contents are equal.
+
+Referential equality is not merely unchosen — it is **not expressible**. Buri has
+no references, so there is no identity to compare. It is also ruled out by
+Section 8.1: the runtime may share a representation between two values, or copy
+one, whenever that is faster, and the language guarantees you cannot tell. A
+referential `==` would make that guarantee false, since the answer would depend
+on what the optimizer decided.
+
 `==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare` (Section 5.12.4).
 Neither is compiler magic: a type has them because it derives or implements the
-trait.
-
-Every primitive, and `[T]`, tuples, and records built from types that have them,
-satisfy `Eq` and `Ord` out of the box. Your own structs and enums opt in:
+trait. Every primitive, and `[T]`, tuples, and records built from types that have
+them, satisfy `Eq` and `Ord` already. Your own structs and enums opt in:
 
 ```buri
 derive Eq, Ord for Version;
+
+let same = Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 };
+// true — different values, equal contents
 ```
 
 `Eq` is not defined for function types, `Template`, or opaque types from other
-modules, so comparing those is a compile error. `Ord` on floats orders `-0.0`
-equal to `0.0` and reports `NaN` as unordered.
+modules, so comparing those is a compile error.
+
+Two consequences worth knowing:
+
+- **A derived `Eq` inherits IEEE-754 float behaviour.** `NaN != NaN`, so a struct
+  with an `F64` field holding `NaN` is not equal to itself. That is structural
+  equality being honest about its components rather than papering over them, but
+  it does mean derived `Eq` is not reflexive for every value. `Ord` on floats
+  orders `-0.0` equal to `0.0` and reports `NaN` as unordered.
+Referential equality was considered and rejected. `a === b` on ordinary values
+has no stable answer: the runtime may share one representation between two equal
+values or copy it, so the result would depend on the optimization level and on
+the backend. Code that needs identity carries it as data (`struct NodeId(U64)`),
+which is a value the compiler cannot invent or coalesce.
+
+- **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
+  reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
+  expressible — and so is a broken one. `derive` cannot be wrong in that way;
+  hand-written implementations are a place to be deliberate.
 
 ### 5.12 Traits
 
@@ -613,13 +647,17 @@ trait Ord {
 }
 
 trait Show {
-  fn show(self: Self, ctx: { alloc: Alloc, .. }): Str;
+  fn show<C: Alloc>(self: Self, ctx: C): Str;
 }
 ```
 
 `Self` stands for the implementing type and is legal only inside a trait or an
 `impl`. Trait methods declare `self` first, exactly like any other method
 (Section 6.7.1).
+
+A trait declared `capability trait` additionally marks its implementors as
+capability-carrying, which subjects them to the `ctx` rule of Section 10.2. That
+modifier is the only difference between an effect and an ordinary interface.
 
 #### 5.12.1 Satisfaction is structural
 
@@ -1018,7 +1056,7 @@ x.f()          ==  f(x)
 comes second:
 
 ```buri
-export fn map<A, B>(self: [A], ctx: { alloc: Alloc, .. }, f: fn(A) => B): [B]
+export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]
 
 xs.map(ctx, double)          // reads as: this list, in this world, mapped
 ```
@@ -1086,7 +1124,7 @@ Postfix `?` unwraps a `Result` or `Option`, returning early from the enclosing
 function on the failure case.
 
 ```buri
-fn loadPort(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str): Result<Int, ConfigError> {
+fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
   let text = fs.readText(ctx, path)?;        // Err(e) => return Err(e)
   let cfg = parseConfig(text)?;
   .Ok(cfg.port)
@@ -1248,10 +1286,10 @@ export fn slugify(s: Str): Str { ... }
 
 fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> { ... }
 
-fn retry<T, ..R>(
-  ctx: { clock: Clock, ..R },
+fn retry<T, C: Clock>(
+  ctx: C,
   attempts: Int,
-  action: fn({ clock: Clock, ..R }) => Result<T, Str>,
+  action: fn(C) => Result<T, Str>,
 ): Result<T, Str> { ... }
 ```
 
@@ -1275,200 +1313,269 @@ This is the part of Buri that is not TypeScript and not Rust.
 
 ### 10.1 The model
 
-A **capability** is a value of an opaque, unforgeable type. `core/cap` exports
-these primitive capability types:
-
-| Type | Grants |
-|---|---|
-| `Alloc` | heap allocation |
-| `Fs` | file system access |
-| `Net` | network sockets and DNS |
-| `Clock` | reading wall-clock and monotonic time |
-| `Rand` | non-deterministic randomness |
-| `Env` | environment variables and process arguments |
-| `Stdin` `Stdout` `Stderr` | the standard streams |
-| `Proc` | spawning subprocesses |
-
-A **context** is an ordinary record whose fields are capabilities. Contexts are
-not a special language construct — a context is just a record, and passing one is
-just passing an argument. Conventionally it is the first parameter and is named
-`ctx`.
+A **capability** is a trait declared with the `capability` modifier. Its methods
+are the effects it grants:
 
 ```buri
-fn logAndFetch(ctx: { alloc: Alloc, net: Net, stdout: Stdout, .. }, url: Str)
-  : Result<Str, Str> { ... }
-```
+// core/cap
+export capability trait Alloc {
+  fn allocate(self: Self, bytes: Int): Region;
+}
 
-Because record types are row-polymorphic, a function declares the minimum it
-needs and callers pass whatever richer context they hold:
+export capability trait Stdout {
+  fn writeOut(self: Self, text: Template): {};
+}
 
-```buri
-fn caller(ctx: { alloc: Alloc, net: Net, stdout: Stdout, fs: Fs, clock: Clock }) : ... {
-  logAndFetch(ctx, "https://example.com")     // fine: ctx has at least what's required
+export capability trait Fs {
+  fn readFile(self: Self, path: Str): Result<Str, IoError>;
+  fn writeFile(self: Self, path: Str, body: Str): Result<{}, IoError>;
 }
 ```
 
-### 10.2 Where capabilities come from
+`core/cap` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
+`Stdout`, `Stderr`, and `Proc`. Nothing about them is privileged: `capability
+trait` is a declaration form available to any module, so a library can define its
+own effect and get the same guarantees.
 
-Nowhere in user code. Capability types are `opaque`, so their constructors exist
-only inside the platform module that defines them. The single entry point into a
-program is `main`, and the platform hands `main` exactly the context its signature
-asks for:
+A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri
-export fn main(ctx: { alloc: Alloc, stdout: Stdout, fs: Fs }): Result<{}, Str> { ... }
+fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, ConfigError> {
+  let text = fs.readText(ctx, path)?;
+  parse(ctx, text)
+}
 ```
 
-If the signature requests a capability the platform does not provide, the program
-does not compile. A program that never mentions `Net` in `main`'s signature cannot
-open a socket anywhere in its transitive call graph — not in a dependency, not in
-a build script, not by accident.
+There is one constraint mechanism in the language. `<T: Ord + Show>` and
+`<C: Alloc + Fs>` are the same feature: a list of interfaces a type parameter
+must satisfy.
 
-### 10.3 What "pure" means
+### 10.2 The `ctx` rule
 
-A type is **capability-carrying** if it is a primitive capability type, or a
-struct/enum/record/tuple/array/function type that transitively mentions one.
-Otherwise it is **capability-free**.
+**A capability-carrying parameter must be `self` or `ctx`** — never any other
+name, never any other position, and at most one of each:
 
-> **Purity theorem.** If every parameter type of a function `f` is
-> capability-free, and `f` captures no capability-carrying value, then any two
-> evaluations of `f(a)` on equal arguments produce equal results, perform no
-> observable effect, and may be freely cached, reordered, or eliminated.
+```buri
+fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
+fn render<C: Alloc>(self: Report, ctx: C): Str                            // ok
+fn allocate(self: Self, bytes: Int): Region                               // ok
+fn sneaky<C: Fs>(a: Int, handle: C): Bool                                 // ERROR
+fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): {}                         // ERROR
+```
+
+A type is **capability-carrying** if it is a type variable with a capability
+bound, or any type mentioning one — so a struct that stores a context is
+capability-carrying too.
+
+`self` has to be allowed because a capability trait's own methods take the
+capability as their receiver (`fn allocate(self: Self, ...)`), and so do the
+attenuation wrappers of Section 10.8. Outside those two places, effects arrive
+through `ctx`.
+
+The rule costs a little flexibility — a function cannot take two independent
+contexts; bundle them into one type instead — and buys the property the chapter
+rests on:
+
+> **A function is effectful if and only if it has a `ctx` parameter, or a
+> capability-carrying `self`.**
+
+Both are fixed positions with fixed names, so you read the first two parameters
+and stop. You never scan a signature.
+
+### 10.3 Where capabilities come from
+
+The platform. It provides one concrete type implementing the capability traits it
+grants, and hands it to `main`:
+
+```buri
+export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<{}, Str> { ... }
+```
+
+If `main` requests a capability the platform does not implement, the program does
+not compile. A program that never names `Net` in `main`'s bounds cannot open a
+socket anywhere in its transitive call graph — not in a dependency, not in a
+build script, not by accident, because nothing anywhere can obtain a value
+bounded by `Net`.
+
+Note what is *not* claimed: a capability trait is an ordinary interface, so
+anyone may write a type that satisfies it.
+
+```buri
+struct SilentOut {}
+fn writeOut(self: SilentOut, text: Template): {} { {} }   // satisfies Stdout
+```
+
+That is not a forgery hole — a fake `Stdout` still cannot write anything. What is
+unforgeable is the *platform's* implementation. The open interface is what makes
+testing free (Section 10.8).
+
+### 10.4 What "pure" means
+
+> **Purity theorem.** If a function has no `ctx` parameter, no
+> capability-carrying `self`, and captures no capability-carrying value, then any
+> two evaluations on equal arguments produce
+> equal results, perform no observable effect, and may be freely cached,
+> reordered, or eliminated.
 
 Top-level functions capture nothing but other top-level declarations, which are
-themselves capability-free (capabilities cannot be constructed outside the
-platform), so for a top-level `fn` the theorem reduces to a signature check you
-can do with your eyes.
+themselves capability-free, so for a top-level `fn` the theorem reduces to: *is
+there a `ctx` parameter?*
 
 Two consequences worth naming:
 
-- Purity is not a keyword and not an effect annotation. It is the *absence* of an
-  argument. Nothing needs to be inferred, propagated, or polymorphic over.
-- The check is shallow and local. You never have to read a function body, or its
+- Purity is not a keyword and not an effect annotation. It is the absence of one
+  argument, in a fixed position, with a fixed name.
+- The check is shallow and local. You never read a function body, or its
   callees' bodies, to know whether it can touch the world.
 
-### 10.4 Determinism versus effects
+### 10.5 Determinism versus effects
 
 `Alloc` is a **resource** capability: it can fail (out of memory) and it costs
-something, but it is not observable. Every other primitive capability is an
+something, but it is not observable. Every other capability in `core/cap` is an
 **effect** capability.
 
-A function is **deterministic** if its parameters are capability-free except for
-`Alloc`. `list.map(ctx, f, xs)` is deterministic: it needs to allocate, but it
-is referentially transparent. `time.now(ctx)` is not.
+A function is **deterministic** if its only capability bound is `Alloc`.
+`list.map(ctx, f)` is deterministic: it needs to allocate, but it is
+referentially transparent. `time.now(ctx)` is not.
 
-Tracking allocation is the reason `[T]`-returning combinators take a context at
-all, and it is what makes "this function does no I/O" and "this function does not
-allocate" separately expressible:
+Tracking allocation is why `[T]`-returning combinators take a context at all, and
+it is what makes "does no I/O" and "does not allocate" separately expressible:
 
 ```buri
-fn sum(xs: [Int]): Int                                            // pure, no allocation
-fn map<A, B>(ctx: { alloc: Alloc, .. }, f: fn(A) => B, xs: [A]): [B]   // deterministic, allocates
-fn readText(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str): Result<Str, IoError>  // effectful
+fn sum(self: [Int]): Int                                              // pure
+fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]         // deterministic
+fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // effectful
 ```
 
 Fixed-size construction — struct literals, tuples, enum payloads, array literals,
-closures, `Template`s — never requires `Alloc`. Only results whose size depends on
-runtime data do.
+closures, `Template`s — never requires `Alloc`. Only results whose size depends
+on runtime data do.
 
-### 10.5 The capture rule
+### 10.6 The capture rule
 
 **A lambda may not capture a capability-carrying value.** Capabilities travel
-through parameters only.
-
-```buri
-// ERROR: captures ctx
-let f = fn(path) => fs.readText(ctx, path);
-
-// OK: takes its context as an argument
-let f = fn(c: { alloc: Alloc, fs: Fs }, path: Str) => fs.readText(c, path);
-let results = list.mapCtx(ctx, f, paths);
-```
-
-Without this rule, a value of type `fn(Str) => Str` could smuggle a file handle
-past a signature that looks pure, and the purity theorem would be false. With it,
-a function type says everything about what its values can do.
-
-The cost is that effectful higher-order code must thread context explicitly:
+through the `ctx` parameter only.
 
 ```buri
 // ERROR: the lambda captures ctx
-let texts = list.map(ctx, fn(p) => fs.readText(ctx, p), paths);
+let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p));
 
 // Thread the context through a *Ctx combinator instead
-let texts = list.mapCtx(ctx, fn(c, p) => fs.readText(c, p), paths);
+let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
 ```
+
+Without this rule, a value of type `fn(Str) => Str` could smuggle a file handle
+past a signature with no `ctx` parameter, and the purity theorem would be false.
+With it, a function type says everything about what its values can do.
 
 The standard library provides `*Ctx` variants (`list.mapCtx`, `list.filterCtx`,
-`result.andThenCtx`) for exactly this, and explicit recursion is always available
-when the combinator does not fit. This is the sharpest trade-off in the language,
-and Section 14 lists it as the first open question.
+`result.andThenCtx`), and explicit recursion is always available when the
+combinator does not fit. This is the sharpest trade-off in the language, and
+Section 14 lists it as the first open question.
 
-### 10.6 Calling convention
+### 10.7 Calling convention
 
-The standard library, and idiomatic Buri, follows:
-
-**receiver first, context second, everything else after.**
+**receiver first, context second, everything else after** — which is now enforced
+rather than merely conventional (Section 10.2):
 
 ```buri
-export fn map<A, B>(self: [A], ctx: { alloc: Alloc, .. }, f: fn(A) => B): [B]
-export fn readText(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str): Result<Str, IoError>
+export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]
+export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>
 ```
-
-A method leads with `self` because that is what method syntax requires
-(Section 6.7.2), and the context follows immediately so that a signature reads
-as "this value, in this world, does X." A free function has no receiver, so its
-context comes first.
 
 ```buri
 xs.map(ctx, double)
 lines.filter(ctx, isLong).sortBy(ctx, order.str)
 ```
 
-### 10.7 Attenuation
+### 10.8 Restricting what propagates
 
-Because a capability is a value, narrowing authority is just a function. Wrap a
-capability in an opaque struct and export only the operations you want to permit:
+Two forms, giving different guarantees.
+
+**Static confinement.** Bound the callee to fewer capabilities. It receives the
+same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri
-// module: safe/readonlyfs
-export opaque struct ReadOnlyFs(Fs);
+fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
+  let _ = io.println(ctx, msg);
+  // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
+  // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
+}
 
-export fn restrict(fs: Fs): ReadOnlyFs { ReadOnlyFs(fs) }
-
-export fn readText(ctx: { alloc: Alloc, .. }, rfs: ReadOnlyFs, path: Str)
-  : Result<Str, IoError> {
-  fs.readText({ alloc: ctx.alloc, fs: rfs.0 }, path)
+export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<{}, Str> {
+  let _ = logOnly(ctx, "starting");      // same value, confined by its bound
+  .Ok({})
 }
 ```
 
-Outside `safe/readonlyfs`, `ReadOnlyFs` cannot be destructured, so the wrapped
-`Fs` cannot be recovered. A caller handed a `ReadOnlyFs` can read and nothing
-else. The same shape gives you path-scoped file access, rate-limited network
-access, or a seeded `Rand` for tests.
+No copy and no ceremony. Confinement is transitive: `logOnly` cannot hand its
+context to anything requiring more, because `C` is opaque at every call site
+downstream.
 
-### 10.8 Testing
+**Attenuation.** Wrap the context in a type that satisfies fewer capabilities, so
+the callee holds a value that genuinely lacks the rest:
 
-A pure function needs no harness. An effectful function is tested by passing a
-context whose capabilities came from a test platform rather than the OS — the
+```buri
+// module: safe/readonly
+export opaque struct ReadOnly<C>(C);
+
+export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
+
+// Forwards Alloc...
+impl Alloc for ReadOnly<C: Alloc> {
+  fn allocate(self: ReadOnly<C>, bytes: Int): Region { self.0.allocate(bytes) }
+}
+
+// ...and reading, but there is deliberately no `writeFile`, so ReadOnly<C>
+// does not satisfy Fs no matter what C is.
+export fn readFile<C: Fs>(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
+  self.0.readFile(path)
+}
+```
+
+Static confinement is a fact about the type checker; attenuation is a fact about
+the value, and survives anything that later escapes the type system. Use the
+first by default and the second at trust boundaries.
+
+Note that attenuation narrows the *context*, not one capability out of it. That
+is what keeps the `ctx` rule satisfiable: there is still exactly one
+capability-carrying parameter.
+
+### 10.9 Testing
+
+A pure function needs no harness. An effectful one is tested by passing a context
+that satisfies the same traits and does something else — and because capability
+traits are ordinary interfaces, writing one is writing a struct with methods. The
 call site does not change, because there was never a global to stub.
 
----
+```buri
+struct FakeFs { export files: [(Str, Str)] }
+
+fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
+  match (self.files.find(fn(e) => e.0 == path)) {
+    .Some(entry) => .Ok(entry.1),
+    .None => .Err(.NotFound),
+  }
+}
+
+// loadConfig<C: Alloc + Fs> accepts it with no changes anywhere.
+```
 
 ## 11. Programs
 
 A program is a module that exports `main`:
 
 ```buri
-export fn main(ctx: { alloc: Alloc, stdout: Stdout, env: Env, .. }): Result<{}, Str>
+export fn main<C: Alloc + Stdout + Env>(ctx: C): Result<{}, Str>
 ```
 
-- `main` must take exactly one parameter, a record type.
+- `main` must take exactly one parameter, `ctx`, whose type is a parameter
+  bounded by the capabilities the program needs.
 - `main` must return `Result<{}, Str>`.
 - `.Ok({})` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-- Trailing `..` in `main`'s context type means "the platform may pass more"; a
-  closed record means "grant exactly this and nothing else", which is the
-  stricter and recommended form for security-sensitive programs.
+- The bounds are the program's complete effect budget. The platform supplies one
+  value satisfying them; if it cannot satisfy one, the program does not
+  compile.
 
 ### 11.1 Standard library sketch
 
@@ -1501,14 +1608,14 @@ slices and is pure; `split` returns `[Str]` and allocates).
 and sliceable: they return views, not copies. `fold` is pure because it produces
 one value rather than a new collection.
 
-**Deterministic — requires `{ alloc: Alloc, .. }`**
+**Deterministic — bounded by `<C: Alloc>`**
 
 | Module | Functions |
 |---|---|
 | `core/list` | `map`, `mapCtx`, `filter`, `filterCtx`, `concat`, `push`, `reverse`, `sortBy`, `take`, `drop`, `zip`, `range` |
 | `core/str` | `concat`, `join`, `split`, `splitAny`, `replace`, `repeat`, `toUpper`, `toLower`, `fromInt`, `format`, `chars` |
 
-**Effectful — requires an effect capability**
+**Effectful — bounded by an effect capability**
 
 | Module | Needs | Functions |
 |---|---|---|
@@ -1639,8 +1746,7 @@ afterward:
 5. Array rest patterns appear only in final position; at most one per pattern.
 6. Record type field names, struct field names, enum variant names, and match-arm
    pattern bindings must each be unique within their scope.
-7. `main` has the signature required by Section 11.
-8. A lambda may not capture a capability-carrying value (Section 10.5).
+8. A lambda may not capture a capability-carrying value (Section 10.6).
 9. Opaque types may not be constructed or destructured outside their defining
    module, and private fields may not be read, written, or matched outside it.
 10. `as` is permitted only for the conversions in the table of Section 6.2.1;
@@ -1678,6 +1784,16 @@ Methods and traits:
 25. Record *types* may not carry `export` on their fields — visibility is a
     property of nominal declarations, not of structural types.
 
+Capabilities:
+
+26. `ctx` may appear only as a function's first parameter, or the parameter
+    immediately after `self`.
+27. A capability-carrying parameter must be `self` or `ctx`, at most one of each
+    (Section 10.2). A type is capability-carrying if it is a type variable with a
+    capability bound, or any type mentioning one.
+28. `capability` may modify only a `trait` declaration.
+29. `main` has the signature required by Section 11.
+
 ## 14. Non-goals and open questions
 
 **Not in v0.2, and not planned:** mutation, references, lifetimes, classes,
@@ -1689,7 +1805,7 @@ conversions (beyond `Str → Template`), overloading, macros, reflection.
 **Deferred to a later version:** blanket implementations; associated types;
 `where` clauses; supertraits; implementing a trait for a foreign type; dict and
 set literals; fixed-length array types; `async`; ranges; a module-level effect
-summary in generated documentation; user-definable primitive capabilities.
+summary in generated documentation.
 
 Each item in that first deferred group is a step from "trait resolution is a
 lookup" toward "trait resolution is a search," which is the entire compile-time
@@ -1749,7 +1865,7 @@ alike.
 
 1. *The capture rule (10.5) is strict.* It buys a clean purity theorem at the cost
    of ergonomic effectful higher-order code: every effectful traversal goes
-   through a `*Ctx` combinator or hand-written recursion. The alternative —
+   through a `*Ctx` combinator or hand-written recursion (Section 10.6). The alternative —
    encoding a captured-capability row in the function type, e.g.
    `fn(Str) => Str uses { fs: Fs }` — is more expressive but adds an effect system
    to a language whose selling point is not having one. This is the language's
@@ -1773,9 +1889,11 @@ alike.
    adding an operation to `Str`. Calling a method on a bare `T` is what bounds are
    for (5.10); extending a foreign type is what free functions are for. Neither
    gap has a fix that preserves import-free, collision-free resolution.
-6. *Row polymorphism versus subtyping* for contexts. Rows were chosen for
-   inference; subtyping would allow a nominal `Ctx` type with better error
-   messages.
+6. *Row polymorphism has lost its main consumer.* Contexts are bounded type
+   parameters now (Section 10.1), so `..` survives only for open record types on
+   plain data (`{ host: Str, .. }`). That is a thin use case for a whole
+   type-system feature; dropping rows entirely would remove row unification from
+   the checker, which the 1M-lines-per-second target would appreciate.
 7. *Holding the line on 5.12.5.* Restricted traits are cheap precisely because
    resolution is a lookup. Every deferred feature — blanket impls, associated
    types, `where` chains, foreign impls — individually looks reasonable and

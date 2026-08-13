@@ -3,6 +3,7 @@ This details the ecoystem features:
 - JavaScript output
 - Executable (macOS and Linux) output
 - Test runner built in
+    - Any we can easily assert changes to anything in the context without doing actual I/O operations
 - LSP
 - Linter built-in
 - Code formatter built-in

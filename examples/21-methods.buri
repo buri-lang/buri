@@ -85,7 +85,7 @@ fn isOverdrawn(self: Account): Bool {
 // them are methods. None of the lines below imports anything.
 // ---------------------------------------------------------------------------
 
-fn stdlibAsMethods(ctx: { alloc: Alloc, .. }, words: [Str], maybe: Option<Int>): Int {
+fn stdlibAsMethods<C: Alloc>(ctx: C, words: [Str], maybe: Option<Int>): Int {
   let n = words.len();                       // list.len(words)
   let trimmed = words.map(ctx, str.trim);    // list.map(words, ctx, str.trim)
   let joined = trimmed.join(ctx, ", ");      // str.join(trimmed, ctx, ", ")
@@ -105,11 +105,11 @@ fn stdlibAsMethods(ctx: { alloc: Alloc, .. }, words: [Str], maybe: Option<Int>):
 // Str. Methods are not extensible — you cannot bolt an operation onto someone
 // else's type — and that restriction is exactly what keeps method resolution
 // import-free and collision-free.
-fn slugify(ctx: { alloc: Alloc, .. }, title: Str): Str {
+fn slugify<C: Alloc>(ctx: C, title: Str): Str {
   title.toLower(ctx).split(ctx, " ").join(ctx, "-")
 }
 
-fn mixed(ctx: { alloc: Alloc, .. }, title: Str): Int {
+fn mixed<C: Alloc>(ctx: C, title: Str): Int {
   // Methods for the type's own operations; an ordinary call for ours.
   title.trim().len() + slugify(ctx, title).len()
 }
@@ -141,7 +141,7 @@ fn fieldVersusMethod(self: Handler): Int {
   (self.run)(21)
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let sq = Square { height: 3, width: 4 };
   let words: [Str] = ["  alpha ", "beta", " gamma "];
   let title = "  Hello World  ";

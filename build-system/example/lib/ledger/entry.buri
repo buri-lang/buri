@@ -1,0 +1,22 @@
+// A `//` import needs a matching entry in this target's `deps`, and a `deps`
+// entry that nothing imports is an error too, so the build file and the code
+// cannot drift apart.
+from "//lib/money" import { Cents, fromCents };
+
+export struct Entry {
+  export memo: Str,
+  export amount: Cents,
+}
+
+export fn entry(memo: Str, amount: Cents): Entry {
+  Entry { memo: memo, amount: amount }
+}
+
+/// Pure: folds, allocates nothing, touches nothing.
+///
+/// `acc.add(...)` needs no import of `add` — a method resolves through the
+/// receiver's defining module, and `//lib/money` re-exports `add`, so it is on
+/// the surface. Had lib.buri left it out, this line would not compile.
+export fn total(self: [Entry]): Cents {
+  self.fold(fn(acc, e) => acc.add(e.amount), fromCents(0))
+}

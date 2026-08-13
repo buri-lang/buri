@@ -72,7 +72,7 @@ fn step(cart: Cart, event: Event): Result<Cart, Rejected> {
 // --- Pure helpers ---------------------------------------------------------------
 //
 // These take no context because they are written against fixed-size results in
-// this example; the growable versions would take { alloc: Alloc, .. }.
+// this example; the growable versions would be bounded by <C: Alloc>.
 
 fn containsSku(items: [Item], sku: Str): Bool {
   items.any(fn(i) => i.sku == sku)
@@ -116,7 +116,7 @@ fn replayUntilError(start: Cart, events: [Event]): (Cart, Option<Rejected>) {
 
 // --- Rendering ------------------------------------------------------------------
 
-fn describe(ctx: { alloc: Alloc, .. }, cart: Cart): Str {
+fn describe<C: Alloc>(ctx: C, cart: Cart): Str {
   match (cart) {
     .Empty => "empty",
     .Filling { items } =>
@@ -127,7 +127,7 @@ fn describe(ctx: { alloc: Alloc, .. }, cart: Cart): Str {
   }
 }
 
-fn rejectionText(ctx: { alloc: Alloc, .. }, r: Rejected): Str {
+fn rejectionText<C: Alloc>(ctx: C, r: Rejected): Str {
   match (r) {
     .NothingToSubmit => "nothing to submit",
     .AlreadyFinal => "the cart is already final",
@@ -135,7 +135,7 @@ fn rejectionText(ctx: { alloc: Alloc, .. }, r: Rejected): Str {
   }
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let widget = Item { sku: "W-1", quantity: 2, unitCents: 1250 };
   let gadget = Item { sku: "G-9", quantity: 1, unitCents: 9900 };
 

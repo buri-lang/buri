@@ -1,0 +1,19 @@
+// A file in a subdirectory of the package. Its src path is "posting/rules.buri";
+// it reaches the rest of the library through ordinary relative imports, with no
+// visibility rules between them, because a subdirectory is not a boundary.
+
+from "core/cap" import { Alloc };
+
+from "../entry" import { Entry };
+
+export enum Rule {
+  DropZero,
+  MemoPrefix { prefix: Str },
+}
+
+export fn apply(self: [Entry], ctx: { alloc: Alloc, .. }, rule: Rule): [Entry] {
+  match (rule) {
+    .DropZero => self.filter(ctx, fn(e) => !e.amount.isZero()),
+    .MemoPrefix { prefix } => self.filter(ctx, fn(e) => e.memo.startsWith(prefix)),
+  }
+}

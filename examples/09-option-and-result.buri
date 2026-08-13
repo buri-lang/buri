@@ -104,7 +104,7 @@ fn asStringError(r: Result<Config, ConfigError>): Result<Config, Str> {
   r.mapErr(fn(e) => errorText(e))
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let good: [(Str, Str)] = [("host", "example.com"), ("port", "8080")];
   let bad: [(Str, Str)] = [("host", "example.com"), ("port", "not-a-number")];
   let outOfRange: [(Str, Str)] = [("host", "h"), ("port", "99999")];

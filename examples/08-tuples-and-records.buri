@@ -90,7 +90,7 @@ fn tagged<..R>(c: { host: Str, ..R }, newHost: Str): { host: Str, ..R } {
   { ..c, host: newHost }
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let (q, r) = divMod(17, 5);
   let flipped = swap((1, "one"));
 

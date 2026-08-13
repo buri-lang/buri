@@ -38,11 +38,11 @@ export fn lookupKey(pairs: [(Str, Str)], key: Str): Option<Str> {
 /// module you cannot write `Cents(500)` and you cannot pattern-match one open.
 export opaque struct Cents(I64);
 
-export fn fromDollars(d: I64): Cents { Cents(d * 100) }
-export fn fromCents(c: I64): Cents { Cents(c) }
+export fn fromDollars(d: I64): Cents { Cents(d * 100) } 
+export fn fromCents(c: I64): Cents { Cents(c) } 
 export fn addMoney(a: Cents, b: Cents): Cents { Cents(a.0 + b.0) }
 
-export fn formatMoney(ctx: { alloc: Alloc, .. }, c: Cents): Str {
+export fn formatMoney<C: Alloc>(ctx: C, c: Cents): Str {
   let dollars = c.0 / 100;
   let remainder = c.0 % 100;
   let pad = if (remainder < 10) { "0" } else { "" };
@@ -63,7 +63,7 @@ export opaque enum Status {
   Archived,
 }
 
-export fn draft(): Status { Status.Draft }
+export fn draft(): Status { Status.Draft } 
 export fn publish(at: Str): Status { Status.Published { at: at } }
 
 export fn isVisible(s: Status): Bool {
@@ -82,11 +82,11 @@ type Renderer = fn(Row) => Str;
 
 // `Row` and `(Str, Str)` are the same type; aliases document, they do not
 // protect. Use a tuple struct when you want a distinct type.
-export fn renderTable(ctx: { alloc: Alloc, .. }, render: Renderer, t: Table): Str {
+export fn renderTable<C: Alloc>(ctx: C, render: Renderer, t: Table): Str {
   t.mapList(ctx, render).join(ctx, "\n")
 }
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let table: Table = [("host", "localhost"), ("port", "8080"), ("tls", "false")];
 
   let paddedKey = "  port  ";

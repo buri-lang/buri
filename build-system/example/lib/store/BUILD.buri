@@ -1,0 +1,29 @@
+# //lib/store — the persistence layer. Two restrictions, for two different
+# reasons:
+#
+#   visibility  who may write a dependency edge to it   (API ownership)
+#   tags        where the code may end up               (deployment boundary)
+#
+# Visibility keeps the layering honest: only the server binary and the library
+# itself may depend on it directly. The tag is the one that survives four hops
+# of indirection — nothing tagged `server` is ever linked into a client binary,
+# whoever pulls it in.
+
+library {
+  name: "store"
+  srcs: [
+    "codec.buri",
+    "file_store.buri",
+  ]
+  deps: [
+    "//lib/ledger",
+    "//lib/money",
+  ]
+  tags: ["server"]
+  visibility: ["//cmd/server:server"]
+
+  test {
+    srcs: ["test/store.buri"]
+    data: ["test/golden/log.txt"]
+  }
+}

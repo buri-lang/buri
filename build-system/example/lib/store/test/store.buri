@@ -1,0 +1,32 @@
+// This suite runs in a server configuration, because //lib/store is tagged
+// `server` and a test runs in the configuration of the target under test.
+//
+// `fs` here is the test platform's in-memory filesystem, rooted at the package
+// directory and containing exactly the files in `test { data: [...] }`. Writes
+// are visible to this test and discarded when it ends.
+
+from "//lib/store" import { append, readLog, StoreError };
+from "//lib/ledger" import { entry };
+from "//lib/money" import { fromCents };
+from "core/cap" import { Alloc, Fs };
+from "core/test" import { Expect };
+from "core/test" import * as t;
+
+test "append writes the log format" (ctx: { alloc: Alloc, expect: Expect, fs: Fs }): Result<{}, Str> {
+  let _ = t.isOk(ctx, append(ctx, "ledger.log", [entry("coffee", fromCents(450))]))?;
+  let written = t.isOk(ctx, readLog(ctx, "ledger.log"))?;
+  t.eq(ctx, written, "coffee\t\$4.50")?;
+  .Ok({})
+}
+
+test "reading a missing log is an error, not a crash" (ctx: { alloc: Alloc, expect: Expect, fs: Fs }): Result<{}, Str> {
+  let _ = t.isErr(ctx, readLog(ctx, "nope.log"))?;
+  .Ok({})
+}
+
+test "the golden log round-trips" (ctx: { alloc: Alloc, expect: Expect, fs: Fs }): Result<{}, Str> {
+  let want = t.isOk(ctx, readLog(ctx, "test/golden/log.txt"))?;
+  let _ = t.isOk(ctx, append(ctx, "out.log", [entry("books", fromCents(3200))]))?;
+  t.eq(ctx, t.isOk(ctx, readLog(ctx, "out.log"))?, want)?;
+  .Ok({})
+}
