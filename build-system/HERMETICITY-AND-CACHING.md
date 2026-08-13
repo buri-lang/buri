@@ -13,7 +13,7 @@ set of inputs to a declared set of outputs. There are four kinds:
 | Action | Inputs | Outputs |
 |---|---|---|
 | `interface` | A library's `lib.buri`, and the `interface` outputs of its deps | `<lib>.bi` — every exported name with its full type |
-| `compile` | One target's sources, the `interface` outputs of its deps, the configuration | `<target>.bo` — the compiled module set |
+| `compile` | One target's sources, the `interface` outputs of its deps, the platform | `<target>.bo` — the compiled module set |
 | `link` | A binary's `compile` output and those of its transitive deps | The artifact: an executable, or a `.mjs` |
 | `test` | A suite's `compile` output, the target's `compile` output, `test.data` | A pass/fail record and captured output |
 
@@ -72,8 +72,8 @@ key = H(
   action_kind,             // interface | compile | link | test
   toolchain.version,
   toolchain.sha256,
-  toolchain.flags,         // plus --release/--debug
-  configuration,           // every dimension=value pair, sorted
+  build_mode,              // --release / --debug
+  platform, arch,          // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
   H(content of each input file),
   key(each input action),  // deps enter as their keys, not their contents
@@ -92,9 +92,12 @@ bug:
   when its dependency's *output-determining* inputs change, and a `compile`
   action depends on its deps' `interface` actions — so a body edit does not
   propagate.
-- **The configuration is in the key.** The same library built for `linux/server`
-  and for `js/client` is two entries. Nothing is reused across configurations,
-  and nothing is confused between them.
+- **The platform is in the key, and tags are not.** The same library built for
+  `linux/x86_64` and for `js` is two entries, and nothing is reused or confused
+  between them. Tags are absent on purpose: a tag decides whether a build is
+  *allowed*, never what it *produces*, so tagging a library differently
+  invalidates no cache entry. That falls out of there being no conditional
+  compilation — a source file means one thing everywhere.
 
 Outputs are content-addressed under `.buri/cache/`, keyed by action key. `buri
 build` after a no-op edit is a hash comparison and no compiler invocations.

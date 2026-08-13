@@ -32,14 +32,17 @@ buri build //cmd/server --output=linux/x86_64
 buri build //cmd/server --release
 ```
 
-Builds every requested target in every configuration its `outputs` declare.
-`--output` selects one. Artifacts land in `.buri/out/<config>/<package>/<name>`
-and a convenience symlink `out/` points at the most recent configuration:
+Builds every requested target for every platform its `outputs` declare.
+`--output` selects one. Artifacts land in `.buri/out/<platform>/<package>/<name>`
+and a convenience symlink `out/` points at the most recent:
 
 ```
-.buri/out/linux-x86_64-server/cmd/server/server
-.buri/out/js-client/cmd/web/web.mjs
+.buri/out/linux-x86_64/cmd/server/server
+.buri/out/js/cmd/web/web.mjs
 ```
+
+Tags are not in the path, because they are not in the cache key: a tag decides
+whether a build is permitted, never what it produces.
 
 `--release` and `--debug` are flags on the command rather than repository
 configuration, are part of the cache key, and default to `--debug`.
@@ -110,11 +113,13 @@ Build-graph rules — always errors, not configurable:
 | `boundary-violation` | An import of a module internal to another package, or across a rule boundary within one. |
 | `testonly-in-production` | A non-test source importing a path with a `testing` segment. |
 | `visibility-violation` | A dependency the target is not visible to. |
-| `tag-violation` | A library that cannot be linked into the configuration being built. |
+| `tag-violation` | Two tags that forbid each other in one dependency closure. |
+| `platform-violation` | A target in the closure that does not admit the platform being built. |
+| `unknown-tag` | A `tags` entry naming no `tag` block in `REPO.buri`. Suggests the nearest declared name. |
 
-Style and hygiene rules — defaults shown, adjustable in `REPO.buri`:
+Style and hygiene rules:
 
-| | Default |
+| | Severity |
 |---|---|
 | `unreachable-export` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export |
 | `name-matches-directory` | warn — a target whose `name` is not its directory's |
@@ -123,6 +128,14 @@ Style and hygiene rules — defaults shown, adjustable in `REPO.buri`:
 | `discarded-result` | warn — `let _ =` on a `Result`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md) |
 | `empty-test-suite` | warn — a `test` block with no `sources` |
 | `test-without-assertion` | warn — a `test` declaration whose body contains no `assert` |
+
+**None of this is configurable.** There is no `lint` block in `REPO.buri`, no
+per-file suppression comment, and no way to promote or silence a check for one
+repository. A configurable linter makes "does this code pass" a question you
+cannot answer from the code, and an `allow` list is how a rule that should have
+been argued about once gets turned off quietly instead. A check that is wrong
+often enough to want silencing is a check to change here, in the catalogue,
+where the argument happens once.
 
 ## `gen`
 
@@ -146,8 +159,8 @@ Rewrites, in every requested package's existing `BUILD.buri`:
 - `test.dependencies` — the libraries the test sources use, minus the target under test
   and its `dependencies`.
 
-and rewrites **nothing else**. `name`, `tags`, `visibility`, `outputs`,
-`test.data`, `timeout_seconds`, the `package` block, and every comment survive
+and rewrites **nothing else**. `name`, `tags`, `platforms`, `visibility`,
+`outputs`, `test.data`, `timeout_seconds`, and every comment survive
 byte-identical. Generated lists are sorted; a field the tool manages is replaced
 whole rather than merged, so hand-editing `sources` is pointless and hand-editing
 `tags` is expected.
@@ -190,7 +203,8 @@ remember the command.
 buri query 'deps(//cmd/server)'                transitive deps
 buri query 'rdeps(//lib/money)'                 who depends on this
 buri query 'path(//cmd/web, //lib/store)'      why is this linked in
-buri query 'tags(//lib/store)'                  effective constraint
+buri query 'tags(//lib/store)'                  every tag in its closure
+buri query 'platforms(//lib/store)'            the platforms it can be built for
 buri query 'sources(//lib/money)'              files, as the build sees them
 ```
 

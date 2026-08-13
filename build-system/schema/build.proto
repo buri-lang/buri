@@ -1,9 +1,10 @@
-// The normative schema for `BUILD.buri` and `REPO.buri`.
+// The normative schema for `BUILD.buri`. The root `REPO.buri` has its own
+// schema in repo.proto.
 //
-// Both files are textproto. `BUILD.buri` parses as `buri.build.v1.BuildFile`;
-// `REPO.buri` parses as `buri.build.v1.RepoConfig`. Neither file is a program:
-// there is no expression language, no glob, no macro, and no import. A build
-// file is data, and reading it is the whole of understanding what it declares.
+// `BUILD.buri` is textproto and parses as `buri.build.v1.BuildFile`. It is not a
+// program: there is no expression language, no glob, no macro, and no import. A
+// build file is data, and reading it is the whole of understanding what it
+// declares.
 //
 // The tool parses these with the same .proto reader the language uses for
 // `from "//proto/foo.proto" import ...`, so an unknown field is an error with a
@@ -12,10 +13,6 @@
 syntax = "proto3";
 
 package buri.build.v1;
-
-// ---------------------------------------------------------------------------
-// BUILD.buri
-// ---------------------------------------------------------------------------
 
 // A directory containing a BUILD.buri file is a *package*. Files in
 // subdirectories that do not themselves contain a BUILD.buri belong to the
@@ -26,20 +23,11 @@ package buri.build.v1;
 // module `lib/money/lib.buri` all at once, and it is why no label in this
 // schema has a `:target` suffix.
 message BuildFile {
-  // Optional defaults applied to the rules in this file.
-  Package package = 1;
-
   // The library rooted at this package's `lib.buri`.
-  Library library = 2;
+  Library library = 1;
 
   // The binary rooted at this package's `main.buri`.
-  Binary binary = 3;
-}
-
-message Package {
-  // Visibility for rules in this file that do not declare their own.
-  // Falls back to `RepoConfig.defaults.visibility` when unset.
-  repeated string default_visibility = 1;
+  Binary binary = 2;
 }
 
 // A `library` requires `lib.buri` in the package directory. That file is the
@@ -63,10 +51,22 @@ message Library {
   // or by calling a method that resolves into it, and both require the entry.
   repeated string dependencies = 3;
 
-  // Where this library may be linked, as values of the dimensions declared in
-  // REPO.buri. A dimension no tag mentions is unconstrained. Tags mean the same
-  // thing on a library and on a binary. See TAGS.md.
+  // Labels drawn from the vocabulary REPO.buri declares. A tag is a fact about
+  // this library, not a constraint: the constraints live on the tag
+  // declaration. Tags mean the same thing on a library and on a binary.
+  //
+  // Every entry must name a `tag` block in REPO.buri. An undeclared tag is an
+  // error, never a no-op — a tag that silently means nothing is a policy that
+  // silently is not enforced, and `tags: ["sever"]` should not be the quiet
+  // difference between a checked build and an unchecked one. See TAGS.md.
   repeated string tags = 4;
+
+  // The platforms this library can be built for. Unset means all of them, which
+  // is the common case — set this only for code that is genuinely
+  // platform-specific. A whitelist rather than an exclusion, so adding a
+  // platform to the toolchain never silently widens a library written before it
+  // existed.
+  repeated Platform platforms = 8;
 
   // Who may depend on this library. See VISIBILITY in BUILD-FILES.md.
   repeated string visibility = 5;
@@ -104,13 +104,13 @@ message Binary {
 
   repeated string dependencies = 3;
 
-  // Exactly the same meaning as on a library: the configurations this target
-  // accepts. The configuration a build actually runs in is resolved from these,
-  // the `outputs` entry, every dependency's tags, and the dimension defaults.
+  // Exactly the same meaning as on a library: labels this target carries. A
+  // binary has no `platforms` field — its `outputs` already say which platforms
+  // it is built for.
   repeated string tags = 4;
 
-  // What to produce. One artifact per entry, and one configuration per entry,
-  // so the whole graph is tag-checked once per output.
+  // What to produce. One artifact per entry, and the whole graph is checked
+  // once per entry, because each entry names a different platform.
   repeated Output outputs = 5;
 
   // Tests that exercise this binary through `main.buri`.
@@ -118,10 +118,11 @@ message Binary {
 }
 
 message Output {
-  // Contributes `platform` to the configuration for this artifact.
+  // The platform this artifact is built for. Every library in the transitive
+  // closure that declares `platforms` must admit it.
   Platform platform = 1;
 
-  // Contributes `arch`. Ignored, and must be unset, when platform is JS.
+  // Ignored, and must be unset, when platform is JS.
   Arch arch = 2;
 
   // Artifact filename. Defaults to the target name (plus `.mjs` for JS).
@@ -170,138 +171,12 @@ message TestSuite {
   // rewrites these in the source tree; see HERMETICITY-AND-CACHING.md.
   repeated string data = 3;
 
-  // Wall-clock ceiling per test declaration. Defaults to
-  // `RepoConfig.defaults.test_timeout_seconds`.
+  // Wall-clock ceiling per test declaration. Unset means the runner's built-in
+  // default. There is no repository-wide setting: a suite that needs longer
+  // says so where someone reading it will see it.
   uint32 timeout_seconds = 4;
 
-  // Configurations to run this suite in — one run per value listed. Unset means
-  // one run, in the host configuration, restricted by the target's own tags.
-  repeated string tags = 5;
-}
-
-// ---------------------------------------------------------------------------
-// REPO.buri
-// ---------------------------------------------------------------------------
-
-// One per repository, at the root. Marks the repository root, pins the
-// toolchain, and declares the tag vocabulary that every BUILD.buri draws from.
-message RepoConfig {
-  // Used in diagnostics and as the default artifact prefix.
-  string name = 1;
-
-  Toolchain toolchain = 2;
-
-  // The axes along which a build can vary. `platform` and `arch` are
-  // predeclared and may be redeclared only to restrict their value sets.
-  repeated Dimension dimension = 3;
-
-  // Named groups of values, so a common combination is written once.
-  repeated TagSet tag_set = 4;
-
-  // Cross-dimension policy: which combinations of values are legal at all.
-  repeated Constraint constraint = 5;
-
-  Defaults defaults = 6;
-
-  Lint lint = 7;
-}
-
-message Toolchain {
-  // Exact compiler version. A range is not accepted: two checkouts of the same
-  // commit must not build with two different compilers.
-  string version = 1;
-
-  // Hex SHA-256 of the compiler release archive. The CLI refuses to run if the
-  // resolved toolchain does not hash to this.
-  string sha256 = 2;
-
-  // Flags applied to every compile action in the repository. Part of the cache
-  // key, so changing one invalidates the world.
-  repeated string flags = 3;
-}
-
-message Dimension {
-  // Lowercase identifier: `platform`, `tier`, `maturity`.
-  string name = 1;
-
-  repeated Value value = 2;
-
-  // How this dimension's tags travel along a dependency edge. This is the
-  // user-definable part of tag composition; see TAGS.md.
-  Compose compose = 3;
-
-  // Value assumed when composition leaves more than one possible, for an
-  // INTERSECT dimension. When unset, an ambiguous dimension is an error and
-  // every binary must narrow it.
-  string default = 4;
-
-  message Value {
-    // Must be unique across all dimensions and tag sets, so `tags: ["server"]`
-    // is unambiguous and `tier=server` is only ever needed for emphasis.
-    string name = 1;
-
-    // Shown in the error message when this value is what rules a library out.
-    string doc = 2;
-  }
-
-  enum Compose {
-    // INTERSECT. A target accepts the values its own tags allow and that every
-    // dependency allows. Tags are restrictions, and restrictions accumulate.
-    COMPOSE_UNSPECIFIED = 0;
-    INTERSECT = 1;
-
-    // A value carried by any dependency is carried by the dependent, whether it
-    // asked for it or not. Tags still restrict — a target's tags are the values
-    // it is willing to carry — so this models "what is in here", not "where may
-    // this go": licensing, data classification, maturity.
-    PROPAGATE = 2;
-
-    // No composition. Each target is checked against the configuration on its
-    // own, and a dependency's tags say nothing about its dependents.
-    INDEPENDENT = 3;
-  }
-}
-
-// A name for a set of values, usable anywhere a tag is. Expansion is textual
-// and happens before anything else, so a tag set may not contain another.
-message TagSet {
-  // Unique across dimension values and other tag sets.
-  string name = 1;
-
-  // Values, which may span dimensions.
-  repeated string values = 2;
-
-  string doc = 3;
-}
-
-// Reads as: in any configuration where `when` holds, the listed requirements
-// hold too. Evaluated once per binary output, before any dependency is walked.
-message Constraint {
-  // A single value, or `dimension=value`, or a tag set name.
-  string when = 1;
-
-  // Values that must also be present in the configuration.
-  repeated string require = 2;
-
-  // Values that must not.
-  repeated string forbid = 3;
-
-  // Appended to the diagnostic. Write the reason, not the rule.
-  string message = 4;
-}
-
-message Defaults {
-  // Visibility for rules that declare none and whose package declares none.
-  repeated string visibility = 1;
-
-  uint32 test_timeout_seconds = 2;
-}
-
-message Lint {
-  // Diagnostics promoted to errors. See CLI.md for the catalogue.
-  repeated string error = 1;
-
-  // Diagnostics silenced repository-wide. Prefer narrowing the rule to
-  // silencing it.
-  repeated string allow = 2;
+  // Platforms to run this suite on — one run per entry. Unset means one run, on
+  // the host platform. The suite inherits the target's tags either way.
+  repeated Platform platforms = 5;
 }

@@ -2,12 +2,16 @@
 # reasons:
 #
 #   visibility  who may write a dependency edge to it   (API ownership)
-#   tags        where the code may end up               (deployment boundary)
+#   tags        what may end up in one artifact         (deployment boundary)
 #
 # Visibility keeps the layering honest: only the server binary and the library
 # itself may depend on it directly. The tag is the one that survives four hops
 # of indirection — nothing tagged `server` is ever linked into a client binary,
 # whoever pulls it in.
+#
+# Note what is *not* here: no platform restriction. This library has no opinion
+# about platforms of its own. It cannot be built for JS, but that follows from
+# the `server` tag's policy in REPO.buri, stated once for all server code.
 
 library {
   name: "store"

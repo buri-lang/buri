@@ -1,5 +1,6 @@
-// This suite runs in a server configuration, because //lib/store is tagged
-// `server` and a test runs in the configuration of the target under test.
+// This suite inherits //lib/store's `server` tag, so it is checked as server
+// code. It declares no `platforms`, so it runs once, on the host — which the
+// `server` tag admits.
 //
 // `context()` gives an in-memory filesystem rooted at the package
 // directory and containing exactly the files in `test { data: [...] }`. Writes

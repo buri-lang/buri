@@ -120,7 +120,8 @@ library {
 | `name` | Diagnostics and artifact names. Required. Conventionally the directory name; `buri lint` warns when it is not. |
 | `sources` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
 | `dependencies` | Labels of libraries this one may use. |
-| `tags` | Where this library may be linked. See [`TAGS.md`](./TAGS.md). |
+| `tags` | Labels saying what this code is; the policy they carry is declared in `REPO.buri`. See [`TAGS.md`](./TAGS.md). |
+| `platforms` | The platforms it can be built for. Omit unless the code is genuinely platform-specific — unset means all of them. |
 | `visibility` | Who may depend on it. Defaults below. |
 | `test` | The test suite for this library. See [`TESTING.md`](./TESTING.md). |
 | `testing` | The library's utilities *for other people's tests*, rooted at `testing/lib.buri`. See below. |
@@ -228,14 +229,15 @@ are checked against the platform for each output: a `main` bounded by `Fs` under
 browser.
 
 `outputs` is a list because one entry point commonly ships several ways. Each
-entry contributes `platform` and `arch` to a **separate configuration**, so the
-whole dependency graph is tag-checked once per output, and
-`buri build //cmd/server` may succeed for Linux and fail for JS. Build one with
-`buri build //cmd/server --output=js`.
+entry names a platform, and the whole dependency graph is checked against it
+separately, so `buri build //cmd/server` may succeed for Linux and fail for JS.
+Build one with `buri build //cmd/server --output=js`. A binary has no
+`platforms` field of its own: `outputs` already says.
 
-`tags` on a binary mean exactly what they mean on a library — the
-configurations this target accepts — and are covered in [`TAGS.md`](./TAGS.md).
-There is no second tag mechanism for binaries.
+`tags` on a binary mean exactly what they mean on a library — labels saying what
+the code is — and are covered in [`TAGS.md`](./TAGS.md). There is no second tag
+mechanism for binaries. The tag check does not vary across outputs, so it runs
+once no matter how many artifacts the binary produces.
 
 A `binary` has no `visibility` field: nothing can depend on a binary. Use
 `buri run` or `buri build`, and if two binaries need shared code, that code is a
@@ -307,11 +309,15 @@ depending target's package matches at least one of them.
 | `//lib/...` | Any package under `lib/`, including `lib` itself. |
 | `//lib/money` | That one package. |
 
-Resolution order for a rule that omits `visibility`: the package's
-`package { default_visibility: ... }`, then `RepoConfig.defaults.visibility`,
-then `//visibility:private`. Setting the repository default to `private` and
-opening surfaces deliberately is the recommended posture, and it is what the
-[`example/`](./example/) repository does.
+A rule that omits `visibility` is `//visibility:private`. There is no package
+default and no repository default — the one place that decides who may depend on
+a library is the library's own rule. A default declared elsewhere would mean
+`visibility` being absent tells you nothing until you have found and read
+another file, which is the opposite of what putting it on the rule is for.
+
+The cost is repetition in a package that opens several surfaces the same way,
+paid because the alternative is a repository whose surfaces can be widened by
+editing a file that names none of them.
 
 ```textproto
 # lib/store/BUILD.buri — the database layer is not for general use
@@ -349,7 +355,8 @@ depends on `//lib/ledger` and `//lib/ledger` depends on `//lib/store`, then
 `//lib/store` needs to be visible to `//lib/ledger` and to nobody else.
 Restricting what may travel through a transitive chain is what tags are for, and
 they are the right tool for it because the constraint follows the code rather
-than the edge.
+than the edge — a tag is checked over the whole closure, so it does not matter
+who wrote the edge that pulled the code in.
 
 ## Dependencies
 

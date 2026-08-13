@@ -87,7 +87,7 @@ looked harmless, which visibility would not catch.
 
 | File | The point |
 |---|---|
-| [`REPO.buri`](./REPO.buri) | An exactly pinned toolchain, two custom dimensions that compose differently, a tag set, a policy constraint, private-by-default visibility |
+| [`REPO.buri`](./REPO.buri) | An exactly pinned toolchain, the whole tag vocabulary with its policy attached, private-by-default visibility |
 | [`lib/money/lib.buri`](./lib/money/lib.buri) | A complete public surface in two lines; `toCents` deliberately left off it |
 | [`lib/money/cents.buri`](./lib/money/cents.buri) | Why a type's methods all live in one file, and what an unexported field hides from whom |
 | [`lib/money/parse.buri`](./lib/money/parse.buri) | Free functions over a type declared in another module; three levels of visibility in one file |
@@ -119,5 +119,10 @@ looked harmless, which visibility would not catch.
   used by two suites in two packages, and importable by neither library's
   production sources.
 - **Compare `cmd/server/BUILD.buri` and `cmd/web/BUILD.buri`.** Same libraries,
-  same sources, different configurations, and every difference between the two
-  builds is visible in those two files.
+  same sources, different platforms and different tags, and every difference
+  between the two builds is visible in those two files.
+- **Notice how few `platforms` fields there are.** Exactly zero, in a repository
+  that ships both a native binary and a JS module. Libraries take no position on
+  platforms unless they are doing something platform-specific; the one real
+  restriction lives on the `server` tag, where it is policy rather than a fact
+  about any single library.

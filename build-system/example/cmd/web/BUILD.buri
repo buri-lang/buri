@@ -4,15 +4,16 @@
 # Adding "//lib/store" to dependencies compiles fine as a graph and fails the
 # tag check, with the path printed:
 #
-#   error: //cmd/web cannot be built for js
-#     = configuration: platform=js, tier=client
-#     = //lib/store accepts only tier=server, and this build is tier=client
-#     = reached by: //cmd/web -> //lib/store
+#   error: //cmd/web cannot contain both "client" and "server" code
+#     = "client" is carried by //cmd/web itself
+#     = "server" is carried by //lib/store
+#         reached by: //cmd/web -> //lib/store
+#     = "client": ships to a user's machine or browser
 #     = "server": runs on infrastructure we operate
 #
-# Dropping `tags: ["client"]` does not help either — REPO.buri constrains
-# platform=js to require tier=client, so the binary would fail before any
-# library was consulted.
+# Dropping `tags: ["client"]` does not help either. REPO.buri limits the
+# `server` tag to [LINUX, MACOS], so the JS output fails on the platform rule
+# instead — the deployment policy is stated once and enforced from both sides.
 
 binary {
   name: "web"

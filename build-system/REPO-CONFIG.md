@@ -6,53 +6,41 @@ against the directory containing it, and the CLI walks up from the working
 directory to find it.
 
 It parses as `buri.build.v1.RepoConfig`
-([`schema/build.proto`](./schema/build.proto)).
+([`schema/repo.proto`](./schema/repo.proto)) — its own schema file, separate from
+the one `BUILD.buri` uses.
+
+**The whole file:**
 
 ```textproto
 # REPO.buri
 
-name: "acme"
-
 toolchain {
   version: "0.3.0"
   sha256: "9f2b1c4e8a7d3f60b5c1e9a24d7f8036b1c5e2a94f7d0b83c6e1a5d2f9b04c7e3"
-  flags: ["--warnings-as-errors"]
 }
 
-dimension {
-  name: "tier"
-  compose: INTERSECT
-  value { name: "client" doc: "ships to a user's machine or browser" }
-  value { name: "server" doc: "runs on infrastructure we operate" }
+tag {
+  name: "server"
+  doc: "runs on infrastructure we operate"
+
+  forbids { tags: ["client"] }
+
+  requires { platforms: [LINUX, MACOS] }
 }
 
-dimension {
-  name: "maturity"
-  compose: PROPAGATE
-  value { name: "stable" }
-  value { name: "experimental" doc: "API may change without a deprecation period" }
-}
-
-tag_set {
-  name: "native"
-  values: ["linux", "macos"]
-}
-
-constraint {
-  when: "platform=js"
-  require: ["tier=client"]
-  message: "the JS output ships to browsers; server code is not shipped to users"
-}
-
-defaults {
-  visibility: ["//visibility:private"]
-  test_timeout_seconds: 60
-}
-
-lint {
-  error: ["unreachable-export"]
+tag {
+  name: "client"
+  doc: "ships to a user's machine or browser"
 }
 ```
+
+Two fields. That is not an abridged example — there is nothing else to write.
+A repository-wide config file attracts settings, and every setting it accepts is
+a way for two repositories to disagree about what the language is, or a way for a
+rule to mean something different than it reads. The rule is that a knob goes on
+the command (where it is visible in the invocation) or on the rule it affects
+(where it is visible to someone reading that rule), and `REPO.buri` gets what
+genuinely has no other home.
 
 ## `toolchain`
 
@@ -62,84 +50,68 @@ The `sha256` covers the compiler release archive; the CLI refuses to run if the
 toolchain it resolved does not hash to it, which is the difference between
 pinning a version and pinning a compiler.
 
-`flags` apply to every compile action in the repository and are part of every
-cache key, so changing one invalidates everything. There is no per-target flag
-field, and adding one would mean two targets in the same repository disagreeing
-about what the language is.
+There is no `flags` field. A repository-wide compiler flag is a dialect, and a
+dialect makes source files mean different things in different repositories — the
+exact property the rest of this design spends its budget avoiding. If some flag
+turns out to be genuinely necessary, it becomes a named field on this message,
+argued about once, rather than an open list of strings nobody can enumerate.
 
-## `dimension`, `tag_set`, `constraint`
+## `tag`
 
-The tag vocabulary, and the rules for how it composes. Fully documented in
-[`TAGS.md`](./TAGS.md); the summary is that a `dimension` is an axis a build
-varies along, `compose` says how that axis travels along a dependency edge
-(`INTERSECT`, `PROPAGATE`, `INDEPENDENT`), a `tag_set` names a combination of
-values, and a `constraint` rules out configurations that should not exist.
+The tag vocabulary and, on the same block, everything that follows from carrying
+a tag. Fully documented in [`TAGS.md`](./TAGS.md); the summary is two blocks
+named for their polarity, so what a tag rules out and what it demands are
+distinguishable at a glance:
 
-`platform` and `arch` are predeclared:
+| | |
+|---|---|
+| `forbids { tags: [...] }` | Tags that may not appear anywhere in the same dependency closure. Symmetric. |
+| `requires { platforms: [...] }` | The only platforms code carrying this tag may be built for. A whitelist; unset means all. |
 
-```textproto
-dimension {
-  name: "platform"
-  compose: INTERSECT
-  value { name: "linux" }
-  value { name: "macos" }
-  value { name: "js" }
-}
+Those are the only two fields either block accepts. `forbids` takes no platforms
+and `requires` takes no tags, both for reasons `TAGS.md` gives. There is nothing
+else — no axes, no composition modes, no defaults, and no separate block for
+cross-cutting policy.
 
-dimension {
-  name: "arch"
-  compose: INTERSECT
-  value { name: "x86_64" }
-  value { name: "arm64" }
-}
-```
+This is the only place a tag name is introduced, and the vocabulary is **closed**.
+A build file three directories down writing `tags: ["internal"]` resolves to a
+block here or fails: an undeclared tag is an error, not an annotation that
+quietly means nothing. So `internal` declared twice is rejected rather than
+meaning whichever was parsed first, and `internal` declared nowhere is rejected
+rather than turning a typo into an unchecked build.
 
-Redeclaring either is allowed only to **remove** values — a repository that does
-not ship to JS can say so, and then a library tagged `js` fails to parse rather
-than failing to link. Adding a platform value is a compiler change, not a
-configuration change.
+`Platform` is a closed enum in the schema — `LINUX`, `MACOS`, `JS` — and `Arch`
+likewise. Adding one is a compiler change, not a configuration change, so there
+is nothing to declare here. A repository that does not ship to JS does not need
+to say so: with no library or tag naming a platform, nothing constrains anything,
+and a JS build is only attempted if some binary lists a JS output.
 
-Names are unique across dimensions and tag sets. The tool rejects a `REPO.buri`
-that declares `internal` twice, because `tags: ["internal"]` in some build file
-three directories down would then quietly mean whichever one was declared first.
-
-## `defaults`
-
-```textproto
-defaults {
-  visibility: ["//visibility:private"]
-  test_timeout_seconds: 60
-}
-```
-
-`visibility` is the last resort in the chain: rule, then package
-`default_visibility`, then here, then `//visibility:private`. Making the
-repository default private and opening surfaces one at a time is the posture
-these documents assume; the opposite default is defensible in a small repository
-and gets progressively harder to walk back.
-
-## `lint`
-
-```textproto
-lint {
-  error: ["unreachable-export"]
-  allow: ["name-matches-directory"]
-}
-```
-
-Promote diagnostics to errors, or silence them repository-wide. The catalogue is
-in [`CLI.md`](./CLI.md#lint). Several build-graph checks — a use with no dep, a
-dep nothing uses, a source file no rule declares — are errors unconditionally
-and cannot be moved by this block, because each one makes the build graph a
-description of something other than the code.
-
-Prefer narrowing a rule to silencing it. `allow` is repository-wide and there is
-no per-file suppression comment, which is a deliberate friction: a lint that has
-to be silenced everywhere is a lint that should be argued about once, in this
-file, in a commit someone reviews.
+Note that a restriction written as a whitelist means adding a platform to the
+toolchain cannot silently widen code written before it existed — the reason
+`platforms` lives under `requires` and is never spelled as an exclusion.
 
 ## What is not here
 
+- **No `name`.** A repository does not need to announce what it is called. The
+  label syntax is `//`-rooted and never mentions it, artifacts are named from
+  their target, and a name here would be a second identifier competing with the
+  directory the repository is checked out into.
+- **No defaults block.** Visibility is private unless a rule says otherwise, and
+  that is a fixed rule of the language rather than a repository setting. A
+  repository that could flip the default to public would be one where reading
+  `visibility: []` on a library tells you nothing until you have also read a
+  file at the root — which defeats the point of putting visibility on the rule.
+  There is likewise no repository-wide test timeout: a suite that needs longer
+  writes `timeout_seconds` where the person reading that suite will see it.
+- **No lint configuration.** `buri lint` has one catalogue and one severity for
+  each check ([`CLI.md`](./CLI.md#lint)), the same in every repository. A
+  configurable linter means "does this code pass" is a question you cannot answer
+  from the code, and a per-repository `allow` list is how a check that should have
+  been argued about once gets silenced quietly instead. Several build-graph
+  checks — a use with no dep, a dep nothing uses, a source file no rule declares
+  — were already unconditional for the same reason; this makes the rest of them
+  consistent with it.
+- **No compiler flags.** Covered above: a flag list is a dialect.
 - **No dependency versions or lockfile.** There are no external repositories
   yet; the only sources are this repository and the `core/*` that ships with the
   pinned toolchain. When external repositories arrive they get their own file

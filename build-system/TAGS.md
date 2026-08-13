@@ -1,174 +1,185 @@
-# Outputs, configurations, and tags
+# Tags, platforms, and policy
 
-One mechanism answers two questions that look different and are not: *which
-platforms can this code be built for*, and *is this code allowed to end up in
-that program*.
+Two questions look different and are checked differently: *is this code allowed
+to end up in that program*, and *which platforms can this code be built for*.
+The first is a tag. The second is a platform whitelist. Neither has a
+composition mode, a default, or a resolution order.
 
 **Tags mean the same thing on a library and on a binary.** There is no second
-mechanism for entry points: a tag is always a statement about which
-configurations a target accepts, and a binary is a target.
+mechanism for entry points: a binary is a target, and it carries labels like any
+other.
 
-## Dimensions
+## Tags are labels; policy lives on the tag
 
-A **dimension** is an axis a build varies along. `REPO.buri` declares them.
-`platform` and `arch` are predeclared; the rest are yours.
-
-```textproto
-# REPO.buri
-
-dimension {
-  name: "tier"
-  compose: INTERSECT
-  value { name: "client" doc: "ships to a user's machine or browser" }
-  value { name: "server" doc: "runs on infrastructure we operate" }
-}
-```
-
-Value names are unique across all dimensions and tag sets, so `"server"` is
-unambiguous and the qualified `"tier=server"` is only for emphasis. Both
-spellings are accepted everywhere.
-
-## Tags are constraints
-
-A target's `tags` do not describe what it is. They restrict which configurations
-it accepts:
+A target's `tags` are facts about it. They say nothing on their own:
 
 ```textproto
 library {
   name: "store"
-  tags: ["server"]        # only ever linked into a build whose tier is server
+  tags: ["server"]        # this library is server code
 }
 ```
 
-Read `tags: ["server"]` as *"the set of tier values I accept is {server}"*. A
-dimension the target does not mention is unconstrained — it accepts every value.
-So:
-
-| `tags` | Accepts |
-|---|---|
-| *(empty)* | Every configuration. The common case. |
-| `["server"]` | Any config with `tier=server`, any platform. |
-| `["server", "linux"]` | `tier=server` **and** `platform=linux`. |
-| `["linux", "macos"]` | `platform` is linux or macos — a native-only target. JS excluded. |
-
-Two values of the *same* dimension are alternatives; values of *different*
-dimensions are conjoined. There is no negation and no boolean syntax. "Anything
-but JS" is written by listing what is allowed, which stays correct in the sense
-that adding a platform to the repository does not silently widen a library
-written before it existed.
-
-### Tag sets
-
-A combination used repeatedly gets a name, declared once:
+What that *costs* you is declared once, in `REPO.buri`:
 
 ```textproto
-tag_set {
-  name: "native"
-  values: ["linux", "macos"]
-  doc: "the platforms we ship a real binary for"
+tag {
+  name: "server"
+  doc: "runs on infrastructure we operate"
+
+  forbids { tags: ["client"] }
+
+  requires { platforms: [LINUX, MACOS] }
 }
 ```
+
+This is the split that matters. A build file states what its code *is*; the
+repository states what follows from that. Adding a library that reuses an
+existing tag never touches `REPO.buri`, and changing what `server` means never
+touches a library.
+
+The two blocks are named for their polarity so that a reader scanning
+`REPO.buri` can see at a glance what a tag rules out and what it demands,
+without having to remember which field is which. Each takes exactly one kind of
+thing, and the omissions are deliberate — [see below](#why-forbids-has-no-platforms).
+
+### The vocabulary is closed
+
+Tags are one flat namespace. `tags: ["server"]` in a build file three
+directories down resolves to that block and nowhere else, so a name declared
+twice is rejected rather than quietly meaning whichever came first.
+
+**A tag that `REPO.buri` does not declare is an error.** There are no ad-hoc
+tags, and a `tags` entry is never a harmless annotation:
+
+```
+error: unknown tag "sever"
+  --> lib/store/BUILD.buri:22:10
+   |
+22 |   tags: ["sever"]
+   |          ^^^^^^^
+   |
+   = no `tag` block in REPO.buri declares this name
+   = did you mean "server"?
+```
+
+The alternative — an undeclared tag meaning nothing — makes a typo the silent
+difference between a checked build and an unchecked one, and the failure mode is
+the bad direction: `//lib/store` looks tagged, reviews as tagged, and is linked
+into the browser build anyway. It also means the set of tags in play is exactly
+the set in `REPO.buri`, so the question "what policies does this repository
+have" is answered by reading one file rather than grepping the tree.
+
+## `forbids { tags: [...] }`
+
+Two tags that forbid each other may not appear anywhere in the same dependency
+closure. That is the entire rule.
+
+It is **symmetric**. Declaring `server` forbids `client` is the same statement as
+declaring `client` forbids `server`; write it once, on whichever tag makes it
+easier to find. Policy about a restricted thing usually belongs on the
+restricted thing.
+
+The check runs at **every target**, not only at binaries:
+
+> For a target `T`, let *closure(T)* be `T` together with everything reachable
+> from it through `dependencies`. The union of all tags carried anywhere in
+> *closure(T)* must contain no forbidden pair.
+
+Two consequences worth stating outright.
+
+**It is a union, not a path.** A binary that pulls in client-only code down one
+dependency and server-only code down another is an error even though neither
+reaches the other. It would still be one artifact containing both.
+
+**Direction does not exist.** "Where may this code go" and "what is in this
+binary" — deployment tiers and license or data classification — are the same
+reachability question asked from opposite ends, so they need one mechanism, not
+two that compose differently. `server` forbidding `client` and `experimental`
+forbidding `stable` are checked by the same walk.
+
+## `requires { platforms: [...] }`
+
+A platform is not a tag, because a platform is selected rather than merely
+constrained: the compiler must pick a backend. It stays a typed field.
+
+A binary names its platforms in `outputs`. A library names them only if it is
+genuinely platform-specific, and writes them as a plain field, since a library
+states facts rather than policy:
 
 ```textproto
 library {
   name: "posix_paths"
-  tags: ["native"]        # exactly as if it read ["linux", "macos"]
+  platforms: [LINUX, MACOS]   # this code does not mean anything on JS
 }
 ```
 
-Expansion is textual and happens first, so a tag set may not contain another —
-one level, no resolution order to reason about. A tag set may span dimensions,
-which is how a deployment target ("`edge` = js + client") becomes one word.
+**Unset means every platform, and unset is the overwhelmingly common case.** A
+library has no opinion about platforms unless it is doing something that has
+one. `//lib/money` and `//lib/ledger` in the example repository declare nothing
+and build everywhere.
 
-## Composition: how a tag travels along an edge
+The same list appears under a tag's `requires`, with the same meaning, for when
+the restriction is policy spanning many libraries rather than a fact about one:
+`server` requires `[LINUX, MACOS]` above, so every library tagged `server`
+inherits that without repeating it.
 
-Each dimension declares **how its tags compose** across a dependency edge. This
-is the part that is user-definable, and it is per dimension because the two
-useful behaviors are genuinely different questions.
+It is a **whitelist**, never an exclusion. "Anything but JS" is written by
+listing what is allowed, which stays correct when a platform is added to the
+toolchain — a library written today does not silently acquire a WASM build
+tomorrow. The rule:
 
-```textproto
-dimension { name: "tier"     compose: INTERSECT }
-dimension { name: "maturity" compose: PROPAGATE }
-dimension { name: "codegen"  compose: INDEPENDENT }
-```
+> *platforms(T)* is the intersection, over every target in *closure(T)*, of that
+> target's `platforms` and the `requires.platforms` of every tag it carries —
+> treating unset as "all". Each of a binary's `outputs` must name a platform in
+> *platforms(binary)*.
 
-**`INTERSECT`** (the default) — *where may this go?* A target's effective
-constraint is its own tags intersected with every dependency's effective
-constraint:
+Intersection, so restrictions accumulate downward: depending on POSIX-only code
+makes you POSIX-only. An empty intersection means the target can never be built,
+which is an error at the target rather than at whichever binary reaches it
+first.
 
-```
-effective(T) = tags(T) ∩ effective(d₁) ∩ effective(d₂) ∩ …
-```
+### Why `forbids` has no platforms
 
-Restrictions accumulate downward: depending on server-only code makes you
-server-only. This is what `tier` and `platform` want.
+The blocks are not symmetric, and the two missing combinations are missing on
+purpose rather than by omission.
 
-**`PROPAGATE`** — *what is in here?* A value carried by any dependency is
-carried by the dependent, whether or not it asked for it. A target's own tags
-are then the values it is **willing to carry**, and the check is that the union
-travels up into a set the dependent allows:
+**`forbids { platforms: ... }` does not exist.** It would be the same restriction
+written as negation, and negation does not survive a new platform: `server`
+forbidding JS silently permits WASM the day WASM is added, while `server`
+requiring linux and macos keeps meaning what its author meant. Every platform
+restriction is a whitelist, so there is one place to write one.
 
-```
-carried(T) = tags-as-carried(T) ∪ carried(d₁) ∪ carried(d₂) ∪ …
-```
+**`requires { tags: ... }` does not exist.** It reads plausibly — "everything
+under this must also be server code" — and it is unusable. Carrying no tags at
+all is the common case, so the rule would force `server` onto every library in
+the repository transitively, and the tag would stop distinguishing anything.
+Weakened to what people actually mean by it — "nothing under this may be
+*incompatible*" — it is precisely `forbids { tags: ... }`, which already exists.
 
-This models licensing, data classification, and maturity — "does anything in
-this binary touch PII", "is anything in here still experimental" — which
-`INTERSECT` cannot express, because those are facts that spread rather than
-permissions that narrow.
-
-**`INDEPENDENT`** — no composition. Each target is checked against the
-configuration on its own, and a dependency's tags say nothing about its
-dependents. For axes that are about how a target is built rather than about
-where it ends up.
-
-## A configuration
-
-A **configuration** assigns exactly one value to every `INTERSECT` dimension,
-and a set of carried values to every `PROPAGATE` one. Resolving it, per output:
-
-1. The `outputs` entry contributes `platform` and `arch`.
-2. The binary's own `tags` narrow the rest.
-3. Composition folds in every transitive dependency, by each dimension's rule.
-4. An `INTERSECT` dimension still admitting more than one value takes the
-   dimension's `default`, if it names one of them.
-5. A dimension with nothing left, or with more than one value and no usable
-   default, is an error.
+## Outputs
 
 ```textproto
 binary {
   name: "server"
-  tags: ["server"]                          # narrows tier to {server}
+  tags: ["server"]
   outputs: [
-    { platform: LINUX, arch: X86_64 },      # config: linux, x86_64, server
-    { platform: MACOS, arch: ARM64 },       # config: macos, arm64, server
+    { platform: LINUX, arch: X86_64 },
+    { platform: MACOS, arch: ARM64 },
   ]
 }
 ```
 
-Two outputs, two configurations, two independent builds of the whole graph.
-`buri build //cmd/server` builds both; `--output=linux/x86_64` picks one.
-
-A dimension with no `default` that nothing narrows is an error at the binary,
-which is how you make an axis mandatory:
-
-```
-error: //cmd/web does not resolve dimension "tier"
-  --> cmd/web/BUILD.buri:2:3
-   |
- 2 |   name: "web"
-   |   ^^^^^^^^^^^
-   |
-   = nothing in this build narrows "tier", and it declares no default
-   = values: client, server
-   = add one to `tags`
-```
+Each entry is a separate artifact and a separate check of the whole graph,
+because each names a different platform. `buri build //cmd/server` builds both;
+`--output=linux/x86_64` picks one. The tag check does not vary between them, so
+it runs once.
 
 ## What a failure looks like
 
 Take the [`example/`](./example/) repository, and suppose `//lib/ledger` grows a
-dependency on `//lib/store` — a reasonable-looking edge, added by someone who
-was not thinking about the browser build:
+dependency on `//lib/store` — a reasonable-looking edge, added by someone who was
+not thinking about the browser build:
 
 ```
 //cmd/web          tags: ["client"], outputs: [{ platform: JS }]
@@ -177,25 +188,45 @@ was not thinking about the browser build:
 ```
 
 ```
-error: //cmd/web cannot be built for js
-  --> cmd/web/BUILD.buri:9:14
+error: //cmd/web cannot contain both "client" and "server" code
+  --> cmd/web/BUILD.buri:23:9
    |
- 9 |   outputs: [{ platform: JS }]
-   |             ^^^^^^^^^^^^^^^^
+23 |   tags: ["client"]
+   |         ^^^^^^^^^^
    |
-   = configuration: platform=js, tier=client
-   = //lib/store accepts only tier=server, and this build is tier=client
-   = reached by: //cmd/web -> //lib/ledger -> //lib/store
-   = the edge that introduces it: lib/ledger/BUILD.buri:9 deps "//lib/store"
+   = "client" is carried by //cmd/web itself
+   = "server" is carried by //lib/store
+       reached by: //cmd/web -> //lib/ledger -> //lib/store
+       the edge that introduces it: lib/ledger/BUILD.buri:9 deps "//lib/store"
+   = "client": ships to a user's machine or browser
    = "server": runs on infrastructure we operate
 ```
 
 The path is printed because in a repository of any size the interesting question
 is never "which library is tagged `server`" but "who dragged it in." The `doc`
-string from `REPO.buri` is printed for the same reason: the tag is a policy, and
-the policy should say why.
+strings are printed for the same reason: the tag is a policy, and the policy
+should say why.
 
-An empty intersection is an error at the library itself, before any binary asks
+Dropping `tags: ["client"]` does not rescue this build, because `server` is also
+restricted by platform:
+
+```
+error: //cmd/web cannot be built for js
+  --> cmd/web/BUILD.buri:26:5
+   |
+26 |     { platform: JS, js { module: ESM } },
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = //lib/store is tagged "server", which requires linux, macos
+   = reached by: //cmd/web -> //lib/ledger -> //lib/store
+   = "server": runs on infrastructure we operate
+```
+
+Two rules, two diagnostics, and the second one is the reason the first is not
+load-bearing: a repository states its deployment policy on the `server` tag once
+and gets both.
+
+An unsatisfiable target is an error at the target itself, before any binary asks
 for it:
 
 ```
@@ -205,75 +236,40 @@ error: //lib/edge_cache can never be built
  4 |   tags: ["client"]
    |         ^^^^^^^^^^
    |
-   = it accepts only tier=client, but depends on //lib/store, which accepts
-     only tier=server
+   = it carries "client", and depends on //lib/store, which carries "server"
+   = "client" and "server" forbid each other
 ```
 
 Catching that at the library is worth the extra pass: otherwise the mistake
 surfaces as a confusing failure in whichever binary happens to reach it first.
 
-A `PROPAGATE` failure reads from the other direction — the binary refuses to
-carry what a dependency brought:
+Maturity reads identically, which is the point:
 
 ```
-error: //cmd/server carries maturity=experimental
-  --> cmd/server/BUILD.buri:4:9
+error: //cmd/server cannot contain both "stable" and "experimental" code
+  --> cmd/server/BUILD.buri:15:9
    |
- 4 |   tags: ["stable"]
+15 |   tags: ["stable"]
    |         ^^^^^^^^^^
    |
-   = //lib/vector_index is tagged experimental, and "maturity" propagates
-   = reached by: //cmd/server -> //lib/search -> //lib/vector_index
+   = "stable" is carried by //cmd/server itself
+   = "experimental" is carried by //lib/vector_index
+       reached by: //cmd/server -> //lib/search -> //lib/vector_index
    = "experimental": API may change without a deprecation period
 ```
 
-## Repository-wide policy
-
-Dimensions and their composition rules constrain code. `constraint` blocks in
-`REPO.buri` constrain *configurations* — combinations that should not exist at
-all, independent of which targets are involved:
-
-```textproto
-constraint {
-  when: "platform=js"
-  require: ["tier=client"]
-  message: "the JS output ships to browsers; server code is not shipped to users"
-}
-
-constraint {
-  when: "public"
-  forbid: ["experimental"]
-  message: "public binaries link only code with a stable API"
-}
-```
-
-Constraints are evaluated once per binary output, before the dependency graph is
-walked, so the diagnostic is about the binary rather than about some library four
-hops down:
-
-```
-error: //cmd/web has an invalid configuration
-  --> cmd/web/BUILD.buri:4:9
-   |
- 4 |   tags: ["server"]
-   |         ^^^^^^^^^^
-   |
-   = platform=js requires tier=client, but this binary narrows tier to server
-   = the JS output ships to browsers; server code is not shipped to users
-```
-
-This is the "state in one place how a tag may be used" half of the design. A
-target's tags say *which configurations it accepts*; a dimension's `compose`
-says *how that travels*; a constraint says *which worlds may exist*. Adding a
-library never requires editing `REPO.buri`, and changing policy never requires
-editing a library.
+Note that `stable` is opt-in. Nothing is defaulted, so a binary that
+says nothing about maturity is not checked for it; a binary that refuses to ship
+unfinished code says so. That is a real loss of enforcement compared to a
+mandatory axis, traded for there being no resolution algorithm to reason about.
 
 ## Tags and tests
 
-A test suite runs in the configuration of the target under test. A target with
-no tags is tested once, in the host configuration. A target tagged `server` is
-tested in a server configuration. A suite that should run in more than one pins
-them:
+A test suite inherits its target's tags and platform restrictions, so a suite for
+a `server` library is checked as server code without saying anything.
+
+By default a suite runs once, on the host platform. A suite that must run in more
+than one lists them:
 
 ```textproto
 library {
@@ -282,27 +278,32 @@ library {
 
   test {
     sources: ["test/codec.buri"]
-    # Run this suite once per platform; the JS run goes through the JS backend.
-    tags: ["linux", "js"]
+    # One run per platform; the JS run goes through the JS backend.
+    platforms: [LINUX, JS]
   }
 }
 ```
 
 That is the mechanism for "this must behave identically on both backends," which
-for a language targeting a native binary and JavaScript is the test you most
-want to be able to write. `I64` on the JS target ([`SPEC.md` §15](../SPEC.md))
-is the standing reason it exists.
+for a language targeting a native binary and JavaScript is the test you most want
+to be able to write. `I64` on the JS target ([`SPEC.md` §15](../SPEC.md)) is the
+standing reason it exists. A platform listed here must be one the target admits —
+asking for a JS run of a `[LINUX, MACOS]` library is an error, not a skip.
 
 ## What tags are not
 
-- **Not a boolean expression language.** No `!`, no `or` across dimensions, no
-  nesting. If a rule cannot be written as "these values, on these axes," it is
-  probably a visibility rule.
+- **Not a boolean expression language.** A tag declaration has one list of
+  forbidden tags and one whitelist of platforms. There is no `or`, no nesting,
+  and no expression that mentions three tags at once. If a rule cannot be written
+  as "these two may not coexist," it is probably a visibility rule.
 - **Not conditional compilation.** No source file changes meaning across
-  configurations; there is no `#if`. A library that needs two implementations
-  gets two libraries with different tags and one dependent that picks — which is
+  platforms; there is no `#if`. A library that needs two implementations gets two
+  libraries with different `platforms` and one dependent that picks — which is
   visible in the build graph rather than hidden in a file.
 - **Not a substitute for visibility.** Visibility answers "who may write this
-  dependency edge" and is checked one edge at a time. Tags answer "where may this
-  code end up" and are checked transitively. Use visibility for API ownership,
-  tags for deployment and platform boundaries.
+  dependency edge" and is checked one edge at a time. Tags answer "what may end
+  up in one artifact" and are checked over the closure. Use visibility for API
+  ownership, tags for deployment boundaries.
+- **Not an axis system.** There are no dimensions, so nothing requires a binary
+  to state a tier, and nothing is resolved or defaulted. A tag is either present
+  in a closure or it is not.

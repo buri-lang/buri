@@ -1,0 +1,86 @@
+// The normative schema for `REPO.buri`, the one file at the repository root.
+//
+// `REPO.buri` is textproto and parses as `buri.build.v1.RepoConfig`. Like
+// `BUILD.buri` it is data: no expression language, no glob, no macro, no
+// import. Its presence is what makes a directory a repository root.
+//
+// It is deliberately small. Two things belong here — which compiler builds this
+// repository, and the tag vocabulary every build file draws from — and
+// everything else that might want to live in a repository-wide config file is
+// either a flag on the command or a field on a rule. See REPO-CONFIG.md for
+// what is absent and why.
+
+syntax = "proto3";
+
+package buri.build.v1;
+
+// `Platform` is declared alongside the rules that select one.
+import "build.proto";
+
+message RepoConfig {
+  Toolchain toolchain = 1;
+
+  // The whole tag vocabulary, and the whole of build policy. See TAGS.md.
+  repeated Tag tag = 2;
+}
+
+message Toolchain {
+  // Exact compiler version. A range is not accepted: two checkouts of the same
+  // commit must not build with two different compilers.
+  string version = 1;
+
+  // Hex SHA-256 of the compiler release archive. The CLI refuses to run if the
+  // resolved toolchain does not hash to this.
+  string sha256 = 2;
+}
+
+// A label a target may carry, and the policy attached to carrying it. Tags form
+// one flat namespace: `tags: ["server"]` in a build file three directories down
+// resolves here and nowhere else, so a name declared twice is rejected — and a
+// name declared nowhere is rejected too. A `tags` entry naming no block in this
+// file is an error, not a tag that quietly means nothing.
+message Tag {
+  // Lowercase identifier: `server`, `experimental`, `pii`.
+  string name = 1;
+
+  // Why this tag exists. Printed in the diagnostic when this tag is what rules
+  // a target out, so write the policy, not a restatement of the name.
+  string doc = 2;
+
+  // What carrying this tag rules out.
+  Forbids forbids = 3;
+
+  // What carrying this tag demands.
+  Requires requires = 4;
+
+  message Forbids {
+    // Tags that may not appear anywhere in the same dependency closure as this
+    // one. Symmetric: declaring `server` forbids `client` is the same statement
+    // as the reverse, so write it once, on whichever tag makes it easier to
+    // find.
+    //
+    // This one field replaces what were separate mechanisms for "where may this
+    // code go" and "what is in this binary". Both are reachability questions,
+    // and reachability does not have a direction.
+    repeated string tags = 1;
+
+    // There is deliberately no `platforms` here. A platform restriction is
+    // always written as a whitelist under `requires`, so that adding a platform
+    // to the toolchain cannot silently widen code written before it existed.
+    // "Not JS" would not survive the arrival of WASM; "linux and macos" does.
+  }
+
+  message Requires {
+    // The only platforms code carrying this tag may be built for. Unset means
+    // all of them. Same meaning as `Library.platforms` — this is where it goes
+    // when the restriction is policy spanning many libraries rather than a fact
+    // about one of them.
+    repeated Platform platforms = 1;
+
+    // There is deliberately no `tags` here. Requiring that every dependency
+    // also carry this tag would be unusable: carrying no tags at all is the
+    // common case, so such a rule would force the tag onto every library in the
+    // repository transitively. Weakened to "no dependency may carry something
+    // incompatible", it is exactly `Forbids.tags`.
+  }
+}

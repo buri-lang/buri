@@ -11,12 +11,13 @@ an incremental cache keyed on content rather than on timestamps.
 |---|---|
 | [`BUILD-FILES.md`](./BUILD-FILES.md) | Packages, labels, the `library` and `binary` rules, visibility |
 | [`LIBRARIES.md`](./LIBRARIES.md) | `lib.buri` as the only public surface, re-exports, import resolution |
-| [`TAGS.md`](./TAGS.md) | Build outputs, dimensions, tag composition, repository-wide policy |
+| [`TAGS.md`](./TAGS.md) | Build outputs, tags and the policy attached to them, platform restrictions |
 | [`TESTING.md`](./TESTING.md) | The `test` declaration, the test platform, what a test can reach |
-| [`REPO-CONFIG.md`](./REPO-CONFIG.md) | `REPO.buri`: toolchain pin, dimensions, defaults, lint policy |
+| [`REPO-CONFIG.md`](./REPO-CONFIG.md) | `REPO.buri`: toolchain pin, tag vocabulary, defaults, lint policy |
 | [`CLI.md`](./CLI.md) | `buri build`, `test`, `run`, `fmt`, `lint`, `gen`, `query` |
 | [`HERMETICITY-AND-CACHING.md`](./HERMETICITY-AND-CACHING.md) | Sandboxing, action graph, cache keys, incrementality |
-| [`schema/build.proto`](./schema/build.proto) | The normative schema for both file formats |
+| [`schema/build.proto`](./schema/build.proto) | The normative schema for `BUILD.buri` |
+| [`schema/repo.proto`](./schema/repo.proto) | The normative schema for `REPO.buri` |
 | [`example/`](./example/) | A complete worked monorepo — every snippet below is from it |
 
 ## The shape of a repository
@@ -173,18 +174,22 @@ test in the repository. Neither command consults anything not named above.
 
 ## Tags, in one paragraph
 
-`REPO.buri` declares the axes a build can vary along — `platform` is
-predeclared, `tier` with values `client` and `server` is one you might add — and
-declares how each axis composes along a dependency edge. `tags` mean the same
-thing on every target, library and binary alike: the configurations it accepts.
-`tags: ["server"]` means "only ever built with tier=server," and no tags means
-"anywhere." A binary's configuration is then *resolved* — from its `outputs`,
-its own tags, and every dependency's — so a `client` binary that reaches,
-through four hops, a library tagged `server` fails at the dependency edge that
-introduced it, with the path printed. Composition is per axis and declared:
-`INTERSECT` for permissions that narrow, `PROPAGATE` for facts that spread
-(licensing, maturity), `INDEPENDENT` for neither. [`TAGS.md`](./TAGS.md) has the
-rules and the error messages.
+`tags` mean the same thing on every target, library and binary alike: labels
+saying what the code *is*. What follows from a label is declared once in
+`REPO.buri`, on the tag itself, in two blocks named for their polarity —
+`forbids { tags: [...] }` names tags that may not appear anywhere in the same
+dependency closure, and `requires { platforms: [...] }` whitelists what the code
+can be built for. `forbids` is symmetric, so `server` forbidding `client` covers
+both directions, and a `client` binary that reaches a library tagged `server`
+through four hops fails at the dependency edge that introduced it, with the path
+printed. That one check covers both deployment boundaries and facts like
+licensing or maturity, because both are asking whether two things can end up in
+one artifact. The vocabulary is closed: a tag `REPO.buri` does not declare is an
+error, so a typo cannot quietly become an unchecked build. Platforms are
+otherwise typed and separate — a binary names them in `outputs`, and a library
+names them only when it is genuinely platform-specific, unset meaning all of
+them, which is almost always the case. [`TAGS.md`](./TAGS.md) has the rules and
+the error messages.
 
 ## What the language buys the build system
 
@@ -195,7 +200,7 @@ they meet are the ones worth reviewing hardest:
 |---|---|
 | Mandatory top-level signatures | A library's *interface* hash is derivable without compiling its bodies. Editing a private function does not invalidate a single dependent's typecheck. |
 | Modules check independently | Compile actions within a package parallelize with no ordering constraints beyond the dep graph. |
-| No macros, no reflection, no conditional compilation | A source file's meaning does not depend on the configuration it is built in, so a cache key is (sources, deps, flags) and nothing else. |
+| No macros, no reflection, no conditional compilation | A source file's meaning does not depend on how the build was configured, so a cache key is (sources, deps, platform, build mode) and nothing else — tags never enter it. |
 | Effects arrive as bounds on `ctx` | Hermeticity is not only a sandbox property. A test whose calls never passed a `Net`-bounded context cannot reach the network even if the sandbox leaks. |
 | `Result` is must-use | A `Result` a test forgets to check does not compile, so a test cannot silently pass. |
 | No relative module paths | A file's imports do not change when it moves, so `buri gen` can rewrite a build file without rewriting source. |
@@ -236,11 +241,15 @@ are recorded because a later change should have to argue with them.
    re-exports. *Costs:* the surface is no longer trivially auditable by shape —
    a reader has to notice `export fn` alongside the re-exports. The stricter
    rule would have forced a one-line module for every small helper.
-4. **Tags mean the same thing on a binary and on a library**, and how they
-   compose is per-dimension and user-declared (`INTERSECT`, `PROPAGATE`,
-   `INDEPENDENT` — [`TAGS.md`](./TAGS.md)). *Costs:* a binary's configuration is
-   *resolved* rather than stated, so a dimension nothing narrows is an error
-   that reads as "you did not choose" instead of "you must write this here".
+4. **Tags are labels, and the policy lives on the tag declaration**, as a
+   symmetric `forbids` checked over the dependency closure
+   ([`TAGS.md`](./TAGS.md)). This replaced an axis system with per-dimension
+   composition modes; both of those modes turned out to be the same reachability
+   question asked from opposite ends. *Costs:* nothing can require a binary to
+   take a position. An axis with a mandatory value could error with "you did not
+   choose a tier"; a `forbids` rule can only fire once two tags actually collide,
+   so a binary that simply never says `stable` is never checked for maturity.
+   Enforcement is opt-in, traded for there being no resolution algorithm.
 5. **Golden files are updated by `buri test --accept`**, a separate
    non-hermetic mode that only ever rewrites files already declared in
    `test { data: ... }` ([`TESTING.md`](./TESTING.md)). *Costs:* a second code

@@ -1,8 +1,10 @@
 # //cmd/server — a compilation entry point. `main.buri` is required, is not
 # listed in sources, and must export `main`.
 #
-# Three outputs, three configurations, three independent tag checks. All three
-# are tier=server, so //lib/store is legal in every one of them.
+# Three outputs, so three artifacts and three platform checks — all native, and
+# the `server` tag's whitelist admits linux and macos, so //lib/store is legal
+# in every one of them. The tag check itself runs once: tags do not vary across
+# outputs.
 
 binary {
   name: "server"

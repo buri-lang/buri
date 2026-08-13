@@ -2,56 +2,55 @@
 # the repository root, and what `//` in every label and every module path
 # resolves against.
 #
-# Schema: buri.build.v1.RepoConfig — ../schema/build.proto
-
-name: "acme"
+# Schema: buri.build.v1.RepoConfig — ../schema/repo.proto
+#
+# Two things: which compiler builds this repository, and the tag vocabulary.
+# There is no name, no defaults block, no lint block, and no place to put a
+# compiler flag — see REPO-CONFIG.md for why each of those is absent.
 
 toolchain {
   version: "0.3.0"
   sha256: "9f2b1c4e8a7d3f60b5c1e9a24d7f8036b1c5e2a94f7d0b83c6e1a5d2f9b04c7e3"
-  flags: ["--warnings-as-errors"]
 }
 
-# `platform` and `arch` are predeclared. This repository adds two axes, and they
-# compose differently on purpose: `tier` is a permission that narrows as you
-# descend, `maturity` is a fact that spreads as you ascend.
-dimension {
-  name: "tier"
-  compose: INTERSECT
-  value { name: "client" doc: "ships to a user's machine or browser" }
-  value { name: "server" doc: "runs on infrastructure we operate" }
+# The whole tag vocabulary, and the whole of build policy. A build file says
+# what its code *is*; these blocks say what follows from that. Adding a library
+# that reuses one of these tags never edits this file.
+#
+# This list is also closed: `tags: ["internal"]` in a build file three
+# directories down is an error until a block here declares `internal`.
+#
+# The deployment boundary. `forbids` is symmetric, so stating it once here is
+# the same as stating it on `client`.
+tag {
+  name: "server"
+  doc: "runs on infrastructure we operate"
+
+  forbids { tags: ["client"] }
+
+  requires {
+    # Server code is never shipped to a browser. Declared here rather than on
+    # each library, and a whitelist rather than "not JS", so adding a platform
+    # to the toolchain does not silently widen anything written before it.
+    platforms: [LINUX, MACOS]
+  }
 }
 
-dimension {
-  name: "maturity"
-  compose: PROPAGATE
-  value { name: "stable" }
-  value { name: "experimental" doc: "API may change without a deprecation period" }
-  default: "stable"
+tag {
+  name: "client"
+  doc: "ships to a user's machine or browser"
 }
 
-# A combination we name once and use as one word.
-tag_set {
-  name: "native"
-  values: ["linux", "macos"]
-  doc: "the platforms we ship a real binary for"
+# Maturity is checked by the same walk as the tier boundary — both are questions
+# about what ends up in one artifact. `stable` is opt-in: a binary that refuses
+# to ship unfinished code says so.
+tag {
+  name: "experimental"
+  doc: "API may change without a deprecation period"
+  forbids { tags: ["stable"] }
 }
 
-# Policy, stated once, about which worlds may exist at all. Independent of any
-# particular library — libraries say which configurations they accept, this says
-# which configurations are coherent.
-constraint {
-  when: "platform=js"
-  require: ["tier=client"]
-  message: "the JS output ships to browsers; server code is not shipped to users"
-}
-
-defaults {
-  # Nothing is visible until a library says so.
-  visibility: ["//visibility:private"]
-  test_timeout_seconds: 60
-}
-
-lint {
-  error: ["unreachable-export"]
+tag {
+  name: "stable"
+  doc: "contains nothing whose API may still move"
 }
