@@ -1,0 +1,3 @@
+// The canary package exists so the harness can prove the suite is capable of
+// failing: `conformance_suite_can_fail` rewrites the marker below and checks
+// that the runner notices.

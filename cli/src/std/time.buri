@@ -1,0 +1,28 @@
+// core/time — the clock.
+
+from "core/cap" import { Clock };
+from "core/order" import { Eq, Ord, Show };
+
+/// A point in time, in milliseconds. A distinct type rather than an `I64`, so
+/// an instant cannot be added to a count by accident.
+export struct Instant(export I64);
+
+derive Eq, Ord, Show for Instant;
+
+export fn now<C: Clock>(ctx: C): Instant {
+  Instant(ctx.nowMillis())
+}
+
+/// Milliseconds elapsed since `earlier`. Reading a clock is what makes this
+/// effectful; the pure difference between two instants is `duration`.
+export fn since<C: Clock>(ctx: C, earlier: Instant): Int {
+  now(ctx).0 - earlier.0
+}
+
+export fn duration(self: Instant, earlier: Instant): Int {
+  self.0 - earlier.0
+}
+
+export fn sleepMs<C: Clock>(ctx: C, millis: Int): () {
+  ctx.sleepMillis(millis)
+}

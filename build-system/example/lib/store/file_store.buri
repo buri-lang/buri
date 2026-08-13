@@ -7,7 +7,7 @@ from "//lib/ledger" import { Entry };
 from "//lib/store/codec" import { encode };
 
 export enum StoreError {
-  export Io(export IoError),
+  export Io(IoError),
 }
 
 // `assert.ok` renders the error when it fails, so this needs `Show`.
@@ -18,7 +18,7 @@ derive Show for StoreError;
 /// only one: a `main` whose bounds omit `Fs` cannot reach these at all.
 export fn append<C: Alloc + Fs>(ctx: C, path: Str, entries: [Entry]): Result<(), StoreError> {
   let existing = fs.readText(ctx, path).withDefault("");
-  let body = str.concat(ctx, existing, encode(entries, ctx));
+  let body = existing.concat(ctx, encode(ctx, entries));
   fs.writeText(ctx, path, body).mapErr(fn(e) => StoreError.Io(e))
 }
 

@@ -1,0 +1,34 @@
+// core/math — floating-point mathematics.
+//
+// Free functions rather than methods, because `F64`'s methods live in
+// `core/num` and a type's operations must be declared in its defining module.
+
+export fn sqrt(x: Float): Float;
+export fn cbrt(x: Float): Float;
+export fn pow(x: Float, y: Float): Float;
+export fn exp(x: Float): Float;
+export fn ln(x: Float): Float;
+export fn log10(x: Float): Float;
+export fn log2(x: Float): Float;
+
+export fn sin(x: Float): Float;
+export fn cos(x: Float): Float;
+export fn tan(x: Float): Float;
+export fn asin(x: Float): Float;
+export fn acos(x: Float): Float;
+export fn atan(x: Float): Float;
+export fn atan2(y: Float, x: Float): Float;
+
+export fn floor(x: Float): Float;
+export fn ceil(x: Float): Float;
+export fn round(x: Float): Float;
+export fn trunc(x: Float): Float;
+export fn absFloat(x: Float): Float;
+
+export fn isNan(x: Float): Bool;
+export fn isInfinite(x: Float): Bool;
+export fn isFinite(x: Float): Bool;
+
+export const PI: Float = 3.141592653589793;
+export const E: Float = 2.718281828459045;
+export const INFINITY: Float = 1.0e400;

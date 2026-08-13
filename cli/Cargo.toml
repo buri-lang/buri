@@ -1,0 +1,19 @@
+[package]
+name = "buri"
+version = "0.3.0"
+edition = "2021"
+description = "The Buri toolchain: compiler, build system, test runner, formatter, and linter."
+
+# No dependencies, on purpose. The toolchain is pinned by hash and runs actions
+# in an empty environment (build-system/HERMETICITY-AND-CACHING.md); a
+# dependency tree is a second thing to pin. SHA-256, textproto, and the JS
+# minifier are all implemented here.
+[dependencies]
+
+[lib]
+name = "buri"
+path = "src/lib.rs"
+
+[[bin]]
+name = "buri"
+path = "src/main.rs"

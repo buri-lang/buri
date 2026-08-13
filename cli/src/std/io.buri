@@ -1,0 +1,32 @@
+// core/io — printing and reading a line.
+//
+// These are free functions over a context, so they keep the context first.
+// The same operations are reachable as `ctx.println(...)`, because an effect
+// is an interface and its methods resolve through the bound like any other.
+//
+// `print` and `println` return `()`, not `Result`. Stream errors are reported
+// by the platform at flush time and surface as `main`'s exit status; threading
+// an `IoError` through every print statement buys nothing a program can act on
+// (SPEC 5.7.1).
+
+from "core/cap" import { Stderr, Stdin, Stdout };
+
+export fn print<C: Stdout>(ctx: C, text: Template): () {
+  ctx.print(text)
+}
+
+export fn println<C: Stdout>(ctx: C, text: Template): () {
+  ctx.println(text)
+}
+
+export fn eprint<C: Stderr>(ctx: C, text: Template): () {
+  ctx.eprint(text)
+}
+
+export fn eprintln<C: Stderr>(ctx: C, text: Template): () {
+  ctx.eprintln(text)
+}
+
+export fn readLine<C: Stdin>(ctx: C): Option<Str> {
+  ctx.readLine()
+}

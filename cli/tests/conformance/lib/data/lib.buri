@@ -1,0 +1,3 @@
+// The data conformance package. Its `test/` directory asserts on what SPEC
+// sections 5.3-5.7, 6.5, 7 and 11.1 say collections, strings, and pattern
+// matching do.

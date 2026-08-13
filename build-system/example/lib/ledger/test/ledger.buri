@@ -17,13 +17,13 @@ test "total sums every entry" {
 
 test "DropZero removes zero-amount entries" {
   let ctx = Hermetic();
-  let kept = apply(sample(), ctx, Rule.DropZero);
+  let kept = apply(ctx, sample(), Rule.DropZero);
   assert.eq(kept.len(), 2);
   assert.eq(total(kept), fromCents(3650));
 }
 
 test "MemoPrefix keeps matching memos" {
   let ctx = Hermetic();
-  let kept = apply(sample(), ctx, Rule.MemoPrefix { prefix: "co" });
+  let kept = apply(ctx, sample(), Rule.MemoPrefix { prefix: "co" });
   assert.eq(kept.len(), 1);
 }

@@ -1,0 +1,140 @@
+// core/list — the defining module of `[T]`.
+//
+// The split that runs through this file is the one SPEC 10.5 draws: an
+// operation whose result size is fixed is pure, and an operation whose result
+// size depends on runtime data names `Alloc`. `len` and `fold` are pure;
+// `map` and `filter` are not, and say so in their signatures.
+//
+// Everything here takes its collection as `self`, so it is callable as a
+// method with no import: receiver first, context second, everything else
+// after (SPEC 10.7).
+
+from "core/cap" import { Alloc };
+from "core/order" import { Order, Ord };
+
+// --- Pure: no context parameter at all --------------------------------------
+
+export fn len<T>(self: [T]): Int;
+
+export fn isEmpty<T>(self: [T]): Bool {
+  self.len() == 0
+}
+
+/// Indexing yields `Option<T>`. There is no way to index out of bounds and no
+/// way to panic by indexing — the single largest ergonomic tax in the
+/// language, charged on purpose.
+export fn get<T>(self: [T], index: Int): Option<T>;
+
+export fn first<T>(self: [T]): Option<T> {
+  self.get(0)
+}
+
+export fn last<T>(self: [T]): Option<T> {
+  self.get(self.len() - 1)
+}
+
+/// A fold produces one value rather than a new collection, so it allocates
+/// nothing and needs no context.
+export fn fold<T, B>(self: [T], f: fn(B, T) => B, init: B): B;
+
+/// The `*Ctx` variant, for a step that needs an effect. A lambda may not
+/// capture one (SPEC 10.6), so the context is threaded through instead.
+export fn foldCtx<T, B, C>(self: [T], ctx: C, f: fn(C, B, T) => B, init: B): B;
+
+/// Stops at the first `.Err`, which is how a fallible fold is written without
+/// an early exit.
+export fn foldResult<T, B, E>(
+  self: [T],
+  f: fn(B, T) => Result<B, E>,
+  init: B,
+): Result<B, E>;
+
+export fn any<T>(self: [T], pred: fn(T) => Bool): Bool;
+
+export fn all<T>(self: [T], pred: fn(T) => Bool): Bool;
+
+export fn find<T>(self: [T], pred: fn(T) => Bool): Option<T>;
+
+export fn findIndex<T>(self: [T], pred: fn(T) => Bool): Option<Int>;
+
+export fn contains<T: Eq>(self: [T], needle: T): Bool {
+  self.any(fn(x) => x == needle)
+}
+
+export fn count<T>(self: [T], pred: fn(T) => Bool): Int;
+
+// --- Deterministic: bounded by <C: Alloc> ------------------------------------
+
+export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B];
+
+export fn mapCtx<A, B, C: Alloc>(self: [A], ctx: C, f: fn(C, A) => B): [B];
+
+export fn filter<T, C: Alloc>(self: [T], ctx: C, keep: fn(T) => Bool): [T];
+
+export fn filterCtx<T, C: Alloc>(self: [T], ctx: C, keep: fn(C, T) => Bool): [T];
+
+export fn concat<T, C: Alloc>(self: [T], ctx: C, other: [T]): [T];
+
+export fn push<T, C: Alloc>(self: [T], ctx: C, item: T): [T];
+
+export fn reverse<T, C: Alloc>(self: [T], ctx: C): [T];
+
+/// Ordering is a value you pass, so the tie-break is explicit and reviewable.
+/// The sort is stable.
+export fn sortBy<T, C: Alloc>(self: [T], ctx: C, order: fn(T, T) => Order): [T];
+
+export fn sort<T: Ord, C: Alloc>(self: [T], ctx: C): [T] {
+  self.sortBy(ctx, fn(a, b) => a.compare(b))
+}
+
+export fn take<T, C: Alloc>(self: [T], ctx: C, n: Int): [T];
+
+export fn drop<T, C: Alloc>(self: [T], ctx: C, n: Int): [T];
+
+export fn slice<T, C: Alloc>(self: [T], ctx: C, start: Int, end: Int): [T];
+
+export fn zip<A, B, C: Alloc>(self: [A], ctx: C, other: [B]): [(A, B)];
+
+export fn flatten<T, C: Alloc>(self: [[T]], ctx: C): [T];
+
+/// Declared here rather than in `core/str` because its receiver is `[Str]`,
+/// and a method lives in its receiver type's defining module.
+export fn join<C: Alloc>(self: [Str], ctx: C, separator: Str): Str;
+
+export fn empty<T>(): [T];
+
+/// `[from, from+1, ..., to-1]`. Counting without a loop and without a `Range`
+/// type — SPEC 15.1 records why neither exists.
+export fn range<C: Alloc>(ctx: C, start: Int, end: Int): [Int];
+
+export fn repeat<T, C: Alloc>(ctx: C, item: T, times: Int): [T];
+
+// --- Numeric folds ------------------------------------------------------------
+
+export fn sum(self: [Int]): Int {
+  self.fold(fn(acc, x) => acc + x, 0)
+}
+
+export fn sumFloat(self: [Float]): Float {
+  self.fold(fn(acc, x) => acc + x, 0.0)
+}
+
+export fn maximum<T: Ord>(self: [T]): Option<T> {
+  self.fold(
+    fn(best, x) => match (best) {
+      .None => .Some(x),
+      .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
+    },
+    .None,
+  )
+}
+
+export fn minimum<T: Ord>(self: [T]): Option<T> {
+  self.fold(
+    fn(best, x) => match (best) {
+      .None => .Some(x),
+      .Some(b) => if (x < b) { .Some(x) } else { .Some(b) },
+    },
+    .None,
+  )
+}

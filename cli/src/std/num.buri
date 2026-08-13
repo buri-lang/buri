@@ -1,0 +1,114 @@
+// core/num — the defining module of every integer and float type.
+//
+// Two names, one set of types. `Int` and `Float` are aliases for `I64` and
+// `F64`, not a separate tier, so everyday code and code that names an exact
+// width interoperate with no conversion at the boundary.
+//
+// The conversion methods — `toI64`, `wrapToU8`, and the rest, one per
+// source-and-target pair — are declared by the compiler on the primitive types
+// themselves rather than written out here. They are methods, resolved by the
+// receiver's type, so `i32.toI64()` and `i64.toI32()` are different operations
+// with different return types and no overloading is involved. `buri query` and
+// the language reference list them; SPEC 6.2.1 gives the three shapes:
+//
+//   x.toT()      where every value fits  -> T
+//   x.toT()      where it might not      -> Result<T, RangeError>
+//   x.wrapToT()  modular                 -> T
+//
+// Also declared by the compiler, per primitive: `abs`, `signum`, `compare`,
+// `eq`, `show`, `hash`, the operator-trait methods, and the `Checked` and
+// `Wrapping` method sets.
+
+from "core/order" import { Eq, Ord, Order, Show };
+
+/// The error a narrowing conversion returns. Whether a conversion can fail is
+/// visible in its return type rather than in the choice of operator.
+export struct RangeError {
+  export value: Str,
+  export target: Str,
+}
+
+derive Eq, Show for RangeError;
+
+// --- The operator traits ------------------------------------------------------
+//
+// An operator implementation cannot allocate or perform an effect: `a + b` has
+// no argument position through which a context could be passed. You cannot
+// write an expensive `+` in this language, which is why operator traits are
+// safe here in a way they are not elsewhere.
+
+export trait Add {
+  fn add(self: Self, other: Self): Self;
+}
+
+export trait Sub {
+  fn sub(self: Self, other: Self): Self;
+}
+
+export trait Mul {
+  fn mul(self: Self, other: Self): Self;
+}
+
+export trait Div {
+  fn div(self: Self, other: Self): Self;
+}
+
+export trait Rem {
+  fn rem(self: Self, other: Self): Self;
+}
+
+export trait Neg {
+  fn neg(self: Self): Self;
+}
+
+// --- Integer-specific interfaces ------------------------------------------------
+//
+// Named for what they provide, not for the representation behind them. Every
+// built-in integer type satisfies all three; the float types satisfy `Bounded`
+// only.
+
+export trait Bounded {
+  fn minValue(): Self;
+  fn maxValue(): Self;
+}
+
+export trait Checked {
+  fn checkedAdd(self: Self, rhs: Self): Option<Self>;
+  fn checkedSub(self: Self, rhs: Self): Option<Self>;
+  fn checkedMul(self: Self, rhs: Self): Option<Self>;
+  fn checkedDiv(self: Self, rhs: Self): Option<Self>;
+}
+
+export trait Wrapping {
+  fn wrappingAdd(self: Self, rhs: Self): Self;
+  fn wrappingSub(self: Self, rhs: Self): Self;
+  fn wrappingMul(self: Self, rhs: Self): Self;
+}
+
+export trait Saturating {
+  fn saturatingAdd(self: Self, rhs: Self): Self;
+  fn saturatingSub(self: Self, rhs: Self): Self;
+  fn saturatingMul(self: Self, rhs: Self): Self;
+}
+
+// --- Free functions -------------------------------------------------------------
+//
+// These are generic over a bound rather than declared per type, so there is
+// one of each and no overloading.
+
+export fn min<T: Ord>(a: T, b: T): T {
+  if (a.compare(b) == Order.Greater) { b } else { a }
+}
+
+export fn max<T: Ord>(a: T, b: T): T {
+  if (a.compare(b) == Order.Less) { b } else { a }
+}
+
+export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
+  min(hi, max(lo, x))
+}
+
+/// `Bounded`'s methods take no `self`, so they are reached through these
+/// rather than through a receiver: `num.maxValue::<U8>()`.
+export fn minValue<T: Bounded>(): T;
+export fn maxValue<T: Bounded>(): T;

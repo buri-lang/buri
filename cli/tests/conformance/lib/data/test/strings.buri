@@ -1,0 +1,5 @@
+from "core/testing/assert" import * as assert;
+
+test "strings placeholder" {
+  assert.eq(1, 1);
+}

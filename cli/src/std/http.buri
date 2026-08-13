@@ -1,0 +1,49 @@
+// core/net/http — HTTP over the `Net` effect.
+
+from "core/cap" import { Alloc, Net, NetError };
+from "core/cap" export { NetError };
+from "core/order" import { Eq, Show };
+
+export struct Request {
+  export method: Str,
+  export url: Str,
+  export body: Str,
+}
+
+export struct Response {
+  export status: Int,
+  export body: Str,
+}
+
+derive Eq, Show for Request;
+derive Eq, Show for Response;
+
+export fn get<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
+  send(ctx, Request { method: "GET", url: url, body: "" })
+}
+
+export fn post<C: Alloc + Net>(ctx: C, url: Str, body: Str): Result<Response, NetError> {
+  send(ctx, Request { method: "POST", url: url, body: body })
+}
+
+export fn send<C: Alloc + Net>(ctx: C, request: Request): Result<Response, NetError> {
+  match (ctx.fetch(request.method, request.url, request.body)) {
+    .Ok(r) => .Ok(Response { status: r.status, body: r.body }),
+    .Err(e) => .Err(e),
+  }
+}
+
+export fn isOk(self: Response): Bool {
+  self.status >= 200 && self.status < 300
+}
+
+/// A free function rather than a method: `NetError` is declared in
+/// `core/cap`, and a method must live in its type's defining module.
+export fn errorText(e: NetError): Str {
+  match (e) {
+    .Timeout => "the request timed out",
+    .Refused => "the connection was refused",
+    .BadUrl(_u) => "the url could not be parsed",
+    .Transport(_m) => "the transport failed",
+  }
+}

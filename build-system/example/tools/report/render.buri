@@ -7,10 +7,10 @@ from "//lib/ledger" import { Entry, total };
 /// refactoring inside it can turn it into something that writes a file. That is
 /// what makes it worth having as a library rather than as a paragraph inside
 /// `main`.
-export fn render<C: Alloc>(entries: [Entry], ctx: C, verbose: Bool): Str {
+export fn render<C: Alloc>(ctx: C, entries: [Entry], verbose: Bool): Str {
   let lines = if (verbose) {
     entries
-      .map(ctx, fn(e) => str.format(ctx, "  ${e.memo}  ${e.amount.format(ctx)}"))
+      .mapCtx(ctx, fn(c, e) => str.format(c, "  ${e.memo}  ${e.amount.format(c)}"))
       .join(ctx, "\n")
   } else {
     ""

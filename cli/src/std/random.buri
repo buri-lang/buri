@@ -1,0 +1,17 @@
+// core/random — randomness.
+//
+// A seeded implementation is what makes a failing test reproduce, which is why
+// the test platform's `randSeed(Int)` is an ordinary implementation of the
+// same effect.
+
+from "core/cap" import { Rand };
+
+/// Uniform in `[lo, hi)`. An empty range is a crash.
+export fn int<C: Rand>(ctx: C, lo: Int, hi: Int): Int {
+  ctx.nextInt(lo, hi)
+}
+
+/// Uniform in `[0.0, 1.0)`.
+export fn float<C: Rand>(ctx: C): Float {
+  ctx.nextFloat()
+}

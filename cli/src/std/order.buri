@@ -1,0 +1,97 @@
+// core/order — `Order`, and the four traits every type is expected to be able
+// to opt into.
+//
+// Conformance is nominal: declaring a method that happens to match one of
+// these signatures does not make a type conform. An `impl` or a `derive` is
+// what does (SPEC 5.12.1).
+
+from "core/cap" import { Alloc };
+
+export enum Order {
+  export Less,
+  export Equal,
+  export Greater,
+}
+
+/// `a == b` and `a != b` are `Eq.eq`. Equality is structural, never
+/// referential: Buri has no references, so there is no identity to compare.
+export trait Eq {
+  fn eq(self: Self, other: Self): Bool;
+}
+
+/// `<` `<=` `>` `>=` are `Ord.compare`.
+export trait Ord {
+  fn compare(self: Self, other: Self): Order;
+}
+
+/// Rendering allocates, so `show` names `Alloc` and nothing else. An
+/// implementation provably cannot read a file or open a socket.
+export trait Show {
+  fn show<C: Alloc>(self: Self, ctx: C): Str;
+}
+
+export trait Hash {
+  fn hash(self: Self): U64;
+}
+
+export fn flip(self: Order): Order {
+  match (self) {
+    .Less => .Greater,
+    .Equal => .Equal,
+    .Greater => .Less,
+  }
+}
+
+/// Reverses a comparator, for `sortBy`. The argument is a function value
+/// rather than an effect, so the lambda may capture it (SPEC 10.6).
+export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
+  fn(a, b) => cmp(b, a)
+}
+
+export fn isLess(self: Order): Bool {
+  match (self) {
+    .Less => true,
+    .Equal => false,
+    .Greater => false,
+  }
+}
+
+export fn isEqual(self: Order): Bool {
+  match (self) {
+    .Less => false,
+    .Equal => true,
+    .Greater => false,
+  }
+}
+
+/// A comparator value, for `sortBy`. Ordering is a value you pass, which makes
+/// a tie-break explicit and reviewable.
+export fn int(a: Int, b: Int): Order {
+  if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
+}
+
+export fn float(a: Float, b: Float): Order {
+  if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
+}
+
+export fn str(a: Str, b: Str): Order {
+  a.compare(b)
+}
+
+export fn bool(a: Bool, b: Bool): Order {
+  if (a == b) { .Equal } else if (a) { .Greater } else { .Less }
+}
+
+export fn char(a: Char, b: Char): Order {
+  int(a.toU32().toI64(), b.toU32().toI64())
+}
+
+/// Chains two comparisons: the second decides only when the first is `Equal`.
+export fn then(self: Order, next: Order): Order {
+  match (self) {
+    .Equal => next,
+    other => other,
+  }
+}
+
+derive Eq, Show for Order;

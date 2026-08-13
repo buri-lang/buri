@@ -66,7 +66,7 @@ fn parseConfig(pairs: [(Str, Str)]): Result<Config, ConfigError> {
 
   // `??` supplies a default for an Option or a Result, and is right
   // associative, so defaults can chain.
-  let retries = lookup(pairs, "retries") ?? "3".toInt() ?? 3;
+  let retries = (lookup(pairs, "retries") ?? "3").toInt() ?? 3;
 
   .Ok(Config { host: host, port: port, retries: retries })
 }
@@ -80,7 +80,7 @@ fn firstWordLength(lines: [Str]): Option<Int> {
   let first = lines[0]?;
   // `splitOnce` is pure: it returns two slices, which is a fixed-size result,
   // so no allocator is needed. `split` (which returns [Str]) does need one.
-  let parts = first.splitOnce(' ')?;
+  let parts = first.splitOnce(" ")?;
   .Some(parts.0.len())
 }
 

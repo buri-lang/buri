@@ -83,13 +83,18 @@ fn unwrapMeters(m: Meters): F64 {
   }
 }
 
-// Anonymous record patterns, used constantly for contexts.
-fn hasAlloc<C: Alloc>(ctx: C): Bool {
-  match (ctx) {
-    { alloc, .. } => {
-      let _ = alloc;
-      true
-    },
+// There are no anonymous record patterns, because there are no records
+// (SPEC 5.5). `..` in a struct pattern is what survives of the idea: it
+// ignores the remaining fields, so a pattern does not have to be rewritten
+// every time the type grows one.
+//
+// A context is not matchable at all — its type is generated and never written
+// down (SPEC 11.3). What a function knows about its context is its bounds.
+fn describeOrigin(p: Point): Str {
+  match (p) {
+    Point { x: 0, .. } => "on the y axis",
+    Point { y: 0, .. } => "on the x axis",
+    Point { .. } => "elsewhere",
   }
 }
 
@@ -154,7 +159,7 @@ export fn main(): Result<(), Str> {
   let _ = ctx.println("quadrant      = ${quadrant(p)}");
   let _ = ctx.println("diagonal      = ${diagonal((Point { x: 0, y: 0 }, p))}");
   let _ = ctx.println("meters        = ${unwrapMeters(Meters(1.5))}");
-  let _ = ctx.println("hasAlloc      = ${hasAlloc(ctx)}");
+  let _ = ctx.println("origin        = ${describeOrigin(p)}");
   let _ = ctx.println("summarize     = ${summarize([1, 2, 3])}");
   let _ = ctx.println("depth         = ${depth(Node.Branch { left: Node.Leaf(1), right: Node.Leaf(2) })}");
   let pair = (7, "seven");

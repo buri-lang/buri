@@ -24,7 +24,7 @@ from "core/host" import * as host;
 // ---------------------------------------------------------------------------
 
 trait Measurable {
-  fn size<C: Alloc>(self: Self): Int;
+  fn size(self: Self): Int;
   fn isEmptyThing(self: Self): Bool;
 }
 
@@ -33,7 +33,7 @@ trait Measurable {
 // read a file or open a socket — the trait declaration is a effect contract
 // binding every future implementor.
 trait Renderable {
-  fn render(self: Self, ctx: C): Str;
+  fn render<C: Alloc>(self: Self, ctx: C): Str;
 }
 
 // ---------------------------------------------------------------------------

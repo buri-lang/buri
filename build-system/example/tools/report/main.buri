@@ -27,6 +27,6 @@ export fn main(): Result<(), Str> {
     entry("coffee", fromCents(450)),
     entry("books", fromCents(3200)),
   ];
-  let _ = ctx.println(render(entries, ctx, flags.verbose));
+  let _ = ctx.println(render(ctx, entries, flags.verbose));
   .Ok(())
 }

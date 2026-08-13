@@ -1,0 +1,85 @@
+// core/host — the platform's implementations of the effects it grants.
+//
+// Importable only from the module that exports `main`. That restriction, and
+// the `testing` segment rule, name every place in a program where authority
+// can enter (SPEC 4.1.1).
+//
+// A program that never names `host.net` cannot open a socket anywhere in its
+// transitive call graph, because nothing anywhere can obtain a value bounded
+// by `Net`. A platform that does not grant an effect simply does not export
+// it, so requesting one is an ordinary unresolved-name error at the one line
+// that asked for it.
+
+from "core/cap" import {
+  Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout,
+  IoError, NetError, NetResponse, Region,
+};
+
+export struct HostAlloc {}
+impl Alloc for HostAlloc {
+  fn allocate(self: HostAlloc, bytes: Int): Region;
+}
+
+export struct HostStdout {}
+impl Stdout for HostStdout {
+  fn print(self: HostStdout, text: Template): ();
+  fn println(self: HostStdout, text: Template): ();
+}
+
+export struct HostStderr {}
+impl Stderr for HostStderr {
+  fn eprint(self: HostStderr, text: Template): ();
+  fn eprintln(self: HostStderr, text: Template): ();
+}
+
+export struct HostStdin {}
+impl Stdin for HostStdin {
+  fn readLine(self: HostStdin): Option<Str>;
+}
+
+export struct HostFs {}
+impl Fs for HostFs {
+  fn readFile(self: HostFs, path: Str): Result<Str, IoError>;
+  fn writeFile(self: HostFs, path: Str, body: Str): Result<(), IoError>;
+  fn fileExists(self: HostFs, path: Str): Bool;
+  fn readDir(self: HostFs, path: Str): Result<[Str], IoError>;
+}
+
+export struct HostNet {}
+impl Net for HostNet {
+  fn fetch(self: HostNet, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
+}
+
+export struct HostClock {}
+impl Clock for HostClock {
+  fn nowMillis(self: HostClock): I64;
+  fn sleepMillis(self: HostClock, millis: Int): ();
+}
+
+export struct HostRand {}
+impl Rand for HostRand {
+  fn nextInt(self: HostRand, lo: Int, hi: Int): Int;
+  fn nextFloat(self: HostRand): Float;
+}
+
+export struct HostEnv {}
+impl Env for HostEnv {
+  fn variable(self: HostEnv, name: Str): Option<Str>;
+  fn arguments(self: HostEnv): [Str];
+}
+
+export struct HostProc {}
+impl Proc for HostProc {
+  fn exitWith(self: HostProc, code: Int): ();
+}
+
+export const alloc: HostAlloc = HostAlloc {};
+export const stdout: HostStdout = HostStdout {};
+export const stderr: HostStderr = HostStderr {};
+export const stdin: HostStdin = HostStdin {};
+export const fs: HostFs = HostFs {};
+export const net: HostNet = HostNet {};
+export const clock: HostClock = HostClock {};
+export const rand: HostRand = HostRand {};
+export const env: HostEnv = HostEnv {};
+export const proc: HostProc = HostProc {};

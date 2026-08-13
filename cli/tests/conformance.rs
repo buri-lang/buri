@@ -1,0 +1,442 @@
+//! The conformance suite: does the language do what the specification says?
+//!
+//! Everything here drives the real `buri` binary, because that is what a user
+//! runs. Three shapes of test:
+//!
+//! * `cli/tests/conformance/` — a Buri repository whose `test/` directories
+//!   assert on language semantics. Run with `buri test //...`.
+//! * `cli/tests/reject/` — programs that must *not* compile, each annotated
+//!   with the diagnostic it must produce.
+//! * `cli/tests/golden/` — the expected stdout of every example program.
+//!
+//! The point of the first is that a wrong answer fails, rather than a program
+//! that still exits 0.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn buri() -> &'static str {
+    env!("CARGO_BIN_EXE_buri")
+}
+
+fn tests_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests")
+}
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for n in chars.by_ref() {
+                if n == 'm' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+struct Run {
+    code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+impl Run {
+    fn all(&self) -> String {
+        format!("{}{}", self.stdout, self.stderr)
+    }
+}
+
+fn run_in(dir: &Path, args: &[&str]) -> Run {
+    let out = Command::new(buri())
+        .args(args)
+        .arg("--color=never")
+        .current_dir(dir)
+        .output()
+        .expect("the buri binary runs");
+    Run {
+        code: out.status.code().unwrap_or(-1),
+        stdout: strip_ansi(&String::from_utf8_lossy(&out.stdout)),
+        stderr: strip_ansi(&String::from_utf8_lossy(&out.stderr)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The conformance repository
+// ---------------------------------------------------------------------------
+
+#[test]
+fn conformance_suite_passes() {
+    let dir = tests_dir().join("conformance");
+    // A stale cache would let a broken backend report a pass, so this always
+    // starts from nothing.
+    let _ = run_in(&dir, &["clean"]);
+    let run = run_in(&dir, &["test", "//...", "--force"]);
+    let output = run.all();
+
+    // A suite that compiles to nothing would "pass" with zero assertions, so
+    // the count is checked too.
+    let summary = output
+        .lines()
+        .rev()
+        .find(|l| l.contains(" passed, "))
+        .unwrap_or_else(|| panic!("no summary line in:\n{output}"));
+    let passed: usize = summary
+        .split_whitespace()
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
+
+    assert!(
+        run.code == 0,
+        "the conformance suite failed (exit {}):\n{output}",
+        run.code
+    );
+    assert!(
+        passed >= 150,
+        "expected the conformance suite to hold at least 150 assertions, found {passed}:\n{output}"
+    );
+    eprintln!("conformance: {passed} tests passed");
+}
+
+/// The suite has to be able to fail. A test that cannot fail proves nothing,
+/// so this breaks one on purpose and checks the runner notices.
+#[test]
+fn conformance_suite_can_fail() {
+    let dir = tests_dir().join("conformance");
+    let target = dir.join("lib/canary/test/canary.buri");
+    let original = std::fs::read_to_string(&target).expect("the canary suite exists");
+    assert!(
+        original.contains("CANARY"),
+        "the canary suite must contain the CANARY marker it is edited through"
+    );
+    let broken = original.replace("CANARY_EXPECTED", "CANARY_WRONG");
+    assert_ne!(broken, original, "the canary marker did not substitute");
+
+    std::fs::write(&target, &broken).unwrap();
+    let run = run_in(&dir, &["test", "//lib/canary", "--force"]);
+    std::fs::write(&target, &original).unwrap();
+
+    assert_ne!(run.code, 0, "a broken assertion still passed:\n{}", run.all());
+    assert!(
+        run.all().contains("FAIL"),
+        "a broken assertion did not report FAIL:\n{}",
+        run.all()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Programs that must not compile
+// ---------------------------------------------------------------------------
+
+/// Each file in `tests/reject/` is a whole program that must fail to compile.
+/// The first line is `// EXPECT: <substring the diagnostic must contain>`.
+#[test]
+fn rejected_programs_are_rejected() {
+    let dir = tests_dir().join("reject");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("tests/reject exists")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
+        .collect();
+    files.sort();
+    assert!(files.len() >= 25, "expected a real reject corpus, found {}", files.len());
+
+    // One scratch repository, one package per case.
+    let scratch = std::env::temp_dir().join("buri-reject-corpus");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+
+    let mut failures = Vec::new();
+    for path in &files {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let text = std::fs::read_to_string(path).unwrap();
+        let expect = text
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("// EXPECT:").map(|s| s.trim().to_string()))
+            .unwrap_or_else(|| panic!("{name}: no `// EXPECT:` line"));
+
+        let pkg = scratch.join("cmd").join(&name);
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("main.buri"), &text).unwrap();
+        std::fs::write(
+            pkg.join("BUILD.buri"),
+            "binary {\n  outputs: [{ platform: JS }]\n}\n",
+        )
+        .unwrap();
+
+        let run = run_in(&scratch, &["build", &format!("//cmd/{name}")]);
+        let output = run.all();
+        if run.code == 0 {
+            failures.push(format!("{name}: compiled, but should not have"));
+        } else if !output.contains(&expect) {
+            failures.push(format!(
+                "{name}: expected a diagnostic containing {expect:?}, got:\n{}",
+                indent(&output)
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{} rejection(s) wrong:\n\n{}", failures.len(), failures.join("\n\n"));
+    eprintln!("reject: {} programs correctly rejected", files.len());
+}
+
+fn indent(s: &str) -> String {
+    s.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// Programs that must crash
+// ---------------------------------------------------------------------------
+
+/// A crash cannot be observed from inside a test — there is no catch — so the
+/// things that are specified to crash get their own corpus. Each file is a
+/// program that must compile, run, exit non-zero, and say why.
+#[test]
+fn crashing_programs_crash() {
+    let dir = tests_dir().join("crash");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("tests/crash exists")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
+        .collect();
+    files.sort();
+    assert!(files.len() >= 8, "expected a real crash corpus, found {}", files.len());
+
+    let scratch = std::env::temp_dir().join("buri-crash-corpus");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+
+    let mut cases = Vec::new();
+    for path in &files {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let text = std::fs::read_to_string(path).unwrap();
+        let expect = text
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("// CRASH:").map(|s| s.trim().to_string()))
+            .unwrap_or_else(|| panic!("{name}: no `// CRASH:` line"));
+        let pkg = scratch.join("cmd").join(&name);
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("main.buri"), &text).unwrap();
+        std::fs::write(
+            pkg.join("BUILD.buri"),
+            "binary {\n  outputs: [{ platform: JS }]\n}\n",
+        )
+        .unwrap();
+        cases.push((name, expect));
+    }
+
+    let build = run_in(&scratch, &["build", "//..."]);
+    assert_eq!(build.code, 0, "the crash corpus does not compile:\n{}", build.all());
+
+    let mut failures = Vec::new();
+    for (name, expect) in &cases {
+        let artifact = scratch
+            .join(".buri/out/js/cmd")
+            .join(name)
+            .join(format!("{name}.mjs"));
+        let out = Command::new(js_runtime())
+            .arg(&artifact)
+            .output()
+            .expect("the javascript runtime runs");
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        if out.status.success() {
+            failures.push(format!("{name}: exited 0, but should have crashed"));
+        } else if !stderr.contains(expect.as_str()) {
+            failures.push(format!(
+                "{name}: expected a crash mentioning {expect:?}, got:\n{}",
+                indent(&stderr)
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{} crash(es) wrong:\n\n{}", failures.len(), failures.join("\n\n"));
+    eprintln!("crash: {} programs crashed as specified", cases.len());
+}
+
+// ---------------------------------------------------------------------------
+// Golden output
+// ---------------------------------------------------------------------------
+
+/// Every example program, compiled and run, with its stdout compared against a
+/// checked-in transcript. This is what catches a backend that produces a
+/// *different* answer rather than no answer.
+#[test]
+fn examples_produce_their_golden_output() {
+    let root = repo_root();
+    let golden_dir = tests_dir().join("golden");
+    let scratch = std::env::temp_dir().join("buri-golden-corpus");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+
+    let mut examples: Vec<PathBuf> = std::fs::read_dir(root.join("examples"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
+        .collect();
+    examples.sort();
+    assert_eq!(examples.len(), 22, "expected the 22 example programs");
+
+    for path in &examples {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let pkg = scratch.join("cmd").join(&name);
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::copy(path, pkg.join("main.buri")).unwrap();
+        std::fs::write(
+            pkg.join("BUILD.buri"),
+            "binary {\n  outputs: [{ platform: JS }]\n}\n",
+        )
+        .unwrap();
+    }
+
+    let build = run_in(&scratch, &["build", "//..."]);
+    assert_eq!(build.code, 0, "the examples do not build:\n{}", build.all());
+
+    let mut mismatches = Vec::new();
+    for path in &examples {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let golden_path = golden_dir.join(format!("{name}.txt"));
+        let Ok(expected) = std::fs::read_to_string(&golden_path) else {
+            mismatches.push(format!("{name}: no golden file at {}", golden_path.display()));
+            continue;
+        };
+        // Arguments and input files an example needs are named in the first
+        // line of its golden file, as `# ARGS: ...`.
+        let args: Vec<String> = expected
+            .lines()
+            .find_map(|l| l.strip_prefix("# ARGS:"))
+            .map(|s| s.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        let body: String = expected
+            .lines()
+            .filter(|l| !l.starts_with("# ARGS:"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+
+        let cwd = scratch.join("cmd").join(&name);
+        let artifact = scratch
+            .join(".buri/out/js/cmd")
+            .join(&name)
+            .join(format!("{name}.mjs"));
+        let out = Command::new(js_runtime())
+            .arg(&artifact)
+            .args(&args)
+            .current_dir(&cwd)
+            .output()
+            .expect("the javascript runtime runs");
+        let actual = String::from_utf8_lossy(&out.stdout).to_string();
+        if actual != body {
+            mismatches.push(format!(
+                "{name}:\n  expected:\n{}\n  actual:\n{}",
+                indent(&body),
+                indent(&actual)
+            ));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} example(s) produced the wrong output:\n\n{}",
+        mismatches.len(),
+        mismatches.join("\n\n")
+    );
+    eprintln!("golden: {} examples matched their transcripts", examples.len());
+}
+
+fn js_runtime() -> String {
+    std::env::var("BURI_JS").unwrap_or_else(|_| "bun".to_string())
+}
+
+/// The same artifact has to behave identically on an engine without native
+/// tail calls, which is the whole reason the compiler eliminates them itself.
+#[test]
+fn tail_calls_run_in_constant_stack_on_v8() {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("node is not installed; skipping the V8 tail-call check");
+        return;
+    }
+    let scratch = std::env::temp_dir().join("buri-tco-check");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(scratch.join("cmd/deep")).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.join("cmd/deep/BUILD.buri"),
+        "binary {\n  outputs: [{ platform: JS }]\n}\n",
+    )
+    .unwrap();
+    // Ten million bounces: far past any engine's stack, through a self call,
+    // a mutually recursive pair, and an accumulator.
+    std::fs::write(
+        scratch.join("cmd/deep/main.buri"),
+        r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn countDown(n: Int, acc: Int): Int {
+  if (n == 0) { acc } else { countDown(n - 1, acc + 1) }
+}
+
+fn pingA(n: Int): Bool {
+  if (n == 0) { true } else { pingB(n - 1) }
+}
+
+fn pingB(n: Int): Bool {
+  if (n == 0) { false } else { pingA(n - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("self: ${countDown(10000000, 0)}");
+  let _ = ctx.println("mutual: ${pingA(10000001)}");
+  .Ok(())
+}
+"#,
+    )
+    .unwrap();
+
+    let build = run_in(&scratch, &["build", "//cmd/deep", "--release"]);
+    assert_eq!(build.code, 0, "the deep-recursion program does not build:\n{}", build.all());
+
+    let artifact = scratch.join(".buri/out/js/cmd/deep/deep.mjs");
+    for engine in ["node", "bun"] {
+        let Ok(out) = Command::new(engine).arg(&artifact).output() else { continue };
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(
+            out.status.success(),
+            "ten million tail calls overflowed on {engine}:\n{stderr}"
+        );
+        assert_eq!(
+            stdout, "self: 10000000\nmutual: false\n",
+            "wrong answer on {engine}"
+        );
+    }
+}

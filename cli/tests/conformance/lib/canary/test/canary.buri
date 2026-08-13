@@ -1,0 +1,10 @@
+// CANARY — `tests/conformance.rs` edits the marker in this file to prove a
+// broken assertion is actually caught. Do not remove the marker.
+
+from "core/testing/assert" import * as assert;
+
+const CANARY_EXPECTED: Int = 42;
+
+test "the canary holds" {
+  assert.eq(6 * 7, CANARY_EXPECTED);
+}

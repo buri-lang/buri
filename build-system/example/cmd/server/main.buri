@@ -5,6 +5,7 @@
 from "core/cap" import { Alloc, Env, Fs, Stdout };
 from "core/host" import * as host;
 from "core/env" import * as env;
+from "core/str" import * as str;
 
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
@@ -32,7 +33,7 @@ export fn main(): Result<(), Str> {
   let hit = route("/entries");
 
   match (append(ctx, path, [entry("startup", fromCents(0))])) {
-    .Err(_) => .Err("could not open the ledger log at ${path}"),
+    .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
     .Ok(_) => {
       let _ = ctx.println("serving ${hit.name} from ${path}");
       .Ok(())

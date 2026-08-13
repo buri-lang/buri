@@ -1,0 +1,431 @@
+//! Pattern checking.
+//!
+//! A bare identifier is always a binding. `None` as a pattern binds a variable
+//! named `None`; it does not match the `None` variant. That is a real
+//! ergonomic cost, and it is what removes name resolution from the parser —
+//! `Foo` versus `Foo(x)` versus `Foo { .. }` is decided by the token after
+//! `Foo`, never by what `Foo` means (SPEC 7.2).
+
+use crate::ast;
+use crate::check::Sym;
+use crate::diag::Span;
+use crate::hir;
+use crate::infer::{Infer, LitCheck};
+use crate::types::*;
+use std::collections::HashMap;
+
+impl<'a, 'b> Infer<'a, 'b> {
+    pub(crate) fn check_pattern(&mut self, p: &ast::Pattern, ty: &Ty) -> hir::Pattern {
+        let ty = self.resolve(ty);
+        let span = p.span();
+        let kind = match p {
+            ast::Pattern::Wild { .. } => hir::PatKind::Wild,
+
+            ast::Pattern::Bind { name, sub, .. } => {
+                let local = match self.or_alternative_local(&name.name) {
+                    // Or-pattern alternatives must bind identical names at
+                    // identical types, so the second alternative reuses the
+                    // first's binding rather than shadowing it.
+                    Some(existing) => {
+                        let existing_ty = self.local_ty(existing);
+                        self.unify_at(name.span, &ty, &existing_ty, "the other alternative");
+                        existing
+                    }
+                    None => {
+                        let l = self.new_local(&name.name, ty.clone(), name.span);
+                        self.record_or_binding(&name.name, l);
+                        l
+                    }
+                };
+                self.bind(&name.name, local);
+                let generics = self.generics.clone();
+                if self.c.tables.is_effect_carrying(&ty, &generics) {
+                    self.effect_locals.insert(local);
+                }
+                let sub = sub.as_ref().map(|s| Box::new(self.check_pattern(s, &ty)));
+                hir::PatKind::Bind { local, sub }
+            }
+
+            ast::Pattern::LitInt { value, negative, raw, .. } => {
+                let lit = self.subst.fresh_num(NumClass::Int, span);
+                self.unify_at(span, &lit, &ty, "the scrutinee");
+                self.lit_checks.push(LitCheck {
+                    value: *value,
+                    negative: *negative,
+                    raw: raw.clone(),
+                    ty: lit,
+                    span,
+                });
+                hir::PatKind::Int(*value, *negative)
+            }
+            ast::Pattern::LitFloat { value, negative, .. } => {
+                let lit = self.subst.fresh_num(NumClass::Float, span);
+                self.unify_at(span, &lit, &ty, "the scrutinee");
+                hir::PatKind::Float(if *negative { -*value } else { *value })
+            }
+            ast::Pattern::LitStr { value, .. } => {
+                let s = self.prim(Prim::Str);
+                self.unify_at(span, &s, &ty, "the scrutinee");
+                hir::PatKind::Str(value.clone())
+            }
+            ast::Pattern::LitChar { value, .. } => {
+                let c = self.prim(Prim::Char);
+                self.unify_at(span, &c, &ty, "the scrutinee");
+                hir::PatKind::Char(*value)
+            }
+            ast::Pattern::LitBool { value, .. } => {
+                let b = self.prim(Prim::Bool);
+                self.unify_at(span, &b, &ty, "the scrutinee");
+                hir::PatKind::Bool(*value)
+            }
+
+            ast::Pattern::Unit { .. } => {
+                self.unify_at(span, &Ty::Unit, &ty, "the scrutinee");
+                hir::PatKind::Unit
+            }
+
+            ast::Pattern::Tuple { elems, .. } => {
+                let elem_types = match &ty {
+                    Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
+                    Ty::Error => vec![Ty::Error; elems.len()],
+                    other => {
+                        let shown = self.show_ty(other);
+                        self.err(span, format!("`{shown}` is not a {}-tuple", elems.len()));
+                        vec![Ty::Error; elems.len()]
+                    }
+                };
+                hir::PatKind::Tuple(
+                    elems
+                        .iter()
+                        .zip(&elem_types)
+                        .map(|(e, t)| self.check_pattern(e, t))
+                        .collect(),
+                )
+            }
+
+            ast::Pattern::Array { elems, rest, .. } => {
+                let elem_ty = match &ty {
+                    Ty::Array(e) => (**e).clone(),
+                    Ty::Error => Ty::Error,
+                    other => {
+                        let shown = self.show_ty(other);
+                        self.err(span, format!("`{shown}` is not an array"));
+                        Ty::Error
+                    }
+                };
+                let checked: Vec<hir::Pattern> =
+                    elems.iter().map(|e| self.check_pattern(e, &elem_ty)).collect();
+                let rest_local = rest.as_ref().map(|name| {
+                    name.as_ref().map(|n| {
+                        let arr = Ty::Array(Box::new(elem_ty.clone()));
+                        let l = self.new_local(&n.name, arr, n.span);
+                        self.bind(&n.name, l);
+                        l
+                    })
+                });
+                hir::PatKind::Array { elems: checked, rest: rest_local }
+            }
+
+            ast::Pattern::Or { alts, .. } => {
+                let mut out = Vec::new();
+                let saved = self.or_bindings.take();
+                self.or_bindings = Some(HashMap::new());
+                let mut names: Option<Vec<String>> = None;
+                for alt in alts {
+                    self.or_bindings.as_mut().unwrap().clear();
+                    // Each alternative starts from the same set, so a name
+                    // bound by the first is reused rather than redeclared.
+                    if let Some(prev) = &self.or_first {
+                        let prev = prev.clone();
+                        *self.or_bindings.as_mut().unwrap() = prev;
+                    }
+                    let checked = self.check_pattern(alt, &ty);
+                    let bound = self.or_bindings.as_ref().unwrap().clone();
+                    let mut these: Vec<String> = bound.keys().cloned().collect();
+                    these.sort();
+                    match &names {
+                        None => {
+                            names = Some(these);
+                            self.or_first = Some(bound);
+                        }
+                        Some(first) if first != &these => {
+                            let missing: Vec<&String> =
+                                first.iter().filter(|n| !these.contains(n)).collect();
+                            let extra: Vec<&String> =
+                                these.iter().filter(|n| !first.contains(*n)).collect();
+                            let mut note = String::new();
+                            if !missing.is_empty() {
+                                note.push_str(&format!(
+                                    "this alternative does not bind {}",
+                                    missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                                ));
+                            }
+                            if !extra.is_empty() {
+                                if !note.is_empty() {
+                                    note.push_str("; ");
+                                }
+                                note.push_str(&format!(
+                                    "it binds {} which the others do not",
+                                    extra.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                                ));
+                            }
+                            self.err(
+                                alt.span(),
+                                "or-pattern alternatives must bind the same names",
+                            )
+                            .notes
+                            .push(note);
+                            names = Some(these);
+                        }
+                        _ => {}
+                    }
+                    out.push(checked);
+                }
+                self.or_first = None;
+                self.or_bindings = saved;
+                hir::PatKind::Or(out)
+            }
+
+            ast::Pattern::Path { path, dotted, payload, .. } => {
+                self.check_path_pattern(path, *dotted, payload.as_ref(), &ty, span)
+            }
+        };
+        hir::Pattern { kind, ty, span }
+    }
+
+    fn or_alternative_local(&self, name: &str) -> Option<LocalId> {
+        self.or_bindings.as_ref()?.get(name).copied()
+    }
+
+    fn record_or_binding(&mut self, name: &str, local: LocalId) {
+        if let Some(map) = self.or_bindings.as_mut() {
+            map.insert(name.to_string(), local);
+        }
+    }
+
+    fn check_path_pattern(
+        &mut self,
+        path: &[ast::Ident],
+        dotted: bool,
+        payload: Option<&ast::PatPayload>,
+        ty: &Ty,
+        span: Span,
+    ) -> hir::PatKind {
+        // `.Variant` — the scrutinee's type supplies the enum.
+        if dotted {
+            let Ty::Con(con, args) = ty else {
+                if !ty.is_error() {
+                    let shown = self.show_ty(ty);
+                    self.err(span, format!("`{shown}` is not an enum"));
+                }
+                return hir::PatKind::Error;
+            };
+            let name = &path[0].name;
+            let Some(index) = self.c.tables.tycon(*con).variant_index(name) else {
+                self.report_no_variant(*con, name, span);
+                return hir::PatKind::Error;
+            };
+            return self.variant_pattern(*con, index, args.clone(), payload, span);
+        }
+
+        // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
+        let resolved = if path.len() == 1 {
+            self.c.scopes[self.module.index()].names.get(&path[0].name).cloned()
+        } else {
+            let head = &path[0].name;
+            if let Some(ns) = self.c.scopes[self.module.index()].namespaces.get(head).copied() {
+                self.c.lookup_export_pub(ns, &path[1].name)
+            } else {
+                self.c.scopes[self.module.index()].names.get(head).cloned()
+            }
+        };
+
+        match resolved {
+            Some(Sym::Ty(con)) => {
+                let variant_name = if path.len() > 1 { Some(&path[path.len() - 1].name) } else { None };
+                let is_enum = matches!(self.c.tables.tycon(con).def, TyDef::Enum { .. });
+                let args = match ty {
+                    Ty::Con(c, a) if *c == con => a.clone(),
+                    Ty::Error => vec![Ty::Error; self.c.tables.tycon(con).arity()],
+                    other => {
+                        let want = self.c.tables.tycon(con).name.clone();
+                        let shown = self.show_ty(other);
+                        self.err(span, format!("expected `{shown}`, found a `{want}` pattern"));
+                        vec![Ty::Error; self.c.tables.tycon(con).arity()]
+                    }
+                };
+                if is_enum {
+                    let Some(vname) = variant_name else {
+                        let n = self.c.tables.tycon(con).name.clone();
+                        self.err(span, format!("`{n}` is an enum; name a variant"))
+                            .notes
+                            .push(format!("write `{n}.Variant` or `.Variant`"));
+                        return hir::PatKind::Error;
+                    };
+                    let Some(index) = self.c.tables.tycon(con).variant_index(vname) else {
+                        self.report_no_variant(con, vname, span);
+                        return hir::PatKind::Error;
+                    };
+                    self.variant_pattern(con, index, args, payload, span)
+                } else {
+                    let fields = self.struct_field_patterns(con, &args, payload, span);
+                    hir::PatKind::Struct { con, fields }
+                }
+            }
+            _ => {
+                let shown = path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+                self.err(span, format!("there is no type `{shown}`"))
+                    .notes
+                    .push(
+                        "a bare identifier in a pattern is always a binding; a variant is \
+                         written `.Variant` or `Enum.Variant`"
+                            .into(),
+                    );
+                hir::PatKind::Error
+            }
+        }
+    }
+
+    fn report_no_variant(&mut self, con: TyConId, name: &str, span: Span) {
+        let ty = self.c.tables.tycon(con).name.clone();
+        let variants: Vec<String> =
+            self.c.tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect();
+        let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
+        let near = crate::buildfile::nearest(name, &refs).map(|s| s.to_string());
+        let d = self.err(span, format!("`{ty}` has no variant `{name}`"));
+        match near {
+            Some(x) => d.notes.push(format!("did you mean `.{x}`?")),
+            None if !variants.is_empty() => {
+                d.notes.push(format!("its variants are {}", variants.join(", ")))
+            }
+            None => {}
+        }
+    }
+
+    fn variant_pattern(
+        &mut self,
+        con: TyConId,
+        index: usize,
+        args: Vec<Ty>,
+        payload: Option<&ast::PatPayload>,
+        span: Span,
+    ) -> hir::PatKind {
+        let variant = self.c.tables.tycon(con).variants()[index].clone();
+        // A type with any unexported variant cannot be matched outside its
+        // module.
+        let owner = self.c.tables.tycon(con).module;
+        if owner != self.module && owner.0 != u32::MAX && !variant.exported {
+            let t = self.c.tables.tycon(con).name.clone();
+            let v = variant.name.clone();
+            self.err(span, format!("variant `{v}` of `{t}` is private to its module"));
+        }
+        let fields = self.payload_patterns(&variant.fields, &args, payload, span, &variant.name);
+        hir::PatKind::Variant { con, variant: index, fields }
+    }
+
+    fn struct_field_patterns(
+        &mut self,
+        con: TyConId,
+        args: &[Ty],
+        payload: Option<&ast::PatPayload>,
+        span: Span,
+    ) -> Vec<hir::FieldPat> {
+        let decl = self.c.tables.tycon(con).fields().to_vec();
+        let name = self.c.tables.tycon(con).name.clone();
+        // Check visibility once for the pattern as a whole: a struct with any
+        // private field cannot be destructured outside its module.
+        let owner = self.c.tables.tycon(con).module;
+        if owner != self.module && owner.0 != u32::MAX {
+            for f in &decl {
+                if !f.exported {
+                    let fname = f.name.clone();
+                    self.err(span, format!("field `{fname}` of `{name}` is private to its module"));
+                    break;
+                }
+            }
+        }
+        self.payload_patterns(&decl, args, payload, span, &name)
+    }
+
+    fn payload_patterns(
+        &mut self,
+        decl: &[FieldInfo],
+        args: &[Ty],
+        payload: Option<&ast::PatPayload>,
+        span: Span,
+        what: &str,
+    ) -> Vec<hir::FieldPat> {
+        match payload {
+            None => {
+                if !decl.is_empty() {
+                    self.err(span, format!("`{what}` has a payload, so the pattern needs one"))
+                        .notes
+                        .push(format!("write `.{what}(..)` or name each field"));
+                }
+                Vec::new()
+            }
+            Some(ast::PatPayload::Tuple(ps)) => {
+                if ps.len() != decl.len() {
+                    self.err(
+                        span,
+                        format!("`{what}` holds {} values, but {} were matched", decl.len(), ps.len()),
+                    );
+                }
+                ps.iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i < decl.len())
+                    .map(|(i, p)| {
+                        let ty = substitute(&decl[i].ty, args, None);
+                        hir::FieldPat { index: i, pattern: self.check_pattern(p, &ty) }
+                    })
+                    .collect()
+            }
+            Some(ast::PatPayload::Record { fields, rest }) => {
+                let mut out = Vec::new();
+                let mut seen = Vec::new();
+                for f in fields {
+                    let Some(i) = decl.iter().position(|d| d.name == f.name.name) else {
+                        let n = f.name.name.clone();
+                        self.err(f.name.span, format!("`{what}` has no field `{n}`"));
+                        continue;
+                    };
+                    seen.push(i);
+                    let ty = substitute(&decl[i].ty, args, None);
+                    let pattern = match &f.pattern {
+                        Some(p) => self.check_pattern(p, &ty),
+                        // Field shorthand: `User { id, name }` binds both.
+                        None => {
+                            let local = self.new_local(&f.name.name, ty.clone(), f.name.span);
+                            self.bind(&f.name.name, local);
+                            self.record_or_binding(&f.name.name, local);
+                            hir::Pattern {
+                                kind: hir::PatKind::Bind { local, sub: None },
+                                ty,
+                                span: f.name.span,
+                            }
+                        }
+                    };
+                    out.push(hir::FieldPat { index: i, pattern });
+                }
+                // Without a `..`, a struct pattern must mention every field.
+                if !rest {
+                    let missing: Vec<String> = decl
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| !seen.contains(i))
+                        .map(|(_, d)| d.name.clone())
+                        .collect();
+                    if !missing.is_empty() {
+                        self.err(
+                            span,
+                            format!("this pattern does not mention {}", missing.join(", ")),
+                        )
+                        .notes
+                        .push("end the pattern with `..` to ignore the rest".into());
+                    }
+                }
+                out
+            }
+        }
+    }
+}

@@ -22,8 +22,8 @@ Three ideas define it:
    resolution or types. Section 12 documents each design decision that pays for
    this, and what was given up to get it.
 
-Version 0.3 is deliberately small: primitives, arrays, tuples, records, structs,
-enums, functions, methods, and traits. Data and behaviour are declared
+Version 0.3 is deliberately small: primitives, arrays, tuples, structs, enums,
+functions, methods, and traits. Data and behaviour are declared
 separately; there is no mutable state, no inheritance, and no dynamic dispatch. A
 method is an ordinary function whose first parameter is `self`, and a trait is an
 interface satisfied structurally — neither introduces a runtime mechanism.
@@ -582,7 +582,7 @@ result.withDefault({}, fs.writeText(ctx, path, body))
 result.ignore(fs.writeText(ctx, path, body))     // explicitly, greppably, ignore
 ```
 
-`result.ignore(r): {}` exists so that "I considered this and do not care" is a
+`result.ignore(r): ()` exists so that "I considered this and do not care" is a
 thing you *write*, rather than a thing that happens by not writing anything. A
 reviewer can grep for it; `_` is unsearchable.
 
@@ -594,7 +594,7 @@ making it an error would put `option.ignore` in front of half the standard
 library for no safety gain. Section 15 records this as a judgment call rather
 than a principle.
 
-Note also that `io.print` / `io.println` return `{}`, not `Result`. Stream errors
+Note also that `io.print` / `io.println` return `()`, not `Result`. Stream errors
 are reported by the platform at flush time and surface as `main`'s exit status;
 threading an `IoError` through every print statement buys nothing that a
 program can act on.
@@ -1030,7 +1030,7 @@ fn add(a: Int, b: Int): Int { a + b }
 
 let inc = fn(x) => x + 1;
 let addTyped = fn(a: Int, b: Int): Int => a + b;
-let sum = list.fold(fn(acc, x) => acc + x, 0, xs);
+let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ```
 
 Lambdas begin with `fn` so that `(x)` is never ambiguous with a parameter list.
@@ -1367,8 +1367,9 @@ fn retry<T, C: Clock>(
 - Functions are first-class values and may be passed, returned, and stored.
 - There is no overloading and no default arguments.
 
-Type inference is Hindley–Milner extended with row polymorphism. Because
-top-level signatures are mandatory, inference is local to a function body, and
+Type inference is Hindley–Milner. There is no row polymorphism: it went away
+with the structural records of Section 5.5, and effects are trait bounds rather
+than rows. Because top-level signatures are mandatory, inference is local to a function body, and
 type errors are reported against the signature you wrote rather than one the
 compiler guessed.
 
@@ -1442,7 +1443,9 @@ fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): {}                         // ERR
 
 A type is **effect-carrying** if it is a type variable with an effect
 bound, or any type mentioning one — so a struct that stores a context is
-effect-carrying too.
+effect-carrying too. A *function type* is effect-carrying when its **result**
+is: `fn(C, A) => B` merely accepts a context, which is the shape the `*Ctx`
+combinators of Section 10.6 take, while `fn() => C` produces one.
 
 `self` has to be allowed because a effect's own methods take the
 effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
@@ -1499,7 +1502,7 @@ anyone may write a type that satisfies it.
 
 ```buri
 struct SilentOut {}
-fn writeOut(self: SilentOut, text: Template): {} { {} }   // satisfies Stdout
+fn writeOut(self: SilentOut, text: Template): () { () }    // satisfies Stdout
 ```
 
 That is not a forgery hole — a fake `Stdout` still cannot write anything. What is
@@ -1600,7 +1603,7 @@ Two forms, giving different guarantees.
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri
-fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
+fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   let _ = io.println(ctx, msg);
   // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
   // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
@@ -1627,7 +1630,7 @@ export struct ReadOnly<C>(C);
 export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
 
 // Forwards Alloc...
-impl Alloc for ReadOnly<C: Alloc> {
+impl<C: Alloc> Alloc for ReadOnly<C> {
   fn allocate(self: ReadOnly<C>, bytes: Int): Region { self.0.allocate(bytes) }
 }
 
@@ -2286,7 +2289,7 @@ written directly instead of through a `*Ctx` combinator.
 What it cost, and why it lost:
 
 - **Two ways to say one thing.** `for (x in xs) with (n = 0) { n + x }` and
-  `list.fold(fn(n, x) => n + x, 0, xs)` are the same program. A small language
+  `xs.fold(fn(n, x) => n + x, 0)` are the same program. A small language
   that offers both has to teach both, and every codebase splits on which to use.
 - **The sugar was not simple.** A `with` clause whose scope differs between
   `for` and `while`, an optional index binding, a body typing rule that changes

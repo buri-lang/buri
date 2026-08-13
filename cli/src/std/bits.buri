@@ -1,0 +1,28 @@
+// core/bits — bit manipulation.
+//
+// `shl` and `shr` are functions rather than operators because there is no
+// `<<` or `>>` token: longest-match lexing would turn the `>>` closing nested
+// type arguments into a shift. Removing the operators removes the problem
+// rather than papering over it with a position-dependent lexer (SPEC 12.6).
+
+/// Shifting by a count at or beyond the width of the type is a crash, the same
+/// way overflow is.
+export fn shl(x: Int, n: Int): Int;
+export fn shr(x: Int, n: Int): Int;
+
+/// Arithmetic shift right: the sign bit is replicated.
+export fn sar(x: Int, n: Int): Int;
+
+export fn popCount(x: Int): Int;
+export fn leadingZeros(x: Int): Int;
+export fn trailingZeros(x: Int): Int;
+
+export fn rotateLeft(x: Int, n: Int): Int;
+export fn rotateRight(x: Int, n: Int): Int;
+
+export fn shlU8(x: U8, n: Int): U8;
+export fn shrU8(x: U8, n: Int): U8;
+export fn shlU32(x: U32, n: Int): U32;
+export fn shrU32(x: U32, n: Int): U32;
+export fn shlU64(x: U64, n: Int): U64;
+export fn shrU64(x: U64, n: Int): U64;

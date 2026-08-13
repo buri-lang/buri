@@ -1,0 +1,27 @@
+// core/char — the defining module of `Char`, a Unicode scalar value.
+
+export fn isDigit(self: Char): Bool;
+
+export fn isAlpha(self: Char): Bool;
+
+export fn isAlphanumeric(self: Char): Bool {
+  self.isAlpha() || self.isDigit()
+}
+
+export fn isSpace(self: Char): Bool;
+
+export fn isUpper(self: Char): Bool;
+
+export fn isLower(self: Char): Bool;
+
+export fn toLower(self: Char): Char;
+
+export fn toUpper(self: Char): Char;
+
+/// Exact: every `Char` is a `U32`. The other direction, `u32.toChar()`, is one
+/// of the numeric conversions and lives on `U32` — not every `U32` is a
+/// Unicode scalar value, so it yields `Result<Char, RangeError>`.
+export fn toU32(self: Char): U32;
+
+/// The digit a character denotes, in the given radix.
+export fn toDigit(self: Char, radix: Int): Option<Int>;

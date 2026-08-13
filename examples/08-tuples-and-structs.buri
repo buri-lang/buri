@@ -101,15 +101,17 @@ fn mapFirst<A, B, C>(self: Pair<A, B>, f: fn(A) => C): Pair<C, B> {
 // now. When you want to accept many shapes, name a trait and bound on it.
 
 trait HasHost {
-  fn host(self: Self): Str;
+  // Not `host`: a method may not share a name with a field of its `self` type
+  // (SPEC 14.18), because a `.` resolves to a field before a method.
+  fn hostname(self: Self): Str;
 }
 
 impl HasHost for Config {
-  fn host(self: Config): Str { self.host }
+  fn hostname(self: Config): Str { self.host }
 }
 
 fn describeHost<T: HasHost>(thing: T): Str {
-  thing.host()
+  thing.hostname()
 }
 
 export fn main(): Result<(), Str> {

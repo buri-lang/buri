@@ -187,7 +187,7 @@ fn errorText<C: Alloc>(ctx: C, e: AppError): Str {
 // ---------------------------------------------------------------------------
 
 fn readInput<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, AppError> {
-  fs.readText(ctx, path).mapErr(fn(_) => AppError.Read { path: path })
+  fs.readText(ctx, path).mapErr(fn(_e) => AppError.Read { path: path })
 }
 
 fn run<C: Alloc + Fs + Env + Stdout>(

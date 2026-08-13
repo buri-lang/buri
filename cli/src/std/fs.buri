@@ -1,0 +1,23 @@
+// core/fs — the filesystem.
+//
+// Every function here names `Fs` in its bounds, so the disk is visible in the
+// signature.
+
+from "core/cap" import { Alloc, Fs, IoError };
+from "core/cap" export { IoError };
+
+export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
+  ctx.readFile(path)
+}
+
+export fn writeText<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
+  ctx.writeFile(path, body)
+}
+
+export fn exists<C: Fs>(ctx: C, path: Str): Bool {
+  ctx.fileExists(path)
+}
+
+export fn listDir<C: Alloc + Fs>(ctx: C, path: Str): Result<[Str], IoError> {
+  ctx.readDir(path)
+}

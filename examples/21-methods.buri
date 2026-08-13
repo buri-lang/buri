@@ -92,7 +92,7 @@ fn stdlibAsMethods<C: Alloc>(ctx: C, words: [Str], maybe: Option<Int>): Int {
   let fallback = maybe.withDefault(0);       // option.withDefault(maybe, 0)
 
   // Explicit type arguments work on methods too, via the turbofish.
-  let empty = words.take::<Str>(ctx, 0);
+  let empty = words.take::<Str, C>(ctx, 0);
 
   n + joined.len() + fallback + empty.len()
 }

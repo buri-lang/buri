@@ -14,10 +14,13 @@ from "//lib/ledger" import { Entry };
 /// `amount` is a `Cents`, and a method resolves through its type's defining
 /// module. That still counts as using the library, so //lib/money is a direct
 /// dep of this target — see BUILD-FILES.md, "Dependencies".
-export fn encodeLine<C: Alloc>(e: Entry, ctx: C): Str {
+export fn encodeLine<C: Alloc>(ctx: C, e: Entry): Str {
   str.format(ctx, "${e.memo}\t${e.amount.format(ctx)}")
 }
 
-export fn encode<C: Alloc>(entries: [Entry], ctx: C): Str {
-  entries.map(ctx, fn(e) => encodeLine(e, ctx)).join(ctx, "\n")
+export fn encode<C: Alloc>(ctx: C, entries: [Entry]): Str {
+  // `mapCtx`, not `map`: a lambda may not capture an effect-carrying value
+  // (SPEC 10.6), so the context is threaded through the combinator instead of
+  // closed over.
+  entries.mapCtx(ctx, fn(c, e) => encodeLine(c, e)).join(ctx, "\n")
 }

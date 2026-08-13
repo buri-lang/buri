@@ -1,0 +1,71 @@
+// core/option — the defining module of `Option<T>`.
+//
+// There is no `null` and no `undefined`. Absence is `Option<T>`.
+//
+// `Option` is deliberately NOT must-use: ignoring an absent value is usually
+// harmless, and making it an error would put `option.ignore` in front of half
+// the standard library for no safety gain (SPEC 5.7.1).
+
+export enum Option<T> {
+  export Some(T),
+  export None,
+}
+
+export fn isSome<T>(self: Option<T>): Bool {
+  match (self) {
+    .Some(_x) => true,
+    .None => false,
+  }
+}
+
+export fn isNone<T>(self: Option<T>): Bool {
+  match (self) {
+    .Some(_x) => false,
+    .None => true,
+  }
+}
+
+/// The right operand is produced eagerly; `??` is the short-circuiting form.
+export fn withDefault<T>(self: Option<T>, fallback: T): T {
+  match (self) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+export fn map<T, U>(self: Option<T>, f: fn(T) => U): Option<U> {
+  match (self) {
+    .Some(v) => .Some(f(v)),
+    .None => .None,
+  }
+}
+
+export fn andThen<T, U>(self: Option<T>, f: fn(T) => Option<U>): Option<U> {
+  match (self) {
+    .Some(v) => f(v),
+    .None => .None,
+  }
+}
+
+export fn filter<T>(self: Option<T>, keep: fn(T) => Bool): Option<T> {
+  match (self) {
+    .Some(v) => if (keep(v)) { .Some(v) } else { .None },
+    .None => .None,
+  }
+}
+
+/// Turns absence into an error, which is how an `Option` reaches `?` in a
+/// function that returns `Result`.
+export fn okOr<T, E>(self: Option<T>, error: E): Result<T, E> {
+  match (self) {
+    .Some(v) => .Ok(v),
+    .None => .Err(error),
+  }
+}
+
+export fn or<T>(self: Option<T>, other: Option<T>): Option<T> {
+  match (self) {
+    .Some(v) => .Some(v),
+    .None => other,
+  }
+}

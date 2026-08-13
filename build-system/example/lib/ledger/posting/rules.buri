@@ -12,7 +12,7 @@ export enum Rule {
   export MemoPrefix { export prefix: Str },
 }
 
-export fn apply<C: Alloc>(entries: [Entry], ctx: C, rule: Rule): [Entry] {
+export fn apply<C: Alloc>(ctx: C, entries: [Entry], rule: Rule): [Entry] {
   match (rule) {
     .DropZero => entries.filter(ctx, fn(e) => !e.amount.isZero()),
     .MemoPrefix { prefix } => entries.filter(ctx, fn(e) => e.memo.startsWith(prefix)),

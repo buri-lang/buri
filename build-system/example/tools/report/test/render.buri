@@ -12,12 +12,12 @@ from "core/testing/context" import { Hermetic };
 
 test "the terse report is one line" {
   let ctx = Hermetic();
-  assert.eq(render(oneOff(), ctx, false), "\ntotal \$4.50");
+  assert.eq(render(ctx, oneOff(), false), "\ntotal \$4.50");
 }
 
 test "verbose lists every entry" {
   let ctx = Hermetic();
-  let out = render(sample(), ctx, true);
+  let out = render(ctx, sample(), true);
   assert.isTrue(out.contains("coffee"));
   assert.isTrue(out.contains("books"));
 }

@@ -25,7 +25,7 @@ enum LoadError {
 // --- Pure: the interesting logic ---------------------------------------------
 
 fn parseLine(index: Int, line: Str): Result<Record, LoadError> {
-  match (line.splitOnce(', ')) {
+  match (line.splitOnce(", ")) {
     .None => .Err(.Parse { line: index, text: line }),
     .Some(parts) => {
       let name = parts.0.trim();

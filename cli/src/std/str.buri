@@ -1,0 +1,85 @@
+// core/str — the defining module of `Str`.
+//
+// `Str` is an immutable UTF-8 string. `trim`, `slice`, and `splitOnce` are
+// pure because it is immutable and sliceable: they return views, not copies.
+// Anything whose result length depends on runtime data names `Alloc`.
+//
+// There is no overloading, so a pure variant and an allocating variant of the
+// same idea get different names: `splitOnce` returns two slices and is pure;
+// `split` returns `[Str]` and allocates.
+
+from "core/cap" import { Alloc };
+from "core/order" import { Order };
+
+// --- Pure ---------------------------------------------------------------------
+
+/// The number of Unicode scalar values, not the number of UTF-8 bytes.
+export fn len(self: Str): Int;
+
+export fn isEmpty(self: Str): Bool {
+  self.len() == 0
+}
+
+export fn charAt(self: Str, index: Int): Option<Char>;
+
+export fn slice(self: Str, start: Int, end: Int): Str;
+
+export fn trim(self: Str): Str;
+
+export fn trimStart(self: Str): Str;
+
+export fn trimEnd(self: Str): Str;
+
+export fn startsWith(self: Str, prefix: Str): Bool;
+
+export fn endsWith(self: Str, suffix: Str): Bool;
+
+export fn contains(self: Str, needle: Str): Bool;
+
+export fn indexOf(self: Str, needle: Str): Option<Int>;
+
+/// Two slices, or `.None` when the separator does not occur. Pure, because
+/// neither half is a copy.
+export fn splitOnce(self: Str, separator: Str): Option<(Str, Str)>;
+
+export fn compare(self: Str, other: Str): Order;
+
+export fn toInt(self: Str): Option<Int>;
+
+export fn toFloat(self: Str): Option<Float>;
+
+// --- Deterministic: bounded by <C: Alloc> --------------------------------------
+
+export fn concat<C: Alloc>(self: Str, ctx: C, other: Str): Str;
+
+export fn split<C: Alloc>(self: Str, ctx: C, separator: Str): [Str];
+
+/// Splits on any of the characters in `separators`, dropping empty pieces.
+export fn splitAny<C: Alloc>(self: Str, ctx: C, separators: Str): [Str];
+
+export fn lines<C: Alloc>(self: Str, ctx: C): [Str];
+
+export fn replace<C: Alloc>(self: Str, ctx: C, needle: Str, replacement: Str): Str;
+
+export fn repeat<C: Alloc>(self: Str, ctx: C, times: Int): Str;
+
+export fn toUpper<C: Alloc>(self: Str, ctx: C): Str;
+
+export fn toLower<C: Alloc>(self: Str, ctx: C): Str;
+
+export fn chars<C: Alloc>(self: Str, ctx: C): [Char];
+
+export fn fromChars<C: Alloc>(ctx: C, cs: [Char]): Str;
+
+export fn fromInt<C: Alloc>(ctx: C, n: Int): Str;
+
+export fn fromFloat<C: Alloc>(ctx: C, x: Float): Str;
+
+export fn padStart<C: Alloc>(self: Str, ctx: C, width: Int, fill: Char): Str;
+
+export fn padEnd<C: Alloc>(self: Str, ctx: C, width: Int, fill: Char): Str;
+
+/// Turning a `Template` into a `Str` is the point at which interpolation
+/// allocates. Constructing the `Template` itself allocates nothing, which is
+/// why `io.println(ctx, "hi ${name}")` needs only `Stdout`.
+export fn format<C: Alloc>(ctx: C, template: Template): Str;

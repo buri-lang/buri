@@ -1,0 +1,84 @@
+// core/result — the defining module of `Result<T, E>`.
+//
+// A value of type `Result<T, E>` may not be discarded (SPEC 5.7.1). Since
+// there are no expression statements, `let _ =` is the only place a value can
+// be thrown away, so the rule has one line and no holes. The legal ways to
+// consume one are `?`, `match`, `withDefault`, and `ignore`.
+
+export enum Result<T, E> {
+  export Ok(T),
+  export Err(E),
+}
+
+export fn isOk<T, E>(self: Result<T, E>): Bool {
+  match (self) {
+    .Ok(_v) => true,
+    .Err(_e) => false,
+  }
+}
+
+export fn isErr<T, E>(self: Result<T, E>): Bool {
+  match (self) {
+    .Ok(_v) => false,
+    .Err(_e) => true,
+  }
+}
+
+export fn withDefault<T, E>(self: Result<T, E>, fallback: T): T {
+  match (self) {
+    .Ok(v) => v,
+    .Err(_e) => fallback,
+  }
+}
+
+export fn map<T, U, E>(self: Result<T, E>, f: fn(T) => U): Result<U, E> {
+  match (self) {
+    .Ok(v) => .Ok(f(v)),
+    .Err(e) => .Err(e),
+  }
+}
+
+/// There is no automatic error conversion, so this is how an error crosses a
+/// boundary between two error types.
+export fn mapErr<T, E, F>(self: Result<T, E>, f: fn(E) => F): Result<T, F> {
+  match (self) {
+    .Ok(v) => .Ok(v),
+    .Err(e) => .Err(f(e)),
+  }
+}
+
+export fn andThen<T, U, E>(self: Result<T, E>, f: fn(T) => Result<U, E>): Result<U, E> {
+  match (self) {
+    .Ok(v) => f(v),
+    .Err(e) => .Err(e),
+  }
+}
+
+/// The `*Ctx` variant, for when the continuation needs an effect. The capture
+/// rule (SPEC 10.6) is why this exists rather than a lambda closing over `ctx`.
+export fn andThenCtx<T, U, E, C>(
+  self: Result<T, E>,
+  ctx: C,
+  f: fn(C, T) => Result<U, E>,
+): Result<U, E> {
+  match (self) {
+    .Ok(v) => f(ctx, v),
+    .Err(e) => .Err(e),
+  }
+}
+
+export fn toOption<T, E>(self: Result<T, E>): Option<T> {
+  match (self) {
+    .Ok(v) => .Some(v),
+    .Err(_e) => .None,
+  }
+}
+
+/// "I considered this and do not care", written rather than omitted. A
+/// reviewer can grep for it; `_` is unsearchable.
+export fn ignore<T, E>(self: Result<T, E>): () {
+  match (self) {
+    .Ok(_v) => (),
+    .Err(_e) => (),
+  }
+}

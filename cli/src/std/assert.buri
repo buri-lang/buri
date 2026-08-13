@@ -1,0 +1,83 @@
+// core/testing/assert — assertions.
+//
+// An ordinary module, imported like any other: `assert` is not a keyword, and
+// the name comes from `import * as assert`. A file is free to call it
+// something else.
+//
+// Two things about this module are not ordinary, and both follow from its
+// being a platform module rather than a library:
+//
+//   - its functions take no `ctx` and still render a failure message.
+//     Rendering is the runner's, not the program's — which is why this
+//     signature would be a lie anywhere else, and why the module is importable
+//     only from a test source.
+//   - a failure ends that test and no other. The runner reports the file, the
+//     line, and both values.
+
+from "core/order" import { Eq, Show };
+
+/// Fails unless `a == b`. Requires `Eq`, and `Show` for the message.
+///
+/// The comparison goes through `Eq`, so a hand-written implementation decides
+/// what equal means here exactly as it does everywhere else. Only the
+/// *rendering* of a failure is the runner's.
+export fn eq<T: Eq + Show>(actual: T, expected: T): () {
+  report(actual == expected, "eq", actual, expected)
+}
+
+export fn notEq<T: Eq + Show>(actual: T, expected: T): () {
+  report(actual != expected, "notEq", actual, expected)
+}
+
+export fn isTrue(actual: Bool): () {
+  report(actual, "isTrue", actual, true)
+}
+
+export fn isFalse(actual: Bool): () {
+  report(actual == false, "isFalse", actual, false)
+}
+
+/// Fails unconditionally.
+export fn fail(message: Str): () {
+  failWith(message)
+}
+
+/// Fails unless `r` is `.Ok`, and returns the wrapped value — which is how a
+/// `Result` is consumed in a test, since `Result` is still must-use here.
+export fn ok<T, E: Show>(r: Result<T, E>): T {
+  match (r) {
+    .Ok(v) => v,
+    .Err(e) => failExpected("ok", e),
+  }
+}
+
+export fn err<T: Show, E>(r: Result<T, E>): E {
+  match (r) {
+    .Ok(v) => failExpected("err", v),
+    .Err(e) => e,
+  }
+}
+
+export fn some<T>(o: Option<T>): T {
+  match (o) {
+    .Some(v) => v,
+    .None => failExpected("some", "none"),
+  }
+}
+
+export fn none<T: Show>(o: Option<T>): () {
+  match (o) {
+    .Some(v) => failExpected("none", v),
+    .None => (),
+  }
+}
+
+// The runner's side. `report` renders both values only when the assertion
+// failed, so a passing test costs one comparison and nothing else.
+fn report<T>(passed: Bool, kind: Str, actual: T, expected: T): ();
+
+fn failWith(message: Str): ();
+
+/// Returns the bottom type: a failed assertion ends the test, the way `crash`
+/// ends a program.
+fn failExpected<T, R>(kind: Str, got: T): R;
