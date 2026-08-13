@@ -19,7 +19,6 @@ same `.proto` machinery the language uses for wire formats.
 # lib/money/BUILD.buri
 
 library {
-  name: "money"
   sources: [
     "cents.buri",
     "parse.buri",
@@ -35,7 +34,7 @@ library {
 }
 ```
 
-`#` starts a comment. `buri fmt` formats build files as well as source: one
+`#` starts a comment. `buri format` formats build files as well as source: one
 field per line, `sources` and `dependencies` sorted, trailing commas, two-space
 indent.
 
@@ -76,8 +75,22 @@ In a `dependencies` list a label always means **the library** of that package,
 because a library is the only thing that can be depended on. In a CLI argument it means
 **every target** in that package. Those are the only two contexts a label
 appears in, and neither is ambiguous, so there is no `:name` syntax to learn and
-no rule about when to omit it. A rule's `name` field exists for diagnostics and
-artifact filenames, not for addressing.
+no rule about when to omit it.
+
+For the same reason **a rule has no `name` field**. A package holds at most one
+library and at most one binary, so the package path and the rule kind already
+identify a target: `//lib/money` is the library, `//cmd/server` is the binary,
+and that is what diagnostics print. A `name` would be a second identifier for a
+target that already has one, free to drift from the directory it sits in and
+useful for addressing nothing. Where a filename is genuinely needed — the
+artifact a binary produces — it defaults to the package's directory name and is
+overridden on the output that wants it, not on the rule:
+
+```textproto
+outputs: [
+  { platform: LINUX, arch: X86_64, artifact_name: "report-cli" },
+]
+```
 
 Patterns, accepted by the CLI and never in a build file:
 
@@ -98,7 +111,6 @@ and resolve to that library's `lib.buri`. See
 
 ```textproto
 library {
-  name: "ledger"
   sources: [
     "entry.buri",
     "posting/rules.buri",
@@ -117,7 +129,6 @@ library {
 
 | Field | Meaning |
 |---|---|
-| `name` | Diagnostics and artifact names. Required. Conventionally the directory name; `buri lint` warns when it is not. |
 | `sources` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
 | `dependencies` | Labels of libraries this one may use. |
 | `tags` | Labels saying what this code is; the policy they carry is declared in `REPO.buri`. See [`TAGS.md`](./TAGS.md). |
@@ -140,7 +151,7 @@ an error —
 error: lib/ledger/posting/interest.buri is not declared by any rule
   --> lib/ledger/BUILD.buri
    |
-   = add it to library "ledger" sources, or delete it
+   = add it to the library's sources, or delete it
    = run `buri gen //lib/ledger` to do this automatically
 ```
 
@@ -167,7 +178,6 @@ lib/ledger/
 
 ```textproto
 library {
-  name: "ledger"
   sources: ["entry.buri", "posting/rules.buri"]
   dependencies: ["//lib/money"]
   visibility: ["//cmd/...", "//lib/store", "//tools/report"]
@@ -201,7 +211,6 @@ less than the real implementation and occasionally needs something else.
 
 ```textproto
 binary {
-  name: "server"
   sources: ["routes.buri"]
   dependencies: [
     "//lib/ledger",
@@ -263,7 +272,6 @@ tools/report/
 # tools/report/BUILD.buri
 
 library {
-  name: "report"
   sources: ["render.buri"]
   visibility: ["//visibility:public"]
 
@@ -273,7 +281,6 @@ library {
 }
 
 binary {
-  name: "report_cli"
   sources: ["flags.buri"]
   tags: ["server"]
   outputs: [{ platform: LINUX, arch: X86_64 }]
@@ -284,7 +291,9 @@ binary {
 }
 ```
 
-Two rules, one directory, one build file. The rules are:
+Two rules, one directory, one build file, and still no names — the rule kind
+tells the two apart, and the binary's artifact is `report` after the directory.
+The rules are:
 
 - **The `sources` sets are disjoint.** Every file belongs to exactly one rule.
 - **The binary implicitly depends on the co-located library.** It does not
@@ -323,7 +332,6 @@ editing a file that names none of them.
 # lib/store/BUILD.buri — the database layer is not for general use
 
 library {
-  name: "store"
   sources: ["codec.buri", "file_store.buri"]
   dependencies: ["//lib/ledger", "//lib/money"]
   tags: ["server"]
@@ -402,16 +410,27 @@ error: cmd/server/routes.buri imports //lib/money, which is not in deps
 
 `buri gen //lib/money` rewrites `sources`, `dependencies`, `test.sources`,
 `test.dependencies`, `testing.sources`, and `testing.dependencies` from what the
-sources actually contain, and touches nothing else. It
-requires the `BUILD.buri` to already exist with the rule blocks and their `name`
-fields — it never invents a target, because deciding that a directory should
-become a library is a design decision, and inferring it from the presence of a
-file is how a repository ends up with two hundred libraries nobody chose. A stub
-is enough:
+sources actually contain, and touches nothing else. It requires the `BUILD.buri`
+to already exist with the rule blocks — it never invents a target, because
+deciding that a directory should become a library is a design decision, and
+inferring it from the presence of a file is how a repository ends up with two
+hundred libraries nobody chose. An empty rule is enough:
 
 ```textproto
-library { name: "money" }
+library {}
 ```
+
+**The contents of `tags`, `platforms`, and `timeout_seconds` are preserved**,
+along with `visibility`, `outputs`, `test.data`, and every comment. Those fields
+are decisions somebody made rather than facts derivable from the sources, and a
+tool that dropped a `tags` entry while tidying `sources` would silently widen
+what a library is allowed to link into. Running `buri gen //...` across the
+repository can add and remove dependency edges; it cannot change what the code
+is *allowed* to be.
+
+Their *formatting* is not preserved, and is not meant to be: `gen` leaves the
+whole file as `buri format` would leave it, so a `tags` list may come back
+rewrapped. What survives is what the field says, not how it was typed.
 
 See [`CLI.md`](./CLI.md) for exactly which fields are managed and how comments
 and hand-written fields survive the rewrite.

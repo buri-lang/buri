@@ -2,7 +2,6 @@
 # anything: the server binary, the JS binary, and the report CLI all use it.
 
 library {
-  name: "money"
   sources: [
     "cents.buri",
     "parse.buri",

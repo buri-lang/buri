@@ -14,8 +14,8 @@ other.
 A target's `tags` are facts about it. They say nothing on their own:
 
 ```textproto
+# lib/store/BUILD.buri
 library {
-  name: "store"
   tags: ["server"]        # this library is server code
 }
 ```
@@ -108,8 +108,8 @@ genuinely platform-specific, and writes them as a plain field, since a library
 states facts rather than policy:
 
 ```textproto
+# lib/posix_paths/BUILD.buri
 library {
-  name: "posix_paths"
   platforms: [LINUX, MACOS]   # this code does not mean anything on JS
 }
 ```
@@ -160,8 +160,8 @@ Weakened to what people actually mean by it — "nothing under this may be
 ## Outputs
 
 ```textproto
+# cmd/server/BUILD.buri
 binary {
-  name: "server"
   tags: ["server"]
   outputs: [
     { platform: LINUX, arch: X86_64 },
@@ -272,8 +272,8 @@ By default a suite runs once, on the host platform. A suite that must run in mor
 than one lists them:
 
 ```textproto
+# lib/codec/BUILD.buri
 library {
-  name: "codec"
   sources: ["codec.buri"]
 
   test {

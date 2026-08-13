@@ -9,6 +9,12 @@
 // The tool parses these with the same .proto reader the language uses for
 // `from "//proto/foo.proto" import ...`, so an unknown field is an error with a
 // line number rather than a silent no-op.
+//
+// `buri gen` rewrites only the fields it can derive from the sources —
+// `sources`, `dependencies`, and their `test`/`testing` counterparts. It may
+// reformat the file as `buri format` would, but the *contents* of the
+// hand-authored fields survive: `tags`, `platforms`, and `timeout_seconds`
+// above all, and `visibility` and `outputs` with them. See CLI.md.
 
 syntax = "proto3";
 
@@ -33,23 +39,23 @@ message BuildFile {
 // A `library` requires `lib.buri` in the package directory. That file is the
 // library's entire public surface: a target depending on this library can
 // import exactly the names `lib.buri` exports, and nothing else.
+//
+// There is no `name` field. A package holds at most one library, so the rule
+// kind and the package path already identify it: this library is `//lib/money`
+// in every context that can refer to it, and diagnostics say so. A name field
+// would be a second identifier for the same target, free to disagree with the
+// first.
 message Library {
-  // Used in diagnostics and artifact names. Conventionally the directory name.
-  // Required — proto3 has no `required`, so the build file parser enforces it
-  // and points at the block. It is not part of any label: this library is
-  // `//lib/money`, never `//lib/money:money`.
-  string name = 1;
-
   // Every .buri file in this package that belongs to this library, EXCLUDING
   // `lib.buri` and the test sources. Package-relative, may descend into
   // subdirectories. No globs: a file that exists on disk but appears in no rule
   // is a build error, not a silently ignored file.
-  repeated string sources = 2;
+  repeated string sources = 1;
 
   // Labels of libraries this one may use. `core/*` ships with the toolchain and
   // is never listed. Cycles are an error. A library is *used* by importing it
   // or by calling a method that resolves into it, and both require the entry.
-  repeated string dependencies = 3;
+  repeated string dependencies = 2;
 
   // Labels drawn from the vocabulary REPO.buri declares. A tag is a fact about
   // this library, not a constraint: the constraints live on the tag
@@ -59,14 +65,14 @@ message Library {
   // error, never a no-op — a tag that silently means nothing is a policy that
   // silently is not enforced, and `tags: ["sever"]` should not be the quiet
   // difference between a checked build and an unchecked one. See TAGS.md.
-  repeated string tags = 4;
+  repeated string tags = 3;
 
   // The platforms this library can be built for. Unset means all of them, which
   // is the common case — set this only for code that is genuinely
   // platform-specific. A whitelist rather than an exclusion, so adding a
   // platform to the toolchain never silently widens a library written before it
   // existed.
-  repeated Platform platforms = 8;
+  repeated Platform platforms = 4;
 
   // Who may depend on this library. See VISIBILITY in BUILD-FILES.md.
   repeated string visibility = 5;
@@ -94,27 +100,28 @@ message TestingSurface {
 // A `binary` requires `main.buri` in the package directory, and that file must
 // export `main`. `main.buri` is the binary's surface for tests, the same way
 // `lib.buri` is a library's surface for dependents.
+//
+// No `name` field, for the same reason a library has none: a package holds at
+// most one binary, so `//cmd/server` names it. The artifact filename defaults
+// to the package's directory name; `Output.artifact_name` overrides it.
 message Binary {
-  // Required, as above, and likewise not part of a label.
-  string name = 1;
-
   // Every .buri file in this package that belongs to the binary rather than to
   // a co-located library, excluding `main.buri` and the test sources.
-  repeated string sources = 2;
+  repeated string sources = 1;
 
-  repeated string dependencies = 3;
+  repeated string dependencies = 2;
 
   // Exactly the same meaning as on a library: labels this target carries. A
   // binary has no `platforms` field — its `outputs` already say which platforms
   // it is built for.
-  repeated string tags = 4;
+  repeated string tags = 3;
 
   // What to produce. One artifact per entry, and the whole graph is checked
   // once per entry, because each entry names a different platform.
-  repeated Output outputs = 5;
+  repeated Output outputs = 4;
 
   // Tests that exercise this binary through `main.buri`.
-  TestSuite test = 6;
+  TestSuite test = 5;
 }
 
 message Output {
@@ -125,7 +132,8 @@ message Output {
   // Ignored, and must be unset, when platform is JS.
   Arch arch = 2;
 
-  // Artifact filename. Defaults to the target name (plus `.mjs` for JS).
+  // Artifact filename. Defaults to the package's directory name (plus `.mjs`
+  // for JS).
   string artifact_name = 3;
 
   JsOptions js = 4;

@@ -6,7 +6,6 @@
 # source — here, and in //tools/report's suite.
 
 library {
-  name: "ledger"
   sources: [
     "entry.buri",
     "posting/rules.buri",

@@ -130,7 +130,7 @@ error: lib/store/file_store.buri imports a test-only module
    |      ^^^^^^^^^^^^^^^^^^^^^^
    |
    = a path containing `testing` may be imported only from a test source
-   = lib/store/file_store.buri is in library "store" sources
+   = lib/store/file_store.buri is in //lib/store's library sources
 ```
 
 ### A library's own `testing/`
@@ -149,7 +149,6 @@ lib/ledger/
 
 ```textproto
 library {
-  name: "ledger"
   sources: ["entry.buri", "posting/rules.buri"]
   dependencies: ["//lib/money"]
 
@@ -193,7 +192,6 @@ label:
 ```textproto
 # tools/report/BUILD.buri
 library {
-  name: "report"
   sources: ["render.buri"]
   dependencies: ["//lib/ledger", "//lib/money"]
 
@@ -303,7 +301,6 @@ lib/ledger/
 
 ```textproto
 library {
-  name: "ledger"
   sources: [
     "entry.buri",
     "posting/interest.buri",

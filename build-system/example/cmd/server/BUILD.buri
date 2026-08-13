@@ -7,7 +7,6 @@
 # outputs.
 
 binary {
-  name: "server"
   sources: ["routes.buri"]
   dependencies: [
     "//lib/ledger",

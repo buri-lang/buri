@@ -16,7 +16,6 @@
 # instead — the deployment policy is stated once and enforced from both sides.
 
 binary {
-  name: "web"
   dependencies: [
     "//lib/ledger",
     "//lib/money",

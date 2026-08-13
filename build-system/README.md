@@ -14,7 +14,7 @@ an incremental cache keyed on content rather than on timestamps.
 | [`TAGS.md`](./TAGS.md) | Build outputs, tags and the policy attached to them, platform restrictions |
 | [`TESTING.md`](./TESTING.md) | The `test` declaration, the test platform, what a test can reach |
 | [`REPO-CONFIG.md`](./REPO-CONFIG.md) | `REPO.buri`: toolchain pin, tag vocabulary, defaults, lint policy |
-| [`CLI.md`](./CLI.md) | `buri build`, `test`, `run`, `fmt`, `lint`, `gen`, `query` |
+| [`CLI.md`](./CLI.md) | `buri build`, `test`, `run`, `format`, `lint`, `gen`, `query` |
 | [`HERMETICITY-AND-CACHING.md`](./HERMETICITY-AND-CACHING.md) | Sandboxing, action graph, cache keys, incrementality |
 | [`schema/build.proto`](./schema/build.proto) | The normative schema for `BUILD.buri` |
 | [`schema/repo.proto`](./schema/repo.proto) | The normative schema for `REPO.buri` |
@@ -78,7 +78,6 @@ from them:
 
 ```textproto
 library {
-  name: "money"
   sources: [
     "cents.buri",
     "parse.buri",
@@ -149,7 +148,6 @@ And the binary that uses it, `cmd/server/BUILD.buri`:
 
 ```textproto
 binary {
-  name: "server"
   sources: ["routes.buri"]
   dependencies: [
     "//lib/ledger",

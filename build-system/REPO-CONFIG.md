@@ -94,8 +94,10 @@ toolchain cannot silently widen code written before it existed — the reason
 
 - **No `name`.** A repository does not need to announce what it is called. The
   label syntax is `//`-rooted and never mentions it, artifacts are named from
-  their target, and a name here would be a second identifier competing with the
-  directory the repository is checked out into.
+  their package directory, and a name here would be a second identifier
+  competing with the directory the repository is checked out into. Rules in a
+  `BUILD.buri` have no `name` either, for the same reason
+  ([`BUILD-FILES.md`](./BUILD-FILES.md#labels)).
 - **No defaults block.** Visibility is private unless a rule says otherwise, and
   that is a fixed rule of the language rather than a repository setting. A
   repository that could flip the default to public would be one where reading

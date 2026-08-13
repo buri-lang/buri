@@ -22,7 +22,6 @@ lib/money/
 
 ```textproto
 library {
-  name: "money"
   sources: ["cents.buri", "parse.buri"]
 
   test {
@@ -154,7 +153,6 @@ export fn sample(): [Entry] {
 ```textproto
 # lib/ledger/BUILD.buri
 library {
-  name: "ledger"
   sources: ["entry.buri", "posting/rules.buri"]
   dependencies: ["//lib/money"]
 

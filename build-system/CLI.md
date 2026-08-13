@@ -9,7 +9,7 @@ of the CLI itself beyond [`REPO.buri`](./REPO-CONFIG.md).
 buri build   [targets]   compile
 buri test    [targets]   compile and run test suites
 buri run     <target>    build one binary and execute it
-buri fmt     [paths]     format .buri sources and BUILD.buri files
+buri format  [paths]     format .buri sources and BUILD.buri files
 buri lint    [targets]   static checks beyond type checking
 buri gen     [targets]   regenerate sources/deps in existing BUILD.buri files
 buri query   <expr>      ask about the build graph
@@ -33,8 +33,10 @@ buri build //cmd/server --release
 ```
 
 Builds every requested target for every platform its `outputs` declare.
-`--output` selects one. Artifacts land in `.buri/out/<platform>/<package>/<name>`
-and a convenience symlink `out/` points at the most recent:
+`--output` selects one. Artifacts land in
+`.buri/out/<platform>/<package>/<artifact>`, where `<artifact>` is the package's
+directory name unless the output overrides it with `artifact_name`, and a
+convenience symlink `out/` points at the most recent:
 
 ```
 .buri/out/linux-x86_64/cmd/server/server
@@ -74,20 +76,23 @@ sandbox, with the real environment and the real filesystem. That is the point of
 `run`: it is the one command that produces a program with authority. Everything
 before it in the pipeline is hermetic. Arguments after `--` go to the program.
 
-## `fmt`
+## `format`
 
 ```
-buri fmt                 format the whole repository
-buri fmt --check         exit non-zero on any file that would change
-buri fmt lib/money       format a subtree
+buri format                 format the whole repository
+buri format --check         exit non-zero on any file that would change
+buri format lib/money       format a subtree
 ```
 
 Formats `.buri` sources and `BUILD.buri` files, with no options and no
 configuration file. For build files: one field per line, two-space indent,
-trailing commas, `sources` and `dependencies` sorted, rule blocks in the order `package`,
-`library`, `binary`, comments kept with the field beneath them.
+trailing commas, `sources` and `dependencies` sorted, `library` before `binary`,
+comments kept with the field beneath them.
 
-`buri fmt --check` is the CI form. There is nothing to configure, so there is
+This is the same normalization `buri gen` applies, so the two commands never
+disagree about a file.
+
+`buri format --check` is the CI form. There is nothing to configure, so there is
 nothing to argue about, and a formatter with options is a formatter whose output
 is a repository decision.
 
@@ -122,7 +127,6 @@ Style and hygiene rules:
 | | Severity |
 |---|---|
 | `unreachable-export` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export |
-| `name-matches-directory` | warn — a target whose `name` is not its directory's |
 | `unused-import` | error |
 | `unsorted-imports` | warn |
 | `discarded-result` | warn — `let _ =` on a `Result`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md) |
@@ -159,21 +163,38 @@ Rewrites, in every requested package's existing `BUILD.buri`:
 - `test.dependencies` — the libraries the test sources use, minus the target under test
   and its `dependencies`.
 
-and rewrites **nothing else**. `name`, `tags`, `platforms`, `visibility`,
-`outputs`, `test.data`, `timeout_seconds`, and every comment survive
-byte-identical. Generated lists are sorted; a field the tool manages is replaced
-whole rather than merged, so hand-editing `sources` is pointless and hand-editing
+and **no other field's contents**. `tags`, `platforms`, `timeout_seconds`,
+`visibility`, `outputs`, `test.data`, `test.platforms`, and every comment come
+back saying exactly what they said. A field the tool manages is replaced whole
+rather than merged, so hand-editing `sources` is pointless and hand-editing
 `tags` is expected.
 
-**A `BUILD.buri` must already exist, with the rule blocks and their names.**
-`buri gen` never creates a build file and never adds a rule. Deciding that a
-directory is a library — that it has an API, an owner, a visibility, a
-tag — is a design decision, and inferring it from the presence of a `lib.buri`
-is how a repository acquires two hundred libraries nobody chose. A stub is
-enough to start:
+What `gen` may change everywhere is **formatting**: it leaves the file exactly
+as `buri format` would, so a hand-written `tags` list can come back rewrapped,
+re-indented, or moved to one-field-per-line, and a comment stays with the field
+beneath it. Running `gen` and running `format` never fight over a file.
+
+That split is the whole design of the command. `buri gen` writes the fields that
+*restate the sources* — where a file lives, what it imports — and it is safe to
+run over the entire repository precisely because it cannot write the fields that
+*constrain* them. `tags` and `platforms` are the ones that matter most: a tag
+decides what a target may be linked with, `platforms` decides where it may be
+built, neither is derivable from an import graph, and a tool that dropped a
+`tags` entry while tidying `sources` would turn `buri gen //...` into a way to
+quietly delete policy. The same holds for a rule `gen` finds empty — the tags
+stay even if every source is removed. `visibility` and `outputs` are preserved
+for the same reason and a plainer one besides: nothing in the code says who
+*ought* to be allowed to depend on a library, or which platforms you *want* to
+ship, so there is nothing for the tool to derive them from.
+
+**A `BUILD.buri` must already exist, with the rule blocks.** `buri gen` never
+creates a build file and never adds a rule. Deciding that a directory is a
+library — that it has an API, an owner, a visibility, a tag — is a design
+decision, and inferring it from the presence of a `lib.buri` is how a repository
+acquires two hundred libraries nobody chose. An empty rule is enough to start:
 
 ```textproto
-library { name: "money" }
+library {}
 ```
 
 ```

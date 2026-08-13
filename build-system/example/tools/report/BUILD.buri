@@ -8,9 +8,12 @@
 #     it in dependencies;
 #   - main.buri reaches the library through //tools/report and never through
 #     //tools/report/render.
+#
+# Neither rule has a name, and neither needs one: the kind tells them apart, and
+# both are //tools/report. The binary's artifact takes the directory name,
+# `report`; an `artifact_name` on an output would change that.
 
 library {
-  name: "report"
   sources: ["render.buri"]
   dependencies: [
     "//lib/ledger",
@@ -27,7 +30,6 @@ library {
 }
 
 binary {
-  name: "report_cli"
   sources: ["flags.buri"]
   dependencies: [
     "//lib/ledger",

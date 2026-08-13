@@ -14,7 +14,6 @@
 # the `server` tag's policy in REPO.buri, stated once for all server code.
 
 library {
-  name: "store"
   sources: [
     "codec.buri",
     "file_store.buri",
