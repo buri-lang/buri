@@ -1,0 +1,42 @@
+# A package with both a library and a binary: the rendering is reusable and
+# testable, the CLI around it is one file of argument handling.
+#
+# Rules for this shape:
+#   - the srcs sets are disjoint, and every .buri file in the package is in
+#     exactly one of them;
+#   - the binary implicitly depends on the co-located library and does not list
+#     it in deps;
+#   - main.buri reaches the library through ./lib and never through ./render.
+
+library {
+  name: "report"
+  srcs: ["render.buri"]
+  deps: [
+    "//lib/ledger",
+    "//lib/money",
+  ]
+  visibility: ["//visibility:public"]
+
+  test {
+    srcs: ["test/render.buri"]
+  }
+}
+
+binary {
+  name: "report_cli"
+  srcs: ["flags.buri"]
+  deps: [
+    "//lib/ledger",
+    "//lib/money",
+  ]
+  tags: ["server"]
+
+  outputs: [
+    { platform: LINUX, arch: X86_64 },
+    { platform: MACOS, arch: ARM64 },
+  ]
+
+  test {
+    srcs: ["test/flags.buri"]
+  }
+}

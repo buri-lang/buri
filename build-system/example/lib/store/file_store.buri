@@ -15,7 +15,7 @@ export enum StoreError {
 /// that never asks for `Fs` cannot reach these at all, tag or no tag.
 export fn append(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str, entries: [Entry]): Result<{}, StoreError> {
   let existing = fs.readText(ctx, path).withDefault("");
-  let body = str.concat(ctx, existing, entries.encode(ctx));
+  let body = str.concat(ctx, existing, encode(entries, ctx));
   fs.writeText(ctx, path, body).mapErr(fn(e) => StoreError.Io(e))
 }
 

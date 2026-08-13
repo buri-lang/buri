@@ -10,21 +10,21 @@ lib/money/
   BUILD.buri
   lib.buri
   cents.buri
-  format.buri
+  parse.buri
   test/
     cents.buri
-    format.buri
+    parse.buri
 ```
 
 ```textproto
 library {
   name: "money"
-  srcs: ["cents.buri", "format.buri"]
+  srcs: ["cents.buri", "parse.buri"]
 
   test {
     srcs: [
       "test/cents.buri",
-      "test/format.buri",
+      "test/parse.buri",
     ]
   }
 }
@@ -44,9 +44,9 @@ TestDecl        ::= "test" STRING "(" Params? ")" ":" Type Block
 ```
 
 ```buri
-// lib/money/test/format.buri
+// lib/money/test/cents.buri
 
-from "//lib/money" import { fromCents, format };
+from "//lib/money" import { fromCents };
 from "core/cap" import { Alloc };
 from "core/test" import { Expect };
 from "core/test" import * as t;
@@ -129,8 +129,8 @@ and may not:
   private helpers.
 
 ```
-error: lib/money/test/format.buri imports a library-internal module
-  --> lib/money/test/format.buri:3:6
+error: lib/money/test/cents.buri imports a library-internal module
+  --> lib/money/test/cents.buri:3:6
    |
  3 | from "../cents" import { toCents };
    |      ^^^^^^^^^^
@@ -264,10 +264,10 @@ buri test //... --output=js         run every suite through the JS backend
 Output names the target, the file, and the test:
 
 ```
-FAIL //lib/money  test/format.buri  "pads the cents place"
+FAIL //lib/money  test/cents.buri  "pads the cents place"
   expected: "$19.05"
   actual:   "$19.5"
-  --> lib/money/test/format.buri:8:3
+  --> lib/money/test/cents.buri:8:3
 
 12 passed, 1 failed, 0 skipped (0.4s, 11 cached)
 ```

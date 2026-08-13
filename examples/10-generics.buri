@@ -3,7 +3,6 @@
 // Type parameters have no bounds, because there are no traits. Code that needs
 // an operation takes that operation as an argument.
 
-from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/order" import * as order;
 from "core/cap" import { Alloc, Stdout };
@@ -83,27 +82,27 @@ fn mapPair<A, B, C>(f: fn(A) => C, g: fn(B) => C, p: Pair<A, B>): Pair<C, C> {
 
 // --- Row variables ----------------------------------------------------------
 //
-// `..R` is a row variable: an unknown set of remaining fields. It lets a
-// function accept a richer context and hand the same one to a callback.
+// The context is one type variable, so handing the same context to a callback
+// is just naming `C` again. Row variables used to be needed for this; effect
+// bounds made them unnecessary and they were removed.
 
 fn withLogging<C: Stdout, T>(
   ctx: C,
   label: Str,
-  action: fn({ stdout: Stdout, ..R }) => T,
+  action: fn(C) => T,
 ): T {
-  let _ = io.println(ctx, "-> ${label}");
+  let _ = ctx.println("-> ${label}");
   let out = action(ctx);
-  let _ = io.println(ctx, "<- ${label}");
+  let _ = ctx.println("<- ${label}");
   out
 }
 
-// The anonymous form `..` introduces a fresh row variable when you do not need
-// to name it.
+// A function names the effects it needs and nothing else.
 fn requiresOnlyAlloc<C: Alloc>(ctx: C, n: Int): [Int] {
   list.range(ctx, 0, n)
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   // Turbofish supplies explicit type arguments in expression position.
   let n = identity::<Int>(7);
   let s = identity("seven");
@@ -111,22 +110,22 @@ export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   let tree =
     Tree.Leaf.insert(order.int, 5).insert(order.int, 3).insert(order.int, 8).insert(order.int, 3);
 
-  let _ = io.println(ctx, "identity  = ${n} / ${s}");
-  let _ = io.println(ctx, "constant  = ${constant(1, s)}");
-  let _ = io.println(ctx, "tree size = ${tree.size()}");
-  let _ = io.println(ctx, "has 8     = ${tree.contains(order.int, 8)}");
-  let _ = io.println(ctx, "has 9     = ${tree.contains(order.int, 9)}");
-  let _ = io.println(ctx, "flip      = ${flip(fn(a: Int, b: Int) => a - b, 1, 10)}");
+  let _ = ctx.println("identity  = ${n} / ${s}");
+  let _ = ctx.println("constant  = ${constant(1, s)}");
+  let _ = ctx.println("tree size = ${tree.size()}");
+  let _ = ctx.println("has 8     = ${tree.contains(order.int, 8)}");
+  let _ = ctx.println("has 9     = ${tree.contains(order.int, 9)}");
+  let _ = ctx.println("flip      = ${flip(fn(a: Int, b: Int) => a - b, 1, 10)}");
 
   let p = mapPair(fn(x: Int) => x * 2, fn(b: Bool) => if (b) { 1 } else { 0 }, Pair { first: 21, second: true });
-  let _ = io.println(ctx, "mapPair   = ${p.first}, ${p.second}");
+  let _ = ctx.println("mapPair   = ${p.first}, ${p.second}");
 
   // `withLogging` receives a context with both alloc and stdout, requires only
   // stdout, and passes the whole thing through to the callback — which is
   // therefore free to allocate.
   let doubled = withLogging(ctx, "duplicate", fn(c) => duplicate(c, [1, 2, 3]));
-  let _ = io.println(ctx, "duplicate = ${doubled.len()} items");
-  let _ = io.println(ctx, "range     = ${requiresOnlyAlloc(ctx, 5).len()} items");
+  let _ = ctx.println("duplicate = ${doubled.len()} items");
+  let _ = ctx.println("range     = ${requiresOnlyAlloc(ctx, 5).len()} items");
 
-  .Ok({})
+  .Ok(())
 }

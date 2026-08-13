@@ -3,7 +3,6 @@
 // Structs are nominal: two structs with identical fields are different types.
 // They have no methods. Functions that operate on a struct are just functions.
 
-from "core/io" import * as io;
 from "core/cap" import { Alloc, Stdout };
 
 struct Point {
@@ -74,7 +73,7 @@ fn describe(p: Point): Str {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let a = origin();
   let b = translate(a, 3.0, 4.0);
 
@@ -83,19 +82,19 @@ export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   // Struct patterns work in `let` too, as long as they are irrefutable.
   let Point { x, y } = b;
 
-  let _ = io.println(ctx, "b        = (${x}, ${y})");
-  let _ = io.println(ctx, "distance = ${distanceSquared(a, b)}");
-  let _ = io.println(ctx, "describe = ${describe(b)}");
-  let _ = io.println(ctx, "user id  = ${rawId(ada)}");
+  let _ = ctx.println("b        = (${x}, ${y})");
+  let _ = ctx.println("distance = ${distanceSquared(a, b)}");
+  let _ = ctx.println("describe = ${describe(b)}");
+  let _ = ctx.println("user id  = ${rawId(ada)}");
 
   // Nominal typing means this is a type error, and that is the point:
   //   let m: Meters = 9.8;         // ERROR: F64 is not Meters
   let m = Meters(9.8);
-  let _ = io.println(ctx, "meters   = ${m.0}");
+  let _ = ctx.println("meters   = ${m.0}");
 
   let boxed = Boxed { value: 42, label: "answer" };
   let paired = Pair(1, "one");
-  let _ = io.println(ctx, "boxed    = ${boxed.label}=${boxed.value}, pair.1=${paired.1}");
+  let _ = ctx.println("boxed    = ${boxed.label}=${boxed.value}, pair.1=${paired.1}");
 
-  .Ok({})
+  .Ok(())
 }

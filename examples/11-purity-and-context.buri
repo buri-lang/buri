@@ -2,9 +2,9 @@
 //
 // This is the example to read if you read only one.
 //
-// A capability is a value of an opaque, unforgeable type. A context is an
-// ordinary record whose fields are capabilities. A function that was not handed
-// a capability cannot perform the corresponding effect — not directly, not
+// An effect is an interface only the platform implements. A context is a value
+// bounded by the effects a function needs. A function that was not handed
+// a effect cannot perform the corresponding effect — not directly, not
 // through a helper, not through a dependency.
 //
 // Purity is therefore not a keyword and not an inferred annotation. It is the
@@ -53,10 +53,10 @@ fn mean(xs: [F64]): Option<F64> {
   if (xs.isEmpty()) {
     .None
   } else {
-    // `as%` and not `as`: I64 -> F64 is lossy above 2^53, so the language
-    // makes you say that you accept it. This is the most common place a
-    // non-lossless cast shows up in ordinary code.
-    .Some(xs.fold(fn(a, b) => a + b, 0.0) / (xs.len() as% F64))
+    // `toF64` on an integer is exact to 53 bits and rounds beyond that. It is
+    // the one conversion the language lets you write without a Result, because
+    // turning a count into a float is too common to route through one.
+    .Some(xs.fold(fn(a, b) => a + b, 0.0) / (xs.len().toF64()))
   }
 }
 
@@ -65,7 +65,7 @@ fn mean(xs: [F64]): Option<F64> {
 //
 // Bounded by <C: Alloc> and nothing else. Still referentially
 // transparent — it just needs memory, which can fail and which costs
-// something. `Alloc` is a resource capability, not an effect capability.
+// something. `Alloc` is a resource effect, not an effect effect.
 // ---------------------------------------------------------------------------
 
 fn normalize<C: Alloc>(ctx: C, values: [F64]): [F64] {
@@ -82,7 +82,7 @@ fn slugify<C: Alloc>(ctx: C, title: Str): Str {
 // ---------------------------------------------------------------------------
 // TIER 3: EFFECTFUL
 //
-// Anything that observes or changes the world names the capability it needs.
+// Anything that observes or changes the world names the effect it needs.
 // Callers pass whatever richer context they hold; row polymorphism (`..`)
 // makes the wider record acceptable.
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ fn timed<C: Clock + Stdout, T>(
   // Reading a clock is nondeterministic, so it needs Clock.
   let start = time.now(ctx);
   let elapsed = time.since(ctx, start);
-  let _ = io.println(ctx, "${label} took ${elapsed}ms");
+  let _ = ctx.println("${label} took ${elapsed}ms");
   value
 }
 
@@ -107,10 +107,10 @@ fn rollDice<C: Rand>(ctx: C, sides: Int): Int {
 // WHAT THE SIGNATURES BUY YOU
 // ---------------------------------------------------------------------------
 
-// This function's parameters are all capability-free, so it is pure — and no
+// This function's parameters are all effect-free, so it is pure — and no
 // amount of code inside could change that. There is no ambient allocator, no
 // global stdout, no `import fs` that would work here. Try to call
-// io.println and the name `ctx` simply is not in scope.
+// ctx.println and the name `ctx` simply is not in scope.
 fn provablyPure(xs: [Int], k: Int): Int {
   xs.fold(fn(acc, x) => acc + x * k, 0)
 }
@@ -122,24 +122,24 @@ fn deterministicPipeline<C: Alloc>(ctx: C, xs: [F64]): [F64] {
   normalize(ctx, xs)
 }
 
-export fn main<C: Alloc + Clock + Rand + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Clock + Rand + Stdout>(ctx: C): Result<(), Str> {
   let temps: [F64] = [12.0, 18.5, 21.0, 9.5];
 
   let word = "racecar";
   let title = "Hello Brave New World";
 
-  let _ = io.println(ctx, "68F         = ${celsiusToFahrenheit(20.0)}");
-  let _ = io.println(ctx, "palindrome  = ${isPalindrome(word)}");
-  let _ = io.println(ctx, "mean        = ${mean(temps) ?? 0.0}");
-  let _ = io.println(ctx, "slug        = ${slugify(ctx, title)}");
-  let _ = io.println(ctx, "pure        = ${provablyPure([1, 2, 3], 10)}");
-  let _ = io.println(ctx, "normalized  = ${deterministicPipeline(ctx, temps).len()} values");
-  let _ = io.println(ctx, "dice        = ${rollDice(ctx, 20)}");
+  let _ = ctx.println("68F         = ${celsiusToFahrenheit(20.0)}");
+  let _ = ctx.println("palindrome  = ${isPalindrome(word)}");
+  let _ = ctx.println("mean        = ${mean(temps) ?? 0.0}");
+  let _ = ctx.println("slug        = ${slugify(ctx, title)}");
+  let _ = ctx.println("pure        = ${provablyPure([1, 2, 3], 10)}");
+  let _ = ctx.println("normalized  = ${deterministicPipeline(ctx, temps).len()} values");
+  let _ = ctx.println("dice        = ${rollDice(ctx, 20)}");
 
   // `timed` needs clock + stdout; `ctx` has both plus more, and the extra
   // fields are absorbed by the trailing `..` in its signature.
   let answer = timed(ctx, "sum", provablyPure([1, 2, 3, 4], 1));
-  let _ = io.println(ctx, "timed       = ${answer}");
+  let _ = ctx.println("timed       = ${answer}");
 
-  .Ok({})
+  .Ok(())
 }

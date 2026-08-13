@@ -1,0 +1,21 @@
+// Tests for the library half of this package. `//tools/report` with no `:name`
+// is the library, so this suite sees lib.buri's surface.
+
+from "//tools/report" import { render };
+from "//lib/ledger" import { entry };
+from "//lib/money" import { fromCents };
+from "core/cap" import { Alloc };
+from "core/test" import { Expect };
+from "core/test" import * as t;
+
+test "the terse report is one line" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let out = render([entry("coffee", fromCents(450))], ctx, false);
+  t.eq(ctx, out, "\ntotal \$4.50")?;
+  .Ok({})
+}
+
+test "verbose lists every entry" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let out = render([entry("coffee", fromCents(450))], ctx, true);
+  t.isTrue(ctx, out.contains("coffee"))?;
+  .Ok({})
+}

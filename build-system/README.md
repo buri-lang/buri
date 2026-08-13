@@ -28,10 +28,10 @@ lib/
     BUILD.buri                # declares //lib/money
     lib.buri                  # the library's entire public surface
     cents.buri                # internal
-    format.buri               # internal
+    parse.buri                # internal
     test/
       cents.buri              # tests, against lib.buri only
-      format.buri
+      parse.buri
   ledger/
     BUILD.buri
     lib.buri
@@ -78,14 +78,14 @@ library {
   name: "money"
   srcs: [
     "cents.buri",
-    "format.buri",
+    "parse.buri",
   ]
   visibility: ["//visibility:public"]
 
   test {
     srcs: [
       "test/cents.buri",
-      "test/format.buri",
+      "test/parse.buri",
     ]
   }
 }
@@ -100,8 +100,8 @@ it. Everything else in the package is listed one path at a time.
 // The public surface of //lib/money. A dependent can import these names and no
 // others; `toCents` below is exported from ./cents but not from here, so it is
 // visible inside this library and nowhere else.
-from "./cents" export { Cents, fromDollars, fromCents, add };
-from "./format" export { format };
+from "./cents" export { Cents, fromDollars, fromCents, add, isZero, format };
+from "./parse" export { ParseError, parse };
 ```
 
 `lib/money/cents.buri`:
@@ -115,15 +115,16 @@ export fn fromDollars(d: I64): Cents { Cents(d * 100) }
 export fn fromCents(c: I64): Cents { Cents(c) }
 export fn add(self: Cents, other: Cents): Cents { Cents(self.0 + other.0) }
 
-// Exported from this module, so `format.buri` can reach it. Not re-exported
-// from lib.buri, so it is invisible outside //lib/money.
+// Exported from this module, so `parse.buri` can reach it. Not re-exported
+// from lib.buri, so it is invisible outside //lib/money — as a free function
+// and as a method.
 export fn toCents(self: Cents): I64 { self.0 }
 ```
 
-`lib/money/test/format.buri`:
+`lib/money/test/cents.buri`:
 
 ```buri
-from "//lib/money" import { fromCents, format };
+from "//lib/money" import { fromCents };
 from "core/cap" import { Alloc };
 from "core/test" import * as t;
 from "core/test" import { Expect };

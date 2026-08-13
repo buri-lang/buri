@@ -1,0 +1,26 @@
+from "core/cap" import { Alloc, Env, Stdout };
+from "core/env" import * as env;
+from "core/io" import * as io;
+
+from "//lib/ledger" import { entry };
+from "//lib/money" import { fromCents };
+
+// The binary's surface for its own test suite.
+from "./flags" export { Flags, parseFlags };
+
+from "./flags" import { parseFlags };
+
+// The co-located library, reached through its entry point. `from "./render"
+// import { render };` would be a boundary violation even though the file is in
+// this directory.
+from "./lib" import { render };
+
+export fn main(ctx: { alloc: Alloc, stdout: Stdout, env: Env }): Result<{}, Str> {
+  let flags = parseFlags(env.args(ctx));
+  let entries = [
+    entry("coffee", fromCents(450)),
+    entry("books", fromCents(3200)),
+  ];
+  let _ = io.println(ctx, render(entries, ctx, flags.verbose));
+  .Ok({})
+}

@@ -13,13 +13,13 @@ compiler exists.
 | [`05-enums.buri`](./05-enums.buri) | Rust-style sum types, generic and recursive enums |
 | [`06-pattern-matching.buri`](./06-pattern-matching.buri) | Every pattern form, guards, exhaustiveness |
 | [`07-arrays.buri`](./07-arrays.buri) | `[T]`, `Option`-returning indexing, which ops allocate |
-| [`08-tuples-and-records.buri`](./08-tuples-and-records.buri) | Tuples, structural records, row polymorphism |
+| [`08-tuples-and-structs.buri`](./08-tuples-and-structs.buri) | Tuples, nominal structs, field shorthand |
 | [`09-option-and-result.buri`](./09-option-and-result.buri) | `?`, `??`, error types, no null and no exceptions |
 | [`10-generics.buri`](./10-generics.buri) | Type parameters, row variables, passing operations |
 | [`11-purity-and-context.buri`](./11-purity-and-context.buri) | **The core idea.** Pure / deterministic / effectful |
 | [`12-file-io.buri`](./12-file-io.buri) | `Fs`, keeping the parsing pure and the I/O at the edge |
 | [`13-network.buri`](./13-network.buri) | `Net`, retries, threading context through callbacks |
-| [`14-capability-attenuation.buri`](./14-capability-attenuation.buri) | Static confinement by bound; attenuation by wrapper |
+| [`14-effect-attenuation.buri`](./14-effect-attenuation.buri) | Static confinement by bound; attenuation by wrapper |
 | [`15-modules.buri`](./15-modules.buri) | Imports, exports, opaque types, type aliases |
 | [`16-recursion.buri`](./16-recursion.buri) | Accumulators, guaranteed tail calls, trees |
 | [`17-blocks-and-scope.buri`](./17-blocks-and-scope.buri) | Method chains, blocks, shadowing, evaluation order |
@@ -40,8 +40,8 @@ fn normalize<C: Alloc>(self: [F64], ctx: C): [F64]            // deterministic, 
 fn loadConfig<C: Alloc + Fs>(ctx: C, p: Str): ...             // touches the world
 ```
 
-No parameter can hide a capability: one must be named `self` or `ctx`, and a
-lambda may not capture one. So the pile a function belongs in is decided by its
+No parameter can hide an effect: one must be named `self` or `ctx`, and a lambda
+may not capture one. So the pile a function belongs in is decided by its
 first two parameters — you never read its body, or its callees' bodies, to know
 what it can do.
 
@@ -49,8 +49,10 @@ what it can do.
 
 - **Receiver first, context second** — enforced, not merely conventional.
   `map(self, ctx, f)`, called as `xs.map(ctx, f)`.
-- **Capabilities are trait bounds.** `<C: Alloc + Fs>` is the same feature as
+- **Effects are trait bounds.** `<C: Alloc + Fs>` is the same feature as
   `<T: Ord + Show>`; there is one constraint mechanism in the language.
+- **Everything is nominal.** No records, no structural conformance — every type
+  has a declaration and every `impl` is written down.
 - **`..` on context types.** Write the minimum you need and let row
   polymorphism accept richer contexts. Close the record (no `..`) at `main` when
   you want an exact grant.

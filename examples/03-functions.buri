@@ -4,7 +4,6 @@
 // no objects, no `self`.
 
 from "core/list" import * as list;
-from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/math" import * as math;
 from "core/cap" import { Alloc, Stdout };
@@ -39,7 +38,7 @@ fn applyTwice(f: fn(Int) => Int, x: Int): Int {
 }
 
 fn compose<A, B, C>(f: fn(B) => C, g: fn(A) => B): fn(A) => C {
-  // Capturing `f` and `g` is fine: function values here are capability-free.
+  // Capturing `f` and `g` is fine: function values here are effect-free.
   fn(x) => f(g(x))
 }
 
@@ -80,14 +79,14 @@ fn turbofish(): Int {
   intId(3)
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let sums = [1, 2, 3].map(ctx, fn(x) => add(x, 10));
-  let _ = io.println(ctx, "add:      ${sums.sum()}");
-  let _ = io.println(ctx, "hyp:      ${hypotenuse(3.0, 4.0)}");
-  let _ = io.println(ctx, "even:     ${isEven(10)}");
-  let _ = io.println(ctx, "lambdas:  ${lambdas()}");
-  let _ = io.println(ctx, "compose:  ${compose(fn(x: Int) => x + 1, fn(x: Int) => x * 2)(5)}");
-  let _ = io.println(ctx, "many:     ${manyArgs(1, GREETING, false)}");
-  let _ = io.println(ctx, "turbo:    ${turbofish()}");
-  .Ok({})
+  let _ = ctx.println("add:      ${sums.sum()}");
+  let _ = ctx.println("hyp:      ${hypotenuse(3.0, 4.0)}");
+  let _ = ctx.println("even:     ${isEven(10)}");
+  let _ = ctx.println("lambdas:  ${lambdas()}");
+  let _ = ctx.println("compose:  ${compose(fn(x: Int) => x + 1, fn(x: Int) => x * 2)(5)}");
+  let _ = ctx.println("many:     ${manyArgs(1, GREETING, false)}");
+  let _ = ctx.println("turbo:    ${turbofish()}");
+  .Ok(())
 }

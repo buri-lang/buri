@@ -1,7 +1,7 @@
 // Tests for //lib/money. They import the library by label, exactly as any
 // dependent does, so they can only assert on what dependents can call.
 
-from "//lib/money" import { Cents, fromDollars, fromCents, add, isZero };
+from "//lib/money" import { fromDollars, fromCents };
 from "core/cap" import { Alloc };
 from "core/test" import { Expect };
 from "core/test" import * as t;
@@ -23,7 +23,17 @@ test "zero is recognized" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, St
   .Ok({})
 }
 
+test "pads the cents place" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  t.eq(ctx, fromCents(1905).format(ctx), "\$19.05")?;
+  t.eq(ctx, fromDollars(19).format(ctx), "\$19.00")?;
+  .Ok({})
+}
+
 // t.eq(ctx, fromCents(300).toCents(), 300)
 //   ERROR: `toCents` is not on //lib/money's surface. Either it belongs there —
 //   in which case add it to lib.buri and every dependent gets it — or this test
 //   is asserting on an implementation detail.
+//
+// `add`, `isZero`, and `format` are called as methods above without being
+// imported by name: a method resolves through its receiver's type, and these
+// are on the surface. Leaving one out of lib.buri would break these lines.

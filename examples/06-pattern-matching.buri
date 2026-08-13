@@ -3,7 +3,6 @@
 // `match` is exhaustive, ordered, and the primary control-flow construct.
 // A non-exhaustive match is a compile error; an unreachable arm is too.
 
-from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/cap" import { Alloc, Stdout };
 
@@ -142,18 +141,18 @@ fn destructuring(p: Point, pair: (Int, Str)): Int {
   x + y + n
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let p = Point { x: 3, y: -2 };
-  let _ = io.println(ctx, "classify(-5)  = ${classify(-5)}");
-  let _ = io.println(ctx, "token         = ${tokenText(Token.Symbol(';'))}");
-  let _ = io.println(ctx, "quadrant      = ${quadrant(p)}");
-  let _ = io.println(ctx, "diagonal      = ${diagonal((Point { x: 0, y: 0 }, p))}");
-  let _ = io.println(ctx, "meters        = ${unwrapMeters(Meters(1.5))}");
-  let _ = io.println(ctx, "hasAlloc      = ${hasAlloc(ctx)}");
-  let _ = io.println(ctx, "summarize     = ${summarize([1, 2, 3])}");
-  let _ = io.println(ctx, "depth         = ${depth(Node.Branch { left: Node.Leaf(1), right: Node.Leaf(2) })}");
+  let _ = ctx.println("classify(-5)  = ${classify(-5)}");
+  let _ = ctx.println("token         = ${tokenText(Token.Symbol(';'))}");
+  let _ = ctx.println("quadrant      = ${quadrant(p)}");
+  let _ = ctx.println("diagonal      = ${diagonal((Point { x: 0, y: 0 }, p))}");
+  let _ = ctx.println("meters        = ${unwrapMeters(Meters(1.5))}");
+  let _ = ctx.println("hasAlloc      = ${hasAlloc(ctx)}");
+  let _ = ctx.println("summarize     = ${summarize([1, 2, 3])}");
+  let _ = ctx.println("depth         = ${depth(Node.Branch { left: Node.Leaf(1), right: Node.Leaf(2) })}");
   let pair = (7, "seven");
-  let _ = io.println(ctx, "destructuring = ${destructuring(p, pair)}");
+  let _ = ctx.println("destructuring = ${destructuring(p, pair)}");
   let _ = keepOriginal(Token.Eof);
-  .Ok({})
+  .Ok(())
 }

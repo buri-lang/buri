@@ -7,7 +7,6 @@
 // are the only places that name Fs, Env, or Stdout. That split is not
 // discipline — it is what the signatures enforce.
 
-from "core/io" import * as io;
 from "core/fs" import * as fs;
 from "core/env" import * as env;
 from "core/str" import * as str;
@@ -192,7 +191,7 @@ fn readInput<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, AppError> {
 
 fn run<C: Alloc + Fs + Env + Stdout>(
   ctx: C,
-): Result<{}, AppError> {
+): Result<(), AppError> {
   let options = parseArgs(env.args(ctx))?;
   let text = readInput(ctx, options.path)?;
 
@@ -200,19 +199,19 @@ fn run<C: Alloc + Fs + Env + Stdout>(
   let counts = tally(ctx, words);
   let top = rank(ctx, counts, options.top);
 
-  let _ = io.println(ctx, "${totalWords(counts)} words, ${counts.len()} distinct");
-  let _ = io.println(ctx, "");
-  let _ = io.println(ctx, renderReport(ctx, top));
+  let _ = ctx.println("${totalWords(counts)} words, ${counts.len()} distinct");
+  let _ = ctx.println("");
+  let _ = ctx.println(renderReport(ctx, top));
 
-  .Ok({})
+  .Ok(())
 }
 
 // The context is closed: exactly alloc, fs, env, and stdout. This program
 // cannot open a socket, spawn a process, or read the clock, and neither can
 // any library it depends on, because none of them were ever given the means.
-export fn main<C: Alloc + Fs + Env + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Fs + Env + Stdout>(ctx: C): Result<(), Str> {
   match (run(ctx)) {
-    .Ok(_) => .Ok({}),
+    .Ok(_) => .Ok(()),
     .Err(e) => .Err(errorText(ctx, e)),
   }
 }

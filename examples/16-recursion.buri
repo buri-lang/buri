@@ -4,7 +4,6 @@
 // eliminate tail calls, including mutually recursive ones, so a tail-recursive
 // function runs in constant stack space.
 
-from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/cap" import { Alloc, Stdout };
@@ -140,7 +139,7 @@ fn collatzFrom(n: Int, steps: Int): Int {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let xs: [Int] = [4, 8, 15, 16, 23, 42];
 
   let tree =
@@ -150,22 +149,22 @@ export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
       Tree.Node(Tree.Leaf, 3, Tree.Node(Tree.Leaf, 4, Tree.Leaf)),
     );
 
-  let _ = io.println(ctx, "factorial 10 = ${factorial(10)}");
-  let _ = io.println(ctx, "naive 10     = ${factorialNaive(10)}");
-  let _ = io.println(ctx, "fib 30       = ${fib(30)}");
+  let _ = ctx.println("factorial 10 = ${factorial(10)}");
+  let _ = ctx.println("naive 10     = ${factorialNaive(10)}");
+  let _ = ctx.println("fib 30       = ${fib(30)}");
 
   // Constant stack space: this would overflow in a language without
   // guaranteed tail calls.
-  let _ = io.println(ctx, "isEven 1e6   = ${isEven(1_000_000)}");
+  let _ = ctx.println("isEven 1e6   = ${isEven(1_000_000)}");
 
-  let _ = io.println(ctx, "sumAll       = ${sumAll(xs)}");
-  let _ = io.println(ctx, "sumTail      = ${sumTail(xs)}");
-  let _ = io.println(ctx, "findFirst    = ${findFirst(fn(x) => x > 15, xs) ?? -1}");
-  let _ = io.println(ctx, "depth        = ${depth(tree)}");
-  let _ = io.println(ctx, "flattened    = ${toArray(ctx, tree).len()} nodes");
+  let _ = ctx.println("sumAll       = ${sumAll(xs)}");
+  let _ = ctx.println("sumTail      = ${sumTail(xs)}");
+  let _ = ctx.println("findFirst    = ${findFirst(fn(x) => x > 15, xs) ?? -1}");
+  let _ = ctx.println("depth        = ${depth(tree)}");
+  let _ = ctx.println("flattened    = ${toArray(ctx, tree).len()} nodes");
   let phrase = "parallel lines";
-  let _ = io.println(ctx, "count 'l'    = ${countChar('l', phrase)}");
-  let _ = io.println(ctx, "collatz 27   = ${collatzSteps(27)}");
+  let _ = ctx.println("count 'l'    = ${countChar('l', phrase)}");
+  let _ = ctx.println("collatz 27   = ${collatzSteps(27)}");
 
-  .Ok({})
+  .Ok(())
 }

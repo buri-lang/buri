@@ -109,12 +109,15 @@ library it transitively reaches. Equivalently, and this is how the checker
 actually runs: the config must be accepted by each library's own tags, checked
 once per library.
 
-The composition matters for diagnostics rather than for the result. Consider:
+The composition matters for diagnostics rather than for the result. Take the
+[`example/`](./example/) repository, and suppose `//lib/ledger` grows a
+dependency on `//lib/store` — a reasonable-looking edge, added by someone who
+was not thinking about the browser build:
 
 ```
-//cmd/web:web         tags: ["client"], outputs: [{ platform: JS }]
-  └─ //lib/reporting  tags: []
-       └─ //lib/store tags: ["server"]
+//cmd/web:web        tags: ["client"], outputs: [{ platform: JS }]
+  └─ //lib/ledger    tags: []          <- the new edge is here
+       └─ //lib/store  tags: ["server"]
 ```
 
 ```
@@ -126,8 +129,8 @@ error: //cmd/web:web cannot be built for js
    |
    = configuration: platform=js, tier=client, surface=internal
    = //lib/store accepts only tier=server, and this build is tier=client
-   = reached by: //cmd/web:web -> //lib/reporting -> //lib/store
-   = the edge that introduces it: lib/reporting/BUILD.buri:5 deps "//lib/store"
+   = reached by: //cmd/web:web -> //lib/ledger -> //lib/store
+   = the edge that introduces it: lib/ledger/BUILD.buri:9 deps "//lib/store"
    = "server": runs on infrastructure we operate
 ```
 

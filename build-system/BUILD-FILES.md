@@ -22,14 +22,14 @@ library {
   name: "money"
   srcs: [
     "cents.buri",
-    "format.buri",
+    "parse.buri",
   ]
   visibility: ["//visibility:public"]
 
   test {
     srcs: [
       "test/cents.buri",
-      "test/format.buri",
+      "test/parse.buri",
     ]
   }
 }
@@ -209,6 +209,7 @@ library {
 binary {
   name: "report_cli"
   srcs: ["flags.buri"]
+  tags: ["server"]
   outputs: [{ platform: LINUX, arch: X86_64 }]
 
   test {
@@ -275,6 +276,11 @@ error: //cmd/web:web depends on //lib/store, which is not visible to it
    = to allow this, add "//cmd/web:web" to visibility in lib/store/BUILD.buri
 ```
 
+Two edges skip the check, because neither is a dependency anyone chose: a
+target's own test suite reaching the target under test, and a binary reaching
+the library in its own package. Everything else, including a test suite reaching
+a library named in `test.deps`, is checked normally.
+
 Visibility is checked on the **declared edge**, not transitively. If `//cmd/web`
 depends on `//lib/ledger` and `//lib/ledger` depends on `//lib/store`, then
 `//lib/store` needs to be visible to `//lib/ledger` and to nobody else.
@@ -285,14 +291,27 @@ than the edge.
 ## Dependencies
 
 - `deps` lists **libraries only**. A binary is not a valid dependency.
+- **Use is what requires a dep, and an import is not the only way to use.**
+  A method resolves through its receiver's type rather than through scope, so
+
+  ```buri
+  from "//lib/ledger" import { Entry };
+  // `amount` is a Cents from //lib/money, and `format` is one of its methods —
+  // no import names //lib/money, and this target still depends on it.
+  fn line(e: Entry, ctx: { alloc: Alloc, .. }): Str { e.amount.format(ctx) }
+  ```
+
+  requires `//lib/money` in `deps` as much as an import would. Dependencies are
+  direct: a library you use is one you declare, whether or not something else in
+  the graph also happens to pull it in.
 - `core/*` is part of the toolchain and is never listed. It is available to
   every target, and the purity tiers in [`SPEC.md` §11.1](../SPEC.md) already
   govern what any given import of it can do.
 - **Cycles are an error**, at the package level exactly as at the module level.
   The diagnostic prints the cycle in the order the edges were declared.
-- **Every dep must be used, and every import must have a dep.** An import of
-  `//lib/money` with no matching entry in `deps` is an error at the import; a
-  `deps` entry that no source imports is an error at the build file. Both are
+- **Every dep must be used, and every use must have a dep.** Using
+  `//lib/money` with no matching entry in `deps` is an error at the use site; a
+  `deps` entry no source uses is an error at the build file. Both are
   errors and not warnings, because both make the dependency graph a description
   of something other than the code, and `buri gen` fixes either in one command.
 

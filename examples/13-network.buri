@@ -3,7 +3,6 @@
 // `Net` is what makes a socket possible. A module that does not receive it in
 // its context cannot open a connection, and neither can anything it calls.
 
-from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 from "core/list" import * as list;
@@ -31,9 +30,9 @@ fn repoUrl(owner: Str, name: Str): Str {
   "https://api.example.com/repos"
 }
 
-fn classify(status: Int): Result<{}, FetchError> {
+fn classify(status: Int): Result<(), FetchError> {
   if (status >= 200 && status < 300) {
-    .Ok({})
+    .Ok(())
   } else {
     .Err(.Status(status))
   }
@@ -62,7 +61,7 @@ fn fetchRepo<C: Alloc + Net>(
 
 fn parseRepo(body: Str): Option<Repo> {
   // Pure. A real implementation would decode JSON; the point is that decoding
-  // needs no capability, so it can be tested without a network.
+  // needs no effect, so it can be tested without a network.
   if (body.isEmpty()) {
     .None
   } else {
@@ -73,14 +72,14 @@ fn parseRepo(body: Str): Option<Repo> {
 // --- Retry with backoff -----------------------------------------------------
 //
 // The action takes its context as an argument rather than capturing one:
-// a lambda may not close over a capability, and this is the shape that rule
-// pushes you toward. The row variable `..R` means whatever else the caller had
-// is handed straight through to the action.
+// a lambda may not close over a effect, and this is the shape that rule
+// pushes you toward. `C` is one type variable, so whatever the caller held is
+// handed straight through to the action with its bounds intact.
 
 fn withRetry<C: Clock, T>(
   ctx: C,
   attempts: Int,
-  action: fn({ clock: Clock, ..R }) => Result<T, FetchError>,
+  action: fn(C) => Result<T, FetchError>,
 ): Result<T, FetchError> {
   match (action(ctx)) {
     .Ok(value) => .Ok(value),
@@ -112,12 +111,12 @@ fn fetchAll<C: Alloc + Net>(
   urls.mapCtx(ctx, fn(c, url) => fetchText(c, url))
 }
 
-export fn main<C: Alloc + Net + Clock + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Net + Clock + Stdout>(ctx: C): Result<(), Str> {
   let outcome = withRetry(ctx, 3, fn(c) => fetchRepo(c, "buri-lang", "buri"));
 
   let _ = match (outcome) {
-    .Ok(repo) => io.println(ctx, "${repo.name}: ${repo.stars} stars"),
-    .Err(e) => io.println(ctx, "fetch failed: ${errorText(ctx, e)}"),
+    .Ok(repo) => ctx.println("${repo.name}: ${repo.stars} stars"),
+    .Err(e) => ctx.println("fetch failed: ${errorText(ctx, e)}"),
   };
 
   let urls: [Str] = [
@@ -126,7 +125,7 @@ export fn main<C: Alloc + Net + Clock + Stdout>(ctx: C): Result<{}, Str> {
   ];
   let results = fetchAll(ctx, urls);
   let okCount = results.fold(fn(acc, r) => match (r) { .Ok(_) => acc + 1, .Err(_) => acc }, 0);
-  let _ = io.println(ctx, "${okCount} of ${results.len()} succeeded");
+  let _ = ctx.println("${okCount} of ${results.len()} succeeded");
 
-  .Ok({})
+  .Ok(())
 }

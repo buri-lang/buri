@@ -1,6 +1,6 @@
 # The Buri Language Specification
 
-**Version 0.2 (draft) · file extension `.buri`**
+**Version 0.3 (draft) · file extension `.buri`**
 
 ---
 
@@ -22,7 +22,7 @@ Three ideas define it:
    resolution or types. Section 12 documents each design decision that pays for
    this, and what was given up to get it.
 
-Version 0.2 is deliberately small: primitives, arrays, tuples, records, structs,
+Version 0.3 is deliberately small: primitives, arrays, tuples, records, structs,
 enums, functions, methods, and traits. Data and behaviour are declared
 separately; there is no mutable state, no inheritance, and no dynamic dispatch. A
 method is an ordinary function whose first parameter is `self`, and a trait is an
@@ -30,7 +30,7 @@ interface satisfied structurally — neither introduces a runtime mechanism.
 
 There are also no loops. Iteration is recursion — guaranteed tail-call
 eliminated — or a fold. A `for`/`while` sugar was drafted for this version and
-cut; Section 14 records why.
+cut; Section 15 records why.
 
 ### 1.1 A taste
 
@@ -61,11 +61,11 @@ fn area(self: Shape): Float {
 }
 
 // Takes a context, so it may allocate and print.
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, area).sum();
   let _ = io.println(ctx, "total area: ${total}");
-  .Ok({})
+  .Ok(())
 }
 ```
 
@@ -75,7 +75,7 @@ export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
 
 The normative grammar lives in [`grammar.ebnf`](./grammar.ebnf). Where this
 document and that file disagree about syntax, the grammar file wins. Where this
-document states a rule that the grammar cannot express (Section 13), that rule is
+document states a rule that the grammar cannot express (Section 14), that rule is
 normative and is checked after parsing.
 
 Terminology: *must* is a requirement on conforming programs and implementations;
@@ -87,7 +87,7 @@ Terminology: *must* is a requirement on conforming programs and implementations;
 
 ### 3.1 Encoding
 
-Source files are UTF-8. Identifiers are ASCII in v0.2. String and character
+Source files are UTF-8. Identifiers are ASCII in v0.3. String and character
 literals may contain any Unicode scalar value.
 
 ### 3.2 Whitespace and comments
@@ -117,9 +117,9 @@ that depends on capitalization is a parser that depends on convention:
 
 ### 3.4 Keywords
 
-`as` `as?` `as%` `capability` `const` `crash` `ctx` `derive` `else` `enum`
-`export` `false` `fn` `for` `from` `if` `impl` `import` `let` `match` `opaque`
-`self` `Self` `struct` `trait` `true` `type`
+`as` `const` `crash` `ctx` `derive` `effect` `else` `enum` `export` `false`
+`fn` `for` `from` `if` `impl` `import` `let` `match` `self` `Self` `struct`
+`trait` `true` `type`
 
 `for` appears only in `impl ... for ...` and `derive ... for ...`. `self` is
 legal only as a method's first parameter and `ctx` only as the parameter after
@@ -154,7 +154,7 @@ A string literal containing at least one `${ ... }` hole has type `Template`, no
 `Str`. A `Template` is a fixed-size value: a statically known array of literal
 fragments plus the evaluated holes. **Constructing a `Template` allocates
 nothing**, which is why `io.println(ctx, "hi ${name}")` needs only the `stdout`
-capability and can stream directly to the sink.
+effect and can stream directly to the sink.
 
 To turn a `Template` into a `Str` you must allocate:
 
@@ -163,7 +163,7 @@ let greeting: Str = str.format(ctx, "Hello, ${name}!");
 ```
 
 Hole expressions must have type `Int` (any width), `Float` (any width), `Bool`,
-`Char`, or `Str`. There is no user-extensible display mechanism in v0.2; convert
+`Char`, or `Str`. There is no user-extensible display mechanism in v0.3; convert
 explicitly.
 
 `Str` is implicitly widened to `Template` in argument position. This is the only
@@ -218,13 +218,19 @@ fn helper(x: Int): Int { x * 2 }           // private
 export fn double(x: Int): Int { helper(x) } // public
 ```
 
-`opaque` exports the *name* of a type but not its representation: outside the
-defining module the type cannot be constructed, destructured, or pattern-matched.
-This is the mechanism behind capabilities (Section 10).
+Struct fields and enum variants carry their own `export`, so a type's name and
+its representation are exported separately:
 
 ```buri
-export opaque struct UserId(Str);
+export struct UserId(Str);          // name public, contents private
+export struct Meters(export F64);   // both public
 ```
+
+A type with any unexported field or variant cannot be constructed, destructured,
+or exhaustively matched outside its module.
+
+`impl` and `derive` declarations are never exported: whether a type satisfies a
+trait is a property of the type, visible wherever the type is.
 
 ### 4.3 Order
 
@@ -339,13 +345,17 @@ function over them needs no bound, no trait, and no ceremony:
 
 ```buri
 fn area(self: Square): Int { self.height * self.width }
-fn ratio(hits: Int, total: Int): F64 { hits as% F64 / total as% F64 }
+fn ratio(hits: Int, total: Int): F64 { hits.toF64() / total.toF64() }
 ```
 
 ### 5.2 Unit
 
-The unit type is the empty record `{}`, and its only value is written `{}`.
-There is no zero-tuple. Functions that exist only for their effect return `{}`.
+The unit type and its only value are both written `()`. Functions that exist
+only for their effect return `()`.
+
+```buri
+fn log<C: Stdout>(ctx: C, msg: Str): () { ctx.println(msg) }
+```
 
 ### 5.3 Tuples
 
@@ -377,45 +387,19 @@ charges, and it is charged on purpose.
 An array literal has a statically known length and is not, by itself, an
 allocation the programmer must account for. Any operation whose result length
 depends on runtime data (`map`, `filter`, `concat`, `sort`, `range`) requires an
-`Alloc` capability.
+`Alloc` effect.
 
-### 5.5 Records
+### 5.5 No records
 
-Records are structural. Field order is not significant.
+There are no anonymous record types and no record literals. Every product type
+is a `struct` with a declared name (Section 5.6), and every type in the language
+is nominal — including trait conformance (Section 5.12).
 
-```buri
-type Config = { host: Str, port: Int };
-
-let c: Config = { host: "localhost", port: 8080 };
-let c2 = { ..c, port: 9090 };            // functional update
-let h = c.host;
-```
-
-**Record literals do not support field shorthand.** Write `{ host: host }`, not
-`{ host }`. See Section 12.3 for why. Record *patterns* do support shorthand.
-
-#### 5.5.1 Row polymorphism
-
-A record type may end in a row rest, meaning "at least these fields":
-
-```buri
-{ host: Str, .. }        // fresh anonymous row variable
-{ host: Str, ..R }       // the row variable R, declared in <..R>
-```
-
-An open record type accepts any record that has at least the listed fields with
-the listed types. Use `..R` when two positions must share the same unknown tail:
-
-```buri
-fn passThrough<C: Alloc>(ctx: C): C { ctx }
-```
-
-Buri uses row polymorphism, not subtyping. There is no `Any`, no top type, and no
-variance to reason about.
-
-Row polymorphism applies to plain data records only. Contexts were its original
-motivation, but capabilities are trait bounds now (Section 10.1) — see Section 14
-open question 6.
+Earlier drafts had structural records, mainly so that a context could be a bag of
+effects. Effects are trait bounds now (Section 10), which removed the only
+thing records were load-bearing for. Deleting them removed row polymorphism, row
+unification from the type checker, and the ambiguity that had cost struct
+literals their field shorthand — see Section 12.3.
 
 ### 5.6 Structs
 
@@ -435,9 +419,17 @@ struct Meters(F64);                        // tuple struct
 struct Pair<A, B>(A, B);                   // generic tuple struct
 
 let u = User { id: UserId("u1"), name: "Ada", email: .None };
+let shorthand = User { id, name, email };     // field shorthand: `name: name`
 let u2 = User { ..u, name: "Ada L." };
 let d = Meters(9.8);
 let raw = d.0;
+```
+
+Tuple-struct fields carry the same `export` marker, in the same position:
+
+```buri
+struct Meters(export F64);      // the F64 is readable as `m.0` anywhere
+struct UserId(Str);             // the Str is readable only in this module
 ```
 
 Tuple-struct declarations are terminated with `;`; record-struct declarations are
@@ -454,9 +446,9 @@ let forged = User { id: ..., name: ..., passwordHash: ... };   // only in the
                                                                // declaring module
 ```
 
-`opaque` (Section 4.2) remains the all-or-nothing form: it hides the
-representation entirely, including the type's shape. Per-field privacy is the
-finer-grained tool.
+This is the only visibility mechanism. Earlier drafts also had an `opaque`
+modifier that hid a type's whole representation; a struct with no exported
+fields does exactly that, so `opaque` was removed as redundant.
 
 ### 5.7 Enums
 
@@ -525,7 +517,7 @@ function is just as must-use as one returned from an I/O call.
 
 `Option` is **not** must-use. Ignoring an absent value is usually harmless, and
 making it an error would put `option.ignore` in front of half the standard
-library for no safety gain. Section 14 records this as a judgment call rather
+library for no safety gain. Section 15 records this as a judgment call rather
 than a principle.
 
 Note also that `io.print` / `io.println` return `{}`, not `Result`. Stream errors
@@ -543,13 +535,13 @@ fn(Str) => Result<Config, ParseError>
 
 Function types are written with the `fn` keyword for the same reason lambdas are:
 it makes `(A, B)` unambiguously a tuple everywhere. Function types are rank-1;
-there are no polymorphic function *values* in v0.2.
+there are no polymorphic function *values* in v0.3.
 
 ### 5.9 Type aliases
 
 ```buri
 type UserId = Str;
-type Handler<T> = fn(T) => Result<{}, Str>;
+type Handler<T> = fn(T) => Result<(), Str>;
 ```
 
 Aliases are transparent: `type UserId = Str` makes `UserId` and `Str` the same
@@ -655,40 +647,34 @@ trait Show {
 `impl`. Trait methods declare `self` first, exactly like any other method
 (Section 6.7.1).
 
-A trait declared `capability trait` additionally marks its implementors as
-capability-carrying, which subjects them to the `ctx` rule of Section 10.2. That
+A trait declared `effect` additionally marks its implementors as
+effect-carrying, which subjects them to the `ctx` rule of Section 10.2. That
 modifier is the only difference between an effect and an ordinary interface.
 
-#### 5.12.1 Satisfaction is structural
+#### 5.12.1 Conformance is nominal
 
-A type satisfies a trait when its **defining module declares matching methods**.
-Nothing needs to be written for satisfaction to hold:
+A type satisfies a trait only where an `impl` or a `derive` says so. Declaring a
+method that happens to match a trait's signature does not make the type conform;
+nothing is inferred from shape.
 
-```buri
-// lib/version.buri
-export struct Version { export major: Int, export minor: Int }
+Checking `T: Ord` is therefore a lookup in one table keyed by `(trait, type)`,
+populated by the declarations in the type's own module. There is exactly one
+candidate, so there is no coherence pass, no orphan rule, and no instance search
+— they are not restricted, they are unrepresentable.
 
-export fn compare(self: Version, other: Version): Order {
-  match (self.major.compare(other.major)) {
-    .Equal => self.minor.compare(other.minor),
-    ord => ord,
-  }
-}
-```
+The whole type system is nominal, and this is the same rule applied to
+conformance: an `impl` is a declaration, like a `struct`.
 
-`Version` now satisfies `Ord`. Checking `T: Ord` is one lookup in one known
-module, because a type has exactly one defining module and therefore exactly one
-candidate. There is no coherence pass, no orphan rule, and no instance search —
-they are not forbidden by discipline, they are unrepresentable.
+An earlier draft made conformance structural, Go-style. It was cheap to check but
+it made a module's public API implicitly include *which traits its types happen
+to satisfy* — so adding an unrelated exported function could make a type conform
+at a distance, and removing one could break a caller three modules away. That is
+a correctness hazard and, worse for the compile-time goal, it coarsens
+incremental invalidation exactly where it needs to be fine.
 
-This is also why trait methods and ordinary methods are the same mechanism
-rather than two: both are found by looking in the receiver's defining module. A
-trait is a *name for a predicate over what that module declares*.
+#### 5.12.2 `impl`
 
-#### 5.12.2 `impl` states the intent, and is checked
-
-Structural satisfaction alone can happen by accident. An `impl` block declares
-that satisfaction is deliberate and makes the compiler verify it:
+An `impl` block declares conformance and supplies the methods:
 
 ```buri
 impl Ord for Version {
@@ -696,14 +682,14 @@ impl Ord for Version {
 }
 ```
 
-An `impl` block is defined as exactly equivalent to declaring those methods at
-module level, plus an assertion that every signature the trait requires is
-present and matches. It introduces no second namespace and no second resolution
-path — `version.compare` and `v.compare(other)` mean the same thing either way.
+The methods land in the type's ordinary method namespace, so `v.compare(other)`
+resolves the same way any method does (Section 6.7.3). An `impl` introduces no
+second namespace and no second resolution path.
 
-An `impl` may only appear in the defining module of the type. There is no way to
-implement a trait for someone else's type, which is the same restriction that
-already applies to methods.
+An `impl` may appear only in the defining module of the type, and is never
+exported — conformance is a property of the type, visible wherever the type is.
+There is no way to implement a trait for someone else's type, which is the same
+restriction that already applies to methods.
 
 #### 5.12.3 `derive` generates the implementation
 
@@ -787,9 +773,8 @@ Lowest to highest:
 | 7 | `&` | left |
 | 8 | `+` `-` | left |
 | 9 | `*` `/` `%` | left |
-| 10 | `as` `as?` `as%` | left |
-| 11 | `-` `!` `~` (prefix) | right |
-| 12 | `.f` `.0` `(args)` `[i]` `?` `::<T>` `{ ... }` | left |
+| 10 | `-` `!` `~` (prefix) | right |
+| 11 | `.f` `.0` `(args)` `[i]` `?` `::<T>` `{ ... }` | left |
 
 Comparison is non-associative: `a < b < c` is a parse error, not a bug waiting to
 happen.
@@ -821,76 +806,48 @@ equal to `0.0`, and `NaN != NaN`.
 
 #### 6.2.1 Conversions
 
-Conversions between numeric types are always explicit, and they are **operators
-rather than library functions**. That is forced: without traits, a library
-function cannot be generic over its *source* type, so `num.toU8` would need one
-version per source and would be `14 × 14` functions. The compiler already knows
-every numeric type, so conversion belongs to it.
-
-There are three, distinguished by what they do when the value does not fit:
-
-| Form | Result | When it does not fit |
-|---|---|---|
-| `x as T` | `T` | **compile error** — only provably lossless conversions are allowed |
-| `x as? T` | `Option<T>` | `.None` |
-| `x as% T` | `T` | wraps (integers) or rounds (floats) |
+Numeric conversions are explicit, and they are **ordinary methods** rather than
+operators:
 
 ```buri
 let a: I32 = 7;
-let b = a as I64;               // always fine: I32 fits in I64
-let c = a as U32;               // ERROR: a could be negative
-
-let big: I64 = readCount(ctx);
-let idx: Option<I32> = big as? I32;     // handle the overflow case
-let lo: U8 = big as% U8;                // deliberately keep the low 8 bits
-
-let ratio = (hits as F64) / (total as F64);
+let b = a.toI64();                       // I64 — always exact
+let c: Result<I32, RangeError> = big.toI32();      // may not fit
+let d = big.wrapToU8();                  // modular, for checksums and wire formats
+let ratio = hits.toF64() / total.toF64();
 ```
 
-**`as` is total and lossless.** It compiles only when every value of the source
-type is exactly representable in the target:
+Three families, distinguished by what happens when the value does not fit:
 
-| From → To | Allowed |
-|---|---|
-| `IN` → `IM` | `M >= N` |
-| `UN` → `UM` | `M >= N` |
-| `UN` → `IM` | `M > N` (so `U8 → I16` yes, `U8 → I8` no, `U64 → I64` no) |
-| `IN` → `UM` | never |
-| `I8 I16 I32 U8 U16 U32` → `F64` | yes (53-bit mantissa) |
-| `I8 I16 U8 U16` → `F32` | yes (24-bit mantissa) |
-| `I64 U64 I128 U128` → `F64`, `I32 U32` → `F32` | no |
-| `F32` → `F64` | yes |
-| `F64` → `F32`, any float → any integer | never |
-| `Char` → `U32` | yes |
+| Shape | Returns | When it does not fit |
+|---|---|---|
+| `x.toT()` where every `T` value fits | `T` | cannot happen |
+| `x.toT()` where it might not | `Result<T, RangeError>` | `.Err` |
+| `x.wrapToT()` | `T` | wraps (integers) or rounds (floats) |
 
-The table is mechanical, and the error message when a conversion falls outside it
-names the operator to reach for instead.
+The return type is decided per source-and-target pair, so `i32.toI64()` yields
+`I64` while `i64.toI32()` yields `Result<I32, RangeError>`. Whether a conversion
+can fail is visible in the type rather than in the choice of operator.
 
-**`as?` is checked.** It works between any two numeric types and yields `.None`
-exactly when the value is not representable — including float-to-integer when the
-value has a fractional part, is `NaN`, or is out of range. `U32 as? Char` is
-`.None` for surrogates and out-of-range scalars.
+`I64 → F64` is lossy above 2^53, so strictly it belongs in the second family —
+but converting a count to a float is too common to route through a `Result`, so
+`toF64` is defined on every integer type as an exact-to-53-bits conversion that
+rounds beyond that, documented as such. This is the one place the language
+prefers ergonomics to ceremony, and it is called out rather than hidden.
 
-**`as%` is modular.** For integers it reduces modulo 2^N (two's-complement
-truncation or sign extension) and is the operator for checksums, hashing, and
-binary formats. For `F64 as% F32` it rounds to nearest-even. For float-to-integer
-it truncates toward zero, mapping `NaN` to `0` and infinities to the target's
-bounds; if you want a different rounding, call `math.floor`/`math.round` first
-and then use `as?`.
+Earlier drafts used three cast operators (`as`, `as?`, `as%`). They were
+operators because a *function* cannot be generic over its source type — but a
+*method* can be resolved by its receiver's type, which is exactly the same
+lookup. So the operators bought nothing that methods do not, and cost three
+tokens, a precedence level, and a rule about which conversions the compiler would
+accept. `as` now appears only in import specifiers.
 
-`as` never changes a value. `as?` never lies about one. `as%` changes it in a way
-that is written down at the call site. There is no fourth form and no default.
+There are a lot of these functions in `core/num` — one per source-and-target
+pair. They are mechanical, greppable, and each says in its return type what it
+can do.
 
-The most common place `as%` appears outside bit-twiddling is `Int → Float`:
-
-```buri
-let average = total as% F64 / list.len(xs) as% F64;
-```
-
-`I64 → F64` is lossy above 2^53, so it does not qualify for `as`. Requiring the
-sigil on a conversion this ordinary is a real ergonomic cost, and it is the cost
-of not having a category of cast that silently loses data. `as? F64` is available
-when the loss actually matters.
+`Char` and `U32` convert the same way: `c.toU32()` is exact, `n.toChar()` yields
+`Result<Char, RangeError>`.
 
 #### 6.2.2 Checked and wrapping arithmetic
 
@@ -1081,17 +1038,25 @@ and you never name its type, you need no import at all.
 
 #### 6.7.3 Resolution
 
-`x.f(...)` resolves in exactly two steps, with no search:
+`x.f(...)` resolves in three steps, each a lookup rather than a search:
 
 1. If `x`'s type has a field named `f`, this is field access. A field of function
    type is called as `(x.f)(...)`.
-2. Otherwise `f` must be an `export`ed method in the **defining module** of `x`'s
-   type whose `self` parameter has that type.
+2. If `x`'s type is a concrete type, `f` must be an `export`ed method in that
+   type's **defining module** whose `self` parameter has that type. Methods
+   supplied by an `impl` live in the same namespace and are found here.
+3. If `x`'s type is a type parameter, `f` must be declared by one of its
+   **bounds** (Section 5.10). A bare parameter with no bounds has no methods.
 
-There is no candidate set, no trait scope, no coherence check, no autoref and no
-autoderef — Buri has no references. One type, one module, one lookup. Method
-resolution does need the receiver's type, so name resolution consults inference;
-a single lookup is the version of that cost worth paying.
+Each step is a single table lookup keyed by name and by one type. There is no
+candidate set, no autoref and no autoderef — Buri has no references — and no
+coherence check, because conformance is nominal and a type has exactly one
+defining module. Resolution does need the receiver's type, so name resolution
+consults inference; a lookup rather than a search is the version of that cost
+worth paying.
+
+Where two bounds declare the same method name, the call is ambiguous and must be
+disambiguated by calling the trait method as a function (`Ord.compare(x, y)`).
 
 Defining modules:
 
@@ -1132,7 +1097,7 @@ fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
 ```
 
 - On `Result<T, E>`, the enclosing function must return `Result<_, E>`. There is
-  no automatic error conversion in v0.2; map the error explicitly with
+  no automatic error conversion in v0.3; map the error explicitly with
   `result.mapErr`.
 - On `Option<T>`, the enclosing function must return `Option<_>`.
 
@@ -1168,7 +1133,7 @@ any expected type. It terminates the program with the message and a stack trace.
 handling; that is `Result`. Arithmetic overflow, division by zero, and stack
 exhaustion also crash.
 
-A crash is not an effect in the capability sense: it can occur in a function with
+A crash is not an effect in the `ctx` sense: it can occur in a function with
 no context parameter. What a context-free function cannot do is *observe* or
 *recover from* one. There is no catch.
 
@@ -1255,7 +1220,7 @@ This matters more than it usually would: because effects are performed by
 ordinary function calls rather than by a monad, **specified evaluation order is
 what makes effect sequencing meaningful.** An implementation may reorder or
 eliminate work only where the result is indistinguishable, and calls that consume
-a capability are never indistinguishable.
+an effect are never indistinguishable.
 
 ```buri
 let _ = io.println(ctx, "first");
@@ -1271,10 +1236,39 @@ helper written on top of it, a real loop rather than a stack hazard.
 
 Non-tail recursion that exhausts the stack crashes.
 
+#### 8.3.1 How, on a target without native tail calls
+
+Native backends can lower a tail call directly. JavaScript cannot — no engine but
+JavaScriptCore implements proper tail calls — so the **compiler performs the
+elimination itself** rather than relying on the host. Three cases, in increasing
+cost:
+
+| Shape | Transformation | Cost |
+|---|---|---|
+| A function tail-calls itself | rewrite to a loop with parameter rebinding | none |
+| A statically known group of functions tail-call each other | merge the group into one function with a dispatch switch | one branch per bounce |
+| A tail call through a value of function type | trampoline: return a thunk, drive it from a loop | one allocation per bounce |
+
+The first two cover essentially all Buri code, and both are exact — the emitted
+loop is what a hand-written loop would have been. They apply because Buri has no
+dynamic dispatch: there are no trait objects and no virtual calls, so the call
+graph of direct calls is fully known, and generic calls become direct after
+monomorphization.
+
+Only the third case costs anything, and it arises solely when a function *value*
+is invoked in tail position. An implementation should apply the cheaper
+transformation wherever the callee is statically known, and may specialize a
+call site whose function value is known to avoid the trampoline entirely.
+
+One consequence is observable: a crash inside a transformed group reports fewer
+stack frames than the source suggests, because those frames no longer exist.
+Implementations should preserve source positions through the transformation so
+that the reported location is still correct.
+
 ### 8.4 Closures
 
 Lambdas capture by value. Since values are immutable, capture is unobservable —
-with one exception: **a lambda may not capture a capability-carrying value**
+with one exception: **a lambda may not capture a effect-carrying value**
 (Section 10.5).
 
 ---
@@ -1307,35 +1301,45 @@ compiler guessed.
 
 ---
 
-## 10. Capabilities and purity
+## 10. Effects and purity
 
 This is the part of Buri that is not TypeScript and not Rust.
 
 ### 10.1 The model
 
-A **capability** is a trait declared with the `capability` modifier. Its methods
-are the effects it grants:
+An **effect** is an interface declared with `effect` instead of `trait`. Its
+methods are the operations it grants:
 
 ```buri
 // core/cap
-export capability trait Alloc {
+export effect Alloc {
   fn allocate(self: Self, bytes: Int): Region;
 }
 
-export capability trait Stdout {
-  fn writeOut(self: Self, text: Template): {};
+export effect Stdout {
+  fn print(self: Self, text: Template): ();
+  fn println(self: Self, text: Template): ();
 }
 
-export capability trait Fs {
+export effect Fs {
   fn readFile(self: Self, path: Str): Result<Str, IoError>;
-  fn writeFile(self: Self, path: Str, body: Str): Result<{}, IoError>;
+  fn writeFile(self: Self, path: Str, body: Str): Result<(), IoError>;
 }
 ```
 
 `core/cap` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
-`Stdout`, `Stderr`, and `Proc`. Nothing about them is privileged: `capability
-trait` is a declaration form available to any module, so a library can define its
-own effect and get the same guarantees.
+`Stdout`, `Stderr`, and `Proc`. **Only platform modules may declare effects**;
+`effect` in ordinary code is a compile error, so the set of things a Buri program
+can do to the world is fixed by its platform rather than open-ended.
+
+An effect is a trait in every other respect — same declaration shape, same
+nominal conformance, same `impl`, same bounds. Two rules separate them:
+
+- an effect's implementors are **effect-carrying**, and so may be passed only as
+  `self` or `ctx` (Section 10.2);
+- **no type may implement both an effect and a trait.** A type is either part of
+  the world or part of your data, and the boundary is checked rather than
+  assumed.
 
 A function names the effects it needs as **bounds** on its context parameter:
 
@@ -1352,7 +1356,7 @@ must satisfy.
 
 ### 10.2 The `ctx` rule
 
-**A capability-carrying parameter must be `self` or `ctx`** — never any other
+**A effect-carrying parameter must be `self` or `ctx`** — never any other
 name, never any other position, and at most one of each:
 
 ```buri
@@ -1363,12 +1367,12 @@ fn sneaky<C: Fs>(a: Int, handle: C): Bool                                 // ERR
 fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): {}                         // ERROR
 ```
 
-A type is **capability-carrying** if it is a type variable with a capability
+A type is **effect-carrying** if it is a type variable with an effect
 bound, or any type mentioning one — so a struct that stores a context is
-capability-carrying too.
+effect-carrying too.
 
-`self` has to be allowed because a capability trait's own methods take the
-capability as their receiver (`fn allocate(self: Self, ...)`), and so do the
+`self` has to be allowed because a effect's own methods take the
+effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
 attenuation wrappers of Section 10.8. Outside those two places, effects arrive
 through `ctx`.
 
@@ -1377,27 +1381,27 @@ contexts; bundle them into one type instead — and buys the property the chapte
 rests on:
 
 > **A function is effectful if and only if it has a `ctx` parameter, or a
-> capability-carrying `self`.**
+> effect-carrying `self`.**
 
 Both are fixed positions with fixed names, so you read the first two parameters
 and stop. You never scan a signature.
 
-### 10.3 Where capabilities come from
+### 10.3 Where effects come from
 
-The platform. It provides one concrete type implementing the capability traits it
+The platform. It provides one concrete type implementing the effects it
 grants, and hands it to `main`:
 
 ```buri
-export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<{}, Str> { ... }
+export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<(), Str> { ... }
 ```
 
-If `main` requests a capability the platform does not implement, the program does
+If `main` requests an effect the platform does not implement, the program does
 not compile. A program that never names `Net` in `main`'s bounds cannot open a
 socket anywhere in its transitive call graph — not in a dependency, not in a
 build script, not by accident, because nothing anywhere can obtain a value
 bounded by `Net`.
 
-Note what is *not* claimed: a capability trait is an ordinary interface, so
+Note what is *not* claimed: a effect is an ordinary interface, so
 anyone may write a type that satisfies it.
 
 ```buri
@@ -1412,13 +1416,13 @@ testing free (Section 10.8).
 ### 10.4 What "pure" means
 
 > **Purity theorem.** If a function has no `ctx` parameter, no
-> capability-carrying `self`, and captures no capability-carrying value, then any
+> effect-carrying `self`, and captures no effect-carrying value, then any
 > two evaluations on equal arguments produce
 > equal results, perform no observable effect, and may be freely cached,
 > reordered, or eliminated.
 
 Top-level functions capture nothing but other top-level declarations, which are
-themselves capability-free, so for a top-level `fn` the theorem reduces to: *is
+themselves effect-free, so for a top-level `fn` the theorem reduces to: *is
 there a `ctx` parameter?*
 
 Two consequences worth naming:
@@ -1430,11 +1434,11 @@ Two consequences worth naming:
 
 ### 10.5 Determinism versus effects
 
-`Alloc` is a **resource** capability: it can fail (out of memory) and it costs
-something, but it is not observable. Every other capability in `core/cap` is an
-**effect** capability.
+`Alloc` is a **resource** effect: it can fail (out of memory) and it costs
+something, but it is not observable. Every other effect in `core/cap` is
+**observable**.
 
-A function is **deterministic** if its only capability bound is `Alloc`.
+A function is **deterministic** if its only effect bound is `Alloc`.
 `list.map(ctx, f)` is deterministic: it needs to allocate, but it is
 referentially transparent. `time.now(ctx)` is not.
 
@@ -1453,7 +1457,7 @@ on runtime data do.
 
 ### 10.6 The capture rule
 
-**A lambda may not capture a capability-carrying value.** Capabilities travel
+**A lambda may not capture a effect-carrying value.** Capabilities travel
 through the `ctx` parameter only.
 
 ```buri
@@ -1471,7 +1475,7 @@ With it, a function type says everything about what its values can do.
 The standard library provides `*Ctx` variants (`list.mapCtx`, `list.filterCtx`,
 `result.andThenCtx`), and explicit recursion is always available when the
 combinator does not fit. This is the sharpest trade-off in the language, and
-Section 14 lists it as the first open question.
+Section 15 lists it as the first open question.
 
 ### 10.7 Calling convention
 
@@ -1492,7 +1496,7 @@ lines.filter(ctx, isLong).sortBy(ctx, order.str)
 
 Two forms, giving different guarantees.
 
-**Static confinement.** Bound the callee to fewer capabilities. It receives the
+**Static confinement.** Bound the callee to fewer effects. It receives the
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri
@@ -1502,9 +1506,9 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
   // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
 }
 
-export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<(), Str> {
   let _ = logOnly(ctx, "starting");      // same value, confined by its bound
-  .Ok({})
+  .Ok(())
 }
 ```
 
@@ -1512,12 +1516,12 @@ No copy and no ceremony. Confinement is transitive: `logOnly` cannot hand its
 context to anything requiring more, because `C` is opaque at every call site
 downstream.
 
-**Attenuation.** Wrap the context in a type that satisfies fewer capabilities, so
+**Attenuation.** Wrap the context in a type that satisfies fewer effects, so
 the callee holds a value that genuinely lacks the rest:
 
 ```buri
 // module: safe/readonly
-export opaque struct ReadOnly<C>(C);
+export struct ReadOnly<C>(C);
 
 export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
 
@@ -1537,16 +1541,16 @@ Static confinement is a fact about the type checker; attenuation is a fact about
 the value, and survives anything that later escapes the type system. Use the
 first by default and the second at trust boundaries.
 
-Note that attenuation narrows the *context*, not one capability out of it. That
+Note that attenuation narrows the *context*, not one effect out of it. That
 is what keeps the `ctx` rule satisfiable: there is still exactly one
-capability-carrying parameter.
+effect-carrying parameter.
 
 ### 10.9 Testing
 
 A pure function needs no harness. An effectful one is tested by passing a context
-that satisfies the same traits and does something else — and because capability
-traits are ordinary interfaces, writing one is writing a struct with methods. The
-call site does not change, because there was never a global to stub.
+that satisfies the same effects and does something else — and because effects are
+ordinary interfaces, writing one is writing a struct with methods. The call site
+does not change, because there was never a global to stub.
 
 ```buri
 struct FakeFs { export files: [(Str, Str)] }
@@ -1566,20 +1570,20 @@ fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
 A program is a module that exports `main`:
 
 ```buri
-export fn main<C: Alloc + Stdout + Env>(ctx: C): Result<{}, Str>
+export fn main<C: Alloc + Stdout + Env>(ctx: C): Result<(), Str>
 ```
 
 - `main` must take exactly one parameter, `ctx`, whose type is a parameter
-  bounded by the capabilities the program needs.
-- `main` must return `Result<{}, Str>`.
-- `.Ok({})` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
+  bounded by the effects the program needs.
+- `main` must return `Result<(), Str>`.
+- `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
 - The bounds are the program's complete effect budget. The platform supplies one
   value satisfying them; if it cannot satisfy one, the program does not
   compile.
 
 ### 11.1 Standard library sketch
 
-Non-normative in v0.2, but the examples assume it. The purity tier of each entry
+Non-normative in v0.3, but the examples assume it. The purity tier of each entry
 is the part that matters.
 
 Two conventions run through the whole library: **receiver first, context second**
@@ -1615,11 +1619,11 @@ one value rather than a new collection.
 | `core/list` | `map`, `mapCtx`, `filter`, `filterCtx`, `concat`, `push`, `reverse`, `sortBy`, `take`, `drop`, `zip`, `range` |
 | `core/str` | `concat`, `join`, `split`, `splitAny`, `replace`, `repeat`, `toUpper`, `toLower`, `fromInt`, `format`, `chars` |
 
-**Effectful — bounded by an effect capability**
+**Effectful — bounded by an effect**
 
 | Module | Needs | Functions |
 |---|---|---|
-| `core/cap` | — | the capability types themselves |
+| `core/cap` | — | the effect declarations themselves |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
 | `core/fs` | `Fs` | `readText`, `writeText`, `exists`, `listDir`, and the `IoError` type |
 | `core/net/http` | `Net` | `get`, `post`, `Request`, `Response`, `errorText` |
@@ -1647,67 +1651,78 @@ A block is `let`s followed by a result expression. Nothing can sit next to a
 `{`-initial expression and compete with it. *Cost:* a call performed only for its
 effect must be bound: `let _ = io.println(ctx, "hi");`. Arguably a feature.
 
-**12.3 Record literals have no field shorthand.**
-`{ x }` would be ambiguous: a record with a shorthand field, or a block whose
-result expression is `x`. Requiring `{ x: x }` makes one token of lookahead
-(`:` or not) decide it. *Cost:* mild verbosity at record construction sites.
-Record *patterns* keep shorthand, because patterns are never blocks.
+**12.3 There are no records, so `{` at the start of an expression is always a
+block.**
+Structural records made `{ x }` ambiguous — a record with a shorthand field, or a
+block whose result expression is `x` — and an earlier draft paid for that by
+banning field shorthand in literals. Removing records (Section 5.5) removed the
+ambiguity at its source: a bare `{` opens a block, and a `{` after a path opens a
+struct literal. Nothing competes, so `Point { x, y }` shorthand works and the
+grammar got smaller rather than more careful. *Cost:* every product type needs a
+name.
 
 **12.4 Type arguments in expressions use the turbofish `::<T>`.**
 `f<a>(b)` is genuinely ambiguous with two comparisons. Types have no comparison
 operators, so `<` is unambiguous inside a type; expressions get `::<`.
 *Cost:* the turbofish is ugly. It is also rare.
 
-**12.5 There is no `<<` or `>>` token.**
+**12.5 There is no cast operator.**
+`as`, `as?`, and `as%` were three tokens and a precedence level doing work that
+methods do with none: a conversion is resolved by its receiver's type, which is
+the same lookup either way (Section 6.2.1). Removing them also let the fallible
+conversions return `Result` instead of encoding failure in the choice of
+operator. *Cost:* `core/num` has one method per source-and-target pair.
+
+**12.6 There is no `<<` or `>>` token.**
 Longest-match lexing would turn `Map<Str, [Int]>>` into a shift. Removing the
 operators removes the problem, rather than papering over it with a token splitter
 that makes the lexer position-dependent. *Cost:* `bits.shl(x, n)`.
 
-**12.6 Enum variants in patterns must be qualified or dot-prefixed.**
+**12.7 Enum variants in patterns must be qualified or dot-prefixed.**
 Otherwise `None` is a binding or a variant depending on what is in scope, which
 makes the parser depend on name resolution. A bare `IDENT` in a pattern is always
 a binding; `IDENT(` and `IDENT{` are struct patterns; `A.B` is a path. Decided by
 one token of lookahead. *Cost:* `.None` instead of `None`.
 
-**12.7 Tuples have arity ≥ 2 and unit is `{}`.**
+**12.8 Tuples have arity ≥ 2 and unit is `()`.**
 `(e)` is grouping, full stop — no `(e,)` special case, no zero-tuple competing
 with the empty record. *Cost:* none worth mentioning.
 
-**12.8 Lambdas begin with `fn`.**
+**12.9 Lambdas begin with `fn`.**
 `(x) => ...` requires deciding whether `(x)` is a parenthesized expression or a
 parameter list, which is a reduce/reduce conflict at `)`. A leading `fn` decides
 it at token one. *Cost:* two characters; it also makes lambdas and function types
 read the same.
 
-**12.9 `else` is mandatory and branches are blocks.**
+**12.10 `else` is mandatory and branches are blocks.**
 Kills the dangling-else ambiguity, and prevents `if (c) { a } else { b } + 1`
 from having two parses. *Cost:* you must say what the other case is.
 
-**12.10 Lambdas and `crash` are top-level-only expressions.**
+**12.11 Lambdas and `crash` are top-level-only expressions.**
 Their bodies extend maximally to the right, so allowing them as operands would
 make `2 * fn(x) => x + 1` ambiguous. Block-like expressions (`{}`, `if`, `match`)
 *are* allowed as operands, because they are brace-terminated and self-delimiting.
 *Cost:* parentheses around a lambda used as an operand.
 
-**12.11 Match arms are comma-separated, always.**
+**12.12 Match arms are comma-separated, always.**
 Without a required separator, `A => x` followed by an arm starting `-1 =>` would
 greedily parse as `x - 1`. *Cost:* a comma after `}`.
 
-**12.12 Block-like expressions cannot head a postfix chain.**
+**12.13 Block-like expressions cannot head a postfix chain.**
 `match (x) { ... }.field` is a parse error; parenthesize. This is what stops
 `if (c) { a } else { b } { x: 1 }` from parsing two ways once struct literals are
 a postfix form. *Cost:* occasional parentheses.
 
-**12.13 Float literals must start with a digit.**
+**12.14 Float literals must start with a digit.**
 So `pair.0` lexes as three tokens. *Cost:* write `0.5`.
 
-**12.14 Every declaration starts with a distinct keyword.**
+**12.15 Every declaration starts with a distinct keyword.**
 `from` `export` `fn` `struct` `enum` `type` `const` `opaque`. Top-level parsing
 is a switch on one token — and putting `from` first on an import means the module
 path is known before the specifier list is parsed, which is what makes
 completion inside the braces possible.
 
-**12.15 Method calls reuse `.` rather than taking a token of their own.**
+**12.16 Method calls reuse `.` rather than taking a token of their own.**
 `sq.area()` needs no new production: it is the existing `PostfixExpr "." IDENT`
 followed by a call, and name resolution decides whether `area` is a field or a
 method. The alternative, `sq:area()`, would visibly separate data from
@@ -1719,7 +1734,7 @@ field shorthand in 12.3. Buying `:` back would mean moving record literals to
 member, method — all resolved after parsing, and a method may not share a name
 with a field of the same type.
 
-**12.16 `self` is a keyword in a fixed position, not a convention.**
+**12.17 `self` is a keyword in a fixed position, not a convention.**
 A function is a method because its first parameter is literally written `self`,
 so "is this a method?" is answered by the parser, not by comparing types against
 a rule about argument order. `impl`, `derive`, and `trait` likewise each begin
@@ -1732,7 +1747,60 @@ Two lexical warts remain and are accepted:
 
 ---
 
-## 13. Static rules not expressed in the grammar
+## 13. Compilation invariants
+
+Section 12 explains why parsing is cheap. This section states the invariants that
+make *checking* cheap, because they are the ones a future feature is most likely
+to break quietly. A conforming implementation may rely on all of them, and any
+proposed addition to the language should be measured against them.
+
+**13.1 Parsing depends on nothing.** No production consults name resolution or
+types (Section 12). Parsing is one pass, and files parse in parallel with no
+coordination.
+
+**13.2 Name resolution and type inference interleave, in a single traversal.**
+This is the one place Buri gives something up. Resolving `x.f()` requires knowing
+what `x` is, so the two cannot be separate passes.
+
+What keeps it a single traversal rather than a fixpoint:
+
+- Method resolution needs only the receiver's **head type constructor**, not its
+  full type. `xs.first()` resolves in `core/list` whether `xs` is `[Int]` or
+  `[T]` for an unresolved `T`.
+- Type information flows **outside-in and left-to-right**. A lambda's parameter
+  types come from the expected type at its call site, which is known before the
+  body is visited.
+- There is no overloading, so a name plus one type constructor selects exactly
+  one definition.
+- Conformance is nominal (Section 5.12.1), so a bound is a table lookup rather
+  than a search that could need the rest of the program.
+
+What would break it: overloading resolved by argument types, return-type-directed
+dispatch, structural conformance, or any construct where a method call can appear
+before its receiver's type constructor is determined.
+
+**13.3 Function bodies check independently.** Top-level signatures are mandatory
+(Section 9), so no inference crosses a function boundary. Bodies check in
+parallel, and editing one body can never invalidate the check of another.
+
+**13.4 A module's inter-module surface is exactly its exported declarations.**
+Because conformance is declared rather than inferred from shape, adding or
+removing a private function cannot change what any other module sees. Incremental
+invalidation is therefore precise: a dependent is rechecked only when a
+declaration it names actually changes.
+
+**13.5 Monomorphization is a codegen concern, not a checking one.** A generic body
+is checked once, polymorphically, with bounds verified at each call site. Checking
+is O(code), not O(code × instantiations).
+
+**13.6 Nothing in the checker requires a fixpoint.** No recursive trait solving
+(no blanket impls, no associated types, no supertraits — Section 5.12.5), no
+variance inference (no subtyping), no effect inference (effects are declared, not
+deduced), and no cross-module exhaustiveness.
+
+---
+
+## 14. Static rules not expressed in the grammar
 
 The grammar accepts a superset of well-formed programs. These are checked
 afterward:
@@ -1746,12 +1814,11 @@ afterward:
 5. Array rest patterns appear only in final position; at most one per pattern.
 6. Record type field names, struct field names, enum variant names, and match-arm
    pattern bindings must each be unique within their scope.
-8. A lambda may not capture a capability-carrying value (Section 10.6).
+8. A lambda may not capture a effect-carrying value (Section 10.6).
 9. Opaque types may not be constructed or destructured outside their defining
    module, and private fields may not be read, written, or matched outside it.
-10. `as` is permitted only for the conversions in the table of Section 6.2.1;
-    `as?` and `as%` are permitted between any two numeric types, plus
-    `Char as U32` and `U32 as? Char`.
+10. Numeric conversion methods are declared per source-and-target pair in
+    `core/num` (Section 6.2.1); there is no cast operator.
 11. A numeric literal must be representable in the type it resolves to.
 12. The dot form (`.Variant`) requires a known expected type.
 13. `?` requires the enclosing function's return type to be a compatible `Result`
@@ -1788,19 +1855,24 @@ Capabilities:
 
 26. `ctx` may appear only as a function's first parameter, or the parameter
     immediately after `self`.
-27. A capability-carrying parameter must be `self` or `ctx`, at most one of each
-    (Section 10.2). A type is capability-carrying if it is a type variable with a
-    capability bound, or any type mentioning one.
-28. `capability` may modify only a `trait` declaration.
-29. `main` has the signature required by Section 11.
+27. A effect-carrying parameter must be `self` or `ctx`, at most one of each
+    (Section 10.2). A type is effect-carrying if it is a type variable with a
+    effect bound, or any type mentioning one.
+28. `effect` declarations may appear only in platform modules, and no type may
+    implement both an effect and a trait.
+29. `impl` and `derive` may not be exported, and may appear only in the defining
+    module of the type they name.
+30. Numeric literals, conversions, and comparisons are ordinary methods; there is
+    no cast operator.
+31. `main` has the signature required by Section 11.
 
-## 14. Non-goals and open questions
+## 15. Non-goals and open questions
 
-**Not in v0.2, and not planned:** mutation, references, lifetimes, classes,
+**Not in v0.3, and not planned:** mutation, references, lifetimes, classes,
 inheritance, dynamic dispatch, trait objects, `null`, exceptions, implicit
 conversions (beyond `Str → Template`), overloading, macros, reflection.
 
-**Not in v0.2:** loops, and the `|>` pipe operator. See below.
+**Not in v0.3:** loops, and the `|>` pipe operator. See below.
 
 **Deferred to a later version:** blanket implementations; associated types;
 `where` clauses; supertraits; implementing a trait for a foreign type; dict and
@@ -1811,7 +1883,7 @@ Each item in that first deferred group is a step from "trait resolution is a
 lookup" toward "trait resolution is a search," which is the entire compile-time
 cost of a trait system. They are deferred together, deliberately.
 
-### 14.1 Considered and cut: `for` and `while`
+### 15.1 Considered and cut: `for` and `while`
 
 A `for`/`while` sugar was fully specified for this version and then removed. It
 is recorded here because the reasoning constrains any future attempt.
@@ -1833,19 +1905,19 @@ What it cost, and why it lost:
   that offers both has to teach both, and every codebase splits on which to use.
 - **The sugar was not simple.** A `with` clause whose scope differs between
   `for` and `while`, an optional index binding, a body typing rule that changes
-  with the presence of `with`, a special termination check for capability-free
+  with the presence of `with`, a special termination check for effect-free
   `while` conditions, plus a `Range` type, a `core/range` module, and two new
   operators with their own ambiguity argument. That is a lot of specification
   for zero new expressive power.
 - **It made the capture rule inconsistent.** Exempting loop bodies is sound, but
-  it means "can this construct see a capability?" stops having one answer. Better
+  it means "can this construct see an effect?" stops having one answer. Better
   to keep the rule absolute and treat its cost as the open question it is.
 
 If loops return, the case to beat is: they must earn their keep on something
 other than familiarity, and the capture-rule exemption should be solved directly
 rather than routed around.
 
-### 14.2 Considered and cut: the `|>` pipe operator
+### 15.2 Considered and cut: the `|>` pipe operator
 
 `x |> f(a)` meant `f(a, x)`, and it is why the standard library originally put
 its data *last*. Method syntax (Section 6.7) covers the case that mattered —
@@ -1866,11 +1938,11 @@ alike.
 1. *The capture rule (10.5) is strict.* It buys a clean purity theorem at the cost
    of ergonomic effectful higher-order code: every effectful traversal goes
    through a `*Ctx` combinator or hand-written recursion (Section 10.6). The alternative —
-   encoding a captured-capability row in the function type, e.g.
+   encoding a captured-effect row in the function type, e.g.
    `fn(Str) => Str uses { fs: Fs }` — is more expressive but adds an effect system
    to a language whose selling point is not having one. This is the language's
-   sharpest unresolved trade-off, and cutting loops (14.1) put the full cost back
-   on it. Traits do not help: a trait method that needs a capability must declare
+   sharpest unresolved trade-off, and cutting loops (15.1) put the full cost back
+   on it. Traits do not help: a trait method that needs an effect must declare
    the context in its signature, which is the honest encoding but not a
    convenient one.
 2. *`Alloc` granularity.* Requiring `Alloc` for every size-dependent result is
@@ -1879,21 +1951,22 @@ alike.
 3. *Indexing returns `Option`.* Correct, and occasionally miserable. A
    `list.getOr(default, i, xs)` helper and better pattern-matching over arrays may
    absorb most of the pain.
-4. *Structural satisfaction can happen by accident.* A module that exports a
-   matching `compare` satisfies `Ord` whether or not it meant to. `impl` exists
-   to state intent, but nothing requires it. Go has lived with this; whether the
-   `impl` opt-in should become mandatory is unsettled.
+4. *Trampolining higher-order tail calls.* Section 8.3.1 specifies how tail-call
+   elimination is achieved on a target without native support, and the first two
+   cases are exact and free. The third — a tail call through a value of function
+   type — costs an allocation per bounce, and how often that shape occurs in real
+   Buri code is unknown. If it turns out to be common, the answer is probably
+   call-site specialization rather than a language change.
 5. *Methods are not extensible, and not available on type variables* (6.7.3).
    Resolving through the receiver's defining module is what makes them
    import-free and collision-free, and it is the same property that stops you
    adding an operation to `Str`. Calling a method on a bare `T` is what bounds are
    for (5.10); extending a foreign type is what free functions are for. Neither
    gap has a fix that preserves import-free, collision-free resolution.
-6. *Row polymorphism has lost its main consumer.* Contexts are bounded type
-   parameters now (Section 10.1), so `..` survives only for open record types on
-   plain data (`{ host: Str, .. }`). That is a thin use case for a whole
-   type-system feature; dropping rows entirely would remove row unification from
-   the checker, which the 1M-lines-per-second target would appreciate.
+6. *Whether the Section 13 invariants survive contact with real features.* They
+   are now written down, which is the point — but every one of them is the kind
+   of property that a reasonable-looking addition erodes. 13.2 is the fragile
+   one.
 7. *Holding the line on 5.12.5.* Restricted traits are cheap precisely because
    resolution is a lookup. Every deferred feature — blanket impls, associated
    types, `where` chains, foreign impls — individually looks reasonable and

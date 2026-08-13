@@ -4,7 +4,6 @@
 // pure, `(State, Event) => State`, and the "loop" is a fold. This is the
 // pattern that replaces most uses of a mutable object.
 
-from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/cap" import { Alloc, Stdout };
@@ -80,7 +79,7 @@ fn containsSku(items: [Item], sku: Str): Bool {
 
 fn appendPure(items: [Item], item: Item): [Item] {
   // Stand-in for `item.push(ctx, items)`; kept pure here so `step` stays
-  // capability-free and trivially testable.
+  // effect-free and trivially testable.
   let _ = item;
   items
 }
@@ -91,7 +90,7 @@ fn withoutPure(items: [Item], sku: Str): [Item] {
 }
 
 fn totalCents(items: [Item]): I64 {
-  items.fold(fn(acc, i) => acc + i.unitCents * (i.quantity as I64), 0)
+  items.fold(fn(acc, i) => acc + i.unitCents * (i.quantity.toI64()), 0)
 }
 
 // --- The "loop": a fold over events --------------------------------------------
@@ -135,7 +134,7 @@ fn rejectionText<C: Alloc>(ctx: C, r: Rejected): Str {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let widget = Item { sku: "W-1", quantity: 2, unitCents: 1250 };
   let gadget = Item { sku: "G-9", quantity: 1, unitCents: 9900 };
 
@@ -152,16 +151,16 @@ export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
   ];
 
   let _ = match (replay(Cart.Empty, happyPath)) {
-    .Ok(cart) => io.println(ctx, "happy = ${describe(ctx, cart)}"),
-    .Err(e) => io.println(ctx, "happy = rejected: ${rejectionText(ctx, e)}"),
+    .Ok(cart) => ctx.println("happy = ${describe(ctx, cart)}"),
+    .Err(e) => ctx.println("happy = rejected: ${rejectionText(ctx, e)}"),
   };
 
   let (reached, problem) = replayUntilError(Cart.Empty, sadPath);
-  let _ = io.println(ctx, "sad   = ${describe(ctx, reached)}");
+  let _ = ctx.println("sad   = ${describe(ctx, reached)}");
   let _ = match (problem) {
-    .Some(e) => io.println(ctx, "        stopped at: ${rejectionText(ctx, e)}"),
-    .None => io.println(ctx, "        no problems"),
+    .Some(e) => ctx.println("        stopped at: ${rejectionText(ctx, e)}"),
+    .None => ctx.println("        no problems"),
   };
 
-  .Ok({})
+  .Ok(())
 }

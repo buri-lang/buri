@@ -1,0 +1,26 @@
+# //cmd/server:server — a compilation entry point. `main.buri` is required, is
+# not listed in srcs, and must export `main`.
+#
+# Three outputs, three configurations, three independent tag checks. All three
+# are tier=server, so //lib/store is legal in every one of them.
+
+binary {
+  name: "server"
+  srcs: ["routes.buri"]
+  deps: [
+    "//lib/ledger",
+    "//lib/money",
+    "//lib/store",
+  ]
+  tags: ["server"]
+
+  outputs: [
+    { platform: LINUX, arch: X86_64 },
+    { platform: LINUX, arch: ARM64 },
+    { platform: MACOS, arch: ARM64 },
+  ]
+
+  test {
+    srcs: ["test/routes.buri"]
+  }
+}

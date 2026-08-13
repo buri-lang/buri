@@ -5,7 +5,7 @@
 // directory and containing exactly the files in `test { data: [...] }`. Writes
 // are visible to this test and discarded when it ends.
 
-from "//lib/store" import { append, readLog, StoreError };
+from "//lib/store" import { append, readLog };
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
 from "core/cap" import { Alloc, Fs };
@@ -27,6 +27,9 @@ test "reading a missing log is an error, not a crash" (ctx: { alloc: Alloc, expe
 test "the golden log round-trips" (ctx: { alloc: Alloc, expect: Expect, fs: Fs }): Result<{}, Str> {
   let want = t.isOk(ctx, readLog(ctx, "test/golden/log.txt"))?;
   let _ = t.isOk(ctx, append(ctx, "out.log", [entry("books", fromCents(3200))]))?;
-  t.eq(ctx, t.isOk(ctx, readLog(ctx, "out.log"))?, want)?;
+  let got = t.isOk(ctx, readLog(ctx, "out.log"))?;
+  // The golden file ends in a newline, as files do; the encoder does not emit
+  // a trailing one.
+  t.eq(ctx, got, want.trim())?;
   .Ok({})
 }

@@ -1,6 +1,6 @@
 (* ==========================================================================
    Buri — Extended BNF grammar
-   Version 0.2 (draft)
+   Version 0.3 (draft)
    File extension: .buri
 
    NOTATION
@@ -20,8 +20,11 @@
      LR(1) / LALR(1) parseable. No production requires knowledge of what a
      name refers to; no production requires "feedback" from the type checker
      or from name resolution. See SPEC.md section 12 for the specific design
-     decisions that buy this property, and section 13 for the well-formedness
+     decisions that buy this property, and section 14 for the well-formedness
      rules that are deliberately NOT encoded here.
+
+     The type system is NOMINAL throughout: every type has a declaration, and
+     trait conformance is declared rather than inferred from shape.
    ========================================================================== *)
 
 
@@ -32,7 +35,9 @@
 Module          ::= Item*
 
 Item            ::= Import
-                  | Declaration
+                  | Exportable
+                  | ImplDecl               (* never exported: conformance is *)
+                  | DeriveDecl             (* a property of the type         *)
 
 
 (* --------------------------------------------------------------------------
@@ -46,8 +51,7 @@ Import          ::= "from" STRING "import" ImportClause ";"
 
 (* A namespace import MUST be named: `import * as list` is the only wildcard
    form, and bare `import *` is not derivable. Nothing ever enters a scope
-   without a name written in the importing file, so every unqualified
-   identifier in a module is resolvable by reading that module alone. *)
+   without a name written in the importing file. *)
 ImportClause    ::= "{" ImportSpecs? "}"
                   | "*" "as" IDENT
 
@@ -60,23 +64,22 @@ ImportSpec      ::= IDENT ("as" IDENT)?
    3. DECLARATIONS
    -------------------------------------------------------------------------- *)
 
-Declaration     ::= "export"? DeclBody
+Exportable      ::= "export"? ExportableBody
 
-DeclBody        ::= FnDecl
+ExportableBody  ::= FnDecl
                   | StructDecl
                   | EnumDecl
                   | TypeAliasDecl
                   | ConstDecl
                   | TraitDecl
-                  | ImplDecl
-                  | DeriveDecl
+                  | EffectDecl
 
 FnDecl          ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type Block
 
 (* A function is a METHOD if and only if its first parameter is written `self`.
-   A function is EFFECTFUL if and only if it has a `ctx` parameter, which must
-   come first, or immediately after `self`. Both are declarations, not
-   conventions about position or type. *)
+   A function is EFFECTFUL if and only if it has a `ctx` parameter, which comes
+   first, or immediately after `self`. Both are declarations, not conventions
+   about position or type. *)
 Params          ::= SelfParam ("," CtxParam)? ("," Param)* ","?
                   | CtxParam ("," Param)* ","?
                   | Param ("," Param)* ","?
@@ -85,22 +88,25 @@ CtxParam        ::= "ctx" ":" Type
 Param           ::= IDENT ":" Type
 
 GenericParams   ::= "<" GenericParam ("," GenericParam)* ","? ">"
-GenericParam    ::= IDENT (":" Bounds)?         (* type variable, optional bounds *)
-                  | ".." IDENT                  (* row variable   *)
-Bounds          ::= TypePath ("+" TypePath)*
+GenericParam    ::= IDENT (":" Bounds)?
+Bounds          ::= NamedType ("+" NamedType)*
 
-StructDecl      ::= "opaque"? "struct" IDENT GenericParams? StructBody
-StructBody      ::= "{" FieldDecls? "}"         (* record struct  *)
-                  | "(" Types? ")" ";"          (* tuple struct   *)
+(* Struct fields and enum variants are module-private unless exported. That is
+   the only visibility mechanism: record structs, tuple structs, and enums all
+   use the same rule, and there is no `opaque` modifier. *)
+StructDecl      ::= "struct" IDENT GenericParams? StructBody
+StructBody      ::= "{" FieldDecls? "}"              (* record struct *)
+                  | "(" TupleFields? ")" ";"         (* tuple struct  *)
 
-(* Struct fields are module-private unless exported, exactly like declarations.
-   Record TYPES reuse FieldDecl but may not carry `export`; see SPEC.md 13. *)
 FieldDecls      ::= FieldDecl ("," FieldDecl)* ","?
 FieldDecl       ::= "export"? IDENT ":" Type
 
-EnumDecl        ::= "opaque"? "enum" IDENT GenericParams? "{" Variants? "}"
+TupleFields     ::= TupleField ("," TupleField)* ","?
+TupleField      ::= "export"? Type
+
+EnumDecl        ::= "enum" IDENT GenericParams? "{" Variants? "}"
 Variants        ::= Variant ("," Variant)* ","?
-Variant         ::= IDENT VariantPayload?
+Variant         ::= "export"? IDENT VariantPayload?
 VariantPayload  ::= "(" Types ")"
                   | "{" FieldDecls "}"
 
@@ -109,21 +115,23 @@ TypeAliasDecl   ::= "type" IDENT GenericParams? "=" Type ";"
 ConstDecl       ::= "const" IDENT ":" Type "=" Expr ";"
 
 
-(* --- Traits ----------------------------------------------------------------
-   A trait is an interface: a named set of method signatures. Satisfaction is
-   structural -- a type satisfies a trait when its defining module declares
-   matching methods -- so there is exactly one candidate per (trait, type) and
-   no coherence pass. `impl` asserts and checks that intent; `derive` asks for
-   the implementation to be generated structurally. *)
+(* --- Traits and effects ----------------------------------------------------
+   A trait is an interface: a named set of method signatures. Conformance is
+   NOMINAL -- a type satisfies a trait only where an `impl` or `derive` says
+   so, never by accident of shape.
 
-(* A `capability trait` declares an effect. Any parameter whose type carries one
-   must be the function's `ctx` parameter -- see SPEC.md 10.2. *)
-TraitDecl       ::= "capability"? "trait" IDENT GenericParams? "{" TraitMethod* "}"
-TraitMethod     ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
+   An effect is the same declaration with one extra consequence: its
+   implementors are effect-carrying, so they may only be passed as `self` or
+   `ctx`. Effects may be declared only by platform modules, and no type may
+   implement both an effect and a trait. *)
 
-ImplDecl        ::= "impl" GenericParams? TypePath "for" NamedType "{" FnDecl* "}"
+TraitDecl       ::= "trait" IDENT GenericParams? "{" MethodSig* "}"
+EffectDecl      ::= "effect" IDENT GenericParams? "{" MethodSig* "}"
+MethodSig       ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
 
-DeriveDecl      ::= "derive" TypePath ("," TypePath)* "for" NamedType ";"
+ImplDecl        ::= "impl" GenericParams? NamedType "for" NamedType "{" FnDecl* "}"
+
+DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" NamedType ";"
 
 
 (* --------------------------------------------------------------------------
@@ -143,35 +151,30 @@ Types           ::= Type ("," Type)* ","?
 
 PrimaryType     ::= NamedType
                   | SelfType
-                  | RecordType
+                  | UnitType
                   | TupleType
                   | ArrayType
                   | GroupedType
 
-(* `Self` is the implementing type; legal only inside a trait or impl body. *)
+(* `Self` is the implementing type; legal only inside a trait, effect, or
+   impl body. *)
 SelfType        ::= "Self"
+
+(* The unit type and its only value are both written `()`. There is no empty
+   record, because there are no records. *)
+UnitType        ::= "(" ")"
 
 NamedType       ::= TypePath TypeArgs?
 TypePath        ::= IDENT ("." IDENT)*
 
-TypeArgs        ::= "<" TypeArg ("," TypeArg)* ","? ">"
-TypeArg         ::= Type
-                  | ".." IDENT
+TypeArgs        ::= "<" Type ("," Type)* ","? ">"
 
 ArrayType       ::= "[" Type "]"
 
 GroupedType     ::= "(" Type ")"
 
-(* Tuples have arity >= 2. `(T)` is grouping; the unit type is `{}`. *)
+(* Tuples have arity >= 2. `(T)` is grouping and `()` is unit. *)
 TupleType       ::= "(" Type ("," Type)+ ","? ")"
-
-RecordType      ::= "{" RecordTypeBody? "}"
-RecordTypeBody  ::= FieldDecl ("," FieldDecl)* ("," RowRest)? ","?
-                  | RowRest ","?
-
-(* `..`  = fresh anonymous row variable ("at least these fields")
-   `..R` = the row variable R declared in GenericParams                    *)
-RowRest         ::= ".." IDENT?
 
 
 (* --------------------------------------------------------------------------
@@ -189,7 +192,6 @@ RowRest         ::= ".." IDENT?
        &                     left
        + -                   left
        * / %                 left
-       as  as?  as%          left
        - ! ~                 prefix
        postfix chain         . .N (args) [i] ? ::<T> {fields}
    -------------------------------------------------------------------------- *)
@@ -227,14 +229,8 @@ BitAndExpr      ::= BitAndExpr "&" AddExpr
 AddExpr         ::= AddExpr ("+" | "-") MulExpr
                   | MulExpr
 
-MulExpr         ::= MulExpr ("*" | "/" | "%") CastExpr
-                  | CastExpr
-
-(* `as` lossless (compile error if not), `as?` checked -> Option<T>,
-   `as%` modular / rounding. See SPEC.md 6.2.1. *)
-CastExpr        ::= CastExpr CastOp PrimaryType
+MulExpr         ::= MulExpr ("*" | "/" | "%") UnaryExpr
                   | UnaryExpr
-CastOp          ::= "as" | "as?" | "as%"
 
 UnaryExpr       ::= ("-" | "!" | "~") UnaryExpr
                   | PostfixExpr
@@ -253,38 +249,38 @@ PostfixExpr     ::= PostfixExpr PostfixOp
 
 (* Method calls have no production of their own: `sq.area()` is `"." IDENT`
    followed by a call, identical in shape to a field access or a module member
-   access. Which one it is, is settled during name resolution -- see SPEC.md
-   6.8.2 and 12.15 for why `.` was reused rather than adding `:`. *)
+   access. Which one it is, is settled during name resolution. *)
 PostfixOp       ::= "." IDENT                   (* field / member / method *)
                   | "." INT                     (* tuple element access    *)
                   | "(" Args? ")"               (* call                    *)
                   | "[" Expr "]"                (* index -> Option<T>      *)
                   | "?"                         (* try-propagate           *)
                   | "::" TypeArgs               (* turbofish               *)
-                  | BraceInit                   (* nominal struct literal  *)
+                  | StructLitBody               (* struct literal          *)
+
+(* With records gone, a `{` that opens an expression is ALWAYS a block, and a
+   `{` following a path is ALWAYS a struct literal. Nothing competes, so field
+   shorthand is unambiguous here. *)
+StructLitBody   ::= "{" Spread? FieldInits? "}"
+Spread          ::= ".." Expr ","?
+FieldInits      ::= FieldInit ("," FieldInit)* ","?
+FieldInit       ::= IDENT (":" Expr)?
 
 Args            ::= Expr ("," Expr)* ","?
 
 PrimaryExpr     ::= Literal
                   | IDENT
                   | "." IDENT                   (* inferred-type variant   *)
-                  | RecordLit
+                  | UnitLit
                   | ArrayLit
                   | TupleLit
                   | GroupedExpr
 
-(* One brace-initializer form serves both the anonymous record literal
-   `{ x: 1 }` and the nominal struct literal `Point { x: 1 }` / `.Circle { r: 1 }`,
-   so functional update `{ ..base, x: 1 }` works identically for both. *)
-RecordLit       ::= BraceInit
-BraceInit       ::= "{" Spread? FieldInits? "}"
-Spread          ::= ".." Expr ","?
-FieldInits      ::= FieldInit ("," FieldInit)* ","?
-FieldInit       ::= IDENT ":" Expr
+UnitLit         ::= "(" ")"
 
 ArrayLit        ::= "[" (Expr ("," Expr)* ","?)? "]"
 
-(* Arity >= 2; `(e)` is grouping and the unit value is `{}`. *)
+(* Arity >= 2; `(e)` is grouping and `()` is unit. *)
 TupleLit        ::= "(" Expr ("," Expr)+ ","? ")"
 
 GroupedExpr     ::= "(" Expr ")"
@@ -298,9 +294,8 @@ MatchArms       ::= MatchArm ("," MatchArm)* ","?
 MatchArm        ::= Pattern Guard? "=>" Expr
 Guard           ::= "if" Expr
 
-(* There are no loops. Iteration is recursion (guaranteed tail-call eliminated)
-   or a fold. See SPEC.md 14 for why the `for`/`while` sugar drafted for this
-   version was cut. *)
+(* There are no loops. Iteration is recursion (guaranteed tail-call
+   eliminated) or a fold. See SPEC.md 15.1. *)
 
 
 (* --------------------------------------------------------------------------
@@ -308,9 +303,6 @@ Guard           ::= "if" Expr
 
    A block is a sequence of `let` bindings followed by a result expression.
    There are no expression statements, no `return`, and no loops.
-
-   The first alternative (`let`-only, no tail) exists so that the empty
-   braces `{}` are unambiguously the unit record literal and never a block.
    -------------------------------------------------------------------------- *)
 
 Block           ::= "{" LetStmt+ "}"
@@ -333,7 +325,7 @@ PatternNoOr     ::= BindPattern
                   | WildcardPattern
                   | LiteralPattern
                   | PathPattern
-                  | RecordPattern
+                  | UnitPattern
                   | TuplePattern
                   | ArrayPattern
                   | GroupedPattern
@@ -360,10 +352,11 @@ PatternPayload  ::= "(" Patterns? ")"
 
 Patterns        ::= Pattern ("," Pattern)* ","?
 
-RecordPattern   ::= "{" FieldPatterns? "}"
 FieldPatterns   ::= FieldPattern ("," FieldPattern)* ("," "..")? ","?
                   | ".." ","?
-FieldPattern    ::= IDENT (":" Pattern)?        (* shorthand IS allowed here *)
+FieldPattern    ::= IDENT (":" Pattern)?
+
+UnitPattern     ::= "(" ")"
 
 TuplePattern    ::= "(" Pattern ("," Pattern)+ ","? ")"
 
@@ -393,10 +386,7 @@ Literal         ::= INT
    grammar stays context-free.
 
        "score: ${a + b} pts"
-        \_TEMPLATE_HEAD_/     \_TEMPLATE_TAIL_/
-
-       "a ${x} b ${y} c"
-        \HEAD/   \SPAN/  \TAIL/                                          *)
+        \_TEMPLATE_HEAD_/     \_TEMPLATE_TAIL_/                          *)
 TemplateLiteral ::= TEMPLATE_HEAD Expr (TEMPLATE_SPAN Expr)* TEMPLATE_TAIL
 
 
@@ -422,23 +412,22 @@ IDENT           ::= (Letter | "_") (Letter | Digit | "_")*
 Letter          ::= "A".."Z" | "a".."z"
 Digit           ::= "0".."9"
 
-Keyword         ::= "as"     | "as?"    | "as%"    | "capability"
-                  | "const"  | "crash"  | "ctx"    | "derive" | "else"
-                  | "enum"   | "export" | "false"  | "fn"     | "for"
-                  | "from"   | "if"     | "impl"   | "import" | "let"
-                  | "match"  | "opaque" | "self"   | "Self"   | "struct"
-                  | "trait"  | "true"   | "type"
+Keyword         ::= "as"     | "const"  | "crash"  | "ctx"    | "derive"
+                  | "effect" | "else"   | "enum"   | "export" | "false"
+                  | "fn"     | "for"    | "from"   | "if"     | "impl"
+                  | "import" | "let"    | "match"  | "self"   | "Self"
+                  | "struct" | "trait"  | "true"   | "type"
 
-(* `as?` and `as%` are single tokens: no whitespace between the `as` and the
-   sigil. `x as I32?` is therefore a parse error rather than a cast followed by
-   a try, which is the reading nobody wants. *)
+(* `as` appears only in import specifiers. `for` only in `impl ... for ...`
+   and `derive ... for ...`. There is no cast operator: numeric conversions
+   are ordinary methods (SPEC.md 6.2.1). *)
 
-(* Reserved but unused in v0.2; rejected by the lexer so that later versions
+(* Reserved but unused in v0.3; rejected by the lexer so that later versions
    can claim them without breaking source compatibility. *)
 ReservedWord    ::= "async"  | "await"  | "break"  | "continue"
                   | "do"     | "in"     | "is"     | "loop"   | "module"
-                  | "mut"    | "pub"    | "return" | "use"    | "when"
-                  | "where"  | "while"  | "with"   | "yield"
+                  | "mut"    | "opaque" | "pub"    | "return" | "use"
+                  | "when"   | "where"  | "while"  | "with"   | "yield"
 
 (* --- Numbers ---------------------------------------------------------------
    A FLOAT must begin with a digit: `.5` is not a literal. This is what makes
@@ -482,8 +471,8 @@ TEMPLATE_TAIL   ::= "}"  StrChar* '"'
      * there is no ">>" or "<<" token, so `Map<Str, List<Int>>` never
        mis-lexes; use bits.shl / bits.shr instead.
      * there is no "?." token, so `x?.field` is `x` `?` `.` `field`.
-     * there is no "..." token; "``..``" serves in types, patterns, and
-       record spreads alike.                                                 *)
+     * there is no "..." token; "``..``" serves in patterns and struct
+       spreads alike.                                                        *)
 
 Punctuation     ::= "{" | "}" | "(" | ")" | "[" | "]"
                   | "," | ";" | ":" | "::" | "." | ".." | "@" | "_"
@@ -496,5 +485,5 @@ Punctuation     ::= "{" | "}" | "(" | ")" | "[" | "]"
 
 (* Known lexical wart (shared with Rust): `t.0.1` lexes as `t` `.` `0.1`.
    Write `(t.0).1`. *)
-(* Known lexical wart: `Foo<Bar<Int>>= x` lexes `>` `>=`. Write `>> =` with a
-   space, i.e. `Foo<Bar<Int>> = x`. *)
+(* Known lexical wart: `Foo<Bar<Int>>= x` lexes `>` `>=`. Write a space, i.e.
+   `Foo<Bar<Int>> = x`. *)

@@ -2,9 +2,8 @@
 //
 // Every function here that touches the disk says so in its signature. Note
 // that the *parsing* is pure and testable with no harness at all; only the
-// reading and writing need capabilities.
+// reading and writing need effects.
 
-from "core/io" import * as io;
 from "core/fs" import * as fs;
 from "core/fs" import { IoError };
 from "core/str" import * as str;
@@ -56,7 +55,7 @@ fn parseAll<C: Alloc>(ctx: C, text: Str): Result<[Record], LoadError> {
   let numbered = indices.zip(ctx, nonEmpty);
 
   // A fold would need its callback to capture `ctx` in order to allocate, and
-  // capturing a capability is forbidden. Recursion threads it explicitly.
+  // capturing a effect is forbidden. Recursion threads it explicitly.
   parseFrom(ctx, numbered, [])
 }
 
@@ -87,7 +86,7 @@ fn saveReport<C: Alloc + Fs>(
   ctx: C,
   path: Str,
   records: [Record],
-): Result<{}, IoError> {
+): Result<(), IoError> {
   // A lambda may not capture `ctx`, so a per-item renderer that itself
   // allocates takes the context as its first parameter and runs via `mapCtx`.
   let lines = records.mapCtx(ctx, fn(c, r) => str.format(c, "${r.name}: ${r.score}"));
@@ -107,27 +106,27 @@ fn errorText<C: Alloc>(ctx: C, e: LoadError): Str {
 // This context is closed — no trailing `..`. The platform grants exactly
 // alloc, fs, and stdout, and nothing in the program can do anything else.
 
-export fn main<C: Alloc + Fs + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Fs + Stdout>(ctx: C): Result<(), Str> {
   let inputPath = "scores.csv";
   let outputPath = "report.txt";
 
   match (loadScores(ctx, inputPath)) {
     .Err(e) => {
-      let _ = io.println(ctx, "load failed: ${errorText(ctx, e)}");
+      let _ = ctx.println("load failed: ${errorText(ctx, e)}");
       .Err("load failed")
     },
     .Ok(records) => {
-      let _ = io.println(ctx, "loaded ${records.len()} records");
+      let _ = ctx.println("loaded ${records.len()} records");
 
       let _ = match (best(records)) {
-        .Some(top) => io.println(ctx, "best: ${top.name} with ${top.score}"),
-        .None => io.println(ctx, "no records"),
+        .Some(top) => ctx.println("best: ${top.name} with ${top.score}"),
+        .None => ctx.println("no records"),
       };
 
       match (saveReport(ctx, outputPath, records)) {
         .Ok(_) => {
-          let _ = io.println(ctx, "wrote ${outputPath}");
-          .Ok({})
+          let _ = ctx.println("wrote ${outputPath}");
+          .Ok(())
         },
         .Err(_) => .Err("could not write the report"),
       }

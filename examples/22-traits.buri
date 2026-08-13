@@ -1,15 +1,15 @@
 // 22 — Traits
 //
-// A trait is an interface: a named set of method signatures. A type satisfies
-// it when its defining module declares matching methods — so checking `T: Ord`
-// is one lookup in one known module, not a search over implementations.
+// A trait is an interface: a named set of method signatures. Conformance is
+// NOMINAL — a type satisfies a trait only where an `impl` or `derive` says so,
+// never by accident of shape — so checking `T: Ord` is one lookup in one table,
+// not a search over implementations.
 //
 // There are no blanket implementations, no associated types, no `where`
 // clauses, no supertraits, no trait objects, and no dynamic dispatch. Each of
 // those turns resolution from a lookup into a search, and the search is the
 // entire compile-time cost of a trait system.
 
-from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/order" import { Ord, Eq, Show };
 from "core/num" import { Add, Sub, Checked, Bounded };
@@ -29,14 +29,19 @@ trait Measurable {
 
 // A trait may require a context, and every implementation then gets exactly
 // that context and nothing more. A `Renderable` implementation provably cannot
-// read a file or open a socket — the trait declaration is a capability contract
+// read a file or open a socket — the trait declaration is a effect contract
 // binding every future implementor.
 trait Renderable {
   fn render(self: Self, ctx: C): Str;
 }
 
 // ---------------------------------------------------------------------------
-// Satisfaction is structural
+// Conformance is declared
+//
+// Declaring a method that happens to match a trait's signature does NOT make
+// the type conform. Nothing is inferred from shape, which is what keeps a
+// module's public API from implicitly including "which traits its types happen
+// to satisfy" — the thing that would otherwise wreck incremental rebuilds.
 // ---------------------------------------------------------------------------
 
 export struct Version {
@@ -44,21 +49,24 @@ export struct Version {
   export minor: Int,
 }
 
-// Version satisfies Ord because this module declares a matching method.
-// Nothing else is required.
-export fn compare(self: Version, other: Version): Order {
-  match (self.major.compare(other.major)) {
-    .Equal => self.minor.compare(other.minor),
-    ord => ord,
+// This method alone does not make Version an Ord. The `impl` below is what
+// does, and it is checked against the trait's signatures.
+impl Ord for Version {
+  fn compare(self: Version, other: Version): Order {
+    match (self.major.compare(other.major)) {
+      .Equal => self.minor.compare(other.minor),
+      ord => ord,
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// `impl` states the intent and is checked
+// `impl` supplies the methods, and is checked against the trait
 //
-// Equivalent to declaring the same methods at module level, plus an assertion
-// that every signature the trait requires is present and matches. It exists so
-// that satisfaction is deliberate rather than accidental.
+// The methods land in the type's ordinary method namespace, so `v.compare(w)`
+// resolves like any other method. An `impl` may appear only in the defining
+// module of the type, and is never exported — conformance is a property of the
+// type, visible wherever the type is.
 // ---------------------------------------------------------------------------
 
 export struct Playlist {
@@ -84,7 +92,7 @@ impl Renderable for Playlist {
 // recursing into field types. A fold over one type definition — no search.
 // ---------------------------------------------------------------------------
 
-derive Eq, Show for Version;
+derive Eq, Show for Version;   // Ord is hand-written above
 derive Eq, Ord, Show for Playlist;
 
 // ---------------------------------------------------------------------------
@@ -162,31 +170,31 @@ fn area(self: Version): Int {
   self.major * self.minor
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let v1 = Version { major: 1, minor: 2 };
   let v2 = Version { major: 1, minor: 10 };
   let playlist = Playlist { name: "Focus", tracks: ["a", "b", "c"] };
   let versions = [v2, v1];
   let heights = [Meters(1.0), Meters(2.5)];
 
-  let _ = io.println(ctx, "compare   = ${v1.compare(v2) == Order.Less}");
-  let _ = io.println(ctx, "derived== = ${v1 == v1}");
-  let _ = io.println(ctx, "show      = ${v1.show(ctx)}");
-  let _ = io.println(ctx, "size      = ${playlist.size()}");
-  let _ = io.println(ctx, "render    = ${playlist.render(ctx)}");
-  let _ = io.println(ctx, "distance  = ${distances().show(ctx)}");
-  let _ = io.println(ctx, "total     = ${total(Meters(0.0), heights).show(ctx)}");
-  let _ = io.println(ctx, "area      = ${v1.area()}");
+  let _ = ctx.println("compare   = ${v1.compare(v2) == Order.Less}");
+  let _ = ctx.println("derived== = ${v1 == v1}");
+  let _ = ctx.println("show      = ${v1.show(ctx)}");
+  let _ = ctx.println("size      = ${playlist.size()}");
+  let _ = ctx.println("render    = ${playlist.render(ctx)}");
+  let _ = ctx.println("distance  = ${distances().show(ctx)}");
+  let _ = ctx.println("total     = ${total(Meters(0.0), heights).show(ctx)}");
+  let _ = ctx.println("area      = ${v1.area()}");
 
   let _ = match (largest(versions)) {
-    .Some(v) => io.println(ctx, "largest   = ${v.show(ctx)}"),
-    .None => io.println(ctx, "largest   = none"),
+    .Some(v) => ctx.println("largest   = ${v.show(ctx)}"),
+    .None => ctx.println("largest   = none"),
   };
 
   let _ = match (safeTotal(0, [1, 2, 3])) {
-    .Some(n) => io.println(ctx, "safeTotal = ${n}"),
-    .None => io.println(ctx, "safeTotal = overflowed"),
+    .Some(n) => ctx.println("safeTotal = ${n}"),
+    .None => ctx.println("safeTotal = overflowed"),
   };
 
-  .Ok({})
+  .Ok(())
 }

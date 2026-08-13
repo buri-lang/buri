@@ -5,14 +5,14 @@ library {
   name: "money"
   srcs: [
     "cents.buri",
-    "format.buri",
+    "parse.buri",
   ]
   visibility: ["//visibility:public"]
 
   test {
     srcs: [
       "test/cents.buri",
-      "test/format.buri",
+      "test/parse.buri",
     ]
   }
 }

@@ -1,8 +1,8 @@
-// 14 — Attenuating capabilities
+// 14 — Attenuating effects
 //
 // Two ways to give a callee less than you hold, with different guarantees.
 //
-//   Static confinement — bound the callee to fewer capability traits. It
+//   Static confinement — bound the callee to fewer effects. It
 //   receives the same value and cannot use, or pass on, anything its bounds do
 //   not name. Free, and enough almost always.
 //
@@ -11,10 +11,9 @@
 //   boundaries.
 //
 // Note that attenuation narrows the CONTEXT rather than extracting one
-// capability out of it. That is what keeps the `ctx` rule satisfiable: there is
-// still exactly one capability-carrying parameter.
+// effect out of it. That is what keeps the `ctx` rule satisfiable: there is
+// still exactly one effect-carrying parameter.
 
-from "core/io" import * as io;
 from "core/fs" import * as fs;
 from "core/fs" import { IoError };
 from "core/cap" import { Alloc, Fs, Rand, Stdout, Region };
@@ -26,14 +25,14 @@ from "core/cap" import { Alloc, Fs, Rand, Stdout, Region };
 // `logOnly` can print. It cannot read a file, and neither can anything it
 // calls, because it has nothing bounded by Fs to hand on. No wrapper, no copy,
 // no runtime cost — the bound is the whole mechanism.
-fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
-  let _ = io.println(ctx, msg);
+fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
+  let _ = ctx.println(msg);
   // fs.readText(ctx, "/etc/passwd")   // ERROR: C is not bounded by Fs
   // loadTemplate(ctx, "x")            // ERROR: loadTemplate needs C: Fs
 }
 
-// Confinement is transitive: `C` is opaque at every call site downstream, so
-// there is no way to recover the capabilities the bound left out.
+// Confinement is transitive: `C` is abstract at every call site downstream, so
+// there is no way to recover the effects the bound left out.
 fn loadTemplate<C: Alloc + Fs>(ctx: C, name: Str): Str {
   match (fs.readText(ctx, name)) {
     .Ok(text) => text,
@@ -48,10 +47,10 @@ fn loadTemplate<C: Alloc + Fs>(ctx: C, name: Str): Str {
 // operations this module chooses to expose.
 // ---------------------------------------------------------------------------
 
-export opaque struct ReadOnly<C>(C);
+export struct ReadOnly<C>(C);
 
 export fn readOnly<C>(ctx: C): ReadOnly<C> {
-  // Constructing an opaque type is legal only inside its defining module.
+  // A struct with an unexported field can only be constructed in its own module.
   ReadOnly(ctx)
 }
 
@@ -71,10 +70,10 @@ export fn readFile<C: Fs>(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
 // module: safe/scoped
 //
 // The same shape, with a runtime check the wrapper can enforce because it is
-// the only path to the underlying capability.
+// the only path to the underlying effect.
 // ---------------------------------------------------------------------------
 
-export opaque struct Scoped<C> {
+export struct Scoped<C> {
   inner: C,
   prefix: Str,
 }
@@ -106,7 +105,7 @@ export fn readFileScoped<C: Fs>(self: Scoped<C>, path: Str): Result<Str, ScopeEr
 // ---------------------------------------------------------------------------
 // module: safe/seeded
 //
-// A deterministic stand-in for Rand. Because capability traits are ordinary
+// A deterministic stand-in for Rand. Because effects are ordinary
 // interfaces, a fake is just a struct with the right methods — no mocking
 // framework, and the call site does not change.
 // ---------------------------------------------------------------------------
@@ -122,8 +121,8 @@ export fn nextInt(self: Seeded, lo: Int, hi: Int): (Int, Seeded) {
   // `self.state`, and range-checked at compile time.
   let next = self.state.wrappingMul(6364136223846793005).wrappingAdd(1442695040888963407);
   let span = hi - lo;
-  // U64 -> I64 is not lossless, so this is `as%` rather than `as`.
-  let value = lo + ((next / 65536) as% Int) % span;
+  // U64 -> I64 can overflow, so this is the wrapping conversion.
+  let value = lo + ((next / 65536).wrapToI64()) % span;
   (value, Seeded { state: next })
 }
 
@@ -157,7 +156,7 @@ fn threeRolls(g: Seeded): ([Int], Seeded) {
   ([a, b, c], g3)
 }
 
-export fn main<C: Alloc + Fs + Rand + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Fs + Rand + Stdout>(ctx: C): Result<(), Str> {
   // Hand out narrowed contexts once, at the top of the program.
   let reader = readOnly(ctx);
   let scoped = scopeTo(ctx, "/etc/app/");
@@ -167,12 +166,12 @@ export fn main<C: Alloc + Fs + Rand + Stdout>(ctx: C): Result<{}, Str> {
   let deniedPath = "/etc/shadow";
 
   let _ = logOnly(ctx, "starting");
-  let _ = io.println(ctx, "template = ${render(reader, templateName)}");
-  let _ = io.println(ctx, "allowed  = ${loadConfig(scoped, allowedPath)}");
-  let _ = io.println(ctx, "denied   = ${loadConfig(scoped, deniedPath)}");
+  let _ = ctx.println("template = ${render(reader, templateName)}");
+  let _ = ctx.println("allowed  = ${loadConfig(scoped, allowedPath)}");
+  let _ = ctx.println("denied   = ${loadConfig(scoped, deniedPath)}");
 
   let (rolls, _) = threeRolls(seeded(42));
-  let _ = io.println(ctx, "seeded   = ${rolls[0] ?? 0} ${rolls[1] ?? 0} ${rolls[2] ?? 0}");
+  let _ = ctx.println("seeded   = ${rolls[0] ?? 0} ${rolls[1] ?? 0} ${rolls[2] ?? 0}");
 
-  .Ok({})
+  .Ok(())
 }

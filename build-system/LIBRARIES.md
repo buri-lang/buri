@@ -22,8 +22,8 @@ outside the library.**
 ```buri
 // lib/money/lib.buri — the surface of //lib/money, complete.
 
-from "./cents" export { Cents, fromDollars, fromCents, add };
-from "./format" export { format };
+from "./cents" export { Cents, fromDollars, fromCents, add, isZero, format };
+from "./parse" export { ParseError, parse };
 ```
 
 ```buri
@@ -35,7 +35,7 @@ export fn fromDollars(d: I64): Cents { Cents(d * 100) }
 export fn fromCents(c: I64): Cents { Cents(c) }
 export fn add(self: Cents, other: Cents): Cents { Cents(self.0 + other.0) }
 
-// Exported so `format.buri` can reach it, since `Cents` is opaque and `.0` is
+// Exported so `parse.buri` can reach it, since `Cents` is opaque and `.0` is
 // not visible outside this module. Absent from lib.buri, so it stops at the
 // library boundary.
 export fn toCents(self: Cents): I64 { self.0 }
@@ -84,10 +84,12 @@ happens to be the entry point, so this is fine:
 
 ```buri
 from "./cents" export { Cents, fromCents };
-from "./cents" import { Cents as C, toCents };
+from "./cents" import { Cents, toCents };
 
-/// Declared here rather than re-exported. Both forms are public surface.
-export fn isZero(self: C): Bool { self.toCents() == 0 }
+/// Declared here rather than re-exported; both are public surface. A free
+/// function, not a method: `Cents` is declared in ./cents, and a method must
+/// live in its type's defining module ([`SPEC.md` §6.7.3](../SPEC.md)).
+export fn isRound(c: Cents): Bool { c.toCents() % 100 == 0 }
 ```
 
 Whether that should be allowed is [open question 3](./README.md#open-questions).
@@ -120,6 +122,21 @@ Three consequences worth stating outright:
   both: internal code can construct one and cannot see inside it.
 - **A method on an unexported type is unreachable**, which is the intended
   behavior and is also a lint (`unreachable-export`, on by default).
+
+One layout consequence, which surprises people once and then never again: a
+type's methods must be declared in the module that declares the type
+([`SPEC.md` §6.7.3](../SPEC.md)), so `Cents` and everything spelled
+`c.something()` live in one file, however long it gets. Functions *over* a type
+go anywhere — including functions over `[Cents]`, which can never be methods at
+all, since the defining module of `[T]` is `core/list`. A library's file layout
+therefore follows its types, not its verbs:
+
+```
+lib/money/
+  cents.buri     the Cents type and every method on it
+  parse.buri     free functions producing a Cents
+  batch.buri     free functions over [Cents]
+```
 
 ## Import resolution
 

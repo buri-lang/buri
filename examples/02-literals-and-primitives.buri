@@ -1,6 +1,5 @@
 // 02 — Literals, primitives, and operators
 
-from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/num" import * as num;
 from "core/bits" import * as bits;
@@ -13,7 +12,7 @@ const MAX_RETRIES: Int = 5;
 const PI: Float = 3.14159265358979;
 const GREETING: Str = "hello";
 
-fn numbers(): {} {
+fn numbers(): () {
   // `Int` and `Float` are ALIASES, not separate types: Int == I64,
   // Float == F64, Uint == U64, Byte == U8. Write Int/Float for ordinary code
   // and the sized names when the width is part of the problem.
@@ -39,12 +38,12 @@ fn numbers(): {} {
   //   let mixed = small + decimal;   // ERROR: I32 + I64
   //   let alsoBad = 1 + 1.0;         // ERROR: Int + Float
 
-  // Three conversion operators, differing only in what happens when the value
-  // does not fit.
-  let wide = small as I64;      // `as`  — lossless, total; compile error if not
-  //   let neg = small as U32;  // ERROR: an I32 could be negative
-  let back = wide as? I32;      // `as?` — checked, yields Option<I32>
-  let low = wide as% U8;        // `as%` — modular; keeps the low 8 bits
+  // Conversions are ordinary methods. Whether one can fail is visible in its
+  // return type rather than in a choice of operator.
+  let wide = small.toI64();     // always exact -> I64
+  //   let neg = small.toU32();  // Result: an I32 could be negative
+  let back = wide.toI32();      // may not fit -> Result<I32, RangeError>
+  let low = wide.wrapToU8();    // modular; keeps the low 8 bits
 
   // Float literals must begin with a digit: `.5` is not a literal.
   let f = 0.5;
@@ -53,7 +52,7 @@ fn numbers(): {} {
 
   // Integer -> float is a conversion like any other, and F64 has the mantissa
   // to hold every I32 exactly, so `as` accepts it.
-  let ratio = (small as F64) / 3.0;
+  let ratio = small.toF64() / 3.0;
 
   // Overflow crashes by default. When wrapping is the intent, say so.
   let checked: Option<U8> = byte.checkedAdd(100);
@@ -61,7 +60,7 @@ fn numbers(): {} {
 
   let _ = (decimal, hex, octal, binary, tiny, single, bytes, wide, back, low,
            f, sci, neg, ratio, checked, wrapped);
-  {}
+  ()
 }
 
 // Generic numeric code names the traits it needs, and nothing more. There is no
@@ -79,7 +78,7 @@ fn midpoint<N: Add + Sub + Div>(a: N, b: N, two: N): N {
 // function over them carries no bounds and no ceremony at all.
 fn celsiusToF(c: F64): F64 { c * 9.0 / 5.0 + 32.0 }
 
-fn text(): {} {
+fn text(): () {
   let s: Str = "immutable UTF-8";
   let escaped: Str = "tab\there, newline\nthere, quote\", dollar \$";
   let unicode: Str = "\u{1F980} crab";
@@ -92,10 +91,10 @@ fn text(): {} {
   let clean = "  padded  ".trim();
 
   let _ = (escaped, unicode, c, nl, n, head, clean);
-  {}
+  ()
 }
 
-fn operators(a: Int, b: Int, p: Bool, q: Bool): {} {
+fn operators(a: Int, b: Int, p: Bool, q: Bool): () {
   let arithmetic = a + b - a * b / 2 % 3;
 
   // Comparison is NON-associative: `a < b < c` is a parse error.
@@ -120,27 +119,27 @@ fn operators(a: Int, b: Int, p: Bool, q: Bool): {} {
   let shifted = bits.shl(a, 3);
 
   let _ = (arithmetic, compared, equal, sameTuple, logical, masked, combined, shifted);
-  {}
+  ()
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let _ = numbers();
   let _ = text();
   let _ = operators(6, 7, true, false);
 
   // A string literal with a hole has type `Template`, not `Str`. Building one
   // allocates nothing, so printing needs only `stdout`.
-  let _ = io.println(ctx, "retries=${MAX_RETRIES} pi=${PI} greeting=${GREETING}");
+  let _ = ctx.println("retries=${MAX_RETRIES} pi=${PI} greeting=${GREETING}");
 
   // Turning a Template into a Str does allocate, so it takes the context.
   let rendered: Str = str.format(ctx, "2 + 2 = ${2 + 2}");
-  let _ = io.println(ctx, rendered);
+  let _ = ctx.println(rendered);
 
   // Bounded generics instantiate at whatever numeric type the arguments have.
-  let _ = io.println(ctx, "clamp Int = ${clamp(0, 10, 42)}");
-  let _ = io.println(ctx, "clamp F64 = ${clamp(0.0, 1.0, 2.5)}");
-  let _ = io.println(ctx, "midpoint  = ${midpoint(10, 20, 2)}");
-  let _ = io.println(ctx, "celsius   = ${celsiusToF(20.0)}");
+  let _ = ctx.println("clamp Int = ${clamp(0, 10, 42)}");
+  let _ = ctx.println("clamp F64 = ${clamp(0.0, 1.0, 2.5)}");
+  let _ = ctx.println("midpoint  = ${midpoint(10, 20, 2)}");
+  let _ = ctx.println("celsius   = ${celsiusToF(20.0)}");
 
-  .Ok({})
+  .Ok(())
 }

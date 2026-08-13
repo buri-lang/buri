@@ -13,22 +13,30 @@ Those goals are why the design looks the way it does:
 
 | Goal | What it bought, and what it cost |
 |---|---|
-| **Safe** | No `null`, no exceptions, no mutation, no aliasing. Exhaustive `match`. Indexing returns `Option`. `Result` is must-use. Effects require a capability you were handed, in a parameter position the compiler enforces. Out-of-range numeric literals are compile errors. |
-| **Fast to run** | Strict evaluation with fully specified order — no thunks, no space leaks. Monomorphized generics, no dictionaries. Guaranteed tail calls. Immutability lets the runtime reuse memory in place when a value is provably unshared. `Alloc` as a capability makes allocation visible at every call site that does it. |
-| **Fast to compile** | An unambiguous LR(1) grammar with no name-resolution or type feedback into the parser, so parsing is one pass and trivially parallel across files. Mandatory top-level signatures make type inference local to each function body, so modules check independently and incrementally. No macros, no reflection, no overload resolution. Traits are structural and satisfied by one module, so there is no coherence pass and no instance search — a bound is a lookup. The one concession: method resolution needs the receiver's type, but it is a single lookup in one known module. |
-| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow crashes rather than wrapping, and evaluation order is specified rather than left to the backend. The capability model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply grants a different context to `main`. |
+| **Safe** | No `null`, no exceptions, no mutation, no aliasing. Exhaustive `match`. Indexing returns `Option`. `Result` is must-use. Effects require an effect value you were handed, in a parameter position the compiler enforces. Out-of-range numeric literals are compile errors. |
+| **Fast to run** | Strict evaluation with fully specified order — no thunks, no space leaks. Monomorphized generics, no dictionaries. Guaranteed tail calls, lowered to loops where the host lacks them. Immutability lets the runtime reuse memory in place when a value is provably unshared. `Alloc` as an effect makes allocation visible at every call site that does it. |
+| **Fast to compile** | An unambiguous LR(1) grammar with no name-resolution or type feedback into the parser, so parsing is one pass and trivially parallel across files. Mandatory top-level signatures make type inference local to each function body, so modules check independently and incrementally. No macros, no reflection, no overload resolution, no row unification. Conformance is nominal and declared in one module, so there is no coherence pass and no instance search — a bound is a table lookup. The one concession: method resolution needs the receiver's type, so name resolution and inference interleave. |
+| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow crashes rather than wrapping, and evaluation order is specified rather than left to the backend. The effect model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply grants a different context to `main`. |
 
-The one place these pull against each other is `I64` on the JS target, which has
-no native 64-bit integer; see [SPEC.md §14](./SPEC.md).
+Where they pull against each other, the compiler absorbs it rather than the
+language: guaranteed tail calls become loops on a JS target, since no engine but
+JavaScriptCore implements them natively ([SPEC.md §8.3.1](./SPEC.md)). `I64` on
+JS is the one genuinely unresolved tension — see [SPEC.md §15](./SPEC.md).
+
+[SPEC.md §13](./SPEC.md) states the invariants that make the compile-speed goal
+reachable, so a future feature can be measured against them rather than
+quietly eroding them.
 
 **This repository is a specification, not an implementation.**
 
 - [`SPEC.md`](./SPEC.md) — the language reference
 - [`grammar.ebnf`](./grammar.ebnf) — the normative grammar, in extended BNF
 - [`examples/`](./examples/) — twenty-two annotated example programs
+- [`build-system/`](./build-system/) — the monorepo build system: `BUILD.buri`
+  files, library and binary targets, visibility, tags, hermetic incremental
+  builds, and one CLI
 
 ```buri
-from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/cap" import { Alloc, Stdout };
 
@@ -49,11 +57,11 @@ fn area(self: Shape): Float {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, area).sum();
-  let _ = io.println(ctx, "total area: ${total}");
-  .Ok({})
+  let _ = ctx.println("total area: ${total}");
+  .Ok(())
 }
 ```
 
@@ -65,23 +73,24 @@ runtime is expected to make that cheap through structural sharing and in-place
 update when a value is provably unshared — an implementation strategy that is
 never observable.
 
-**2. Effects travel through arguments.** A capability is a **trait** — allocating,
-reading a file, opening a socket — and a function names the ones it needs as
-bounds on its context parameter:
+**2. Effects travel through arguments.** An **effect** is an interface — declared
+with `effect` instead of `trait`, and only by platform modules — and a function
+names the ones it needs as bounds on its context parameter:
 
 ```buri
-capability trait Fs {
+effect Fs {
   fn readFile(self: Self, path: Str): Result<Str, IoError>;
-  fn writeFile(self: Self, path: Str, body: Str): Result<{}, IoError>;
+  fn writeFile(self: Self, path: Str, body: Str): Result<(), IoError>;
 }
 
 fn loadUser<C: Alloc + Fs>(ctx: C, id: Str): Result<User, LoadError>
 ```
 
-The compiler enforces where they may appear: **a capability-carrying parameter
-must be `self` or `ctx`**, never any other name or position. So the question "can
-this function touch the world?" is answered by reading the first two parameters
-and stopping.
+The compiler enforces where they may appear: **an effect-carrying parameter must
+be `self` or `ctx`**, never any other name or position. So the question "can this
+function touch the world?" is answered by reading the first two parameters and
+stopping. No type may implement both an effect and a trait, so the boundary
+between the world and your data is checked rather than assumed.
 
 The platform supplies the one implementation that really does anything, and hands
 it to `main`. A program whose `main` never names `Net` in its bounds cannot open
@@ -91,16 +100,15 @@ value bounded by `Net`.
 Purity is therefore not a keyword, not an inferred effect row, and not something
 to propagate through signatures. It is the *absence* of one argument:
 
-> If a function has no `ctx` parameter, no capability-carrying `self`, and
-> captures no capability, then it is deterministic, effect-free, and freely
-> cacheable.
+> If a function has no `ctx` parameter, no effect-carrying `self`, and captures
+> no effect, then it is deterministic, effect-free, and freely cacheable.
 
 Three tiers fall out, and each is visible at a glance:
 
 ```buri
 fn sum(self: [Int]): Int                                       // pure
 fn map<A,B,C: Alloc>(self: [A], ctx: C, f: fn(A)=>B): [B]      // deterministic, allocates
-fn readText<C: Alloc + Fs>(ctx: C, p: Str): Result<Str, IoError>   // effectful
+fn readFile<C: Alloc + Fs>(ctx: C, p: Str): Result<Str, IoError>   // effectful
 ```
 
 Allocation is tracked separately from I/O, so "does no I/O" and "does not
@@ -109,7 +117,7 @@ allocate" are separately expressible.
 **3. The grammar is context-free and unambiguous.** Parsing never consults name
 resolution or the type checker. That is a design constraint that cost real
 ergonomics, and [SPEC.md §12](./SPEC.md#12-why-the-grammar-is-context-free-and-unambiguous)
-lists all sixteen decisions with what each one gave up — parenthesized `if`
+lists all seventeen decisions with what each one gave up — parenthesized `if`
 conditions, no record field shorthand, the turbofish, no `<<`/`>>` tokens,
 dot-prefixed variants in patterns, and the rest.
 
@@ -131,19 +139,18 @@ A numeric literal has no type until something constrains it, and only falls back
 to `Int`/`Float` when nothing does — so out-of-range literals are caught at
 compile time and there are no `5u8` suffixes to learn.
 
-There is **no implicit promotion at all** (`1 + 1.0` is an error), and three
-conversion operators that differ only in what happens when the value does not
-fit:
+There is **no implicit promotion at all** (`1 + 1.0` is an error), and
+conversions are ordinary methods rather than cast operators:
 
 ```buri
-x as I64      // lossless — compile error if the conversion could lose anything
-x as? I32     // checked  — Option<I32>
-x as% U8      // modular  — keeps the low bits, for checksums and wire formats
+small.toI64()      // always exact — returns I64
+big.toI32()        // may not fit  — returns Result<I32, RangeError>
+big.wrapToU8()     // modular      — keeps the low bits, for wire formats
 ```
 
-Overflow crashes by default; `x.wrappingAdd(y)` and `x.saturatingAdd(y)` are
-there when wrapping is the intent. Conversions are operators rather than library
-functions because a function cannot be generic over its *source* type.
+Whether a conversion can fail is visible in its return type rather than in the
+choice of operator. Overflow crashes by default; `x.wrappingAdd(y)` and
+`x.saturatingAdd(y)` are there when wrapping is the intent.
 
 ## Methods, and traits as interfaces
 
@@ -166,19 +173,21 @@ sq.scaled(2).area()                      // both resolve with no further imports
 — and resolution stays one type, one module, one lookup: no candidate set, no
 coherence check, no autoref, because there are no references.
 
-A **trait is an interface**, and a type satisfies it when its defining module
-declares matching methods:
+A **trait is an interface**, and conformance is **nominal** — a type satisfies it
+only where an `impl` or `derive` says so, never by accident of shape:
 
 ```buri
 trait Ord { fn compare(self: Self, other: Self): Order; }
 
-impl Ord for Version { ... }     // states the intent, and is checked
-derive Eq, Ord, Show for Playlist;   // generates it structurally
+impl Ord for Version { ... }         // supplies the methods, checked against the trait
+derive Eq, Ord, Show for Playlist;   // generates them structurally
 ```
 
-Because a type has exactly one defining module, it has exactly one candidate per
-trait. Coherence, orphan rules, and instance search aren't restricted — they're
-unrepresentable. Blanket impls, associated types, `where` clauses, supertraits,
+Because a type has exactly one defining module and conformance is declared, there
+is exactly one candidate per `(trait, type)`. Coherence, orphan rules, and
+instance search aren't restricted — they're unrepresentable. It also keeps a
+module's public API from implicitly including *which traits its types happen to
+satisfy*, which is what would otherwise coarsen incremental rebuilds. Blanket impls, associated types, `where` clauses, supertraits,
 and trait objects are all deliberately absent: each turns resolution from a
 lookup into a search, and the search is the entire compile-time cost of a trait
 system.
@@ -200,30 +209,30 @@ elsewhere.
 
 ## Restricting what propagates
 
-Because capabilities are bounds, giving a callee less is just naming fewer of
+Because effects are bounds, giving a callee less is just naming fewer of
 them. It receives the same value and cannot use — or pass on — anything its
 bounds omit:
 
 ```buri
-fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
-  let _ = io.println(ctx, msg);
-  // fs.readText(ctx, "/etc/passwd")   // ERROR: C is not bounded by Fs
+fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
+  let _ = ctx.println(msg);
+  // ctx.readFile("/etc/passwd")       // ERROR: C is not bounded by Fs
 }
 
-export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<(), Str> {
   let _ = logOnly(ctx, "starting");    // same value, confined by its bound
-  .Ok({})
+  .Ok(())
 }
 ```
 
 No copy, no wrapper, no runtime cost, and confinement is transitive — `C` is
 opaque at every downstream call site. When you want the value itself to lack the
-capability rather than merely be unable to name it, wrap the context in a type
+effect rather than merely be unable to name it, wrap the context in a type
 that satisfies fewer traits ([SPEC.md §10.8](./SPEC.md)).
 
-One more thing falls out of capabilities being ordinary interfaces: **a test
-double is a struct with methods.** No mocking framework, and the call site does
-not change.
+One more thing falls out of effects being ordinary interfaces: **a test double is
+a struct with methods.** No mocking framework, and the call site does not
+change.
 
 ## Errors are not ignorable
 
@@ -247,19 +256,20 @@ module's scope without appearing in that module's own source.
 
 ## What's in v0.2
 
-Primitives with explicit widths, arrays, tuples, records, structs (with private
-fields), enums, functions, methods, and traits — including `capability trait`,
-which is how effects are declared. Generics with trait bounds. Pattern matching with exhaustiveness checking. `Option`,
+Primitives with explicit widths, arrays, tuples, structs (with per-field
+visibility), enums, functions, methods, traits, and `effect` declarations.
+Generics with trait bounds. The type system is nominal throughout — no records,
+no structural conformance. Pattern matching with exhaustiveness checking. `Option`,
 `Result`, `?`, `??`.
 
 Methods and traits, neither of which introduces a runtime mechanism.
 
 **Not present, deliberately:** classes, inheritance, dynamic dispatch, trait
-objects, mutation, `null`, exceptions, loops, the `|>` pipe operator, `return`,
-overloading, macros.
+objects, records, row polymorphism, cast operators, mutation, `null`, exceptions,
+loops, the `|>` pipe operator, `return`, overloading, macros.
 
 A `for`/`while` sugar was specified for this version and cut;
-[SPEC.md §14.1](./SPEC.md) records the reasoning, since it constrains any future
+[SPEC.md §15.1](./SPEC.md) records the reasoning, since it constrains any future
 attempt. Iteration is `fold` or explicit recursion, with tail calls guaranteed
 eliminated.
 
@@ -269,11 +279,11 @@ foreign impls, dictionary literals, ranges, fixed-length array types, `async`.
 ## Status and open questions
 
 This is a draft specification with no compiler behind it. The sharpest unresolved
-trade-off is the rule that a lambda may not capture a capability
+trade-off is the rule that a lambda may not capture an effect
 ([SPEC.md §10.5](./SPEC.md)) — it is what makes the purity theorem hold
 structurally, and it still forces any function that *stores* an effectful
 callback to put the context in that callback's type. The runner-up is the
-absence of `break`. [SPEC.md §14](./SPEC.md) lists those and five other questions
+absence of `break`. [SPEC.md §15](./SPEC.md) lists those and five other questions
 that want real programs before they can be settled.
 
 ## Naming

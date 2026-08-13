@@ -17,19 +17,19 @@ fn sample(): [Entry] {
 }
 
 test "total sums every entry" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, sample().total(), fromCents(3650))?;
+  t.eq(ctx, total(sample()), fromCents(3650))?;
   .Ok({})
 }
 
 test "DropZero removes zero-amount entries" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  let kept = sample().apply(ctx, Rule.DropZero);
+  let kept = apply(sample(), ctx, Rule.DropZero);
   t.eq(ctx, kept.len(), 2)?;
-  t.eq(ctx, kept.total(), fromCents(3650))?;
+  t.eq(ctx, total(kept), fromCents(3650))?;
   .Ok({})
 }
 
 test "MemoPrefix keeps matching memos" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  let kept = sample().apply(ctx, Rule.MemoPrefix { prefix: "co" });
+  let kept = apply(sample(), ctx, Rule.MemoPrefix { prefix: "co" });
   t.eq(ctx, kept.len(), 1)?;
   .Ok({})
 }

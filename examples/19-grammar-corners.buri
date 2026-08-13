@@ -4,7 +4,6 @@
 // keeps the grammar context-free and unambiguous. Cross-references are to
 // SPEC.md section 12.
 
-from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/bits" import * as bits;
 from "core/cap" import { Alloc, Stdout };
@@ -31,31 +30,35 @@ fn conditions(p: Point): Str {
 // has to be bound.
 
 fn effects<C: Stdout>(ctx: C): Int {
-  let _ = io.println(ctx, "side effect");
-  let _ = io.println(ctx, "another");
+  let _ = ctx.println("side effect");
+  let _ = ctx.println("another");
   42
 }
 
-// --- 12.3 Record literals have no field shorthand ----------------------------
+// --- 12.3 No records, so `{` is never ambiguous ------------------------------
 //
-// `{ x }` would be ambiguous: a record with a shorthand field, or a block whose
-// result expression is `x`. Requiring `x: x` makes one token of lookahead
-// decide it. Patterns keep the shorthand, because patterns are never blocks.
+// Structural records once made `{ x }` ambiguous — a record with a shorthand
+// field, or a block whose result expression is `x` — and an earlier draft paid
+// for that by banning shorthand in literals. Removing records removed the
+// ambiguity at its source, and shorthand came back.
+
+struct Sized { export x: Int, export y: Int }
 
 fn shorthand(x: Int, y: Int): Int {
-  let record = { x: x, y: y };     // literal: explicit
-  let { x: a, y: b } = record;     // pattern: could also be written { x, y }
-  let { x, y } = record;           // shorthand IS allowed here
+  let literal = Sized { x, y };         // shorthand: `x` means `x: x`
+  let Sized { x: a, y: b } = literal;   // patterns have it too
+  let Sized { x, y } = literal;
   a + b + x + y
 }
 
-// A block and a record literal, side by side, to show the one-token decision:
-fn blockOrRecord(n: Int): Int {
-  let asRecord = { value: n };     // `{` IDENT `:`  -> record literal
-  let asBlock = { n + 1 };         // `{` IDENT `+`  -> block
-  let unit = {};                   // `{` `}`        -> the unit value
+// A block and a struct literal, side by side. The leading path is the entire
+// difference, and it is one token.
+fn blockOrLiteral(n: Int): Int {
+  let asLiteral = Sized { x: n, y: n };   // path then `{`  -> struct literal
+  let asBlock = { n + 1 };                // bare `{`       -> block
+  let unit = ();                          // `()`           -> the unit value
   let _ = unit;
-  asRecord.value + asBlock
+  asLiteral.x + asBlock
 }
 
 // --- 12.4 Turbofish -----------------------------------------------------------
@@ -73,7 +76,21 @@ fn typeArguments(): Int {
   (boxed.value).value + n
 }
 
-// --- 12.5 No `<<` / `>>` tokens ------------------------------------------------
+// --- 12.5 No cast operator -----------------------------------------------------
+//
+// `as`, `as?`, and `as%` were three tokens and a precedence level doing work
+// that methods do with none: a conversion is resolved by its receiver's type
+// either way. Removing them also let the fallible conversions return Result
+// instead of encoding failure in the choice of operator.
+
+fn conversions(small: I32, big: I64): Int {
+  let widened = small.toI64();        // always exact
+  let narrowed = big.toI32();         // Result<I32, RangeError>
+  let low = big.wrapToU8();           // modular
+  widened + (narrowed ?? 0).toI64() + low.toI64()
+}
+
+// --- 12.6 No `<<` / `>>` tokens ------------------------------------------------
 //
 // Longest-match lexing would turn the `>>` closing nested type arguments into a
 // shift operator. Removing the operators removes the problem.
@@ -123,7 +140,7 @@ fn tuples(): Int {
   let grouped = (1 + 2);           // parentheses, not a 1-tuple
   let pair = (1, 2);               // 2-tuple
   let triple = (1, 2, 3);          // 3-tuple
-  let nothing: {} = {};            // unit
+  let nothing: () = ();            // unit
   let _ = nothing;
   grouped + pair.0 + triple.2
 }
@@ -192,25 +209,26 @@ fn floatsAndTuples(t: (Int, (Int, Int))): Int {
   outer + inner
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let p = Point { x: 3, y: 4 };
 
-  let _ = io.println(ctx, "conditions   = ${conditions(p)}");
-  let _ = io.println(ctx, "effects      = ${effects(ctx)}");
-  let _ = io.println(ctx, "shorthand    = ${shorthand(1, 2)}");
-  let _ = io.println(ctx, "blockRecord  = ${blockOrRecord(5)}");
-  let _ = io.println(ctx, "typeArgs     = ${typeArguments()}");
-  let _ = io.println(ctx, "shifting     = ${shifting(8)}");
-  let _ = io.println(ctx, "nested       = ${nestedGenerics(Wrapper { value: Wrapper { value: 9 } })}");
-  let _ = io.println(ctx, "variants     = ${variantPatterns(Choice.Yes, .Some(1))}");
-  let _ = io.println(ctx, "binding      = ${bindingVersusPattern(p)}");
-  let _ = io.println(ctx, "tuples       = ${tuples()}");
-  let _ = io.println(ctx, "lambdas      = ${lambdaForms()}");
-  let _ = io.println(ctx, "blockLike    = ${blockLikeOperands(3)}");
-  let _ = io.println(ctx, "commas       = ${commas(-1)}");
-  let _ = io.println(ctx, "postfix      = ${postfixHeads(.Some(p))}");
-  let _ = io.println(ctx, "floats       = ${floatsAndTuples((1, (2, 3)))}");
-  let _ = io.println(ctx, "list         = ${[1, 2, 3].len()}");
+  let _ = ctx.println("conditions   = ${conditions(p)}");
+  let _ = ctx.println("effects      = ${effects(ctx)}");
+  let _ = ctx.println("shorthand    = ${shorthand(1, 2)}");
+  let _ = ctx.println("blockOrLit   = ${blockOrLiteral(5)}");
+  let _ = ctx.println("typeArgs     = ${typeArguments()}");
+  let _ = ctx.println("conversions  = ${conversions(7, 300)}");
+  let _ = ctx.println("shifting     = ${shifting(8)}");
+  let _ = ctx.println("nested       = ${nestedGenerics(Wrapper { value: Wrapper { value: 9 } })}");
+  let _ = ctx.println("variants     = ${variantPatterns(Choice.Yes, .Some(1))}");
+  let _ = ctx.println("binding      = ${bindingVersusPattern(p)}");
+  let _ = ctx.println("tuples       = ${tuples()}");
+  let _ = ctx.println("lambdas      = ${lambdaForms()}");
+  let _ = ctx.println("blockLike    = ${blockLikeOperands(3)}");
+  let _ = ctx.println("commas       = ${commas(-1)}");
+  let _ = ctx.println("postfix      = ${postfixHeads(.Some(p))}");
+  let _ = ctx.println("floats       = ${floatsAndTuples((1, (2, 3)))}");
+  let _ = ctx.println("list         = ${[1, 2, 3].len()}");
 
-  .Ok({})
+  .Ok(())
 }

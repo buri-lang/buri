@@ -3,18 +3,17 @@
 // The smallest complete Buri program. Read `main`'s signature as a request:
 // "give me a heap allocator and standard output, and nothing else."
 // The platform grants exactly that. Nothing in this program's transitive call
-// graph can open a file or a socket, because no file or socket capability was
+// graph can open a file or a socket, because no file or socket effect was
 // ever handed to it.
 
-from "core/io" import * as io;
 from "core/cap" import { Alloc, Stdout };
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   // Effect calls are ordinary calls. They produce a value ({} here), so they
   // are bound with `let` — Buri has no expression statements.
-  let _ = io.println(ctx, "Hello, world!");
+  let _ = ctx.println("Hello, world!");
 
   // The block's final expression is its value. `.Ok` is the inferred-type form
   // of `Result.Ok`; the expected type comes from the return annotation.
-  .Ok({})
+  .Ok(())
 }

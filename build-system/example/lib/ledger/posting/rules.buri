@@ -11,9 +11,9 @@ export enum Rule {
   MemoPrefix { prefix: Str },
 }
 
-export fn apply(self: [Entry], ctx: { alloc: Alloc, .. }, rule: Rule): [Entry] {
+export fn apply(entries: [Entry], ctx: { alloc: Alloc, .. }, rule: Rule): [Entry] {
   match (rule) {
-    .DropZero => self.filter(ctx, fn(e) => !e.amount.isZero()),
-    .MemoPrefix { prefix } => self.filter(ctx, fn(e) => e.memo.startsWith(prefix)),
+    .DropZero => entries.filter(ctx, fn(e) => !e.amount.isZero()),
+    .MemoPrefix { prefix } => entries.filter(ctx, fn(e) => e.memo.startsWith(prefix)),
   }
 }

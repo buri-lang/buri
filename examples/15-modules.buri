@@ -1,4 +1,4 @@
-// 15 — Modules, imports, exports, and opaque types
+// 15 — Modules, imports, exports, and member visibility
 //
 // A file is a module. Declarations are private unless exported. Declaration
 // order does not matter anywhere.
@@ -6,7 +6,6 @@
 // Namespace import: everything reachable as `list.<name>`.
 from "core/list" import * as list;
 from "core/str" import * as str;
-from "core/io" import * as io;
 
 // Named imports, with optional renaming.
 from "core/cap" import { Alloc, Stdout };
@@ -36,7 +35,7 @@ export fn lookupKey(pairs: [(Str, Str)], key: Str): Option<Str> {
 
 /// Cents are exported, but the fact that they are an I64 is not. Outside this
 /// module you cannot write `Cents(500)` and you cannot pattern-match one open.
-export opaque struct Cents(I64);
+export struct Cents(I64);
 
 export fn fromDollars(d: I64): Cents { Cents(d * 100) } 
 export fn fromCents(c: I64): Cents { Cents(c) } 
@@ -57,7 +56,7 @@ export fn formatMoney<C: Alloc>(ctx: C, c: Cents): Str {
 
 /// The variants are hidden; callers go through the constructors and the
 /// inspector below.
-export opaque enum Status {
+export enum Status {
   Draft,
   Published { at: Str },
   Archived,
@@ -86,24 +85,24 @@ export fn renderTable<C: Alloc>(ctx: C, render: Renderer, t: Table): Str {
   t.mapList(ctx, render).join(ctx, "\n")
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let table: Table = [("host", "localhost"), ("port", "8080"), ("tls", "false")];
 
   let paddedKey = "  port  ";
   let unknown = "?";
-  let _ = io.println(ctx, "lookup = ${lookupKey(table, paddedKey) ?? unknown}");
+  let _ = ctx.println("lookup = ${lookupKey(table, paddedKey) ?? unknown}");
 
   let subtotal = fromDollars(19);
   let shipping = fromCents(499);
   let total = addMoney(subtotal, shipping);
-  let _ = io.println(ctx, "total  = ${formatMoney(ctx, total)}");
+  let _ = ctx.println("total  = ${formatMoney(ctx, total)}");
 
   let today = "2026-08-13";
-  let _ = io.println(ctx, "visible = ${isVisible(publish(today))}");
+  let _ = ctx.println("visible = ${isVisible(publish(today))}");
 
   let onlyLong = filterList(ctx, fn(r) => r.1.len() > 4, table);
   let rendered = renderTable(ctx, fn(r) => r.0, onlyLong);
-  let _ = io.println(ctx, "rows   = ${rendered}");
+  let _ = ctx.println("rows   = ${rendered}");
 
-  .Ok({})
+  .Ok(())
 }

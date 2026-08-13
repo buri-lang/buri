@@ -11,7 +11,6 @@
 // This is not a method in the OO sense. There is no dispatch, no vtable, no
 // hidden receiver. `sq.area()` and `area(sq)` are the same call.
 
-from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/cap" import { Alloc, Stdout };
 
@@ -141,22 +140,22 @@ fn fieldVersusMethod(self: Handler): Int {
   (self.run)(21)
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let sq = Square { height: 3, width: 4 };
   let words: [Str] = ["  alpha ", "beta", " gamma "];
   let title = "  Hello World  ";
   let handler = Handler { name: "double", run: fn(x) => x * 2 };
   let account = Account { id: "a-1", balanceCents: -250 };
 
-  let _ = io.println(ctx, "area/perim = ${sq.area()}, ${sq.perimeter()}");
-  let _ = io.println(ctx, "tall       = ${sq.isTall()}");
-  let _ = io.println(ctx, "equivalent = ${sq.equivalentForms()}");
-  let _ = io.println(ctx, "chained    = ${sq.chaining()}");
-  let _ = io.println(ctx, "combined   = ${combine(sq, sq).area()}");
-  let _ = io.println(ctx, "overdrawn  = ${account.isOverdrawn()}");
-  let _ = io.println(ctx, "stdlib     = ${stdlibAsMethods(ctx, words, .Some(7))}");
-  let _ = io.println(ctx, "mixed      = ${mixed(ctx, title)}");
-  let _ = io.println(ctx, "handler    = ${fieldVersusMethod(handler)}");
+  let _ = ctx.println("area/perim = ${sq.area()}, ${sq.perimeter()}");
+  let _ = ctx.println("tall       = ${sq.isTall()}");
+  let _ = ctx.println("equivalent = ${sq.equivalentForms()}");
+  let _ = ctx.println("chained    = ${sq.chaining()}");
+  let _ = ctx.println("combined   = ${combine(sq, sq).area()}");
+  let _ = ctx.println("overdrawn  = ${account.isOverdrawn()}");
+  let _ = ctx.println("stdlib     = ${stdlibAsMethods(ctx, words, .Some(7))}");
+  let _ = ctx.println("mixed      = ${mixed(ctx, title)}");
+  let _ = ctx.println("handler    = ${fieldVersusMethod(handler)}");
 
-  .Ok({})
+  .Ok(())
 }

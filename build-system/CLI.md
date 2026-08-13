@@ -101,8 +101,8 @@ Build-graph rules — always errors, not configurable:
 |---|---|
 | `undeclared-src` | A `.buri` file in a package that no rule lists. |
 | `duplicate-src` | A file listed by two rules. |
-| `missing-dep` | An import of a library that is not in `deps`. |
-| `unused-dep` | A `deps` entry no source imports. |
+| `missing-dep` | Use of a library that is not in `deps` — by import, or by a method call resolving into it. |
+| `unused-dep` | A `deps` entry no source uses. |
 | `dep-cycle` | A cycle between packages. |
 | `boundary-violation` | A relative import crossing a package or a rule boundary. |
 | `visibility-violation` | A dependency the target is not visible to. |
@@ -132,8 +132,9 @@ Rewrites, in every requested package's existing `BUILD.buri`:
 
 - `srcs` — every `.buri` file in the package, excluding `lib.buri`,
   `main.buri`, and anything under `test/`, assigned to a rule (see below);
-- `deps` — the union of the `//` imports in those sources, minus the
-  co-located library;
+- `deps` — every library those sources use, minus the co-located library: the
+  `//` imports, plus the libraries reached by method resolution, which the tool
+  can compute because resolution is a single lookup;
 - `test.srcs` — every `.buri` file under `test/`;
 - `test.deps` — the `//` imports in the test sources, minus the target's own
   label and its `deps`.
@@ -158,8 +159,8 @@ library { name: "money" }
 ```
 $ buri gen //lib/money
 updated lib/money/BUILD.buri
-  + srcs: cents.buri, format.buri
-  + test.srcs: test/cents.buri, test/format.buri
+  + srcs: cents.buri, parse.buri
+  + test.srcs: test/cents.buri, test/parse.buri
 ```
 
 In a package with both rules, `gen` needs to know which rule a new file belongs

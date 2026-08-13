@@ -105,8 +105,8 @@ Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
 
 | Edit | Reruns |
 |---|---|
-| A comment in `lib/money/format.buri` | Nothing. Comments are not in the AST hash. |
-| A function body in `lib/money/format.buri` | `compile(//lib/money)`, `link` of each binary that reaches it. `//lib/ledger` does not recheck. |
+| A comment in `lib/money/parse.buri` | Nothing. Comments are not in the AST hash. |
+| A function body in `lib/money/parse.buri` | `compile(//lib/money)`, `link` of each binary that reaches it. `//lib/ledger` does not recheck. |
 | A signature in `lib/money/lib.buri` | `interface(//lib/money)`, then `compile` of `//lib/money`, `//lib/ledger`, `//cmd/server`, then `link`. |
 | Adding a file to `srcs` | `compile(//lib/money)` and downstream links. The interface is unchanged unless `lib.buri` re-exports from it. |
 | Adding a `tag` to `//lib/store` | No compilation at all — the tag check is a graph pass over cached facts. It either passes or fails a link. |

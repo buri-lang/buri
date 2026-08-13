@@ -14,9 +14,13 @@ export fn entry(memo: Str, amount: Cents): Entry {
 
 /// Pure: folds, allocates nothing, touches nothing.
 ///
-/// `acc.add(...)` needs no import of `add` — a method resolves through the
-/// receiver's defining module, and `//lib/money` re-exports `add`, so it is on
-/// the surface. Had lib.buri left it out, this line would not compile.
-export fn total(self: [Entry]): Cents {
-  self.fold(fn(acc, e) => acc.add(e.amount), fromCents(0))
+/// Not a method, and cannot be: the receiver would be `[Entry]`, and the
+/// defining module of `[T]` is `core/list` (SPEC.md 6.7.3). Functions over a
+/// collection of your type are free functions; methods belong to the type.
+///
+/// `acc.add(...)` does need no import of `add` — a method resolves through the
+/// receiver's type, and `//lib/money` re-exports `add`, so it is on the
+/// surface. Had lib.buri left it out, this line would not compile.
+export fn total(entries: [Entry]): Cents {
+  entries.fold(fn(acc, e) => acc.add(e.amount), fromCents(0))
 }

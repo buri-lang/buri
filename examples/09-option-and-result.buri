@@ -3,7 +3,6 @@
 // There is no null, no undefined, and no exceptions. Absence is Option<T>;
 // failure is Result<T, E>. `?` is the only early exit in the language.
 
-from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/list" import * as list;
 from "core/result" import * as result;
@@ -104,28 +103,28 @@ fn asStringError(r: Result<Config, ConfigError>): Result<Config, Str> {
   r.mapErr(fn(e) => errorText(e))
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let good: [(Str, Str)] = [("host", "example.com"), ("port", "8080")];
   let bad: [(Str, Str)] = [("host", "example.com"), ("port", "not-a-number")];
   let outOfRange: [(Str, Str)] = [("host", "h"), ("port", "99999")];
 
-  let _ = io.println(ctx, "good      = ${describe(parseConfig(good))}");
-  let _ = io.println(ctx, "bad       = ${describe(parseConfig(bad))}");
-  let _ = io.println(ctx, "range     = ${describe(parseConfig(outOfRange))}");
+  let _ = ctx.println("good      = ${describe(parseConfig(good))}");
+  let _ = ctx.println("bad       = ${describe(parseConfig(bad))}");
+  let _ = ctx.println("range     = ${describe(parseConfig(outOfRange))}");
 
   let _ = match (parseConfig(bad)) {
-    .Ok(c) => io.println(ctx, "parsed ${c.host}:${c.port}"),
-    .Err(.NotANumber { key, value }) => io.println(ctx, "key ${key} had ${value}"),
-    .Err(e) => io.println(ctx, "failed: ${errorText(e)}"),
+    .Ok(c) => ctx.println("parsed ${c.host}:${c.port}"),
+    .Err(.NotANumber { key, value }) => ctx.println("key ${key} had ${value}"),
+    .Err(e) => ctx.println("failed: ${errorText(e)}"),
   };
 
   let lines: [Str] = ["hello world", "second line"];
-  let _ = io.println(ctx, "optionMap = ${firstWordLength(lines).withDefault(0)}");
+  let _ = ctx.println("optionMap = ${firstWordLength(lines).withDefault(0)}");
 
-  // `main` returns Result<{}, Str>, so `?` works here too once the error type
+  // `main` returns Result<(), Str>, so `?` works here too once the error type
   // is mapped.
   let cfg = asStringError(parseConfig(good))?;
-  let _ = io.println(ctx, "retries   = ${cfg.retries}");
+  let _ = ctx.println("retries   = ${cfg.retries}");
 
-  .Ok({})
+  .Ok(())
 }

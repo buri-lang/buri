@@ -1,0 +1,24 @@
+from "//lib/money" import { fromCents, parse };
+from "core/cap" import { Alloc };
+from "core/test" import { Expect };
+from "core/test" import * as t;
+
+test "parses dollars and cents" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let got = t.isOk(ctx, parse("19.05"))?;
+  t.eq(ctx, got, fromCents(1905))?;
+  .Ok({})
+}
+
+test "rejects text that is not a number" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let _ = t.isErr(ctx, parse("nineteen"))?;
+  .Ok({})
+}
+
+test "rejects amounts over the ceiling" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+  let _ = t.isErr(ctx, parse("9000000.00"))?;
+  .Ok({})
+}
+
+// Every assertion is a Result, and Result is must-use, so an assertion whose
+// value is never consumed is not something this file can contain: no `?`, no
+// `match`, no compile.
