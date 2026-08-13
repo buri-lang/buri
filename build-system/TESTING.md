@@ -5,6 +5,10 @@ reach only what a dependent could reach. There is no separate test target, no
 test-only source directory outside the package, and no way to test a private
 function directly.
 
+The language side of this — the `test` declaration, `core/testing/assert`, and
+`context()` — is [`SPEC.md` §11.2](../SPEC.md). This document is the build
+system's half: where tests live, what they may import, and how they run.
+
 ```
 lib/money/
   BUILD.buri
@@ -19,10 +23,10 @@ lib/money/
 ```textproto
 library {
   name: "money"
-  srcs: ["cents.buri", "parse.buri"]
+  sources: ["cents.buri", "parse.buri"]
 
   test {
-    srcs: [
+    sources: [
       "test/cents.buri",
       "test/parse.buri",
     ]
@@ -30,81 +34,57 @@ library {
 }
 ```
 
-## The `test` declaration
+A module listed in a `test.sources` is a **test source**. That is the only thing
+that makes one: `test` declarations and imports of test-only modules are legal
+there and nowhere else, and the file is compiled into a test binary rather than
+into the library.
 
-The grammar gains one item form:
-
-```ebnf
-Item            ::= Import
-                  | ReExport
-                  | TestDecl
-                  | Declaration
-
-TestDecl        ::= "test" STRING "(" Params? ")" ":" Type Block
-```
+## A test
 
 ```buri
 // lib/money/test/cents.buri
 
-from "//lib/money" import { fromCents };
-from "core/cap" import { Alloc };
-from "core/test" import { Expect };
-from "core/test" import * as t;
+from "//lib/money" import { fromCents, fromDollars };
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { context };
 
-test "pads the cents place" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, fromCents(1905).format(ctx), "\$19.05")?;
-  .Ok({})
+test "pads the cents place" {
+  let ctx = context();
+  assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 
-test "renders whole dollars with two zeros" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, fromCents(1900).format(ctx), "\$19.00")?;
-  .Ok({})
+test "addition composes" {
+  assert.eq(fromDollars(19).add(fromCents(499)), fromCents(2399));
 }
 ```
 
-A test is a function with a name that is a string rather than an identifier, and
-the same shape as `main`:
+A test takes no parameters and returns nothing. It passes unless an assertion in
+it fails, and a failing assertion ends that test and no other.
 
-- exactly one parameter, a record type — the context the runner must supply;
-- return type exactly `Result<{}, Str>`;
-- `.Ok({})` passes, `.Err(msg)` fails with `msg`.
+A test that needs a context builds one — `context()` is the one place in
+the language where a context is created rather than received, which is why
+`core/testing/context` is importable only from a test source. A pure assertion,
+like the second one above, needs no context at all, and the fact that you can see which
+is which from the test body is the point of the effect system showing up here
+too.
 
-The string name is deliberate. Test names are prose, they are read in failure
-output, and encoding prose in an identifier produces
-`test_pads_the_cents_place` and then arguments about the convention.
-
-Reserving `test` as a keyword costs the identifier `test`; the alternatives were
-a naming convention, which the compiler cannot check, and an attribute syntax,
-which the language does not have. It is [open question
-1](./README.md#open-questions).
-
-## Assertions are `Result`
-
-`core/test` is ordinary library code. Nothing about it is magic:
+`core/testing/assert` is an ordinary module — the name `assert` comes from
+`import * as assert`, and nothing stops a file calling it something else.
+`assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, and
+`assert.fail` return `()`, so they stand alone as statements, which is the one
+place the language admits an expression statement. `assert.ok`, `assert.err`,
+and `assert.some` return the unwrapped value, which is how a `Result` is
+consumed in a test:
 
 ```buri
-fn eq<A: Eq + Show>(ctx: { alloc: Alloc, expect: Expect, .. }, actual: A, expected: A): Result<{}, Str>
-fn notEq<A: Eq + Show>(ctx: { alloc: Alloc, expect: Expect, .. }, actual: A, expected: A): Result<{}, Str>
-fn isTrue(ctx: { expect: Expect, .. }, actual: Bool): Result<{}, Str>
-fn isOk<A, E: Show>(ctx: { alloc: Alloc, expect: Expect, .. }, r: Result<A, E>): Result<A, Str>
-fn isErr<A: Show, E>(ctx: { alloc: Alloc, expect: Expect, .. }, r: Result<A, E>): Result<E, Str>
-fn fail(ctx: { alloc: Alloc, expect: Expect, .. }, msg: Str): Result<{}, Str>
+test "rejects text that is not a number" {
+  let e = assert.err(parse("nineteen"));
+  assert.eq(e, ParseError.NotANumber { text: "nineteen" });
+}
 ```
 
-Two properties fall out of the language and are worth naming, because in most
-test frameworks they are bugs that are only found later:
-
-**An assertion you forget to check does not compile.** `Result` is must-use
-([`SPEC.md` §6.8](../SPEC.md)), so a bare `t.eq(ctx, a, b);` is not a statement
-this language has, and `let _ = t.eq(ctx, a, b);` — the only way to discard —
-is greppable and shows up in review as what it is. The usual failure mode of an
-assertion inside a closure that never runs is not expressible.
-
-**Assertions cannot escape into production code.** `Expect` is a capability
-([`SPEC.md` §10](../SPEC.md)), granted only by the test platform. A library
-function that wanted to assert would have to take `expect: Expect` in its
-context, which its callers would have to hold, which only a test runner ever
-does. `t.eq` in shipped code is a type error, not a code review finding.
+`Result` is still must-use here, so an assertion you forget to check is not
+something a test source can contain: there is no statement form that drops one.
 
 ## What a test can reach
 
@@ -112,28 +92,31 @@ A test source may import:
 
 | | |
 |---|---|
-| The target under test | **by label**: `from "//lib/money" import { ... }` |
-| The target's `deps` | The same libraries the target itself depends on |
-| The suite's `test.deps` | Fakes, fixtures, matchers |
-| `core/*` | Including `core/test` |
+| The target under test | `//lib/money` for a library, `//lib/money/main` for a binary |
+| The target's `dependencies` | The same libraries the target itself depends on |
+| The suite's `test.dependencies` | Fakes, fixtures, matchers |
+| `core/*` | Including the test platform: `core/testing/assert`, `core/testing/context` |
+
+| Any test-only path | `//lib/ledger/testing`, `//lib/testing/fakes` — declared in `test.dependencies` like any other library |
 
 and may not:
 
-- import relatively — `from "../cents" import { toCents }` is an error, and
-  this is the rule that confines a test to the public surface;
-- import another test source — test files are compiled independently and are
+- import a library-internal module — `from "//lib/money/cents" import
+  { toCents };` is an error, and this is the rule that confines a test to the
+  public surface;
+- import another test source — test sources are compiled independently and are
   not modules anybody can name. Shared helpers belong in a library listed in
-  `test.deps`;
+  `test.dependencies`;
 - be imported by anything;
-- `export` anything. A test file's items are its `test` declarations and its
+- `export` anything. A test source's items are its `test` declarations and its
   private helpers.
 
 ```
 error: lib/money/test/cents.buri imports a library-internal module
   --> lib/money/test/cents.buri:3:6
    |
- 3 | from "../cents" import { toCents };
-   |      ^^^^^^^^^^
+ 3 | from "//lib/money/cents" import { toCents };
+   |      ^^^^^^^^^^^^^^^^^^^
    |
    = tests reach their library the same way dependents do
    = import //lib/money, and re-export `toCents` from lib/money/lib.buri if it
@@ -145,128 +128,190 @@ function, either the function belongs on the surface — in which case say so in
 `lib.buri` and everyone gets it — or the test is asserting on an implementation
 detail and will break the next time the detail changes.
 
+## Shared fixtures and fakes
+
+A helper that more than one suite needs is not a test source — it is ordinary
+library code that happens to be test-only, and it lives behind a path with a
+`testing` segment ([`LIBRARIES.md`](./LIBRARIES.md#the-testing-surface)):
+
+```buri
+// lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
+// library's internals to build a fixture.
+
+from "//lib/ledger/entry" import { Entry, entry };
+from "//lib/money" import { fromCents, fromDollars };
+
+/// A three-entry ledger, one of them zero, for anyone testing against ledgers.
+export fn sample(): [Entry] {
+  [
+    entry("coffee", fromCents(450)),
+    entry("refund", fromCents(0)),
+    entry("books", fromDollars(32)),
+  ]
+}
+```
+
+```textproto
+# lib/ledger/BUILD.buri
+library {
+  name: "ledger"
+  sources: ["entry.buri", "posting/rules.buri"]
+  dependencies: ["//lib/money"]
+
+  testing {
+    sources: ["testing/fixtures.buri"]
+  }
+
+  test {
+    sources: ["test/ledger.buri"]
+  }
+}
+```
+
+```buri
+// tools/report/test/render.buri — a different package's suite, using it.
+from "//lib/ledger/testing" import { sample };
+```
+
+with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
+Importing it from a non-test source is an error, and the error is about the
+path, so nobody has to have set a flag correctly for it to fire.
+
+Prefer this to a private helper as soon as a second suite wants the same
+fixture, and prefer a private helper while only one does — a fixture on a
+public surface is an API, and it will be depended on.
+
 ## Testing a binary
 
-A binary's `main.buri` is its surface, exactly as `lib.buri` is a library's:
+A binary's `main.buri` is its surface, exactly as `lib.buri` is a library's, and
+its test sources import it by its module path:
 
 ```buri
 // cmd/server/main.buri
 
-from "./routes" export { Route, route };
+from "//cmd/server/routes" export { Route, route };
 
-from "./routes" import { route };
-from "core/cap" import { Alloc, Stdout, Net };
-from "core/io" import * as io;
+from "//cmd/server/routes" import { route };
+from "core/cap" import { Alloc, Stdout };
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout, net: Net }): Result<{}, Str> {
-  let _ = io.println(ctx, "listening");
-  .Ok({})
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+  let _ = ctx.println("listening on ${route("/entries").name}");
+  .Ok(())
 }
 ```
 
 ```buri
 // cmd/server/test/routes.buri
 
-from "//cmd/server:server" import { route };
-from "core/cap" import { Alloc };
-from "core/test" import { Expect };
-from "core/test" import * as t;
+from "//cmd/server/main" import { route };
 
-test "unknown paths route to the fallback" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, route("/nope").name, "fallback")?;
-  .Ok({})
+test "unknown paths route to the fallback" {
+  assert.eq(route("/nope").name, "fallback");
 }
 ```
 
-The binary is named with its full label because `//cmd/server` alone means the
-package's library, and a binary package has none. Everything else is identical
-to testing a library: the test sees what `main.buri` exports and nothing more,
-so pushing logic behind the entry point is what makes it testable — which is
-the pressure you want.
+`//cmd/server/main` is a module inside the package, so only that package's own
+test sources may import it — the same rule that keeps `//lib/money/cents`
+internal. Everything else is identical to testing a library: the test sees what
+`main.buri` exports and nothing more, so pushing logic behind the entry point is
+what makes it testable, which is the pressure you want.
 
-Testing `main` itself is possible and usually not what you want. It takes a
-context; hand it fakes and check the `Result`:
+Testing `main` itself is possible and usually not what you want:
 
 ```buri
-from "//cmd/server:server" import { main };
-
-test "main fails cleanly with no config" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  // core/test is part of the test platform, so it is one of the few modules
-  // that can hand out capability values — attenuated ones, in this case.
-  let fake = { alloc: ctx.alloc, stdout: t.captureStdout(ctx), net: t.offlineNet(ctx) };
-  let msg = t.isErr(ctx, main(fake))?;
-  t.eq(ctx, msg.contains("config"), true)?;
-  .Ok({})
+test "main fails cleanly when the log is unwritable" {
+  let ctx = context().withReadOnlyFs();
+  let msg = assert.err(main(ctx));
+  assert.isTrue(msg.contains("ledger"));
 }
 ```
 
-## The test platform
+## The runner's context
 
-The runner constructs the context each test declares, from a platform that
-grants test implementations rather than OS ones. A test cannot ask for a
-capability the test platform does not grant, and the test platform does not
-grant real I/O:
+`context()` returns a value satisfying every effect the runner can grant.
+It is real where it can be, and hermetic everywhere else:
 
-| Capability | In a test |
+| Effect | In a test |
 |---|---|
 | `Alloc` | Real, with a per-test arena the runner reclaims. |
-| `Expect` | Real, and only here. |
 | `Stdout`, `Stderr` | Captured. Printed only for a failing test. |
 | `Fs` | In-memory, rooted at the package directory, containing exactly `test.data`. Writes are visible to that test and discarded after it. |
-| `Net` | Refuses every connection. A fake goes in `test.deps`. |
+| `Net` | Refuses every connection. A fake goes in `test.dependencies`. |
 | `Clock` | Starts at a fixed instant and advances only when the test advances it. |
 | `Rand` | Seeded from the test's name, so a failure reproduces. |
-| `Env` | Empty. |
+| `Env` | Empty, unless the test adds to it. |
+
+Builders narrow or populate it — `context().withFiles([...])`,
+`.withArgs([...])`, `.withReadOnlyFs()` — and anything the runner does not
+provide is an ordinary struct with methods, since effects are ordinary
+interfaces ([`SPEC.md` §10.9](../SPEC.md)):
+
+```buri
+struct FlakyNet { export failuresLeft: Int }
+
+fn get(self: FlakyNet, url: Str): Result<Response, NetError> {
+  if (self.failuresLeft > 0) { .Err(.Timeout) } else { .Ok(cannedResponse()) }
+}
+
+test "retries a timeout once" {
+  let ctx = context().withNet(FlakyNet { failuresLeft: 1 });
+  assert.ok(fetchWithRetry(ctx, "https://example.test/x"));
+}
+```
 
 This is defence in depth rather than the primary mechanism. The primary
-mechanism is that a test which never asked for `Net` in its context type cannot
-open a socket in any function it transitively calls — that is
+mechanism is that a test whose call never passed a `Net`-bounded context cannot
+open a socket in anything it transitively calls — that is
 [`SPEC.md` §10](../SPEC.md), not a build system feature. The sandbox in
 [`HERMETICITY-AND-CACHING.md`](./HERMETICITY-AND-CACHING.md) is the third layer,
 covering the compiler and the runner themselves.
+
+## Test data and golden files
 
 `test { data: [...] }` declares the files the in-memory `Fs` contains:
 
 ```textproto
 test {
-  srcs: ["test/ledger.buri"]
+  sources: ["test/ledger.buri"]
   data: ["test/golden/statement.txt"]
   timeout_seconds: 30
 }
 ```
 
 ```buri
-from "core/fs" import * as fs;
-from "core/cap" import { Alloc, Fs };
-
-test "renders the statement" (ctx: { alloc: Alloc, expect: Expect, fs: Fs }): Result<{}, Str> {
-  // `?` does not convert error types (SPEC.md 6.8), so the IoError goes
-  // through `t.isOk`, which is the assertion that it succeeded at all.
-  let want = t.isOk(ctx, fs.readText(ctx, "test/golden/statement.txt"))?;
-  t.eq(ctx, render(ctx, sample()), want)?;
-  .Ok({})
+test "renders the statement" {
+  let ctx = context();
+  let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));
+  assert.eq(render(ctx, sample()), want);
 }
 ```
 
-Rewriting a golden file is not something a hermetic action can do; see
-[open question 5](./README.md#open-questions).
+Rewriting a golden file is not something a hermetic action may do, so
+`buri test --accept` is a separate mode: it runs the suites outside the cache,
+collects the actual value from every `assert.eq` whose expected side came from a
+declared `data` file, and writes those files in the source tree. It never
+creates a file, never touches one not listed in `data`, prints a diff for each,
+and leaves everything else about the run unchanged. The normal
+`buri test` path stays hermetic and cacheable, which is what makes it safe to
+have an update mode at all — the two never share a code path that writes.
 
 ## Running
 
 ```
-buri test //...                     every test in the repository
-buri test //lib/money               one library's suite
-buri test //lib/money --filter=pads substring match on test names
-buri test //cmd/server:server       a binary's suite
-buri test //... --output=js         run every suite through the JS backend
+buri test //...                      every test in the repository
+buri test //lib/money                one package's suites
+buri test //lib/money --filter=pads  substring match on test names
+buri test //... --output=js          run every suite through the JS backend
+buri test //lib/money --accept       update declared golden files
 ```
 
 Output names the target, the file, and the test:
 
 ```
 FAIL //lib/money  test/cents.buri  "pads the cents place"
-  expected: "$19.05"
-  actual:   "$19.5"
+  assert.eq failed
+    actual:   "$19.5"
+    expected: "$19.05"
   --> lib/money/test/cents.buri:8:3
 
 12 passed, 1 failed, 0 skipped (0.4s, 11 cached)

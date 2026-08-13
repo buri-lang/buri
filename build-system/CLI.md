@@ -11,7 +11,7 @@ buri test    [targets]   compile and run test suites
 buri run     <target>    build one binary and execute it
 buri fmt     [paths]     format .buri sources and BUILD.buri files
 buri lint    [targets]   static checks beyond type checking
-buri gen     [targets]   regenerate srcs/deps in existing BUILD.buri files
+buri gen     [targets]   regenerate sources/deps in existing BUILD.buri files
 buri query   <expr>      ask about the build graph
 buri clean               drop the local cache
 buri lsp                 language server, over stdio
@@ -19,7 +19,8 @@ buri version             toolchain version and the REPO.buri pin
 ```
 
 Target arguments accept labels and patterns (`//lib/money`,
-`//cmd/server:server`, `//lib/...`, `//...`, `//lib/money:all`). With no
+`//cmd/server`, `//lib/...`, `//...`). A label names a package and every
+target in it. With no
 argument, commands operate on the package containing the working directory. All
 commands are safe to run concurrently; a file lock serializes cache writes.
 
@@ -36,8 +37,8 @@ Builds every requested target in every configuration its `outputs` declare.
 and a convenience symlink `out/` points at the most recent configuration:
 
 ```
-.buri/out/linux-x86_64-server-internal/cmd/server/server
-.buri/out/js-client-internal/cmd/web/web.mjs
+.buri/out/linux-x86_64-server/cmd/server/server
+.buri/out/js-client/cmd/web/web.mjs
 ```
 
 `--release` and `--debug` are flags on the command rather than repository
@@ -49,6 +50,7 @@ configuration, are part of the cache key, and default to `--debug`.
 buri test //...
 buri test //lib/money --filter=pads
 buri test //... --output=js
+buri test //lib/money --accept   # update declared golden files
 buri test //... --shuffle=off
 ```
 
@@ -63,7 +65,8 @@ buri run //cmd/server
 buri run //cmd/server -- --port=8080
 ```
 
-Builds the binary for the host configuration and executes it — **outside** the
+A package holds at most one binary, so a label is enough to name it. Builds it
+for the host configuration and executes it — **outside** the
 sandbox, with the real environment and the real filesystem. That is the point of
 `run`: it is the one command that produces a program with authority. Everything
 before it in the pipeline is hermetic. Arguments after `--` go to the program.
@@ -78,7 +81,7 @@ buri fmt lib/money       format a subtree
 
 Formats `.buri` sources and `BUILD.buri` files, with no options and no
 configuration file. For build files: one field per line, two-space indent,
-trailing commas, `srcs` and `deps` sorted, rule blocks in the order `package`,
+trailing commas, `sources` and `dependencies` sorted, rule blocks in the order `package`,
 `library`, `binary`, comments kept with the field beneath them.
 
 `buri fmt --check` is the CI form. There is nothing to configure, so there is
@@ -99,12 +102,13 @@ Build-graph rules — always errors, not configurable:
 
 | | |
 |---|---|
-| `undeclared-src` | A `.buri` file in a package that no rule lists. |
-| `duplicate-src` | A file listed by two rules. |
-| `missing-dep` | Use of a library that is not in `deps` — by import, or by a method call resolving into it. |
-| `unused-dep` | A `deps` entry no source uses. |
+| `undeclared-source` | A `.buri` file in a package that no rule lists. |
+| `duplicate-source` | A file listed by two rules. |
+| `missing-dep` | Use of a library that is not in `dependencies` — by import, or by a method call resolving into it. |
+| `unused-dep` | A `dependencies` entry no source uses. |
 | `dep-cycle` | A cycle between packages. |
-| `boundary-violation` | A relative import crossing a package or a rule boundary. |
+| `boundary-violation` | An import of a module internal to another package, or across a rule boundary within one. |
+| `testonly-in-production` | A non-test source importing a path with a `testing` segment. |
 | `visibility-violation` | A dependency the target is not visible to. |
 | `tag-violation` | A library that cannot be linked into the configuration being built. |
 
@@ -117,8 +121,8 @@ Style and hygiene rules — defaults shown, adjustable in `REPO.buri`:
 | `unused-import` | error |
 | `unsorted-imports` | warn |
 | `discarded-result` | warn — `let _ =` on a `Result`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md) |
-| `empty-test-suite` | warn — a `test` block with no `srcs` |
-| `test-without-assertion` | warn — a `test` declaration whose body calls no `core/test` function |
+| `empty-test-suite` | warn — a `test` block with no `sources` |
+| `test-without-assertion` | warn — a `test` declaration whose body contains no `assert` |
 
 ## `gen`
 
@@ -130,19 +134,22 @@ buri gen --check          exit non-zero if any build file is out of date
 
 Rewrites, in every requested package's existing `BUILD.buri`:
 
-- `srcs` — every `.buri` file in the package, excluding `lib.buri`,
-  `main.buri`, and anything under `test/`, assigned to a rule (see below);
-- `deps` — every library those sources use, minus the co-located library: the
+- `sources` — every `.buri` file in the package, excluding `lib.buri`,
+  `main.buri`, and anything under `test/` or `testing/`, assigned to a rule
+  (see below);
+- `dependencies` — every library those sources use, minus the co-located library: the
   `//` imports, plus the libraries reached by method resolution, which the tool
   can compute because resolution is a single lookup;
-- `test.srcs` — every `.buri` file under `test/`;
-- `test.deps` — the `//` imports in the test sources, minus the target's own
-  label and its `deps`.
+- `test.sources` — every `.buri` file under `test/`;
+- `testing.sources` — every `.buri` file under `testing/` but `testing/lib.buri`;
+- `testing.dependencies` — the libraries those modules use;
+- `test.dependencies` — the libraries the test sources use, minus the target under test
+  and its `dependencies`.
 
 and rewrites **nothing else**. `name`, `tags`, `visibility`, `outputs`,
 `test.data`, `timeout_seconds`, the `package` block, and every comment survive
 byte-identical. Generated lists are sorted; a field the tool manages is replaced
-whole rather than merged, so hand-editing `srcs` is pointless and hand-editing
+whole rather than merged, so hand-editing `sources` is pointless and hand-editing
 `tags` is expected.
 
 **A `BUILD.buri` must already exist, with the rule blocks and their names.**
@@ -159,16 +166,16 @@ library { name: "money" }
 ```
 $ buri gen //lib/money
 updated lib/money/BUILD.buri
-  + srcs: cents.buri, parse.buri
-  + test.srcs: test/cents.buri, test/parse.buri
+  + sources: cents.buri, parse.buri
+  + test.sources: test/cents.buri, test/parse.buri
 ```
 
 In a package with both rules, `gen` needs to know which rule a new file belongs
 to. The rules, in order:
 
-1. A file already listed in a rule's `srcs` stays there.
-2. A file reachable by relative imports from `main.buri` and not from `lib.buri`
-   goes to the binary.
+1. A file already listed in a rule's `sources` stays there.
+2. A file reachable by imports from `main.buri` and not from `lib.buri` goes to
+   the binary.
 3. A file reachable from `lib.buri` goes to the library.
 4. A file reachable from neither, or from both, is an error that names the file
    and asks you to place it. Guessing here would silently move code across a
@@ -180,11 +187,11 @@ remember the command.
 ## `query`
 
 ```
-buri query 'deps(//cmd/server:server)'          transitive deps
+buri query 'deps(//cmd/server)'                transitive deps
 buri query 'rdeps(//lib/money)'                 who depends on this
-buri query 'path(//cmd/web:web, //lib/store)'   why is this linked in
+buri query 'path(//cmd/web, //lib/store)'      why is this linked in
 buri query 'tags(//lib/store)'                  effective constraint
-buri query 'srcs(//lib/money)'                  files, as the build sees them
+buri query 'sources(//lib/money)'              files, as the build sees them
 ```
 
 `path` is the one that earns its place: the answer to "why does the JS build
@@ -192,10 +199,10 @@ pull in the database layer" is an edge, and printing it is faster than reading
 build files.
 
 ```
-$ buri query 'path(//cmd/web:web, //lib/store)'
-//cmd/web:web
-  -> //lib/reporting        cmd/web/BUILD.buri:7
-  -> //lib/store            lib/reporting/BUILD.buri:5
+$ buri query 'path(//cmd/web, //lib/store)'
+//cmd/web
+  -> //lib/ledger           cmd/web/BUILD.buri:7
+  -> //lib/store            lib/ledger/BUILD.buri:9
 ```
 
 Output is textproto with `--output=proto`, for scripts.
@@ -215,8 +222,8 @@ Reaching for `buri clean` to fix a build is worth reporting.
 
 Language server over stdio, backed by the same analysis the compiler runs, and
 aware of the build graph: completion inside a `from "//` import offers the
-libraries in `deps`, hovering a label shows the target, and an import with no
-matching `deps` entry comes with a "add to `deps`" code action that edits the
+libraries in `dependencies`, hovering a label shows the target, and an import with no
+matching `dependencies` entry comes with a "add to `dependencies`" code action that edits the
 `BUILD.buri`.
 
 ## Exit codes

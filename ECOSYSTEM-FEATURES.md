@@ -9,6 +9,9 @@ This details the ecoystem features:
 - Code formatter built-in
 - Mono-repo support (declaring libraries, deps, and binary build outputs, probably configured in textproto)
 - Protobuf serialization / deserialization by importing a .proto file directly (does not need to be integrated into protoc, we can just do this ourselves), including json and binary serialization/deserialization
+- Zed language extension
+- Generate documentation from doc comments
+- Write tests inside documentation comments
 - Robust standard library
     - Networking and HTTP
     - JSON serialization/deserialization

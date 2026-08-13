@@ -1,35 +1,29 @@
 // The suite for //lib/ledger. It may import the library under test, the
-// library's own deps (//lib/money), anything in `test.deps`, and core/*.
+// library's own dependencies (//lib/money), anything in `test.dependencies`,
+// and core/*.
+//
+// The fixture comes from this library's own testing surface rather than from a
+// private helper, because //tools/report's suite wants the same one.
 
-from "//lib/ledger" import { Entry, entry, total, Rule, apply };
-from "//lib/money" import { fromCents, fromDollars };
-from "core/cap" import { Alloc };
-from "core/test" import { Expect };
-from "core/test" import * as t;
+from "//lib/ledger" import { total, Rule, apply };
+from "//lib/ledger/testing" import { sample };
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { context };
 
-// A private helper. Test files may not `export`, since nothing can import them.
-fn sample(): [Entry] {
-  [
-    entry("coffee", fromCents(450)),
-    entry("refund", fromCents(0)),
-    entry("books", fromDollars(32)),
-  ]
+test "total sums every entry" {
+  assert.eq(total(sample()), fromCents(3650));
 }
 
-test "total sums every entry" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, total(sample()), fromCents(3650))?;
-  .Ok({})
-}
-
-test "DropZero removes zero-amount entries" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+test "DropZero removes zero-amount entries" {
+  let ctx = context();
   let kept = apply(sample(), ctx, Rule.DropZero);
-  t.eq(ctx, kept.len(), 2)?;
-  t.eq(ctx, total(kept), fromCents(3650))?;
-  .Ok({})
+  assert.eq(kept.len(), 2);
+  assert.eq(total(kept), fromCents(3650));
 }
 
-test "MemoPrefix keeps matching memos" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
+test "MemoPrefix keeps matching memos" {
+  let ctx = context();
   let kept = apply(sample(), ctx, Rule.MemoPrefix { prefix: "co" });
-  t.eq(ctx, kept.len(), 1)?;
-  .Ok({})
+  assert.eq(kept.len(), 1);
 }

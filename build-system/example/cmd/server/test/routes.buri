@@ -1,20 +1,16 @@
-// Tests for a binary. The label needs its `:name`, because `//cmd/server` on
-// its own means the package's library and this package has none.
+// Tests for a binary. The target under test is main.buri, addressed by its
+// module path — which only this package's own test sources may import.
 
-from "//cmd/server:server" import { route };
-from "core/cap" import { Alloc };
-from "core/test" import { Expect };
-from "core/test" import * as t;
+from "//cmd/server/main" import { route };
+from "core/testing/assert" import * as assert;
 
-test "known paths get their handler" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, route("/entries").name, "entries")?;
-  t.eq(ctx, route("/health").name, "health")?;
-  .Ok({})
+test "known paths get their handler" {
+  assert.eq(route("/entries").name, "entries");
+  assert.eq(route("/health").name, "health");
 }
 
-test "unknown paths fall back" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, route("/nope").name, "fallback")?;
-  .Ok({})
+test "unknown paths fall back" {
+  assert.eq(route("/nope").name, "fallback");
 }
 
 // The suite can only see what main.buri exports. Moving logic behind the entry

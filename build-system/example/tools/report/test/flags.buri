@@ -1,17 +1,13 @@
 // Tests for the binary half of the same package, in the same test/ directory.
-// The label carries `:report_cli`, so this suite sees main.buri's surface.
+// The target under test is main.buri, so the path carries `/main`.
 
-from "//tools/report:report_cli" import { parseFlags };
-from "core/cap" import { Alloc };
-from "core/test" import { Expect };
-from "core/test" import * as t;
+from "//tools/report/main" import { parseFlags };
+from "core/testing/assert" import * as assert;
 
-test "verbose is off by default" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, parseFlags([]).verbose, false)?;
-  .Ok({})
+test "verbose is off by default" {
+  assert.isFalse(parseFlags([]).verbose);
 }
 
-test "verbose is recognized anywhere in argv" (ctx: { alloc: Alloc, expect: Expect }): Result<{}, Str> {
-  t.eq(ctx, parseFlags(["--quiet", "--verbose"]).verbose, true)?;
-  .Ok({})
+test "verbose is recognized anywhere in argv" {
+  assert.isTrue(parseFlags(["--quiet", "--verbose"]).verbose);
 }

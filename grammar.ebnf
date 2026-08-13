@@ -35,9 +35,11 @@
 Module          ::= Item*
 
 Item            ::= Import
+                  | ReExport
                   | Exportable
                   | ImplDecl               (* never exported: conformance is *)
                   | DeriveDecl             (* a property of the type         *)
+                  | TestDecl               (* test sources only; SPEC 11.2   *)
 
 
 (* --------------------------------------------------------------------------
@@ -58,6 +60,17 @@ ImportClause    ::= "{" ImportSpecs? "}"
 ImportSpecs     ::= ImportSpec ("," ImportSpec)* ","?
 
 ImportSpec      ::= IDENT ("as" IDENT)?
+
+(* A re-export publishes a name this module imported, and mirrors `import` in
+   both shape and restriction: there is no `export *`, so every name a module
+   publishes is written in that module's own source. A library's lib.buri is
+   made of these. *)
+ReExport        ::= "from" STRING "export" "{" ImportSpecs? "}" ";"
+
+(* STRING in an Import or ReExport is a module path, and has two forms:
+     "core/list"           a standard library module
+     "//lib/money"         a module of this repository, from the root
+   There are no relative paths: a leading "." is not a module path. *)
 
 
 (* --------------------------------------------------------------------------
@@ -132,6 +145,15 @@ MethodSig       ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
 ImplDecl        ::= "impl" GenericParams? NamedType "for" NamedType "{" FnDecl* "}"
 
 DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" NamedType ";"
+
+
+(* --- Tests -----------------------------------------------------------------
+   Legal only in a test source (SPEC.md 11.2). A test takes no parameters and
+   returns nothing: it builds whatever context it needs with `test.context()`
+   and passes unless an assertion fails. The name is a STRING because test
+   names are prose. *)
+
+TestDecl        ::= "test" STRING Block
 
 
 (* --------------------------------------------------------------------------
@@ -305,10 +327,19 @@ Guard           ::= "if" Expr
    There are no expression statements, no `return`, and no loops.
    -------------------------------------------------------------------------- *)
 
-Block           ::= "{" LetStmt+ "}"
-                  | "{" LetStmt* Expr "}"
+Block           ::= "{" Stmt+ "}"
+                  | "{" Stmt* Expr "}"
+
+(* `let` is the only statement outside a test source. ExprStmt is legal only in
+   a test source and only when its type is () -- both static rules, SPEC 11.2 --
+   so nothing must-use can be dropped by it. It stays LR(1): after an Expr, a
+   ";" means statement and a "}" means result expression. *)
+Stmt            ::= LetStmt
+                  | ExprStmt
 
 LetStmt         ::= "let" Pattern (":" Type)? "=" Expr ";"
+
+ExprStmt        ::= Expr ";"
 
 
 (* --------------------------------------------------------------------------
@@ -416,11 +447,16 @@ Keyword         ::= "as"     | "const"  | "crash"  | "ctx"    | "derive"
                   | "effect" | "else"   | "enum"   | "export" | "false"
                   | "fn"     | "for"    | "from"   | "if"     | "impl"
                   | "import" | "let"    | "match"  | "self"   | "Self"
-                  | "struct" | "trait"  | "true"   | "type"
+                  | "struct" | "test"   | "trait"  | "true"   | "type"
 
 (* `as` appears only in import specifiers. `for` only in `impl ... for ...`
    and `derive ... for ...`. There is no cast operator: numeric conversions
-   are ordinary methods (SPEC.md 6.2.1). *)
+   are ordinary methods (SPEC.md 6.2.1).
+
+   `test` is reserved in every module, so no function is named `test`, but a
+   TestDecl is legal only in a test source -- that restriction is a static rule,
+   not a grammar one. `assert` is NOT a keyword: assertions are the ordinary
+   module `core/testing/assert`, and the name comes from `import * as assert`. *)
 
 (* Reserved but unused in v0.3; rejected by the lexer so that later versions
    can claim them without breaking source compatibility. *)

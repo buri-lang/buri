@@ -3,11 +3,11 @@ from "core/str" import * as str;
 
 from "//lib/ledger" import { Entry, total };
 
-/// Deterministic and allocating: it needs `Alloc` and nothing else, so no
-/// amount of refactoring inside it can turn it into something that writes a
-/// file. That is what makes it worth having as a library rather than as a
-/// paragraph inside `main`.
-export fn render(entries: [Entry], ctx: { alloc: Alloc, .. }, verbose: Bool): Str {
+/// Deterministic and allocating: `C: Alloc` and nothing else, so no amount of
+/// refactoring inside it can turn it into something that writes a file. That is
+/// what makes it worth having as a library rather than as a paragraph inside
+/// `main`.
+export fn render<C: Alloc>(entries: [Entry], ctx: C, verbose: Bool): Str {
   let lines = if (verbose) {
     entries
       .map(ctx, fn(e) => str.format(ctx, "  ${e.memo}  ${e.amount.format(ctx)}"))

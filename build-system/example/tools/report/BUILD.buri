@@ -2,30 +2,34 @@
 # testable, the CLI around it is one file of argument handling.
 #
 # Rules for this shape:
-#   - the srcs sets are disjoint, and every .buri file in the package is in
+#   - the sources sets are disjoint, and every .buri file in the package is in
 #     exactly one of them;
 #   - the binary implicitly depends on the co-located library and does not list
-#     it in deps;
-#   - main.buri reaches the library through ./lib and never through ./render.
+#     it in dependencies;
+#   - main.buri reaches the library through //tools/report and never through
+#     //tools/report/render.
 
 library {
   name: "report"
-  srcs: ["render.buri"]
-  deps: [
+  sources: ["render.buri"]
+  dependencies: [
     "//lib/ledger",
     "//lib/money",
   ]
   visibility: ["//visibility:public"]
 
   test {
-    srcs: ["test/render.buri"]
+    sources: ["test/render.buri"]
+    # A test-only library from another package. Declared here, and importable
+    # only because these are test sources.
+    dependencies: ["//lib/ledger/testing"]
   }
 }
 
 binary {
   name: "report_cli"
-  srcs: ["flags.buri"]
-  deps: [
+  sources: ["flags.buri"]
+  dependencies: [
     "//lib/ledger",
     "//lib/money",
   ]
@@ -37,6 +41,6 @@ binary {
   ]
 
   test {
-    srcs: ["test/flags.buri"]
+    sources: ["test/flags.buri"]
   }
 }

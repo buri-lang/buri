@@ -11,9 +11,12 @@ from "core/str" import * as str;
 from "core/cap" import { Alloc, Stdout };
 from "core/list" import { map as mapList, filter as filterList };
 
-// Importing a sibling module by path.
-// from "./money" import * as money;
-// from "./money" import { Cents };
+// Importing from this repository. Paths are absolute from the root — there are
+// no relative module paths — and `//lib/money` names that library's public
+// surface, while `//lib/money/cents` names a module inside it and resolves
+// only from within that same library.
+// from "//lib/money" import * as money;
+// from "//lib/money" import { Cents };
 
 // --- Visibility --------------------------------------------------------------
 

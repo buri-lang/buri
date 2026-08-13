@@ -74,7 +74,7 @@ key = H(
   toolchain.sha256,
   toolchain.flags,         // plus --release/--debug
   configuration,           // every dimension=value pair, sorted
-  rule_identity,           // label, rule kind, and the ordered srcs paths
+  rule_identity,           // label, rule kind, and the ordered sources paths
   H(content of each input file),
   key(each input action),  // deps enter as their keys, not their contents
 )
@@ -108,7 +108,7 @@ Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
 | A comment in `lib/money/parse.buri` | Nothing. Comments are not in the AST hash. |
 | A function body in `lib/money/parse.buri` | `compile(//lib/money)`, `link` of each binary that reaches it. `//lib/ledger` does not recheck. |
 | A signature in `lib/money/lib.buri` | `interface(//lib/money)`, then `compile` of `//lib/money`, `//lib/ledger`, `//cmd/server`, then `link`. |
-| Adding a file to `srcs` | `compile(//lib/money)` and downstream links. The interface is unchanged unless `lib.buri` re-exports from it. |
+| Adding a file to `sources` | `compile(//lib/money)` and downstream links. The interface is unchanged unless `lib.buri` re-exports from it. |
 | Adding a `tag` to `//lib/store` | No compilation at all — the tag check is a graph pass over cached facts. It either passes or fails a link. |
 | `toolchain.version` in `REPO.buri` | Everything. This is correct and is why the version is pinned exactly. |
 | A test file | That suite's `compile` and `test`. Nothing else, ever — nothing depends on a test. |

@@ -1,19 +1,18 @@
-// The JS entry point. The only difference from a native `main` is the context
-// it asks for: no `Fs`, because the browser platform has none to grant. The
+// The JS entry point. The only difference from a native `main` is the bounds it
+// asks for: no `Fs`, because the browser platform has none to grant. The
 // libraries below are compiled from the same sources the server binary uses.
 
 from "core/cap" import { Alloc, Stdout };
-from "core/io" import * as io;
 
 from "//lib/ledger" import { entry, total };
 from "//lib/money" import { fromCents };
 
-export fn main(ctx: { alloc: Alloc, stdout: Stdout }): Result<{}, Str> {
+export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
   let basket = [
     entry("coffee", fromCents(450)),
     entry("books", fromCents(3200)),
   ];
   // `total` is a free function; `format` is a method on the `Cents` it returns.
-  let _ = io.println(ctx, "basket total: ${total(basket).format(ctx)}");
-  .Ok({})
+  let _ = ctx.println("basket total: ${total(basket).format(ctx)}");
+  .Ok(())
 }

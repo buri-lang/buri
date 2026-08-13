@@ -1,0 +1,4 @@
+- do dead code elimination before it reaches LLVM IR
+- Avoid mem2reg, Generate Optimized SSA Form 
+- Supply Comprehensive LLVM Attributes like noalias, nounwind, readnone, readonly, nonnull, and align
+- Structure for Cache Locality & Basic Block Size

@@ -1,22 +1,27 @@
 // Free functions over `Cents`. They cannot be methods — `Cents` is declared in
-// ./cents, and a method has to live with its type — which is one reason the
-// library boundary is drawn around the package rather than around a file.
+// //lib/money/cents, and a method has to live with its type — which is one
+// reason the library boundary is drawn around the package rather than a file.
 
-// `Cents` is opaque, so this module cannot write `Cents(1905)`; it goes through
-// the constructor like any other caller. `toCents` is the internal accessor,
-// exported by ./cents and deliberately absent from ./lib.
-from "./cents" import { Cents, fromCents, toCents };
+// The field of `Cents` is private to cents.buri, so this module cannot write
+// `Cents(1905)`; it goes through the constructor like any other caller.
+// `toCents` is the internal accessor, exported by cents.buri and deliberately
+// absent from lib.buri.
+from "//lib/money/cents" import { Cents, fromCents, toCents };
 
 /// A million dollars, in cents.
 const MAX_CENTS: I64 = 100_000_000;
 
 export enum ParseError {
-  NotANumber { text: Str },
-  TooLarge,
+  export NotANumber { export text: Str },
+  export TooLarge,
 }
 
-/// Pure: no context parameter, so it cannot allocate, and the compiler holds
-/// that. Parsing stays pure; only the caller that read the string did I/O.
+// `assert.eq` needs `Eq` to compare and `Show` to render a failure, so an error
+// type a test asserts on derives both.
+derive Eq, Show for ParseError;
+
+/// Pure: no `ctx` parameter, so it cannot allocate, and the compiler holds that.
+/// Parsing stays pure; only the caller that read the string did any I/O.
 export fn parse(text: Str): Result<Cents, ParseError> {
   match (text.splitOnce(".")) {
     .None => .Err(.NotANumber { text: text }),
@@ -27,8 +32,8 @@ export fn parse(text: Str): Result<Cents, ParseError> {
   }
 }
 
-// Private to this module: not exported at all, so neither the library nor
-// anything outside it can reach this.
+// Not exported at all: neither the rest of the library nor anything outside it
+// can reach this.
 fn bounded(c: Cents): Result<Cents, ParseError> {
   if (c.toCents() > MAX_CENTS) { .Err(.TooLarge) } else { .Ok(c) }
 }

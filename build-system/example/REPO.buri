@@ -1,27 +1,45 @@
 # The root of the example repository. Its presence is what makes this directory
-# the repository root, and what `//` in every label resolves against.
+# the repository root, and what `//` in every label and every module path
+# resolves against.
 #
 # Schema: buri.build.v1.RepoConfig — ../schema/build.proto
 
 name: "acme"
 
 toolchain {
-  version: "0.2.0"
+  version: "0.3.0"
   sha256: "9f2b1c4e8a7d3f60b5c1e9a24d7f8036b1c5e2a94f7d0b83c6e1a5d2f9b04c7e3"
   flags: ["--warnings-as-errors"]
 }
 
-# `platform` and `arch` are predeclared. This repository adds one axis: whether
-# code runs on a user's machine or on ours.
+# `platform` and `arch` are predeclared. This repository adds two axes, and they
+# compose differently on purpose: `tier` is a permission that narrows as you
+# descend, `maturity` is a fact that spreads as you ascend.
 dimension {
   name: "tier"
+  compose: INTERSECT
   value { name: "client" doc: "ships to a user's machine or browser" }
   value { name: "server" doc: "runs on infrastructure we operate" }
 }
 
+dimension {
+  name: "maturity"
+  compose: PROPAGATE
+  value { name: "stable" }
+  value { name: "experimental" doc: "API may change without a deprecation period" }
+  default: "stable"
+}
+
+# A combination we name once and use as one word.
+tag_set {
+  name: "native"
+  values: ["linux", "macos"]
+  doc: "the platforms we ship a real binary for"
+}
+
 # Policy, stated once, about which worlds may exist at all. Independent of any
-# particular library — libraries say where they may go, this says which
-# configurations are coherent.
+# particular library — libraries say which configurations they accept, this says
+# which configurations are coherent.
 constraint {
   when: "platform=js"
   require: ["tier=client"]

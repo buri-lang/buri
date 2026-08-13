@@ -1,16 +1,16 @@
-# //lib/money — a leaf library. No deps, no tags, so it links into anything:
-# the server binary, the JS binary, and the report CLI all use it.
+# //lib/money — a leaf library. No dependencies, no tags, so it links into
+# anything: the server binary, the JS binary, and the report CLI all use it.
 
 library {
   name: "money"
-  srcs: [
+  sources: [
     "cents.buri",
     "parse.buri",
   ]
   visibility: ["//visibility:public"]
 
   test {
-    srcs: [
+    sources: [
       "test/cents.buri",
       "test/parse.buri",
     ]

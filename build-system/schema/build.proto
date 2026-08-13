@@ -6,8 +6,8 @@
 // file is data, and reading it is the whole of understanding what it declares.
 //
 // The tool parses these with the same .proto reader the language uses for
-// `from "./foo.proto" import ...`, so unknown fields are an error rather than a
-// silent no-op, and the CLI can point at the offending line.
+// `from "//proto/foo.proto" import ...`, so an unknown field is an error with a
+// line number rather than a silent no-op.
 
 syntax = "proto3";
 
@@ -22,8 +22,9 @@ package buri.build.v1;
 // nearest ancestor package.
 //
 // A package declares at most one library and at most one binary. That is what
-// makes `//lib/money` an unambiguous name for both a directory and a library,
-// and it is why `deps` never needs a `:target` suffix.
+// makes `//lib/money` an unambiguous name for a directory, a library, and the
+// module `lib/money/lib.buri` all at once, and it is why no label in this
+// schema has a `:target` suffix.
 message BuildFile {
   // Optional defaults applied to the rules in this file.
   Package package = 1;
@@ -41,29 +42,30 @@ message Package {
   repeated string default_visibility = 1;
 }
 
-// A `library` requires `lib.buri` to exist in the package directory. That file
-// is the library's entire public surface: another target that depends on this
-// library can import exactly the names `lib.buri` exports, and nothing else.
+// A `library` requires `lib.buri` in the package directory. That file is the
+// library's entire public surface: a target depending on this library can
+// import exactly the names `lib.buri` exports, and nothing else.
 message Library {
-  // Target name. Conventionally the directory name. Addressable as
-  // `//path/to/pkg:name`, or just `//path/to/pkg`. Required — proto3 has no
-  // `required`, so the build file parser enforces it and points at the block.
+  // Used in diagnostics and artifact names. Conventionally the directory name.
+  // Required — proto3 has no `required`, so the build file parser enforces it
+  // and points at the block. It is not part of any label: this library is
+  // `//lib/money`, never `//lib/money:money`.
   string name = 1;
 
-  // Every .buri file in this package other than `lib.buri`, the binary's
-  // sources, and the test sources. Paths are package-relative and may descend
-  // into subdirectories. No globs: a file that exists on disk but appears in no
-  // rule is a build error, not a silently ignored file.
-  repeated string srcs = 2;
+  // Every .buri file in this package that belongs to this library, EXCLUDING
+  // `lib.buri` and the test sources. Package-relative, may descend into
+  // subdirectories. No globs: a file that exists on disk but appears in no rule
+  // is a build error, not a silently ignored file.
+  repeated string sources = 2;
 
-  // Labels of libraries this one may import. `core/*` is always available and
-  // is never listed. Cycles are an error.
-  repeated string deps = 3;
+  // Labels of libraries this one may use. `core/*` ships with the toolchain and
+  // is never listed. Cycles are an error. A library is *used* by importing it
+  // or by calling a method that resolves into it, and both require the entry.
+  repeated string dependencies = 3;
 
-  // Constraints on where this library may be linked. Each entry is a value of
-  // a dimension declared in REPO.buri, written `value` or `dimension=value`.
-  // Listing no value for a dimension means "any value of it is acceptable".
-  // See TAGS in REPO-CONFIG.md.
+  // Where this library may be linked, as values of the dimensions declared in
+  // REPO.buri. A dimension no tag mentions is unconstrained. Tags mean the same
+  // thing on a library and on a binary. See TAGS.md.
   repeated string tags = 4;
 
   // Who may depend on this library. See VISIBILITY in BUILD-FILES.md.
@@ -71,27 +73,44 @@ message Library {
 
   // Tests that exercise this library through `lib.buri`.
   TestSuite test = 6;
+
+  // The library's utilities for testing it — fakes, fixtures, matchers —
+  // rooted at `testing/lib.buri`. Required when that file exists, and may be
+  // empty. Importable as `//lib/money/testing`, and only from a test source,
+  // because the path contains a `testing` segment. Never linked into a
+  // production artifact.
+  TestingSurface testing = 7;
 }
 
-// A `binary` requires `main.buri` to exist in the package directory, and that
-// file must export `main`. `main.buri` is the binary's surface for tests, the
-// same way `lib.buri` is a library's surface for dependents.
+message TestingSurface {
+  // Every .buri file under `testing/` other than `testing/lib.buri`.
+  repeated string sources = 1;
+
+  // Libraries these modules use, beyond the library's own `dependencies`. A fake often
+  // needs less than the real thing, and occasionally something else entirely.
+  repeated string dependencies = 2;
+}
+
+// A `binary` requires `main.buri` in the package directory, and that file must
+// export `main`. `main.buri` is the binary's surface for tests, the same way
+// `lib.buri` is a library's surface for dependents.
 message Binary {
-  // Required, as above.
+  // Required, as above, and likewise not part of a label.
   string name = 1;
 
   // Every .buri file in this package that belongs to the binary rather than to
-  // the co-located library, excluding `main.buri` and the test sources.
-  repeated string srcs = 2;
+  // a co-located library, excluding `main.buri` and the test sources.
+  repeated string sources = 2;
 
-  repeated string deps = 3;
+  repeated string dependencies = 3;
 
-  // Values this binary pins for dimensions that its outputs do not already
-  // determine — `server`, `client`, and so on.
+  // Exactly the same meaning as on a library: the configurations this target
+  // accepts. The configuration a build actually runs in is resolved from these,
+  // the `outputs` entry, every dependency's tags, and the dimension defaults.
   repeated string tags = 4;
 
-  // What to produce. One artifact per entry. Each entry is a separate
-  // configuration, so the tag check runs once per output.
+  // What to produce. One artifact per entry, and one configuration per entry,
+  // so the whole graph is tag-checked once per output.
   repeated Output outputs = 5;
 
   // Tests that exercise this binary through `main.buri`.
@@ -99,9 +118,10 @@ message Binary {
 }
 
 message Output {
+  // Contributes `platform` to the configuration for this artifact.
   Platform platform = 1;
 
-  // Ignored, and must be unset, when platform is JS.
+  // Contributes `arch`. Ignored, and must be unset, when platform is JS.
   Arch arch = 2;
 
   // Artifact filename. Defaults to the target name (plus `.mjs` for JS).
@@ -134,27 +154,28 @@ message JsOptions {
 }
 
 // Tests live in the package's `test/` directory and are declared here. A test
-// source may import the target under test *by label* and may not reach into it
-// with a relative import, which is what confines tests to the public surface.
+// source imports the target under test by its label — `//lib/money` for a
+// library, `//lib/money/main` for a binary — which is what confines a test to
+// the target's public surface.
 message TestSuite {
   // Package-relative paths, conventionally under `test/`.
-  repeated string srcs = 1;
+  repeated string sources = 1;
 
   // Libraries available to the test sources in addition to the target's own
-  // `deps`. Fakes, fixtures, golden-file helpers.
-  repeated string deps = 2;
+  // `dependencies`. Fakes, fixtures, golden-file helpers.
+  repeated string dependencies = 2;
 
-  // Files the test may read through the test platform's in-memory `Fs`, rooted
-  // at the package directory. Nothing else on disk is visible.
+  // Files the test may read through the runner's in-memory `Fs`, rooted at the
+  // package directory. Nothing else on disk is visible. `buri test --accept`
+  // rewrites these in the source tree; see HERMETICITY-AND-CACHING.md.
   repeated string data = 3;
 
   // Wall-clock ceiling per test declaration. Defaults to
   // `RepoConfig.defaults.test_timeout_seconds`.
   uint32 timeout_seconds = 4;
 
-  // Configurations to run this suite in, one run per value listed of any
-  // dimension. Unset means one run, in the host configuration, restricted by
-  // the target's own tags. See TAGS.md.
+  // Configurations to run this suite in — one run per value listed. Unset means
+  // one run, in the host configuration, restricted by the target's own tags.
   repeated string tags = 5;
 }
 
@@ -174,12 +195,15 @@ message RepoConfig {
   // predeclared and may be redeclared only to restrict their value sets.
   repeated Dimension dimension = 3;
 
+  // Named groups of values, so a common combination is written once.
+  repeated TagSet tag_set = 4;
+
   // Cross-dimension policy: which combinations of values are legal at all.
-  repeated Constraint constraint = 4;
+  repeated Constraint constraint = 5;
 
-  Defaults defaults = 5;
+  Defaults defaults = 6;
 
-  Lint lint = 6;
+  Lint lint = 7;
 }
 
 message Toolchain {
@@ -197,29 +221,63 @@ message Toolchain {
 }
 
 message Dimension {
-  // Lowercase identifier: `platform`, `tier`, `surface`.
+  // Lowercase identifier: `platform`, `tier`, `maturity`.
   string name = 1;
 
   repeated Value value = 2;
 
-  // Value assumed for a binary that does not pin this dimension. When unset,
-  // every binary must pin it explicitly.
-  string default = 3;
+  // How this dimension's tags travel along a dependency edge. This is the
+  // user-definable part of tag composition; see TAGS.md.
+  Compose compose = 3;
+
+  // Value assumed when composition leaves more than one possible, for an
+  // INTERSECT dimension. When unset, an ambiguous dimension is an error and
+  // every binary must narrow it.
+  string default = 4;
 
   message Value {
-    // Must be unique across all dimensions, so `tags: ["server"]` is
-    // unambiguous and `tier=server` is only ever needed for emphasis.
+    // Must be unique across all dimensions and tag sets, so `tags: ["server"]`
+    // is unambiguous and `tier=server` is only ever needed for emphasis.
     string name = 1;
 
     // Shown in the error message when this value is what rules a library out.
     string doc = 2;
   }
+
+  enum Compose {
+    // INTERSECT. A target accepts the values its own tags allow and that every
+    // dependency allows. Tags are restrictions, and restrictions accumulate.
+    COMPOSE_UNSPECIFIED = 0;
+    INTERSECT = 1;
+
+    // A value carried by any dependency is carried by the dependent, whether it
+    // asked for it or not. Tags still restrict — a target's tags are the values
+    // it is willing to carry — so this models "what is in here", not "where may
+    // this go": licensing, data classification, maturity.
+    PROPAGATE = 2;
+
+    // No composition. Each target is checked against the configuration on its
+    // own, and a dependency's tags say nothing about its dependents.
+    INDEPENDENT = 3;
+  }
+}
+
+// A name for a set of values, usable anywhere a tag is. Expansion is textual
+// and happens before anything else, so a tag set may not contain another.
+message TagSet {
+  // Unique across dimension values and other tag sets.
+  string name = 1;
+
+  // Values, which may span dimensions.
+  repeated string values = 2;
+
+  string doc = 3;
 }
 
 // Reads as: in any configuration where `when` holds, the listed requirements
-// hold too. Evaluated once per binary output, before any library is consulted.
+// hold too. Evaluated once per binary output, before any dependency is walked.
 message Constraint {
-  // A single `dimension=value` or bare `value`.
+  // A single value, or `dimension=value`, or a tag set name.
   string when = 1;
 
   // Values that must also be present in the configuration.

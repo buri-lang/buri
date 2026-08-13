@@ -11,19 +11,19 @@
 
 library {
   name: "store"
-  srcs: [
+  sources: [
     "codec.buri",
     "file_store.buri",
   ]
-  deps: [
+  dependencies: [
     "//lib/ledger",
     "//lib/money",
   ]
   tags: ["server"]
-  visibility: ["//cmd/server:server"]
+  visibility: ["//cmd/server"]
 
   test {
-    srcs: ["test/store.buri"]
+    sources: ["test/store.buri"]
     data: ["test/golden/log.txt"]
   }
 }

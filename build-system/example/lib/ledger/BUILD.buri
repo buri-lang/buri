@@ -1,20 +1,28 @@
 # //lib/ledger — a library with a subdirectory. `posting/` has no BUILD.buri,
 # so it is part of this package: organization, not a boundary.
+#
+# `testing/` is the reserved one. It is a second entry point of this same
+# package, reachable as //lib/ledger/testing and importable only from a test
+# source — here, and in //tools/report's suite.
 
 library {
   name: "ledger"
-  srcs: [
+  sources: [
     "entry.buri",
     "posting/rules.buri",
   ]
-  deps: ["//lib/money"]
+  dependencies: ["//lib/money"]
   visibility: [
     "//cmd/...",
     "//lib/store",
     "//tools/report",
   ]
 
+  testing {
+    sources: ["testing/fixtures.buri"]
+  }
+
   test {
-    srcs: ["test/ledger.buri"]
+    sources: ["test/ledger.buri"]
   }
 }

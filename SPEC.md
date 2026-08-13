@@ -119,11 +119,17 @@ that depends on capitalization is a parser that depends on convention:
 
 `as` `const` `crash` `ctx` `derive` `effect` `else` `enum` `export` `false`
 `fn` `for` `from` `if` `impl` `import` `let` `match` `self` `Self` `struct`
-`trait` `true` `type`
+`test` `trait` `true` `type`
 
 `for` appears only in `impl ... for ...` and `derive ... for ...`. `self` is
 legal only as a method's first parameter and `ctx` only as the parameter after
-it (Section 10.2); `Self` only inside a trait or `impl`.
+it (Section 10.2); `Self` only inside a trait or `impl`. `test` is reserved
+everywhere, so no function may be named `test`, but a `test` declaration is
+legal only in a test source (Section 11.2).
+
+`assert` is **not** a keyword. Assertions are an ordinary module,
+`core/testing/assert`, imported like any other — which is also what lets
+`import * as assert` name it.
 
 Reserved for future versions and rejected today: `async` `await` `break`
 `continue` `do` `in` `is` `loop` `module` `mut` `pub` `return` `use` `when`
@@ -176,7 +182,10 @@ Escape `\$` to write a literal dollar sign before a brace.
 
 ## 4. Modules
 
-A source file is a module. Its path relative to the package root is its name.
+A source file is a module, named by its path from the repository root. Modules
+are grouped into **libraries** and **binaries** by the build system; the rules
+for which module may import which are in
+[`build-system/`](./build-system/README.md), and only the syntax is here.
 
 ### 4.1 Imports
 
@@ -203,6 +212,35 @@ and adding an export to a library can never shadow or collide with a name in
 code that imports it.
 
 Import declarations are terminated with `;`. Circular imports are an error.
+
+#### 4.1.1 Module paths
+
+A module path is one of two forms, told apart by their first characters:
+
+| Form | Example | Names |
+|---|---|---|
+| Standard library | `"core/list"` | A module of the standard library, which ships with the compiler. |
+| Repository-absolute | `"//lib/money"`, `"//lib/money/cents"` | A module of this repository, by its path from the root. |
+
+**There are no relative module paths.** `"./cents"` and `"../money"` are not
+module paths, and a leading `.` in an import is an error. A path therefore
+means the same module wherever it is written, a file can be moved between
+directories without rewriting the imports inside it, and a reader never has to
+know where a file sits to know what it imports.
+
+`"//lib/money"` names the *library* rooted at `lib/money` — its `lib.buri`, and
+transitively only what that file exports. `"//lib/money/cents"` names an
+individual module inside it, which the build system permits only from within
+the same library. Both are ordinary module paths to the compiler; the
+distinction is enforced with the visibility rules in
+[`build-system/LIBRARIES.md`](./build-system/LIBRARIES.md).
+
+One path segment is reserved: **`testing`**. A module path containing it is
+test-only, and may be imported only from a test source (Section 11.2). That
+covers `"core/testing/assert"`, `"core/testing/context"`, a library's own
+utilities-for-testing-it at `"//lib/money/testing"`, and a whole package of
+shared fixtures at `"//lib/testing/fakes"` — one rule, visible in the import
+line, with nothing to declare.
 
 None of this applies to method calls. `sq.area()` resolves through the receiver's
 type rather than through scope (Section 6.7.3), so a type's own operations are
@@ -231,6 +269,25 @@ or exhaustively matched outside its module.
 
 `impl` and `derive` declarations are never exported: whether a type satisfies a
 trait is a property of the type, visible wherever the type is.
+
+### 4.2.1 Re-exports
+
+A module may export a name it imported, in one declaration that mirrors
+`import`:
+
+```buri
+from "//lib/money/cents" export { Cents, fromCents };
+from "//lib/money/cents" export { add as addMoney };
+```
+
+There is no `export *`, for the same reason there is no bare `import *`: every
+name a module publishes is written in that module's own source. Re-exporting a
+name does not import it — write both declarations if the module also uses it.
+
+Re-export is what makes a library's `lib.buri` a complete public surface: it
+lists the library's API in one file, and a name absent from it is unreachable
+from outside the library, as a function and as a method
+([`build-system/LIBRARIES.md`](./build-system/LIBRARIES.md)).
 
 ### 4.3 Order
 
@@ -1565,6 +1622,9 @@ fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
 // loadConfig<C: Alloc + Fs> accepts it with no changes anywhere.
 ```
 
+The harness around that — where tests live, how they are declared, and the
+context the runner hands them — is Section 11.2.
+
 ## 11. Programs
 
 A program is a module that exports `main`:
@@ -1635,6 +1695,122 @@ The `*Ctx` variants (`list.mapCtx`, `list.filterCtx`) take a callback of the for
 `fn(Ctx, A) => B` and pass the context through, which is how effectful
 higher-order code is written given the capture rule of Section 10.5.
 
+**The test platform — importable only from a test source**
+
+| Module | Provides |
+|---|---|
+| `core/testing/assert` | `eq`, `notEq`, `isTrue`, `isFalse`, `fail`, `ok`, `err`, `some` |
+| `core/testing/context` | `context`, and the builders that narrow or populate it |
+
+### 11.2 Tests
+
+A **test source** is a module the build system compiles into a test binary
+rather than into a library or a program. `test` declarations are legal there and
+nowhere else, and so are imports of **test-only modules** — any module path
+containing a `testing` segment, which covers `core/testing/assert`,
+`core/testing/context`, and a library's own test utilities at
+`//lib/money/testing`. Which modules are test sources is declared in a build
+file ([`build-system/TESTING.md`](./build-system/TESTING.md)).
+
+```buri
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { context };
+
+test "pads the cents place" {
+  let ctx = context();
+  assert.eq(fromCents(1905).format(ctx), "\$19.05");
+}
+```
+
+A test declaration is `test STRING Block`. The name is a string literal because
+test names are prose, and encoding prose in an identifier produces
+`test_pads_the_cents_place` and then an argument about the convention. A test
+takes no parameters and returns nothing: it passes unless an assertion in it
+fails.
+
+A test that needs a context builds one. `core/testing/context` is a **platform
+module** — the test runner's platform — and `context()` is the one place in the
+language where a context is created rather than received:
+
+```buri
+let ctx = context();                          // Alloc, and hermetic fakes
+let ctx = context().withFiles([("a.txt", "hi")]);   // in-memory Fs contents
+let ctx = context().withArgs(["--verbose"]);        // Env
+```
+
+Its effects are real where they can be (`Alloc`), captured where they are
+observable (`Stdout`, `Stderr`), fixed where they would otherwise vary
+(`Clock` starts at a constant, `Rand` is seeded from the test's name), and
+refusing where they would leave the machine (`Net`). Because a `testing` path
+may be imported only by a test source, nothing in a shipped program can obtain
+one.
+Effects are ordinary interfaces (Section 10.9), so a test needing behavior the
+runner does not provide writes a struct with methods and passes that instead.
+
+#### 11.2.1 `core/testing/assert`
+
+Assertions are an ordinary module, imported like any other. `assert` is not a
+keyword: the name comes from `import * as assert`, and a file is free to call it
+something else.
+
+```buri
+from "core/testing/assert" import * as assert;
+```
+
+| Function | Meaning |
+|---|---|
+| `assert.eq(a, b)` | Fails unless `a == b`. Requires `Eq`, and `Show` for the message. |
+| `assert.notEq(a, b)` | The negation. |
+| `assert.isTrue(b)` / `assert.isFalse(b)` | On a `Bool`. |
+| `assert.fail(msg)` | Fails unconditionally, with `msg`. |
+| `assert.ok(r)` | Fails unless `r` is `.Ok`; **returns the wrapped value**. |
+| `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
+| `assert.some(o)` | Fails unless `o` is `.Some`; returns the wrapped value. |
+
+The first four return `()`; the last three return a value, and are how a
+`Result` is consumed in a test, since `Result` is still must-use here:
+
+```buri
+test "reads the config it wrote" {
+  let ctx = context();
+  assert.ok(fs.writeText(ctx, "cfg", "port=8080"));   // returns (), so a statement
+  let text = assert.ok(fs.readText(ctx, "cfg"));      // returns Str, so a binding
+  assert.eq(text, "port=8080");
+}
+```
+
+Two things about `core/testing/assert` are not ordinary, and both follow from
+its being a platform module rather than a library:
+
+- **Its functions take no `ctx`** and still render a failure message. Rendering
+  is the runner's, not the program's — which is why this signature would be a
+  lie anywhere else, and why the module is importable only from a test source.
+- **A failure ends that test** and no other, the way `crash` (Section 6.10) ends
+  a program. The runner reports the file, the line, and both values.
+
+A test source may also use **expression statements**, which no other module may:
+a call whose type is `()` may stand alone, terminated by `;`.
+
+```buri
+assert.eq(total, 42);              // statement: type is ()
+// assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
+                                   // it explicitly with `let _ =`
+```
+
+This is the narrowest relaxation that makes assertions read as assertions, and
+it does not weaken Section 6.8: `Result` is not `()`, so nothing must-use can be
+dropped by it.
+
+Three static rules, all checked:
+
+- `test`, and any import of a path containing a `testing` segment, appear only
+  in a test source.
+- A test source may not `export`, and no module may import one. Shared test
+  helpers are ordinary library code.
+- An expression statement is legal only in a test source, and only when its type
+  is `()`.
+
 ---
 
 ## 12. Why the grammar is context-free and unambiguous
@@ -1650,6 +1826,12 @@ position. *Cost:* two characters, and it looks like TypeScript anyway.
 A block is `let`s followed by a result expression. Nothing can sit next to a
 `{`-initial expression and compete with it. *Cost:* a call performed only for its
 effect must be bound: `let _ = io.println(ctx, "hi");`. Arguably a feature.
+
+A **test source** may use one, restricted to calls whose type is `()`
+(Section 11.2). The grammar admits `Expr ";"` as a statement, which stays LR(1)
+— after an expression, a `;` means statement and a `}` means result — and the
+property this rule is protecting is unharmed, since `Result` is not `()`. Every
+other module still has `let` as its only statement.
 
 **12.3 There are no records, so `{` at the start of an expression is always a
 block.**
@@ -1865,6 +2047,19 @@ Capabilities:
 30. Numeric literals, conversions, and comparisons are ordinary methods; there is
     no cast operator.
 31. `main` has the signature required by Section 11.
+
+Modules and tests:
+
+32. A module path is `"core/..."` or `"//..."`. A relative path is an error, as
+    is a `//` path the build system does not make visible to the importing
+    target (Section 4.1.1). A path containing a `testing` segment is importable
+    only from a test source.
+33. A re-export may name only what its module path exports, and `export *` is
+    not derivable.
+34. `test`, and imports of test-only paths, may appear only in a test source. A
+    test source may not `export`, and may not be imported.
+35. An expression statement is legal only in a test source, and only when its
+    type is `()`.
 
 ## 15. Non-goals and open questions
 

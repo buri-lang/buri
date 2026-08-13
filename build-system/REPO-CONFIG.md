@@ -1,8 +1,9 @@
 # `REPO.buri`
 
 One file, at the repository root. Its presence is what makes a directory a
-repository root — every `//` label is resolved against the directory containing
-it, and the CLI walks up from the working directory to find it.
+repository root — every `//` label and every `//` module path is resolved
+against the directory containing it, and the CLI walks up from the working
+directory to find it.
 
 It parses as `buri.build.v1.RepoConfig`
 ([`schema/build.proto`](./schema/build.proto)).
@@ -13,15 +14,28 @@ It parses as `buri.build.v1.RepoConfig`
 name: "acme"
 
 toolchain {
-  version: "0.2.0"
+  version: "0.3.0"
   sha256: "9f2b1c4e8a7d3f60b5c1e9a24d7f8036b1c5e2a94f7d0b83c6e1a5d2f9b04c7e3"
   flags: ["--warnings-as-errors"]
 }
 
 dimension {
   name: "tier"
+  compose: INTERSECT
   value { name: "client" doc: "ships to a user's machine or browser" }
   value { name: "server" doc: "runs on infrastructure we operate" }
+}
+
+dimension {
+  name: "maturity"
+  compose: PROPAGATE
+  value { name: "stable" }
+  value { name: "experimental" doc: "API may change without a deprecation period" }
+}
+
+tag_set {
+  name: "native"
+  values: ["linux", "macos"]
 }
 
 constraint {
@@ -36,19 +50,11 @@ defaults {
 }
 
 lint {
-  error: ["unused-dep", "undeclared-src", "unreachable-export"]
+  error: ["unreachable-export"]
 }
 ```
 
 ## `toolchain`
-
-```textproto
-toolchain {
-  version: "0.2.0"
-  sha256: "9f2b1c…"
-  flags: ["--warnings-as-errors"]
-}
-```
 
 An exact version, never a range. Two checkouts of the same commit must not build
 with two different compilers, and a range guarantees that eventually they will.
@@ -61,17 +67,20 @@ cache key, so changing one invalidates everything. There is no per-target flag
 field, and adding one would mean two targets in the same repository disagreeing
 about what the language is.
 
-## `dimension` and `constraint`
+## `dimension`, `tag_set`, `constraint`
 
-The tag vocabulary. Fully documented in [`TAGS.md`](./TAGS.md); the summary is
-that a `dimension` is an axis a build varies along, a `constraint` rules out
-combinations of values, and libraries then say which values they accept.
+The tag vocabulary, and the rules for how it composes. Fully documented in
+[`TAGS.md`](./TAGS.md); the summary is that a `dimension` is an axis a build
+varies along, `compose` says how that axis travels along a dependency edge
+(`INTERSECT`, `PROPAGATE`, `INDEPENDENT`), a `tag_set` names a combination of
+values, and a `constraint` rules out configurations that should not exist.
 
 `platform` and `arch` are predeclared:
 
 ```textproto
 dimension {
   name: "platform"
+  compose: INTERSECT
   value { name: "linux" }
   value { name: "macos" }
   value { name: "js" }
@@ -79,9 +88,9 @@ dimension {
 
 dimension {
   name: "arch"
+  compose: INTERSECT
   value { name: "x86_64" }
   value { name: "arm64" }
-  default: "arm64"      # only the host default; outputs still pin it explicitly
 }
 ```
 
@@ -90,9 +99,9 @@ not ship to JS can say so, and then a library tagged `js` fails to parse rather
 than failing to link. Adding a platform value is a compiler change, not a
 configuration change.
 
-Value names are unique across dimensions. The tool rejects a `REPO.buri` that
-declares `internal` twice, because `tags: ["internal"]` in some build file three
-directories down would then quietly mean whichever one was declared first.
+Names are unique across dimensions and tag sets. The tool rejects a `REPO.buri`
+that declares `internal` twice, because `tags: ["internal"]` in some build file
+three directories down would then quietly mean whichever one was declared first.
 
 ## `defaults`
 
@@ -106,23 +115,23 @@ defaults {
 `visibility` is the last resort in the chain: rule, then package
 `default_visibility`, then here, then `//visibility:private`. Making the
 repository default private and opening surfaces one at a time is the posture
-these documents assume; the opposite default is defensible in a small
-repository and gets progressively harder to walk back.
+these documents assume; the opposite default is defensible in a small repository
+and gets progressively harder to walk back.
 
 ## `lint`
 
 ```textproto
 lint {
-  error: ["unused-dep", "undeclared-src", "unreachable-export"]
+  error: ["unreachable-export"]
   allow: ["name-matches-directory"]
 }
 ```
 
 Promote diagnostics to errors, or silence them repository-wide. The catalogue is
-in [`CLI.md`](./CLI.md#lint). Several build-graph checks — an import with no
-dep, a dep no import uses, a source file no rule declares — are errors
-unconditionally and cannot be moved by this block, because each one makes the
-build graph a description of something other than the code.
+in [`CLI.md`](./CLI.md#lint). Several build-graph checks — a use with no dep, a
+dep nothing uses, a source file no rule declares — are errors unconditionally
+and cannot be moved by this block, because each one makes the build graph a
+description of something other than the code.
 
 Prefer narrowing a rule to silencing it. `allow` is repository-wide and there is
 no per-file suppression comment, which is a deliberate friction: a lint that has

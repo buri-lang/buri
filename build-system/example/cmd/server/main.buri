@@ -1,33 +1,32 @@
-// The entry point. It is also this binary's surface for tests: `test/routes.buri`
-// sees what this file exports, and nothing else — the same rule `lib.buri`
-// follows for a library.
+// The entry point. It is also this binary's surface for tests:
+// test/routes.buri sees what this file exports, and nothing else — the same
+// rule lib.buri follows for a library.
 
 from "core/cap" import { Alloc, Env, Fs, Stdout };
 from "core/env" import * as env;
-from "core/io" import * as io;
 
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
 from "//lib/store" import { append };
 
-// Re-exported so the suite can reach it. Everything else in ./routes stays
+// Re-exported so the suite can reach it. Everything else in routes.buri stays
 // inside the binary.
-from "./routes" export { Route, route };
+from "//cmd/server/routes" export { Route, route };
 
-from "./routes" import { route };
+from "//cmd/server/routes" import { route };
 
-/// The context is closed — no trailing `..` — so the platform grants exactly
-/// these four capabilities and nothing else. Under `platform: JS` this same
-/// signature would fail to build: a browser platform has no `Fs` to grant.
-export fn main(ctx: { alloc: Alloc, stdout: Stdout, fs: Fs, env: Env }): Result<{}, Str> {
+/// The bounds are this program's complete effect budget. Under `platform: JS`
+/// this same signature would fail to build: a browser platform has no `Fs` to
+/// grant, and the error lands here rather than at runtime.
+export fn main<C: Alloc + Stdout + Fs + Env>(ctx: C): Result<(), Str> {
   let path = env.get(ctx, "LEDGER_LOG") ?? "ledger.log";
   let hit = route("/entries");
 
   match (append(ctx, path, [entry("startup", fromCents(0))])) {
-    .Err(_) => .Err("could not open the ledger log"),
+    .Err(_) => .Err("could not open the ledger log at ${path}"),
     .Ok(_) => {
-      let _ = io.println(ctx, "serving ${hit.name} from ${path}");
-      .Ok({})
+      let _ = ctx.println("serving ${hit.name} from ${path}");
+      .Ok(())
     },
   }
 }

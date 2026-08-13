@@ -4,22 +4,25 @@ from "core/fs" import { IoError };
 from "core/str" import * as str;
 
 from "//lib/ledger" import { Entry };
-from "./codec" import { encode };
+from "//lib/store/codec" import { encode };
 
 export enum StoreError {
-  Io(IoError),
+  export Io(export IoError),
 }
 
-/// Every function here says in its signature that it touches the disk. The tag
-/// on this library is the second line of defence, not the only one: a `main`
-/// that never asks for `Fs` cannot reach these at all, tag or no tag.
-export fn append(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str, entries: [Entry]): Result<{}, StoreError> {
+// `assert.ok` renders the error when it fails, so this needs `Show`.
+derive Show for StoreError;
+
+/// Every function here names `Fs` in its bounds, so the disk is visible in the
+/// signature. The tag on this library is the second line of defence, not the
+/// only one: a `main` whose bounds omit `Fs` cannot reach these at all.
+export fn append<C: Alloc + Fs>(ctx: C, path: Str, entries: [Entry]): Result<(), StoreError> {
   let existing = fs.readText(ctx, path).withDefault("");
   let body = str.concat(ctx, existing, encode(entries, ctx));
   fs.writeText(ctx, path, body).mapErr(fn(e) => StoreError.Io(e))
 }
 
-export fn readLog(ctx: { alloc: Alloc, fs: Fs, .. }, path: Str): Result<Str, StoreError> {
+export fn readLog<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, StoreError> {
   // `?` does not convert error types (SPEC.md 6.8), so the mapping is explicit.
   fs.readText(ctx, path).mapErr(fn(e) => StoreError.Io(e))
 }

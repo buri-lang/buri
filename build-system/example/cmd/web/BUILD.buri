@@ -1,13 +1,13 @@
-# //cmd/web:web — the same language, a different output. One entry point, one
-# JS module.
+# //cmd/web — the same language, a different output. One entry point, one JS
+# module.
 #
-# Adding "//lib/store" to deps compiles fine as a graph and fails the tag check
-# with the path printed:
+# Adding "//lib/store" to dependencies compiles fine as a graph and fails the
+# tag check, with the path printed:
 #
-#   error: //cmd/web:web cannot be built for js
+#   error: //cmd/web cannot be built for js
 #     = configuration: platform=js, tier=client
 #     = //lib/store accepts only tier=server, and this build is tier=client
-#     = reached by: //cmd/web:web -> //lib/store
+#     = reached by: //cmd/web -> //lib/store
 #     = "server": runs on infrastructure we operate
 #
 # Dropping `tags: ["client"]` does not help either — REPO.buri constrains
@@ -16,7 +16,7 @@
 
 binary {
   name: "web"
-  deps: [
+  dependencies: [
     "//lib/ledger",
     "//lib/money",
   ]

@@ -20,14 +20,14 @@ same `.proto` machinery the language uses for wire formats.
 
 library {
   name: "money"
-  srcs: [
+  sources: [
     "cents.buri",
     "parse.buri",
   ]
   visibility: ["//visibility:public"]
 
   test {
-    srcs: [
+    sources: [
       "test/cents.buri",
       "test/parse.buri",
     ]
@@ -36,7 +36,8 @@ library {
 ```
 
 `#` starts a comment. `buri fmt` formats build files as well as source: one
-field per line, `srcs` and `deps` sorted, trailing commas, two-space indent.
+field per line, `sources` and `dependencies` sorted, trailing commas, two-space
+indent.
 
 ## Packages
 
@@ -50,7 +51,7 @@ lib/ledger/
   lib.buri
   entry.buri
   posting/
-    rules.buri       <- src is "posting/rules.buri", still //lib/ledger
+    rules.buri       <- source is "posting/rules.buri", still //lib/ledger
 ```
 
 Subdirectories are for organizing a library that has grown, and cost nothing:
@@ -59,26 +60,29 @@ boundary is a `BUILD.buri`.
 
 A package declares **at most one library and at most one binary**. That falls
 out of the fixed entry-point filenames — one `lib.buri` per directory, one
-`main.buri` per directory — and it is what lets a dependency edge be written
-`//lib/money` with no target name, since a dependency is always on a library.
+`main.buri` per directory — and it is what makes a label a bare path.
 
 ## Labels
 
+A label is a package path. It never carries a target name:
+
 ```
-//lib/money            the library in package lib/money
-//lib/money:money      the same target, written out
-//cmd/server:server    a target by name — required for binaries
+//lib/money        the library in package lib/money
+//cmd/server       the package cmd/server
+//lib              the package lib, if one has a BUILD.buri there
 ```
 
-The short form `//pkg` resolves to the package's *library*. A binary is always
-addressed by name, because `//cmd/server` in a `deps` list would otherwise read
-as a dependency on something that cannot be depended on.
+In a `dependencies` list a label always means **the library** of that package,
+because a library is the only thing that can be depended on. In a CLI argument it means
+**every target** in that package. Those are the only two contexts a label
+appears in, and neither is ambiguous, so there is no `:name` syntax to learn and
+no rule about when to omit it. A rule's `name` field exists for diagnostics and
+artifact filenames, not for addressing.
 
 Patterns, accepted by the CLI and never in a build file:
 
 ```
-//lib/money:all        every target in the package, including the binary
-//lib/...              every target in the package and its subpackages
+//lib/...              every target in that package and its subpackages
 //...                  every target in the repository
 ```
 
@@ -86,22 +90,26 @@ Labels are always repository-absolute. There is no relative label form: a label
 means the same thing wherever it is written, including in a CLI invocation from
 a subdirectory.
 
+Module paths in source use the same spelling — `from "//lib/money" import …` —
+and resolve to that library's `lib.buri`. See
+[`LIBRARIES.md`](./LIBRARIES.md#module-paths).
+
 ## `library`
 
 ```textproto
 library {
   name: "ledger"
-  srcs: [
+  sources: [
     "entry.buri",
     "posting/rules.buri",
   ]
-  deps: ["//lib/money"]
+  dependencies: ["//lib/money"]
   tags: ["server"]
   visibility: ["//cmd/...", "//lib/reporting"]
 
   test {
-    srcs: ["test/ledger.buri"]
-    deps: ["//lib/testing/fakes"]
+    sources: ["test/ledger.buri"]
+    dependencies: ["//lib/testing/fakes"]
     data: ["test/golden/ledger.txt"]
   }
 }
@@ -109,41 +117,92 @@ library {
 
 | Field | Meaning |
 |---|---|
-| `name` | Target name. Required. Conventionally the directory name; `buri lint` warns when it is not. |
-| `srcs` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
-| `deps` | Labels of libraries this one may import. |
+| `name` | Diagnostics and artifact names. Required. Conventionally the directory name; `buri lint` warns when it is not. |
+| `sources` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
+| `dependencies` | Labels of libraries this one may use. |
 | `tags` | Where this library may be linked. See [`TAGS.md`](./TAGS.md). |
 | `visibility` | Who may depend on it. Defaults below. |
 | `test` | The test suite for this library. See [`TESTING.md`](./TESTING.md). |
+| `testing` | The library's utilities *for other people's tests*, rooted at `testing/lib.buri`. See below. |
 
-`lib.buri` is required and is not listed in `srcs`. The rule kind names the
+`lib.buri` is required and is not listed in `sources`. The rule kind names the
 entry point the way `binary` names `main.buri`: it is not an input among
 others, it is the thing the rule is *about*. Listing it would also make it
 possible to write a `library` without one, which is not a state the build system
 wants to have a diagnostic for.
 
-Every other `.buri` file in the package must appear in exactly one rule's `srcs`
-or `test.srcs`. A file that appears in none is an error —
+Every other `.buri` file in the package must appear in exactly one rule's
+`sources`, `test.sources`, or `testing.sources`. A file that appears in none is
+an error —
 
 ```
 error: lib/ledger/posting/interest.buri is not declared by any rule
   --> lib/ledger/BUILD.buri
    |
-   = add it to library "ledger" srcs, or delete it
+   = add it to library "ledger" sources, or delete it
    = run `buri gen //lib/ledger` to do this automatically
 ```
 
 — and a file that appears in two is an error as well. The alternative, ignoring
-undeclared files, means a file can be deleted from the build by a typo in a
-path and never noticed.
+undeclared files, means a file can be dropped from the build by a typo in a path
+and never noticed.
+
+### The `testing` block
+
+A library that is hard to use in someone else's test can ship the fakes with
+itself, in a `testing/` subdirectory with its own entry point:
+
+```
+lib/ledger/
+  BUILD.buri
+  lib.buri
+  entry.buri
+  testing/
+    lib.buri            <- //lib/ledger/testing, a second surface
+    fixtures.buri
+  test/
+    ledger.buri
+```
+
+```textproto
+library {
+  name: "ledger"
+  sources: ["entry.buri", "posting/rules.buri"]
+  dependencies: ["//lib/money"]
+  visibility: ["//cmd/...", "//lib/store", "//tools/report"]
+
+  testing {
+    sources: ["testing/fixtures.buri"]
+  }
+
+  test {
+    sources: ["test/ledger.buri"]
+  }
+}
+```
+
+`testing/lib.buri` is required when the block is present, is not listed in
+`sources`, and is the surface of `//lib/ledger/testing` exactly as `lib.buri` is
+the surface of `//lib/ledger`. The block is required when the file exists, and
+may be empty (`testing {}`) if the entry point is the whole of it.
+
+The path carries the rule: **any module path containing a `testing` segment is
+importable only from a test source** ([`TESTING.md`](./TESTING.md)). No
+`testonly` field, nothing to forget to set, and the restriction is visible in
+the import line rather than in a build file three directories away.
+
+The modules under `testing/` are inside the package, so they may import the
+library's internals — a fake built out of the real thing does not need a
+back door — and they get their own `dependencies`, since a fake usually needs
+less than the real implementation and occasionally needs something else.
 
 ## `binary`
 
 ```textproto
 binary {
   name: "server"
-  srcs: ["routes.buri"]
-  deps: [
+  sources: ["routes.buri"]
+  dependencies: [
     "//lib/ledger",
     "//lib/money",
     "//lib/store",
@@ -157,21 +216,26 @@ binary {
   ]
 
   test {
-    srcs: ["test/routes.buri"]
+    sources: ["test/routes.buri"]
   }
 }
 ```
 
-`main.buri` is required, is not listed in `srcs`, and must export `main` with
-the signature [`SPEC.md` §11](../SPEC.md) requires. The context type `main`
-declares is checked against the platform for each output: a `main` asking for
-`fs: Fs` under `platform: JS` is a compile error at the entry point, not a
-runtime failure in a browser.
+`main.buri` is required, is not listed in `sources`, and must export `main` with
+the signature [`SPEC.md` §11](../SPEC.md) requires. The bounds `main` declares
+are checked against the platform for each output: a `main` bounded by `Fs` under
+`platform: JS` is a compile error at the entry point, not a runtime failure in a
+browser.
 
 `outputs` is a list because one entry point commonly ships several ways. Each
-entry is a **separate configuration**, so the whole dependency graph is
-tag-checked once per output, and `buri build //cmd/server` may succeed for Linux
-and fail for JS. Address one with `buri build //cmd/server --output=js`.
+entry contributes `platform` and `arch` to a **separate configuration**, so the
+whole dependency graph is tag-checked once per output, and
+`buri build //cmd/server` may succeed for Linux and fail for JS. Build one with
+`buri build //cmd/server --output=js`.
+
+`tags` on a binary mean exactly what they mean on a library — the
+configurations this target accepts — and are covered in [`TAGS.md`](./TAGS.md).
+There is no second tag mechanism for binaries.
 
 A `binary` has no `visibility` field: nothing can depend on a binary. Use
 `buri run` or `buri build`, and if two binaries need shared code, that code is a
@@ -190,7 +254,7 @@ tools/report/
   flags.buri
   test/
     render.buri       <- tests //tools/report
-    flags.buri        <- tests //tools/report:report_cli
+    flags.buri        <- tests //tools/report/main
 ```
 
 ```textproto
@@ -198,38 +262,38 @@ tools/report/
 
 library {
   name: "report"
-  srcs: ["render.buri"]
+  sources: ["render.buri"]
   visibility: ["//visibility:public"]
 
   test {
-    srcs: ["test/render.buri"]
+    sources: ["test/render.buri"]
   }
 }
 
 binary {
   name: "report_cli"
-  srcs: ["flags.buri"]
+  sources: ["flags.buri"]
   tags: ["server"]
   outputs: [{ platform: LINUX, arch: X86_64 }]
 
   test {
-    srcs: ["test/flags.buri"]
+    sources: ["test/flags.buri"]
   }
 }
 ```
 
 Two rules, one directory, one build file. The rules are:
 
-- **The `srcs` sets are disjoint.** Every file belongs to exactly one rule.
+- **The `sources` sets are disjoint.** Every file belongs to exactly one rule.
 - **The binary implicitly depends on the co-located library.** It does not
-  appear in `deps`; a self-edge inside a package would be the only label in the
-  system pointing at itself.
-- **The binary reaches the library only through `./lib`.** `main.buri` may write
-  `from "./lib" import { render };` and may not write `from "./render" import
-  ...`. The library boundary is a property of the library, not of the directory,
-  so it holds even for a file sitting next to it.
+  appear in `dependencies`; a self-edge inside a package would be the only label
+  in the system pointing at itself.
+- **The binary reaches the library only through `//tools/report`.** `main.buri`
+  may import that label — the library's entry point — and may not import
+  `//tools/report/render`. The library boundary is a property of the library,
+  not of the directory, so it holds even for a file sitting next to it.
 - **The library may not reach the binary at all.** `lib.buri` importing
-  `./main` is an error.
+  `//tools/report/main` is an error.
 
 ## Visibility
 
@@ -242,7 +306,6 @@ depending target's package matches at least one of them.
 | `//visibility:private` | Only targets in the same package. |
 | `//lib/...` | Any package under `lib/`, including `lib` itself. |
 | `//lib/money` | That one package. |
-| `//cmd/server:server` | That one target. |
 
 Resolution order for a rule that omits `visibility`: the package's
 `package { default_visibility: ... }`, then `RepoConfig.defaults.visibility`,
@@ -255,10 +318,10 @@ opening surfaces deliberately is the recommended posture, and it is what the
 
 library {
   name: "store"
-  srcs: ["file_store.buri", "codec.buri"]
-  deps: ["//lib/ledger", "//lib/money"]
+  sources: ["codec.buri", "file_store.buri"]
+  dependencies: ["//lib/ledger", "//lib/money"]
   tags: ["server"]
-  visibility: ["//cmd/server:server", "//lib/store/..."]
+  visibility: ["//cmd/server"]
 }
 ```
 
@@ -266,20 +329,20 @@ The diagnostic names the rule that has to change, since that is where the
 decision lives:
 
 ```
-error: //cmd/web:web depends on //lib/store, which is not visible to it
+error: //cmd/web depends on //lib/store, which is not visible to it
   --> cmd/web/BUILD.buri:6:5
    |
  6 |     "//lib/store",
    |     ^^^^^^^^^^^^^
    |
-   = //lib/store is visible to: //cmd/server:server, //lib/store/...
-   = to allow this, add "//cmd/web:web" to visibility in lib/store/BUILD.buri
+   = //lib/store is visible to: //cmd/server
+   = to allow this, add "//cmd/web" to visibility in lib/store/BUILD.buri
 ```
 
 Two edges skip the check, because neither is a dependency anyone chose: a
 target's own test suite reaching the target under test, and a binary reaching
 the library in its own package. Everything else, including a test suite reaching
-a library named in `test.deps`, is checked normally.
+a library named in `test.dependencies`, is checked normally.
 
 Visibility is checked on the **declared edge**, not transitively. If `//cmd/web`
 depends on `//lib/ledger` and `//lib/ledger` depends on `//lib/store`, then
@@ -290,30 +353,32 @@ than the edge.
 
 ## Dependencies
 
-- `deps` lists **libraries only**. A binary is not a valid dependency.
-- **Use is what requires a dep, and an import is not the only way to use.**
-  A method resolves through its receiver's type rather than through scope, so
+- `dependencies` lists **libraries only**, and a label there always resolves to
+  one. A binary is not a valid dependency.
+- **Use is what requires a dep, and an import is not the only way to use.** A
+  method resolves through its receiver's type rather than through scope, so
 
   ```buri
   from "//lib/ledger" import { Entry };
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —
   // no import names //lib/money, and this target still depends on it.
-  fn line(e: Entry, ctx: { alloc: Alloc, .. }): Str { e.amount.format(ctx) }
+  fn line<C: Alloc>(e: Entry, ctx: C): Str { e.amount.format(ctx) }
   ```
 
-  requires `//lib/money` in `deps` as much as an import would. Dependencies are
-  direct: a library you use is one you declare, whether or not something else in
-  the graph also happens to pull it in.
-- `core/*` is part of the toolchain and is never listed. It is available to
+  requires `//lib/money` in `dependencies` as much as an import would.
+  Dependencies are direct: a library you use is one you declare, whether or not
+  something else in the graph also happens to pull it in.
+- `core/*` ships with the toolchain and is never listed. It is available to
   every target, and the purity tiers in [`SPEC.md` §11.1](../SPEC.md) already
   govern what any given import of it can do.
 - **Cycles are an error**, at the package level exactly as at the module level.
   The diagnostic prints the cycle in the order the edges were declared.
-- **Every dep must be used, and every use must have a dep.** Using
-  `//lib/money` with no matching entry in `deps` is an error at the use site; a
-  `deps` entry no source uses is an error at the build file. Both are
-  errors and not warnings, because both make the dependency graph a description
-  of something other than the code, and `buri gen` fixes either in one command.
+- **Every entry must be used, and every use must have an entry.** Using
+  `//lib/money` with nothing matching in `dependencies` is an error at the use
+  site; a `dependencies` entry no source uses is an error at the build file.
+  Both are errors and not warnings, because both make the dependency graph a
+  description of something other than the code, and `buri gen` fixes either in
+  one command.
 
 ```
 error: cmd/server/routes.buri imports //lib/money, which is not in deps
@@ -328,12 +393,14 @@ error: cmd/server/routes.buri imports //lib/money, which is not in deps
 
 ## Generated build files
 
-`buri gen //lib/money` rewrites `srcs`, `deps`, `test.srcs`, and `test.deps`
-from what the sources actually contain, and touches nothing else. It requires
-the `BUILD.buri` to already exist with the rule blocks and their `name` fields —
-it never invents a target, because deciding that a directory should become a
-library is a design decision and inferring it from the presence of a file is how
-a repository ends up with two hundred libraries nobody chose. A stub is enough:
+`buri gen //lib/money` rewrites `sources`, `dependencies`, `test.sources`,
+`test.dependencies`, `testing.sources`, and `testing.dependencies` from what the
+sources actually contain, and touches nothing else. It
+requires the `BUILD.buri` to already exist with the rule blocks and their `name`
+fields — it never invents a target, because deciding that a directory should
+become a library is a design decision, and inferring it from the presence of a
+file is how a repository ends up with two hundred libraries nobody chose. A stub
+is enough:
 
 ```textproto
 library { name: "money" }
