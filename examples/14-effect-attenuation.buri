@@ -17,6 +17,7 @@
 from "core/fs" import * as fs;
 from "core/fs" import { IoError };
 from "core/cap" import { Alloc, Fs, Rand, Stdout, Region };
+from "core/host" import * as host;
 
 // ---------------------------------------------------------------------------
 // Static confinement
@@ -156,7 +157,14 @@ fn threeRolls(g: Seeded): ([Int], Seeded) {
   ([a, b, c], g3)
 }
 
-export fn main<C: Alloc + Fs + Rand + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Fs:     host.fs,
+    Rand:   host.rand,
+    Stdout: host.stdout,
+  };
+
   // Hand out narrowed contexts once, at the top of the program.
   let reader = readOnly(ctx);
   let scoped = scopeTo(ctx, "/etc/app/");

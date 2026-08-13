@@ -4,6 +4,7 @@
 // They have no methods. Functions that operate on a struct are just functions.
 
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Point {
   x: F64,
@@ -73,7 +74,12 @@ fn describe(p: Point): Str {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let a = origin();
   let b = translate(a, 3.0, 4.0);
 

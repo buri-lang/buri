@@ -37,7 +37,7 @@ cut; Section 15 records why.
 ```buri
 from "core/io" import * as io;
 from "core/list" import * as list;
-from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Point {
   x: Float,
@@ -60,8 +60,15 @@ fn area(self: Shape): Float {
   }
 }
 
-// Takes a context, so it may allocate and print.
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+// `main` builds the one context the program has. Its bindings are the program's
+// complete effect budget: no `Fs` here, so nothing this program transitively
+// calls can open a file.
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, area).sum();
   let _ = io.println(ctx, "total area: ${total}");
@@ -117,15 +124,20 @@ that depends on capitalization is a parser that depends on convention:
 
 ### 3.4 Keywords
 
-`as` `const` `crash` `ctx` `derive` `effect` `else` `enum` `export` `false`
-`fn` `for` `from` `if` `impl` `import` `let` `match` `self` `Self` `struct`
-`test` `trait` `true` `type`
+`as` `const` `context` `crash` `ctx` `derive` `effect` `else` `enum` `export`
+`false` `fn` `for` `from` `if` `impl` `import` `let` `match` `self` `Self`
+`struct` `test` `trait` `true` `type`
 
 `for` appears only in `impl ... for ...` and `derive ... for ...`. `self` is
-legal only as a method's first parameter and `ctx` only as the parameter after
-it (Section 10.2); `Self` only inside a trait or `impl`. `test` is reserved
-everywhere, so no function may be named `test`, but a `test` declaration is
-legal only in a test source (Section 11.2).
+legal only as a method's first parameter; `Self` only inside a trait or `impl`.
+`test` is reserved everywhere, so no function may be named `test`, but a `test`
+declaration is legal only in a test source (Section 11.2). `context` is likewise
+reserved everywhere, but a `context` declaration or expression is legal only
+where Section 11.3 says.
+
+`ctx` is legal as the parameter after `self` (Section 10.2), and — because that
+is where contexts are built — as a `let` binding name inside `main`'s body, a
+test source, or a test-only module. Nowhere else.
 
 `assert` is **not** a keyword. Assertions are an ordinary module,
 `core/testing/assert`, imported like any other — which is also what lets
@@ -241,6 +253,11 @@ covers `"core/testing/assert"`, `"core/testing/context"`, a library's own
 utilities-for-testing-it at `"//lib/money/testing"`, and a whole package of
 shared fixtures at `"//lib/testing/fakes"` — one rule, visible in the import
 line, with nothing to declare.
+
+One module is reserved the other way: **`"core/host"`**, the platform's
+implementations of the effects it grants, is importable only from the module
+that exports `main` (Section 10.3). The two restrictions are the same shape, and
+between them they name every place in a program where authority can enter.
 
 None of this applies to method calls. `sq.area()` resolves through the receiver's
 type rather than through scope (Section 6.7.3), so a type's own operations are
@@ -1210,13 +1227,12 @@ no context parameter. What a context-free function cannot do is *observe* or
 | Inferred variant | `.Some(x)`, `.Empty` |
 | Struct | `User { id, name: n }`, `User { id, .. }` |
 | Tuple struct | `Meters(m)` |
-| Record | `{ alloc, fs }`, `{ host, .. }` |
 | Tuple | `(a, b)` |
 | Array | `[]`, `[x]`, `[first, ..rest]` |
 | Or | `.Circle(_) | .Empty` |
 
-Record and struct patterns support field shorthand: `{ alloc, fs }` binds `alloc`
-and `fs`. A `..` at the end ignores remaining fields; without it, a struct pattern
+Struct patterns support field shorthand: `User { id, name }` binds `id` and
+`name`. A `..` at the end ignores remaining fields; without it, a struct pattern
 must mention every field.
 
 Array rest patterns bind only at the end: `[first, ..rest]` is legal,
@@ -1433,6 +1449,12 @@ effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
 attenuation wrappers of Section 10.8. Outside those two places, effects arrive
 through `ctx`.
 
+There is exactly one construct in which more than one effect-carrying value may
+appear, and it is the `context` expression of Section 11.3 — the place where a
+context is assembled out of the implementations that make it up. Everywhere
+else, capabilities travel through a single `ctx` parameter or an
+effect-carrying `self`.
+
 The rule costs a little flexibility — a function cannot take two independent
 contexts; bundle them into one type instead — and buys the property the chapter
 rests on:
@@ -1445,18 +1467,32 @@ and stop. You never scan a signature.
 
 ### 10.3 Where effects come from
 
-The platform. It provides one concrete type implementing the effects it
-grants, and hands it to `main`:
+The platform. `core/host` exports one value per effect the platform grants —
+`host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`, `host.net`,
+`host.clock`, `host.rand`, `host.env`, `host.proc` — and it is importable only
+from the module that exports `main`. `main` assembles them into the one context
+the program has:
 
 ```buri
-export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<(), Str> { ... }
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Fs:     host.fs,
+  };
+  ...
+}
 ```
 
-If `main` requests an effect the platform does not implement, the program does
-not compile. A program that never names `Net` in `main`'s bounds cannot open a
-socket anywhere in its transitive call graph — not in a dependency, not in a
-build script, not by accident, because nothing anywhere can obtain a value
-bounded by `Net`.
+The form is Section 11.3. What matters here is what it makes true: a program
+that never names `host.net` cannot open a socket anywhere in its transitive call
+graph — not in a dependency, not in a build script, not by accident, because
+nothing anywhere can obtain a value bounded by `Net`. The effect budget is the
+set of `host` members reachable from `main`'s context, and a platform that does
+not grant an effect simply does not export it, so requesting one is an ordinary
+unresolved-name error at the one line that asked for it.
 
 Note what is *not* claimed: a effect is an ordinary interface, so
 anyone may write a type that satisfies it.
@@ -1473,14 +1509,21 @@ testing free (Section 10.8).
 ### 10.4 What "pure" means
 
 > **Purity theorem.** If a function has no `ctx` parameter, no
-> effect-carrying `self`, and captures no effect-carrying value, then any
-> two evaluations on equal arguments produce
+> effect-carrying `self`, captures no effect-carrying value, and constructs no
+> context, then any two evaluations on equal arguments produce
 > equal results, perform no observable effect, and may be freely cached,
 > reordered, or eliminated.
 
 Top-level functions capture nothing but other top-level declarations, which are
 themselves effect-free, so for a top-level `fn` the theorem reduces to: *is
 there a `ctx` parameter?*
+
+The last clause exists because `main` has no parameters and is plainly not pure:
+it builds a context and uses it. It is not a hole. A context may be constructed
+only in `main`'s body, in a test source, or in a test-only module (Section
+11.3), and none of those is a function anybody calls from library code — `main`
+is the entry point, and a test source may not be imported. So in all ordinary
+code the clause is vacuous, and the useful form of the theorem is unchanged.
 
 Two consequences worth naming:
 
@@ -1563,7 +1606,8 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): {} {
   // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
 }
 
-export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
   let _ = logOnly(ctx, "starting");      // same value, confined by its bound
   .Ok(())
 }
@@ -1604,42 +1648,64 @@ effect-carrying parameter.
 
 ### 10.9 Testing
 
-A pure function needs no harness. An effectful one is tested by passing a context
-that satisfies the same effects and does something else — and because effects are
-ordinary interfaces, writing one is writing a struct with methods. The call site
-does not change, because there was never a global to stub.
+A pure function needs no harness. An effectful one is tested by building a
+context out of different implementations — and because effects are ordinary
+interfaces, writing one is writing a struct with methods. The call site does not
+change, because there was never a global to stub.
 
 ```buri
 struct FakeFs { export files: [(Str, Str)] }
 
-fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
-  match (self.files.find(fn(e) => e.0 == path)) {
-    .Some(entry) => .Ok(entry.1),
-    .None => .Err(.NotFound),
+impl Fs for FakeFs {
+  fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
+    match (self.files.find(fn(e) => e.0 == path)) {
+      .Some(entry) => .Ok(entry.1),
+      .None => .Err(.NotFound),
+    }
+  }
+  fn writeFile(self: FakeFs, path: Str, body: Str): Result<(), IoError> {
+    .Err(.ReadOnly)
   }
 }
 
+// context { Alloc: testing.alloc(), Fs: FakeFs { files: [...] } }
 // loadConfig<C: Alloc + Fs> accepts it with no changes anywhere.
 ```
 
-The harness around that — where tests live, how they are declared, and the
-context the runner hands them — is Section 11.2.
+The harness around that — where tests live, how they are declared, and how they
+build a context — is Sections 11.2 and 11.3.
 
 ## 11. Programs
 
 A program is a module that exports `main`:
 
 ```buri
-export fn main<C: Alloc + Stdout + Env>(ctx: C): Result<(), Str>
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Env:    host.env,
+  };
+  ...
+}
 ```
 
-- `main` must take exactly one parameter, `ctx`, whose type is a parameter
-  bounded by the effects the program needs.
+- `main` must take no parameters and declare no generic parameters.
 - `main` must return `Result<(), Str>`.
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-- The bounds are the program's complete effect budget. The platform supplies one
-  value satisfying them; if it cannot satisfy one, the program does not
-  compile.
+- `main`'s body is the only place in a program where a context may be
+  constructed (Section 11.3), and `core/host` is importable only by the module
+  that declares it. The context `main` builds is the program's complete effect
+  budget.
+
+`main` receives nothing and mints what it needs, which is why it is not itself
+worth testing: there is no fake to pass it. Logic that wants a test goes in a
+function `main` calls, which takes an ordinary bounded `ctx` and does not care
+where it came from — the pressure to push work behind the entry point is
+deliberate, and it is the same pressure the build system applies to a binary's
+surface ([`build-system/TESTING.md`](./build-system/TESTING.md)).
 
 ### 11.1 Standard library sketch
 
@@ -1684,6 +1750,7 @@ one value rather than a new collection.
 | Module | Needs | Functions |
 |---|---|---|
 | `core/cap` | — | the effect declarations themselves |
+| `core/host` | — | `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — the platform's implementations, importable only by the module exporting `main` |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
 | `core/fs` | `Fs` | `readText`, `writeText`, `exists`, `listDir`, and the `IoError` type |
 | `core/net/http` | `Net` | `get`, `post`, `Request`, `Response`, `errorText` |
@@ -1700,7 +1767,7 @@ higher-order code is written given the capture rule of Section 10.5.
 | Module | Provides |
 |---|---|
 | `core/testing/assert` | `eq`, `notEq`, `isTrue`, `isFalse`, `fail`, `ok`, `err`, `some` |
-| `core/testing/context` | `context`, and the builders that narrow or populate it |
+| `core/testing/context` | one implementation per effect — `alloc`, `captureOut`, `captureErr`, `stdin`, `files`, `data`, `readOnly`, `noNet`, `clockAt`, `randSeed`, `envOf` — and the `Hermetic` context that binds them |
 
 ### 11.2 Tests
 
@@ -1715,10 +1782,10 @@ file ([`build-system/TESTING.md`](./build-system/TESTING.md)).
 ```buri
 from "//lib/money" import { fromCents };
 from "core/testing/assert" import * as assert;
-from "core/testing/context" import { context };
+from "core/testing/context" import { Hermetic };
 
 test "pads the cents place" {
-  let ctx = context();
+  let ctx = Hermetic();
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 ```
@@ -1729,24 +1796,30 @@ test names are prose, and encoding prose in an identifier produces
 takes no parameters and returns nothing: it passes unless an assertion in it
 fails.
 
-A test that needs a context builds one. `core/testing/context` is a **platform
-module** — the test runner's platform — and `context()` is the one place in the
-language where a context is created rather than received:
+A test that needs a context builds one, with the same form `main` uses (Section
+11.3). `core/testing/context` is a **platform module** — the test runner's
+platform — and it exports one implementation per effect rather than one
+pre-assembled world:
 
-```buri
-let ctx = context();                          // Alloc, and hermetic fakes
-let ctx = context().withFiles([("a.txt", "hi")]);   // in-memory Fs contents
-let ctx = context().withArgs(["--verbose"]);        // Env
-```
+| Member | Effect | What it does |
+|---|---|---|
+| `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
+| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured. Printed only for a failing test. |
+| `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
+| `data()` | `Fs` | In-memory, rooted at the package directory, containing exactly `test { data: [...] }`. |
+| `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |
+| `readOnly(F)` | `Fs` | Wraps an `Fs` so every write fails. |
+| `noNet()` | `Net` | Refuses every connection. |
+| `clockAt(Int)` | `Clock` | Starts at that instant and advances only when the test advances it. |
+| `randSeed(Int)` | `Rand` | Seeded, so a failure reproduces. |
+| `envOf([(Str, Str)], [Str])` | `Env` | These variables and these arguments. |
+| `Hermetic` | — | A context binding all of the above at hermetic defaults. |
 
-Its effects are real where they can be (`Alloc`), captured where they are
-observable (`Stdout`, `Stderr`), fixed where they would otherwise vary
-(`Clock` starts at a constant, `Rand` is seeded from the test's name), and
-refusing where they would leave the machine (`Net`). Because a `testing` path
-may be imported only by a test source, nothing in a shipped program can obtain
-one.
-Effects are ordinary interfaces (Section 10.9), so a test needing behavior the
-runner does not provide writes a struct with methods and passes that instead.
+Because a `testing` path may be imported only by a test source, nothing in a
+shipped program can obtain any of them. And because effects are ordinary
+interfaces (Section 10.9), a test needing behavior the runner does not provide
+writes a struct with methods and binds that instead — there is no distinction
+between the runner's implementations and yours.
 
 #### 11.2.1 `core/testing/assert`
 
@@ -1773,7 +1846,7 @@ The first four return `()`; the last three return a value, and are how a
 
 ```buri
 test "reads the config it wrote" {
-  let ctx = context();
+  let ctx = Hermetic();
   assert.ok(fs.writeText(ctx, "cfg", "port=8080"));   // returns (), so a statement
   let text = assert.ok(fs.readText(ctx, "cfg"));      // returns Str, so a binding
   assert.eq(text, "port=8080");
@@ -1810,6 +1883,99 @@ Three static rules, all checked:
   helpers are ordinary library code.
 - An expression statement is legal only in a test source, and only when its type
   is `()`.
+
+### 11.3 Contexts
+
+A context is built by naming each effect it provides and the value that
+implements it. There is one form, and `main` and a test use the same one.
+
+**As an expression**, anonymous:
+
+```buri
+let ctx = context {
+  Alloc:  host.alloc,
+  Stdout: host.stdout,
+  Fs:     rooted(host.fs, "/srv/app"),
+};
+```
+
+**As a declaration**, named — so a fixture can be shared by every test in a file,
+or exported from a test-only module and shared across files:
+
+```buri
+context Hermetic {
+  Alloc:  alloc(),
+  Stdout: captureOut(),
+  Stderr: captureErr(),
+  Fs:     data(),
+  Net:    noNet(),
+  Clock:  clockAt(0),
+  Rand:   randSeed(0),
+  Env:    envOf([], []),
+}
+```
+
+A named context is **constructed by calling it** — `Hermetic()` — and each call
+builds a fresh one. The parentheses are not decoration: a test's `Fs` and its
+captured `Stdout` accumulate what the test does to them, so two tests sharing
+one value would share its state. A context declaration takes no parameters; what
+varies between call sites is expressed by overriding, not by arguments.
+
+**Either form may begin with a spread**, which takes every binding from another
+context and lets the ones that follow replace them:
+
+```buri
+context Fixture {
+  ..Hermetic(),
+  Fs: files([("config.toml", "port=8080")]),
+}
+
+test "rejects a port above 65535" {
+  let ctx = context { ..Fixture(), Fs: files([("config.toml", "port=99999")]) };
+  let e = assert.err(loadConfig(ctx, "config.toml"));
+  assert.eq(e, ConfigError.PortOutOfRange);
+}
+```
+
+So a file may declare one context for all of its tests, a test may build its
+own, and either may start from another and change one line.
+
+**Where a context may be built:**
+
+| | `context` declaration | Constructing one |
+|---|---|---|
+| The module exporting `main` | yes | only inside `main`'s body |
+| A test source | yes | anywhere in the file |
+| A test-only module (a `testing` path segment) | yes, and may be exported | anywhere in the file |
+| Anywhere else | no | no |
+
+That table is the whole restriction, and between it and `core/host`'s import
+rule (Section 4.1.1) it is the reason the purity theorem's last clause is
+vacuous in ordinary code. Neither a `context` expression nor a call to a named
+context may appear inside a lambda, even where both are otherwise legal; without
+that, a closure could mint authority and Section 10.6 would not mean what it
+says.
+
+**What is checked:**
+
+- Every binding's left side names a declared effect, and no effect is bound
+  twice — counting a spread, whose bindings an explicit one replaces rather than
+  duplicates.
+- Every binding's right side is a value whose type implements that effect
+  (ordinary nominal conformance, Section 5.12.1).
+- The constructed value satisfies exactly the effects bound and nothing else, so
+  it is accepted by any `<C: ...>` naming a subset of them and rejected by any
+  naming more.
+
+A context's type is generated, has no name, and is never written down. Contexts
+flow only into `ctx` parameters, which are bounded by effects rather than typed
+by a context, so there is nothing to spell — which is why this does not
+reintroduce the structural records of Section 5.5.
+
+The bindings use `:` rather than `=` for the same reason struct literals do: a
+brace-delimited list of `Name: value` pairs is a shape the language already has.
+What differs is that the name on the left is an effect rather than a field,
+which is visible in its case.
 
 ---
 
@@ -1922,6 +2088,16 @@ so "is this a method?" is answered by the parser, not by comparing types against
 a rule about argument order. `impl`, `derive`, and `trait` likewise each begin
 with a distinct keyword, keeping top-level parsing a switch on one token.
 
+**12.18 `context` is a keyword, and its two forms differ at one token.**
+`context Name { ... }` is a declaration and `context { ... }` is an expression,
+told apart by whether an IDENT or a `{` follows — one token of lookahead, no
+name resolution. The expression is brace-terminated and self-delimiting, so it
+joins `{}`, `if`, and `match` as a block-like operand under 12.11 and 12.13.
+Reusing struct-literal syntax (`Ctx { Alloc: ... }`) instead would have needed a
+declared type to name, and the whole point is that a context's type is never
+written (Section 11.3). *Cost:* one keyword, which no program could have used as
+an identifier anyway once contexts existed.
+
 Two lexical warts remain and are accepted:
 
 - `t.0.1` lexes as `t` `.` `0.1`. Write `(t.0).1`.
@@ -1994,7 +2170,7 @@ afterward:
 3. `match` must be exhaustive, and no arm may be unreachable.
 4. Or-pattern alternatives must bind identical names at identical types.
 5. Array rest patterns appear only in final position; at most one per pattern.
-6. Record type field names, struct field names, enum variant names, and match-arm
+6. Struct field names, enum variant names, context bindings, and match-arm
    pattern bindings must each be unique within their scope.
 8. A lambda may not capture a effect-carrying value (Section 10.6).
 9. Opaque types may not be constructed or destructured outside their defining
@@ -2030,35 +2206,49 @@ Methods and traits:
     enum) to satisfy the derived trait.
 24. A generic parameter's bounds must name declared traits. Inside the function,
     only the methods those traits declare are callable on that parameter.
-25. Record *types* may not carry `export` on their fields — visibility is a
-    property of nominal declarations, not of structural types.
 
 Capabilities:
 
-26. `ctx` may appear only as a function's first parameter, or the parameter
-    immediately after `self`.
-27. A effect-carrying parameter must be `self` or `ctx`, at most one of each
+25. `ctx` may appear only as a function's first parameter, the parameter
+    immediately after `self`, or a `let` binding name where a context may be
+    constructed (Section 11.3).
+26. A effect-carrying parameter must be `self` or `ctx`, at most one of each
     (Section 10.2). A type is effect-carrying if it is a type variable with a
-    effect bound, or any type mentioning one.
-28. `effect` declarations may appear only in platform modules, and no type may
+    effect bound, or any type mentioning one. A `context` expression is the only
+    construct in which more than one effect-carrying value may appear.
+27. `effect` declarations may appear only in platform modules, and no type may
     implement both an effect and a trait.
-29. `impl` and `derive` may not be exported, and may appear only in the defining
+28. `impl` and `derive` may not be exported, and may appear only in the defining
     module of the type they name.
-30. Numeric literals, conversions, and comparisons are ordinary methods; there is
+29. Numeric literals, conversions, and comparisons are ordinary methods; there is
     no cast operator.
-31. `main` has the signature required by Section 11.
+30. `main` has the signature required by Section 11: no parameters, no generic
+    parameters, returning `Result<(), Str>`.
+
+Contexts (Section 11.3):
+
+31. A `context` declaration may appear only in the module exporting `main`, in a
+    test source, or in a test-only module, and may be exported only from a
+    test-only module.
+32. A context may be *constructed* — by a `context` expression, or by calling a
+    named context — only inside `main`'s body, in a test source, or in a
+    test-only module. Never inside a lambda.
+33. Each binding's left side names a declared effect, bound at most once across
+    the spread and the explicit bindings; each right side's type must implement
+    that effect. The result satisfies exactly the effects bound.
+34. `"core/host"` is importable only from the module that exports `main`.
 
 Modules and tests:
 
-32. A module path is `"core/..."` or `"//..."`. A relative path is an error, as
+35. A module path is `"core/..."` or `"//..."`. A relative path is an error, as
     is a `//` path the build system does not make visible to the importing
     target (Section 4.1.1). A path containing a `testing` segment is importable
     only from a test source.
-33. A re-export may name only what its module path exports, and `export *` is
+36. A re-export may name only what its module path exports, and `export *` is
     not derivable.
-34. `test`, and imports of test-only paths, may appear only in a test source. A
+37. `test`, and imports of test-only paths, may appear only in a test source. A
     test source may not `export`, and may not be imported.
-35. An expression statement is legal only in a test source, and only when its
+38. An expression statement is legal only in a test source, and only when its
     type is `()`.
 
 ## 15. Non-goals and open questions

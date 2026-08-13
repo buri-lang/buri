@@ -6,6 +6,7 @@
 from "core/str" import * as str;
 from "core/list" import * as list;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Shape {
   Empty,
@@ -102,7 +103,12 @@ fn partition(e: Either<Int, Str>): Str {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let shapes = constructing();
   let total = shapes.fold(fn(acc, s) => acc + area(s), 0.0);
 

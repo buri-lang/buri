@@ -1,4 +1,5 @@
 from "core/cap" import { Alloc, Env, Stdout };
+from "core/host" import * as host;
 from "core/env" import * as env;
 
 from "//lib/ledger" import { entry };
@@ -14,7 +15,13 @@ from "//tools/report/flags" import { parseFlags };
 // in this directory.
 from "//tools/report" import { render };
 
-export fn main<C: Alloc + Stdout + Env>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Env:    host.env,
+  };
+
   let flags = parseFlags(env.args(ctx));
   let entries = [
     entry("coffee", fromCents(450)),

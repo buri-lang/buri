@@ -6,7 +6,7 @@ compiler exists.
 
 | File | What it covers |
 |---|---|
-| [`01-hello.buri`](./01-hello.buri) | The smallest program; what `main`'s context means |
+| [`01-hello.buri`](./01-hello.buri) | The smallest program; how `main` builds its context |
 | [`02-literals-and-primitives.buri`](./02-literals-and-primitives.buri) | Numbers, strings, chars, operators, `Template` vs `Str` |
 | [`03-functions.buri`](./03-functions.buri) | Declarations, lambdas, function types, turbofish |
 | [`04-structs.buri`](./04-structs.buri) | Nominal structs, tuple structs, functional update |
@@ -53,9 +53,11 @@ what it can do.
   `<T: Ord + Show>`; there is one constraint mechanism in the language.
 - **Everything is nominal.** No records, no structural conformance — every type
   has a declaration and every `impl` is written down.
-- **`..` on context types.** Write the minimum you need and let row
-  polymorphism accept richer contexts. Close the record (no `..`) at `main` when
-  you want an exact grant.
+- **Contexts are built in `main`, and nowhere else in a program.** `main` takes
+  no parameters; it binds each effect it wants to an implementation from
+  `core/host` and passes the result down. A test does the same thing with the
+  test runner's implementations. Everything in between is generic over `<C: ...>`
+  and never learns where its context came from.
 - **Effect calls are bound with `let _ =`.** There are no expression statements.
 - **`.Variant` over `Enum.Variant`** where the expected type is known.
 - **No `Result` is ever discarded.** `Result` is must-use, so every `let _ =` in

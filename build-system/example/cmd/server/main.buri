@@ -3,6 +3,7 @@
 // rule lib.buri follows for a library.
 
 from "core/cap" import { Alloc, Env, Fs, Stdout };
+from "core/host" import * as host;
 from "core/env" import * as env;
 
 from "//lib/ledger" import { entry };
@@ -15,10 +16,18 @@ from "//cmd/server/routes" export { Route, route };
 
 from "//cmd/server/routes" import { route };
 
-/// The bounds are this program's complete effect budget. Under `platform: JS`
-/// this same signature would fail to build: a browser platform has no `Fs` to
-/// grant, and the error lands here rather than at runtime.
-export fn main<C: Alloc + Stdout + Fs + Env>(ctx: C): Result<(), Str> {
+/// The context is this program's complete effect budget. Under `platform: JS`
+/// this same body would fail to build: a browser platform's `core/host` has no
+/// `fs` to export, so `host.fs` does not resolve — and the error lands on that
+/// line rather than at runtime.
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Fs:     host.fs,
+    Env:    host.env,
+  };
+
   let path = env.get(ctx, "LEDGER_LOG") ?? "ledger.log";
   let hit = route("/entries");
 

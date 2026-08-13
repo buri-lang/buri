@@ -2,10 +2,11 @@
 //
 // This is the example to read if you read only one.
 //
-// An effect is an interface only the platform implements. A context is a value
-// bounded by the effects a function needs. A function that was not handed
-// a effect cannot perform the corresponding effect — not directly, not
-// through a helper, not through a dependency.
+// An effect is an interface. A context is a value that implements a set of
+// them, built in `main` out of what `core/host` grants and passed down from
+// there. A function that was not handed a effect cannot perform the
+// corresponding effect — not directly, not through a helper, not through a
+// dependency.
 //
 // Purity is therefore not a keyword and not an inferred annotation. It is the
 // absence of a parameter, and you can check it by looking at the signature.
@@ -16,6 +17,7 @@ from "core/str" import * as str;
 from "core/time" import * as time;
 from "core/random" import * as random;
 from "core/cap" import { Alloc, Clock, Rand, Stdout };
+from "core/host" import * as host;
 
 // ---------------------------------------------------------------------------
 // TIER 1: PURE
@@ -122,7 +124,14 @@ fn deterministicPipeline<C: Alloc>(ctx: C, xs: [F64]): [F64] {
   normalize(ctx, xs)
 }
 
-export fn main<C: Alloc + Clock + Rand + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Clock:  host.clock,
+    Rand:   host.rand,
+    Stdout: host.stdout,
+  };
+
   let temps: [F64] = [12.0, 18.5, 21.0, 9.5];
 
   let word = "racecar";

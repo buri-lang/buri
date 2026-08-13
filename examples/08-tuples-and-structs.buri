@@ -9,6 +9,7 @@
 // why struct literals get field shorthand.
 
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 // --- Tuples -----------------------------------------------------------------
 
@@ -111,7 +112,12 @@ fn describeHost<T: HasHost>(thing: T): Str {
   thing.host()
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let (q, r) = divMod(17, 5);
   let flipped = swap((1, "one"));
   let cfg = defaultConfig().withPort(9090);

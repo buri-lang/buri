@@ -7,6 +7,7 @@
 from "core/list" import * as list;
 from "core/bits" import * as bits;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Point { export x: Int, export y: Int }
 derive Eq for Point;   // `==` on a struct is opt-in
@@ -209,7 +210,20 @@ fn floatsAndTuples(t: (Int, (Int, Int))): Int {
   outer + inner
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+// --- 12.18 `context` has two forms, told apart by one token -------------------------
+//
+// `context Name { ... }` is a declaration and `context { ... }` is an
+// expression; an IDENT or a `{` after the keyword decides which. The expression
+// is brace-terminated, so it is a block-like operand — and, like every other
+// one, it cannot head a postfix chain. Where either may appear is a static
+// rule, not a grammar one: in a program, only `main`'s body.
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let p = Point { x: 3, y: 4 };
 
   let _ = ctx.println("conditions   = ${conditions(p)}");

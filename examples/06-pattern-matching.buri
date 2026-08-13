@@ -5,6 +5,7 @@
 
 from "core/list" import * as list;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Point { x: Int, y: Int }
 struct Meters(F64);
@@ -141,7 +142,12 @@ fn destructuring(p: Point, pair: (Int, Str)): Int {
   x + y + n
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let p = Point { x: 3, y: -2 };
   let _ = ctx.println("classify(-5)  = ${classify(-5)}");
   let _ = ctx.println("token         = ${tokenText(Token.Symbol(';'))}");

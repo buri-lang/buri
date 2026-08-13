@@ -8,6 +8,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/order" import * as order;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 // --- Pure: no context parameter, therefore no allocation, no effects --------
 
@@ -49,7 +50,12 @@ fn descending<C: Alloc>(ctx: C, xs: [Int]): [Int] {
   xs.sortBy(ctx, order.reverse(order.int))
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   // An array literal has a statically known length, so it is not an
   // allocation the programmer has to account for.
   let xs: [Int] = [5, 3, 9, 1, 4, 8];

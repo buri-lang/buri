@@ -17,6 +17,7 @@
         devShells.default = pkgs.mkShellNoCC {
           packages = [
               pkgs.cargo
+              pkgs.bun
           ];
         };
       }

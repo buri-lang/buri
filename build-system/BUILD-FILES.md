@@ -232,10 +232,11 @@ binary {
 ```
 
 `main.buri` is required, is not listed in `sources`, and must export `main` with
-the signature [`SPEC.md` §11](../SPEC.md) requires. The bounds `main` declares
-are checked against the platform for each output: a `main` bounded by `Fs` under
-`platform: JS` is a compile error at the entry point, not a runtime failure in a
-browser.
+the signature [`SPEC.md` §11](../SPEC.md) requires: no parameters, returning
+`Result<(), Str>`. It is also the only module in the binary that may import
+`core/host`, and the context it builds there is checked against the platform for
+each output — a `main` binding `Fs: host.fs` under `platform: JS` is an
+unresolved name at the entry point, not a runtime failure in a browser.
 
 `outputs` is a list because one entry point commonly ships several ways. Each
 entry names a platform, and the whole dependency graph is checked against it

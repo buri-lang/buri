@@ -8,6 +8,7 @@ from "core/list" import * as list;
 from "core/result" import * as result;
 from "core/option" import * as option;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Config {
   host: Str,
@@ -103,7 +104,12 @@ fn asStringError(r: Result<Config, ConfigError>): Result<Config, Str> {
   r.mapErr(fn(e) => errorText(e))
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let good: [(Str, Str)] = [("host", "example.com"), ("port", "8080")];
   let bad: [(Str, Str)] = [("host", "example.com"), ("port", "not-a-number")];
   let outOfRange: [(Str, Str)] = [("host", "h"), ("port", "99999")];

@@ -1,14 +1,20 @@
 // 01 — Hello, world
 //
-// The smallest complete Buri program. Read `main`'s signature as a request:
-// "give me a heap allocator and standard output, and nothing else."
-// The platform grants exactly that. Nothing in this program's transitive call
-// graph can open a file or a socket, because no file or socket effect was
-// ever handed to it.
+// The smallest complete Buri program. `main` takes no arguments: it builds the
+// one context the program has, out of the implementations `core/host` grants.
+// Those four lines are the whole effect budget — nothing in this program's
+// transitive call graph can open a file or a socket, because no file or socket
+// effect was ever put in the context.
 
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   // Effect calls are ordinary calls. They produce a value ({} here), so they
   // are bound with `let` — Buri has no expression statements.
   let _ = ctx.println("Hello, world!");

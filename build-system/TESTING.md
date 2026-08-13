@@ -6,8 +6,9 @@ test-only source directory outside the package, and no way to test a private
 function directly.
 
 The language side of this — the `test` declaration, `core/testing/assert`, and
-`context()` — is [`SPEC.md` §11.2](../SPEC.md). This document is the build
-system's half: where tests live, what they may import, and how they run.
+the `context` form — is [`SPEC.md` §11.2 and §11.3](../SPEC.md). This document
+is the build system's half: where tests live, what they may import, and how they
+run.
 
 ```
 lib/money/
@@ -45,10 +46,10 @@ into the library.
 
 from "//lib/money" import { fromCents, fromDollars };
 from "core/testing/assert" import * as assert;
-from "core/testing/context" import { context };
+from "core/testing/context" import { Hermetic };
 
 test "pads the cents place" {
-  let ctx = context();
+  let ctx = Hermetic();
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 
@@ -60,12 +61,12 @@ test "addition composes" {
 A test takes no parameters and returns nothing. It passes unless an assertion in
 it fails, and a failing assertion ends that test and no other.
 
-A test that needs a context builds one — `context()` is the one place in
-the language where a context is created rather than received, which is why
-`core/testing/context` is importable only from a test source. A pure assertion,
-like the second one above, needs no context at all, and the fact that you can see which
-is which from the test body is the point of the effect system showing up here
-too.
+A test that needs a context builds one, with the same `context` form `main` uses
+— a test source and `main`'s body are the only places in the language where a
+context is created rather than received, which is why `core/testing/context` is
+importable only from a test source. A pure assertion, like the second one above,
+needs no context at all, and the fact that you can see which is which from the
+test body is the point of the effect system showing up here too.
 
 `core/testing/assert` is an ordinary module — the name `assert` comes from
 `import * as assert`, and nothing stops a file calling it something else.
@@ -148,6 +149,14 @@ export fn sample(): [Entry] {
     entry("books", fromDollars(32)),
   ]
 }
+
+/// A context whose filesystem already holds a ledger, for suites that would
+/// otherwise write the same three lines. A `context` declaration may be
+/// exported only from a path with a `testing` segment ([`SPEC.md` §11.3]).
+export context WithLedger {
+  ..Hermetic(),
+  Fs: files([("ledger.log", "coffee\t\$4.50\n")]),
+}
 ```
 
 ```textproto
@@ -168,7 +177,7 @@ library {
 
 ```buri
 // tools/report/test/render.buri — a different package's suite, using it.
-from "//lib/ledger/testing" import { sample };
+from "//lib/ledger/testing" import { sample, WithLedger };
 ```
 
 with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
@@ -191,8 +200,13 @@ from "//cmd/server/routes" export { Route, route };
 
 from "//cmd/server/routes" import { route };
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
   let _ = ctx.println("listening on ${route("/entries").name}");
   .Ok(())
 }
@@ -214,45 +228,88 @@ internal. Everything else is identical to testing a library: the test sees what
 `main.buri` exports and nothing more, so pushing logic behind the entry point is
 what makes it testable, which is the pressure you want.
 
-Testing `main` itself is possible and usually not what you want:
+**`main` itself is not testable**, and that is deliberate. It takes no
+parameters and builds its own context out of `core/host`, so there is no fake to
+hand it ([`SPEC.md` §11](../SPEC.md)). A binary whose failure modes you want to
+assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
-test "main fails cleanly when the log is unwritable" {
-  let ctx = context().withReadOnlyFs();
-  let msg = assert.err(main(ctx));
+// cmd/server/main.buri
+export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> { ... }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  run(ctx, env.get(ctx, "LEDGER_LOG") ?? "ledger.log")
+}
+```
+
+```buri
+// cmd/server/test/run.buri
+test "run fails cleanly when the log is unwritable" {
+  let ctx = context { ..Hermetic(), Fs: readOnly(data()) };
+  let msg = assert.err(run(ctx, "ledger.log"));
   assert.isTrue(msg.contains("ledger"));
 }
 ```
 
 ## The runner's context
 
-`context()` returns a value satisfying every effect the runner can grant.
-It is real where it can be, and hermetic everywhere else:
+`core/testing/context` exports one implementation per effect, not one
+pre-assembled world. Each is real where it can be and hermetic everywhere else:
 
-| Effect | In a test |
-|---|---|
-| `Alloc` | Real, with a per-test arena the runner reclaims. |
-| `Stdout`, `Stderr` | Captured. Printed only for a failing test. |
-| `Fs` | In-memory, rooted at the package directory, containing exactly `test.data`. Writes are visible to that test and discarded after it. |
-| `Net` | Refuses every connection. A fake goes in `test.dependencies`. |
-| `Clock` | Starts at a fixed instant and advances only when the test advances it. |
-| `Rand` | Seeded from the test's name, so a failure reproduces. |
-| `Env` | Empty, unless the test adds to it. |
+| Member | Effect | In a test |
+|---|---|---|
+| `alloc()` | `Alloc` | Real, with a per-test arena the runner reclaims. |
+| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured. Printed only for a failing test. |
+| `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
+| `data()` | `Fs` | In-memory, rooted at the package directory, containing exactly `test.data`. Writes are visible to that test and discarded after it. |
+| `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |
+| `readOnly(F)` | `Fs` | Wraps an `Fs` so every write fails. |
+| `noNet()` | `Net` | Refuses every connection. A fake goes in `test.dependencies`. |
+| `clockAt(Int)` | `Clock` | Starts there and advances only when the test advances it. |
+| `randSeed(Int)` | `Rand` | Seeded, so a failure reproduces. |
+| `envOf([(Str, Str)], [Str])` | `Env` | These variables and these arguments. |
 
-Builders narrow or populate it — `context().withFiles([...])`,
-`.withArgs([...])`, `.withReadOnlyFs()` — and anything the runner does not
-provide is an ordinary struct with methods, since effects are ordinary
-interfaces ([`SPEC.md` §10.9](../SPEC.md)):
+`Hermetic` is a context binding all of them at their defaults — an empty
+`envOf`, `clockAt(0)`, `randSeed(0)`, and `data()` for the filesystem. A file
+may use it directly, declare its own on top of it, or build one per test:
+
+```buri
+context Fixture {
+  ..Hermetic(),
+  Env: envOf([("LEDGER_LOG", "custom.log")], ["--verbose"]),
+}
+
+test "reads the log path from the environment" {
+  let ctx = Fixture();
+  assert.eq(logPath(ctx), "custom.log");
+}
+
+test "falls back when the variable is unset" {
+  let ctx = context { ..Fixture(), Env: envOf([], []) };
+  assert.eq(logPath(ctx), "ledger.log");
+}
+```
+
+Each call builds a fresh context, so what one test writes to its filesystem or
+prints to its captured stdout is invisible to the next — which is why a named
+context is called rather than referred to.
+
+Anything the runner does not provide is an ordinary struct with methods, since
+effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is bound
+exactly the way the runner's own implementations are:
 
 ```buri
 struct FlakyNet { export failuresLeft: Int }
 
-fn get(self: FlakyNet, url: Str): Result<Response, NetError> {
-  if (self.failuresLeft > 0) { .Err(.Timeout) } else { .Ok(cannedResponse()) }
+impl Net for FlakyNet {
+  fn get(self: FlakyNet, url: Str): Result<Response, NetError> {
+    if (self.failuresLeft > 0) { .Err(.Timeout) } else { .Ok(cannedResponse()) }
+  }
 }
 
 test "retries a timeout once" {
-  let ctx = context().withNet(FlakyNet { failuresLeft: 1 });
+  let ctx = context { ..Hermetic(), Net: FlakyNet { failuresLeft: 1 } };
   assert.ok(fetchWithRetry(ctx, "https://example.test/x"));
 }
 ```
@@ -278,7 +335,7 @@ test {
 
 ```buri
 test "renders the statement" {
-  let ctx = context();
+  let ctx = Hermetic();          // its `Fs` is `data()`, so the golden file is there
   let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));
   assert.eq(render(ctx, sample()), want);
 }

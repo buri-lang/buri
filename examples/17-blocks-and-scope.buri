@@ -5,6 +5,7 @@ from "core/str" import * as str;
 from "core/order" import * as order;
 from "core/math" import * as math;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 // --- Method chains -------------------------------------------------------------
 //
@@ -106,7 +107,12 @@ fn shortCircuit(xs: [Int]): Bool {
   xs.len() > 0 && (xs[0] ?? 0) > 100
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let text = "the quick brown fox jumps over the lazy dog";
 
   let _ = banner(ctx, "method chains");

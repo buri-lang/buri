@@ -14,6 +14,7 @@ from "core/str" import * as str;
 from "core/order" import { Ord, Eq, Show };
 from "core/num" import { Add, Sub, Checked, Bounded };
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 // ---------------------------------------------------------------------------
 // Declaring a trait
@@ -170,7 +171,12 @@ fn area(self: Version): Int {
   self.major * self.minor
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let v1 = Version { major: 1, minor: 2 };
   let v2 = Version { major: 1, minor: 10 };
   let playlist = Playlist { name: "Focus", tracks: ["a", "b", "c"] };

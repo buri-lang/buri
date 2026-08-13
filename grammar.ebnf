@@ -86,6 +86,8 @@ ExportableBody  ::= FnDecl
                   | ConstDecl
                   | TraitDecl
                   | EffectDecl
+                  | ContextDecl            (* exportable only from a test-only *)
+                                           (* module; SPEC 11.3               *)
 
 FnDecl          ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type Block
 
@@ -147,11 +149,39 @@ ImplDecl        ::= "impl" GenericParams? NamedType "for" NamedType "{" FnDecl* 
 DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" NamedType ";"
 
 
+(* --- Contexts --------------------------------------------------------------
+   A context binds each effect it provides to a value implementing it. It is
+   the only construct in which more than one effect-carrying value may appear,
+   and the only place a context is created rather than received (SPEC.md 11.3).
+
+   Two forms, told apart by one token of lookahead after `context`: an IDENT
+   opens a declaration, a `{` opens an expression. A declaration takes no
+   parameters and is constructed by calling it -- `Hermetic()` -- so each use
+   gets a fresh one. Where either form may appear is a static rule, not a
+   grammar one.
+
+   The left side of a binding is a NamedType because it names an effect, which
+   may be written qualified (`cap.Alloc`). The right side is any expression. *)
+
+ContextDecl     ::= "context" IDENT ContextBody
+
+ContextExpr     ::= "context" ContextBody
+
+ContextBody     ::= "{" Spread? ContextBindings? "}"
+ContextBindings ::= ContextBinding ("," ContextBinding)* ","?
+ContextBinding  ::= NamedType ":" Expr
+
+(* Spread is the same production a struct literal uses (section 5): a context
+   and a struct literal are both a brace-delimited list of `Name: value` pairs
+   over an optional base. What differs is that the name on the left is an
+   effect rather than a field, which is visible in its case. *)
+
+
 (* --- Tests -----------------------------------------------------------------
    Legal only in a test source (SPEC.md 11.2). A test takes no parameters and
-   returns nothing: it builds whatever context it needs with `test.context()`
-   and passes unless an assertion fails. The name is a STRING because test
-   names are prose. *)
+   returns nothing: it builds whatever context it needs with a ContextExpr, or
+   calls one the file declared, and passes unless an assertion fails. The name
+   is a STRING because test names are prose. *)
 
 TestDecl        ::= "test" STRING Block
 
@@ -265,6 +295,7 @@ UnaryExpr       ::= ("-" | "!" | "~") UnaryExpr
 BlockLikeExpr   ::= Block
                   | IfExpr
                   | MatchExpr
+                  | ContextExpr
 
 PostfixExpr     ::= PostfixExpr PostfixOp
                   | PrimaryExpr
@@ -290,8 +321,12 @@ FieldInit       ::= IDENT (":" Expr)?
 
 Args            ::= Expr ("," Expr)* ","?
 
+(* `self` and `ctx` are keywords, so IDENT does not cover them, but both are
+   ordinary values once bound and appear in expressions like any other name. *)
 PrimaryExpr     ::= Literal
                   | IDENT
+                  | "self"                      (* in a method body        *)
+                  | "ctx"                       (* the context in scope    *)
                   | "." IDENT                   (* inferred-type variant   *)
                   | UnitLit
                   | ArrayLit
@@ -337,7 +372,12 @@ Block           ::= "{" Stmt+ "}"
 Stmt            ::= LetStmt
                   | ExprStmt
 
+(* The second form binds a context. It takes no pattern and no type annotation,
+   because a context's type is generated and never written (SPEC.md 11.3), and
+   it is legal only where a context may be built. After "let", one token of
+   lookahead decides which form this is. *)
 LetStmt         ::= "let" Pattern (":" Type)? "=" Expr ";"
+                  | "let" "ctx" "=" Expr ";"
 
 ExprStmt        ::= Expr ";"
 
@@ -443,20 +483,26 @@ IDENT           ::= (Letter | "_") (Letter | Digit | "_")*
 Letter          ::= "A".."Z" | "a".."z"
 Digit           ::= "0".."9"
 
-Keyword         ::= "as"     | "const"  | "crash"  | "ctx"    | "derive"
-                  | "effect" | "else"   | "enum"   | "export" | "false"
-                  | "fn"     | "for"    | "from"   | "if"     | "impl"
-                  | "import" | "let"    | "match"  | "self"   | "Self"
-                  | "struct" | "test"   | "trait"  | "true"   | "type"
+Keyword         ::= "as"     | "const"  | "context"| "crash"  | "ctx"
+                  | "derive" | "effect" | "else"   | "enum"   | "export"
+                  | "false"  | "fn"     | "for"    | "from"   | "if"
+                  | "impl"   | "import" | "let"    | "match"  | "self"
+                  | "Self"   | "struct" | "test"   | "trait"  | "true"
+                  | "type"
 
 (* `as` appears only in import specifiers. `for` only in `impl ... for ...`
    and `derive ... for ...`. There is no cast operator: numeric conversions
    are ordinary methods (SPEC.md 6.2.1).
 
-   `test` is reserved in every module, so no function is named `test`, but a
-   TestDecl is legal only in a test source -- that restriction is a static rule,
-   not a grammar one. `assert` is NOT a keyword: assertions are the ordinary
-   module `core/testing/assert`, and the name comes from `import * as assert`. *)
+   `test` and `context` are reserved in every module, so no function is named
+   either, but a TestDecl is legal only in a test source and a ContextDecl or
+   ContextExpr only where SPEC.md 11.3 says -- both static rules, not grammar
+   ones. `assert` is NOT a keyword: assertions are the ordinary module
+   `core/testing/assert`, and the name comes from `import * as assert`.
+
+   `ctx` is a keyword, so it is legal as a parameter name in the fixed position
+   CtxParam gives it, and as a LetStmt binding where a context may be built.
+   Both restrictions are static rules. *)
 
 (* Reserved but unused in v0.3; rejected by the lexer so that later versions
    can claim them without breaking source compatibility. *)

@@ -16,7 +16,7 @@ Those goals are why the design looks the way it does:
 | **Safe** | No `null`, no exceptions, no mutation, no aliasing. Exhaustive `match`. Indexing returns `Option`. `Result` is must-use. Effects require an effect value you were handed, in a parameter position the compiler enforces. Out-of-range numeric literals are compile errors. |
 | **Fast to run** | Strict evaluation with fully specified order — no thunks, no space leaks. Monomorphized generics, no dictionaries. Guaranteed tail calls, lowered to loops where the host lacks them. Immutability lets the runtime reuse memory in place when a value is provably unshared. `Alloc` as an effect makes allocation visible at every call site that does it. |
 | **Fast to compile** | An unambiguous LR(1) grammar with no name-resolution or type feedback into the parser, so parsing is one pass and trivially parallel across files. Mandatory top-level signatures make type inference local to each function body, so modules check independently and incrementally. No macros, no reflection, no overload resolution, no row unification. Conformance is nominal and declared in one module, so there is no coherence pass and no instance search — a bound is a table lookup. The one concession: method resolution needs the receiver's type, so name resolution and inference interleave. |
-| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow crashes rather than wrapping, and evaluation order is specified rather than left to the backend. The effect model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply grants a different context to `main`. |
+| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow crashes rather than wrapping, and evaluation order is specified rather than left to the backend. The effect model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply exports a different `core/host`. |
 
 Where they pull against each other, the compiler absorbs it rather than the
 language: guaranteed tail calls become loops on a JS target, since no engine but
@@ -38,7 +38,7 @@ quietly eroding them.
 
 ```buri
 from "core/list" import * as list;
-from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Shape {
   Circle(Float),
@@ -57,7 +57,14 @@ fn area(self: Shape): Float {
   }
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+// `main` takes no arguments. It builds the one context the program has, and
+// those two bindings are the whole effect budget.
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, area).sum();
   let _ = ctx.println("total area: ${total}");
@@ -92,16 +99,24 @@ function touch the world?" is answered by reading the first two parameters and
 stopping. No type may implement both an effect and a trait, so the boundary
 between the world and your data is checked rather than assumed.
 
-The platform supplies the one implementation that really does anything, and hands
-it to `main`. A program whose `main` never names `Net` in its bounds cannot open
-a socket anywhere in its transitive call graph — nothing anywhere can obtain a
-value bounded by `Net`.
+The platform supplies the implementations that really do anything, in a module
+`core/host` that only the file exporting `main` may import. `main` takes no
+parameters: it names the effects it wants, binds each to one of those
+implementations, and passes the result down. A program whose `main` never names
+`host.net` cannot open a socket anywhere in its transitive call graph — nothing
+anywhere can obtain a value bounded by `Net`. A test builds its context the same
+way, from the test runner's implementations instead.
 
 Purity is therefore not a keyword, not an inferred effect row, and not something
 to propagate through signatures. It is the *absence* of one argument:
 
-> If a function has no `ctx` parameter, no effect-carrying `self`, and captures
-> no effect, then it is deterministic, effect-free, and freely cacheable.
+> If a function has no `ctx` parameter, no effect-carrying `self`, captures no
+> effect, and builds no context, then it is deterministic, effect-free, and
+> freely cacheable.
+
+The last clause covers `main` and a test, the only two places a context is
+built. Neither is a function library code can call, so in ordinary code the
+check is still just: *is there a `ctx` parameter?*
 
 Three tiers fall out, and each is visible at a glance:
 
@@ -219,7 +234,8 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   // ctx.readFile("/etc/passwd")       // ERROR: C is not bounded by Fs
 }
 
-export fn main<C: Alloc + Stdout + Fs>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
   let _ = logOnly(ctx, "starting");    // same value, confined by its bound
   .Ok(())
 }
@@ -231,8 +247,18 @@ effect rather than merely be unable to name it, wrap the context in a type
 that satisfies fewer traits ([SPEC.md §10.8](./SPEC.md)).
 
 One more thing falls out of effects being ordinary interfaces: **a test double is
-a struct with methods.** No mocking framework, and the call site does not
-change.
+a struct with methods.** A test builds a context the same way `main` does, and
+binds whichever implementations it wants — the runner's in-memory filesystem, or
+its own:
+
+```buri
+test "falls back when the config is missing" {
+  let ctx = context { ..Hermetic(), Fs: files([]) };
+  assert.eq(loadConfig(ctx, "config.toml").withDefault(fallback()), fallback());
+}
+```
+
+No mocking framework, and the call site does not change.
 
 ## Errors are not ignorable
 

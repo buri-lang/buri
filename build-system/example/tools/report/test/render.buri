@@ -8,15 +8,15 @@
 from "//tools/report" import { render };
 from "//lib/ledger/testing" import { oneOff, sample };
 from "core/testing/assert" import * as assert;
-from "core/testing/context" import { context };
+from "core/testing/context" import { Hermetic };
 
 test "the terse report is one line" {
-  let ctx = context();
+  let ctx = Hermetic();
   assert.eq(render(oneOff(), ctx, false), "\ntotal \$4.50");
 }
 
 test "verbose lists every entry" {
-  let ctx = context();
+  let ctx = Hermetic();
   let out = render(sample(), ctx, true);
   assert.isTrue(out.contains("coffee"));
   assert.isTrue(out.contains("books"));

@@ -6,6 +6,7 @@
 from "core/list" import * as list;
 from "core/order" import * as order;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 // --- Type parameters --------------------------------------------------------
 
@@ -102,7 +103,12 @@ fn requiresOnlyAlloc<C: Alloc>(ctx: C, n: Int): [Int] {
   list.range(ctx, 0, n)
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   // Turbofish supplies explicit type arguments in expression position.
   let n = identity::<Int>(7);
   let s = identity("seven");

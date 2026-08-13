@@ -4,6 +4,7 @@ from "core/str" import * as str;
 from "core/num" import * as num;
 from "core/bits" import * as bits;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 /// Doc comments start with three slashes and attach to the next declaration.
 /* Block comments /* nest */ properly. */
@@ -122,7 +123,12 @@ fn operators(a: Int, b: Int, p: Bool, q: Bool): () {
   ()
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let _ = numbers();
   let _ = text();
   let _ = operators(6, 7, true, false);

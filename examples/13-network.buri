@@ -9,6 +9,7 @@ from "core/list" import * as list;
 from "core/result" import * as result;
 from "core/time" import * as time;
 from "core/cap" import { Alloc, Clock, Net, Stdout };
+from "core/host" import * as host;
 
 struct Repo {
   name: Str,
@@ -111,7 +112,14 @@ fn fetchAll<C: Alloc + Net>(
   urls.mapCtx(ctx, fn(c, url) => fetchText(c, url))
 }
 
-export fn main<C: Alloc + Net + Clock + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Net:    host.net,
+    Clock:  host.clock,
+    Stdout: host.stdout,
+  };
+
   let outcome = withRetry(ctx, 3, fn(c) => fetchRepo(c, "buri-lang", "buri"));
 
   let _ = match (outcome) {

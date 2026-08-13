@@ -15,6 +15,7 @@ from "core/order" import * as order;
 from "core/result" import * as result;
 from "core/fs" import { IoError };
 from "core/cap" import { Alloc, Env, Fs, Stdout };
+from "core/host" import * as host;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -206,10 +207,21 @@ fn run<C: Alloc + Fs + Env + Stdout>(
   .Ok(())
 }
 
-// The context is closed: exactly alloc, fs, env, and stdout. This program
-// cannot open a socket, spawn a process, or read the clock, and neither can
-// any library it depends on, because none of them were ever given the means.
-export fn main<C: Alloc + Fs + Env + Stdout>(ctx: C): Result<(), Str> {
+// The context binds exactly alloc, fs, env, and stdout. This program cannot
+// open a socket, spawn a process, or read the clock, and neither can any
+// library it depends on, because none of them were ever given the means.
+//
+// Note that the work is in `run`, not here. `main` has no parameters and mints
+// its own authority, so there is no fake to pass it; anything worth testing
+// goes in a function that takes an ordinary bounded `ctx`.
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Fs:     host.fs,
+    Env:    host.env,
+    Stdout: host.stdout,
+  };
+
   match (run(ctx)) {
     .Ok(_) => .Ok(()),
     .Err(e) => .Err(errorText(ctx, e)),

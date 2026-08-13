@@ -97,8 +97,8 @@ looked harmless, which visibility would not catch.
 | [`lib/ledger/entry.buri`](./lib/ledger/entry.buri) | Why `total` is a free function and `add` is a method |
 | [`lib/store/BUILD.buri`](./lib/store/BUILD.buri) | Visibility and tags side by side, doing two different jobs |
 | [`lib/store/codec.buri`](./lib/store/codec.buri) | A dependency created by method resolution rather than by an import |
-| [`lib/store/test/store.buri`](./lib/store/test/store.buri) | `context()`'s in-memory `Fs`, and `test { data: ... }` |
-| [`cmd/server/main.buri`](./cmd/server/main.buri) | The effect budget in `main`'s bounds, and re-exporting for the test suite |
+| [`lib/store/test/store.buri`](./lib/store/test/store.buri) | `Hermetic`'s in-memory `Fs`, and `test { data: ... }` |
+| [`cmd/server/main.buri`](./cmd/server/main.buri) | The effect budget as the context `main` builds, and re-exporting for the test suite |
 | [`cmd/web/BUILD.buri`](./cmd/web/BUILD.buri) | The tag error, spelled out, and why dropping the tag does not avoid it |
 | [`tools/report/BUILD.buri`](./tools/report/BUILD.buri) | Two rules, one directory, one build file |
 | [`tools/report/main.buri`](./tools/report/main.buri) | A binary reaching its co-located library through `//tools/report` and nothing else |

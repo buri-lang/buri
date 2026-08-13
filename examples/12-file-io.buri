@@ -10,6 +10,7 @@ from "core/str" import * as str;
 from "core/list" import * as list;
 from "core/result" import * as result;
 from "core/cap" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
 
 struct Record {
   name: Str,
@@ -103,10 +104,16 @@ fn errorText<C: Alloc>(ctx: C, e: LoadError): Str {
 
 // --- Entry point --------------------------------------------------------------
 //
-// This context is closed — no trailing `..`. The platform grants exactly
-// alloc, fs, and stdout, and nothing in the program can do anything else.
+// The context binds exactly alloc, fs, and stdout. `host.net` is never named,
+// so nothing in the program — or in anything it depends on — can open a socket.
 
-export fn main<C: Alloc + Fs + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Fs:     host.fs,
+    Stdout: host.stdout,
+  };
+
   let inputPath = "scores.csv";
   let outputPath = "report.txt";
 

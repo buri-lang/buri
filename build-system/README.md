@@ -132,10 +132,10 @@ export fn toCents(self: Cents): I64 { self.0 }
 ```buri
 from "//lib/money" import { fromCents };
 from "core/testing/assert" import * as assert;
-from "core/testing/context" import { context };
+from "core/testing/context" import { Hermetic };
 
 test "pads the cents place" {
-  let ctx = context();
+  let ctx = Hermetic();
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 

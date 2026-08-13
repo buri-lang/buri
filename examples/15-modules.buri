@@ -9,6 +9,7 @@ from "core/str" import * as str;
 
 // Named imports, with optional renaming.
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 from "core/list" import { map as mapList, filter as filterList };
 
 // Importing from this repository. Paths are absolute from the root — there are
@@ -88,7 +89,12 @@ export fn renderTable<C: Alloc>(ctx: C, render: Renderer, t: Table): Str {
   t.mapList(ctx, render).join(ctx, "\n")
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let table: Table = [("host", "localhost"), ("port", "8080"), ("tls", "false")];
 
   let paddedKey = "  port  ";

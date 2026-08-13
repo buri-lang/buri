@@ -7,6 +7,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/math" import * as math;
 from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 const GREETING: Str = "two";
 
@@ -79,7 +80,12 @@ fn turbofish(): Int {
   intId(3)
 }
 
-export fn main<C: Alloc + Stdout>(ctx: C): Result<(), Str> {
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
   let sums = [1, 2, 3].map(ctx, fn(x) => add(x, 10));
   let _ = ctx.println("add:      ${sums.sum()}");
   let _ = ctx.println("hyp:      ${hypotenuse(3.0, 4.0)}");
