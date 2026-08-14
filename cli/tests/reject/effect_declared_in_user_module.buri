@@ -1,0 +1,13 @@
+// EXPECT: only a platform module may declare an effect
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+effect Mischief {
+  fn meddle(self: Self): ();
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

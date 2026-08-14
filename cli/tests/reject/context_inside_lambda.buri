@@ -1,0 +1,13 @@
+// EXPECT: a context may not be constructed here
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let make = fn(n: Int) => {
+    let inner = context { Alloc: host.alloc, Stdout: host.stdout };
+    n
+  };
+  let _ = ctx.println("${make(1)}");
+  .Ok(())
+}

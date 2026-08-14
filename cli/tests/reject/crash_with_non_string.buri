@@ -1,0 +1,13 @@
+// EXPECT: `crash` takes a message
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn boom(n: Int): Int {
+  if (n > 0) { n } else { crash 42 }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${boom(1)}");
+  .Ok(())
+}

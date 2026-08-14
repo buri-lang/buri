@@ -1,0 +1,13 @@
+// EXPECT: expected `I64`, found `Str`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(b: Bool): Int {
+  if (b) { 1 } else { "zero" }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe(true)}");
+  .Ok(())
+}

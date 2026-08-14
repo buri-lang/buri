@@ -11,6 +11,10 @@ export enum Option<T> {
   export None,
 }
 
+// Structural, so `Option<T>` compares and renders whenever `T` does. Without
+// this no struct with an `Option` field could derive `Eq` either.
+derive Eq, Ord, Show, Hash for Option;
+
 export fn isSome<T>(self: Option<T>): Bool {
   match (self) {
     .Some(_x) => true,

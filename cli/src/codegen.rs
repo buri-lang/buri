@@ -201,7 +201,7 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
              if(typeof process!==\"undefined\")process.exit(1);}}}}\
              catch(e){{$host.flush();\
              $write(2,(e&&e.message?e.message:String(e))+\"\\n\");\
-             if(e&&e.stack&&!e.$buri)$write(2,e.stack+\"\\n\");\
+             if(e&&e.stack)$write(2,e.stack+\"\\n\");\
              if(typeof process!==\"undefined\")process.exit(1);}}"
         )));
     }
@@ -420,6 +420,7 @@ impl<'a> Gen<'a> {
                 // since there are no expression statements it is the only way
                 // to perform an effect for its own sake: the value still has
                 // to be evaluated.
+                self.hoist_or_declarations(pattern, out);
                 let mut bound = Vec::new();
                 pattern.binds(&mut bound);
                 if bound.is_empty() {
@@ -465,6 +466,7 @@ impl<'a> Gen<'a> {
         // run inside a loop the first success breaks out of.
         let mut body: Vec<Stmt> = Vec::new();
         for arm in arms {
+            self.hoist_or_declarations(&arm.pattern, &mut body);
             let mut inner: Vec<Stmt> = Vec::new();
             self.bind(&arm.pattern, &subject, &mut inner);
             let mut taken: Vec<Stmt> = Vec::new();
@@ -510,6 +512,7 @@ impl<'a> Gen<'a> {
             )));
             return;
         };
+        self.hoist_or_declarations(&arm.pattern, out);
         let mut body = Vec::new();
         self.bind(&arm.pattern, subject, &mut body);
         self.arm_body(arm, &mut body, target);
@@ -718,7 +721,20 @@ impl<'a> Gen<'a> {
                     });
                 }
             }
-            // An or-pattern's bindings are assigned inside its test.
+            // An or-pattern's bindings are assigned inside its test, so they
+            // are declared by `hoist_or_declarations` before the `if` rather
+            // than here — a declaration in the body would come after the
+            // assignment and shadow it.
+            PatKind::Or(_) => {}
+            _ => {}
+        }
+    }
+
+    /// Declares, in the statement list that will hold the `if`, every local an
+    /// or-pattern anywhere in this pattern binds. The test assigns them as it
+    /// decides which alternative matched, so they must already exist.
+    fn hoist_or_declarations(&mut self, pattern: &hir::Pattern, out: &mut Vec<Stmt>) {
+        match &pattern.kind {
             PatKind::Or(alts) => {
                 let mut declared = Vec::new();
                 if let Some(first) = alts.first() {
@@ -727,6 +743,22 @@ impl<'a> Gen<'a> {
                 for local in declared {
                     let name = self.names[&local].clone();
                     out.push(Stmt::Var { kind: VarKind::Let, name, init: None });
+                }
+            }
+            PatKind::Bind { sub: Some(s), .. } => self.hoist_or_declarations(s, out),
+            PatKind::Tuple(ps) => {
+                for p in ps {
+                    self.hoist_or_declarations(p, out);
+                }
+            }
+            PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+                for f in fields {
+                    self.hoist_or_declarations(&f.pattern, out);
+                }
+            }
+            PatKind::Array { elems, .. } => {
+                for p in elems {
+                    self.hoist_or_declarations(p, out);
                 }
             }
             _ => {}
@@ -769,6 +801,26 @@ impl<'a> Gen<'a> {
                     );
                 }
             }
+            PatKind::Array { elems, rest } => {
+                for (i, p) in elems.iter().enumerate() {
+                    self.bind_assignments(
+                        p,
+                        &Expr::index(subject.clone(), Expr::Num(i as f64)),
+                        out,
+                    );
+                }
+                if let Some(Some(local)) = rest {
+                    let name = self.names[local].clone();
+                    out.push(Expr::Assign {
+                        target: Box::new(Expr::ident(name)),
+                        value: Box::new(Expr::call(
+                            Expr::member(subject.clone(), "slice"),
+                            vec![Expr::Num(elems.len() as f64)],
+                        )),
+                    });
+                }
+            }
+            // A nested or-pattern's own alternatives are handled by its test.
             _ => {}
         }
     }
@@ -787,7 +839,14 @@ impl<'a> Gen<'a> {
     fn expr(&mut self, e: &hir::Expr, out: &mut Vec<Stmt>) -> Expr {
         match &e.kind {
             ExprKind::Int(v, neg) => self.int_literal(*v, *neg, &e.ty),
-            ExprKind::Float(v) => Expr::Num(*v),
+            ExprKind::Float(v) => {
+                // A literal takes its type from context, so an `F32` one is
+                // stored as the binary32 value it denotes.
+                match self.tables.as_prim(&e.ty) {
+                    Some(Prim::F32) => Expr::Num(*v as f32 as f64),
+                    _ => Expr::Num(*v),
+                }
+            }
             ExprKind::Str(s) => Expr::Str(s.clone()),
             ExprKind::Char(c) => Expr::Str(c.to_string()),
             ExprKind::Bool(b) => Expr::Bool(*b),
@@ -1002,7 +1061,7 @@ impl<'a> Gen<'a> {
                     }
                     if let Some(h) = &p.hole {
                         let v = self.expr(h, out);
-                        items.push(v);
+                        items.push(self.render_hole(v, &h.ty));
                     }
                 }
                 Expr::Array(items)
@@ -1066,6 +1125,18 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// A template hole is rendered by its static type. `I8` and `F64` are both
+    /// JS numbers, and `5` must not come out as `5.0`.
+    fn render_hole(&self, v: Expr, ty: &Ty) -> Expr {
+        match self.tables.as_prim(ty) {
+            Some(p) if p.is_integer() && !p.is_bigint() => {
+                Expr::call(Expr::ident("String"), vec![v])
+            }
+            Some(p) if p.is_float() => Expr::call(Expr::ident("$f64"), vec![v]),
+            _ => v,
+        }
+    }
+
     fn exprs(&mut self, xs: &[hir::Expr], out: &mut Vec<Stmt>) -> Vec<Expr> {
         // Arguments are evaluated left to right before the call.
         xs.iter().map(|x| self.expr(x, out)).collect()
@@ -1119,7 +1190,7 @@ impl<'a> Gen<'a> {
             PrimOp::Neg => {
                 let v = Expr::un(UnOp::Neg, args.pop().unwrap());
                 if float {
-                    v
+                    self.rounded(v, p)
                 } else {
                     self.checked(v, p)
                 }
@@ -1135,14 +1206,15 @@ impl<'a> Gen<'a> {
                 // crash. Silent wrapping is a correctness bug in almost all
                 // code, and the little of it that wants wrapping says so.
                 if float {
-                    v
+                    self.rounded(v, p)
                 } else {
                     self.checked(v, p)
                 }
             }
             PrimOp::Div => {
                 if float {
-                    two(BinOp::Div, &mut args)
+                    let v = two(BinOp::Div, &mut args);
+                    self.rounded(v, p)
                 } else {
                     let f = if big { "$divb" } else { "$divi" };
                     let v = Expr::call(Expr::ident(f), args);
@@ -1151,12 +1223,23 @@ impl<'a> Gen<'a> {
             }
             PrimOp::Rem => {
                 if float {
-                    two(BinOp::Rem, &mut args)
+                    let v = two(BinOp::Rem, &mut args);
+                    self.rounded(v, p)
                 } else {
                     let f = if big { "$remb" } else { "$remi" };
                     Expr::call(Expr::ident(f), args)
                 }
             }
+        }
+    }
+
+    /// `F32` is IEEE-754 binary32, and JavaScript has only binary64, so every
+    /// `F32` result is rounded back. `F64` needs nothing.
+    fn rounded(&self, v: Expr, p: Prim) -> Expr {
+        if p == Prim::F32 {
+            Expr::call(Expr::member(Expr::ident("Math"), "fround"), vec![v])
+        } else {
+            v
         }
     }
 
@@ -1182,6 +1265,7 @@ impl<'a> Gen<'a> {
                     Prim::Str => "s",
                     Prim::Char => "c",
                     Prim::F32 | Prim::F64 => "f",
+                    Prim::Bool => "b",
                     _ => "i",
                 };
                 Expr::Array(vec![Expr::Num(0.0), Expr::Str(tag.into())])

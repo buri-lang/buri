@@ -1,0 +1,16 @@
+// EXPECT: this pattern does not mention y
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Point { export x: Int, export y: Int }
+
+fn xOf(p: Point): Int {
+  let Point { x } = p;
+  x
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${xOf(Point { x: 1, y: 2 })}");
+  .Ok(())
+}

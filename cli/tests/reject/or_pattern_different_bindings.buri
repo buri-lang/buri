@@ -1,0 +1,17 @@
+// EXPECT: or-pattern alternatives must bind the same names
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Either { Left(Int), Right(Int) }
+
+fn value(e: Either): Int {
+  match (e) {
+    .Left(x) | .Right(y) => x,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${value(Either.Left(1))}");
+  .Ok(())
+}

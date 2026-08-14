@@ -157,6 +157,9 @@ function $show(v, d) {
     if (p === "s") return JSON.stringify(v);
     if (p === "c") return "'" + v + "'";
     if (p === "f") return $f64(v);
+    // "i" is an integer: a bigint at 64 bits and above, a plain number below,
+    // and neither may render with a decimal point.
+    if (p === "i") return String(v);
     return $str(v);
   }
   if (k === 1) return "()";
@@ -427,7 +430,11 @@ function $str_toInt(s) {
   const t = s.trim();
   if (!/^[+-]?\d+$/.test(t)) return $none;
   try {
-    return $some(BigInt(t));
+    const v = BigInt(t);
+    // `Int` is `I64`, so a number outside that range has no `Int` to parse
+    // to — which is exactly what the `Option` is for.
+    if (v < -9223372036854775808n || v > 9223372036854775807n) return $none;
+    return $some(v);
   } catch {
     return $none;
   }
@@ -589,7 +596,9 @@ function $bits_shl(x, n) {
 }
 
 function $bits_shr(x, n) {
-  return BigInt.asUintN(64, x) >> $shiftCount(n, 64);
+  // Logical shift: reinterpret as unsigned, shift, then narrow back, because
+  // every `Int` value is an I64 and a shift by zero is the identity.
+  return BigInt.asIntN(64, BigInt.asUintN(64, x) >> $shiftCount(n, 64));
 }
 
 function $bits_sar(x, n) {
@@ -671,11 +680,30 @@ function $rangeErr(v, t) {
 }
 
 function $convChecked(v, lo, hi, target, toBig) {
-  const b = typeof v === "bigint" ? v : BigInt(Math.trunc(v));
+  // The guards come first: BigInt(NaN) and BigInt(Infinity) throw, and this
+  // conversion's whole contract is that it returns `.Err` instead.
   if (typeof v === "number" && !Number.isFinite(v)) return $rangeErr(v, target);
   if (typeof v === "number" && !Number.isInteger(v)) return $rangeErr(v, target);
+  const b = typeof v === "bigint" ? v : BigInt(Math.trunc(v));
   if (b < lo || b > hi) return $rangeErr(v, target);
   return $ok(toBig ? b : Number(b));
+}
+
+// Not every U32 is a Unicode scalar value: the surrogate range and anything
+// above U+10FFFF have no `Char`.
+function $toChar(n) {
+  const v = Number(n);
+  if (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff)) return $rangeErr(n, "Char");
+  return $ok(String.fromCodePoint(v));
+}
+
+// `F64 -> F32` rounds to binary32, and fails when the value does not survive
+// as a finite one.
+function $convF32(v, target) {
+  if (Number.isNaN(v)) return $ok(v);
+  const r = Math.fround(v);
+  if (!Number.isFinite(r) && Number.isFinite(v)) return $rangeErr(v, target);
+  return $ok(r);
 }
 
 // --- The platform --------------------------------------------------------------------
@@ -748,13 +776,16 @@ function $host_HostStdin_readLine(self) {
   return $stdinAt < $stdinLines.length ? $some($stdinLines[$stdinAt++]) : $none;
 }
 
+// `IoError` has a variant with a payload (`Other(Str)`), so every value of it
+// is `[tag, ...payload]` — a bare tag is only the representation when *no*
+// variant carries anything.
 function $ioErr(e) {
   const c = e && e.code;
-  if (c === "ENOENT") return 0;
-  if (c === "EACCES" || c === "EPERM") return 1;
-  if (c === "EROFS") return 2;
-  if (c === "EEXIST") return 3;
-  if (c === "ENOTDIR") return 4;
+  if (c === "ENOENT") return [0];
+  if (c === "EACCES" || c === "EPERM") return [1];
+  if (c === "EROFS") return [2];
+  if (c === "EEXIST") return [3];
+  if (c === "ENOTDIR") return [4];
   return [5, String((e && e.message) || e)];
 }
 
@@ -906,11 +937,11 @@ function $testing_context_CaptureErr_eprintln(self, t) {
   return 0;
 }
 
-function $testing_context_captured(self) {
+function $testing_context_CaptureOut_captured(self) {
   return $slot(self).text;
 }
 
-function $testing_context_capturedErr(self) {
+function $testing_context_CaptureErr_capturedErr(self) {
   return $slot(self).text;
 }
 
@@ -936,7 +967,7 @@ function $testing_context_files(entries) {
 
 function $testing_context_MemFs_readFile(self, p) {
   const f = $slot(self).files;
-  return p in f ? $ok(f[p]) : $err(0);
+  return p in f ? $ok(f[p]) : $err([0]);
 }
 
 function $testing_context_MemFs_writeFile(self, p, b) {
@@ -949,6 +980,8 @@ function $testing_context_MemFs_fileExists(self, p) {
 }
 
 function $testing_context_MemFs_readDir(self, p) {
+  // A directory that holds nothing is still not an error; only a path that
+  // names nothing at all is.
   const prefix = p === "" || p === "." ? "" : p.replace(/\/$/, "") + "/";
   const out = [];
   for (const k of Object.keys($slot(self).files)) {
@@ -973,7 +1006,7 @@ function $testing_context_TestClock_sleepMillis(self, ms) {
   return 0;
 }
 
-function $testing_context_advance(self, ms) {
+function $testing_context_TestClock_advance(self, ms) {
   $slot(self).now += ms;
   return 0;
 }

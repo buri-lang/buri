@@ -1,0 +1,10 @@
+// EXPECT: a namespace import must be named
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import *;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

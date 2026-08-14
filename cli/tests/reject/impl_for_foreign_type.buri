@@ -1,0 +1,14 @@
+// EXPECT: `Region` is not declared in this module
+from "core/cap" import { Alloc, Stdout, Region };
+from "core/order" import { Ord, Order };
+from "core/host" import * as host;
+
+impl Ord for Region {
+  fn compare(self: Region, other: Region): Order { .Equal }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

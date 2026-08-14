@@ -1,0 +1,9 @@
+// EXPECT: `main` must return `Result<(), Str>`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Int {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  0
+}

@@ -1,0 +1,14 @@
+// CRASH: shift out of range
+from "core/cap" import { Alloc, Stdout, Env };
+from "core/bits" import * as bits;
+from "core/host" import * as host;
+from "core/env" import * as env;
+
+fn push(x: Int, n: Int): Int { bits.shl(x, n) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
+  let width = 64 + env.args(ctx).len();
+  let _ = ctx.println("${push(1, width)}");
+  .Ok(())
+}

@@ -1,0 +1,10 @@
+compare   = true
+derived== = true
+show      = Version { major: 1, minor: 2 }
+size      = 3
+render    = Focus (3 tracks)
+distance  = Meters(3.5)
+total     = Meters(3.5)
+area      = 2
+largest   = Version { major: 1, minor: 10 }
+safeTotal = 6

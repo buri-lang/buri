@@ -1,0 +1,5 @@
+lookup = 8080
+total  = $23.99
+visible = true
+rows   = host
+tls

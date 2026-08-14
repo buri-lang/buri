@@ -1,0 +1,13 @@
+// CRASH: integer overflow
+from "core/cap" import { Alloc, Stdout };
+from "core/num" import * as num;
+from "core/host" import * as host;
+
+fn flip(a: I64): I64 { -a }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let lo: I64 = num.minValue::<I64>();
+  let _ = ctx.println("${flip(lo)}");
+  .Ok(())
+}

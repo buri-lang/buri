@@ -1,5 +1,546 @@
-from "core/testing/assert" import * as assert;
+// core/option and core/result — SPEC 5.7 (the prelude enums), 5.7.1
+// (`Result` is must-use), 6.8 (`?`), 6.9 (`??`).
 
-test "optionresult placeholder" {
-  assert.eq(1, 1);
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic, stdin };
+from "core/cap" import { Stdin };
+from "core/io" import * as io;
+from "core/option" import * as option;
+from "core/result" import * as result;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+// --- helpers ------------------------------------------------------------------
+
+fn firstEvenTimesTen(xs: [Int]): Option<Int> {
+  let x = xs.find(fn(n) => n % 2 == 0)?;
+  .Some(x * 10)
+}
+
+fn addParsed(a: Str, b: Str): Result<Int, Str> {
+  let x = a.toInt().okOr("bad left")?;
+  let y = b.toInt().okOr("bad right")?;
+  .Ok(x + y)
+}
+
+fn chained(s: Str): Result<Int, Str> {
+  let n = addParsed(s, "1")?;
+  .Ok(n * 2)
+}
+
+fn doubleOk(n: Int): Result<Int, Str> {
+  .Ok(n * 2)
+}
+
+fn alwaysErr(n: Int): Result<Int, Str> {
+  .Err("no")
+}
+
+/// Consumes a line of input, so a test can prove whether `??` evaluated it.
+/// Reading is observable: the line is gone afterwards either way.
+fn eagerDefault<C: Stdin>(ctx: C): Int {
+  match (io.readLine(ctx)) {
+    .Some(_line) => 99,
+    .None => -1,
+  }
+}
+
+// --- Option: isSome / isNone --------------------------------------------------
+
+test "isSome is true for Some" {
+  let o: Option<Int> = .Some(1);
+  assert.isTrue(o.isSome());
+}
+
+test "isSome is false for None" {
+  let o: Option<Int> = .None;
+  assert.isFalse(o.isSome());
+}
+
+test "isNone is true for None" {
+  let o: Option<Int> = .None;
+  assert.isTrue(o.isNone());
+}
+
+test "isNone is false for Some" {
+  let o: Option<Int> = .Some(1);
+  assert.isFalse(o.isNone());
+}
+
+test "isSome and isNone are complementary" {
+  let a: Option<Str> = .Some("x");
+  let b: Option<Str> = .None;
+  assert.isTrue(a.isSome() != a.isNone());
+  assert.isTrue(b.isSome() != b.isNone());
+}
+
+// --- Option: withDefault ------------------------------------------------------
+
+test "withDefault returns the wrapped value for Some" {
+  let o: Option<Int> = .Some(7);
+  assert.eq(o.withDefault(0), 7);
+}
+
+test "withDefault returns the fallback for None" {
+  let o: Option<Int> = .None;
+  assert.eq(o.withDefault(0), 0);
+}
+
+test "withDefault works on strings" {
+  let a: Option<Str> = .Some("here");
+  let b: Option<Str> = .None;
+  assert.eq(a.withDefault("fallback"), "here");
+  assert.eq(b.withDefault("fallback"), "fallback");
+}
+
+// --- Option: map --------------------------------------------------------------
+
+test "option map applies the function to Some" {
+  let o: Option<Int> = .Some(3);
+  assert.eq(assert.some(o.map(fn(x) => x * 2)), 6);
+}
+
+test "option map leaves None alone" {
+  let o: Option<Int> = .None;
+  assert.none(o.map(fn(x) => x * 2));
+}
+
+test "option map may change the type" {
+  let o: Option<Int> = .Some(3);
+  assert.eq(assert.some(o.map(fn(x) => x > 1)), true);
+}
+
+test "option map composes" {
+  let o: Option<Int> = .Some(2);
+  assert.eq(assert.some(o.map(fn(x) => x + 1).map(fn(x) => x * 10)), 30);
+}
+
+// --- Option: andThen ----------------------------------------------------------
+
+test "option andThen chains a Some" {
+  let o: Option<Int> = .Some(4);
+  assert.eq(assert.some(o.andThen(fn(x) => Option.Some(x + 1))), 5);
+}
+
+test "option andThen can produce None from Some" {
+  let o: Option<Int> = .Some(4);
+  assert.none(o.andThen(fn(x) => Option.None::<Int>()));
+}
+
+test "option andThen leaves None alone" {
+  let o: Option<Int> = .None;
+  assert.none(o.andThen(fn(x) => Option.Some(x + 1)));
+}
+
+test "option andThen chains through a parse" {
+  let o: Option<Str> = .Some("12");
+  assert.eq(assert.some(o.andThen(fn(s) => s.toInt())), 12);
+}
+
+test "option andThen returns None when the inner step fails" {
+  let o: Option<Str> = .Some("xy");
+  assert.none(o.andThen(fn(s) => s.toInt()));
+}
+
+// --- Option: filter -----------------------------------------------------------
+
+test "option filter keeps a Some the predicate accepts" {
+  let o: Option<Int> = .Some(4);
+  assert.eq(assert.some(o.filter(fn(x) => x % 2 == 0)), 4);
+}
+
+test "option filter drops a Some the predicate rejects" {
+  let o: Option<Int> = .Some(5);
+  assert.none(o.filter(fn(x) => x % 2 == 0));
+}
+
+test "option filter leaves None alone" {
+  let o: Option<Int> = .None;
+  assert.none(o.filter(fn(x) => true));
+}
+
+// --- Option: okOr -------------------------------------------------------------
+
+test "okOr turns Some into Ok" {
+  let o: Option<Int> = .Some(3);
+  assert.eq(assert.ok(o.okOr("missing")), 3);
+}
+
+test "okOr turns None into Err with the given error" {
+  let o: Option<Int> = .None;
+  assert.eq(assert.err(o.okOr("missing")), "missing");
+}
+
+test "okOr is how an Option reaches ?" {
+  assert.eq(assert.ok(addParsed("1", "2")), 3);
+  assert.eq(assert.err(addParsed("x", "2")), "bad left");
+}
+
+// --- Option: or ---------------------------------------------------------------
+
+test "or keeps the left when it is Some" {
+  let a: Option<Int> = .Some(1);
+  let b: Option<Int> = .Some(2);
+  assert.eq(assert.some(a.or(b)), 1);
+}
+
+test "or takes the right when the left is None" {
+  let a: Option<Int> = .None;
+  let b: Option<Int> = .Some(2);
+  assert.eq(assert.some(a.or(b)), 2);
+}
+
+test "or of two Nones is None" {
+  let a: Option<Int> = .None;
+  let b: Option<Int> = .None;
+  assert.none(a.or(b));
+}
+
+// --- Result: isOk / isErr -----------------------------------------------------
+
+test "isOk is true for Ok" {
+  let r: Result<Int, Str> = .Ok(1);
+  assert.isTrue(r.isOk());
+}
+
+test "isOk is false for Err" {
+  let r: Result<Int, Str> = .Err("e");
+  assert.isFalse(r.isOk());
+}
+
+test "isErr is true for Err" {
+  let r: Result<Int, Str> = .Err("e");
+  assert.isTrue(r.isErr());
+}
+
+test "isErr is false for Ok" {
+  let r: Result<Int, Str> = .Ok(1);
+  assert.isFalse(r.isErr());
+}
+
+// --- Result: withDefault ------------------------------------------------------
+
+test "result withDefault returns the value for Ok" {
+  let r: Result<Int, Str> = .Ok(7);
+  assert.eq(r.withDefault(0), 7);
+}
+
+test "result withDefault returns the fallback for Err" {
+  let r: Result<Int, Str> = .Err("e");
+  assert.eq(r.withDefault(0), 0);
+}
+
+// --- Result: map / mapErr -----------------------------------------------------
+
+test "result map applies to Ok" {
+  let r: Result<Int, Str> = .Ok(3);
+  assert.eq(assert.ok(r.map(fn(x) => x * 2)), 6);
+}
+
+test "result map leaves Err alone" {
+  let r: Result<Int, Str> = .Err("boom");
+  assert.eq(assert.err(r.map(fn(x) => x * 2)), "boom");
+}
+
+test "result map may change the Ok type" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Ok(3);
+  assert.eq(assert.ok(r.map(fn(x) => x > 1)), true);
+}
+
+test "mapErr applies to Err" {
+  let r: Result<Int, Str> = .Err("boom");
+  assert.eq(assert.err(r.mapErr(fn(e) => e.len())), 4);
+}
+
+test "mapErr leaves Ok alone" {
+  let r: Result<Int, Str> = .Ok(3);
+  assert.eq(assert.ok(r.mapErr(fn(e) => e.len())), 3);
+}
+
+test "mapErr is how an error crosses a boundary between error types" {
+  let r: Result<Int, Str> = .Err("nope");
+  let mapped: Result<Int, Int> = r.mapErr(fn(e) => e.len());
+  assert.eq(assert.err(mapped), 4);
+}
+
+// --- Result: andThen / andThenCtx ---------------------------------------------
+
+test "result andThen chains an Ok" {
+  let r: Result<Int, Str> = .Ok(4);
+  assert.eq(assert.ok(r.andThen(doubleOk)), 8);
+}
+
+test "result andThen can produce Err from Ok" {
+  let r: Result<Int, Str> = .Ok(4);
+  assert.eq(assert.err(r.andThen(alwaysErr)), "no");
+}
+
+test "result andThen leaves Err alone" {
+  let r: Result<Int, Str> = .Err("first");
+  assert.eq(assert.err(r.andThen(doubleOk)), "first");
+}
+
+test "result andThen composes twice" {
+  let r: Result<Int, Str> = .Ok(1);
+  assert.eq(assert.ok(r.andThen(doubleOk).andThen(doubleOk)), 4);
+}
+
+test "andThenCtx threads the context into the continuation" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Ok(5);
+  let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok::<Str, Str>(str.fromInt(c, n)));
+  assert.eq(assert.ok(out), "5");
+}
+
+test "andThenCtx leaves Err alone" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Err("boom");
+  let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok::<Str, Str>(str.fromInt(c, n)));
+  assert.eq(assert.err(out), "boom");
+}
+
+// --- Result: toOption ---------------------------------------------------------
+
+test "toOption turns Ok into Some" {
+  let r: Result<Int, Str> = .Ok(3);
+  assert.eq(assert.some(r.toOption()), 3);
+}
+
+test "toOption turns Err into None, discarding the error" {
+  let r: Result<Int, Str> = .Err("gone");
+  assert.none(r.toOption());
+}
+
+// --- Result: ignore -----------------------------------------------------------
+
+test "ignore consumes an Ok and returns unit" {
+  let r: Result<Int, Str> = .Ok(3);
+  r.ignore();
+  assert.isTrue(true);
+}
+
+test "ignore consumes an Err and returns unit" {
+  let r: Result<Int, Str> = .Err("whatever");
+  r.ignore();
+  assert.isTrue(true);
+}
+
+test "ignore called as a free function" {
+  let r: Result<Int, Str> = .Err("whatever");
+  result.ignore(r);
+  assert.isTrue(true);
+}
+
+test "ignore returns unit, so it equals unit" {
+  let r: Result<Int, Str> = .Ok(1);
+  let u = r.ignore();
+  assert.eq(u, ());
+}
+
+// --- `?` on Option (SPEC 6.8) -------------------------------------------------
+
+test "? on Option unwraps a Some and continues" {
+  assert.eq(assert.some(firstEvenTimesTen([1, 2, 3])), 20);
+}
+
+test "? on Option returns None early" {
+  assert.none(firstEvenTimesTen([1, 3, 5]));
+}
+
+test "? on Option returns None early for an empty list" {
+  assert.none(firstEvenTimesTen(list.empty::<Int>()));
+}
+
+test "? on Option picks the first match" {
+  assert.eq(assert.some(firstEvenTimesTen([5, 4, 2])), 40);
+}
+
+// --- `?` on Result (SPEC 6.8) -------------------------------------------------
+
+test "? on Result unwraps an Ok and continues" {
+  assert.eq(assert.ok(addParsed("10", "5")), 15);
+}
+
+test "? on Result returns the first Err early" {
+  assert.eq(assert.err(addParsed("x", "y")), "bad left");
+}
+
+test "? on Result stops before the second step" {
+  // If the first `?` did not return early, the error would be "bad right".
+  assert.eq(assert.err(addParsed("x", "5")), "bad left");
+}
+
+test "? on Result reports the second failure when the first succeeds" {
+  assert.eq(assert.err(addParsed("5", "y")), "bad right");
+}
+
+test "? propagates through two function layers" {
+  assert.eq(assert.ok(chained("4")), 10);
+  assert.eq(assert.err(chained("q")), "bad left");
+}
+
+test "? on a negative parsed value" {
+  assert.eq(assert.ok(addParsed("-3", "3")), 0);
+}
+
+// --- `??` (SPEC 6.9) ----------------------------------------------------------
+
+test "?? yields the wrapped value when the Option is Some" {
+  let o: Option<Int> = .Some(5);
+  assert.eq(o ?? 0, 5);
+}
+
+test "?? yields the default when the Option is None" {
+  let o: Option<Int> = .None;
+  assert.eq(o ?? 42, 42);
+}
+
+test "?? works on Result Ok" {
+  let r: Result<Int, Str> = .Ok(5);
+  assert.eq(r ?? 0, 5);
+}
+
+test "?? works on Result Err" {
+  let r: Result<Int, Str> = .Err("boom");
+  assert.eq(r ?? 42, 42);
+}
+
+test "?? on a chained call" {
+  assert.eq("12".toInt() ?? 0, 12);
+  assert.eq("xy".toInt() ?? 0, 0);
+}
+
+test "?? is right-associative and falls all the way through" {
+  let a: Option<Int> = .None;
+  let b: Option<Int> = .None;
+  assert.eq(a ?? b ?? 3, 3);
+}
+
+test "?? right-associativity stops at the first present operand" {
+  let a: Option<Int> = .Some(1);
+  let b: Option<Int> = .Some(2);
+  assert.eq(a ?? b ?? 3, 1);
+}
+
+test "?? right-associativity takes the middle operand when the first is absent" {
+  let a: Option<Int> = .None;
+  let b: Option<Int> = .Some(2);
+  assert.eq(a ?? b ?? 3, 2);
+}
+
+test "?? chains three Options" {
+  let a: Option<Int> = .None;
+  let b: Option<Int> = .None;
+  let c: Option<Int> = .Some(7);
+  assert.eq(a ?? b ?? c ?? 9, 7);
+}
+
+test "?? does not evaluate its right operand when the Option is Some" {
+  let ctx = context { Stdin: stdin(["untouched"]) };
+  let o: Option<Int> = .Some(1);
+  let got = o ?? eagerDefault(ctx);
+  assert.eq(got, 1);
+  // `eagerDefault` consumes a line when it runs, so the line still being there
+  // proves the right operand was never evaluated.
+  assert.eq(assert.some(io.readLine(ctx)), "untouched");
+}
+
+test "?? does evaluate its right operand when the Option is None" {
+  let ctx = context { Stdin: stdin(["untouched"]) };
+  let o: Option<Int> = .None;
+  let got = o ?? eagerDefault(ctx);
+  assert.eq(got, 99);
+  assert.none(io.readLine(ctx));
+}
+
+test "?? does not evaluate its right operand when the Result is Ok" {
+  let ctx = context { Stdin: stdin(["untouched"]) };
+  let r: Result<Int, Str> = .Ok(1);
+  let got = r ?? eagerDefault(ctx);
+  assert.eq(got, 1);
+  assert.eq(assert.some(io.readLine(ctx)), "untouched");
+}
+
+test "?? does evaluate its right operand when the Result is Err" {
+  let ctx = context { Stdin: stdin(["untouched"]) };
+  let r: Result<Int, Str> = .Err("boom");
+  let got = r ?? eagerDefault(ctx);
+  assert.eq(got, 99);
+  assert.none(io.readLine(ctx));
+}
+
+test "the second ?? operand is not evaluated when the first suffices" {
+  let ctx = context { Stdin: stdin(["untouched"]) };
+  let a: Option<Int> = .None;
+  let b: Option<Int> = .Some(2);
+  let got = a ?? b ?? eagerDefault(ctx);
+  assert.eq(got, 2);
+  assert.eq(assert.some(io.readLine(ctx)), "untouched");
+}
+
+// --- the assert helpers themselves --------------------------------------------
+
+test "assert.some returns the wrapped value" {
+  let o: Option<Str> = .Some("v");
+  assert.eq(assert.some(o), "v");
+}
+
+test "assert.ok returns the wrapped value" {
+  let r: Result<Str, Int> = .Ok("v");
+  assert.eq(assert.ok(r), "v");
+}
+
+test "assert.err returns the error" {
+  let r: Result<Str, Int> = .Err(7);
+  assert.eq(assert.err(r), 7);
+}
+
+// --- Option and Result in collections -----------------------------------------
+
+test "a list of Options can be folded into a list of values" {
+  let ctx = Hermetic();
+  let xs: [Option<Int>] = [.Some(1), .None, .Some(3)];
+  let kept = xs.foldCtx(
+    ctx,
+    fn(c, acc: [Int], o) => match (o) {
+      .Some(v) => acc.push(c, v),
+      .None => acc,
+    },
+    list.empty::<Int>(),
+  );
+  assert.eq(kept, [1, 3]);
+}
+
+test "a list of Results can be sequenced with foldResult" {
+  let xs = ["1", "2", "3"];
+  let total = xs.foldResult(
+    fn(acc, s) => match (s.toInt()) {
+      .Some(n) => .Ok(acc + n),
+      .None => .Err(s),
+    },
+    0,
+  );
+  assert.eq(assert.ok(total), 6);
+}
+
+test "foldResult over a list of Results stops at the first bad parse" {
+  let xs = ["1", "nope", "3"];
+  let total = xs.foldResult(
+    fn(acc, s) => match (s.toInt()) {
+      .Some(n) => .Ok(acc + n),
+      .None => .Err(s),
+    },
+    0,
+  );
+  assert.eq(assert.err(total), "nope");
+}
+
+test "mapping a parse over a list yields Options in order" {
+  let ctx = Hermetic();
+  let parsed = ["1", "x", "3"].map(ctx, fn(s) => s.toInt());
+  assert.eq(parsed.len(), 3);
+  assert.eq(assert.some(assert.some(parsed.get(0))), 1);
+  assert.none(assert.some(parsed.get(1)));
+  assert.eq(assert.some(assert.some(parsed.get(2))), 3);
 }

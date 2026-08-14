@@ -1038,7 +1038,19 @@ impl Parser {
                 .unwrap()
                 .notes
                 .push("write `a < b && b < c` rather than `a < b < c`".into());
-            return Err(Bail);
+            // Consume the rest of the chain and hand back what was parsed, so
+            // this one diagnostic is not followed by a cascade of type errors
+            // about the recovered shape.
+            while matches!(
+                self.peek(),
+                Tok::Punct(
+                    Punct::EqEq | Punct::BangEq | Punct::Lt | Punct::LtEq | Punct::Gt | Punct::GtEq
+                )
+            ) {
+                self.bump();
+                let _ = self.bitor_expr()?;
+            }
+            return Ok(result);
         }
         Ok(result)
     }

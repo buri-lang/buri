@@ -1,0 +1,7 @@
+add:      36
+hyp:      5.0
+even:     true
+lambdas:  4202
+compose:  11
+many:     3
+turbo:    3

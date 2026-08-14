@@ -1,0 +1,11 @@
+// CRASH: integer overflow
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn blowUp(a: U8, b: U8): U8 { a + b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${blowUp(255, 1)}");
+  .Ok(())
+}

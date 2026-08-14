@@ -1,0 +1,13 @@
+// EXPECT: a `test` declaration is legal only in a test source
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+test "a test in a binary source" {
+  let n = 1;
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

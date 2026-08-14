@@ -1,0 +1,11 @@
+// EXPECT: expected an identifier, found `test`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn test(n: Int): Int { n }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

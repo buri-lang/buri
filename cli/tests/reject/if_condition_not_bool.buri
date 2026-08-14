@@ -1,0 +1,13 @@
+// EXPECT: expected `Bool`, found `I64`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn truthy(n: Int): Int {
+  if (n) { 1 } else { 0 }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${truthy(1)}");
+  .Ok(())
+}

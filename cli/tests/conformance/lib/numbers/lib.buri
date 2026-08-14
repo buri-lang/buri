@@ -1,0 +1,3 @@
+// The numbers package. Everything it asserts lives in `test/`; the library
+// itself has no exports, because what is under test is the language's own
+// numeric types (SPEC 5.1.1, 6.2, 6.2.1, 6.2.2) rather than any code here.

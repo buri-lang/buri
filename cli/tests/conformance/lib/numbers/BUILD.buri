@@ -1,0 +1,7 @@
+library {
+  sources: []
+
+  test {
+    sources: ["test/integers.buri", "test/conversions.buri", "test/floats.buri", "test/bits.buri"]
+  }
+}

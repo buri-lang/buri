@@ -1,0 +1,14 @@
+// EXPECT: `Str` does not implement `Add`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn joined(a: Str, b: Str): Str {
+  a + b
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let s = joined("a", "b");
+  let _ = ctx.println("${s}");
+  .Ok(())
+}

@@ -1,0 +1,11 @@
+// CRASH: integer overflow
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn times(a: U16, b: U16): U16 { a * b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${times(1000, 1000)}");
+  .Ok(())
+}

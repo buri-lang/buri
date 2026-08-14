@@ -1,0 +1,3 @@
+loaded 3 records
+best: grace with 99
+wrote report.txt

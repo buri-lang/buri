@@ -1,0 +1,9 @@
+// EXPECT: `Region` is not a declared effect
+from "core/cap" import { Alloc, Stdout, Region };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Region: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

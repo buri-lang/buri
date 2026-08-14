@@ -1,0 +1,15 @@
+// EXPECT: does not satisfy `Fs`
+from "core/cap" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+
+fn check<C: Alloc + Fs>(ctx: C, path: Str): Bool {
+  fs.exists(ctx, path)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ok = check(ctx, "x");
+  let _ = ctx.println("${ok}");
+  .Ok(())
+}

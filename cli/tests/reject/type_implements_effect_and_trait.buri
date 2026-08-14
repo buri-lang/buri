@@ -1,0 +1,22 @@
+// EXPECT: cannot implement both the effect `Stdout` and the trait `Show`
+from "core/cap" import { Alloc, Stdout };
+from "core/order" import { Show };
+from "core/str" import * as str;
+from "core/host" import * as host;
+
+struct SilentOut {}
+
+impl Stdout for SilentOut {
+  fn print(self: SilentOut, text: Template): () { () }
+  fn println(self: SilentOut, text: Template): () { () }
+}
+
+impl Show for SilentOut {
+  fn show<C: Alloc>(self: SilentOut, ctx: C): Str { "silent" }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

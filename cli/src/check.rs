@@ -91,6 +91,9 @@ pub struct Checker<'a> {
     pub known_types: HashMap<String, TyConId>,
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
+    /// Whether the declaration being elaborated is a trait, an effect, or an
+    /// `impl`, which are the only places `Self` means anything.
+    in_self_scope: bool,
 }
 
 impl<'a> Checker<'a> {
@@ -116,6 +119,7 @@ impl<'a> Checker<'a> {
             known_traits: HashMap::new(),
             known_types: HashMap::new(),
             resolving: Vec::new(),
+            in_self_scope: false,
         }
     }
 
@@ -127,6 +131,7 @@ impl<'a> Checker<'a> {
         self.elaborate_signatures();
         self.register_conformance();
         self.register_primitive_methods();
+        self.check_derives();
         self.compute_surfaces();
         self.check_module_rules();
         self.check_bodies();
@@ -589,6 +594,7 @@ impl<'a> Checker<'a> {
                             })
                             .collect();
                         self.tables.tycons[con.index()].def = TyDef::Enum { variants };
+                        self.check_unique_variant_names(con);
                         self.check_productive(con, d.span);
                     }
                     ast::Item::Trait(d) => {
@@ -598,6 +604,7 @@ impl<'a> Checker<'a> {
                         };
                         let generics = self.elaborate_generics(id, &d.generics);
                         self.tables.traits[tid.index()].generics = generics.clone();
+                        self.in_self_scope = true;
                         let methods = d
                             .methods
                             .iter()
@@ -614,6 +621,7 @@ impl<'a> Checker<'a> {
                             })
                             .collect();
                         self.tables.traits[tid.index()].methods = methods;
+                        self.in_self_scope = false;
                     }
                     ast::Item::Fn(d) => {
                         let Some(sym) = self.scopes[m].own.get(&d.name.name).cloned() else {
@@ -909,7 +917,16 @@ impl<'a> Checker<'a> {
     ) -> Ty {
         match t {
             ast::TypeExpr::Unit { .. } => Ty::Unit,
-            ast::TypeExpr::SelfType { .. } => Ty::SelfTy,
+            ast::TypeExpr::SelfType { span } => {
+                // `Self` stands for the implementing type and is legal only
+                // inside a trait or an `impl` body.
+                if !self.in_self_scope {
+                    self.err(*span, "`Self` is legal only inside a `trait` or `impl`")
+                        .note("it stands for the implementing type, and there is none here");
+                    return Ty::Error;
+                }
+                Ty::SelfTy
+            }
             ast::TypeExpr::Array { elem, .. } => {
                 Ty::Array(Box::new(self.elaborate(module, generics, elem, inside)))
             }
@@ -1042,6 +1059,29 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// Enum variant names must be unique within their scope (SPEC 14.6).
+    fn check_unique_variant_names(&mut self, con: TyConId) {
+        let variants = self.tables.tycon(con).variants().to_vec();
+        let mut seen: Vec<String> = Vec::new();
+        for v in &variants {
+            if seen.contains(&v.name) {
+                let n = v.name.clone();
+                self.err(v.span, format!("variant `{n}` is declared twice"));
+            }
+            seen.push(v.name.clone());
+            // A variant's own fields have to be unique too.
+            let mut fields: Vec<String> = Vec::new();
+            for f in &v.fields {
+                if fields.contains(&f.name) {
+                    let fname = f.name.clone();
+                    let vname = v.name.clone();
+                    self.err(f.span, format!("field `{fname}` of `{vname}` is declared twice"));
+                }
+                fields.push(f.name.clone());
+            }
+        }
+    }
+
     /// A recursive enum must have at least one variant that does not recurse,
     /// or no value of it could ever be built (SPEC 14.14).
     fn check_productive(&mut self, con: TyConId, span: Span) {
@@ -1167,6 +1207,7 @@ impl<'a> Checker<'a> {
     }
 
     fn register_impl(&mut self, module: ModuleId, index: u32, d: &ast::ImplDecl) {
+        self.in_self_scope = true;
         let generics = self.elaborate_generics(module, &d.generics);
         let Some(trait_id) = self.resolve_trait(module, &d.trait_ty) else {
             let shown = d.trait_ty.head_name().unwrap_or("?").to_string();
@@ -1278,14 +1319,15 @@ impl<'a> Checker<'a> {
             (trait_id, self_con),
             ImplInfo { trait_id, self_con, methods, span: d.span, derived: false },
         );
+        self.in_self_scope = false;
     }
 
     fn register_derive(&mut self, module: ModuleId, d: &ast::DeriveDecl) {
-        let self_ty = self.elaborate(module, &[], &d.self_ty, None);
-        let Some(self_con) = self_ty.head() else {
-            if !self_ty.is_error() {
-                self.err(d.self_ty.span(), "a `derive` names a declared type");
-            }
+        // A `derive` names a type *constructor*, not an instantiation of one:
+        // `derive Eq for Option;` says every `Option<T>` compares whenever `T`
+        // does. So the path is resolved directly rather than elaborated, which
+        // would demand type arguments there is nothing to bind.
+        let Some(self_con) = self.derive_target(module, &d.self_ty) else {
             return;
         };
         if self.tables.tycon(self_con).module != module {
@@ -1326,6 +1368,103 @@ impl<'a> Checker<'a> {
                     derived: true,
                 },
             );
+        }
+    }
+
+    /// The type constructor a `derive` names.
+    fn derive_target(&mut self, module: ModuleId, t: &ast::TypeExpr) -> Option<TyConId> {
+        let ast::TypeExpr::Named { path, args, span } = t else {
+            self.err(t.span(), "a `derive` names a declared type");
+            return None;
+        };
+        match self.resolve_path(module, path) {
+            Some(Sym::Ty(con)) => {
+                // Naming the arguments is allowed, and has to be consistent.
+                if !args.is_empty() && args.len() != self.tables.tycon(con).arity() {
+                    let n = self.tables.tycon(con).name.clone();
+                    let arity = self.tables.tycon(con).arity();
+                    self.err(*span, format!("`{n}` takes {arity} type arguments"));
+                }
+                Some(con)
+            }
+            _ => {
+                let shown = path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+                self.err(*span, format!("there is no type `{shown}`"));
+                None
+            }
+        }
+    }
+
+    /// "A `derive` fails to compile if any field's type does not itself
+    /// satisfy the trait" (SPEC 5.12.3). The error belongs on the `derive`
+    /// line, naming the component — not at every use site.
+    fn check_derives(&mut self) {
+        let derived: Vec<(TraitId, TyConId, Span)> = self
+            .tables
+            .impls
+            .iter()
+            .filter(|(_, i)| i.derived)
+            .map(|((t, c), i)| (*t, *c, i.span))
+            .collect();
+        let mut sorted = derived;
+        sorted.sort_by_key(|(t, c, _)| (t.0, c.0));
+
+        for (tr, con, span) in sorted {
+            let tycon = self.tables.tycon(con).clone();
+            // A generic type's components are checked at each use site, where
+            // the arguments are known; here only the ones that cannot depend
+            // on an argument are decidable.
+            let components: Vec<(String, Ty)> = match &tycon.def {
+                TyDef::Struct { fields, .. } => {
+                    fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect()
+                }
+                TyDef::Enum { variants } => variants
+                    .iter()
+                    .flat_map(|v| {
+                        v.fields.iter().map(move |f| (format!("{}.{}", v.name, f.name), f.ty.clone()))
+                    })
+                    .collect(),
+                TyDef::Prim(_) => Vec::new(),
+            };
+            for (name, ty) in components {
+                if !self.component_can_satisfy(&ty, tr, con) {
+                    let t = self.tables.trait_(tr).name.clone();
+                    let c = tycon.name.clone();
+                    let shown = show(&self.tables, None, &tycon.generics, &ty);
+                    self.err(
+                        span,
+                        format!("`{c}` cannot derive `{t}`: `{name}` has type `{shown}`"),
+                    )
+                    .note(format!("a derived implementation is a fold over the type's components, and `{shown}` does not satisfy `{t}`"));
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Whether a component could satisfy the trait for some instantiation. A
+    /// type parameter is decided at the use site; a function type never can.
+    fn component_can_satisfy(&self, ty: &Ty, tr: TraitId, owner: TyConId) -> bool {
+        match ty {
+            // Undecidable here, and checked where the arguments are known.
+            Ty::Param(_) | Ty::Var(_) | Ty::SelfTy | Ty::Error | Ty::Never => true,
+            Ty::Fn(..) => false,
+            Ty::Ctx(_) => false,
+            Ty::Unit => true,
+            Ty::Array(e) => self.component_can_satisfy(e, tr, owner),
+            Ty::Tuple(es) => es.iter().all(|e| self.component_can_satisfy(e, tr, owner)),
+            Ty::Con(id, args) => {
+                if *id == owner {
+                    return true;
+                }
+                if matches!(self.tables.tycon(*id).def, TyDef::Prim(Prim::Template)) {
+                    return false;
+                }
+                if !self.tables.impls.contains_key(&(tr, *id)) {
+                    return false;
+                }
+                args.iter().all(|a| self.component_can_satisfy(a, tr, owner))
+            }
         }
     }
 

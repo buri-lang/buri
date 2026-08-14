@@ -1,0 +1,14 @@
+// EXPECT: `T` has no method `len`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn measure<T>(x: T): Int {
+  x.len()
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let n = measure(1);
+  let _ = ctx.println("${n}");
+  .Ok(())
+}

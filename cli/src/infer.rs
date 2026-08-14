@@ -50,6 +50,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
 
     let mut inf = Infer::new(c, info.module, info.generics.clone(), info.ret.clone());
     inf.self_con = info.self_ty;
+    inf.in_main = info.name == "main" && info.exported && inf.role == Role::Entry;
     inf.push_scope();
     for p in &info.params {
         let local = inf.new_local(&p.name, p.ty.clone(), p.span);
@@ -93,6 +94,7 @@ fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         return;
     };
     let mut inf = Infer::new(c, info.module, Vec::new(), Ty::Unit);
+    inf.in_main = true;
     inf.push_scope();
     let expr = inf.check_context_body(&decl.body, decl.span);
     if let Ty::Ctx(ct) = expr.ty {
@@ -145,6 +147,7 @@ fn check_tests(c: &mut Checker) {
                 intrinsic: false,
             });
             let mut inf = Infer::new(c, module, Vec::new(), Ty::Unit);
+            inf.in_main = true;
             inf.push_scope();
             let expr = inf.check_block(&t.body, None);
             let body = inf.finish(expr);
@@ -190,10 +193,16 @@ pub struct Infer<'a, 'b> {
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
     pub(crate) role: Role,
+    /// Whether the body being checked is `main`'s. A context may be built in
+    /// `main`'s body, not merely anywhere in the module that exports it.
+    pub(crate) in_main: bool,
     /// Bindings made by the alternative of an or-pattern being checked, so the
     /// next alternative reuses the same locals for the same names.
     pub(crate) or_bindings: Option<HashMap<String, LocalId>>,
     pub(crate) or_first: Option<HashMap<String, LocalId>>,
+    /// Names bound by the pattern currently being checked, so a duplicate
+    /// within one pattern is caught (SPEC 14.6).
+    pub(crate) pattern_names: Vec<String>,
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
@@ -215,8 +224,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             lit_checks: Vec::new(),
             hole_checks: Vec::new(),
             role,
+            in_main: false,
             or_bindings: None,
             or_first: None,
+            pattern_names: Vec::new(),
         }
     }
 
@@ -507,17 +518,36 @@ impl<'a, 'b> Infer<'a, 'b> {
             let shown = self.show_ty(&ty);
             let mut note = None;
             if let Some(con) = ty.head() {
-                let has = self.c.traits_of(con);
-                if has.is_empty() {
-                    note = Some(format!(
-                        "`{shown}` implements nothing; conformance is declared, so add \
-                         `derive {trait_name} for {shown};` in its module"
-                    ));
+                let derived = self
+                    .c
+                    .tables
+                    .impls
+                    .get(&(tr, con))
+                    .is_some_and(|i| i.derived);
+                if derived {
+                    // The `derive` is there; one of the components it folds
+                    // over is what fails, and naming it is the useful part.
+                    let culprit = self.failing_component(con, &ty, tr);
+                    note = Some(match culprit {
+                        Some(c) => format!(
+                            "`{shown}` derives `{trait_name}`, but `{c}` does not satisfy it, and                              a derived implementation is a fold over the type's components"
+                        ),
+                        None => format!(
+                            "`{shown}` derives `{trait_name}`, but one of its components does not                              satisfy it"
+                        ),
+                    });
                 } else {
-                    note = Some(format!(
-                        "`{shown}` implements {}",
-                        has.into_iter().collect::<Vec<_>>().join(", ")
-                    ));
+                    let has = self.c.traits_of(con);
+                    if has.is_empty() {
+                        note = Some(format!(
+                            "conformance is declared, so add `derive {trait_name} for {shown};`                              in its module, or write an `impl`"
+                        ));
+                    } else {
+                        note = Some(format!(
+                            "`{shown}` implements {}, but not `{trait_name}`",
+                            has.into_iter().collect::<Vec<_>>().join(", ")
+                        ));
+                    }
                 }
             }
             let d = self.err(span, format!("`{shown}` does not satisfy `{trait_name}`"));
@@ -557,6 +587,32 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             Ty::Fn(..) => false,
         }
+    }
+
+    /// The first field or payload type of a derived type that does not itself
+    /// satisfy the trait.
+    fn failing_component(&self, con: TyConId, ty: &Ty, tr: TraitId) -> Option<String> {
+        let args = match ty {
+            Ty::Con(_, a) => a.clone(),
+            _ => Vec::new(),
+        };
+        let tycon = self.c.tables.tycon(con);
+        let components: Vec<Ty> = match &tycon.def {
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Enum { variants } => variants
+                .iter()
+                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .collect(),
+            TyDef::Prim(_) => Vec::new(),
+        };
+        components.into_iter().find_map(|t| {
+            let t = substitute(&t, &args, None);
+            if t.head() == Some(con) || self.satisfies(&t, tr) {
+                None
+            } else {
+                Some(self.show_ty(&t))
+            }
+        })
     }
 
     fn structural_trait(&self, tr: TraitId) -> bool {

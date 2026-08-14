@@ -10,6 +10,8 @@ export enum Result<T, E> {
   export Err(E),
 }
 
+derive Eq, Ord, Show, Hash for Result;
+
 export fn isOk<T, E>(self: Result<T, E>): Bool {
   match (self) {
     .Ok(_v) => true,

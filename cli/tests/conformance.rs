@@ -74,8 +74,12 @@ fn run_in(dir: &Path, args: &[&str]) -> Run {
 // The conformance repository
 // ---------------------------------------------------------------------------
 
+/// Serialises the two tests that share the conformance repository.
+static SUITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn conformance_suite_passes() {
+    let _guard = SUITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tests_dir().join("conformance");
     // A stale cache would let a broken backend report a pass, so this always
     // starts from nothing.
@@ -110,16 +114,21 @@ fn conformance_suite_passes() {
 
 /// The suite has to be able to fail. A test that cannot fail proves nothing,
 /// so this breaks one on purpose and checks the runner notices.
+/// Runs in the same process-wide order as `conformance_suite_passes`, because
+/// this one edits a file that one reads.
 #[test]
 fn conformance_suite_can_fail() {
+    let _guard = SUITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tests_dir().join("conformance");
     let target = dir.join("lib/canary/test/canary.buri");
     let original = std::fs::read_to_string(&target).expect("the canary suite exists");
     assert!(
-        original.contains("CANARY"),
-        "the canary suite must contain the CANARY marker it is edited through"
+        original.contains("// CANARY_42"),
+        "the canary suite must contain the marker it is edited through"
     );
-    let broken = original.replace("CANARY_EXPECTED", "CANARY_WRONG");
+    // The value, not a name: renaming a constant and its use together would
+    // leave the assertion true.
+    let broken = original.replace("assert.eq(6 * 7, 42);", "assert.eq(6 * 7, 43);");
     assert_ne!(broken, original, "the canary marker did not substitute");
 
     std::fs::write(&target, &broken).unwrap();
@@ -332,13 +341,29 @@ fn examples_produce_their_golden_output() {
             .find_map(|l| l.strip_prefix("# ARGS:"))
             .map(|s| s.split_whitespace().map(str::to_string).collect())
             .unwrap_or_default();
+        // A line whose content genuinely varies between runs — a clock
+        // reading, a roll of the real `Rand`, a network result — is declared
+        // volatile and compared only up to its prefix. Everything else is
+        // compared exactly.
+        let volatile: Vec<String> = expected
+            .lines()
+            .filter_map(|l| l.strip_prefix("# VOLATILE:").map(|s| s.trim().to_string()))
+            .collect();
         let body: String = expected
             .lines()
-            .filter(|l| !l.starts_with("# ARGS:"))
+            .filter(|l| !l.starts_with("# ARGS:") && !l.starts_with("# VOLATILE:"))
             .map(|l| format!("{l}\n"))
             .collect();
 
+        // A program that reads a file gets its fixtures from
+        // `tests/golden/<name>.files/`, copied in beside it.
         let cwd = scratch.join("cmd").join(&name);
+        let fixtures = golden_dir.join(format!("{name}.files"));
+        if fixtures.is_dir() {
+            for e in std::fs::read_dir(&fixtures).unwrap().filter_map(Result::ok) {
+                let _ = std::fs::copy(e.path(), cwd.join(e.file_name()));
+            }
+        }
         let artifact = scratch
             .join(".buri/out/js/cmd")
             .join(&name)
@@ -349,7 +374,21 @@ fn examples_produce_their_golden_output() {
             .current_dir(&cwd)
             .output()
             .expect("the javascript runtime runs");
-        let actual = String::from_utf8_lossy(&out.stdout).to_string();
+        let raw = String::from_utf8_lossy(&out.stdout).to_string();
+        // Both sides are reduced to their prefixes on a volatile line, so the
+        // line still has to be *present* and still has to say what it is.
+        let mask = |text: &str| -> String {
+            text.lines()
+                .map(|l| {
+                    match volatile.iter().find(|v| l.starts_with(v.as_str())) {
+                        Some(v) => format!("{v}<volatile>\n"),
+                        None => format!("{l}\n"),
+                    }
+                })
+                .collect()
+        };
+        let actual = mask(&raw);
+        let body = mask(&body);
         if actual != body {
             mismatches.push(format!(
                 "{name}:\n  expected:\n{}\n  actual:\n{}",
@@ -439,4 +478,403 @@ export fn main(): Result<(), Str> {
             "wrong answer on {engine}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// The minifier does not change the answer
+// ---------------------------------------------------------------------------
+
+/// `--release` mangles every identifier, folds constants, drops unreachable
+/// declarations, and tree-shakes the runtime. None of that may change what a
+/// program prints. This runs the whole example corpus both ways and diffs.
+#[test]
+fn release_and_debug_agree() {
+    let root = repo_root();
+    let scratch = std::env::temp_dir().join("buri-minify-check");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+
+    let golden_dir = tests_dir().join("golden");
+    let mut examples: Vec<PathBuf> = std::fs::read_dir(root.join("examples"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
+        .collect();
+    examples.sort();
+
+    for path in &examples {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let pkg = scratch.join("cmd").join(&name);
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::copy(path, pkg.join("main.buri")).unwrap();
+        std::fs::write(
+            pkg.join("BUILD.buri"),
+            "binary {\n  outputs: [{ platform: JS }]\n}\n",
+        )
+        .unwrap();
+        let fixtures = golden_dir.join(format!("{name}.files"));
+        if fixtures.is_dir() {
+            for e in std::fs::read_dir(&fixtures).unwrap().filter_map(Result::ok) {
+                let _ = std::fs::copy(e.path(), pkg.join(e.file_name()));
+            }
+        }
+    }
+
+    let mut mismatches = Vec::new();
+    let mut smaller = 0usize;
+    for path in &examples {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let args: Vec<String> = std::fs::read_to_string(golden_dir.join(format!("{name}.txt")))
+            .ok()
+            .and_then(|g| {
+                g.lines()
+                    .find_map(|l| l.strip_prefix("# ARGS:"))
+                    .map(|s| s.split_whitespace().map(str::to_string).collect())
+            })
+            .unwrap_or_default();
+        let volatile: Vec<String> = std::fs::read_to_string(golden_dir.join(format!("{name}.txt")))
+            .map(|g| {
+                g.lines()
+                    .filter_map(|l| l.strip_prefix("# VOLATILE:").map(|s| s.trim().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut outputs = Vec::new();
+        let mut sizes = Vec::new();
+        for mode in ["--debug", "--release"] {
+            let target = format!("//cmd/{name}");
+            let build = run_in(&scratch, &["build", &target, mode, "--force"]);
+            assert_eq!(build.code, 0, "{name} does not build {mode}:\n{}", build.all());
+            let artifact = scratch
+                .join(".buri/out/js/cmd")
+                .join(&name)
+                .join(format!("{name}.mjs"));
+            sizes.push(std::fs::metadata(&artifact).map(|m| m.len()).unwrap_or(0));
+            let out = Command::new(js_runtime())
+                .arg(&artifact)
+                .args(&args)
+                .current_dir(scratch.join("cmd").join(&name))
+                .output()
+                .expect("the javascript runtime runs");
+            let text = String::from_utf8_lossy(&out.stdout).to_string();
+            outputs.push(
+                text.lines()
+                    .map(|l| match volatile.iter().find(|v| l.starts_with(v.as_str())) {
+                        Some(v) => format!("{v}<volatile>\n"),
+                        None => format!("{l}\n"),
+                    })
+                    .collect::<String>(),
+            );
+        }
+        if outputs[0] != outputs[1] {
+            mismatches.push(format!(
+                "{name}:\n  debug:\n{}\n  release:\n{}",
+                indent(&outputs[0]),
+                indent(&outputs[1])
+            ));
+        }
+        if sizes[1] < sizes[0] {
+            smaller += 1;
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "minification changed the behaviour of {} example(s):\n\n{}",
+        mismatches.len(),
+        mismatches.join("\n\n")
+    );
+    assert!(
+        smaller >= examples.len() - 1,
+        "minification did not shrink {} of {} artifacts",
+        examples.len() - smaller,
+        examples.len()
+    );
+    eprintln!("minify: {} examples behave identically debug and release", examples.len());
+}
+
+// ---------------------------------------------------------------------------
+// Reproducibility
+// ---------------------------------------------------------------------------
+
+/// Two builds of the same sources in the same configuration produce
+/// byte-identical artifacts. Symbol names are derived from labels and module
+/// paths rather than from compilation order, and iteration is by sorted key.
+#[test]
+fn builds_are_reproducible() {
+    let root = repo_root();
+    let example = root.join("examples/20-word-count.buri");
+    let mut hashes = Vec::new();
+    for run in 0..2 {
+        // Two *different directories*, so a path leaking into the output would
+        // show up as a difference.
+        let scratch = std::env::temp_dir().join(format!("buri-repro-{run}"));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(scratch.join("cmd/w")).unwrap();
+        std::fs::write(
+            scratch.join("REPO.buri"),
+            "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+        )
+        .unwrap();
+        std::fs::copy(&example, scratch.join("cmd/w/main.buri")).unwrap();
+        std::fs::write(
+            scratch.join("cmd/w/BUILD.buri"),
+            "binary {\n  outputs: [{ platform: JS }]\n}\n",
+        )
+        .unwrap();
+        let build = run_in(&scratch, &["build", "//cmd/w", "--release"]);
+        assert_eq!(build.code, 0, "build {run} failed:\n{}", build.all());
+        let bytes = std::fs::read(scratch.join(".buri/out/js/cmd/w/w.mjs")).unwrap();
+        hashes.push(bytes);
+    }
+    assert!(
+        hashes[0] == hashes[1],
+        "two builds of the same source produced different artifacts ({} vs {} bytes)",
+        hashes[0].len(),
+        hashes[1].len()
+    );
+    eprintln!("reproducible: identical artifacts from two directories");
+}
+
+// ---------------------------------------------------------------------------
+// The cache
+// ---------------------------------------------------------------------------
+
+/// A content-keyed cache must not be able to hold a wrong answer. This builds,
+/// edits a source, rebuilds, and checks the program's *behaviour* changed —
+/// not merely that some file was rewritten.
+#[test]
+fn the_cache_cannot_serve_a_stale_answer() {
+    let scratch = std::env::temp_dir().join("buri-cache-check");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(scratch.join("cmd/c")).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.join("cmd/c/BUILD.buri"),
+        "binary {\n  outputs: [{ platform: JS }]\n}\n",
+    )
+    .unwrap();
+    let program = |answer: i32| {
+        format!(
+            r#"
+from "core/cap" import {{ Alloc, Stdout }};
+from "core/host" import * as host;
+
+fn answer(): Int {{ {answer} }}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let _ = ctx.println("answer=${{answer()}}");
+  .Ok(())
+}}
+"#
+        )
+    };
+    let run_program = || -> String {
+        let out = Command::new(js_runtime())
+            .arg(scratch.join(".buri/out/js/cmd/c/c.mjs"))
+            .output()
+            .expect("the javascript runtime runs");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    std::fs::write(scratch.join("cmd/c/main.buri"), program(1)).unwrap();
+    assert_eq!(run_in(&scratch, &["build", "//cmd/c"]).code, 0);
+    assert_eq!(run_program(), "answer=1\n");
+
+    // A second build with no edit must be served from the cache.
+    let again = run_in(&scratch, &["build", "//cmd/c"]);
+    assert!(again.stdout.contains("cached"), "an unchanged build was not cached:\n{}", again.all());
+    assert_eq!(run_program(), "answer=1\n");
+
+    // An edit must invalidate it.
+    std::fs::write(scratch.join("cmd/c/main.buri"), program(2)).unwrap();
+    let edited = run_in(&scratch, &["build", "//cmd/c"]);
+    assert!(
+        !edited.stdout.contains("cached"),
+        "an edited source was served from the cache:\n{}",
+        edited.all()
+    );
+    assert_eq!(run_program(), "answer=2\n", "the cache served a stale artifact");
+
+    // And going back must hit the entry the first build left.
+    std::fs::write(scratch.join("cmd/c/main.buri"), program(1)).unwrap();
+    let reverted = run_in(&scratch, &["build", "//cmd/c"]);
+    assert!(reverted.stdout.contains("cached"), "reverting did not hit the cache");
+    assert_eq!(run_program(), "answer=1\n");
+    eprintln!("cache: invalidates on edit, hits on revert, never stale");
+}
+
+// ---------------------------------------------------------------------------
+// The worked monorepo
+// ---------------------------------------------------------------------------
+
+/// `build-system/example` is the build system's own corpus. It has to lint
+/// clean and its suites have to pass, through the real CLI.
+#[test]
+fn the_example_monorepo_is_clean() {
+    let dir = repo_root().join("build-system/example");
+    let _ = run_in(&dir, &["clean"]);
+
+    let lint = run_in(&dir, &["lint", "//..."]);
+    assert_eq!(lint.code, 0, "the example monorepo does not lint:\n{}", lint.all());
+    assert!(lint.stdout.contains("no findings"), "unexpected lint output:\n{}", lint.all());
+
+    let test = run_in(&dir, &["test", "//...", "--force"]);
+    assert_eq!(test.code, 0, "the example monorepo's tests fail:\n{}", test.all());
+    let summary = test
+        .stdout
+        .lines()
+        .rev()
+        .find(|l| l.contains(" passed, "))
+        .unwrap_or("")
+        .to_string();
+    let passed: usize = summary.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+    assert!(passed >= 15, "expected the example suites to hold real tests, found {passed}");
+
+    // The policy checks the build system exists for.
+    let tags = run_in(&dir, &["query", "tags(//lib/store)"]);
+    assert!(tags.stdout.contains("server"), "query tags is wrong:\n{}", tags.all());
+    let platforms = run_in(&dir, &["query", "platforms(//lib/store)"]);
+    assert!(
+        platforms.stdout.contains("linux") && !platforms.stdout.contains("js"),
+        "a server-tagged library should not admit js:\n{}",
+        platforms.all()
+    );
+
+    let _ = run_in(&dir, &["clean"]);
+    eprintln!("monorepo: {passed} tests, lint clean, policy enforced");
+}
+
+// ---------------------------------------------------------------------------
+// The CLI contract
+// ---------------------------------------------------------------------------
+
+/// CLI.md fixes three exit codes: 0 success, 1 "the thing you asked about is
+/// wrong", 2 "the thing you asked *with* is wrong". The distinction is the
+/// whole point, so it is worth pinning.
+#[test]
+fn exit_codes_distinguish_bad_code_from_bad_invocation() {
+    let scratch = std::env::temp_dir().join("buri-exit-codes");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(scratch.join("cmd/ok")).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.join("cmd/ok/BUILD.buri"),
+        "binary {\n  outputs: [{ platform: JS }]\n}\n",
+    )
+    .unwrap();
+    let good = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("fine");
+  .Ok(())
+}
+"#;
+    std::fs::write(scratch.join("cmd/ok/main.buri"), good).unwrap();
+
+    // 0: it worked.
+    assert_eq!(run_in(&scratch, &["build", "//cmd/ok"]).code, 0, "a good build did not exit 0");
+
+    // 1: the code is wrong.
+    std::fs::write(
+        scratch.join("cmd/ok/main.buri"),
+        good.replace("\"fine\"", "notAName"),
+    )
+    .unwrap();
+    let broken = run_in(&scratch, &["build", "//cmd/ok"]);
+    assert_eq!(broken.code, 1, "a type error did not exit 1:\n{}", broken.all());
+    std::fs::write(scratch.join("cmd/ok/main.buri"), good).unwrap();
+
+    // 2: the invocation is wrong.
+    for args in [
+        vec!["build", "//cmd/nope"],
+        vec!["build", "lib/relative"],
+        vec!["frobnicate"],
+        vec!["build", "--nonsense"],
+        vec!["query", "wat(//cmd/ok)"],
+    ] {
+        let run = run_in(&scratch, &args);
+        assert_eq!(
+            run.code, 2,
+            "`buri {}` should exit 2, got {}:\n{}",
+            args.join(" "),
+            run.code,
+            run.all()
+        );
+    }
+
+    // 2: an unparseable build file is also the thing you asked *with*.
+    std::fs::write(scratch.join("cmd/ok/BUILD.buri"), "binary {\n  sources: [\n").unwrap();
+    let bad_build = run_in(&scratch, &["build", "//cmd/ok"]);
+    assert_eq!(bad_build.code, 2, "an unparseable build file did not exit 2:\n{}", bad_build.all());
+
+    // And outside a repository at all.
+    let nowhere = std::env::temp_dir().join("buri-not-a-repo");
+    let _ = std::fs::create_dir_all(&nowhere);
+    let outside = run_in(&nowhere, &["build", "//..."]);
+    assert_eq!(outside.code, 2, "outside a repository did not exit 2:\n{}", outside.all());
+    assert!(
+        outside.all().contains("REPO.buri"),
+        "the diagnostic should name REPO.buri:\n{}",
+        outside.all()
+    );
+    eprintln!("cli: exit codes 0/1/2 distinguish success, bad code, bad invocation");
+}
+
+/// `buri format` is a fixed point over the whole corpus, and `--check` is the
+/// CI form that reports rather than rewrites.
+#[test]
+fn format_check_does_not_rewrite() {
+    let scratch = std::env::temp_dir().join("buri-format-check");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(scratch.join("cmd/f")).unwrap();
+    std::fs::write(
+        scratch.join("REPO.buri"),
+        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.join("cmd/f/BUILD.buri"),
+        "binary {\n  outputs: [{ platform: JS }]\n}\n",
+    )
+    .unwrap();
+    let ugly = "export    fn   main( ):Result<(),Str>{\n.Ok( ( ) )\n}\n";
+    let path = scratch.join("cmd/f/main.buri");
+    std::fs::write(&path, ugly).unwrap();
+
+    let check = run_in(&scratch, &["format", "--check"]);
+    assert_eq!(check.code, 1, "--check should report a file that would change");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        ugly,
+        "--check rewrote the file it was only supposed to report"
+    );
+
+    let fixed = run_in(&scratch, &["format"]);
+    assert_eq!(fixed.code, 0);
+    assert_ne!(std::fs::read_to_string(&path).unwrap(), ugly, "format did not rewrite");
+
+    let again = run_in(&scratch, &["format", "--check"]);
+    assert_eq!(again.code, 0, "formatting is not a fixed point:\n{}", again.all());
+
+    // And the formatted program still builds.
+    assert_eq!(run_in(&scratch, &["build", "//cmd/f"]).code, 0);
+    eprintln!("format: --check reports without rewriting, and formatting is idempotent");
 }

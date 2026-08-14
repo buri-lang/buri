@@ -1,0 +1,11 @@
+// EXPECT: `Bogus` is not a trait or effect
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn measure<T: Bogus>(x: T): Int { 1 }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${measure(1)}");
+  .Ok(())
+}

@@ -1,0 +1,11 @@
+// EXPECT: `Self` is legal only inside a `trait` or `impl`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn identity(x: Int): Self { x }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

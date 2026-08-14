@@ -1,0 +1,10 @@
+// EXPECT: 300 is not representable in `U8`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let x: U8 = 300;
+  let _ = ctx.println("${x}");
+  .Ok(())
+}

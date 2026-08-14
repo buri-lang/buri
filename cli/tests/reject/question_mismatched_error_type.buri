@@ -1,0 +1,18 @@
+// EXPECT: would propagate `IoError`
+from "core/cap" import { Alloc, Fs, Stdout, IoError };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+
+fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
+  let text = fs.readText(ctx, path)?;
+  .Ok(text)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let _ = match (load(ctx, "x")) {
+    .Ok(t) => ctx.println("${t}"),
+    .Err(e) => ctx.println("${e}"),
+  };
+  .Ok(())
+}

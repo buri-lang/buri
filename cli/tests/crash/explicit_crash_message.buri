@@ -1,0 +1,16 @@
+// CRASH: unreachable: the parser guarantees a value here
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn force(o: Option<Int>): Int {
+  match (o) {
+    .Some(v) => v,
+    .None => crash "unreachable: the parser guarantees a value here",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${force(.None)}");
+  .Ok(())
+}

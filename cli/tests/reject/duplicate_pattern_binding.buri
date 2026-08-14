@@ -1,0 +1,15 @@
+// EXPECT: `a` is bound twice
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn sumPair(p: (Int, Int)): Int {
+  match (p) {
+    (a, a) => a,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${sumPair((1, 2))}");
+  .Ok(())
+}

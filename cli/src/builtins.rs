@@ -252,6 +252,20 @@ impl<'a> Checker<'a> {
     }
 
     fn char_methods(&mut self) {
+        // "`Char` and `U32` convert the same way: `c.toU32()` is exact,
+        // `n.toChar()` yields `Result<Char, RangeError>`" — not every `U32` is
+        // a Unicode scalar value.
+        let char_ty = self.tables.prim(Prim::Char);
+        let range_error = self
+            .known_types
+            .get("RangeError")
+            .map(|c| Ty::Con(*c, Vec::new()))
+            .unwrap_or(Ty::Error);
+        if let Some(result) = self.known_types.get("Result").copied() {
+            let ret = Ty::Con(result, vec![char_ty, range_error]);
+            self.method(Prim::U32, "toChar", Vec::new(), ret);
+        }
+
         let char_con = self.tables.prim_id(Prim::Char);
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);

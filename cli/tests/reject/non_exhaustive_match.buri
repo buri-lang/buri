@@ -1,0 +1,18 @@
+// EXPECT: this `match` does not cover `.Empty`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Shape { Circle(Int), Square(Int), Empty }
+
+fn describe(s: Shape): Int {
+  match (s) {
+    .Circle(r) => r,
+    .Square(n) => n,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe(Shape.Empty)}");
+  .Ok(())
+}

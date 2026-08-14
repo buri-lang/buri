@@ -1,0 +1,10 @@
+// EXPECT: is not representable in `U64`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let w: U64 = 18_446_744_073_709_551_616;
+  let _ = ctx.println("${w}");
+  .Ok(())
+}

@@ -1,0 +1,15 @@
+// EXPECT: a method is not a value
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Square { export side: Int }
+
+fn area(self: Square): Int { self.side * self.side }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let sq = Square { side: 3 };
+  let f = sq.area;
+  let _ = ctx.println("${f()}");
+  .Ok(())
+}

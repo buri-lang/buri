@@ -1,0 +1,13 @@
+// EXPECT: expected `F64`, found `I64`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn scale(count: Int, factor: Float): Float {
+  count + factor
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${scale(2, 1.5)}");
+  .Ok(())
+}

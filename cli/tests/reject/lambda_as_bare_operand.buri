@@ -1,0 +1,14 @@
+// EXPECT: expected an expression, found `fn`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn doubled(): Int {
+  let f = 2 * fn(x: Int) => x;
+  1
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${doubled()}");
+  .Ok(())
+}

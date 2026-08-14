@@ -1,0 +1,9 @@
+area/perim = 12, 14
+tall       = false
+equivalent = 24
+chained    = 432
+combined   = 48
+overdrawn  = true
+stdlib     = 28
+mixed      = 26
+handler    = 42

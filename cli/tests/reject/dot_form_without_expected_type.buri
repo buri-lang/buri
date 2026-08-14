@@ -1,0 +1,17 @@
+// EXPECT: needs a known expected type
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn mystery(): Int {
+  let v = .Some(3);
+  match (v) {
+    .Some(n) => n,
+    .None => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${mystery()}");
+  .Ok(())
+}

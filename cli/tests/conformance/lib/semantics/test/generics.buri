@@ -1,0 +1,427 @@
+// SPEC 5.10, 5.12.5 — generics, bounds, the turbofish, and monomorphization.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+from "core/list" import * as list;
+from "core/num" import * as num;
+
+from "//lib/semantics" import {
+  identity, constant, swap, triple, twice, largest, smallest, between,
+  showAll, sortedShow,
+  Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt,
+  Tree, insert, treeOf, size, depth, has, inOrder, mapTree,
+  Version, version, Level, Meters, Count, Backwards, Brick, Feather, totalGrams,
+};
+
+// -----------------------------------------------------------------------------
+// One type parameter
+// -----------------------------------------------------------------------------
+
+test "a generic function returns its argument at Int" {
+  assert.eq(identity(42), 42);
+}
+
+test "the same generic function at Str" {
+  assert.eq(identity("hello"), "hello");
+}
+
+test "the same generic function at Bool" {
+  assert.isTrue(identity(true));
+  assert.isFalse(identity(false));
+}
+
+test "the same generic function at a struct of mine" {
+  assert.eq(identity(version(1, 2, 3)), version(1, 2, 3));
+}
+
+test "the same generic function at an enum of mine" {
+  assert.eq(identity(Level.High), Level.High);
+}
+
+test "the same generic function at a list" {
+  assert.eq(identity([1, 2, 3]), [1, 2, 3]);
+}
+
+test "the same generic function at a tuple" {
+  assert.eq(identity((1, "a")), (1, "a"));
+}
+
+// -----------------------------------------------------------------------------
+// Several type parameters
+// -----------------------------------------------------------------------------
+
+test "a two-parameter generic keeps the first argument" {
+  assert.eq(constant(1, "ignored"), 1);
+  assert.eq(constant("kept", 999), "kept");
+}
+
+test "a two-parameter generic over a tuple swaps the sides" {
+  assert.eq(swap((1, "a")), ("a", 1));
+  assert.eq(swap(("a", 1)), (1, "a"));
+}
+
+test "a three-parameter generic" {
+  assert.eq(triple(1, "b", true), (1, "b", true));
+  assert.eq(triple(Level.Low, 2, "c"), (Level.Low, 2, "c"));
+}
+
+// -----------------------------------------------------------------------------
+// The turbofish (SPEC 5.10)
+// -----------------------------------------------------------------------------
+
+test "the turbofish pins a type argument at a call" {
+  assert.eq(identity::<Int>(3), 3);
+}
+
+test "the turbofish at a second type" {
+  assert.eq(identity::<Str>("three"), "three");
+}
+
+test "the turbofish on a stdlib generic" {
+  let empty: [Int] = list.empty::<Int>();
+  assert.eq(empty.len(), 0);
+  assert.eq(empty, []);
+}
+
+test "the turbofish produces a function value that can be bound" {
+  let f = identity::<Int>;
+  assert.eq(f(7), 7);
+}
+
+test "two turbofished bindings of one generic are independent" {
+  let fi = identity::<Int>;
+  let fs = identity::<Str>;
+  assert.eq(fi(1), 1);
+  assert.eq(fs("1"), "1");
+}
+
+test "the turbofish on a generic with a bound" {
+  assert.eq(twice::<Int>(21), 42);
+}
+
+// -----------------------------------------------------------------------------
+// Bounds
+// -----------------------------------------------------------------------------
+
+test "an Ord bound at Int" {
+  assert.eq(assert.some(largest([3, 9, 4])), 9);
+  assert.eq(assert.some(smallest([3, 9, 4])), 3);
+}
+
+test "an Ord bound at Str" {
+  assert.eq(assert.some(largest(["apple", "pear", "fig"])), "pear");
+  assert.eq(assert.some(smallest(["apple", "pear", "fig"])), "apple");
+}
+
+test "an Ord bound at a struct of mine" {
+  assert.eq(
+    assert.some(largest([version(1, 0, 0), version(0, 9, 9), version(1, 0, 1)])),
+    version(1, 0, 1),
+  );
+}
+
+test "an Ord bound uses the type's own compare, reversed or not" {
+  // Backwards' hand-written Ord makes the *smallest* Int the largest value.
+  assert.eq(assert.some(largest([Backwards(1), Backwards(9), Backwards(4)])), Backwards(1));
+}
+
+test "an Ord bound on an empty list gives None" {
+  assert.none(largest(list.empty::<Int>()));
+}
+
+test "an Ord bound used twice in one expression" {
+  assert.isTrue(between(1, 10, 5));
+  assert.isFalse(between(1, 10, 11));
+  assert.isTrue(between("a", "z", "m"));
+}
+
+test "two bounds joined with + are both usable" {
+  let ctx = Hermetic();
+  assert.eq(sortedShow(ctx, [3, 1, 2]), "1,2,3");
+}
+
+test "an Alloc bound alongside a value bound" {
+  let ctx = Hermetic();
+  assert.eq(showAll(ctx, [1, 2, 3]), "1,2,3");
+}
+
+test "a Show bound at a type with a hand-written show" {
+  let ctx = Hermetic();
+  assert.eq(showAll(ctx, [Backwards(1), Backwards(2)]), "Backwards(1),Backwards(2)");
+}
+
+test "num.min and num.max are the same Ord bound at three types" {
+  assert.eq(num.min(3, 7), 3);
+  assert.eq(num.min("b", "a"), "a");
+  assert.eq(num.max(Meters(1.0), Meters(2.0)), Meters(2.0));
+}
+
+// -----------------------------------------------------------------------------
+// Monomorphization: one body, two instantiations, both right
+// -----------------------------------------------------------------------------
+
+test "one generic body at Int" {
+  assert.eq(twice(21), 42);
+}
+
+test "the same generic body at a newtype with a derived Add" {
+  assert.eq(twice(Meters(1.25)), Meters(2.5));
+}
+
+test "the same generic body at a second newtype" {
+  assert.eq(twice(Count(8)), Count(16));
+}
+
+test "the same generic body at Float" {
+  assert.eq(twice(0.5), 1.0);
+}
+
+test "both instantiations are live in one test" {
+  // If the second instantiation overwrote the first, one of these is wrong.
+  assert.eq(twice(3), 6);
+  assert.eq(twice(Meters(3.0)), Meters(6.0));
+  assert.eq(twice(3), 6);
+  assert.eq(twice(Count(3)), Count(6));
+  assert.eq(twice(1.5), 3.0);
+}
+
+test "a bounded generic over my own trait at two types in one test" {
+  assert.eq(totalGrams([Brick { kilos: 1 }]), 1000);
+  assert.eq(totalGrams([Feather { count: 1 }]), 1);
+  assert.eq(totalGrams([Brick { kilos: 2 }]), 2000);
+}
+
+test "a generic instantiated at a generic type" {
+  assert.eq(identity(pair(1, "a")), pair(1, "a"));
+  assert.eq(identity(Slot.Filled(3)), Slot.Filled(3));
+}
+
+// -----------------------------------------------------------------------------
+// Generic structs
+// -----------------------------------------------------------------------------
+
+test "a generic struct holds two different types" {
+  let p = pair(1, "one");
+  assert.eq(p.first, 1);
+  assert.eq(p.second, "one");
+}
+
+test "a generic struct is equal by its fields" {
+  assert.eq(pair(1, "one"), Pair { first: 1, second: "one" });
+  assert.notEq(pair(1, "one"), pair(1, "two"));
+}
+
+test "a generic struct at a second pair of types" {
+  let p = pair(Level.High, version(1, 0, 0));
+  assert.eq(p.first, Level.High);
+  assert.eq(p.second, version(1, 0, 0));
+}
+
+test "a generic method on a generic struct swaps its parameters" {
+  assert.eq(flip(pair(1, "one")), pair("one", 1));
+  assert.eq(flip(flip(pair(1, "one"))), pair(1, "one"));
+}
+
+test "a generic tuple struct" {
+  assert.eq(Boxed(3).0, 3);
+  assert.eq(Boxed("s").0, "s");
+  assert.eq(Boxed(3), Boxed(3));
+  assert.notEq(Boxed(3), Boxed(4));
+}
+
+test "a generic struct nested in itself" {
+  let p = pair(pair(1, 2), pair(3, 4));
+  assert.eq(p.first.second, 2);
+  assert.eq(p.second.first, 3);
+}
+
+// -----------------------------------------------------------------------------
+// Generic enums
+// -----------------------------------------------------------------------------
+
+test "a generic enum carries a payload" {
+  assert.eq(slotOr(Slot.Filled(5), 0), 5);
+  assert.eq(slotOr(Slot.Vacant, 0), 0);
+}
+
+test "a generic enum at a second type" {
+  assert.eq(slotOr(Slot.Filled("x"), "default"), "x");
+  assert.eq(slotOr(Slot.Vacant, "default"), "default");
+}
+
+test "a generic enum with two parameters" {
+  assert.eq(eitherInt(Either.Right(9)), 9);
+  assert.eq(eitherInt(Either.Left("nope")), 0);
+}
+
+test "a two-parameter generic enum is equal by variant and payload" {
+  assert.eq(Either.Right(1), Either.Right(1));
+  assert.notEq(Either.Right(1), Either.Right(2));
+  assert.notEq(Either.Left(1), Either.Right(1));
+}
+
+// -----------------------------------------------------------------------------
+// A recursive generic enum, with real recursion over it
+// -----------------------------------------------------------------------------
+
+test "an empty tree" {
+  let t: Tree<Int> = Tree.Leaf;
+  assert.eq(size(t), 0);
+  assert.eq(depth(t), 0);
+  assert.isFalse(has(t, 1));
+}
+
+test "inserting into a tree grows it" {
+  let t = Tree.Leaf.insert(5).insert(3).insert(8);
+  assert.eq(size(t), 3);
+  assert.isTrue(has(t, 3));
+  assert.isTrue(has(t, 5));
+  assert.isTrue(has(t, 8));
+  assert.isFalse(has(t, 4));
+}
+
+test "inserting a duplicate does not grow the tree" {
+  let t = Tree.Leaf.insert(5).insert(5).insert(5);
+  assert.eq(size(t), 1);
+}
+
+test "depth follows the shape the inserts produced" {
+  // Ascending inserts make a right spine.
+  assert.eq(depth(treeOf([1, 2, 3, 4])), 4);
+  // A balanced-ish order is shallower.
+  assert.eq(depth(treeOf([2, 1, 3])), 2);
+}
+
+test "an in-order walk of a search tree is sorted" {
+  let ctx = Hermetic();
+  assert.eq(inOrder(treeOf([5, 3, 8, 1, 4, 7, 9]), ctx), [1, 3, 4, 5, 7, 8, 9]);
+}
+
+test "the same recursion at a second element type" {
+  let ctx = Hermetic();
+  assert.eq(
+    inOrder(treeOf(["pear", "apple", "fig"]), ctx),
+    ["apple", "fig", "pear"],
+  );
+}
+
+test "the same recursion at a struct with a derived Ord" {
+  let ctx = Hermetic();
+  assert.eq(
+    inOrder(treeOf([version(2, 0, 0), version(1, 0, 0), version(1, 5, 0)]), ctx),
+    [version(1, 0, 0), version(1, 5, 0), version(2, 0, 0)],
+  );
+}
+
+test "the tree's Ord is the element type's own" {
+  let ctx = Hermetic();
+  // Backwards reverses, so the in-order walk comes out descending by payload.
+  assert.eq(
+    inOrder(treeOf([Backwards(1), Backwards(3), Backwards(2)]), ctx),
+    [Backwards(3), Backwards(2), Backwards(1)],
+  );
+}
+
+test "a derived Eq on a recursive generic enum compares the whole shape" {
+  assert.eq(treeOf([1, 2, 3]), treeOf([1, 2, 3]));
+  assert.notEq(treeOf([1, 2, 3]), treeOf([3, 2, 1]));
+  assert.notEq(treeOf([1, 2, 3]), treeOf([1, 2]));
+}
+
+test "mapping a tree keeps its shape and changes its elements" {
+  let ctx = Hermetic();
+  let t = treeOf([2, 1, 3]);
+  let doubled = mapTree(t, ctx, fn(x) => x * 2);
+  assert.eq(size(doubled), 3);
+  assert.eq(depth(doubled), depth(t));
+  assert.eq(inOrder(doubled, ctx), [2, 4, 6]);
+}
+
+test "mapping a tree may change its element type" {
+  let ctx = Hermetic();
+  let t = treeOf([2, 1, 3]);
+  let flags = mapTree(t, ctx, fn(x) => x > 1);
+  assert.eq(inOrder(flags, ctx), [false, true, true]);
+}
+
+test "a generic enum whose parameter is a recursive generic enum" {
+  let inner = treeOf([1, 2]);
+  assert.eq(slotOr(Slot.Filled(inner), Tree.Leaf), inner);
+  assert.eq(size(slotOr(Slot.Vacant, inner)), 2);
+}
+
+test "a generic struct whose fields are trees of different element types" {
+  let ctx = Hermetic();
+  let p = pair(treeOf([2, 1]), treeOf(["b", "a"]));
+  assert.eq(inOrder(p.first, ctx), [1, 2]);
+  assert.eq(inOrder(p.second, ctx), ["a", "b"]);
+}
+
+test "recursion over a large tree stays correct" {
+  let ctx = Hermetic();
+  let xs = list.range(ctx, 0, 200);
+  let t = treeOf(xs);
+  assert.eq(size(t), 200);
+  assert.eq(inOrder(t, ctx), xs);
+}
+
+// -----------------------------------------------------------------------------
+// Derived traits on a generic type apply at every instantiation
+// -----------------------------------------------------------------------------
+
+test "a derived Eq on a generic struct works at two instantiations" {
+  assert.eq(pair(1, 2), pair(1, 2));
+  assert.notEq(pair(1, 2), pair(1, 3));
+  assert.eq(pair("a", "b"), pair("a", "b"));
+  assert.notEq(pair("a", "b"), pair("a", "c"));
+}
+
+test "a derived Show on a generic struct renders both fields" {
+  let ctx = Hermetic();
+  let shown = pair(7, "seven").show(ctx);
+  assert.isTrue(shown.contains("7"));
+  assert.isTrue(shown.contains("seven"));
+  assert.isTrue(assert.some(shown.indexOf("7")) < assert.some(shown.indexOf("seven")));
+}
+
+test "a derived Show on a generic enum names the variant" {
+  let ctx = Hermetic();
+  assert.isTrue(Slot.Filled(1).show(ctx).contains("Filled"));
+  assert.isTrue(Slot.Vacant.show(ctx).contains("Vacant"));
+  assert.isTrue(Either.Left("x").show(ctx).contains("Left"));
+}
+
+test "a derived Show on a recursive generic enum recurses" {
+  let ctx = Hermetic();
+  let shown = treeOf([1, 2]).show(ctx);
+  assert.isTrue(shown.contains("Node"));
+  assert.isTrue(shown.contains("Leaf"));
+  assert.isTrue(shown.contains("1"));
+  assert.isTrue(shown.contains("2"));
+}
+
+test "Option is comparable and showable like any other enum" {
+  let ctx = Hermetic();
+  let some: Option<Int> = .Some(1);
+  let none: Option<Int> = .None;
+  assert.eq(some, Option.Some(1));
+  assert.notEq(some, none);
+  assert.isTrue(some.show(ctx).contains("Some"));
+  assert.isTrue(none.show(ctx).contains("None"));
+}
+
+test "Result is comparable and showable like any other enum" {
+  let ctx = Hermetic();
+  let ok: Result<Int, Str> = .Ok(1);
+  let err: Result<Int, Str> = .Err("bad");
+  assert.eq(ok, Result.Ok(1));
+  assert.notEq(ok, err);
+  assert.isTrue(err.show(ctx).contains("bad"));
+}
+
+test "a generic function over a list of a generic type" {
+  assert.eq(
+    assert.some(largest([Boxed(1), Boxed(3), Boxed(2)]).map(fn(b) => b.0)),
+    3,
+  );
+}

@@ -1,0 +1,31 @@
+// The public surface of //lib/semantics.
+
+from "//lib/semantics/shapes" export {
+  // derived traits
+  Version, version, Level, Shape, area,
+  // newtypes with derived operator traits
+  Meters, Count, Delta,
+  // hand-written impls
+  Backwards, Suit, rank, declIndex, Loose, Percent,
+  // traits of my own
+  Weigh, Label, Brick, Feather, totalGrams, heaviest, heavyLabel, weighAndShow,
+  // generic functions
+  identity, constant, swap, triple, twice, largest, smallest, between,
+  showAll, sortedShow,
+  // generic structs and enums
+  Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt,
+  Tree, insert, treeOf, size, depth, has, inOrder, mapTree,
+  // closures
+  applyTwice, makeAdder, makeScaler, compose, pipeline, callWith,
+  // `?` and `??`
+  sumFirstTwo, parseSum, lambdaTry, lambdaTryResult, tryThenCoalesce, defaulted, defaultedResult,
+  // blocks and scope
+  hypotenuse, shadowed, nestedShadow,
+  // effect users
+  loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
+  // fakes
+  StaticFs, FrozenClock, EchoEnv, TeapotNet, Guarded, guarded,
+  // evaluation-order instrumentation
+  note, noteInt, noteBool, noteStr, noteOpt, noteRes,
+  noteIf, noteMatch, noteLevel, noteLets, threeInts, fourStrs,
+};

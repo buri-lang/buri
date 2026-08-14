@@ -1,0 +1,19 @@
+conditions   = elsewhere
+side effect
+another
+effects      = 42
+shorthand    = 6
+blockOrLit   = 11
+typeArgs     = 8
+conversions  = 351
+shifting     = 68
+nested       = 9
+variants     = positive
+binding      = 3
+tuples       = 7
+lambdas      = 19
+blockLike    = 32
+commas       = 200
+postfix      = 5
+floats       = 3
+list         = 3

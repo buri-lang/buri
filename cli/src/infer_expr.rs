@@ -121,6 +121,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 );
         }
 
+        self.pattern_names.clear();
         let pat = self.check_pattern(pattern, &ty);
         // The pattern in a `let` must be irrefutable. Use `match` for anything
         // else.
@@ -152,8 +153,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn may_build_context(&self) -> bool {
         // Never inside a lambda, even where both are otherwise legal: without
-        // that, a closure could mint authority (SPEC 11.3).
-        self.lambda_depth == 0 && self.role.may_build_context()
+        // that, a closure could mint authority (SPEC 11.3). And in a program,
+        // only inside `main`'s body — not merely anywhere in the module that
+        // exports it.
+        if self.lambda_depth > 0 {
+            return false;
+        }
+        match self.role {
+            Role::Entry => self.in_main,
+            other => other.may_build_context(),
+        }
     }
 
     fn is_result(&self, ty: &Ty) -> bool {
@@ -786,7 +795,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
     ) -> hir::Expr {
         let recv = self.check_expr(base, None);
-        let recv_ty = self.resolve(&recv.ty);
+        // A literal that reaches a method call with nothing else constraining
+        // it takes its default — `Int` for an integer literal, `Float` for a
+        // float — so `5.abs()` resolves in `core/num` (SPEC 5.1.1).
+        let recv_ty = self.default_numeric_receiver(&recv.ty);
 
         // A field of function type is called as `(x.f)(...)`.
         if let Ty::Con(con, targs) = &recv_ty {
@@ -826,6 +838,21 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.error_expr(span)
             }
         }
+    }
+
+    /// Resolving `x.f()` needs the receiver's head type constructor. An
+    /// unpinned numeric literal has none yet, so this is where its default
+    /// applies.
+    fn default_numeric_receiver(&mut self, ty: &Ty) -> Ty {
+        let resolved = self.resolve(ty);
+        let Ty::Var(id) = resolved else { return resolved };
+        let Some(class) = self.subst.class_of(id) else { return resolved };
+        let default = match class {
+            NumClass::Int => self.prim(Prim::I64),
+            NumClass::Float => self.prim(Prim::F64),
+        };
+        let _ = self.subst.unify(&self.c.tables, &Ty::Var(id), &default);
+        self.resolve(ty)
     }
 
     /// Three steps, each a lookup rather than a search (SPEC 6.7.3).
@@ -1533,6 +1560,32 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> hir::Expr {
+        // `-128` is one literal, not a negation of `128`: SPEC 5.1.1 gives
+        // `let y: I8 = -129;` as the error, which makes `-128` legal, and it
+        // is not if the magnitude is range-checked on its own.
+        if op == ast::UnOp::Neg {
+            if let ast::Expr::Int { value, raw, .. } = operand {
+                let ty = self.subst.fresh_num(NumClass::Int, span);
+                if let Some(exp) = expected {
+                    let _ = self.subst.unify(&self.c.tables, &ty, exp);
+                }
+                self.lit_checks.push(LitCheck {
+                    value: *value,
+                    negative: true,
+                    raw: raw.clone(),
+                    ty: ty.clone(),
+                    span,
+                });
+                return hir::Expr::new(hir::ExprKind::Int(*value, true), ty, span);
+            }
+            if let ast::Expr::Float { value, span: fspan, .. } = operand {
+                let ty = self.subst.fresh_num(NumClass::Float, *fspan);
+                if let Some(exp) = expected {
+                    let _ = self.subst.unify(&self.c.tables, &ty, exp);
+                }
+                return hir::Expr::new(hir::ExprKind::Float(-*value), ty, span);
+            }
+        }
         let e = match op {
             ast::UnOp::Not => {
                 let b = self.prim(Prim::Bool);
@@ -1646,6 +1699,17 @@ impl<'a, 'b> Infer<'a, 'b> {
         let ty = self.resolve(&l.ty);
         let prim = self.as_prim(&ty);
         let _ = expected;
+
+        // `Eq` is not defined for function types, `Template`, or opaque
+        // types, so comparing those is a compile error rather than a
+        // representation accident.
+        if matches!(prim, Some(Prim::Template))
+            && matches!(op, B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge)
+        {
+            self.err(op_span, "`Template` does not implement `Eq`")
+                .note("a Template is a fixed-size view of literal fragments and evaluated holes; render it with `str.format` if you mean to compare the text");
+            return self.error_expr(span);
+        }
 
         let arith = |op: ast::BinOp| -> Option<hir::PrimOp> {
             Some(match op {
@@ -1951,11 +2015,29 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.c.elaborate(self.module, &generics, t, None)
         });
         let expect_ret = declared_ret.clone().or(want_ret);
+        // `?` is the only early exit, and it returns from the *enclosing
+        // function* — a lambda is one, so its return type is what `?` is
+        // checked against while its body is being visited.
+        let lambda_placeholder = match expect_ret.clone() {
+            Some(t) => t,
+            None => self.fresh(span),
+        };
+        let outer_ret = std::mem::replace(&mut self.ret, lambda_placeholder);
         let body_hir = self.check_expr(body, expect_ret.as_ref());
+        let lambda_ret = std::mem::replace(&mut self.ret, outer_ret);
         if let Some(r) = &declared_ret {
             self.unify_at(body.span(), &body_hir.ty.clone(), r, "the declared return type");
         }
-        let ret_ty = declared_ret.unwrap_or_else(|| body_hir.ty.clone());
+        // A lambda with no annotation gets its type from its body, but if `?`
+        // pinned the placeholder, that is what it is.
+        let ret_ty = declared_ret.unwrap_or_else(|| {
+            let resolved = self.resolve(&lambda_ret);
+            if matches!(resolved, Ty::Var(_)) {
+                body_hir.ty.clone()
+            } else {
+                resolved
+            }
+        });
         let _ = outer_scopes;
         self.lambda_depth -= 1;
         self.pop_scope();
@@ -2007,6 +2089,9 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         let mut bindings: Vec<(TraitId, hir::Expr)> = Vec::new();
         let mut spans: Vec<(TraitId, Span)> = Vec::new();
+        // The effects bound explicitly here, as opposed to inherited from a
+        // spread.
+        let mut explicit: Vec<TraitId> = Vec::new();
 
         // Either form may begin with a spread, which takes every binding from
         // another context and lets the ones that follow replace them.
@@ -2014,11 +2099,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             let b = self.check_expr(base, None);
             match self.resolve(&b.ty) {
                 Ty::Ctx(id) => {
+                    // The inherited binding keeps the *implementing type* the
+                    // base recorded. Without it monomorphization has nothing
+                    // to dispatch on, and every effect a spread supplies is
+                    // unusable.
                     let base_bindings = self.c.tables.ctx_type(id).bindings.clone();
-                    for (t, _) in base_bindings {
+                    for (t, impl_ty) in base_bindings {
                         let e = hir::Expr::new(
                             hir::ExprKind::CtxGet { base: Box::new(b.clone()), trait_id: t },
-                            Ty::Error,
+                            impl_ty,
                             base.span(),
                         );
                         bindings.push((t, e));
@@ -2067,22 +2156,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             // An explicit binding replaces a spread's rather than duplicating
             // it; two explicit bindings of one effect is an error.
+            if explicit.contains(&tid) {
+                let eff = self.c.tables.trait_(tid).name.clone();
+                self.err(binding.span, format!("`{eff}` is bound twice"))
+                    .note("a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake");
+            }
+            explicit.push(tid);
             if let Some(i) = bindings.iter().position(|(t, _)| *t == tid) {
-                let from_spread = spans.iter().any(|(t, s)| *t == tid && *s != binding.span);
-                let already_explicit = body
-                    .bindings
-                    .iter()
-                    .filter(|b| {
-                        matches!(&b.effect, ast::TypeExpr::Named { path, .. }
-                            if matches!(self.c.scopes[self.module.index()].names.get(&path[path.len()-1].name),
-                                        Some(Sym::Trait(t)) if *t == tid))
-                    })
-                    .count()
-                    > 1;
-                if already_explicit && !from_spread {
-                    let eff = self.c.tables.trait_(tid).name.clone();
-                    self.err(binding.span, format!("`{eff}` is bound twice"));
-                }
                 bindings[i] = (tid, value);
             } else {
                 bindings.push((tid, value));
@@ -2116,6 +2196,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut checked = Vec::new();
         for arm in arms {
             self.push_scope();
+            self.pattern_names.clear();
             let pat = self.check_pattern(&arm.pattern, &sty);
             let guard = arm.guard.as_ref().map(|g| {
                 let e = self.check_expr(g, Some(&bool_ty));

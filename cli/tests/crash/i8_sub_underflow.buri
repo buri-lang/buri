@@ -1,0 +1,13 @@
+// CRASH: integer overflow
+from "core/cap" import { Alloc, Stdout };
+from "core/num" import * as num;
+from "core/host" import * as host;
+
+fn drop(a: I8, b: I8): I8 { a - b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let lo: I8 = num.minValue::<I8>();
+  let _ = ctx.println("${drop(lo, 1)}");
+  .Ok(())
+}

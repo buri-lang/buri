@@ -1,0 +1,18 @@
+// EXPECT: expected `}`, found `.`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Point { export x: Int, export y: Int }
+
+fn xOf(o: Option<Point>): Int {
+  match (o) {
+    .Some(p) => p,
+    .None => Point { x: 0, y: 0 },
+  }.x
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${xOf(.None)}");
+  .Ok(())
+}

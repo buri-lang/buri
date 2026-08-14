@@ -1,0 +1,11 @@
+// EXPECT: `Endless` can never be constructed
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Endless { Node(Endless) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

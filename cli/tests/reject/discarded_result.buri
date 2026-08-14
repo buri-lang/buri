@@ -1,0 +1,10 @@
+// EXPECT: a `Result` may not be discarded
+from "core/cap" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let _ = fs.readText(ctx, "config.toml");
+  .Ok(())
+}

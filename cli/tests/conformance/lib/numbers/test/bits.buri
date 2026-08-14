@@ -1,0 +1,218 @@
+// Bit manipulation — `core/bits`.
+//
+// `shl` and `shr` are functions rather than operators because there is no `<<`
+// or `>>` token (SPEC 12.6), so the whole of this file is ordinary calls. The
+// wide operations work on `Int`, which is `I64`; the `U8`, `U32` and `U64`
+// forms are named separately because a method's receiver, not an argument,
+// picks the width.
+//
+// Shifting by a count at or beyond the width of the type is a crash, so every
+// count below is in range.
+
+from "core/testing/assert" import * as assert;
+from "core/bits" import * as bits;
+from "core/num" import { Bounded };
+from "core/num" import * as num;
+
+// --- shl ---------------------------------------------------------------------------
+
+test "shl shifts toward the high bits" {
+  assert.eq(bits.shl(1, 0), 1);
+  assert.eq(bits.shl(1, 1), 2);
+  assert.eq(bits.shl(1, 10), 1024);
+  assert.eq(bits.shl(3, 4), 48);
+  assert.eq(bits.shl(0, 17), 0);
+}
+
+test "shl is multiplication by a power of two while the product fits" {
+  assert.eq(bits.shl(5, 3), 5 * 8);
+  assert.eq(bits.shl(-5, 3), -5 * 8);
+  assert.eq(bits.shl(1234567, 10), 1234567 * 1024);
+}
+
+test "shl by sixty-three lands on the sign bit" {
+  assert.eq(bits.shl(1, 63), num.minValue::<I64>());
+  assert.eq(bits.shl(1, 62), 4611686018427387904);
+}
+
+// --- shr and sar ----------------------------------------------------------------------
+
+test "shr shifts toward the low bits" {
+  assert.eq(bits.shr(1024, 3), 128);
+  assert.eq(bits.shr(1, 1), 0);
+  assert.eq(bits.shr(255, 4), 15);
+  assert.eq(bits.shr(0, 5), 0);
+  assert.eq(bits.shr(1024, 0), 1024);
+}
+
+test "shr is division by a power of two for a non-negative value" {
+  assert.eq(bits.shr(1000, 3), 1000 / 8);
+  assert.eq(bits.shr(9007199254740992, 10), 9007199254740992 / 1024);
+}
+
+test "shr fills with zeros rather than with the sign bit" {
+  assert.eq(bits.shr(-1, 1), num.maxValue::<I64>());
+  assert.eq(bits.shr(num.minValue::<I64>(), 63), 1);
+}
+
+test "shr by zero is the identity, on a negative value too" {
+  // Whatever a logical shift means for a negative `Int`, a shift by zero
+  // returns the value, and the result has to be an `Int`.
+  assert.eq(bits.shr(-1, 0), -1);
+  assert.eq(bits.shr(num.minValue::<I64>(), 0), num.minValue::<I64>());
+}
+
+test "sar replicates the sign bit" {
+  assert.eq(bits.sar(-8, 1), -4);
+  assert.eq(bits.sar(-1, 1), -1);
+  assert.eq(bits.sar(-1, 63), -1);
+  assert.eq(bits.sar(num.minValue::<I64>(), 63), -1);
+  assert.eq(bits.sar(-1024, 3), -128);
+}
+
+test "sar rounds toward negative infinity, unlike division" {
+  assert.eq(bits.sar(-7, 1), -4);
+  assert.eq(-7 / 2, -3);
+}
+
+test "shr and sar agree on a non-negative value" {
+  assert.eq(bits.shr(1024, 3), bits.sar(1024, 3));
+  assert.eq(bits.shr(12345, 7), bits.sar(12345, 7));
+  assert.eq(bits.shr(num.maxValue::<I64>(), 1), bits.sar(num.maxValue::<I64>(), 1));
+}
+
+test "a value survives a shift left and back when nothing falls off" {
+  assert.eq(bits.shr(bits.shl(12345, 10), 10), 12345);
+  assert.eq(bits.sar(bits.shl(1, 40), 40), 1);
+}
+
+// --- Counting bits ------------------------------------------------------------------------
+
+test "popCount counts the one bits" {
+  assert.eq(bits.popCount(0), 0);
+  assert.eq(bits.popCount(1), 1);
+  assert.eq(bits.popCount(255), 8);
+  assert.eq(bits.popCount(0b1010_0110), 4);
+  assert.eq(bits.popCount(bits.shl(1, 63)), 1);
+}
+
+test "popCount of minus one is the whole width" {
+  assert.eq(bits.popCount(-1), 64);
+  assert.eq(bits.popCount(num.maxValue::<I64>()), 63);
+  assert.eq(bits.popCount(num.minValue::<I64>()), 1);
+}
+
+test "leadingZeros counts from the top" {
+  assert.eq(bits.leadingZeros(0), 64);
+  assert.eq(bits.leadingZeros(1), 63);
+  assert.eq(bits.leadingZeros(2), 62);
+  assert.eq(bits.leadingZeros(255), 56);
+  assert.eq(bits.leadingZeros(-1), 0);
+  assert.eq(bits.leadingZeros(num.minValue::<I64>()), 0);
+}
+
+test "trailingZeros counts from the bottom" {
+  assert.eq(bits.trailingZeros(0), 64);
+  assert.eq(bits.trailingZeros(1), 0);
+  assert.eq(bits.trailingZeros(6), 1);
+  assert.eq(bits.trailingZeros(8), 3);
+  assert.eq(bits.trailingZeros(-1), 0);
+  assert.eq(bits.trailingZeros(num.minValue::<I64>()), 63);
+}
+
+test "leadingZeros and trailingZeros bracket a single bit" {
+  assert.eq(bits.leadingZeros(bits.shl(1, 20)) + bits.trailingZeros(bits.shl(1, 20)), 63);
+  assert.eq(bits.leadingZeros(bits.shl(1, 40)) + bits.trailingZeros(bits.shl(1, 40)), 63);
+  assert.eq(bits.popCount(bits.shl(1, 40)), 1);
+}
+
+// --- Rotation --------------------------------------------------------------------------------
+
+test "rotateLeft moves bits up and brings them back around" {
+  assert.eq(bits.rotateLeft(1, 1), 2);
+  assert.eq(bits.rotateLeft(1, 10), 1024);
+  assert.eq(bits.rotateLeft(1, 63), num.minValue::<I64>());
+  assert.eq(bits.rotateLeft(num.minValue::<I64>(), 1), 1);
+}
+
+test "rotateRight moves bits down and brings them back around" {
+  assert.eq(bits.rotateRight(2, 1), 1);
+  assert.eq(bits.rotateRight(1024, 10), 1);
+  assert.eq(bits.rotateRight(1, 1), num.minValue::<I64>());
+  assert.eq(bits.rotateRight(num.minValue::<I64>(), 63), 1);
+}
+
+test "rotating by zero changes nothing" {
+  assert.eq(bits.rotateLeft(12345, 0), 12345);
+  assert.eq(bits.rotateRight(12345, 0), 12345);
+  assert.eq(bits.rotateLeft(-1, 0), -1);
+}
+
+test "rotating one way and back returns the value" {
+  assert.eq(bits.rotateRight(bits.rotateLeft(1234567890123, 17), 17), 1234567890123);
+  assert.eq(bits.rotateLeft(bits.rotateRight(-1234567890123, 5), 5), -1234567890123);
+  assert.eq(bits.rotateRight(bits.rotateLeft(-1, 33), 33), -1);
+}
+
+test "rotation preserves the number of one bits" {
+  assert.eq(bits.popCount(bits.rotateLeft(255, 60)), 8);
+  assert.eq(bits.popCount(bits.rotateRight(255, 60)), 8);
+  assert.eq(bits.popCount(bits.rotateLeft(-1, 7)), 64);
+}
+
+test "a rotation by the whole width less n is the other rotation by n" {
+  assert.eq(bits.rotateLeft(12345, 40), bits.rotateRight(12345, 24));
+  assert.eq(bits.rotateRight(987654321, 9), bits.rotateLeft(987654321, 55));
+}
+
+// --- The fixed-width forms ------------------------------------------------------------------------
+
+test "shlU8 and shrU8 work inside eight bits" {
+  assert.eq(bits.shlU8(1, 0), 1);
+  assert.eq(bits.shlU8(1, 7), 128);
+  assert.eq(bits.shlU8(3, 2), 12);
+  assert.eq(bits.shrU8(255, 4), 15);
+  assert.eq(bits.shrU8(128, 7), 1);
+  assert.eq(bits.shrU8(1, 1), 0);
+}
+
+test "shlU8 drops the bits that leave the byte" {
+  assert.eq(bits.shlU8(255, 1), 254);
+  assert.eq(bits.shlU8(255, 7), 128);
+  assert.eq(bits.shlU8(128, 1), 0);
+  assert.eq(bits.shlU8(num.maxValue::<U8>(), 4), 240);
+}
+
+test "shlU32 and shrU32 work inside thirty-two bits" {
+  assert.eq(bits.shlU32(1, 31), 2147483648);
+  assert.eq(bits.shlU32(1, 0), 1);
+  assert.eq(bits.shlU32(4294967295, 1), 4294967294);
+  assert.eq(bits.shrU32(4294967295, 16), 65535);
+  assert.eq(bits.shrU32(num.maxValue::<U32>(), 31), 1);
+  assert.eq(bits.shrU32(2147483648, 31), 1);
+}
+
+test "shlU64 and shrU64 work inside sixty-four bits" {
+  assert.eq(bits.shlU64(1, 63), 9223372036854775808);
+  assert.eq(bits.shlU64(1, 0), 1);
+  assert.eq(bits.shlU64(18446744073709551615, 1), 18446744073709551614);
+  assert.eq(bits.shrU64(18446744073709551615, 32), 4294967295);
+  assert.eq(bits.shrU64(num.maxValue::<U64>(), 63), 1);
+  assert.eq(bits.shrU64(9223372036854775808, 63), 1);
+}
+
+test "the unsigned and the signed shifts agree on a value that fits both" {
+  assert.eq(bits.shlU64(1024, 5).wrapToI64(), bits.shl(1024, 5));
+  assert.eq(bits.shrU64(1024, 5).wrapToI64(), bits.shr(1024, 5));
+  assert.eq(bits.shlU32(1024, 5).toI64(), bits.shl(1024, 5));
+  assert.eq(bits.shlU8(3, 5).toI64(), bits.shl(3, 5));
+}
+
+test "shifting by zero changes nothing at any width" {
+  assert.eq(bits.shl(-12345, 0), -12345);
+  assert.eq(bits.shr(12345, 0), 12345);
+  assert.eq(bits.sar(-12345, 0), -12345);
+  assert.eq(bits.shlU8(200, 0), 200);
+  assert.eq(bits.shrU32(4294967295, 0), 4294967295);
+  assert.eq(bits.shlU64(18446744073709551615, 0), 18446744073709551615);
+}

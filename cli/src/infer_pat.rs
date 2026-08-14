@@ -22,6 +22,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             ast::Pattern::Wild { .. } => hir::PatKind::Wild,
 
             ast::Pattern::Bind { name, sub, .. } => {
+                // Each name a pattern binds is bound once. `(a, a)` is a
+                // mistake, not a shorthand for "equal".
+                if self.or_bindings.is_none() && self.pattern_names.contains(&name.name) {
+                    let n = name.name.clone();
+                    self.err(name.span, format!("`{n}` is bound twice in this pattern"))
+                        .note("a name a pattern binds is bound once; to require two positions to be equal, match one and test the other in a guard");
+                }
+                self.pattern_names.push(name.name.clone());
                 let local = match self.or_alternative_local(&name.name) {
                     // Or-pattern alternatives must bind identical names at
                     // identical types, so the second alternative reuses the
@@ -117,6 +125,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     elems.iter().map(|e| self.check_pattern(e, &elem_ty)).collect();
                 let rest_local = rest.as_ref().map(|name| {
                     name.as_ref().map(|n| {
+                        if self.or_bindings.is_none() && self.pattern_names.contains(&n.name) {
+                            let dup = n.name.clone();
+                            self.err(n.span, format!("`{dup}` is bound twice in this pattern"));
+                        }
+                        self.pattern_names.push(n.name.clone());
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
                         let l = self.new_local(&n.name, arr, n.span);
                         self.bind(&n.name, l);
@@ -395,6 +408,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                         Some(p) => self.check_pattern(p, &ty),
                         // Field shorthand: `User { id, name }` binds both.
                         None => {
+                            if self.or_bindings.is_none()
+                                && self.pattern_names.contains(&f.name.name)
+                            {
+                                let n = f.name.name.clone();
+                                self.err(f.name.span, format!("`{n}` is bound twice in this pattern"));
+                            }
+                            self.pattern_names.push(f.name.name.clone());
                             let local = self.new_local(&f.name.name, ty.clone(), f.name.span);
                             self.bind(&f.name.name, local);
                             self.record_or_binding(&f.name.name, local);

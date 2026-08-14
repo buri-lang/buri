@@ -1,0 +1,6 @@
+retries=5 pi=3.14159265358979 greeting=hello
+2 + 2 = 4
+clamp Int = 10
+clamp F64 = 1.0
+midpoint  = 15
+celsius   = 68.0

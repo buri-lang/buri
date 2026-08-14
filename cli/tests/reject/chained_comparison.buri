@@ -1,0 +1,13 @@
+// EXPECT: comparison operators are non-associative
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn between(a: Int, b: Int, c: Int): Bool {
+  a < b < c
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${between(1, 2, 3)}");
+  .Ok(())
+}

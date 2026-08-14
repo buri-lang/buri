@@ -53,13 +53,21 @@ impl<'a> Gen<'a> {
     /// them through the return type.
     fn numeric_free(&mut self, name: &str, _args: &[Expr], f: &Func) -> Option<Expr> {
         let p = self.prim_of(&f.ret)?;
-        let (lo, hi) = p.int_range().or_else(|| {
-            // The float types satisfy `Bounded` but not the other two.
-            None
-        })?;
+        // Every built-in integer type satisfies `Bounded`, `Checked` and
+        // `Wrapping`; the float types satisfy `Bounded` only (SPEC 6.2.2).
+        if p.is_float() {
+            return Some(match (name, p) {
+                ("minValue", Prim::F32) => Expr::Num(-(f32::MAX as f64)),
+                ("maxValue", Prim::F32) => Expr::Num(f32::MAX as f64),
+                ("minValue", _) => Expr::Num(f64::MIN),
+                ("maxValue", _) => Expr::Num(f64::MAX),
+                _ => return None,
+            });
+        }
+        let (lo, hi) = p.int_range()?;
         match name {
-            "minValue" => Some(self.int_const(lo as i128, p)),
-            "maxValue" => Some(self.int_const(hi as i128, p)),
+            "minValue" => Some(self.int_const(lo, p)),
+            "maxValue" => Some(self.upper_const(hi, p)),
             _ => None,
         }
     }
@@ -69,6 +77,9 @@ impl<'a> Gen<'a> {
         let a = args.first().cloned();
 
         // --- Conversions ---------------------------------------------------
+        if name == "toChar" {
+            return Some(Expr::call(Expr::ident("$toChar"), vec![a?]));
+        }
         if let Some(target) = name.strip_prefix("wrapTo") {
             let to = Prim::all().iter().copied().find(|p| p.name() == target)?;
             return Some(self.wrap_conversion(a?, from, to));
@@ -121,6 +132,10 @@ impl<'a> Gen<'a> {
                 let v = a?;
                 Some(if from.is_float() {
                     Expr::call(Expr::ident("$f64"), vec![v])
+                } else if from.is_integer() && !from.is_bigint() {
+                    // A narrow integer is a JS number; `$str` would render it
+                    // as a float.
+                    Expr::call(Expr::ident("String"), vec![v])
                 } else {
                     Expr::call(Expr::ident("$str"), vec![v])
                 })
@@ -163,7 +178,7 @@ impl<'a> Gen<'a> {
                         Expr::ident("$none"),
                         Expr::call(
                             Expr::ident("$checkedIn"),
-                            vec![div, self.int_const(lo, from), self.int_const(hi as i128, from)],
+                            vec![div, self.int_const(lo, from), self.upper_const(hi, from)],
                         ),
                     ));
                 } else {
@@ -171,7 +186,7 @@ impl<'a> Gen<'a> {
                 };
                 Some(Expr::call(
                     Expr::ident("$checkedIn"),
-                    vec![raw, self.int_const(lo, from), self.int_const(hi as i128, from)],
+                    vec![raw, self.int_const(lo, from), self.upper_const(hi, from)],
                 ))
             }
             "wrappingAdd" | "wrappingSub" | "wrappingMul" => {
@@ -196,17 +211,31 @@ impl<'a> Gen<'a> {
                     vec![
                         Expr::bin(op, x, y),
                         self.int_const(lo, from),
-                        self.int_const(hi as i128, from),
+                        self.upper_const(hi, from),
                     ],
                 ))
             }
             "minValue" => {
+                if from.is_float() {
+                    return Some(if from == Prim::F32 {
+                        Expr::Num(-(f32::MAX as f64))
+                    } else {
+                        Expr::Num(f64::MIN)
+                    });
+                }
                 let (lo, _) = from.int_range()?;
                 Some(self.int_const(lo, from))
             }
             "maxValue" => {
+                if from.is_float() {
+                    return Some(if from == Prim::F32 {
+                        Expr::Num(f32::MAX as f64)
+                    } else {
+                        Expr::Num(f64::MAX)
+                    });
+                }
                 let (_, hi) = from.int_range()?;
-                Some(self.int_const(hi as i128, from))
+                Some(self.upper_const(hi, from))
             }
             _ => None,
         }
@@ -219,16 +248,20 @@ impl<'a> Gen<'a> {
             return v;
         }
         let exact = conversion_is_exact(from, to);
-        let widened = self.represent(v.clone(), from, to);
+        let mut widened = self.represent(v.clone(), from, to);
+        if to == Prim::F32 {
+            widened = Expr::call(Expr::member(Expr::ident("Math"), "fround"), vec![widened]);
+        }
         if exact {
             return widened;
         }
-        // `$ok`/`$err` shape the Result the caller destructures.
-        let (lo, hi) = match to.int_range() {
-            Some(r) => r,
-            // Float target, narrowing: F64 -> F32 rounds, so it is exact
-            // enough to be the wrapping form and never reaches here.
-            None => return widened,
+        // A float target has no integer range; `F64 -> F32` fails only when
+        // the value does not survive as a finite binary32.
+        let Some((lo, hi)) = to.int_range() else {
+            return Expr::call(
+                Expr::ident("$convF32"),
+                vec![v, Expr::Str(to.name().to_string())],
+            );
         };
         Expr::call(
             Expr::ident("$convChecked"),
@@ -245,7 +278,14 @@ impl<'a> Gen<'a> {
     /// `x.wrapToT()`: modular for integers, rounding for floats.
     fn wrap_conversion(&mut self, v: Expr, from: Prim, to: Prim) -> Expr {
         if to.is_float() {
-            return self.represent(v, from, to);
+            let widened = self.represent(v, from, to);
+            // "wraps (integers) or rounds (floats)" — rounding to binary32 is
+            // what `Math.fround` is.
+            return if to == Prim::F32 {
+                Expr::call(Expr::member(Expr::ident("Math"), "fround"), vec![widened])
+            } else {
+                widened
+            };
         }
         if from.is_float() {
             let truncated =
@@ -305,6 +345,17 @@ impl<'a> Gen<'a> {
     }
 
     fn int_const(&self, v: i128, p: Prim) -> Expr {
+        if p.is_bigint() {
+            Expr::BigInt(v.to_string())
+        } else {
+            Expr::Num(v as f64)
+        }
+    }
+
+    /// The upper bound, which for `U128` does not fit in an `i128` — casting
+    /// it there turns `maxValue` and every `Checked`/`Saturating` bound into
+    /// `-1`.
+    fn upper_const(&self, v: u128, p: Prim) -> Expr {
         if p.is_bigint() {
             Expr::BigInt(v.to_string())
         } else {

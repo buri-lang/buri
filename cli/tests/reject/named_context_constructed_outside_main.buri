@@ -1,0 +1,21 @@
+// EXPECT: a context may not be constructed here
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+context Program {
+  Alloc: host.alloc,
+  Stdout: host.stdout,
+}
+
+fn helper(): Int {
+  let inner = Program();
+  let _ = io.println(inner, "from a helper");
+  1
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${helper()}");
+  .Ok(())
+}

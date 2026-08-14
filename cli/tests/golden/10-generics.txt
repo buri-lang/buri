@@ -1,0 +1,11 @@
+identity  = 7 / seven
+constant  = 1
+tree size = 3
+has 8     = true
+has 9     = false
+flip      = 9
+mapPair   = 42, 1
+-> duplicate
+<- duplicate
+duplicate = 6 items
+range     = 5 items

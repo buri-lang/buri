@@ -1,0 +1,14 @@
+// EXPECT: `ctx` must come first
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn shout<C: Stdout>(times: Int, ctx: C): () {
+  io.println(ctx, "loud")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = shout(2, ctx);
+  .Ok(())
+}

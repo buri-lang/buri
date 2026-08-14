@@ -1,0 +1,14 @@
+// EXPECT: `Str` has no method `nonexistentMethod`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn broken(s: Str): Int {
+  s.nonexistentMethod()
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let n = broken("hi");
+  let _ = ctx.println("${n}");
+  .Ok(())
+}

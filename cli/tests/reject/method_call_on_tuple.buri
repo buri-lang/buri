@@ -1,0 +1,13 @@
+// EXPECT: has no method `len`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn sizeOf(t: (Int, Int)): Int {
+  t.len()
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${sizeOf((1, 2))}");
+  .Ok(())
+}

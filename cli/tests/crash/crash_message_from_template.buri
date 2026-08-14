@@ -1,0 +1,16 @@
+// CRASH: bad index 7
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn force(xs: [Int], i: Int): Int {
+  match (xs.get(i)) {
+    .Some(v) => v,
+    .None => crash "bad index ${i}",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${force([1, 2, 3], 7)}");
+  .Ok(())
+}

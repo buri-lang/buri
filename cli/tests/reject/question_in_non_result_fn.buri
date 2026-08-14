@@ -1,0 +1,14 @@
+// EXPECT: needs a `Result` return type
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn unwrap(r: Result<Int, Str>): Int {
+  let n = r?;
+  n
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${unwrap(.Ok(1))}");
+  .Ok(())
+}

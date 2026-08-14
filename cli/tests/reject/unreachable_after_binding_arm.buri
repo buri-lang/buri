@@ -1,0 +1,16 @@
+// EXPECT: this arm is unreachable
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(o: Option<Int>): Int {
+  match (o) {
+    anything => 1,
+    .None => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe(.None)}");
+  .Ok(())
+}

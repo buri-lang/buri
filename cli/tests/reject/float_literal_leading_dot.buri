@@ -1,0 +1,10 @@
+// EXPECT: expected an identifier, found `5`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let half = .5;
+  let _ = ctx.println("${half}");
+  .Ok(())
+}

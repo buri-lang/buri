@@ -1,0 +1,14 @@
+// EXPECT: expected a declaration, found `derive`
+from "core/cap" import { Alloc, Stdout };
+from "core/order" import { Eq };
+from "core/host" import * as host;
+
+export struct Version { export major: Int }
+
+export derive Eq for Version;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

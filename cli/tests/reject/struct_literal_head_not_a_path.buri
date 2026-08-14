@@ -1,0 +1,18 @@
+// EXPECT: the head of a struct literal must be a type
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Holder { export a: Int }
+
+fn identity(n: Int): Int { n }
+
+fn build(): Int {
+  let h = identity(1) { a: 1 };
+  h.a
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${build()}");
+  .Ok(())
+}

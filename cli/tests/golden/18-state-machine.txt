@@ -1,0 +1,3 @@
+happy = submitted ORD-1001: 1 items
+sad   = filling: 1 items, 2500 cents
+        stopped at: unknown sku NOPE

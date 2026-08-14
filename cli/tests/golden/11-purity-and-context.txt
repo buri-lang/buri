@@ -1,0 +1,11 @@
+# VOLATILE: dice        = 
+# VOLATILE: sum took 
+68F         = 68.0
+palindrome  = true
+mean        = 15.25
+slug        = hello-brave-new-world
+pure        = 60
+normalized  = 4 values
+dice        = 20
+sum took 0ms
+timed       = 10

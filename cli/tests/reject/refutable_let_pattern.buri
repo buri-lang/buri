@@ -1,0 +1,14 @@
+// EXPECT: this pattern does not match every value of its type
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn unwrap(o: Option<Int>): Int {
+  let .Some(n) = o;
+  n
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${unwrap(.Some(3))}");
+  .Ok(())
+}

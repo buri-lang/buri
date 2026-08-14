@@ -1,0 +1,370 @@
+// SPEC 5.11, 5.12 — traits, `impl`, `derive`, and operators as trait methods.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+from "core/num" import * as num;
+from "core/list" import * as list;
+from "core/order" import { Order };
+
+from "//lib/semantics" import {
+  Version, version, Level, Shape, area,
+  Meters, Count, Delta,
+  Backwards, Suit, rank, declIndex, Loose, Percent,
+  Brick, Feather, totalGrams, heaviest, heavyLabel, weighAndShow,
+};
+
+// -----------------------------------------------------------------------------
+// derive Eq — structural, never referential
+// -----------------------------------------------------------------------------
+
+test "two separately constructed structs with equal fields are equal" {
+  assert.eq(version(1, 2, 3), version(1, 2, 3));
+}
+
+test "a struct literal equals the same struct built by a function" {
+  assert.eq(Version { major: 1, minor: 2, patch: 3 }, version(1, 2, 3));
+}
+
+test "a difference in the last field is still a difference" {
+  assert.notEq(version(1, 2, 3), version(1, 2, 4));
+}
+
+test "a difference in the first field is a difference" {
+  assert.notEq(version(1, 2, 3), version(9, 2, 3));
+}
+
+test "derived Eq on a payload-free enum variant" {
+  assert.eq(Level.Medium, Level.Medium);
+  assert.notEq(Level.Medium, Level.High);
+}
+
+test "derived Eq on an enum recurses into the payload" {
+  assert.eq(Shape.Circle(2.0), Shape.Circle(2.0));
+  assert.notEq(Shape.Circle(2.0), Shape.Circle(2.5));
+}
+
+test "derived Eq distinguishes variants with the same shape of payload" {
+  assert.notEq(Shape.Circle(2.0), Shape.Empty);
+}
+
+test "derived Eq on a record-payload variant compares fields" {
+  assert.eq(
+    Shape.Rect { width: 2.0, height: 3.0 },
+    Shape.Rect { width: 2.0, height: 3.0 },
+  );
+  assert.notEq(
+    Shape.Rect { width: 2.0, height: 3.0 },
+    Shape.Rect { width: 3.0, height: 2.0 },
+  );
+}
+
+// -----------------------------------------------------------------------------
+// derive Ord — fields in declaration order, variants in declaration order
+// -----------------------------------------------------------------------------
+
+test "derived Ord compares the first-declared field first" {
+  // `minor` and `patch` are larger on the left, and lose anyway.
+  assert.isTrue(version(1, 99, 99) < version(2, 0, 0));
+  assert.isFalse(version(2, 0, 0) < version(1, 99, 99));
+}
+
+test "derived Ord falls through to the second field on a tie" {
+  assert.isTrue(version(1, 2, 99) < version(1, 3, 0));
+}
+
+test "derived Ord falls through to the third field on two ties" {
+  assert.isTrue(version(1, 2, 3) < version(1, 2, 4));
+  assert.isTrue(version(1, 2, 4) > version(1, 2, 3));
+}
+
+test "derived Ord reports equal values as neither less nor greater" {
+  assert.isFalse(version(1, 2, 3) < version(1, 2, 3));
+  assert.isFalse(version(1, 2, 3) > version(1, 2, 3));
+  assert.isTrue(version(1, 2, 3) <= version(1, 2, 3));
+  assert.isTrue(version(1, 2, 3) >= version(1, 2, 3));
+}
+
+test "derived Ord exposes compare, which is what the operators call" {
+  assert.eq(version(1, 0, 0).compare(version(2, 0, 0)), Order.Less);
+  assert.eq(version(2, 0, 0).compare(version(1, 0, 0)), Order.Greater);
+  assert.eq(version(1, 0, 0).compare(version(1, 0, 0)), Order.Equal);
+}
+
+test "derived Ord on an enum ranks variants in declaration order" {
+  assert.isTrue(Level.Low < Level.Medium);
+  assert.isTrue(Level.Medium < Level.High);
+  assert.isTrue(Level.Low < Level.High);
+}
+
+test "derived Ord on an enum with payloads ranks by variant first" {
+  // Circle, then Rect, then Empty — the order they are written in.
+  assert.isTrue(Shape.Circle(1000.0) < Shape.Rect { width: 0.0, height: 0.0 });
+  assert.isTrue(Shape.Rect { width: 0.0, height: 0.0 } < Shape.Empty);
+}
+
+test "derived Ord on an enum compares payloads within one variant" {
+  assert.isTrue(Shape.Circle(1.0) < Shape.Circle(2.0));
+  assert.isTrue(
+    Shape.Rect { width: 1.0, height: 9.0 } < Shape.Rect { width: 2.0, height: 0.0 },
+  );
+}
+
+test "derived Ord sorts a list into declaration order" {
+  let ctx = Hermetic();
+  let sorted = [Level.High, Level.Low, Level.Medium].sortBy(ctx, fn(a, b) => a.compare(b));
+  assert.eq(sorted, [Level.Low, Level.Medium, Level.High]);
+}
+
+// -----------------------------------------------------------------------------
+// derive Show — structural, fields in declaration order
+// -----------------------------------------------------------------------------
+
+test "derived Show mentions every field value" {
+  let ctx = Hermetic();
+  let s = version(7, 22, 333).show(ctx);
+  assert.isTrue(s.contains("7"));
+  assert.isTrue(s.contains("22"));
+  assert.isTrue(s.contains("333"));
+}
+
+test "derived Show renders fields in declaration order" {
+  let ctx = Hermetic();
+  let s = version(7, 22, 333).show(ctx);
+  let major = assert.some(s.indexOf("7"));
+  let minor = assert.some(s.indexOf("22"));
+  let patch = assert.some(s.indexOf("333"));
+  assert.isTrue(major < minor);
+  assert.isTrue(minor < patch);
+}
+
+test "derived Show names the enum variant" {
+  let ctx = Hermetic();
+  assert.isTrue(Level.Medium.show(ctx).contains("Medium"));
+  assert.isTrue(Shape.Circle(2.0).show(ctx).contains("Circle"));
+  assert.isTrue(Shape.Empty.show(ctx).contains("Empty"));
+}
+
+test "derived Show is a function of the value" {
+  let ctx = Hermetic();
+  assert.eq(version(1, 2, 3).show(ctx), version(1, 2, 3).show(ctx));
+  assert.notEq(version(1, 2, 3).show(ctx), version(1, 2, 4).show(ctx));
+}
+
+// -----------------------------------------------------------------------------
+// derive Hash
+// -----------------------------------------------------------------------------
+
+test "derived Hash agrees on equal values" {
+  assert.eq(version(4, 5, 6).hash(), version(4, 5, 6).hash());
+}
+
+test "derived Hash separates values that differ in one field" {
+  assert.notEq(version(4, 5, 6).hash(), version(4, 5, 7).hash());
+}
+
+test "derived Hash on an enum separates variants" {
+  assert.eq(Level.Low.hash(), Level.Low.hash());
+  assert.notEq(Level.Low.hash(), Level.High.hash());
+}
+
+test "derived Hash on a newtype is stable" {
+  assert.eq(Count(17).hash(), Count(17).hash());
+  assert.notEq(Count(17).hash(), Count(18).hash());
+}
+
+// -----------------------------------------------------------------------------
+// derive of the operator traits on a newtype (SPEC 5.12.4)
+// -----------------------------------------------------------------------------
+
+test "derived Add on a newtype adds the wrapped value" {
+  assert.eq(Meters(1.5) + Meters(2.0), Meters(3.5));
+}
+
+test "derived Sub on a newtype subtracts the wrapped value" {
+  assert.eq(Meters(3.5) - Meters(2.0), Meters(1.5));
+}
+
+test "derived Ord on a newtype compares the wrapped value" {
+  assert.isTrue(Meters(3.5) > Meters(3.0));
+  assert.isFalse(Meters(3.0) > Meters(3.5));
+  assert.isTrue(Meters(1.0) < Meters(2.0));
+}
+
+test "a derived operator keeps the newtype, not the payload" {
+  let total = Meters(1.5) + Meters(2.0);
+  assert.eq(total.0, 3.5);
+  assert.isTrue(total > Meters(3.0));
+}
+
+test "derived Mul, Div and Rem on an integer newtype" {
+  assert.eq(Count(6) * Count(7), Count(42));
+  assert.eq(Count(42) / Count(7), Count(6));
+  assert.eq(Count(43) % Count(7), Count(1));
+}
+
+test "derived Neg on a newtype" {
+  assert.eq(-Delta(5), Delta(-5));
+  assert.eq(-Delta(-5), Delta(5));
+}
+
+test "derived Add chains left to right" {
+  assert.eq(Count(1) + Count(2) + Count(3), Count(6));
+}
+
+// -----------------------------------------------------------------------------
+// A hand-written `impl Ord` is what `<` and `>` actually use
+// -----------------------------------------------------------------------------
+
+test "a hand-written reversed Ord decides `<`" {
+  // Backwards(5) is *less than* Backwards(1) because the impl says so.
+  assert.isTrue(Backwards(5) < Backwards(1));
+  assert.isFalse(Backwards(1) < Backwards(5));
+}
+
+test "a hand-written reversed Ord decides `>`" {
+  assert.isTrue(Backwards(1) > Backwards(5));
+  assert.isFalse(Backwards(5) > Backwards(1));
+}
+
+test "a hand-written reversed Ord decides `<=` and `>=`" {
+  assert.isTrue(Backwards(5) <= Backwards(1));
+  assert.isTrue(Backwards(3) <= Backwards(3));
+  assert.isTrue(Backwards(1) >= Backwards(5));
+}
+
+test "the operators and compare agree, because they are the same method" {
+  assert.eq(Backwards(5).compare(Backwards(1)), Order.Less);
+  assert.eq(Backwards(1).compare(Backwards(5)), Order.Greater);
+  assert.eq(Backwards(3).compare(Backwards(3)), Order.Equal);
+}
+
+test "num.min through an Ord bound follows the hand-written impl" {
+  assert.eq(num.min(Backwards(1), Backwards(5)), Backwards(5));
+  assert.eq(num.max(Backwards(1), Backwards(5)), Backwards(1));
+}
+
+test "sorting through a hand-written Ord follows it" {
+  let ctx = Hermetic();
+  let sorted = [Backwards(1), Backwards(3), Backwards(2)]
+    .sortBy(ctx, fn(a, b) => a.compare(b));
+  assert.eq(sorted, [Backwards(3), Backwards(2), Backwards(1)]);
+}
+
+test "list.maximum through a hand-written Ord follows it" {
+  assert.eq(assert.some([Backwards(1), Backwards(3), Backwards(2)].maximum()), Backwards(1));
+  assert.eq(assert.some([Backwards(1), Backwards(3), Backwards(2)].minimum()), Backwards(3));
+}
+
+// -----------------------------------------------------------------------------
+// A hand-written `impl` on an enum
+// -----------------------------------------------------------------------------
+
+test "a hand-written enum Ord disagrees with declaration order" {
+  // Declared Diamonds, Clubs, Spades, Hearts; ordered Clubs < Diamonds.
+  assert.isTrue(declIndex(Suit.Diamonds) < declIndex(Suit.Clubs));
+  assert.isTrue(Suit.Clubs < Suit.Diamonds);
+}
+
+test "the hand-written bridge order holds across every adjacent pair" {
+  assert.isTrue(Suit.Clubs < Suit.Diamonds);
+  assert.isTrue(Suit.Diamonds < Suit.Hearts);
+  assert.isTrue(Suit.Hearts < Suit.Spades);
+}
+
+test "the hand-written enum Ord sorts into bridge order" {
+  let ctx = Hermetic();
+  let sorted = [Suit.Hearts, Suit.Spades, Suit.Clubs, Suit.Diamonds]
+    .sortBy(ctx, fn(a, b) => a.compare(b));
+  assert.eq(sorted, [Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades]);
+  assert.eq(sorted.mapCtx(ctx, fn(c, s) => rank(s)), [0, 1, 2, 3]);
+}
+
+test "a hand-written enum Eq is what == uses" {
+  assert.eq(Suit.Hearts, Suit.Hearts);
+  assert.notEq(Suit.Hearts, Suit.Spades);
+}
+
+test "a hand-written Show on an enum replaces the structural one" {
+  let ctx = Hermetic();
+  assert.eq(Suit.Hearts.show(ctx), "H");
+  assert.eq(Suit.Clubs.show(ctx), "C");
+}
+
+// -----------------------------------------------------------------------------
+// A hand-written `impl Eq` need not be structural (SPEC 5.11)
+// -----------------------------------------------------------------------------
+
+test "a hand-written Eq may ignore a field entirely" {
+  assert.eq(
+    Loose { word: "abc", ignored: 1 },
+    Loose { word: "xyz", ignored: 999 },
+  );
+}
+
+test "a hand-written Eq decides what != means too" {
+  assert.notEq(
+    Loose { word: "abc", ignored: 1 },
+    Loose { word: "abcd", ignored: 1 },
+  );
+}
+
+test "assert.eq goes through the type's own Eq" {
+  // Different contents, equal by this type's rule — and assert.eq agrees,
+  // because the comparison is `==` and nothing else.
+  assert.isTrue(Loose { word: "aa", ignored: 0 } == Loose { word: "bb", ignored: 7 });
+}
+
+// -----------------------------------------------------------------------------
+// A hand-written operator impl
+// -----------------------------------------------------------------------------
+
+test "a hand-written Add is what + calls" {
+  assert.eq(Percent(60) + Percent(60), Percent(100));
+  assert.eq(Percent(20) + Percent(30), Percent(50));
+}
+
+test "a hand-written Add is used at every position in a chain" {
+  assert.eq(Percent(50) + Percent(40) + Percent(40), Percent(100));
+}
+
+// -----------------------------------------------------------------------------
+// Trait methods called through a generic bound (SPEC 5.10)
+// -----------------------------------------------------------------------------
+
+test "a trait method resolves through a generic bound" {
+  assert.eq(totalGrams([Brick { kilos: 2 }, Brick { kilos: 3 }]), 5000);
+}
+
+test "the same bounded generic works at a second type" {
+  assert.eq(totalGrams([Feather { count: 3 }, Feather { count: 4 }]), 7);
+}
+
+test "a bounded generic returning the element type" {
+  assert.eq(
+    assert.some(heaviest([Brick { kilos: 1 }, Brick { kilos: 9 }, Brick { kilos: 4 }])),
+    Brick { kilos: 9 },
+  );
+}
+
+test "two bounds joined with + are both callable" {
+  assert.eq(heavyLabel(Brick { kilos: 1 }), "brick");
+  assert.eq(heavyLabel(Feather { count: 1 }), "light");
+}
+
+test "a bound of mine and a bound from core/order together" {
+  let ctx = Hermetic();
+  let shown = weighAndShow(ctx, Feather { count: 12 });
+  assert.isTrue(shown.contains("12"));
+  assert.isTrue(shown.endsWith("=12"));
+}
+
+test "a trait method inside a lambda inside a bounded generic" {
+  assert.eq(totalGrams([Feather { count: 1 }]), 1);
+  assert.eq(totalGrams(list.empty::<Feather>()), 0);
+}
+
+test "area matches on all three payload shapes" {
+  assert.eq(area(Shape.Rect { width: 2.0, height: 3.0 }), 6.0);
+  assert.eq(area(Shape.Empty), 0.0);
+  assert.isTrue(area(Shape.Circle(1.0)) > 3.14);
+}

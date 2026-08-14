@@ -1,0 +1,14 @@
+// EXPECT: carries an effect, so it must be named `ctx`
+from "core/cap" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+
+fn sneaky<C: Fs>(a: Int, handle: C): Bool {
+  fs.exists(handle, "x")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let _ = ctx.println("${sneaky(1, ctx)}");
+  .Ok(())
+}

@@ -1,0 +1,14 @@
+// EXPECT: `if` requires an `else` branch
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn sign(n: Int): Int {
+  let label = if (n > 0) { 1 };
+  label
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${sign(1)}");
+  .Ok(())
+}
