@@ -75,11 +75,12 @@ pub enum OptionOrResult {
 /// no implicit promotion of any kind.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrimOp {
-    /// Overflow of any signed or unsigned integer operation is a crash.
+    /// Overflow and underflow of an integer operation are undefined; the
+    /// backend emits the operation and nothing else.
     Add,
     Sub,
     Mul,
-    /// Integer `/` truncates toward zero. Division by zero is a crash.
+    /// Integer `/` truncates toward zero. Division by zero aborts.
     Div,
     /// `%` takes the sign of the dividend.
     Rem,
@@ -166,8 +167,6 @@ pub enum ExprKind {
     StructuralCmp { op: PrimOp, args: Vec<Expr> },
 
     Template { parts: Vec<TemplatePart> },
-    /// `crash` terminates the program. It has the bottom type.
-    Crash { message: Box<Expr> },
 
     /// `context { ... }`, the only construct in which more than one
     /// effect-carrying value may appear.
@@ -349,7 +348,6 @@ pub fn walk(e: &Expr, f: &mut impl FnMut(&Expr)) {
                 }
             }
         }
-        ExprKind::Crash { message } => go(message),
         ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, e)| go(e)),
         _ => {}
     }

@@ -10,7 +10,6 @@ from "core/str" import * as str;
 // Named imports, with optional renaming.
 from "core/cap" import { Alloc, Stdout };
 from "core/host" import * as host;
-from "core/list" import { filter as filterList };
 
 // Importing from this repository. Paths are absolute from the root — there are
 // no relative module paths — and `//lib/money` names that library's public
@@ -86,9 +85,9 @@ type Renderer = fn(Row) => Str;
 // `Row` and `(Str, Str)` are the same type; aliases document, they do not
 // protect. Use a tuple struct when you want a distinct type.
 export fn renderTable<C: Alloc>(ctx: C, render: Renderer, t: Table): Str {
-  // `map`, not the local alias: a method resolves through its receiver's
-  // type rather than through scope, so renaming the import renames only the
-  // free function (SPEC 6.7.3).
+  // `map` needs no import at all: a method resolves through its receiver's
+  // type rather than through this module's scope, so nothing above affects
+  // whether this line compiles (SPEC 6.7.3).
   t.map(ctx, render).join(ctx, "\n")
 }
 
@@ -112,9 +111,9 @@ export fn main(): Result<(), Str> {
   let today = "2026-08-13";
   let _ = ctx.println("visible = ${isVisible(publish(today))}");
 
-  // As a free function the receiver stays first: `xs.filter(ctx, p)` and
-  // `filterList(xs, ctx, p)` are the same call.
-  let onlyLong = filterList(table, ctx, fn(r) => r.1.len() > 4);
+  // `filter` is a method on `[T]`, so it needs no import at all: it is found
+  // through the receiver's type rather than through this module's scope.
+  let onlyLong = table.filter(ctx, fn(r) => r.1.len() > 4);
   let rendered = renderTable(ctx, fn(r) => r.0, onlyLong);
   let _ = ctx.println("rows   = ${rendered}");
 

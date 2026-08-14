@@ -124,12 +124,13 @@ that depends on capitalization is a parser that depends on convention:
 
 ### 3.4 Keywords
 
-`as` `const` `context` `crash` `ctx` `derive` `effect` `else` `enum` `export`
+`as` `const` `context` `ctx` `derive` `effect` `else` `enum` `export`
 `false` `fn` `for` `from` `if` `impl` `import` `let` `match` `self` `Self`
 `struct` `test` `trait` `true` `type`
 
 `for` appears only in `impl ... for ...` and `derive ... for ...`. `self` is
-legal only as a method's first parameter; `Self` only inside a trait or `impl`.
+legal only as the first parameter of a function inside an `impl` block; `Self`
+only inside a trait or `impl`.
 `test` is reserved everywhere, so no function may be named `test`, but a `test`
 declaration is legal only in a test source (Section 11.2). `context` is likewise
 reserved everywhere, but a `context` declaration or expression is legal only
@@ -718,7 +719,7 @@ trait Show {
 ```
 
 `Self` stands for the implementing type and is legal only inside a trait or an
-`impl`. Trait methods declare `self` first, exactly like any other method
+`impl`. A trait's methods declare `self` first, exactly like any other method
 (Section 6.7.1).
 
 A trait declared `effect` additionally marks its implementors as
@@ -748,7 +749,7 @@ incremental invalidation exactly where it needs to be fine.
 
 #### 5.12.2 `impl`
 
-An `impl` block declares conformance and supplies the methods:
+`impl Trait for Type` declares conformance and supplies the methods:
 
 ```buri
 impl Ord for Version {
@@ -756,14 +757,20 @@ impl Ord for Version {
 }
 ```
 
-The methods land in the type's ordinary method namespace, so `v.compare(other)`
-resolves the same way any method does (Section 6.7.3). An `impl` introduces no
-second namespace and no second resolution path.
+This is the same block that declares a type's own methods (Section 6.7.1), with
+a `for` clause added. The methods land in the same namespace, so
+`v.compare(other)` resolves the way any method does (Section 6.7.3): an `impl`
+introduces no second namespace and no second resolution path, whichever form it
+takes.
 
-An `impl` may appear only in the defining module of the type, and is never
-exported — conformance is a property of the type, visible wherever the type is.
-There is no way to implement a trait for someone else's type, which is the same
-restriction that already applies to methods.
+The two forms differ in one respect. A method of the type's own is `export`ed on
+its own terms; a method supplied to a trait may not be, because conformance is a
+property of the type and is visible wherever the type is.
+
+An `impl` in either form may appear only in the defining module of its type, and
+the block itself is never exported. There is no way to implement a trait for
+someone else's type, which is the same restriction that already applies to
+methods.
 
 #### 5.12.3 `derive` generates the implementation
 
@@ -837,7 +844,7 @@ Lowest to highest:
 
 | Level | Operators | Associativity |
 |---|---|---|
-| 0 | `fn(...) => e`, `crash e` | top-level only (never a sub-operand) |
+| 0 | `fn(...) => e` | top-level only (never a sub-operand) |
 | 1 | `\|\|` | left |
 | 2 | `??` | right |
 | 3 | `&&` | left |
@@ -870,10 +877,22 @@ and so is `1.0 + 1`.
 Integer `/` truncates toward zero; `%` takes the sign of the dividend, so
 `a == (a / b) * b + (a % b)` holds for every non-zero `b`.
 
-Division by zero, and overflow of any signed or unsigned integer operation, is a
-**crash** (Section 6.10). Overflow is not wrapping by default: silent wrapping is
-a correctness bug in almost all code and a deliberate technique in a little of
-it, so the little of it says so out loud (below).
+Division by zero **aborts**: there is no answer to give and no `Result` in the
+signature to say so.
+
+Overflow and underflow of an integer operation are **undefined behaviour**. The
+program is wrong; the language does not say what it produces, and the backend
+does not pay to find out. Overflow is not wrapping by default either: silent
+wrapping is a correctness bug in almost all code and a deliberate technique in a
+little of it, so the little of it says so out loud (below).
+
+Undefined does not mean unbounded in practice. Every integer type compiles to a
+JavaScript `number`, which represents every integer up to 2^53 - 1 exactly and
+no integer above it, so on that backend the observable consequence of overflow
+is lost precision rather than a wrapped value. Code that needs an exact answer
+above 2^53 has two ways to ask for one that are defined: the `Checked` methods,
+which answer `.None` rather than a value they cannot hold, and `core/bits`,
+which computes on the bit pattern.
 
 Floating point follows IEEE-754. `==` on floats compares numerically with `-0.0`
 equal to `0.0`, and `NaN != NaN`.
@@ -925,9 +944,9 @@ can do.
 
 #### 6.2.2 Checked and wrapping arithmetic
 
-The default `+` crashes on overflow. The alternatives are trait methods, so they
-are spelled out where they are used and are available on any type that derives
-them:
+The default `+` leaves overflow undefined. The alternatives are trait methods,
+so they are spelled out where they are used and are available on any type that
+derives them:
 
 ```buri
 trait Checked {
@@ -957,6 +976,17 @@ let ceiling = num.maxValue::<U8>();
 
 Every built-in integer type satisfies all three; the float types satisfy
 `Bounded` only.
+
+A `Checked` method answers `.None` whenever it cannot hand back the true result
+— outside the type's range, or above what the backend represents exactly. On the
+JavaScript backend that second bound is 2^53 - 1, well below `maxValue::<I64>()`,
+so `.Some(v)` is always a promise that `v` is the answer. That promise is the
+entire reason to reach for `Checked` over `+`, and it would be worthless if it
+held only up to the width where a value is hard to represent.
+
+`Bounded` and `Saturating` report the type's own bounds, which at 64 bits and
+above are themselves rounded to the nearest representable value. Where the
+difference matters, `Checked` is the one that will tell you.
 
 ### 6.3 Blocks
 
@@ -1058,36 +1088,68 @@ apart during name resolution, never during parsing.
 
 #### 6.7.1 Declaring a method
 
-A function is a method **if and only if its first parameter is written `self`**.
-That is a declaration, not a convention about position or type:
+A method is declared **inside an `impl` block for its type**, and takes `self`
+as its first parameter. Both halves are required, and each without the other is
+an error:
 
 ```buri
 export struct Square { height: Int, width: Int }
 
-export fn area(self: Square): Int { self.height * self.width }
-export fn scaled(self: Square, factor: Int): Square {
-  Square { height: self.height * factor, width: self.width * factor }
+impl Square {
+  export fn area(self: Square): Int { self.height * self.width }
+
+  export fn scaled(self: Square, factor: Int): Square {
+    Square { height: self.height * factor, width: self.width * factor }
+  }
 }
 
 export fn combine(a: Square, b: Square): Square { ... }   // NOT a method
 ```
 
-`self` is a keyword and may appear only as the first parameter. A method is
-still an ordinary function: `area(sq)` and `sq.area()` are the same call, and
-`area` is exported, imported, and passed as a value like anything else.
+An `impl` with no `for` clause declares the type's own methods; the same block
+with `for` declares trait conformance (Section 5.11). One keyword covers both,
+because both answer the same question: what can you do with this type.
+
+`self` is a keyword and may appear only as the first parameter of a function
+inside an `impl` block. A top-level `fn` that takes `self` is an error — there
+is no receiver type for it to attach to — and a function inside an `impl` block
+that does not take `self` is an error too.
+
+An `impl` block may appear only in the module that declares its type, which is
+what keeps method resolution a single lookup (Section 6.7.3). A method is
+`export`ed on its own terms; a method supplied to a trait is not, because
+conformance belongs to the type and travels wherever the type does.
+
+The generic parameters split between the two: those the self type mentions
+belong to the `impl`, the rest to the method.
+
+```buri
+impl<T> Option<T> {
+  export fn map<U>(self: Option<T>, f: fn(T) => U): Option<U> { ... }
+}
+```
+
+An earlier draft made a function a method purely by taking `self`, with no
+`impl` block. It read well in isolation and badly in a file: a type's operations
+were scattered wherever someone happened to write them, and `area(sq)` and
+`sq.area()` were two spellings of one call, so every method was also a free
+function competing for a name in module scope. Requiring the block puts a type's
+operations in one place and makes the method form the only one.
 
 #### 6.7.2 Calling a method
 
 ```buri
-x.f(a, b)      ==  f(x, a, b)
-x.f()          ==  f(x)
+x.f(a, b)      //  self = x, then a and b
+x.f()          //  self = x
 ```
 
 **The receiver comes first**, and a context parameter — when there is one —
 comes second:
 
 ```buri
-export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]
+impl<A> [A] {
+  export fn map<B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B];
+}
 
 xs.map(ctx, double)          // reads as: this list, in this world, mapped
 ```
@@ -1116,9 +1178,10 @@ and you never name its type, you need no import at all.
 
 1. If `x`'s type has a field named `f`, this is field access. A field of function
    type is called as `(x.f)(...)`.
-2. If `x`'s type is a concrete type, `f` must be an `export`ed method in that
-   type's **defining module** whose `self` parameter has that type. Methods
-   supplied by an `impl` live in the same namespace and are found here.
+2. If `x`'s type is a concrete type, `f` must be a method declared by an `impl`
+   block in that type's **defining module**. Inherent methods and methods
+   supplied to a trait live in the same namespace and are found together; only
+   the first kind is subject to `export`.
 3. If `x`'s type is a type parameter, `f` must be declared by one of its
    **bounds** (Section 5.10). A bare parameter with no bounds has no methods.
 
@@ -1150,10 +1213,10 @@ Type aliases are transparent, so `Int` and `I64` have the same methods.
 
 Three consequences worth stating plainly:
 
-- **Methods are not extensible.** You cannot add a method to `Str` from your own
-  module. Write a free function and call it as one.
-- **Methods are not values.** `sq.area` on its own is an error; write `sq.area()`,
-  or import the module and use `square.area` for the function itself.
+- **Methods are not extensible.** `impl Str { ... }` in your own module is an
+  error. Write a free function and call it as one.
+- **Methods are not values.** Neither `sq.area` nor a bare `area` is one; write
+  `sq.area()`, or wrap the call in a lambda to pass it on.
 - **The receiver's type must be known.** Inside `fn f<T>(x: T)`, `x.anything()`
   is an error unless `T` carries a bound that declares the method (Section 5.12).
 
@@ -1191,24 +1254,26 @@ Defined for `Option<T> ?? T` and `Result<T, E> ?? T`. The right operand is
 evaluated only when the left is `None` / `Err`. `??` is right-associative, so
 `a ?? b ?? c` works.
 
-### 6.10 `crash`
+### 6.10 Aborting
 
-```buri
-let x = match (parsed) {
-  .Some(v) => v,
-  .None => crash "unreachable: validated upstream",
-};
-```
+There is no `crash`, no `panic`, and no `unreachable` — no way to write that a
+branch cannot happen. Those words are reserved so the mistake is named rather
+than silently allowed as an identifier.
 
-`crash` takes a `Str` or `Template` and has the bottom type, so it unifies with
-any expected type. It terminates the program with the message and a stack trace.
+The reason is that they are almost always wrong. A match arm the programmer
+asserts is impossible is an arm the compiler was about to make you handle, and
+"validated upstream" is a claim about code somewhere else that nothing checks.
+Without an escape hatch, every case is handled: an `Option` is unwrapped with
+`??` or matched, an impossible state is a type that cannot represent it. There
+is no bottom type either, so nothing unifies with everything.
 
-`crash` is for conditions the programmer asserts cannot happen. It is not error
-handling; that is `Result`. Arithmetic overflow, division by zero, and stack
-exhaustion also crash.
+A program can still stop. Division by zero, a shift at or beyond the width of
+its type, and stack exhaustion **abort**: the program ends with a message on
+stderr and a non-zero exit status. Each is a case where the language has no
+answer to give and no `Result` in the signature to give it through.
 
-A crash is not an effect in the `ctx` sense: it can occur in a function with
-no context parameter. What a context-free function cannot do is *observe* or
+An abort is not an effect in the `ctx` sense: it can occur in a function with no
+context parameter. What a context-free function cannot do is *observe* or
 *recover from* one. There is no catch.
 
 ---
@@ -1307,7 +1372,7 @@ calls, including mutually recursive ones, so that tail-recursive functions run i
 constant stack space. This is what makes `fold`, and every accumulator-passing
 helper written on top of it, a real loop rather than a stack hazard.
 
-Non-tail recursion that exhausts the stack crashes.
+Non-tail recursion that exhausts the stack aborts.
 
 #### 8.3.1 How, on a target without native tail calls
 
@@ -1333,7 +1398,7 @@ is invoked in tail position. An implementation should apply the cheaper
 transformation wherever the callee is statically known, and may specialize a
 call site whose function value is known to avoid the trampoline entirely.
 
-One consequence is observable: a crash inside a transformed group reports fewer
+One consequence is observable: an abort inside a transformed group reports fewer
 stack frames than the source suggests, because those frames no longer exist.
 Implementations should preserve source positions through the transformation so
 that the reported location is still correct.
@@ -1862,8 +1927,8 @@ its being a platform module rather than a library:
 - **Its functions take no `ctx`** and still render a failure message. Rendering
   is the runner's, not the program's — which is why this signature would be a
   lie anywhere else, and why the module is importable only from a test source.
-- **A failure ends that test** and no other, the way `crash` (Section 6.10) ends
-  a program. The runner reports the file, the line, and both values.
+- **A failure ends that test** and no other, the way an abort (Section 6.10)
+  ends a program. The runner reports the file, the line, and both values.
 
 A test source may also use **expression statements**, which no other module may:
 a call whose type is `()` may stand alone, terminated by `;`.
@@ -2049,8 +2114,8 @@ read the same.
 Kills the dangling-else ambiguity, and prevents `if (c) { a } else { b } + 1`
 from having two parses. *Cost:* you must say what the other case is.
 
-**12.11 Lambdas and `crash` are top-level-only expressions.**
-Their bodies extend maximally to the right, so allowing them as operands would
+**12.11 A lambda is a top-level-only expression.**
+Its body extends maximally to the right, so allowing one as an operand would
 make `2 * fn(x) => x + 1` ambiguous. Block-like expressions (`{}`, `if`, `match`)
 *are* allowed as operands, because they are brace-terminated and self-delimiting.
 *Cost:* parentheses around a lambda used as an operand.
@@ -2085,11 +2150,15 @@ field shorthand in 12.3. Buying `:` back would mean moving record literals to
 member, method — all resolved after parsing, and a method may not share a name
 with a field of the same type.
 
-**12.17 `self` is a keyword in a fixed position, not a convention.**
-A function is a method because its first parameter is literally written `self`,
-so "is this a method?" is answered by the parser, not by comparing types against
-a rule about argument order. `impl`, `derive`, and `trait` likewise each begin
-with a distinct keyword, keeping top-level parsing a switch on one token.
+**12.17 A method is declared by an `impl` block, and `self` is a keyword in a
+fixed position.**
+"Is this a method?" is answered by where the declaration sits, and "what is the
+receiver?" by a keyword rather than by comparing types against a rule about
+argument order. Neither question needs name resolution. An `impl` block's two
+forms differ by one token of lookahead — `for` after the first type makes it a
+conformance declaration, and its absence makes it the type's own methods — and
+`derive` and `trait` likewise each begin with a distinct keyword, keeping
+top-level parsing a switch on one token.
 
 **12.18 `context` is a keyword, and its two forms differ at one token.**
 `context Name { ... }` is a declaration and `context { ... }` is an expression,
@@ -2175,6 +2244,9 @@ afterward:
 5. Array rest patterns appear only in final position; at most one per pattern.
 6. Struct field names, enum variant names, context bindings, and match-arm
    pattern bindings must each be unique within their scope.
+7. Every arm of a `match` produces a value of the arm type. There is no bottom
+   type and no way to declare a branch unreachable, so an arm cannot opt out
+   (Section 6.10).
 8. A lambda may not capture a effect-carrying value (Section 10.6).
 9. Opaque types may not be constructed or destructured outside their defining
    module, and private fields may not be read, written, or matched outside it.
@@ -2194,17 +2266,19 @@ afterward:
 
 Methods and traits:
 
-17. `self` may appear only as a function's first parameter. A function with a
-    `self` parameter is a method on that parameter's type, which must be a type
-    declared in the same module.
+17. `self` may appear only as the first parameter of a function inside an `impl`
+    block. Every function in an `impl` block must take one, and no function
+    outside an `impl` block may.
 18. A method may not share a name with a field of its `self` type.
 19. A method call `x.f(...)` requires the receiver's type to be known and to have
     a defining module (Section 6.7.3), or to be a type parameter whose bounds
     declare `f`.
-20. A method is not a value: `x.f` must be immediately called.
+20. A method is not a value: `x.f` must be immediately called, and a method's
+    name in module scope resolves for a re-export only, never as an expression.
 21. `Self` is legal only inside a `trait` or `impl` body.
-22. An `impl` may appear only in the defining module of its type, and must supply
-    every method the trait declares, with matching signatures.
+22. An `impl` may appear only in the defining module of its type. With a `for`
+    clause it must supply every method the trait declares, with matching
+    signatures; a primitive's methods belong to the `core` module named for it.
 23. `derive` requires every field type (for a struct) or payload type (for an
     enum) to satisfy the derived trait.
 24. A generic parameter's bounds must name declared traits. Inside the function,
@@ -2222,7 +2296,8 @@ Capabilities:
 27. `effect` declarations may appear only in platform modules, and no type may
     implement both an effect and a trait.
 28. `impl` and `derive` may not be exported, and may appear only in the defining
-    module of the type they name.
+    module of the type they name. A method inside an inherent `impl` may be
+    exported; a method supplied to a trait may not.
 29. Numeric literals, conversions, and comparisons are ordinary methods; there is
     no cast operator.
 30. `main` has the signature required by Section 11: no parameters, no generic
@@ -2362,12 +2437,18 @@ alike.
    architecture will assume constant-time resolution. The risk is not the cost of
    what was built; it is the difficulty of refusing the next request.
 8. *`I64` on a JavaScript target.* `Int` is `I64` on every target, which is the
-   right call for portability and the expensive one for the JS backend, where it
-   means `BigInt` or a two-word representation for the type that ordinary code
-   reaches for by default. The alternatives — making `Int` 32-bit, or making its
-   width target-dependent — trade a real performance problem for a real
-   correctness one. Unresolved, and the sharpest tension between the "runs fast"
-   and "compiles to JavaScript" goals.
+   right call for portability. On the JS backend it compiles to a `number`,
+   which holds every integer to 2^53 - 1 exactly and no more. That is defensible
+   only because overflow is undefined behaviour (6.2): a program that stays
+   inside the exact range gets `I64` semantics at the speed of ordinary
+   JavaScript, and a program that leaves it was already wrong. The two
+   alternatives are worse in different directions — `BigInt` everywhere taxes
+   every loop counter in every program for a case most never reach, and a
+   target-dependent `Int` width trades a performance problem for a portability
+   one. What remains open is whether "undefined above 2^53" is a rule programmers
+   internalize, or one they discover. The mitigations are that `Checked` answers
+   `.None` rather than a wrong value, `str.toInt` refuses a string it cannot
+   parse exactly, and `core/bits` computes on the bit pattern.
 9. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
    user types would be more honest than a compiler that knows one type by name,
    but it is the first piece of attribute syntax in a language with none, and

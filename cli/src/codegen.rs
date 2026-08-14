@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 pub struct Options {
     pub pretty: bool,
-    /// Emitted so a crash names the function it came from.
+    /// Emitted so an abort names the function it came from.
     pub debug_names: bool,
 }
 
@@ -178,7 +178,7 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
                     None => {
                         g.missing.push(key.clone());
                         vec![Stmt::Throw(Expr::call(
-                            Expr::ident("$crash"),
+                            Expr::ident("$abort"),
                             vec![Expr::Str(format!("missing intrinsic {key}"))],
                         ))]
                     }
@@ -263,10 +263,6 @@ impl<'a> Gen<'a> {
         self.tables.as_prim(ty)
     }
 
-    pub(crate) fn checked_pub(&self, v: Expr, p: Prim) -> Expr {
-        self.checked(v, p)
-    }
-
     pub(crate) fn prim_op_pub(&mut self, op: PrimOp, prim: Option<Prim>, args: Vec<Expr>) -> Expr {
         self.prim_op(op, prim, args)
     }
@@ -303,10 +299,6 @@ impl<'a> Gen<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 let s = self.expr(scrutinee, out);
                 self.match_stmts(s, arms, out, None);
-            }
-            ExprKind::Crash { message } => {
-                let m = self.expr(message, out);
-                out.push(Stmt::Expr(Expr::call(Expr::ident("$crash"), vec![m])));
             }
             // A tail call the plan asked us to eliminate becomes a rebinding
             // of the parameters and a jump back to the top of the loop.
@@ -489,7 +481,7 @@ impl<'a> Gen<'a> {
             }
         }
         body.push(Stmt::Expr(Expr::call(
-            Expr::ident("$crash"),
+            Expr::ident("$abort"),
             vec![Expr::Str("no arm matched".into())],
         )));
         out.push(Stmt::While { cond: Expr::Bool(true), body });
@@ -504,10 +496,12 @@ impl<'a> Gen<'a> {
         target: Option<&str>,
     ) {
         let Some(arm) = arms.get(i) else {
-            // Exhaustiveness is checked, so this is unreachable — but a crash
-            // here is cheaper than a silently wrong value if it ever is not.
+            // Exhaustiveness is checked, so this is unreachable — but an
+            // abort here is cheaper than a silently wrong value if it ever is
+            // not. There is no way to write this in the source language: it is
+            // the backend's own belt to the checker's braces.
             out.push(Stmt::Expr(Expr::call(
-                Expr::ident("$crash"),
+                Expr::ident("$abort"),
                 vec![Expr::Str("no arm matched".into())],
             )));
             return;
@@ -1066,10 +1060,6 @@ impl<'a> Gen<'a> {
                 }
                 Expr::Array(items)
             }
-            ExprKind::Crash { message } => {
-                let m = self.expr(message, out);
-                Expr::call(Expr::ident("$crash"), vec![m])
-            }
             ExprKind::CtxLit { bindings } => {
                 let items: Vec<Expr> =
                     bindings.iter().map(|(_, v)| self.expr(v, out)).collect();
@@ -1129,9 +1119,7 @@ impl<'a> Gen<'a> {
     /// JS numbers, and `5` must not come out as `5.0`.
     fn render_hole(&self, v: Expr, ty: &Ty) -> Expr {
         match self.tables.as_prim(ty) {
-            Some(p) if p.is_integer() && !p.is_bigint() => {
-                Expr::call(Expr::ident("String"), vec![v])
-            }
+            Some(p) if p.is_integer() => Expr::call(Expr::ident("String"), vec![v]),
             Some(p) if p.is_float() => Expr::call(Expr::ident("$f64"), vec![v]),
             _ => v,
         }
@@ -1151,15 +1139,9 @@ impl<'a> Gen<'a> {
     }
 
     fn int_literal(&self, v: u128, neg: bool, ty: &Ty) -> Expr {
-        let big = self.tables.as_prim(ty).is_some_and(|p| p.is_bigint());
-        let is_float = self.tables.as_prim(ty).is_some_and(|p| p.is_float());
-        if big {
-            Expr::BigInt(if neg { format!("-{v}") } else { v.to_string() })
-        } else {
-            let n = v as f64;
-            let _ = is_float;
-            Expr::Num(if neg { -n } else { n })
-        }
+        let _ = ty;
+        let n = v as f64;
+        Expr::Num(if neg { -n } else { n })
     }
 
     // -----------------------------------------------------------------------
@@ -1189,11 +1171,7 @@ impl<'a> Gen<'a> {
             PrimOp::BitNot => Expr::un(UnOp::BitNot, args.pop().unwrap()),
             PrimOp::Neg => {
                 let v = Expr::un(UnOp::Neg, args.pop().unwrap());
-                if float {
-                    self.rounded(v, p)
-                } else {
-                    self.checked(v, p)
-                }
+                self.rounded(v, p)
             }
             PrimOp::Add | PrimOp::Sub | PrimOp::Mul => {
                 let jsop = match op {
@@ -1202,23 +1180,19 @@ impl<'a> Gen<'a> {
                     _ => BinOp::Mul,
                 };
                 let v = two(jsop, &mut args);
-                // Overflow of any signed or unsigned integer operation is a
-                // crash. Silent wrapping is a correctness bug in almost all
-                // code, and the little of it that wants wrapping says so.
-                if float {
-                    self.rounded(v, p)
-                } else {
-                    self.checked(v, p)
-                }
+                // Overflow and underflow are undefined, so the operation is
+                // emitted and nothing else. Code that wants a defined answer
+                // at the boundary says so: `checkedAdd`, `wrappingAdd`,
+                // `saturatingAdd`.
+                self.rounded(v, p)
             }
             PrimOp::Div => {
                 if float {
                     let v = two(BinOp::Div, &mut args);
                     self.rounded(v, p)
                 } else {
-                    let f = if big { "$divb" } else { "$divi" };
-                    let v = Expr::call(Expr::ident(f), args);
-                    self.checked(v, p)
+                    let _ = big;
+                    Expr::call(Expr::ident("$divi"), args)
                 }
             }
             PrimOp::Rem => {
@@ -1226,8 +1200,7 @@ impl<'a> Gen<'a> {
                     let v = two(BinOp::Rem, &mut args);
                     self.rounded(v, p)
                 } else {
-                    let f = if big { "$remb" } else { "$remi" };
-                    Expr::call(Expr::ident(f), args)
+                    Expr::call(Expr::ident("$remi"), args)
                 }
             }
         }
@@ -1241,17 +1214,6 @@ impl<'a> Gen<'a> {
         } else {
             v
         }
-    }
-
-    /// Wraps a value in the range check that turns overflow into a crash.
-    fn checked(&self, v: Expr, p: Prim) -> Expr {
-        let Some((lo, hi)) = p.int_range() else { return v };
-        let (lo, hi) = if p.is_bigint() {
-            (Expr::BigInt(lo.to_string()), Expr::BigInt(hi.to_string()))
-        } else {
-            (Expr::Num(lo as f64), Expr::Num(hi as f64))
-        };
-        Expr::call(Expr::ident("$ovf"), vec![v, lo, hi])
     }
 
     // -----------------------------------------------------------------------

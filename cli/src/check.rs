@@ -37,6 +37,11 @@ pub enum Sym {
     /// method, ambiguous as a free function — which is the shape `core/num`'s
     /// per-type conversions would have if they were written out.
     Overloaded(Vec<FnId>),
+    /// A method declared in an `impl` block, carrying its receiver type as
+    /// written. The name exists in the module's scope only so that a library's
+    /// `lib.buri` can put it on the surface; a method is never callable as a
+    /// free function, because it is reached through a receiver.
+    Method(String),
 }
 
 #[derive(Default)]
@@ -306,6 +311,22 @@ impl<'a> Checker<'a> {
                     ast: ast_ref,
                 });
                 self.declare(module, &d.name, Sym::Context(id), d.exported);
+            }
+            // An inherent `impl` puts each of its exported methods into the
+            // module's scope under its own name. Nothing resolves through that
+            // entry — a method is found through its receiver — but a library's
+            // `lib.buri` needs a name to re-export, so that its surface stays
+            // one file you can read top to bottom.
+            ast::Item::Impl(d) if d.trait_ty.is_none() => {
+                let owner = d.self_ty.head_name().unwrap_or("?").to_string();
+                let scope = &mut self.scopes[module.index()];
+                for method in &d.methods {
+                    let sym = Sym::Method(owner.clone());
+                    scope.own.entry(method.name.name.clone()).or_insert(sym.clone());
+                    if method.exported {
+                        scope.exports.entry(method.name.name.clone()).or_insert(sym);
+                    }
+                }
             }
             ast::Item::TypeAlias(_)
             | ast::Item::Import(_)
@@ -661,56 +682,13 @@ impl<'a> Checker<'a> {
         self.tables.fns[fid.index()].params = params.clone();
         self.tables.fns[fid.index()].ret = ret;
 
-        // A function is a method if and only if its first parameter is written
-        // `self`, and that parameter's type must be declared in this module.
+        // A method is declared inside an `impl` block for its type, so a
+        // `self` parameter at the top level has no receiver type to attach to.
         if let Some(first) = params.first() {
             if first.role == ParamRole::SelfParam {
-                match &first.ty {
-                    Ty::Con(con, _) => {
-                        let owner = self.tables.tycon(*con).module;
-                        let is_prim = matches!(self.tables.tycon(*con).def, TyDef::Prim(_));
-                        let prim_ok = is_prim
-                            && stdlib::defining_module(&self.tables.tycon(*con).name)
-                                == self.module(module).path;
-                        if owner != module && !prim_ok {
-                            let ty_name = self.tables.tycon(*con).name.clone();
-                            self.err(
-                                first.span,
-                                format!("`{ty_name}` is not declared in this module"),
-                            )
-                            .notes
-                            .push(
-                                "a method must live in its type's defining module, which is what \
-                                 makes method resolution one type, one module, one lookup"
-                                    .into(),
-                            );
-                        } else {
-                            self.tables.fns[fid.index()].self_ty = Some(*con);
-                        }
-                    }
-                    Ty::Array(_) => {
-                        if self.module(module).path != "core/list" {
-                            self.err(first.span, "the defining module of `[T]` is `core/list`")
-                                .notes
-                                .push(
-                                    "a function over an array that is not core/list's is a free \
-                                     function, not a method"
-                                        .into(),
-                                );
-                        }
-                    }
-                    Ty::SelfTy => {}
-                    Ty::Error => {}
-                    _ => {
-                        self.err(first.span, "this type has no defining module, so it has no methods")
-                            .notes
-                            .push(
-                                "tuples, function types, and `Template` have no methods \
-                                 (SPEC 6.7.3)"
-                                    .into(),
-                            );
-                    }
-                }
+                let n = d.name.name.clone();
+                self.err(first.span, format!("`{n}` takes `self`, so it is a method"))
+                    .note("a method is declared inside an `impl` block for its type, as in `impl Square { fn area(self: Square): Int { ... } }`");
             }
         }
 
@@ -1209,9 +1187,17 @@ impl<'a> Checker<'a> {
     fn register_impl(&mut self, module: ModuleId, index: u32, d: &ast::ImplDecl) {
         self.in_self_scope = true;
         let generics = self.elaborate_generics(module, &d.generics);
-        let Some(trait_id) = self.resolve_trait(module, &d.trait_ty) else {
-            let shown = d.trait_ty.head_name().unwrap_or("?").to_string();
-            self.err(d.trait_ty.span(), format!("`{shown}` is not a trait or effect"));
+        // No `for` clause: this declares the type's own methods rather than
+        // conformance to anything.
+        let Some(trait_ref) = &d.trait_ty else {
+            self.register_inherent_impl(module, index, d, &generics);
+            self.in_self_scope = false;
+            return;
+        };
+        let Some(trait_id) = self.resolve_trait(module, trait_ref) else {
+            let shown = trait_ref.head_name().unwrap_or("?").to_string();
+            self.err(trait_ref.span(), format!("`{shown}` is not a trait or effect"));
+            self.in_self_scope = false;
             return;
         };
         let self_ty = self.elaborate(module, &generics, &d.self_ty, None);
@@ -1224,7 +1210,9 @@ impl<'a> Checker<'a> {
 
         // An `impl` may appear only in the defining module of its type.
         let owner = self.tables.tycon(self_con).module;
-        let is_prim = matches!(self.tables.tycon(self_con).def, TyDef::Prim(_));
+        let is_prim = matches!(self.tables.tycon(self_con).def, TyDef::Prim(_))
+            && stdlib::defining_module(&self.tables.tycon(self_con).name)
+                == self.module(module).path;
         if owner != module && !is_prim {
             let name = self.tables.tycon(self_con).name.clone();
             self.err(d.self_ty.span(), format!("`{name}` is not declared in this module")).notes.push(
@@ -1320,6 +1308,97 @@ impl<'a> Checker<'a> {
             ImplInfo { trait_id, self_con, methods, span: d.span, derived: false },
         );
         self.in_self_scope = false;
+    }
+
+    /// `impl Type { ... }` — the type's own methods. This is the only place a
+    /// method may be declared, so a method always sits with the type it is a
+    /// method of.
+    fn register_inherent_impl(
+        &mut self,
+        module: ModuleId,
+        index: u32,
+        d: &ast::ImplDecl,
+        generics: &[GenericInfo],
+    ) {
+        let self_ty = self.elaborate(module, generics, &d.self_ty, None);
+        let target = match &self_ty {
+            Ty::Con(con, _) => Some(*con),
+            Ty::Array(_) => None,
+            Ty::Error => return,
+            other => {
+                let shown = show(&self.tables, None, generics, other);
+                self.err(d.self_ty.span(), format!("`{shown}` has no methods"))
+                    .note("tuples, function types, and `Template` have no defining module");
+                return;
+            }
+        };
+
+        // An `impl` may appear only in the defining module of its type.
+        if let Some(con) = target {
+            let owner = self.tables.tycon(con).module;
+            // A primitive has no declaring module of its own, so its methods
+            // belong to the `core` module named for it and nowhere else.
+            let is_prim = matches!(self.tables.tycon(con).def, TyDef::Prim(_))
+                && stdlib::defining_module(&self.tables.tycon(con).name)
+                    == self.module(module).path;
+            if owner != module && !is_prim {
+                let name = self.tables.tycon(con).name.clone();
+                self.err(d.self_ty.span(), format!("`{name}` is not declared in this module"))
+                    .note(
+                        "there is no way to add a method to someone else's type, which is what                          keeps `x.f()` a single lookup",
+                    );
+                return;
+            }
+        }
+
+        for (sub, method) in d.methods.iter().enumerate() {
+            let mut g = generics.to_vec();
+            g.extend(self.elaborate_generics(module, &method.generics));
+            let params = self.elaborate_params(module, &g, &method.params);
+            let ret = self.elaborate(module, &g, &method.ret, None);
+
+            // A method is a function whose first parameter is `self`, and an
+            // `impl` block is where one is declared — so anything else in here
+            // is a mistake worth naming.
+            match params.first() {
+                Some(p) if p.role == ParamRole::SelfParam => {}
+                _ => {
+                    let n = method.name.name.clone();
+                    self.err(
+                        method.name.span,
+                        format!("`{n}` is in an `impl` block but takes no `self`"),
+                    )
+                    .note("an `impl` block declares methods; a function with no receiver is declared at the top level");
+                    continue;
+                }
+            }
+
+            let fid = self.tables.add_fn(FnInfo {
+                name: method.name.name.clone(),
+                module,
+                generics: g,
+                params,
+                ret,
+                exported: method.exported,
+                span: method.name.span,
+                self_ty: target,
+                impl_of: None,
+                ast: AstRef { module, item: index, sub: sub as u32 },
+                intrinsic: method.body.is_none(),
+            });
+            match target {
+                Some(con) => self.register_method(con, &method.name.name, fid, method.name.span),
+                // `[T]` has no type constructor; its methods live in a table
+                // of their own, and only `core/list` may add to it.
+                None => {
+                    if self.module(module).path == "core/list" {
+                        self.tables.array_methods.insert(method.name.name.clone(), fid);
+                    } else {
+                        self.err(d.self_ty.span(), "the defining module of `[T]` is `core/list`");
+                    }
+                }
+            }
+        }
     }
 
     fn register_derive(&mut self, module: ModuleId, d: &ast::DeriveDecl) {
@@ -1447,7 +1526,7 @@ impl<'a> Checker<'a> {
     fn component_can_satisfy(&self, ty: &Ty, tr: TraitId, owner: TyConId) -> bool {
         match ty {
             // Undecidable here, and checked where the arguments are known.
-            Ty::Param(_) | Ty::Var(_) | Ty::SelfTy | Ty::Error | Ty::Never => true,
+            Ty::Param(_) | Ty::Var(_) | Ty::SelfTy | Ty::Error => true,
             Ty::Fn(..) => false,
             Ty::Ctx(_) => false,
             Ty::Unit => true,

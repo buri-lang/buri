@@ -166,9 +166,11 @@ fn safeTotal<N: Add + Checked + Bounded>(zero: N, xs: [N]): Option<N> {
   )
 }
 
-// And ordinary code needs none of it. `Int` is a concrete type.
-fn area(self: Version): Int {
-  self.major * self.minor
+impl Version {
+  // And ordinary code needs none of it. `Int` is a concrete type.
+  fn area(self: Version): Int {
+    self.major * self.minor
+  }
 }
 
 export fn main(): Result<(), Str> {

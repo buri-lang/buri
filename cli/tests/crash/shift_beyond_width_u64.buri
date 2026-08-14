@@ -1,0 +1,16 @@
+// CRASH: shift out of range
+// 64 bits is where a double stops being exact, so this path goes through a
+// BigInt — and the guard has to survive that.
+from "core/cap" import { Alloc, Stdout, Env };
+from "core/bits" import * as bits;
+from "core/host" import * as host;
+from "core/env" import * as env;
+
+fn push(x: U64, n: Int): U64 { bits.shrU64(x, n) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
+  let width = 64 + env.args(ctx).len();
+  let _ = ctx.println("${push(1, width)}");
+  .Ok(())
+}

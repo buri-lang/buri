@@ -18,7 +18,7 @@ test "append writes the log format" {
   assert.eq(assert.ok(readLog(ctx, "ledger.log")), "coffee\t\$4.50");
 }
 
-test "reading a missing log is an error, not a crash" {
+test "reading a missing log is an error, not an abort" {
   let ctx = Hermetic();
   let _ = assert.err(readLog(ctx, "nope.log"));
 }

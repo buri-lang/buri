@@ -1,0 +1,16 @@
+// CRASH: shift out of range
+// A negative shift has no answer either, and is rejected by the same guard as
+// a shift at or beyond the width.
+from "core/cap" import { Alloc, Stdout, Env };
+from "core/bits" import * as bits;
+from "core/host" import * as host;
+from "core/env" import * as env;
+
+fn push(x: Int, n: Int): Int { bits.shl(x, n) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
+  let count = 0 - env.args(ctx).len() - 1;
+  let _ = ctx.println("${push(1, count)}");
+  .Ok(())
+}

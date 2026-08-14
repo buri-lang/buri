@@ -34,11 +34,13 @@ export trait Hash {
   fn hash(self: Self): U64;
 }
 
-export fn flip(self: Order): Order {
-  match (self) {
-    .Less => .Greater,
-    .Equal => .Equal,
-    .Greater => .Less,
+impl Order {
+  export fn flip(self: Order): Order {
+    match (self) {
+      .Less => .Greater,
+      .Equal => .Equal,
+      .Greater => .Less,
+    }
   }
 }
 
@@ -48,19 +50,21 @@ export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
   fn(a, b) => cmp(b, a)
 }
 
-export fn isLess(self: Order): Bool {
-  match (self) {
-    .Less => true,
-    .Equal => false,
-    .Greater => false,
+impl Order {
+  export fn isLess(self: Order): Bool {
+    match (self) {
+      .Less => true,
+      .Equal => false,
+      .Greater => false,
+    }
   }
-}
 
-export fn isEqual(self: Order): Bool {
-  match (self) {
-    .Less => false,
-    .Equal => true,
-    .Greater => false,
+  export fn isEqual(self: Order): Bool {
+    match (self) {
+      .Less => false,
+      .Equal => true,
+      .Greater => false,
+    }
   }
 }
 
@@ -86,11 +90,13 @@ export fn char(a: Char, b: Char): Order {
   int(a.toU32().toI64(), b.toU32().toI64())
 }
 
-/// Chains two comparisons: the second decides only when the first is `Equal`.
-export fn then(self: Order, next: Order): Order {
-  match (self) {
-    .Equal => next,
-    other => other,
+impl Order {
+  /// Chains two comparisons: the second decides only when the first is `Equal`.
+  export fn then(self: Order, next: Order): Order {
+    match (self) {
+      .Equal => next,
+      other => other,
+    }
   }
 }
 

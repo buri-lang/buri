@@ -648,23 +648,41 @@ impl Parser {
     fn impl_decl(&mut self) -> PResult<ImplDecl> {
         let start = self.expect_kw(Kw::Impl)?;
         let generics = self.generic_params()?;
-        let trait_ty = self.named_type()?;
-        self.expect_kw(Kw::For)?;
-        let self_ty = self.named_type()?;
+        // A full type either side: `[T]` has methods of its own, so the self
+        // position is not restricted to a named type. The trait position is,
+        // but the check that names the rule belongs with the other trait
+        // resolution rather than here.
+        let first = self.ty()?;
+        // One token of lookahead: `for` makes this a conformance declaration,
+        // and its absence makes it the type's own methods.
+        let (trait_ty, self_ty) = if self.eat_kw(Kw::For) {
+            (Some(first), self.ty()?)
+        } else {
+            (None, first)
+        };
         self.expect(Punct::LBrace)?;
         let mut methods = Vec::new();
         while !self.is(Punct::RBrace) && !self.at_eof() {
             let docs = self.docs();
             let mstart = self.span();
-            if self.is_kw(Kw::Export) {
-                let span = self.span();
-                self.error(span, "an `impl` method is not separately exported");
-                self.errors.last_mut().unwrap().notes.push(
-                    "conformance is a property of the type, visible wherever the type is".into(),
-                );
+            // A method of the type's own is exported on its own terms. A
+            // method that satisfies a trait is not: conformance belongs to
+            // the type, so it is visible wherever the type is.
+            let exported = if self.is_kw(Kw::Export) {
+                if trait_ty.is_some() {
+                    let span = self.span();
+                    self.error(span, "an `impl` method is not separately exported");
+                    self.errors.last_mut().unwrap().notes.push(
+                        "conformance is a property of the type, visible wherever the type is"
+                            .into(),
+                    );
+                }
                 self.bump();
-            }
-            match self.fn_decl(false, docs, mstart) {
+                trait_ty.is_none()
+            } else {
+                false
+            };
+            match self.fn_decl(exported, docs, mstart) {
                 Ok(f) => methods.push(f),
                 Err(Bail) => {
                     self.sync_item();
@@ -930,17 +948,11 @@ impl Parser {
     }
 
     fn expr_inner(&mut self) -> PResult<Expr> {
-        // Lambdas and `crash` are top-level-only: their bodies extend as far
-        // right as possible, so allowing them as operands would make
+        // A lambda is top-level-only: its body extends as far right as
+        // possible, so allowing it as an operand would make
         // `2 * fn(x) => x + 1` ambiguous (SPEC 12.11).
         if self.is_kw(Kw::Fn) {
             return self.lambda();
-        }
-        if self.is_kw(Kw::Crash) {
-            let start = self.bump().span;
-            let message = Box::new(self.expr()?);
-            let span = start.to(message.span());
-            return Ok(Expr::Crash { message, span });
         }
         self.or_expr()
     }

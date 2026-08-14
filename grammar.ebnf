@@ -37,8 +37,8 @@ Module          ::= Item*
 Item            ::= Import
                   | ReExport
                   | Exportable
-                  | ImplDecl               (* never exported: conformance is *)
-                  | DeriveDecl             (* a property of the type         *)
+                  | ImplDecl               (* never exported as a whole; a  *)
+                  | DeriveDecl             (* method inside one may be       *)
                   | TestDecl               (* test sources only; SPEC 11.2   *)
 
 
@@ -91,7 +91,9 @@ ExportableBody  ::= FnDecl
 
 FnDecl          ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type Block
 
-(* A function is a METHOD if and only if its first parameter is written `self`.
+(* A function is a METHOD if and only if it is declared inside an `impl` block
+   and takes `self` first. Neither half is optional: a top-level `fn` may not
+   take `self`, and a FnDecl inside an `impl` block must.
    A function is EFFECTFUL if and only if it has a `ctx` parameter, which comes
    first, or immediately after `self`. Both are declarations, not conventions
    about position or type. *)
@@ -144,7 +146,16 @@ TraitDecl       ::= "trait" IDENT GenericParams? "{" MethodSig* "}"
 EffectDecl      ::= "effect" IDENT GenericParams? "{" MethodSig* "}"
 MethodSig       ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
 
-ImplDecl        ::= "impl" GenericParams? NamedType "for" NamedType "{" FnDecl* "}"
+(* An `impl` with no `for` clause declares the type's own methods. It is the
+   only place a method may be declared: every FnDecl inside one takes `self`
+   first, and no FnDecl outside one may. With the `for` clause it declares
+   conformance and supplies the trait's methods.
+
+   Both positions are a full Type rather than a NamedType, because `[T]` has
+   methods of its own. That the trait position must name a trait is a static
+   rule, checked where the rest of trait resolution is. One token of lookahead
+   after the first Type decides the form. *)
+ImplDecl        ::= "impl" GenericParams? Type ("for" Type)? "{" FnDecl* "}"
 
 DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" NamedType ";"
 
@@ -234,7 +245,7 @@ TupleType       ::= "(" Type ("," Type)+ ","? ")"
 
    Precedence, lowest to highest:
 
-       lambda / crash        (top level only; never a sub-operand)
+       lambda                (top level only; never a sub-operand)
        ||                    left
        ??                    right
        &&                    left
@@ -249,14 +260,11 @@ TupleType       ::= "(" Type ("," Type)+ ","? ")"
    -------------------------------------------------------------------------- *)
 
 Expr            ::= Lambda
-                  | CrashExpr
                   | OrExpr
 
 Lambda          ::= "fn" "(" LambdaParams? ")" (":" Type)? "=>" Expr
 LambdaParams    ::= LambdaParam ("," LambdaParam)* ","?
 LambdaParam     ::= IDENT (":" Type)?
-
-CrashExpr       ::= "crash" Expr
 
 OrExpr          ::= OrExpr "||" CoalesceExpr
                   | CoalesceExpr
@@ -483,12 +491,11 @@ IDENT           ::= (Letter | "_") (Letter | Digit | "_")*
 Letter          ::= "A".."Z" | "a".."z"
 Digit           ::= "0".."9"
 
-Keyword         ::= "as"     | "const"  | "context"| "crash"  | "ctx"
-                  | "derive" | "effect" | "else"   | "enum"   | "export"
-                  | "false"  | "fn"     | "for"    | "from"   | "if"
-                  | "impl"   | "import" | "let"    | "match"  | "self"
-                  | "Self"   | "struct" | "test"   | "trait"  | "true"
-                  | "type"
+Keyword         ::= "as"     | "const"  | "context"| "ctx"    | "derive"
+                  | "effect" | "else"   | "enum"   | "export" | "false"
+                  | "fn"     | "for"    | "from"   | "if"     | "impl"
+                  | "import" | "let"    | "match"  | "self"   | "Self"
+                  | "struct" | "test"   | "trait"  | "true"   | "type"
 
 (* `as` appears only in import specifiers. `for` only in `impl ... for ...`
    and `derive ... for ...`. There is no cast operator: numeric conversions
@@ -506,10 +513,11 @@ Keyword         ::= "as"     | "const"  | "context"| "crash"  | "ctx"
 
 (* Reserved but unused in v0.3; rejected by the lexer so that later versions
    can claim them without breaking source compatibility. *)
-ReservedWord    ::= "async"  | "await"  | "break"  | "continue"
+ReservedWord    ::= "async"  | "await"  | "break"  | "continue" | "crash"
                   | "do"     | "in"     | "is"     | "loop"   | "module"
-                  | "mut"    | "opaque" | "pub"    | "return" | "use"
-                  | "when"   | "where"  | "while"  | "with"   | "yield"
+                  | "mut"    | "opaque" | "panic"  | "pub"    | "return"
+                  | "unreachable"       | "use"    | "when"   | "where"
+                  | "while"  | "with"   | "yield"
 
 (* --- Numbers ---------------------------------------------------------------
    A FLOAT must begin with a digit: `.5` is not a literal. This is what makes

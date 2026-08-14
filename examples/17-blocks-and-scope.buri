@@ -25,18 +25,15 @@ fn topWords<C: Alloc>(ctx: C, text: Str, minLength: Int): [Str] {
     .take(ctx, 5)
 }
 
-// The same thing written as nested calls. Identical program; the chain above
-// reads outward-in rather than inside-out.
-fn topWordsNested<C: Alloc>(ctx: C, text: Str, minLength: Int): [Str] {
-  list.take(
-    list.sortBy(
-      list.filter(str.split(str.toLower(text, ctx), ctx, " "), ctx, fn(w) => w.len() >= minLength),
-      ctx,
-      order.str,
-    ),
-    ctx,
-    5,
-  )
+// The same thing with every step named. Identical program; the chain above
+// says the same thing without inventing five names for values that are used
+// exactly once. Each `let` scopes to the rest of the block and no further.
+fn topWordsNamed<C: Alloc>(ctx: C, text: Str, minLength: Int): [Str] {
+  let lowered = text.toLower(ctx);
+  let words = lowered.split(ctx, " ");
+  let long = words.filter(ctx, fn(w) => w.len() >= minLength);
+  let sorted = long.sortBy(ctx, order.str);
+  sorted.take(ctx, 5)
 }
 
 // A step that is NOT an operation on the receiver's type cannot be a method —
@@ -117,10 +114,10 @@ export fn main(): Result<(), Str> {
 
   let _ = banner(ctx, "method chains");
   let chained = topWords(ctx, text, 4);
-  let nested = topWordsNested(ctx, text, 4);
+  let named = topWordsNamed(ctx, text, 4);
   let space = " ";
   let _ = ctx.println("chained = ${chained.join(ctx, space)}");
-  let _ = ctx.println("nested  = ${nested.join(ctx, space)}");
+  let _ = ctx.println("named   = ${named.join(ctx, space)}");
   let _ = ctx.println("headline= ${headline(ctx, text)}");
 
   let _ = banner(ctx, "blocks");

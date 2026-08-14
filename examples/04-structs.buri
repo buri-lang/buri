@@ -54,8 +54,10 @@ fn newUser(id: Str, name: Str): User {
   }
 }
 
-fn withEmail(self: User, email: Str): User {
-  User { ..self, email: .Some(email) }
+impl User {
+  fn withEmail(self: User, email: Str): User {
+    User { ..self, email: .Some(email) }
+  }
 }
 
 fn rawId(u: User): Str {

@@ -16,7 +16,7 @@ Those goals are why the design looks the way it does:
 | **Safe** | No `null`, no exceptions, no mutation, no aliasing. Exhaustive `match`. Indexing returns `Option`. `Result` is must-use. Effects require an effect value you were handed, in a parameter position the compiler enforces. Out-of-range numeric literals are compile errors. |
 | **Fast to run** | Strict evaluation with fully specified order — no thunks, no space leaks. Monomorphized generics, no dictionaries. Guaranteed tail calls, lowered to loops where the host lacks them. Immutability lets the runtime reuse memory in place when a value is provably unshared. `Alloc` as an effect makes allocation visible at every call site that does it. |
 | **Fast to compile** | An unambiguous LR(1) grammar with no name-resolution or type feedback into the parser, so parsing is one pass and trivially parallel across files. Mandatory top-level signatures make type inference local to each function body, so modules check independently and incrementally. No macros, no reflection, no overload resolution, no row unification. Conformance is nominal and declared in one module, so there is no coherence pass and no instance search — a bound is a table lookup. The one concession: method resolution needs the receiver's type, so name resolution and inference interleave. |
-| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow crashes rather than wrapping, and evaluation order is specified rather than left to the backend. The effect model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply exports a different `core/host`. |
+| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow is undefined rather than quietly wrapping, and evaluation order is specified rather than left to the backend. The effect model maps onto a browser platform as cleanly as onto a POSIX one — a JS target simply exports a different `core/host`. |
 
 Where they pull against each other, the compiler absorbs it rather than the
 language: guaranteed tail calls become loops on a JS target, since no engine but
@@ -164,21 +164,25 @@ big.wrapToU8()     // modular      — keeps the low bits, for wire formats
 ```
 
 Whether a conversion can fail is visible in its return type rather than in the
-choice of operator. Overflow crashes by default; `x.wrappingAdd(y)` and
-`x.saturatingAdd(y)` are there when wrapping is the intent.
+choice of operator. Overflow is undefined behaviour rather than silent wrapping;
+`x.wrappingAdd(y)` and `x.saturatingAdd(y)` are there when wrapping is the
+intent, and `x.checkedAdd(y)` when you want to be told.
 
 ## Methods, and traits as interfaces
 
-A function is a method **if and only if its first parameter is written `self`**
-— a declaration, not a convention:
+A method is declared **inside an `impl` block for its type**, and takes `self`
+as its first parameter:
 
 ```buri
-export fn area(self: Square): Int { self.height * self.width }
+impl Square {
+  export fn area(self: Square): Int { self.height * self.width }
+}
 ```
 
-`x.f(a)` then calls `f(x, a)`, resolving `f` in the **defining module of x's
-type**. No dispatch, no vtable, no impl block: `sq.area()` and `area(sq)` are the
-same call. What it buys is that a type's operations travel with it —
+`x.f(a)` then looks `f` up among the methods of x's type, which live in that
+type's **defining module** and nowhere else. No dispatch, no vtable, no hidden
+receiver — a name resolved through a type instead of through scope. What it buys
+is that a type's operations travel with it —
 
 ```buri
 from "lib/square" import { Square };     // the type — not `area`, not `scaled`
@@ -197,6 +201,10 @@ trait Ord { fn compare(self: Self, other: Self): Order; }
 impl Ord for Version { ... }         // supplies the methods, checked against the trait
 derive Eq, Ord, Show for Playlist;   // generates them structurally
 ```
+
+The same keyword covers both jobs: `impl Type { ... }` declares what the type
+can do on its own, and `impl Trait for Type { ... }` declares what it can do as
+somebody else's interface.
 
 Because a type has exactly one defining module and conformance is declared, there
 is exactly one candidate per `(trait, type)`. Coherence, orphan rules, and

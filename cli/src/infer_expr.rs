@@ -59,7 +59,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                     let e = self.check_expr(expr, None);
                     let ty = self.resolve(&e.ty);
-                    if !matches!(ty, Ty::Unit | Ty::Error | Ty::Never) {
+                    if !matches!(ty, Ty::Unit | Ty::Error) {
                         let shown = self.show_ty(&ty);
                         self.err(*span, format!("this statement has type `{shown}`, not `()`"))
                             .notes
@@ -291,7 +291,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let f = self.check_expr(else_, expected.or(Some(&t.ty.clone())));
                 // Both branches must have the same type.
                 self.unify_at(else_.span(), &f.ty.clone(), &t.ty.clone(), "the other branch");
-                let ty = if matches!(t.ty, Ty::Never) { f.ty.clone() } else { t.ty.clone() };
+                let ty = t.ty.clone();
                 hir::Expr::new(
                     hir::ExprKind::If { cond: Box::new(c), then: Box::new(t), else_: Box::new(f) },
                     ty,
@@ -304,20 +304,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             ast::Expr::ContextExpr { body, span } => self.check_context_body(body, *span),
             ast::Expr::Lambda { params, ret, body, span } => {
                 self.check_lambda(params, ret.as_ref(), body, *span, expected)
-            }
-            ast::Expr::Crash { message, span } => {
-                // `crash` takes a `Str` or `Template` and has the bottom type,
-                // so it unifies with any expected type.
-                let tmpl = self.prim(Prim::Template);
-                let m = self.check_expr(message, Some(&tmpl));
-                let ty = self.resolve(&m.ty);
-                if !matches!(self.as_prim(&ty), Some(Prim::Str) | Some(Prim::Template))
-                    && !ty.is_error()
-                {
-                    let shown = self.show_ty(&ty);
-                    self.err(message.span(), format!("`crash` takes a message, found `{shown}`"));
-                }
-                hir::Expr::new(hir::ExprKind::Crash { message: Box::new(m) }, Ty::Never, *span)
             }
             ast::Expr::Unary { op, operand, span } => self.check_unary(*op, operand, *span, expected),
             ast::Expr::Binary { op, lhs, rhs, op_span, span } => {
@@ -450,6 +436,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                             .into(),
                     );
                 let _ = cid;
+                self.error_expr(span)
+            }
+            Some(Sym::Method(owner)) => {
+                self.err(span, format!("`{name}` is a method, not a value"))
+                    .notes
+                    .push(format!(
+                        "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`"
+                    ));
                 self.error_expr(span)
             }
             Some(Sym::Overloaded(fs)) => {

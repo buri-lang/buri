@@ -18,7 +18,6 @@ pub enum Kw {
     As,
     Const,
     Context,
-    Crash,
     Ctx,
     Derive,
     Effect,
@@ -49,7 +48,6 @@ impl Kw {
             Kw::As => "as",
             Kw::Const => "const",
             Kw::Context => "context",
-            Kw::Crash => "crash",
             Kw::Ctx => "ctx",
             Kw::Derive => "derive",
             Kw::Effect => "effect",
@@ -80,7 +78,6 @@ impl Kw {
             "as" => Kw::As,
             "const" => Kw::Const,
             "context" => Kw::Context,
-            "crash" => Kw::Crash,
             "ctx" => Kw::Ctx,
             "derive" => Kw::Derive,
             "effect" => Kw::Effect,
@@ -111,8 +108,9 @@ impl Kw {
 /// Reserved but unused in v0.3, rejected by the lexer so that later versions can
 /// claim them without breaking source compatibility.
 const RESERVED: &[&str] = &[
-    "async", "await", "break", "continue", "do", "in", "is", "loop", "module", "mut", "opaque",
-    "pub", "return", "use", "when", "where", "while", "with", "yield",
+    "async", "await", "break", "continue", "crash", "do", "in", "is", "loop", "module", "mut",
+    "opaque", "panic", "pub", "return", "unreachable", "use", "when", "where", "while", "with",
+    "yield",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

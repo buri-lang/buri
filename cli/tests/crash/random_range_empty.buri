@@ -1,0 +1,20 @@
+// CRASH: random range is empty
+// `nextInt` has no value to return when the range holds none, and there is no
+// `Option` in its signature to say so.
+from "core/cap" import { Alloc, Stdout, Env, Rand };
+from "core/host" import * as host;
+from "core/env" import * as env;
+from "core/random" import * as random;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Env: host.env,
+    Rand: host.rand,
+  };
+  // Opaque to the compiler, so the call is really made.
+  let hi = env.args(ctx).len();
+  let _ = ctx.println("${random.int(ctx, hi, hi)}");
+  .Ok(())
+}

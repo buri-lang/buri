@@ -6,7 +6,8 @@
 
 from "core/cap" import { Rand };
 
-/// Uniform in `[lo, hi)`. An empty range is a crash.
+/// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
+/// and no `Option` in the signature to say so.
 export fn int<C: Rand>(ctx: C, lo: Int, hi: Int): Int {
   ctx.nextInt(lo, hi)
 }

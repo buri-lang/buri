@@ -18,8 +18,10 @@ ROOT=$PWD
 FILTER=${1:-}
 
 MUTANTS=(
-  "divide-truncation|cli/src/runtime.js|  if (b === 0) \$divz();
-  return Math.trunc(a / b);|  if (b === 0) \$divz();
+  "divide-truncation|cli/src/runtime.js|function \$divi(a, b) {
+  if (b === 0) \$divz();
+  return Math.trunc(a / b);|function \$divi(a, b) {
+  if (b === 0) \$divz();
   return a / b;"
 
   "remainder-sign|cli/src/runtime.js|function \$remi(a, b) {
@@ -30,16 +32,19 @@ MUTANTS=(
   return Math.abs(a % b);
 }"
 
-  "overflow-not-checked|cli/src/runtime.js|  if (v < lo || v > hi) \$crash(\"integer overflow\");
-  return v;|  return v;"
+  "checked-range-too-wide|cli/src/types.rs|        Some((lo.max(-(limit as i128)), hi.min(limit)))|        Some((lo, hi))"
 
-  "divide-by-zero-allowed|cli/src/runtime.js|function \$divb(a, b) {
-  if (b === 0n) \$divz();
-  return a / b;
-}|function \$divb(a, b) {
-  if (b === 0n) return 0n;
-  return a / b;
+  "divide-by-zero-allowed|cli/src/runtime.js|function \$divi(a, b) {
+  if (b === 0) \$divz();
+  return Math.trunc(a / b);
+}|function \$divi(a, b) {
+  if (b === 0) return 0;
+  return Math.trunc(a / b);
 }"
+
+  "shift-count-unguarded|cli/src/runtime.js|  if (k < 0 || k >= bits) \$abort(\"shift out of range\");|  if (false) \$abort(\"shift out of range\");"
+
+  "method-outside-impl-allowed|cli/src/check.rs|            if first.role == ParamRole::SelfParam {|            if false {"
 
   "comparison-order|cli/src/runtime.js|  // out of the comparisons below.
   return a < b ? 0 : a > b ? 2 : 1;|  // out of the comparisons below.
@@ -50,15 +55,15 @@ MUTANTS=(
   "sort-not-stable|cli/src/runtime.js|      return o === 1 ? a[1] - b[1] : o === 0 ? -1 : 1;|      return o === 1 ? b[1] - a[1] : o === 0 ? -1 : 1;"
 
   "string-length-utf16|cli/src/runtime.js|function \$str_len(s) {
-  return BigInt(\$chars(s).length);
+  return \$chars(s).length;
 }|function \$str_len(s) {
-  return BigInt(s.length);
+  return s.length;
 }"
 
   "index-bounds|cli/src/runtime.js|  return n >= 0 && n < xs.length ? \$some(xs[n]) : \$none;|  return n < xs.length ? \$some(xs[n]) : \$none;"
 
-  "wrapping-conversion|cli/src/runtime.js|function \$convChecked(v, lo, hi, target, toBig) {|function \$convChecked(v, lo, hi, target, toBig) {
-  if (true) return \$ok(toBig ? BigInt(Math.trunc(Number(v))) : Number(v));"
+  "wrapping-conversion|cli/src/runtime.js|function \$convChecked(v, lo, hi, target, flt) {|function \$convChecked(v, lo, hi, target, flt) {
+  if (true) return \$ok(Math.trunc(v));"
 
   "tail-calls-off|cli/src/tco.rs|        if scc.len() == 1 {|        if true {"
 

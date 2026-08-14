@@ -218,8 +218,8 @@ test "a generic struct at a second pair of types" {
 }
 
 test "a generic method on a generic struct swaps its parameters" {
-  assert.eq(flip(pair(1, "one")), pair("one", 1));
-  assert.eq(flip(flip(pair(1, "one"))), pair(1, "one"));
+  assert.eq(pair(1, "one").flip(), pair("one", 1));
+  assert.eq(pair(1, "one").flip().flip(), pair(1, "one"));
 }
 
 test "a generic tuple struct" {
@@ -240,18 +240,18 @@ test "a generic struct nested in itself" {
 // -----------------------------------------------------------------------------
 
 test "a generic enum carries a payload" {
-  assert.eq(slotOr(Slot.Filled(5), 0), 5);
-  assert.eq(slotOr(Slot.Vacant, 0), 0);
+  assert.eq(Slot.Filled(5).slotOr(0), 5);
+  assert.eq(Slot.Vacant.slotOr(0), 0);
 }
 
 test "a generic enum at a second type" {
-  assert.eq(slotOr(Slot.Filled("x"), "default"), "x");
-  assert.eq(slotOr(Slot.Vacant, "default"), "default");
+  assert.eq(Slot.Filled("x").slotOr("default"), "x");
+  assert.eq(Slot.Vacant.slotOr("default"), "default");
 }
 
 test "a generic enum with two parameters" {
-  assert.eq(eitherInt(Either.Right(9)), 9);
-  assert.eq(eitherInt(Either.Left("nope")), 0);
+  assert.eq(Either.Right(9).eitherInt(), 9);
+  assert.eq(Either.Left("nope").eitherInt(), 0);
 }
 
 test "a two-parameter generic enum is equal by variant and payload" {
@@ -266,41 +266,41 @@ test "a two-parameter generic enum is equal by variant and payload" {
 
 test "an empty tree" {
   let t: Tree<Int> = Tree.Leaf;
-  assert.eq(size(t), 0);
-  assert.eq(depth(t), 0);
-  assert.isFalse(has(t, 1));
+  assert.eq(t.size(), 0);
+  assert.eq(t.depth(), 0);
+  assert.isFalse(t.has(1));
 }
 
 test "inserting into a tree grows it" {
   let t = Tree.Leaf.insert(5).insert(3).insert(8);
-  assert.eq(size(t), 3);
-  assert.isTrue(has(t, 3));
-  assert.isTrue(has(t, 5));
-  assert.isTrue(has(t, 8));
-  assert.isFalse(has(t, 4));
+  assert.eq(t.size(), 3);
+  assert.isTrue(t.has(3));
+  assert.isTrue(t.has(5));
+  assert.isTrue(t.has(8));
+  assert.isFalse(t.has(4));
 }
 
 test "inserting a duplicate does not grow the tree" {
   let t = Tree.Leaf.insert(5).insert(5).insert(5);
-  assert.eq(size(t), 1);
+  assert.eq(t.size(), 1);
 }
 
 test "depth follows the shape the inserts produced" {
   // Ascending inserts make a right spine.
-  assert.eq(depth(treeOf([1, 2, 3, 4])), 4);
+  assert.eq(treeOf([1, 2, 3, 4]).depth(), 4);
   // A balanced-ish order is shallower.
-  assert.eq(depth(treeOf([2, 1, 3])), 2);
+  assert.eq(treeOf([2, 1, 3]).depth(), 2);
 }
 
 test "an in-order walk of a search tree is sorted" {
   let ctx = Hermetic();
-  assert.eq(inOrder(treeOf([5, 3, 8, 1, 4, 7, 9]), ctx), [1, 3, 4, 5, 7, 8, 9]);
+  assert.eq(treeOf([5, 3, 8, 1, 4, 7, 9]).inOrder(ctx), [1, 3, 4, 5, 7, 8, 9]);
 }
 
 test "the same recursion at a second element type" {
   let ctx = Hermetic();
   assert.eq(
-    inOrder(treeOf(["pear", "apple", "fig"]), ctx),
+    treeOf(["pear", "apple", "fig"]).inOrder(ctx),
     ["apple", "fig", "pear"],
   );
 }
@@ -308,7 +308,7 @@ test "the same recursion at a second element type" {
 test "the same recursion at a struct with a derived Ord" {
   let ctx = Hermetic();
   assert.eq(
-    inOrder(treeOf([version(2, 0, 0), version(1, 0, 0), version(1, 5, 0)]), ctx),
+    treeOf([version(2, 0, 0), version(1, 0, 0), version(1, 5, 0)]).inOrder(ctx),
     [version(1, 0, 0), version(1, 5, 0), version(2, 0, 0)],
   );
 }
@@ -317,7 +317,7 @@ test "the tree's Ord is the element type's own" {
   let ctx = Hermetic();
   // Backwards reverses, so the in-order walk comes out descending by payload.
   assert.eq(
-    inOrder(treeOf([Backwards(1), Backwards(3), Backwards(2)]), ctx),
+    treeOf([Backwards(1), Backwards(3), Backwards(2)]).inOrder(ctx),
     [Backwards(3), Backwards(2), Backwards(1)],
   );
 }
@@ -331,38 +331,38 @@ test "a derived Eq on a recursive generic enum compares the whole shape" {
 test "mapping a tree keeps its shape and changes its elements" {
   let ctx = Hermetic();
   let t = treeOf([2, 1, 3]);
-  let doubled = mapTree(t, ctx, fn(x) => x * 2);
-  assert.eq(size(doubled), 3);
-  assert.eq(depth(doubled), depth(t));
-  assert.eq(inOrder(doubled, ctx), [2, 4, 6]);
+  let doubled = t.mapTree(ctx, fn(x) => x * 2);
+  assert.eq(doubled.size(), 3);
+  assert.eq(doubled.depth(), t.depth());
+  assert.eq(doubled.inOrder(ctx), [2, 4, 6]);
 }
 
 test "mapping a tree may change its element type" {
   let ctx = Hermetic();
   let t = treeOf([2, 1, 3]);
-  let flags = mapTree(t, ctx, fn(x) => x > 1);
-  assert.eq(inOrder(flags, ctx), [false, true, true]);
+  let flags = t.mapTree(ctx, fn(x) => x > 1);
+  assert.eq(flags.inOrder(ctx), [false, true, true]);
 }
 
 test "a generic enum whose parameter is a recursive generic enum" {
   let inner = treeOf([1, 2]);
-  assert.eq(slotOr(Slot.Filled(inner), Tree.Leaf), inner);
-  assert.eq(size(slotOr(Slot.Vacant, inner)), 2);
+  assert.eq(Slot.Filled(inner).slotOr(Tree.Leaf), inner);
+  assert.eq(Slot.Vacant.slotOr(inner).size(), 2);
 }
 
 test "a generic struct whose fields are trees of different element types" {
   let ctx = Hermetic();
   let p = pair(treeOf([2, 1]), treeOf(["b", "a"]));
-  assert.eq(inOrder(p.first, ctx), [1, 2]);
-  assert.eq(inOrder(p.second, ctx), ["a", "b"]);
+  assert.eq(p.first.inOrder(ctx), [1, 2]);
+  assert.eq(p.second.inOrder(ctx), ["a", "b"]);
 }
 
 test "recursion over a large tree stays correct" {
   let ctx = Hermetic();
   let xs = list.range(ctx, 0, 200);
   let t = treeOf(xs);
-  assert.eq(size(t), 200);
-  assert.eq(inOrder(t, ctx), xs);
+  assert.eq(t.size(), 200);
+  assert.eq(t.inOrder(ctx), xs);
 }
 
 // -----------------------------------------------------------------------------

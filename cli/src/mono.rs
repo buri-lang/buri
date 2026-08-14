@@ -483,9 +483,6 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             },
-            ExprKind::Crash { message } => {
-                ExprKind::Crash { message: Box::new(self.rewrite(*message, targs)) }
-            }
             ExprKind::Intrinsic { name, targs: it, args } => ExprKind::Intrinsic {
                 name,
                 targs: it.iter().map(|t| substitute(t, targs, None)).collect(),

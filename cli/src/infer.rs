@@ -362,9 +362,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .map(|p| hir::TemplatePart { text: p.text, hole: p.hole.map(&sub) })
                     .collect(),
             },
-            hir::ExprKind::Crash { message } => {
-                hir::ExprKind::Crash { message: Box::new(sub(*message)) }
-            }
             hir::ExprKind::CtxLit { bindings } => hir::ExprKind::CtxLit {
                 bindings: bindings.into_iter().map(|(t, e)| (t, sub(e))).collect(),
             },
@@ -563,7 +560,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .generics
                 .get(*i as usize)
                 .is_some_and(|g| g.bounds.contains(&tr)),
-            Ty::Error | Ty::Never | Ty::Var(_) => true,
+            Ty::Error | Ty::Var(_) => true,
             Ty::Ctx(id) => self.c.tables.ctx_type(*id).has(tr),
             Ty::SelfTy => true,
             // `[T]`, tuples and function types satisfy the structural traits
@@ -687,7 +684,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         || p.is_float()
                         || matches!(p, Prim::Bool | Prim::Char | Prim::Str)
                 }
-                None => matches!(resolved, Ty::Error | Ty::Never | Ty::Var(_)),
+                None => matches!(resolved, Ty::Error | Ty::Var(_)),
             };
             if !ok {
                 let shown = show(&self.c.tables, Some(&self.subst), &self.generics, &resolved);

@@ -1,0 +1,18 @@
+// EXPECT: `area` takes `self`, so it is a method
+// A method is declared inside an `impl` block for its type. Taking `self` at
+// the top level names the shape of a method in a place that has no receiver
+// type to attach it to.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Square { export side: Int }
+
+fn area(self: Square): Int {
+  self.side * self.side
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${Square { side: 3 }.area()}");
+  .Ok(())
+}

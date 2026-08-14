@@ -42,32 +42,34 @@ enum Validation<T, E> {
 // There is no `T: Ord`. `insert` takes the comparison it needs. That is more
 // typing at the call site and less machinery in the language.
 
-fn insert<T>(self: Tree<T>, cmp: fn(T, T) => Order, value: T): Tree<T> {
-  match (self) {
-    .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
-    .Node(left, here, right) => match (cmp(value, here)) {
-      .Less => Tree.Node(left.insert(cmp, value), here, right),
-      .Greater => Tree.Node(left, here, right.insert(cmp, value)),
-      .Equal => Tree.Node(left, here, right),
-    },
+impl<T> Tree<T> {
+  fn insert(self: Tree<T>, cmp: fn(T, T) => Order, value: T): Tree<T> {
+    match (self) {
+      .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
+      .Node(left, here, right) => match (cmp(value, here)) {
+        .Less => Tree.Node(left.insert(cmp, value), here, right),
+        .Greater => Tree.Node(left, here, right.insert(cmp, value)),
+        .Equal => Tree.Node(left, here, right),
+      },
+    }
   }
-}
 
-fn contains<T>(self: Tree<T>, cmp: fn(T, T) => Order, value: T): Bool {
-  match (self) {
-    .Leaf => false,
-    .Node(left, here, right) => match (cmp(value, here)) {
-      .Equal => true,
-      .Less => left.contains(cmp, value),
-      .Greater => right.contains(cmp, value),
-    },
+  fn contains(self: Tree<T>, cmp: fn(T, T) => Order, value: T): Bool {
+    match (self) {
+      .Leaf => false,
+      .Node(left, here, right) => match (cmp(value, here)) {
+        .Equal => true,
+        .Less => left.contains(cmp, value),
+        .Greater => right.contains(cmp, value),
+      },
+    }
   }
-}
 
-fn size<T>(self: Tree<T>): Int {
-  match (self) {
-    .Leaf => 0,
-    .Node(l, _, r) => 1 + l.size() + r.size(),
+  fn size(self: Tree<T>): Int {
+    match (self) {
+      .Leaf => 0,
+      .Node(l, _, r) => 1 + l.size() + r.size(),
+    }
   }
 }
 

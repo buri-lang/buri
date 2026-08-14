@@ -1,0 +1,16 @@
+// EXPECT: `Str` is not declared in this module
+// Methods are not extensible. An `impl` block belongs to the module that
+// declares its type, which is what keeps `x.f()` a single lookup with no
+// import and no collision.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+impl Str {
+  fn shout(self: Str): Str { self }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

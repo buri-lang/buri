@@ -319,13 +319,17 @@ test "toInt rejects a lone minus" {
   assert.none("-".toInt());
 }
 
-test "toInt parses I64's largest value" {
-  assert.eq(assert.some("9223372036854775807".toInt()), 9223372036854775807);
+test "toInt parses the largest value a number holds exactly" {
+  assert.eq(assert.some("9007199254740991".toInt()), 9007199254740991);
+  assert.eq(assert.some("-9007199254740991".toInt()), -9007199254740991);
 }
 
-test "toInt rejects a value one past I64's largest" {
-  // `Int` is `I64` (SPEC 5.1.1), so a string denoting a value that is not
-  // representable as an `I64` has no `Int` to parse to.
+test "toInt rejects a value it could not hold exactly" {
+  // `Int` is a JS `number`, which represents every integer up to 2^53 and no
+  // integer above it. Handing back a value that is not the one written would
+  // be worse than `.None`.
+  assert.none("9007199254740992".toInt());
+  assert.none("9223372036854775807".toInt());
   assert.none("9223372036854775808".toInt());
 }
 

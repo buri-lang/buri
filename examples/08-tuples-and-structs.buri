@@ -56,10 +56,12 @@ fn defaultConfig(): Config {
   Config { host: "localhost", port: 8080, tls: false }
 }
 
-fn withPort(self: Config, port: Int): Config {
-  // Spread first, then overrides. `..self` copies the fields you do not name,
-  // including private ones.
-  Config { ..self, port: port }
+impl Config {
+  fn withPort(self: Config, port: Int): Config {
+    // Spread first, then overrides. `..self` copies the fields you do not name,
+    // including private ones.
+    Config { ..self, port: port }
+  }
 }
 
 // Field shorthand: `host` means `host: host`. This is unambiguous because a
@@ -70,17 +72,19 @@ fn configFor(host: Str, port: Int): Config {
   Config { host, port, tls }
 }
 
-fn endpoint(self: Config): Str {
-  let scheme = if (self.tls) { "https" } else { "http" };
-  let _ = scheme;
-  self.host
-}
+impl Config {
+  fn endpoint(self: Config): Str {
+    let scheme = if (self.tls) { "https" } else { "http" };
+    let _ = scheme;
+    self.host
+  }
 
-// Struct patterns have shorthand too.
-fn unpack(self: Config): Int {
-  let Config { host, port, tls } = self;
-  let _ = (host, tls);
-  port
+  // Struct patterns have shorthand too.
+  fn unpack(self: Config): Int {
+    let Config { host, port, tls } = self;
+    let _ = (host, tls);
+    port
+  }
 }
 
 // --- Generic structs --------------------------------------------------------
@@ -90,8 +94,10 @@ struct Pair<A, B> {
   export second: B,
 }
 
-fn mapFirst<A, B, C>(self: Pair<A, B>, f: fn(A) => C): Pair<C, B> {
-  Pair { first: f(self.first), second: self.second }
+impl<A, B> Pair<A, B> {
+  fn mapFirst<C>(self: Pair<A, B>, f: fn(A) => C): Pair<C, B> {
+    Pair { first: f(self.first), second: self.second }
+  }
 }
 
 // --- Where records used to be needed ----------------------------------------

@@ -26,7 +26,7 @@ compiler exists.
 | [`18-state-machine.buri`](./18-state-machine.buri) | Modeling state without mutable state |
 | [`19-grammar-corners.buri`](./19-grammar-corners.buri) | One example per ambiguity-avoidance decision |
 | [`20-word-count.buri`](./20-word-count.buri) | A complete program, effects only at the edges |
-| [`21-methods.buri`](./21-methods.buri) | `self` parameters; resolution through the receiver's type |
+| [`21-methods.buri`](./21-methods.buri) | `impl` blocks; `self` parameters; resolution through the receiver's type |
 | [`22-traits.buri`](./22-traits.buri) | Interfaces, structural satisfaction, `impl`, `derive`, operators |
 
 ## Reading the signatures
@@ -39,6 +39,9 @@ fn area(self: Shape): F64                                     // pure
 fn normalize<C: Alloc>(self: [F64], ctx: C): [F64]            // deterministic, allocates
 fn loadConfig<C: Alloc + Fs>(ctx: C, p: Str): ...             // touches the world
 ```
+
+The first two are inside an `impl` block, which is where a `self` parameter is
+legal; the third is a top-level declaration.
 
 No parameter can hide an effect: one must be named `self` or `ctx`, and a lambda
 may not capture one. So the pile a function belongs in is decided by its
@@ -63,9 +66,10 @@ what it can do.
 - **No `Result` is ever discarded.** `Result` is must-use, so every `let _ =` in
   these files drops a `{}` — often one that a `?` has already unwrapped. Grep for
   `let _ =` and check: none of them throws away a failure.
-- **Methods declare `self`.** A function is a method only if its first
-  parameter is written `self`; `x.f(a)` then resolves `f` in the defining module
-  of `x`'s type and needs no import. Anything else is an ordinary call.
+- **Methods live in an `impl` block and declare `self`.** `x.f(a)` then
+  resolves `f` among the methods of `x`'s type, which live in that type's
+  defining module — so the call needs no import. Anything else is an ordinary
+  call, declared at the top level.
 - **Iteration is `fold` or explicit recursion.** There are no loops; tail calls
   are guaranteed eliminated, so an accumulator-passing helper is a real loop.
 

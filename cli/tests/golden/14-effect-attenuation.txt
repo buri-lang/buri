@@ -3,4 +3,4 @@ starting
 template = <missing>
 allowed  = <missing>
 denied   = <denied>
-seeded   = 5 1 6
+seeded   = 2 4 3

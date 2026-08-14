@@ -1,9 +1,9 @@
 // The public surface of //lib/money, complete. Every name another target can
 // see is on one of these two lines.
 //
-// `toCents` is exported by cents.buri so that parse.buri can use it, and is
-// absent here, so it stops at the library boundary — as a free function and as
-// a method. `c.toCents()` outside this library does not resolve.
+// A method is named here the same way anything else is. `toCents` is exported
+// by cents.buri so that parse.buri can use it, and is absent here, so it stops
+// at the library boundary: `c.toCents()` outside this library does not resolve.
 
 from "//lib/money/cents" export { Cents, fromDollars, fromCents, add, isZero, format };
 from "//lib/money/parse" export { ParseError, parse };

@@ -328,7 +328,7 @@ test "ignore consumes an Err and returns unit" {
 
 test "ignore called as a free function" {
   let r: Result<Int, Str> = .Err("whatever");
-  result.ignore(r);
+  r.ignore();
   assert.isTrue(true);
 }
 

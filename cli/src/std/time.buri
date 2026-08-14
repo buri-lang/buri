@@ -19,8 +19,10 @@ export fn since<C: Clock>(ctx: C, earlier: Instant): Int {
   now(ctx).0 - earlier.0
 }
 
-export fn duration(self: Instant, earlier: Instant): Int {
-  self.0 - earlier.0
+impl Instant {
+  export fn duration(self: Instant, earlier: Instant): Int {
+    self.0 - earlier.0
+  }
 }
 
 export fn sleepMs<C: Clock>(ctx: C, millis: Int): () {

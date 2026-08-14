@@ -10,7 +10,7 @@ wrong *answer* fails, not merely a program that fails to run.
 | Standard library | `cli/tests/stdlib.rs` | `core/*` typechecks against itself — the first program the compiler ever sees. |
 | Conformance | `cli/tests/conformance/` | A Buri repository whose `test/` directories assert on language semantics, run through the real `buri test`. |
 | Rejection | `cli/tests/reject/` | Programs that must **not** compile, each annotated with the diagnostic it must produce. |
-| Crash | `cli/tests/crash/` | Programs that must compile, then crash, saying why. Overflow, division by zero, `crash`. |
+| Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
 | Golden | `cli/tests/golden/` | The exact stdout of all 22 example programs. |
 | Mutation | `cli/tests/mutants.sh` | That the suites above are *capable of failing*. |
 
@@ -36,16 +36,20 @@ minify, run — and the assertion is on a value, not on an exit code.
 rewrites a constant in it and asserts the runner notices. A suite that cannot
 fail is not evidence.
 
-**Rejection and crash corpora** cover what assertions cannot. A program that
-must not compile has no runtime to assert in, and a crash cannot be caught —
+**Rejection and abort corpora** cover what assertions cannot. A program that
+must not compile has no runtime to assert in, and an abort cannot be caught —
 there is no `catch` in the language — so both get a harness that compiles or
 runs the program and checks the diagnostic.
+
+Overflow used to live in the abort corpus. It is undefined behaviour now
+(SPEC 6.2), so there is nothing to assert: those files were deleted rather than
+weakened into tests of whatever the backend happens to do.
 
 Each file carries its expectation on its first line:
 
 ```buri
 // EXPECT: may not be discarded      (tests/reject)
-// CRASH: integer overflow           (tests/crash)
+// CRASH: division by zero           (tests/crash)
 ```
 
 **Golden transcripts** are what catch a backend that produces a *different*

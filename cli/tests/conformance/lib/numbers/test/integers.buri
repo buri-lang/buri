@@ -2,13 +2,13 @@
 // 6.2 (what `+ - * / %` mean), and 6.2.2 (`Checked`, `Wrapping`, `Saturating`,
 // `Bounded`).
 //
-// I64, U64, I128 and U128 have a different machine representation than the
-// narrower widths, so the rules below are asserted on both sides of that split:
-// the same answer has to come out of either one.
+// Every integer type is a JS number here, so the rules below are asserted at
+// several widths: the same answer has to come out of each one.
 //
-// Nothing here is allowed to overflow or divide by zero. Those are a crash
-// (SPEC 6.2, 6.10) and a crash ends the test process, so they are covered
-// elsewhere; every value below sits inside its type's range on purpose.
+// Nothing here is allowed to overflow, which is undefined behaviour (SPEC 6.2),
+// or to divide by zero, which aborts and would end the test process. Division
+// by zero is covered elsewhere; every value below sits inside its type's range,
+// and inside the exact-integer range of a double, on purpose.
 
 from "core/testing/assert" import * as assert;
 from "core/num" import { Add, Bounded, Checked, Mul, Saturating, Wrapping };
@@ -114,14 +114,17 @@ test "I32 adds, subtracts, multiplies and divides inside its range" {
   assert.eq(c % 1000, 340);
 }
 
-test "I64 adds, subtracts, multiplies and divides inside its range" {
-  let a: I64 = 9223372036854775806;
-  assert.eq(a + 1, 9223372036854775807);
-  assert.eq(a - 6, 9223372036854775800);
-  let b: I64 = 4611686018427387903;
-  assert.eq(b * 2, 9223372036854775806);
-  assert.eq(a / 1000000000, 9223372036);
-  assert.eq(a % 1000000000, 854775806);
+// 2^53 - 1 is the largest I64 a `number` still represents exactly. Above it
+// the type's arithmetic is undefined (SPEC 6.2), so this stops there rather
+// than at I64's own maximum.
+test "I64 adds, subtracts, multiplies and divides inside its exact range" {
+  let a: I64 = 9007199254740990;
+  assert.eq(a + 1, 9007199254740991);
+  assert.eq(a - 6, 9007199254740984);
+  let b: I64 = 4503599627370495;
+  assert.eq(b * 2, 9007199254740990);
+  assert.eq(a / 1000000000, 9007199);
+  assert.eq(a % 1000000000, 254740990);
 }
 
 test "I128 adds, subtracts, multiplies and divides inside its range" {
@@ -168,14 +171,16 @@ test "U32 adds, subtracts, multiplies and divides inside its range" {
   assert.eq(a % 1000000, 967000);
 }
 
-test "U64 adds, subtracts, multiplies and divides inside its range" {
-  let a: U64 = 18446744073709551614;
-  assert.eq(a + 1, 18446744073709551615);
-  assert.eq(a - 14, 18446744073709551600);
-  let c: U64 = 4294967295;
-  assert.eq(c * c, 18446744065119617025);
-  assert.eq(a / 1000000000, 18446744073);
-  assert.eq(a % 1000000000, 709551614);
+// Same ceiling as I64: a `number` is a double either way, and being unsigned
+// buys no extra mantissa.
+test "U64 adds, subtracts, multiplies and divides inside its exact range" {
+  let a: U64 = 9007199254740990;
+  assert.eq(a + 1, 9007199254740991);
+  assert.eq(a - 14, 9007199254740976);
+  let c: U64 = 67108863;
+  assert.eq(c * c, 4503599493152769);
+  assert.eq(a / 1000000000, 9007199);
+  assert.eq(a % 1000000000, 254740990);
 }
 
 test "U128 adds, subtracts, multiplies and divides inside its range" {
@@ -388,9 +393,9 @@ test "division truncates toward zero at I32" {
 }
 
 test "division truncates toward zero at I128" {
-  let a: I128 = -170141183460469231731687303715884105727;
-  assert.eq(a / 10, -17014118346046923173168730371588410572);
-  assert.eq(a % 10, -7);
+  let a: I128 = -9007199254740991;
+  assert.eq(a / 10, -900719925474099);
+  assert.eq(a % 10, -1);
 }
 
 test "the division identity holds for every sign combination at Int" {
@@ -423,16 +428,16 @@ test "the division identity holds for every sign combination at I32" {
 }
 
 test "the division identity holds for every sign combination at I128" {
-  assert.eq(recI128(170141183460469231731687303715884105727, 3), 170141183460469231731687303715884105727);
-  assert.eq(recI128(-170141183460469231731687303715884105727, 3), -170141183460469231731687303715884105727);
-  assert.eq(recI128(170141183460469231731687303715884105727, -3), 170141183460469231731687303715884105727);
-  assert.eq(recI128(-170141183460469231731687303715884105727, -3), -170141183460469231731687303715884105727);
+  assert.eq(recI128(9007199254740991, 3), 9007199254740991);
+  assert.eq(recI128(-9007199254740991, 3), -9007199254740991);
+  assert.eq(recI128(9007199254740991, -3), 9007199254740991);
+  assert.eq(recI128(-9007199254740991, -3), -9007199254740991);
 }
 
 test "the division identity holds for U64" {
-  assert.eq(recU64(18446744073709551615, 7), 18446744073709551615);
+  assert.eq(recU64(9007199254740991, 7), 9007199254740991);
   assert.eq(recU64(0, 7), 0);
-  assert.eq(recU64(1, 18446744073709551615), 1);
+  assert.eq(recU64(1, 9007199254740991), 1);
   assert.eq(recU64(1000000007, 1000000000), 1000000007);
 }
 
@@ -450,9 +455,9 @@ test "an exact division leaves no remainder" {
   assert.eq(100 % 10, 0);
   assert.eq(-100 % 10, 0);
   assert.eq(100 % -10, 0);
-  let a: U64 = 18446744073709551610;
+  let a: U64 = 9007199254740990;
   assert.eq(a % 5, 0);
-  let b: I128 = -170141183460469231731687303715884105720;
+  let b: I128 = -9007199254740990;
   assert.eq(b % 10, 0);
 }
 
@@ -560,27 +565,41 @@ test "checkedAdd at the I32 and U32 boundaries" {
   assert.none(b.checkedAdd(2));
 }
 
-test "checkedAdd at the I64 and U64 boundaries" {
-  let a: I64 = 9223372036854775806;
-  assert.eq(assert.some(a.checkedAdd(1)), 9223372036854775807);
+// At 64 bits and above the type's own maximum is past 2^53, so `Checked`
+// answers about the exactly-representable range instead: `.Some(v)` is a
+// promise that `v` IS the answer, and 2^53 is where that promise stops.
+test "checkedAdd at the I64 and U64 exact boundaries" {
+  let a: I64 = 9007199254740990;
+  assert.eq(assert.some(a.checkedAdd(1)), 9007199254740991);
   assert.none(a.checkedAdd(2));
-  let b: U64 = 18446744073709551614;
-  assert.eq(assert.some(b.checkedAdd(1)), 18446744073709551615);
+  let b: U64 = 9007199254740990;
+  assert.eq(assert.some(b.checkedAdd(1)), 9007199254740991);
   assert.none(b.checkedAdd(2));
 }
 
-test "checkedAdd at the I128 boundary" {
-  let a: I128 = 170141183460469231731687303715884105726;
-  assert.eq(assert.some(a.checkedAdd(1)), 170141183460469231731687303715884105727);
+test "checkedAdd at the I128 exact boundary" {
+  let a: I128 = 9007199254740990;
+  assert.eq(assert.some(a.checkedAdd(1)), 9007199254740991);
   assert.none(a.checkedAdd(2));
 }
 
-test "checkedAdd at the U128 boundary" {
+test "checkedAdd at the U128 exact boundary" {
   let a: U128 = 1;
   assert.eq(assert.some(a.checkedAdd(1)), 2);
-  let b: U128 = 340282366920938463463374607431768211454;
-  assert.eq(assert.some(b.checkedAdd(1)), 340282366920938463463374607431768211455);
+  let b: U128 = 9007199254740990;
+  assert.eq(assert.some(b.checkedAdd(1)), 9007199254740991);
   assert.none(b.checkedAdd(2));
+}
+
+// The type's nominal maximum is far above what a `number` holds, so a `Checked`
+// operation anywhere near it is `.None` — never a value that is not the answer.
+test "checkedAdd is None everywhere above the exact range" {
+  let a: I64 = 9007199254740991;
+  assert.none(a.checkedAdd(1));
+  assert.none(num.maxValue::<I64>().checkedAdd(0));
+  assert.none(num.maxValue::<U64>().checkedAdd(0));
+  assert.none(num.maxValue::<I128>().checkedAdd(0));
+  assert.none(num.maxValue::<U128>().checkedAdd(0));
 }
 
 test "checkedSub is None below zero for an unsigned type" {
@@ -608,12 +627,12 @@ test "checkedMul reports whether the product fits" {
   assert.none(b.checkedMul(46342));
 }
 
-test "checkedMul on the bigint side" {
-  let a: U64 = 4294967295;
-  assert.eq(assert.some(a.checkedMul(4294967295)), 18446744065119617025);
+test "checkedMul at the widest types" {
+  let a: U64 = 67108863;
+  assert.eq(assert.some(a.checkedMul(67108863)), 4503599493152769);
   assert.none(a.checkedMul(4294967298));
-  let b: I64 = 3037000499;
-  assert.eq(assert.some(b.checkedMul(3037000499)), 9223372030926249001);
+  let b: I64 = 94906265;
+  assert.eq(assert.some(b.checkedMul(94906265)), 9007199136250225);
   assert.none(b.checkedMul(3037000501));
 }
 

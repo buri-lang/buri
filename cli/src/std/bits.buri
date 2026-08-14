@@ -5,8 +5,9 @@
 // type arguments into a shift. Removing the operators removes the problem
 // rather than papering over it with a position-dependent lexer (SPEC 12.6).
 
-/// Shifting by a count at or beyond the width of the type is a crash, the same
-/// way overflow is.
+/// Shifting by a count at or beyond the width of the type aborts. Overflow is
+/// undefined, but a shift count has no defensible answer at all, and the guard
+/// is a comparison the shift itself already needs.
 export fn shl(x: Int, n: Int): Int;
 export fn shr(x: Int, n: Int): Int;
 

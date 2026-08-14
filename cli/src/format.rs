@@ -170,17 +170,21 @@ impl Fmt {
             }
             Item::Impl(d) => {
                 let g = generics(&d.generics);
-                self.line(&format!(
-                    "impl{g} {} for {} {{",
-                    ty(&d.trait_ty),
-                    ty(&d.self_ty)
-                ));
+                let head = match &d.trait_ty {
+                    Some(t) => format!("impl{g} {} for {}", ty(t), ty(&d.self_ty)),
+                    None => format!("impl{g} {}", ty(&d.self_ty)),
+                };
+                if d.methods.is_empty() {
+                    self.line(&format!("{head} {{}}"));
+                    return;
+                }
+                self.line(&format!("{head} {{"));
                 self.depth += 1;
                 for (i, m) in d.methods.iter().enumerate() {
                     if i > 0 {
                         self.out.push('\n');
                     }
-                    self.fn_decl(m, false);
+                    self.fn_decl(m, m.exported);
                 }
                 self.depth -= 1;
                 self.line("}");
@@ -565,9 +569,9 @@ fn binop_prec(op: BinOp) -> u8 {
 
 fn expr_prec(e: &Expr) -> u8 {
     match e {
-        // A lambda and `crash` extend maximally to the right, so they are
-        // never a bare operand (SPEC 12.11).
-        Expr::Lambda { .. } | Expr::Crash { .. } => 0,
+        // A lambda's body extends maximally to the right, so it is never a
+        // bare operand (SPEC 12.11).
+        Expr::Lambda { .. } => 0,
         Expr::Binary { op, .. } => binop_prec(*op),
         Expr::Unary { .. } => 10,
         _ => 11,
@@ -699,10 +703,6 @@ fn write_expr(out: &mut String, e: &Expr, indent: usize) {
             }
             out.push_str(" => ");
             write_expr(out, body, indent);
-        }
-        Expr::Crash { message, .. } => {
-            out.push_str("crash ");
-            write_expr(out, message, indent);
         }
         Expr::Unary { op, operand, .. } => {
             out.push_str(op.text());

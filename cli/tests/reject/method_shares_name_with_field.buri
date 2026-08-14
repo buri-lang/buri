@@ -4,8 +4,10 @@ from "core/host" import * as host;
 
 struct Square { export side: Int }
 
-fn side(self: Square): Int {
-  self.side * 2
+impl Square {
+  fn side(self: Square): Int {
+    self.side * 2
+  }
 }
 
 export fn main(): Result<(), Str> {

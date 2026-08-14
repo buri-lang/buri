@@ -60,11 +60,13 @@ impl<C: Alloc> Alloc for ReadOnly<C> {
   fn allocate(self: ReadOnly<C>, bytes: Int): Region { self.0.allocate(bytes) }
 }
 
-// Forwards reading — and deliberately not writing. Because Fs requires both
-// `readFile` and `writeFile`, ReadOnly<C> does not satisfy Fs no matter what C
-// is, so it cannot be passed anywhere that asks for it.
-export fn readFile<C: Fs>(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
-  self.0.readFile(path)
+impl<C: Fs> ReadOnly<C> {
+  // Forwards reading — and deliberately not writing. Because Fs requires both
+  // `readFile` and `writeFile`, ReadOnly<C> does not satisfy Fs no matter what C
+  // is, so it cannot be passed anywhere that asks for it.
+  export fn readFile(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
+    self.0.readFile(path)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,13 +94,15 @@ impl<C: Alloc> Alloc for Scoped<C> {
   fn allocate(self: Scoped<C>, bytes: Int): Region { self.inner.allocate(bytes) }
 }
 
-export fn readFileScoped<C: Fs>(self: Scoped<C>, path: Str): Result<Str, ScopeError> {
-  if (!path.startsWith(self.prefix) || path.contains("..")) {
-    .Err(.Escapes(path))
-  } else {
-    match (self.inner.readFile(path)) {
-      .Ok(text) => .Ok(text),
-      .Err(e) => .Err(.Io(e)),
+impl<C: Fs> Scoped<C> {
+  export fn readFileScoped(self: Scoped<C>, path: Str): Result<Str, ScopeError> {
+    if (!path.startsWith(self.prefix) || path.contains("..")) {
+      .Err(.Escapes(path))
+    } else {
+      match (self.inner.readFile(path)) {
+        .Ok(text) => .Ok(text),
+        .Err(e) => .Err(.Io(e)),
+      }
     }
   }
 }
@@ -111,20 +115,26 @@ export fn readFileScoped<C: Fs>(self: Scoped<C>, path: Str): Result<Str, ScopeEr
 // framework, and the call site does not change.
 // ---------------------------------------------------------------------------
 
-export struct Seeded { export state: U64 }
+export struct Seeded { export state: U32 }
 
-export fn seeded(seed: U64): Seeded { Seeded { state: seed } }
+export fn seeded(seed: U32): Seeded { Seeded { state: seed } }
 
-/// Returns the next value and the next generator; no mutation anywhere.
-export fn nextInt(self: Seeded, lo: Int, hi: Int): (Int, Seeded) {
-  // An LCG relies on wrapping, and `+`/`*` crash on overflow, so the wrapping
-  // intent is spelled out. The literals are typed U64 by unification with
-  // `self.state`, and range-checked at compile time.
-  let next = self.state.wrappingMul(6364136223846793005).wrappingAdd(1442695040888963407);
-  let span = hi - lo;
-  // U64 -> I64 can overflow, so this is the wrapping conversion.
-  let value = lo + ((next / 65536).wrapToI64()) % span;
-  (value, Seeded { state: next })
+impl Seeded {
+  /// Returns the next value and the next generator; no mutation anywhere.
+  export fn nextInt(self: Seeded, lo: Int, hi: Int): (Int, Seeded) {
+    // An LCG relies on wrapping, and `+`/`*` leave overflow undefined, so
+    // the wrapping intent is spelled out. The literals are typed U32 by
+    // unification with `self.state`, and range-checked at compile time.
+    //
+    // The state is U32 rather than U64 so that the products stay inside what a
+    // `number` represents exactly (SPEC 6.2): a 64-bit LCG would multiply its
+    // way past 2^53 on the first step and the sequence would mean nothing.
+    let next = self.state.wrappingMul(1664525).wrappingAdd(1013904223);
+    let span = hi - lo;
+    // Every U32 fits an I64, so this conversion cannot fail.
+    let value = lo + (next.toI64() / 65536) % span;
+    (value, Seeded { state: next })
+  }
 }
 
 // ---------------------------------------------------------------------------

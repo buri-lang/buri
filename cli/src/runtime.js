@@ -8,9 +8,10 @@
 //
 //   ()              0
 //   Bool            boolean
-//   I8..I32,U8..U32 number
-//   I64,U64,        bigint   -- `Int` is `I64` on every target (SPEC 15 #8)
-//   I128,U128
+//   every integer   number   -- `Int` is `I64`, and a double holds every
+//                               integer to 2^53 - 1 exactly; past that,
+//                               overflow is undefined behaviour, and lost
+//                               precision is the form it takes here
 //   F32, F64        number
 //   Char            a one-scalar string
 //   Str             string
@@ -24,22 +25,18 @@
 
 // --- Failure ----------------------------------------------------------------
 
-// `crash` terminates the program with the message and a stack trace. It is not
-// error handling; that is `Result`.
-function $crash(m) {
+// The program has no way to say "this cannot happen" — every case is handled —
+// so this is only ever reached from a runtime failure the language does define.
+function $abort(m) {
   const e = new Error(typeof m === "string" ? m : $fmt(m));
   e.$buri = true;
   throw e;
 }
 
-// Arithmetic overflow, division by zero, and stack exhaustion also crash.
-function $ovf(v, lo, hi) {
-  if (v < lo || v > hi) $crash("integer overflow");
-  return v;
-}
-
-function $divz(b) {
-  $crash("division by zero");
+// Overflow and underflow are undefined and go unchecked. Division by zero
+// still aborts: there is no answer to give.
+function $divz() {
+  $abort("division by zero");
 }
 
 // Truncating toward zero, so `a == (a / b) * b + (a % b)` holds.
@@ -48,27 +45,18 @@ function $divi(a, b) {
   return Math.trunc(a / b);
 }
 
-function $divb(a, b) {
-  if (b === 0n) $divz();
-  return a / b;
-}
-
 function $remi(a, b) {
   if (b === 0) $divz();
   return a % b;
 }
 
-function $remb(a, b) {
-  if (b === 0n) $divz();
-  return a % b;
-}
-
-// Wrapping, for checksums and wire formats, where wrapping is the intent.
-function $wrap(v, bits, signed) {
-  const m = 1n << BigInt(bits);
-  let r = ((BigInt(v) % m) + m) % m;
-  if (signed && r >= m >> 1n) r -= m;
-  return r;
+// Taking the low `bits` of a value, for checksums and wire formats where
+// wrapping is the intent. A BigInt is used because a double cannot hold the
+// intermediate exactly at 64 bits and above.
+function $wrapTo(v, bits, signed) {
+  const b = BigInt(Math.trunc(v));
+  const w = signed ? BigInt.asIntN(bits, b) : BigInt.asUintN(bits, b);
+  return Number(w);
 }
 
 // --- Rendering ---------------------------------------------------------------
@@ -83,8 +71,10 @@ function $fmt(parts) {
 function $str(v) {
   const t = typeof v;
   if (t === "string") return v;
-  if (t === "bigint") return v.toString();
   if (t === "boolean") return v ? "true" : "false";
+  // A `number` is both an integer type and a float type here, so the backend
+  // chooses the rendering from the static type and only reaches this for a
+  // float.
   if (t === "number") return $f64(v);
   return String(v);
 }
@@ -130,21 +120,22 @@ function $cmp(a, b) {
   return a < b ? 0 : a > b ? 2 : 1;
 }
 
+// FNV-1a over 32 bits, which a double holds exactly. `Hash` returns a `U64`,
+// and the top bits are simply always zero.
 function $hash(v) {
-  let h = 0xcbf29ce484222325n;
+  let h = 0x811c9dc5;
   const mix = (x) => {
-    h ^= BigInt.asUintN(64, x);
-    h = BigInt.asUintN(64, h * 0x100000001b3n);
+    h = (h ^ (x >>> 0)) >>> 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
   };
   const go = (x) => {
     if (Array.isArray(x)) {
-      mix(BigInt(x.length));
+      mix(x.length);
       for (const y of x) go(y);
     } else if (typeof x === "string") {
-      for (let i = 0; i < x.length; i++) mix(BigInt(x.charCodeAt(i)));
-    } else if (typeof x === "bigint") mix(x);
-    else if (typeof x === "boolean") mix(x ? 1n : 0n);
-    else mix(BigInt(Math.trunc(x) || 0));
+      for (let i = 0; i < x.length; i++) mix(x.charCodeAt(i));
+    } else if (typeof x === "boolean") mix(x ? 1 : 0);
+    else mix(Math.trunc(x) || 0);
   };
   go(v);
   return h;
@@ -157,8 +148,8 @@ function $show(v, d) {
     if (p === "s") return JSON.stringify(v);
     if (p === "c") return "'" + v + "'";
     if (p === "f") return $f64(v);
-    // "i" is an integer: a bigint at 64 bits and above, a plain number below,
-    // and neither may render with a decimal point.
+    // "i" is an integer, and a number is also how a float is stored, so the
+    // tag is what tells them apart.
     if (p === "i") return String(v);
     return $str(v);
   }
@@ -212,7 +203,7 @@ function $some(x) {
 const $none = [1];
 
 function $list_len(xs) {
-  return BigInt(xs.length);
+  return xs.length;
 }
 
 function $list_get(xs, i) {
@@ -257,12 +248,12 @@ function $list_find(xs, p) {
 }
 
 function $list_findIndex(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(BigInt(i));
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(i);
   return $none;
 }
 
 function $list_count(xs, p) {
-  let n = 0n;
+  let n = 0;
   for (let i = 0; i < xs.length; i++) if (p(xs[i])) n++;
   return n;
 }
@@ -353,7 +344,7 @@ function $list_range(c, a, b) {
 
 function $list_repeat(c, x, n) {
   const out = [];
-  for (let i = 0n; i < n; i++) out.push(x);
+  for (let i = 0; i < n; i++) out.push(x);
   return out;
 }
 
@@ -371,7 +362,7 @@ function $chars(s) {
 }
 
 function $str_len(s) {
-  return BigInt($chars(s).length);
+  return $chars(s).length;
 }
 
 function $str_charAt(s, i) {
@@ -412,7 +403,7 @@ function $str_contains(s, n) {
 
 function $str_indexOf(s, n) {
   const i = s.indexOf(n);
-  return i < 0 ? $none : $some(BigInt($chars(s.slice(0, i)).length));
+  return i < 0 ? $none : $some($chars(s.slice(0, i)).length);
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
@@ -430,10 +421,12 @@ function $str_toInt(s) {
   const t = s.trim();
   if (!/^[+-]?\d+$/.test(t)) return $none;
   try {
-    const v = BigInt(t);
-    // `Int` is `I64`, so a number outside that range has no `Int` to parse
-    // to — which is exactly what the `Option` is for.
-    if (v < -9223372036854775808n || v > 9223372036854775807n) return $none;
+    const v = Number(t);
+    // `Int` is `I64`, and a double represents integers exactly only to 2^53.
+    // Past that there is no `Int` to parse to, which is what the `Option` is
+    // for — rather than handing back a value that is quietly not the one
+    // written.
+    if (!Number.isSafeInteger(v)) return $none;
     return $some(v);
   } catch {
     return $none;
@@ -550,7 +543,7 @@ function $char_toU32(c) {
 
 function $char_toDigit(c, radix) {
   const n = parseInt(c, Number(radix));
-  return Number.isNaN(n) ? $none : $some(BigInt(n));
+  return Number.isNaN(n) ? $none : $some(n);
 }
 
 // --- core/math --------------------------------------------------------------------
@@ -585,39 +578,46 @@ const $math_isFinite = Number.isFinite;
 // Shifting by a count at or beyond the width of the type is a crash, the same
 // way overflow is.
 
+// Bit operations are exact where a double is not, so each one goes through a
+// BigInt and comes back as a number. Shifting by a count at or beyond the
+// width of the type aborts.
 function $shiftCount(n, bits) {
   const k = Number(n);
-  if (k < 0 || k >= bits) $crash("shift out of range");
+  if (k < 0 || k >= bits) $abort("shift out of range");
   return BigInt(k);
 }
 
+function $big(x) {
+  return BigInt(Math.trunc(x));
+}
+
 function $bits_shl(x, n) {
-  return BigInt.asIntN(64, x << $shiftCount(n, 64));
+  return Number(BigInt.asIntN(64, $big(x) << $shiftCount(n, 64)));
 }
 
 function $bits_shr(x, n) {
-  // Logical shift: reinterpret as unsigned, shift, then narrow back, because
-  // every `Int` value is an I64 and a shift by zero is the identity.
-  return BigInt.asIntN(64, BigInt.asUintN(64, x) >> $shiftCount(n, 64));
+  // Logical: reinterpret as unsigned, shift, then narrow back, so a shift by
+  // zero is the identity rather than the unsigned reinterpretation.
+  return Number(BigInt.asIntN(64, BigInt.asUintN(64, $big(x)) >> $shiftCount(n, 64)));
 }
 
 function $bits_sar(x, n) {
-  return x >> $shiftCount(n, 64);
+  return Number($big(x) >> $shiftCount(n, 64));
 }
 
 function $bits_popCount(x) {
-  let v = BigInt.asUintN(64, x);
-  let n = 0n;
+  let v = BigInt.asUintN(64, $big(x));
+  let n = 0;
   while (v) {
-    n += v & 1n;
+    n += Number(v & 1n);
     v >>= 1n;
   }
   return n;
 }
 
 function $bits_leadingZeros(x) {
-  let v = BigInt.asUintN(64, x);
-  let n = 0n;
+  const v = BigInt.asUintN(64, $big(x));
+  let n = 0;
   for (let i = 63n; i >= 0n; i--) {
     if ((v >> i) & 1n) break;
     n++;
@@ -626,42 +626,42 @@ function $bits_leadingZeros(x) {
 }
 
 function $bits_trailingZeros(x) {
-  let v = BigInt.asUintN(64, x);
-  if (v === 0n) return 64n;
+  const v = BigInt.asUintN(64, $big(x));
+  if (v === 0n) return 64;
   let n = 0n;
   while (!((v >> n) & 1n)) n++;
-  return n;
+  return Number(n);
 }
 
 function $bits_rotateLeft(x, n) {
   const k = $shiftCount(n, 64);
-  const v = BigInt.asUintN(64, x);
-  return BigInt.asIntN(64, ((v << k) | (v >> (64n - k))) & 0xffffffffffffffffn);
+  const v = BigInt.asUintN(64, $big(x));
+  return Number(BigInt.asIntN(64, ((v << k) | (v >> (64n - k))) & 0xffffffffffffffffn));
 }
 
 function $bits_rotateRight(x, n) {
   const k = $shiftCount(n, 64);
-  const v = BigInt.asUintN(64, x);
-  return BigInt.asIntN(64, ((v >> k) | (v << (64n - k))) & 0xffffffffffffffffn);
+  const v = BigInt.asUintN(64, $big(x));
+  return Number(BigInt.asIntN(64, ((v >> k) | (v << (64n - k))) & 0xffffffffffffffffn));
 }
 
 function $bits_shlU8(x, n) {
-  return Number(BigInt.asUintN(8, BigInt(x) << $shiftCount(n, 8)));
+  return Number(BigInt.asUintN(8, $big(x) << $shiftCount(n, 8)));
 }
 function $bits_shrU8(x, n) {
-  return Number(BigInt(x) >> $shiftCount(n, 8));
+  return Number($big(x) >> $shiftCount(n, 8));
 }
 function $bits_shlU32(x, n) {
-  return Number(BigInt.asUintN(32, BigInt(x) << $shiftCount(n, 32)));
+  return Number(BigInt.asUintN(32, $big(x) << $shiftCount(n, 32)));
 }
 function $bits_shrU32(x, n) {
-  return Number(BigInt(x) >> $shiftCount(n, 32));
+  return Number($big(x) >> $shiftCount(n, 32));
 }
 function $bits_shlU64(x, n) {
-  return BigInt.asUintN(64, x << $shiftCount(n, 64));
+  return Number(BigInt.asUintN(64, $big(x) << $shiftCount(n, 64)));
 }
 function $bits_shrU64(x, n) {
-  return x >> $shiftCount(n, 64);
+  return Number(BigInt.asUintN(64, $big(x)) >> $shiftCount(n, 64));
 }
 
 // --- Conversions ---------------------------------------------------------------------
@@ -675,25 +675,27 @@ function $err(x) {
 }
 
 // A RangeError is a struct { value: Str, target: Str }.
-function $rangeErr(v, t) {
-  return $err([$str(v), t]);
+// The message quotes the value as it was written, so the rendering follows the
+// source type rather than the runtime one: every number is a `number` here.
+function $rangeErr(v, t, flt) {
+  return $err([flt ? $f64(v) : String(v), t]);
 }
 
-function $convChecked(v, lo, hi, target, toBig) {
-  // The guards come first: BigInt(NaN) and BigInt(Infinity) throw, and this
-  // conversion's whole contract is that it returns `.Err` instead.
-  if (typeof v === "number" && !Number.isFinite(v)) return $rangeErr(v, target);
-  if (typeof v === "number" && !Number.isInteger(v)) return $rangeErr(v, target);
-  const b = typeof v === "bigint" ? v : BigInt(Math.trunc(v));
-  if (b < lo || b > hi) return $rangeErr(v, target);
-  return $ok(toBig ? b : Number(b));
+// `lo` and `hi` are the target's range narrowed to what a `number` still holds
+// exactly, so an `.Ok` is always the value that was converted — never one that
+// merely rounded into range.
+function $convChecked(v, lo, hi, target, flt) {
+  if (!Number.isFinite(v)) return $rangeErr(v, target, flt);
+  if (!Number.isInteger(v)) return $rangeErr(v, target, flt);
+  if (v < lo || v > hi) return $rangeErr(v, target, flt);
+  return $ok(v);
 }
 
 // Not every U32 is a Unicode scalar value: the surrogate range and anything
 // above U+10FFFF have no `Char`.
 function $toChar(n) {
-  const v = Number(n);
-  if (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff)) return $rangeErr(n, "Char");
+  const v = n;
+  if (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff)) return $rangeErr(n, "Char", false);
   return $ok(String.fromCodePoint(v));
 }
 
@@ -702,7 +704,7 @@ function $toChar(n) {
 function $convF32(v, target) {
   if (Number.isNaN(v)) return $ok(v);
   const r = Math.fround(v);
-  if (!Number.isFinite(r) && Number.isFinite(v)) return $rangeErr(v, target);
+  if (!Number.isFinite(r) && Number.isFinite(v)) return $rangeErr(v, target, true);
   return $ok(r);
 }
 
@@ -795,7 +797,7 @@ function $ioErr(e) {
 function $fs() {
   if (typeof $require === "function") return $require("fs");
   if (typeof require === "function") return require("fs");
-  $crash("this platform grants no filesystem");
+  $abort("this platform grants no filesystem");
 }
 
 function $host_HostFs_readFile(self, p) {
@@ -839,14 +841,14 @@ function $host_HostNet_fetch(self, method, url, body) {
     const req = new XMLHttpRequest();
     req.open(method, url, false);
     req.send(body === "" ? null : body);
-    return $ok([BigInt(req.status), req.responseText]);
+    return $ok([req.status, req.responseText]);
   } catch (e) {
     return $err([3, String((e && e.message) || e)]);
   }
 }
 
 function $host_HostClock_nowMillis(self) {
-  return BigInt(Date.now());
+  return Date.now();
 }
 
 function $host_HostClock_sleepMillis(self, ms) {
@@ -857,9 +859,8 @@ function $host_HostClock_sleepMillis(self, ms) {
 }
 
 function $host_HostRand_nextInt(self, lo, hi) {
-  if (hi <= lo) $crash("random range is empty");
-  const span = hi - lo;
-  return lo + BigInt(Math.floor(Math.random() * Number(span)));
+  if (hi <= lo) $abort("random range is empty");
+  return lo + Math.floor(Math.random() * (hi - lo));
 }
 
 function $host_HostRand_nextFloat(self) {
@@ -880,7 +881,7 @@ function $host_HostEnv_arguments(self) {
 
 function $host_HostProc_exitWith(self, code) {
   $host.flush();
-  if (typeof process !== "undefined") process.exit(Number(code));
+  if (typeof process !== "undefined") process.exit(code);
   return 0;
 }
 
@@ -894,11 +895,11 @@ const $t = { h: [], data: {}, fail: null };
 
 function $handle(v) {
   $t.h.push(v);
-  return [BigInt($t.h.length - 1)];
+  return [$t.h.length - 1];
 }
 
 function $slot(x) {
-  return $t.h[Number(x[0])];
+  return $t.h[x[0]];
 }
 
 function $testing_context_alloc() {
@@ -1013,27 +1014,27 @@ function $testing_context_TestClock_advance(self, ms) {
 
 // Seeded, so a failure reproduces.
 function $testing_context_randSeed(seed) {
-  return $handle({ s: BigInt.asUintN(32, seed) || 1n });
+  return $handle({ s: (Math.trunc(seed) >>> 0) || 1 });
 }
 
 function $nextRand(s) {
   // xorshift32, which is enough for a test fixture and is exactly
   // reproducible across engines.
   let x = s.s;
-  x = BigInt.asUintN(32, x ^ (x << 13n));
-  x = BigInt.asUintN(32, x ^ (x >> 17n));
-  x = BigInt.asUintN(32, x ^ (x << 5n));
+  x = (x ^ (x << 13)) >>> 0;
+  x = (x ^ (x >>> 17)) >>> 0;
+  x = (x ^ (x << 5)) >>> 0;
   s.s = x;
   return x;
 }
 
 function $testing_context_TestRand_nextInt(self, lo, hi) {
-  if (hi <= lo) $crash("random range is empty");
+  if (hi <= lo) $abort("random range is empty");
   return lo + ($nextRand($slot(self)) % (hi - lo));
 }
 
 function $testing_context_TestRand_nextFloat(self) {
-  return Number($nextRand($slot(self))) / 4294967296;
+  return $nextRand($slot(self)) / 4294967296;
 }
 
 function $testing_context_envOf(vars, args) {
@@ -1079,8 +1080,7 @@ function $testing_assert_failExpected(kind, got, d) {
 // --- Checked and saturating arithmetic -----------------------------------------
 
 function $checkedIn(v, lo, hi) {
-  const b = typeof v === "bigint" ? v : BigInt(Math.trunc(v));
-  if (b < lo || b > hi) return $none;
+  if (!Number.isFinite(v) || v < lo || v > hi) return $none;
   return $some(v);
 }
 

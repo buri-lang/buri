@@ -2,7 +2,7 @@
 method chains
 ------------------------
 chained = brown jumps lazy over quick
-nested  = brown jumps lazy over quick
+named   = brown jumps lazy over quick
 headline= the quick brown
 ------------------------
 blocks

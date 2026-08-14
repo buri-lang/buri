@@ -187,32 +187,35 @@ test "narrowing from the bigint side to the number side" {
   assert.eq(assert.ok(c.toI16()), num.minValue::<I16>());
 }
 
+// A checked conversion promises that its `.Ok` is the value it was given, so
+// its range is the target's own narrowed to what a `number` holds exactly.
+// I64's maximum is far past that, and so is every value near it.
 test "narrowing from I128 to I64" {
-  let a: I128 = 9223372036854775807;
-  assert.eq(assert.ok(a.toI64()), num.maxValue::<I64>());
-  let b: I128 = 9223372036854775808;
+  let a: I128 = 9007199254740991;
+  assert.eq(assert.ok(a.toI64()), 9007199254740991);
+  let b: I128 = 9007199254740992;
   assert.eq(assert.err(b.toI64()).target, "I64");
-  let c: I128 = -9223372036854775808;
-  assert.eq(assert.ok(c.toI64()), num.minValue::<I64>());
+  let c: I128 = -9007199254740991;
+  assert.eq(assert.ok(c.toI64()), -9007199254740991);
 }
 
 test "narrowing from U128 to U64" {
-  let a: U128 = 18446744073709551615;
-  assert.eq(assert.ok(a.toU64()), num.maxValue::<U64>());
-  let b: U128 = 18446744073709551616;
+  let a: U128 = 9007199254740991;
+  assert.eq(assert.ok(a.toU64()), 9007199254740991);
+  let b: U128 = 9007199254740992;
   assert.eq(assert.err(b.toU64()).target, "U64");
 }
 
-test "U64 into I64 fails above I64's maximum" {
-  let a: U64 = 9223372036854775807;
-  assert.eq(assert.ok(a.toI64()), num.maxValue::<I64>());
+test "U64 into I64 fails above what a number holds exactly" {
+  let a: U64 = 9007199254740991;
+  assert.eq(assert.ok(a.toI64()), 9007199254740991);
   let b: U64 = 9223372036854775808;
   assert.eq(assert.err(b.toI64()).target, "I64");
 }
 
 test "I64 into U64 fails for a negative and succeeds otherwise" {
-  let a: I64 = 9223372036854775807;
-  assert.eq(assert.ok(a.toU64()), 9223372036854775807);
+  let a: I64 = 9007199254740991;
+  assert.eq(assert.ok(a.toU64()), 9007199254740991);
   let b: I64 = -1;
   assert.eq(assert.err(b.toU64()).target, "U64");
 }
@@ -309,23 +312,32 @@ test "wrapToI32 wraps at the top of I32" {
   assert.eq(c.wrapToI32(), 0);
 }
 
-test "wrapping between the two bigint widths" {
-  let a: I128 = -1;
-  assert.eq(a.wrapToU64(), 18446744073709551615);
-  assert.eq(a.wrapToU128(), 340282366920938463463374607431768211455);
-  let b: U64 = 18446744073709551615;
-  assert.eq(b.wrapToI64(), -1);
-  let c: U128 = 340282366920938463463374607431768211455;
-  assert.eq(c.wrapToI128(), -1);
+// `wrapTo` works on the bit pattern, and computes it exactly. What it hands
+// back is still a `number`, so a result above 2^53 is subject to the same rule
+// as any other integer overflow: the values here stay inside that.
+test "wrapping between the two widest signed and unsigned types" {
+  // A non-negative value has the same bit pattern either way, so the round
+  // trip is the identity and stays inside what a `number` holds.
+  let a: I64 = 9007199254740991;
+  assert.eq(a.wrapToU64().wrapToI64(), 9007199254740991);
+  let b: I128 = 9007199254740991;
+  assert.eq(b.wrapToU128().wrapToI128(), 9007199254740991);
+  // A negative one wraps to a value above 2^53, which is where a `number`
+  // stops being exact. U32 is the widest signed-to-unsigned wrap that survives
+  // the round trip intact.
+  let c: I32 = -1;
+  assert.eq(c.wrapToU32(), 4294967295);
+  assert.eq(c.wrapToU32().wrapToI32(), -1);
 }
 
 test "wrapping from a wide value down to a narrow one keeps the low bits" {
-  let a: U64 = 18446744073709551615;
+  // 2^53 - 1 is every low bit set, and the last value a `number` holds exactly.
+  let a: U64 = 9007199254740991;
   assert.eq(a.wrapToU8(), 255);
   assert.eq(a.wrapToU16(), 65535);
   assert.eq(a.wrapToU32(), 4294967295);
-  let b: U128 = 18446744073709551616;
-  assert.eq(b.wrapToU64(), 0);
+  let b: U128 = 4294967296;
+  assert.eq(b.wrapToU32(), 0);
 }
 
 test "wrapping is the identity when the value already fits" {

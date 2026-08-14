@@ -93,20 +93,10 @@ impl<'a> Gen<'a> {
         let two = || (args[0].clone(), args[1].clone());
         match name {
             "abs" => {
+                // `abs` of a signed minimum overflows, and overflow is
+                // undefined, so there is nothing to check.
                 let v = a?;
-                Some(if from.is_float() {
-                    Expr::call(Expr::member(Expr::ident("Math"), "abs"), vec![v])
-                } else if from.is_bigint() {
-                    // Overflow is a crash, and `abs` of the minimum value
-                    // overflows.
-                    let neg = Expr::un(UnOp::Neg, v.clone());
-                    let cond = Expr::bin(BinOp::Lt, v.clone(), Expr::BigInt("0".into()));
-                    self.checked_pub(Expr::cond(cond, neg, v), from)
-                } else {
-                    let neg = Expr::un(UnOp::Neg, v.clone());
-                    let cond = Expr::bin(BinOp::Lt, v.clone(), Expr::Num(0.0));
-                    self.checked_pub(Expr::cond(cond, neg, v), from)
-                })
+                Some(Expr::call(Expr::member(Expr::ident("Math"), "abs"), vec![v]))
             }
             "signum" => {
                 let v = a?;
@@ -151,11 +141,13 @@ impl<'a> Gen<'a> {
                 };
                 Some(self.prim_op_pub(op, Some(from), args.to_vec()))
             }
-            // The default `+` crashes on overflow; these are the alternatives,
-            // spelled out where they are used.
+            // The default `+` leaves overflow undefined; these are the
+            // alternatives, spelled out where they are used. The bounds are
+            // the exactly-representable ones, so a `.Some` is always a value
+            // the answer really is.
             "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv" => {
                 let (x, y) = two();
-                let (lo, hi) = from.int_range()?;
+                let (lo, hi) = from.exact_int_range()?;
                 let op = match name {
                     "checkedAdd" => BinOp::Add,
                     "checkedSub" => BinOp::Sub,
@@ -164,7 +156,7 @@ impl<'a> Gen<'a> {
                 };
                 let raw = if op == BinOp::Div {
                     let zero = self.zero(from);
-                    // A checked division by zero is `.None`, not a crash.
+                    // A checked division by zero is `.None`, not an abort.
                     let div = if from.is_bigint() {
                         Expr::bin(BinOp::Div, x.clone(), y.clone())
                     } else {
@@ -257,7 +249,7 @@ impl<'a> Gen<'a> {
         }
         // A float target has no integer range; `F64 -> F32` fails only when
         // the value does not survive as a finite binary32.
-        let Some((lo, hi)) = to.int_range() else {
+        let Some((lo, hi)) = to.exact_int_range() else {
             return Expr::call(
                 Expr::ident("$convF32"),
                 vec![v, Expr::Str(to.name().to_string())],
@@ -267,10 +259,10 @@ impl<'a> Gen<'a> {
             Expr::ident("$convChecked"),
             vec![
                 v,
-                Expr::BigInt(lo.to_string()),
-                Expr::BigInt(hi.to_string()),
+                self.int_const(lo, to),
+                self.upper_const(hi, to),
                 Expr::Str(to.name().to_string()),
-                Expr::Bool(to.is_bigint()),
+                Expr::Bool(from.is_float()),
             ],
         )
     }
@@ -287,95 +279,59 @@ impl<'a> Gen<'a> {
                 widened
             };
         }
-        if from.is_float() {
-            let truncated =
-                Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v]);
-            let big = Expr::call(Expr::ident("BigInt"), vec![truncated]);
-            return self.wrap_bits(big, to);
-        }
-        let big = if from.is_bigint() {
-            v
+        let value = if from.is_float() {
+            Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])
         } else {
-            Expr::call(Expr::ident("BigInt"), vec![v])
+            v
         };
-        self.wrap_bits(big, to)
+        self.wrap_bits(value, to)
     }
 
-    fn wrap_bits(&mut self, big: Expr, to: Prim) -> Expr {
-        let f = if to.is_signed() { "asIntN" } else { "asUintN" };
-        let wrapped = Expr::call(
-            Expr::member(Expr::ident("BigInt"), f),
-            vec![Expr::Num(to.bits() as f64), big],
-        );
-        if to.is_bigint() {
-            wrapped
-        } else {
-            Expr::call(Expr::ident("Number"), vec![wrapped])
-        }
+    /// Taking the low bits of a value is the one place a `BigInt` is still the
+    /// right tool: it is exact where a double is not. The result comes back as
+    /// a `number`.
+    fn wrap_bits(&mut self, value: Expr, to: Prim) -> Expr {
+        Expr::call(
+            Expr::ident("$wrapTo"),
+            vec![
+                value,
+                Expr::Num(to.bits() as f64),
+                Expr::Bool(to.is_signed()),
+            ],
+        )
     }
 
     /// Wraps an already-computed value back into its own type's range.
     fn wrap_value(&mut self, v: Expr, p: Prim) -> Expr {
-        let big = if p.is_bigint() { v } else { Expr::call(Expr::ident("BigInt"), vec![v]) };
-        self.wrap_bits(big, p)
+        self.wrap_bits(v, p)
     }
 
-    /// Moves a value between the `number` and `bigint` representations.
-    fn represent(&self, v: Expr, from: Prim, to: Prim) -> Expr {
-        match (from.is_bigint(), to.is_bigint()) {
-            (true, false) => Expr::call(Expr::ident("Number"), vec![v]),
-            (false, true) => {
-                // A float source has to lose its fraction first, but only an
-                // exact conversion reaches here, and those are integral.
-                if from.is_float() {
-                    Expr::call(
-                        Expr::ident("BigInt"),
-                        vec![Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])],
-                    )
-                } else {
-                    Expr::call(Expr::ident("BigInt"), vec![v])
-                }
-            }
-            _ => {
-                // `I32 -> F64` and `I64 -> I64` are both no-ops on the
-                // representation.
-                v
-            }
-        }
+    /// Every numeric type is a `number`, so an exact conversion is a no-op on
+    /// the representation and only the static type changes.
+    fn represent(&self, v: Expr, _from: Prim, _to: Prim) -> Expr {
+        v
     }
 
     fn int_const(&self, v: i128, p: Prim) -> Expr {
-        if p.is_bigint() {
-            Expr::BigInt(v.to_string())
-        } else {
-            Expr::Num(v as f64)
-        }
+        let _ = p;
+        Expr::Num(v as f64)
     }
 
     /// The upper bound, which for `U128` does not fit in an `i128` — casting
     /// it there turns `maxValue` and every `Checked`/`Saturating` bound into
     /// `-1`.
     fn upper_const(&self, v: u128, p: Prim) -> Expr {
-        if p.is_bigint() {
-            Expr::BigInt(v.to_string())
-        } else {
-            Expr::Num(v as f64)
-        }
+        let _ = p;
+        Expr::Num(v as f64)
     }
 
     fn zero(&self, p: Prim) -> Expr {
-        if p.is_bigint() {
-            Expr::BigInt("0".into())
-        } else {
-            Expr::Num(0.0)
-        }
+        let _ = p;
+        Expr::Num(0.0)
     }
 
     fn one(&self, p: Prim) -> Expr {
-        if p.is_bigint() {
-            Expr::BigInt("1".into())
-        } else {
-            Expr::Num(1.0)
-        }
+        let _ = p;
+        Expr::Num(1.0)
     }
 }

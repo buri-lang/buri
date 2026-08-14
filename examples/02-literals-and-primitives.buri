@@ -55,7 +55,7 @@ fn numbers(): () {
   // to hold every I32 exactly, so `as` accepts it.
   let ratio = small.toF64() / 3.0;
 
-  // Overflow crashes by default. When wrapping is the intent, say so.
+  // Overflow is undefined behaviour. When wrapping is the intent, say so.
   let checked: Option<U8> = byte.checkedAdd(100);
   let wrapped: U8 = byte.wrappingAdd(100);
 

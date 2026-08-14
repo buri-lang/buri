@@ -1,17 +1,21 @@
 // 21 — Methods
 //
-// A function is a method IF AND ONLY IF its first parameter is written `self`.
-// That is a declaration, not a convention about argument order or type.
+// A method is declared inside an `impl` block for its type, and takes `self`
+// as its first parameter. Both halves are required: a top-level function with
+// a `self` parameter is an error, and a function in an `impl` block without one
+// is too.
 //
-// `x.f(a, b)` calls `f(x, a, b)`, resolving `f` in the DEFINING MODULE of x's
-// type. The point of the feature is that resolution rule, not the punctuation:
-// a type's operations are available wherever a value of that type is, with no
-// import and no possibility of a name collision.
+// `x.f(a, b)` looks `f` up among the methods of x's type. The point of the
+// feature is that resolution rule, not the punctuation: a type's operations are
+// available wherever a value of that type is, with no import and no possibility
+// of a name collision.
 //
 // This is not a method in the OO sense. There is no dispatch, no vtable, no
-// hidden receiver. `sq.area()` and `area(sq)` are the same call.
+// hidden receiver — just a name resolved through a type instead of through
+// scope. The `impl` block is also where trait conformance is declared
+// (22-traits.buri); an `impl` with no `for` clause declares the type's own
+// methods.
 
-from "core/str" import * as str;
 from "core/cap" import { Alloc, Stdout };
 from "core/host" import * as host;
 
@@ -24,26 +28,28 @@ export struct Square {
   export width: Int,
 }
 
-export fn area(self: Square): Int {
-  self.height * self.width
+impl Square {
+  export fn area(self: Square): Int {
+    self.height * self.width
+  }
+
+  export fn perimeter(self: Square): Int {
+    2 * (self.height + self.width)
+  }
+
+  // The receiver comes first; everything else follows in the order you would
+  // write it at the call site.
+  export fn scaled(self: Square, factor: Int): Square {
+    Square { height: self.height * factor, width: self.width * factor }
+  }
+
+  export fn isTall(self: Square): Bool {
+    self.height > self.width
+  }
 }
 
-export fn perimeter(self: Square): Int {
-  2 * (self.height + self.width)
-}
-
-// The receiver comes first; everything else follows in the order you would
-// write it at the call site.
-export fn scaled(self: Square, factor: Int): Square {
-  Square { height: self.height * factor, width: self.width * factor }
-}
-
-export fn isTall(self: Square): Bool {
-  self.height > self.width
-}
-
-// No `self`, so this is an ordinary function and not a method. Neither
-// `a.combine(b)` nor `b.combine(a)` resolves.
+// At the top level and taking no `self`, so this is an ordinary function and
+// not a method. Neither `a.combine(b)` nor `b.combine(a)` resolves.
 export fn combine(a: Square, b: Square): Square {
   Square { height: a.height + b.height, width: a.width + b.width }
 }
@@ -52,19 +58,19 @@ export fn combine(a: Square, b: Square): Square {
 // Calling them
 // ---------------------------------------------------------------------------
 
-fn equivalentForms(self: Square): Int {
-  // These are the identical call. The method form differs only in how `area`
-  // is found — through the receiver's type rather than through scope.
-  let viaMethod = self.area();
-  let viaCall = area(self);
+impl Square {
+  // A method reaches the type's other methods through `self`, the same way
+  // any other code does. There is no second, function-shaped name for `area`
+  // to call instead — `area(self)` does not resolve.
+  fn equivalentForms(self: Square): Int {
+    self.area() + self.perimeter()
+  }
 
-  viaMethod + viaCall
-}
-
-fn chaining(self: Square): Int {
-  // Arguments follow the receiver, exactly as in the underlying function:
-  // scaled(self, 2), then scaled(_, 3), then area(_).
-  self.scaled(2).scaled(3).area()
+  fn chaining(self: Square): Int {
+    // Arguments follow the receiver, so each call in the chain reads in the
+    // order it happens: scale by 2, scale by 3, then take the area.
+    self.scaled(2).scaled(3).area()
+  }
 }
 
 // A method whose receiver has private fields can still read them, because it
@@ -74,24 +80,30 @@ struct Account {
   balanceCents: I64,          // private
 }
 
-fn isOverdrawn(self: Account): Bool {
-  self.balanceCents < 0
+impl Account {
+  fn isOverdrawn(self: Account): Bool {
+    self.balanceCents < 0
+  }
 }
 
 // ---------------------------------------------------------------------------
 // The standard library came out of this for free
 //
-// Every stdlib operation on a value declares that value as `self`, so all of
-// them are methods. None of the lines below imports anything.
+// Every stdlib operation on a value is declared in an `impl` block for that
+// value's type, so all of them are methods. None of the lines below imports
+// anything.
 // ---------------------------------------------------------------------------
 
 fn stdlibAsMethods<C: Alloc>(ctx: C, words: [Str], maybe: Option<Int>): Int {
-  let n = words.len();                       // list.len(words)
-  let trimmed = words.map(ctx, str.trim);    // list.map(words, ctx, str.trim)
-  let joined = trimmed.join(ctx, ", ");      // str.join(trimmed, ctx, ", ")
-  let fallback = maybe.withDefault(0);       // option.withDefault(maybe, 0)
+  let n = words.len();                       // impl [T] in core/list
+  // A method is not a value — `str.trim` names nothing — so passing one to a
+  // higher-order function means wrapping it in a lambda.
+  let trimmed = words.map(ctx, fn(w) => w.trim());
+  let joined = trimmed.join(ctx, ", ");      // impl [Str] in core/list
+  let fallback = maybe.withDefault(0);       // impl Option<T> in core/option
 
-  // Explicit type arguments work on methods too, via the turbofish.
+  // Explicit type arguments work on methods too, via the turbofish. The
+  // `impl` block's parameters come first, then the method's own.
   let empty = words.take::<Str, C>(ctx, 0);
 
   n + joined.len() + fallback + empty.len()
@@ -101,8 +113,9 @@ fn stdlibAsMethods<C: Alloc>(ctx: C, words: [Str], maybe: Option<Int>): Int {
 // Where methods stop
 // ---------------------------------------------------------------------------
 
-// `slugify` lives in THIS module, not in core/str, so it is not a method on
-// Str. Methods are not extensible — you cannot bolt an operation onto someone
+// `slugify` lives in THIS module, and `impl Str { ... }` here would be
+// rejected: an `impl` block belongs to the module that declares its type.
+// Methods are not extensible — you cannot bolt an operation onto someone
 // else's type — and that restriction is exactly what keeps method resolution
 // import-free and collision-free.
 fn slugify<C: Alloc>(ctx: C, title: Str): Str {
@@ -134,11 +147,13 @@ struct Handler {
   export run: fn(Int) => Int,        // a FIELD that happens to hold a function
 }
 
-fn fieldVersusMethod(self: Handler): Int {
-  // `self.run` is a field access, so calling it needs the parenthesized form.
-  // A method named `run` on Handler would be rejected at its declaration: a
-  // method may not share a name with a field of its self type.
-  (self.run)(21)
+impl Handler {
+  fn fieldVersusMethod(self: Handler): Int {
+    // `self.run` is a field access, so calling it needs the parenthesized form.
+    // A method named `run` on Handler would be rejected at its declaration: a
+    // method may not share a name with a field of its self type.
+    (self.run)(21)
+  }
 }
 
 export fn main(): Result<(), Str> {
@@ -161,7 +176,7 @@ export fn main(): Result<(), Str> {
   let _ = ctx.println("overdrawn  = ${account.isOverdrawn()}");
   let _ = ctx.println("stdlib     = ${stdlibAsMethods(ctx, words, .Some(7))}");
   let _ = ctx.println("mixed      = ${mixed(ctx, title)}");
-  let _ = ctx.println("handler    = ${fieldVersusMethod(handler)}");
+  let _ = ctx.println("handler    = ${handler.fieldVersusMethod()}");
 
   .Ok(())
 }

@@ -1,0 +1,13 @@
+// EXPECT: `crash` is a reserved word
+// There is no way to say a branch cannot happen, so every case is handled.
+// The word is reserved rather than free so that the mistake is named.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn crash(n: Int): Int { n }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${crash(1)}");
+  .Ok(())
+}

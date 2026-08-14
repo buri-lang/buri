@@ -1,0 +1,19 @@
+// CRASH: random range is empty
+// `hi < lo` is the same emptiness as `hi == lo`, and is worth its own case
+// because a subtraction of the two would silently produce a negative span.
+from "core/cap" import { Alloc, Stdout, Env, Rand };
+from "core/host" import * as host;
+from "core/env" import * as env;
+from "core/random" import * as random;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Env: host.env,
+    Rand: host.rand,
+  };
+  let n = env.args(ctx).len();
+  let _ = ctx.println("${random.int(ctx, n + 10, n)}");
+  .Ok(())
+}

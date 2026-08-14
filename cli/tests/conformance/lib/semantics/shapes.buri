@@ -54,11 +54,13 @@ export enum Shape {
 
 derive Eq, Ord, Show for Shape;
 
-export fn area(self: Shape): Float {
-  match (self) {
-    .Circle(r) => 3.141592653589793 * r * r,
-    .Rect { width, height } => width * height,
-    .Empty => 0.0,
+impl Shape {
+  export fn area(self: Shape): Float {
+    match (self) {
+      .Circle(r) => 3.141592653589793 * r * r,
+      .Rect { width, height } => width * height,
+      .Empty => 0.0,
+    }
   }
 }
 
@@ -120,22 +122,24 @@ export enum Suit {
   export Hearts,
 }
 
-export fn rank(self: Suit): Int {
-  match (self) {
-    .Clubs => 0,
-    .Diamonds => 1,
-    .Hearts => 2,
-    .Spades => 3,
+impl Suit {
+  export fn rank(self: Suit): Int {
+    match (self) {
+      .Clubs => 0,
+      .Diamonds => 1,
+      .Hearts => 2,
+      .Spades => 3,
+    }
   }
-}
 
-/// Declaration index, so a test can say what a *derived* `Ord` would have done.
-export fn declIndex(self: Suit): Int {
-  match (self) {
-    .Diamonds => 0,
-    .Clubs => 1,
-    .Spades => 2,
-    .Hearts => 3,
+  /// Declaration index, so a test can say what a *derived* `Ord` would have done.
+  export fn declIndex(self: Suit): Int {
+    match (self) {
+      .Diamonds => 0,
+      .Clubs => 1,
+      .Spades => 2,
+      .Hearts => 3,
+    }
   }
 }
 
@@ -349,8 +353,10 @@ export fn pair<A, B>(first: A, second: B): Pair<A, B> {
   Pair { first, second }
 }
 
-export fn flip<A, B>(self: Pair<A, B>): Pair<B, A> {
-  Pair { first: self.second, second: self.first }
+impl<A, B> Pair<A, B> {
+  export fn flip(self: Pair<A, B>): Pair<B, A> {
+    Pair { first: self.second, second: self.first }
+  }
 }
 
 export struct Boxed<T>(export T);
@@ -364,10 +370,12 @@ export enum Slot<T> {
 
 derive Eq, Show for Slot;
 
-export fn slotOr<T>(self: Slot<T>, fallback: T): T {
-  match (self) {
-    .Filled(v) => v,
-    .Vacant => fallback,
+impl<T> Slot<T> {
+  export fn slotOr(self: Slot<T>, fallback: T): T {
+    match (self) {
+      .Filled(v) => v,
+      .Vacant => fallback,
+    }
   }
 }
 
@@ -378,10 +386,12 @@ export enum Either<L, R> {
 
 derive Eq, Show for Either;
 
-export fn eitherInt<L>(self: Either<L, Int>): Int {
-  match (self) {
-    .Left(_l) => 0,
-    .Right(r) => r,
+impl<L> Either<L, Int> {
+  export fn eitherInt(self: Either<L, Int>): Int {
+    match (self) {
+      .Left(_l) => 0,
+      .Right(r) => r,
+    }
   }
 }
 
@@ -394,16 +404,18 @@ export enum Tree<T> {
 
 derive Eq, Show for Tree;
 
-export fn insert<T: Ord>(self: Tree<T>, value: T): Tree<T> {
-  match (self) {
-    .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
-    .Node(l, v, r) => if (value < v) {
-      Tree.Node(l.insert(value), v, r)
-    } else if (value > v) {
-      Tree.Node(l, v, r.insert(value))
-    } else {
-      Tree.Node(l, v, r)
-    },
+impl<T: Ord> Tree<T> {
+  export fn insert(self: Tree<T>, value: T): Tree<T> {
+    match (self) {
+      .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
+      .Node(l, v, r) => if (value < v) {
+        Tree.Node(l.insert(value), v, r)
+      } else if (value > v) {
+        Tree.Node(l, v, r.insert(value))
+      } else {
+        Tree.Node(l, v, r)
+      },
+    }
   }
 }
 
@@ -411,49 +423,57 @@ export fn treeOf<T: Ord>(xs: [T]): Tree<T> {
   xs.fold(fn(acc, x) => acc.insert(x), Tree.Leaf)
 }
 
-export fn size<T>(self: Tree<T>): Int {
-  match (self) {
-    .Leaf => 0,
-    .Node(l, _v, r) => l.size() + 1 + r.size(),
+impl<T> Tree<T> {
+  export fn size(self: Tree<T>): Int {
+    match (self) {
+      .Leaf => 0,
+      .Node(l, _v, r) => l.size() + 1 + r.size(),
+    }
+  }
+
+  export fn depth(self: Tree<T>): Int {
+    match (self) {
+      .Leaf => 0,
+      .Node(l, _v, r) => {
+        let dl = l.depth();
+        let dr = r.depth();
+        1 + if (dl > dr) { dl } else { dr }
+      },
+    }
   }
 }
 
-export fn depth<T>(self: Tree<T>): Int {
-  match (self) {
-    .Leaf => 0,
-    .Node(l, _v, r) => {
-      let dl = l.depth();
-      let dr = r.depth();
-      1 + if (dl > dr) { dl } else { dr }
-    },
+impl<T: Ord> Tree<T> {
+  export fn has(self: Tree<T>, needle: T): Bool {
+    match (self) {
+      .Leaf => false,
+      .Node(l, v, r) => if (needle < v) {
+        l.has(needle)
+      } else if (needle > v) {
+        r.has(needle)
+      } else {
+        true
+      },
+    }
   }
 }
 
-export fn has<T: Ord>(self: Tree<T>, needle: T): Bool {
-  match (self) {
-    .Leaf => false,
-    .Node(l, v, r) => if (needle < v) {
-      l.has(needle)
-    } else if (needle > v) {
-      r.has(needle)
-    } else {
-      true
-    },
+impl<T> Tree<T> {
+  /// In-order traversal, which is what makes the tree's ordering observable.
+  export fn inOrder<C: Alloc>(self: Tree<T>, ctx: C): [T] {
+    match (self) {
+      .Leaf => list.empty::<T>(),
+      .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
+    }
   }
 }
 
-/// In-order traversal, which is what makes the tree's ordering observable.
-export fn inOrder<T, C: Alloc>(self: Tree<T>, ctx: C): [T] {
-  match (self) {
-    .Leaf => list.empty::<T>(),
-    .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
-  }
-}
-
-export fn mapTree<A, B, C: Alloc>(self: Tree<A>, ctx: C, f: fn(A) => B): Tree<B> {
-  match (self) {
-    .Leaf => Tree.Leaf,
-    .Node(l, v, r) => Tree.Node(l.mapTree(ctx, f), f(v), r.mapTree(ctx, f)),
+impl<A> Tree<A> {
+  export fn mapTree<B, C: Alloc>(self: Tree<A>, ctx: C, f: fn(A) => B): Tree<B> {
+    match (self) {
+      .Leaf => Tree.Leaf,
+      .Node(l, v, r) => Tree.Node(l.mapTree(ctx, f), f(v), r.mapTree(ctx, f)),
+    }
   }
 }
 

@@ -33,8 +33,10 @@ export fn send<C: Alloc + Net>(ctx: C, request: Request): Result<Response, NetEr
   }
 }
 
-export fn isOk(self: Response): Bool {
-  self.status >= 200 && self.status < 300
+impl Response {
+  export fn isOk(self: Response): Bool {
+    self.status >= 200 && self.status < 300
+  }
 }
 
 /// A free function rather than a method: `NetError` is declared in

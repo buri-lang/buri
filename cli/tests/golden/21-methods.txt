@@ -1,6 +1,6 @@
 area/perim = 12, 14
 tall       = false
-equivalent = 24
+equivalent = 26
 chained    = 432
 combined   = 48
 overdrawn  = true

@@ -43,10 +43,15 @@ impl Stderr for CaptureErr {
 }
 export fn captureErr(): CaptureErr;
 
-/// Everything written to this context's stdout so far, so a test can assert on
-/// what a function printed.
-export fn captured(self: CaptureOut): Str;
-export fn capturedErr(self: CaptureErr): Str;
+impl CaptureOut {
+  /// Everything written to this context's stdout so far, so a test can assert on
+  /// what a function printed.
+  export fn captured(self: CaptureOut): Str;
+}
+
+impl CaptureErr {
+  export fn capturedErr(self: CaptureErr): Str;
+}
 
 // --- Input --------------------------------------------------------------------
 
@@ -125,8 +130,10 @@ impl Clock for TestClock {
 }
 export fn clockAt(millis: Int): TestClock;
 
-/// Moves a test clock forward. `sleepMillis` does this too, without sleeping.
-export fn advance(self: TestClock, millis: Int): ();
+impl TestClock {
+  /// Moves a test clock forward. `sleepMillis` does this too, without sleeping.
+  export fn advance(self: TestClock, millis: Int): ();
+}
 
 // --- Randomness ---------------------------------------------------------------
 

@@ -4,7 +4,9 @@ from "core/host" import * as host;
 
 struct Square { export side: Int }
 
-fn area(self: Square): Int { self.side * self.side }
+impl Square {
+  fn area(self: Square): Int { self.side * self.side }
+}
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

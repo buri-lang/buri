@@ -117,12 +117,29 @@ impl Prim {
         }
     }
 
-    /// Represented as a JS `BigInt` rather than a `number`. `Int` is `I64` on
-    /// every target, which is the right call for portability and the expensive
-    /// one here (SPEC 15, open question 8): correctness wins, so anything
-    /// wider than 32 bits carries exact semantics via BigInt.
+    /// Every numeric type is a JavaScript `number`. `Int` is `I64`, and a
+    /// double holds every integer up to 2^53 exactly; past that, precision is
+    /// lost. Overflow and underflow are undefined, so that loss is within what
+    /// the language permits, and it is what keeps ordinary integer code as
+    /// fast as ordinary JavaScript (SPEC 15, open question 8).
     pub fn is_bigint(self) -> bool {
-        matches!(self, Prim::I64 | Prim::U64 | Prim::I128 | Prim::U128)
+        false
+    }
+
+    /// The largest integer a `number` represents unambiguously: 2^53 itself is
+    /// the image of two different integers, so the last safe one is below it.
+    /// Beyond this an integer type's arithmetic is undefined rather than
+    /// wrong-but-defined.
+    pub const EXACT_INTEGER_LIMIT: u128 = (1 << 53) - 1;
+
+    /// The range `Checked` answers about: the type's own range, narrowed to
+    /// what a double still represents exactly. A `Checked` operation that said
+    /// `.Some` outside this would be reporting a value it cannot actually
+    /// hold, which is the one thing `Checked` exists to rule out.
+    pub fn exact_int_range(self) -> Option<(i128, u128)> {
+        let (lo, hi) = self.int_range()?;
+        let limit = Prim::EXACT_INTEGER_LIMIT;
+        Some((lo.max(-(limit as i128)), hi.min(limit)))
     }
 
     /// Inclusive range of representable integers.
@@ -187,9 +204,9 @@ pub enum Ty {
     Ctx(CtxTypeId),
     /// `Self` inside a trait or impl body.
     SelfTy,
-    /// The type of `crash`, which unifies with any expected type.
-    Never,
-    /// Poison, so one type error does not produce ten.
+    /// Poison, so one type error does not produce ten. There is deliberately
+    /// no bottom type: every branch produces a real value, which is what makes
+    /// "all cases are handled" mean what it says.
     Error,
 }
 
@@ -565,7 +582,7 @@ impl Tables {
         match ty {
             Ty::Con(id, _) => self.impls.contains_key(&(tr, *id)),
             Ty::Ctx(id) => self.ctx_type(*id).has(tr),
-            Ty::Error | Ty::Never => true,
+            Ty::Error => true,
             _ => false,
         }
     }
@@ -666,14 +683,13 @@ impl Subst {
         }
     }
 
-    /// Structural unification. `Never` unifies with anything, because `crash`
-    /// has the bottom type; `Error` does too, so one mistake does not cascade.
+    /// Structural unification. `Error` unifies with anything, so one mistake
+    /// does not cascade into ten.
     pub fn unify(&mut self, tables: &Tables, a: &Ty, b: &Ty) -> Result<(), (Ty, Ty)> {
         let a = self.shallow(a);
         let b = self.shallow(b);
         match (&a, &b) {
             (Ty::Error, _) | (_, Ty::Error) => Ok(()),
-            (Ty::Never, _) | (_, Ty::Never) => Ok(()),
             (Ty::Var(x), Ty::Var(y)) if x == y => Ok(()),
             (Ty::Var(x), _) => self.bind(tables, *x, &b),
             (_, Ty::Var(y)) => self.bind(tables, *y, &a),
@@ -859,7 +875,6 @@ fn write_ty(
         Ty::Unit => out.push_str("()"),
         Ty::Ctx(_) => out.push_str("a context"),
         Ty::SelfTy => out.push_str("Self"),
-        Ty::Never => out.push_str("!"),
         Ty::Error => out.push_str("<error>"),
     }
 }
@@ -923,11 +938,11 @@ mod tests {
     }
 
     #[test]
-    fn never_unifies_with_anything() {
+    fn the_error_type_unifies_with_anything() {
         let t = tables_with_prims();
         let mut s = Subst::default();
-        assert!(s.unify(&t, &Ty::Never, &t.prim(Prim::Str)).is_ok());
-        assert!(s.unify(&t, &t.prim(Prim::Bool), &Ty::Never).is_ok());
+        assert!(s.unify(&t, &Ty::Error, &t.prim(Prim::Str)).is_ok());
+        assert!(s.unify(&t, &t.prim(Prim::Bool), &Ty::Error).is_ok());
     }
 
     #[test]
@@ -938,8 +953,8 @@ mod tests {
     }
 
     #[test]
-    fn only_wide_integers_are_bigint() {
-        assert!(Prim::I64.is_bigint() && Prim::U64.is_bigint() && Prim::I128.is_bigint());
-        assert!(!Prim::I32.is_bigint() && !Prim::U32.is_bigint() && !Prim::F64.is_bigint());
+    fn no_numeric_type_is_a_bigint() {
+        // Every one of them compiles to a JavaScript `number`.
+        assert!(Prim::all().iter().all(|p| !p.is_bigint()));
     }
 }

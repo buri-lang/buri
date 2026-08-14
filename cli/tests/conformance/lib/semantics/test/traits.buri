@@ -261,7 +261,7 @@ test "list.maximum through a hand-written Ord follows it" {
 
 test "a hand-written enum Ord disagrees with declaration order" {
   // Declared Diamonds, Clubs, Spades, Hearts; ordered Clubs < Diamonds.
-  assert.isTrue(declIndex(Suit.Diamonds) < declIndex(Suit.Clubs));
+  assert.isTrue(Suit.Diamonds.declIndex() < Suit.Clubs.declIndex());
   assert.isTrue(Suit.Clubs < Suit.Diamonds);
 }
 
@@ -276,7 +276,7 @@ test "the hand-written enum Ord sorts into bridge order" {
   let sorted = [Suit.Hearts, Suit.Spades, Suit.Clubs, Suit.Diamonds]
     .sortBy(ctx, fn(a, b) => a.compare(b));
   assert.eq(sorted, [Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades]);
-  assert.eq(sorted.mapCtx(ctx, fn(c, s) => rank(s)), [0, 1, 2, 3]);
+  assert.eq(sorted.mapCtx(ctx, fn(c, s) => s.rank()), [0, 1, 2, 3]);
 }
 
 test "a hand-written enum Eq is what == uses" {
@@ -364,7 +364,7 @@ test "a trait method inside a lambda inside a bounded generic" {
 }
 
 test "area matches on all three payload shapes" {
-  assert.eq(area(Shape.Rect { width: 2.0, height: 3.0 }), 6.0);
-  assert.eq(area(Shape.Empty), 0.0);
-  assert.isTrue(area(Shape.Circle(1.0)) > 3.14);
+  assert.eq(Shape.Rect { width: 2.0, height: 3.0 }.area(), 6.0);
+  assert.eq(Shape.Empty.area(), 0.0);
+  assert.isTrue(Shape.Circle(1.0).area() > 3.14);
 }

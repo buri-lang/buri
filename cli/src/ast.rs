@@ -282,7 +282,10 @@ pub struct TraitDecl {
 #[derive(Clone, Debug)]
 pub struct ImplDecl {
     pub generics: Vec<GenericParam>,
-    pub trait_ty: TypeExpr,
+    /// `None` for an inherent `impl Type { ... }`, which declares the type's
+    /// own methods. `Some` for `impl Trait for Type`, which declares
+    /// conformance and supplies the trait's methods.
+    pub trait_ty: Option<TypeExpr>,
     pub self_ty: TypeExpr,
     pub methods: Vec<FnDecl>,
     pub span: Span,
@@ -497,7 +500,6 @@ pub enum Expr {
     Match { scrutinee: Box<Expr>, arms: Vec<MatchArm>, span: Span },
     ContextExpr { body: ContextBody, span: Span },
     Lambda { params: Vec<LambdaParam>, ret: Option<TypeExpr>, body: Box<Expr>, span: Span },
-    Crash { message: Box<Expr>, span: Span },
     Unary { op: UnOp, operand: Box<Expr>, span: Span },
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>, op_span: Span, span: Span },
     /// `base.name` — field, module member, or method, decided after parsing.
@@ -539,7 +541,6 @@ impl Expr {
             | Expr::Match { span, .. }
             | Expr::ContextExpr { span, .. }
             | Expr::Lambda { span, .. }
-            | Expr::Crash { span, .. }
             | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Field { span, .. }
