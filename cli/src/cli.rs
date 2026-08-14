@@ -33,6 +33,8 @@ directory.
   --error-format=json      diagnostics as one JSON object per line, for tools
                            and coding agents; the default is human-readable
   --color=never            no ANSI escapes
+  --explain                one line per action: whether it ran or the cache
+                           served it, and the key that decided
 ";
 
 pub struct Args {
@@ -59,6 +61,10 @@ pub struct Flags {
     pub error_format: ErrorFormat,
     pub self_check: bool,
     pub verbose: bool,
+    /// Report each action, its key, and whether the cache served it. The build
+    /// system's claims are about *which actions run*, and a claim nothing can
+    /// observe from outside is not one anybody can hold the toolchain to.
+    pub explain: bool,
 }
 
 /// How diagnostics reach the terminal.
@@ -106,6 +112,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                 "outputs" => flags.outputs_only = true,
                 "self-check" => flags.self_check = true,
                 "verbose" => flags.verbose = true,
+                "explain" => flags.explain = true,
                 "output" => flags.output = value,
                 "filter" => flags.filter = value,
                 "shuffle" => flags.shuffle = Some(value.unwrap_or_else(|| "on".into())),

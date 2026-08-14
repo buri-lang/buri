@@ -1,0 +1,16 @@
+error: this is a test-only module
+ --> cmd/app/main.buri:8:6
+  |
+8 | from "//lib/money/testing" import { sample };
+  |      ^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
+  |
+  = a path containing a `testing` segment may be imported only from a test source
+  = //cmd/app/main is not one
+  = fix: import it from a file listed in a target's `test.sources`, or drop the import
+error: there is nothing named `sample` in scope
+  --> cmd/app/main.buri:12:23
+   |
+12 |   let _ = ctx.println(sample().format(ctx));
+   |                       ^^^^^^
+   |
+   = fix: declare `sample`, or import it — a name is in scope only from this module's own declarations and its imports

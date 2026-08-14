@@ -1,0 +1,43 @@
+# `buri format --check` is the CI form: it reports what would change and
+# rewrites nothing. That "and rewrites nothing" is the half a passing exit code
+# cannot show, so the file's own bytes are recorded before and after.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "format --check reports without rewriting; format rewrites; formatting is a fixed point"
+
+# `main.buri` is checked in badly formatted on purpose. `--check` must notice.
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check_reports.txt"
+}
+
+# And must have left it exactly as it found it.
+file {
+  path: "cmd/f/main.buri"
+  golden: "ugly.buri"
+}
+
+run {
+  args: ["format"]
+  exit: 0
+}
+
+file {
+  path: "cmd/f/main.buri"
+  golden: "formatted.buri"
+}
+
+# A fixed point: formatting formatted source changes nothing.
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# And formatting preserved the meaning, not merely the syntax.
+run {
+  args: ["build", "//cmd/f"]
+  exit: 0
+}

@@ -1,0 +1,81 @@
+# CLI.md fixes three exit codes: 0 success, 1 "the thing you asked about is
+# wrong", 2 "the thing you asked *with* is wrong". The distinction is the whole
+# point of having two failure codes, so it is worth pinning — and unlike the
+# assertion this replaces, the message each prints is recorded too.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "exit 0, 1 and 2 distinguish success, bad code, and a bad invocation"
+
+# 0: it worked.
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 0
+}
+
+# 1: the code is wrong.
+edit {
+  file: "cmd/ok/main.buri"
+  replace: "\"fine\""
+  with: "notAName"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 1
+  golden: "type_error.txt"
+}
+
+edit {
+  file: "cmd/ok/main.buri"
+  replace: "notAName"
+  with: "\"fine\""
+}
+
+# 2: the invocation is wrong. Five ways to ask for something that is not there
+# or not a thing, each recorded, because "exit 2" without a message is a
+# toolchain refusing to say what it wanted.
+run {
+  args: ["build", "//cmd/nope"]
+  exit: 2
+  golden: "no_such_target.txt"
+}
+
+run {
+  args: ["build", "lib/relative"]
+  exit: 2
+  golden: "relative_label.txt"
+}
+
+run {
+  args: ["frobnicate"]
+  exit: 2
+  golden: "unknown_command.txt"
+}
+
+run {
+  args: ["build", "--nonsense"]
+  exit: 2
+  golden: "unknown_flag.txt"
+}
+
+run {
+  args: ["query", "wat(//cmd/ok)"]
+  exit: 2
+  golden: "unknown_query.txt"
+}
+
+# An unparseable build file is also the thing you asked *with*, not the thing
+# you asked about: there is no program yet to be wrong.
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "binary {\n  outputs: [{ platform: JS }]\n}\n"
+  with: "binary {\n  sources: [\n"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "unparseable_build_file.txt"
+}

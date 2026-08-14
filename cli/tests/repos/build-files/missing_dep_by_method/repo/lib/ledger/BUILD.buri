@@ -1,0 +1,5 @@
+library {
+  sources: ["entry.buri"]
+  dependencies: ["//lib/money"]
+  visibility: ["//visibility:public"]
+}

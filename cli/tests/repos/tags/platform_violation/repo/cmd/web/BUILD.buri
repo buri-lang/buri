@@ -1,0 +1,6 @@
+binary {
+  dependencies: ["//lib/store"]
+  outputs: [
+    { platform: JS },
+  ]
+}

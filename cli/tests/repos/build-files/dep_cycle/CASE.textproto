@@ -1,0 +1,43 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two packages that depend on each other: dep-cycle, once from each end"
+
+# `//lib/a` really uses `//lib/b`; `//lib/b` only declares `//lib/a`, so the
+# cycle is the one kind of finding here and the golden is about it alone.
+#
+# The recorded output shows the *same* cycle reported twice, once per end —
+# `//lib/a and //lib/b`, then `//lib/b and //lib/a`. BUILD-FILES.md:389-390
+# describes one diagnostic per cycle, so this golden is pinning current
+# behaviour rather than intended behaviour; see TODO.md.
+run {
+  args: ["lint", "//lib/a"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/a", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The cycle is a property of the graph, not of what was asked about: it is
+# reported whichever end of it you name.
+run {
+  args: ["lint", "//lib/b"]
+  exit: 1
+  golden: "from_the_other_end.txt"
+}
+
+edit {
+  file: "lib/b/BUILD.buri"
+  replace: "  dependencies: [\"//lib/a\"]\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

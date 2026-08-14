@@ -1,0 +1,8 @@
+error: `toCents` is not on //lib/money's surface
+  --> cmd/app/main.buri:11:41
+   |
+11 |   let _ = ctx.println("${fromCents(450).toCents()}");
+   |                                         ^^^^^^^
+   |
+   = a method call from outside a library resolves only to names its lib.buri exports
+   = fix: re-export `toCents` from that library's lib.buri, if it is part of the API

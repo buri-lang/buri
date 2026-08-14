@@ -1,0 +1,1 @@
+export fn render(n: I64): Str { if (n == 0) { "zero" } else { "some" } }

@@ -1,0 +1,12 @@
+error: //cmd/web cannot contain both "client" and "server" code [tag-violation]
+ --> cmd/web/BUILD.buri:3:10
+  |
+3 |   tags: ["client"]
+  |          ^^^^^^^^
+  |
+  = "client" is carried by //cmd/web itself
+  = "server" is carried by //lib/store
+        reached by: //cmd/web -> //lib/store
+  = "client": ships to a user's machine or browser
+  = "server": runs on infrastructure we operate
+  = fix: drop one of the two dependencies, or split //cmd/web into a target per side

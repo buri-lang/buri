@@ -1,0 +1,13 @@
+// One module, one spelling. The library is //lib/money; //lib/money/lib names
+// the same file by the path that happens to hold it, and is not a path.
+
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/money/lib" import { fromCents };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(fromCents(450).format(ctx));
+  .Ok(())
+}

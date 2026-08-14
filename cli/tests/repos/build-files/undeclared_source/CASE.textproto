@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a .buri file in a package that no rule lists: undeclared-source, naming the file and offering `buri gen`"
+
+run {
+  args: ["lint", "//lib/thing"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/thing", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# `lib.buri` is never reported, because a library's surface is implicit — only
+# the orphan is. Declaring it is one of the two fixes offered.
+edit {
+  file: "lib/thing/BUILD.buri"
+  replace: "sources: [\"a.buri\"]"
+  with: "sources: [\"a.buri\", \"orphan.buri\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

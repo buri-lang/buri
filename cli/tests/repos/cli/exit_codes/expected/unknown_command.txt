@@ -1,0 +1,24 @@
+error: there is no command `frobnicate`
+
+buri — the toolchain for the Buri language
+
+  buri build   [targets]   compile
+  buri test    [targets]   compile and run test suites
+  buri run     <target>    build one binary and execute it
+  buri format  [paths]     format .buri sources and BUILD.buri files
+  buri lint    [targets]   static checks beyond type checking
+  buri gen     [targets]   regenerate sources/deps in existing BUILD.buri files
+  buri query   <expr>      ask about the build graph
+  buri clean               drop the local cache
+  buri lsp                 language server, over stdio
+  buri version             toolchain version and the REPO.buri pin
+
+Target arguments accept labels and patterns: //lib/money, //lib/..., //...
+With no argument, commands operate on the package containing the working
+directory.
+
+  --error-format=json      diagnostics as one JSON object per line, for tools
+                           and coding agents; the default is human-readable
+  --color=never            no ANSI escapes
+  --explain                one line per action: whether it ran or the cache
+                           served it, and the key that decided

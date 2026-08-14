@@ -1,0 +1,34 @@
+# A tag is a property of the closure, not of a path through it. `//lib/left`
+# reaches only `server` code; `//lib/right` reaches only `client` code; neither
+# reaches the other. No single path holds both tags, and the binary that sits
+# above both still may not exist.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two forbidden tags pulled in down sibling branches that never reach each other: still a violation, because the check is over the union"
+
+# Each branch on its own is fine, which is what makes the union the point.
+run {
+  args: ["lint", "//lib/left"]
+  exit: 0
+  golden: "left_alone.txt"
+}
+
+run {
+  args: ["lint", "//lib/right"]
+  exit: 0
+  golden: "right_alone.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}

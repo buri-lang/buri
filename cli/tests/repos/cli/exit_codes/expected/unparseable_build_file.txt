@@ -1,0 +1,21 @@
+error: //cmd/ok declares neither a library nor a binary
+ --> cmd/ok/BUILD.buri:1:1
+  |
+1 | binary {
+  | ^
+  |
+  = fix: add a `library { }` or `binary { }` rule, or delete the build file
+error: unterminated message
+ --> cmd/ok/BUILD.buri:1:8
+  |
+1 | binary {
+  |        ^
+  |
+  = fix: close it with `}`
+error: unterminated list
+ --> cmd/ok/BUILD.buri:2:12
+  |
+2 |   sources: [
+  |            ^
+  |
+  = fix: close it with `]`

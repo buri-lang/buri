@@ -1,0 +1,43 @@
+# The case BUILD-FILES.md:374-386 calls out specifically, and the one a corpus
+# of single-package binaries can never reach: the dependency exists only in the
+# type of a value that crossed two library boundaries.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library reached only by method resolution is still a dependency: missing-dep with nothing in any source to point at"
+
+# It compiles: the method resolves, because `format` is on //lib/money's
+# surface. Nothing about the program is wrong — the build file's claim is.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+# No import names //lib/money, so the diagnostic is at the build file rather
+# than at a line of code, and says why there is nothing else to point at.
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "dependencies: [\"//lib/ledger\"]"
+  with: "dependencies: [\"//lib/ledger\", \"//lib/money\"]"
+}
+
+# And now it is clean — which also shows the entry is not reported as unused.
+# `//lib/money` is used, by a method call and nothing else.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -1,0 +1,14 @@
+error: "//lib/money" does not export `rawValue`
+ --> cmd/app/main.buri:8:40
+  |
+8 | from "//lib/money" import { fromCents, rawValue };
+  |                                        ^^^^^^^^
+  |
+  = fix: check the spelling, or add `export` to `rawValue`'s declaration in "//lib/money"
+error: there is nothing named `rawValue` in scope
+  --> cmd/app/main.buri:12:26
+   |
+12 |   let _ = ctx.println("${rawValue(fromCents(450))}");
+   |                          ^^^^^^^^
+   |
+   = fix: declare `rawValue`, or import it — a name is in scope only from this module's own declarations and its imports

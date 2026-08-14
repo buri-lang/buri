@@ -149,6 +149,7 @@ fn run_suite(
     };
     let key = build::test_key(s, target, &output, &args.flags);
     let cache = crate::cache::Cache::open(&s.root);
+    let label = s.ws.label(target);
     if !args.flags.force && args.flags.filter.is_none() && !args.flags.accept {
         if let Some(bytes) = cache.get(&key) {
             let text = String::from_utf8_lossy(&bytes).to_string();
@@ -157,10 +158,26 @@ fn run_suite(
                 c.cached = true;
             }
             if !cached.is_empty() {
+                crate::cache::explain(
+                    args.flags.explain,
+                    crate::cache::Status::Cached,
+                    crate::cache::Action::Test,
+                    &label,
+                    Platform::Js,
+                    &key,
+                );
                 return Ok(cached);
             }
         }
     }
+    crate::cache::explain(
+        args.flags.explain,
+        crate::cache::Status::Run,
+        crate::cache::Action::Test,
+        &label,
+        Platform::Js,
+        &key,
+    );
 
     let unit = Unit { target: Some(target), platform: Platform::Js, with_tests: true };
     let analysis = crate::driver::analyze(Some(&s.ws), &mut s.map, &unit);

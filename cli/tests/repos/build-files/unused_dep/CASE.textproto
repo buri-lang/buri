@@ -1,0 +1,28 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a dependencies entry no source uses: unused-dep at the entry, with the reason a stale edge matters"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "  dependencies: [\"//lib/money\"]\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -1,0 +1,8 @@
+error: //cmd/outsider depends on //cmd/tool, which is not visible to it [visibility-violation]
+ --> cmd/outsider/BUILD.buri:2:18
+  |
+2 |   dependencies: ["//cmd/tool"]
+  |                  ^^^^^^^^^^^^ not visible
+  |
+  = //cmd/tool is visible to: //visibility:private (nothing, outside its own package)
+  = fix: add "//cmd/outsider" to visibility in cmd/tool/BUILD.buri

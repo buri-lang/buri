@@ -1,0 +1,41 @@
+# TAGS.md:214-223. `server` is limited to [LINUX, MACOS] by REPO.buri, so a JS
+# output over a closure holding `server` code fails on the platform rule. No
+# `client` tag exists anywhere here, so the forbids rule cannot be what fires:
+# the deployment policy is stated once and enforced from both sides.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a JS output over a closure containing server code: platform-violation, with the tag's whitelist and the path that narrowed it"
+
+run {
+  args: ["lint", "//cmd/web"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/web", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The positive form of the same fact, which is what `query platforms` is for.
+run {
+  args: ["query", "platforms(//lib/store)"]
+  exit: 0
+  golden: "platforms.txt"
+}
+
+# Asking for a platform the closure admits.
+edit {
+  file: "cmd/web/BUILD.buri"
+  replace: "{ platform: JS },"
+  with: "{ platform: LINUX, arch: X86_64 },"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

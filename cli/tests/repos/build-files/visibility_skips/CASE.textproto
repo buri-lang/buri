@@ -1,0 +1,56 @@
+# The two edges BUILD-FILES.md:357-361 exempts from the visibility check, and
+# the default that makes exempting them matter: a library with no `visibility`
+# field is `//visibility:private`, so without these two exemptions a package
+# could neither test its own library nor ship a binary around it.
+#
+# The negative twin is at the bottom. A clean result is only evidence when the
+# thing that would dirty it is one edit away and in the same file.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a private library reached by its own test suite and by its co-located binary is not a visibility violation; the same library reached from another package is"
+
+# Nothing in this repository is visible to anything, and it all passes.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The binary links against the private library it sits beside.
+run {
+  args: ["build", "//cmd/tool"]
+  exit: 0
+}
+
+# And the suite reaching its target under test compiles and runs.
+run {
+  args: ["test", "//cmd/tool", "--force"]
+  exit: 0
+}
+
+# Now one edge from outside, which is the case the exemptions must not cover.
+edit {
+  file: "cmd/outsider/BUILD.buri"
+  replace: "binary {"
+  with: "binary {\n  dependencies: [\"//cmd/tool\"]"
+}
+
+edit {
+  file: "cmd/outsider/main.buri"
+  replace: "from \"core/host\" import * as host;"
+  with: "from \"core/host\" import * as host;\n\nfrom \"//cmd/tool\" import { render };"
+}
+
+edit {
+  file: "cmd/outsider/main.buri"
+  replace: "\"outside\""
+  with: "render(1)"
+}
+
+run {
+  args: ["lint", "//cmd/outsider"]
+  exit: 1
+  golden: "violation.txt"
+}

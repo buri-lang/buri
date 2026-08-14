@@ -1,0 +1,7 @@
+binary {
+  dependencies: ["//lib/store"]
+  tags: ["server"]
+  outputs: [
+    { platform: LINUX, arch: X86_64 },
+  ]
+}

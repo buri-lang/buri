@@ -11,6 +11,8 @@ wrong *answer* fails, not merely a program that fails to run.
 | Conformance | `cli/tests/conformance/` | A Buri repository whose `test/` directories assert on language semantics, run through the real `buri test`. |
 | Rejection | `cli/tests/reject/` | Programs that must **not** compile, one directory each, holding the diagnostics exactly as the terminal and `--error-format=json` print them. |
 | Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
+| Repositories | `cli/tests/repos/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
+| Incrementality | `cli/tests/incrementality.rs` | What the cache may and may not do, read off the `--explain` transcript. |
 | Golden | `WEB_STDOUT` in `conformance.rs` | The exact stdout of the worked monorepo's JS binary. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -20,8 +22,15 @@ what a user runs.
 
 ```
 cargo test -p buri                       # everything
-cargo test -p buri --test conformance    # the end-to-end suites
+cargo test -p buri --test conformance    # the language suites
+cargo test -p buri --test repos          # the build-system suites
 ```
+
+Every suite works on a copy under `CARGO_TARGET_TMPDIR`. Nothing writes into a
+checked-in tree, so the suites hold no lock, run in parallel, and two
+`cargo test` runs in two shells do not collide. `BURI_KEEP=1` leaves the
+scratch directories behind, and a panicking test leaves its own regardless —
+a failing test's evidence is the directory it failed in.
 
 ## Why each shape exists
 
@@ -80,6 +89,53 @@ Recording these found two bugs a substring check could never have. The
 candidates, so the same compiler on the same file printed `Add`, `Ord`, or `Eq`
 depending on hash order. And the `= ...` lines sat one column right of the `|`
 gutter above them, which nobody notices until the output is a file you diff.
+
+**The repository corpus** exists because the two corpora above cannot hold a
+build-system test. A reject case is synthesised as a single-package binary with
+no dependencies, so nothing in it can express `missing-dep`, `dep-cycle`,
+`visibility-violation`, or a tag conflict — which is most of what the build
+system checks. A case there is a repository instead:
+
+```
+cli/tests/repos/build-files/missing_dep/
+  CASE.textproto      the manifest
+  repo/               the repository, copied into a scratch tree and run in
+  expected/lint.txt   what the CLI printed, recorded
+```
+
+The manifest is textproto — the format `REPO.buri` and `BUILD.buri` already
+use, read by the toolchain's own parser. It is deliberately *not* named
+`.buri`: only the tree under `repo/` is a Buri repository, and a file the
+toolchain never reads should not wear the extension that says it does.
+
+```
+doc:  "one line saying what the case is about"
+run  { args: ["lint", "//cmd/app"]  exit: 1  golden: "lint.txt" }
+edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
+file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
+```
+
+`exit` is hand-written and required; only prose is blessed. Blessing can
+rewrite what a diagnostic *says* and can never quietly turn a rejection into an
+acceptance — a flipped exit code fails a `BURI_BLESS=1` run too.
+
+Steps run in order against one scratch copy, so a case shows a rule firing and
+then shows that the fix the diagnostic printed actually works. **Every case that
+must stay clean ends with the edit that makes it fire**: a positive result is
+only evidence when its negative twin sits next to it and cannot drift away.
+`visibility_skips` is the shape to copy — a private library reached by its own
+test suite and its co-located binary, clean, and then one edge from outside.
+
+Goldens are path-stable without scrubbing, because every file enters the source
+map under a repository-relative name. So `--> cmd/app/main.buri:9:6` in a
+recorded file is also a path you can open.
+
+**The incrementality suite** reads `buri build --explain`, which prints one line
+per action with its key and whether the cache served it. The claims in
+HERMETICITY-AND-CACHING.md are about *which actions run*, and until that flag
+existed nothing outside the toolchain could observe one. Keys are compared
+between two states of one tree and never recorded — a key includes the
+toolchain version, so a recorded one would move on every release.
 
 **The golden transcript** catches a backend that produces a *different* answer
 rather than no answer, on the one path no assertion inside a program can reach:

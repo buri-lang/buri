@@ -1,0 +1,53 @@
+# LIBRARIES.md:240-260 — a headline claim of the design, and one nothing else
+# exercises in either direction. A method is on a library's surface or it is
+# not, and `lib.buri` is what decides: `toCents` is exported by
+# //lib/money/cents so that //lib/money/parse can use it, and is absent from
+# lib.buri, so it stops at the library boundary.
+#
+# Both directions are here on purpose. "The call does not resolve outside" is
+# only interesting if the same call does resolve inside — otherwise the method
+# might simply be broken.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a method absent from lib.buri resolves inside the library and not outside it, while a method on the surface resolves from both"
+
+# Inside: //lib/money/parse calls `c.toCents()`, and //cmd/app calls the
+# surfaced `format`. Both compile.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+# Outside: the same call, one package over.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fromCents(450).format(ctx)"
+  with: "\"${fromCents(450).toCents()}\""
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "not_on_the_surface.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "not_on_the_surface.json"
+}
+
+# And putting it on the surface is what makes the call legal — so the boundary
+# is `lib.buri`, and not something about the method itself.
+edit {
+  file: "lib/money/lib.buri"
+  replace: "export { Cents, fromCents, format };"
+  with: "export { Cents, fromCents, format, toCents };"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

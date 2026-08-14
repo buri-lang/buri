@@ -1,0 +1,2 @@
+error: there is no query `wat`
+  = the forms are deps, rdeps, path, tags, platforms, sources

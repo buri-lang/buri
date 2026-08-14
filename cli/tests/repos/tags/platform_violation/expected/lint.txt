@@ -1,0 +1,10 @@
+error: //cmd/web cannot be built for js [platform-violation]
+ --> cmd/web/BUILD.buri:4:5
+  |
+4 |     { platform: JS },
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = //lib/store is tagged "server", which requires linux, macos
+  = reached by: //cmd/web -> //lib/store
+  = "server": runs on infrastructure we operate
+  = fix: drop the js output, or widen the tag's `requires { platforms }` in REPO.buri

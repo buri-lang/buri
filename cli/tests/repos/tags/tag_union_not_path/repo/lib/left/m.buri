@@ -1,0 +1,3 @@
+from "//lib/store" import { fromStore };
+
+export fn vialeft(): Str { fromStore() }

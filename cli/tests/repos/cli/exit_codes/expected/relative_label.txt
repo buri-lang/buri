@@ -1,0 +1,1 @@
+error: `lib/relative` is not a label; labels are repository-absolute and start with `//`

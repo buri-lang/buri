@@ -1,0 +1,6 @@
+binary {
+  dependencies: ["//lib/ledger"]
+  outputs: [
+    { platform: JS },
+  ]
+}

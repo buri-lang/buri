@@ -56,17 +56,30 @@ pub fn build_target(
     let key = action_key(s, target, output, flags, Action::Link);
     let path = artifact_path(s, target, output);
     let cache = Cache::open(&s.root);
+    explain_closure(s, target, output, flags);
+    let explain_link = |status: crate::cache::Status| {
+        crate::cache::explain(
+            flags.explain,
+            status,
+            Action::Link,
+            &s.ws.label(target),
+            platform,
+            &key,
+        )
+    };
     if !flags.force {
         if let Some(bytes) = cache.get(&key) {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
             if std::fs::write(&path, &bytes).is_ok() {
+                explain_link(crate::cache::Status::Cached);
                 link_out_symlink(s, output);
                 return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
             }
         }
     }
+    explain_link(crate::cache::Status::Run);
 
     let unit = Unit { target: Some(target), platform, with_tests: false };
     let analysis = crate::driver::analyze(Some(&s.ws), &mut s.map, &unit);
@@ -128,39 +141,85 @@ pub fn action_key(
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
     for member in s.ws.closure(target) {
-        let pkg = s.ws.pkg(member.pkg);
-        let kind = match member.kind {
-            RuleKind::Library => "library",
-            RuleKind::Binary => "binary",
-        };
-        let mut sources: Vec<String> = Vec::new();
-        let entry = if member.kind == RuleKind::Library { "lib.buri" } else { "main.buri" };
-        sources.push(entry.to_string());
-        match member.kind {
-            RuleKind::Library => {
-                if let Some(lib) = &pkg.build.library {
-                    sources.extend(lib.sources.iter().map(|x| x.value.clone()));
-                    if lib.testing.present {
-                        sources.push("testing/lib.buri".into());
-                        sources.extend(lib.testing.sources.iter().map(|x| x.value.clone()));
-                    }
-                }
-            }
-            RuleKind::Binary => {
-                if let Some(bin) = &pkg.build.binary {
-                    sources.extend(bin.sources.iter().map(|x| x.value.clone()));
-                }
-            }
-        }
-        sources.sort();
-        k.rule_identity(&pkg.label(), kind, &sources);
-        for rel in &sources {
-            let full = pkg.dir.join(rel);
-            let contents = std::fs::read(&full).unwrap_or_default();
-            k.input(&s.ws.rel_of(&full), &contents);
-        }
+        contribute(s, member, &mut k);
     }
     k.finish()
+}
+
+/// One target's own contribution to a key: its rule identity, and the contents
+/// of the sources that rule names. Factored out of `action_key` so it can also
+/// be taken alone — which is what `--explain` reports per closure member, and
+/// what makes "editing this file changed this target's key and not that one"
+/// something a test can watch rather than something a comment asserts.
+fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
+    let pkg = s.ws.pkg(member.pkg);
+    let kind = match member.kind {
+        RuleKind::Library => "library",
+        RuleKind::Binary => "binary",
+    };
+    let mut sources: Vec<String> = Vec::new();
+    let entry = if member.kind == RuleKind::Library { "lib.buri" } else { "main.buri" };
+    sources.push(entry.to_string());
+    match member.kind {
+        RuleKind::Library => {
+            if let Some(lib) = &pkg.build.library {
+                sources.extend(lib.sources.iter().map(|x| x.value.clone()));
+                if lib.testing.present {
+                    sources.push("testing/lib.buri".into());
+                    sources.extend(lib.testing.sources.iter().map(|x| x.value.clone()));
+                }
+            }
+        }
+        RuleKind::Binary => {
+            if let Some(bin) = &pkg.build.binary {
+                sources.extend(bin.sources.iter().map(|x| x.value.clone()));
+            }
+        }
+    }
+    sources.sort();
+    k.rule_identity(&pkg.label(), kind, &sources);
+    for rel in &sources {
+        let full = pkg.dir.join(rel);
+        let contents = std::fs::read(&full).unwrap_or_default();
+        k.input(&s.ws.rel_of(&full), &contents);
+    }
+}
+
+/// The key for one target's own compilation: its identity and its own sources'
+/// contents, and nothing from its dependencies.
+///
+/// This is not (yet) a cache key — no `compile` action is stored separately —
+/// but it is the quantity the incrementality table in
+/// HERMETICITY-AND-CACHING.md is written in terms of, so `--explain` reports
+/// it and the tests compare it between two states of one tree.
+pub fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> String {
+    let mut k = KeyBuilder::new(Action::Compile, &s.ws.repo.toolchain, flags.release);
+    k.platform(
+        output.platform.as_ref().map(|p| p.value).unwrap_or(Platform::Js),
+        output.arch.as_ref().map(|a| a.value),
+    );
+    contribute(s, target, &mut k);
+    k.finish()
+}
+
+/// Reports every action a build of `target` involves, deepest first: one
+/// `compile` line per closure member, then the `link` that consumed them.
+pub fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags) {
+    if !flags.explain {
+        return;
+    }
+    let platform = output.platform.as_ref().map(|p| p.value).unwrap_or(Platform::Js);
+    for member in s.ws.closure(target) {
+        let key = compile_key(s, member, output, flags);
+        crate::cache::explain(
+            true,
+            crate::cache::Status::Keyed,
+            Action::Compile,
+            &s.ws.label(member),
+            platform,
+            &key,
+        );
+    }
 }
 
 /// The key for a test suite: its own sources and data on top of the target's.
@@ -278,6 +337,7 @@ pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) 
             let to_path = s.ws.pkg(dep.pkg).path.clone();
             diags.push(
                 Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
+                    .with_code("visibility-violation")
                     .with_label("not visible")
                     .with_note(format!("{to} is visible to: {}", s.ws.visibility_list(dep)))
                     .with_fix(format!(
@@ -300,11 +360,20 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
                 let known: Vec<&str> =
                     s.ws.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
                 let mut d = Diagnostic::error(tag.span, format!("unknown tag \"{}\"", tag.value))
-                    .with_note("no `tag` block in REPO.buri declares this name")
-                    .with_fix("declare it with a `tag` block in REPO.buri, or drop it here");
-                if let Some(near) = crate::buildfile::nearest(&tag.value, &known) {
-                    d = d.with_fix(format!("did you mean \"{near}\"?"));
-                }
+                    .with_code("unknown-tag")
+                    .with_note("no `tag` block in REPO.buri declares this name");
+                // A near miss is a guess about which of the two fixes is meant,
+                // not a replacement for saying what to do. Both go in the one
+                // `fix`, because a diagnostic carries only one.
+                d = match crate::buildfile::nearest(&tag.value, &known) {
+                    Some(near) => d.with_fix(format!(
+                        "did you mean \"{near}\"? — or declare \"{}\" with a `tag` block in REPO.buri",
+                        tag.value
+                    )),
+                    None => {
+                        d.with_fix("declare it with a `tag` block in REPO.buri, or drop it here")
+                    }
+                };
                 diags.push(d);
             }
         }
@@ -326,6 +395,7 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
         span,
         format!("{label} cannot contain both \"{a}\" and \"{b}\" code"),
     )
+    .with_code("tag-violation")
     .with_fix(format!(
         "drop one of the two dependencies, or split {label} into a target per side"
     ));
@@ -382,6 +452,7 @@ pub fn check_platform(
         span,
         format!("{label} cannot be built for {}", platform.slug()),
     )
+    .with_code("platform-violation")
     .with_fix(format!(
         "drop the {} output, or widen the tag's `requires {{ platforms }}` in REPO.buri",
         platform.slug()

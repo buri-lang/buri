@@ -1,0 +1,10 @@
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//tools/report/render" import { render };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(render(0));
+  .Ok(())
+}

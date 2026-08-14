@@ -1,0 +1,12 @@
+error: render.buri is listed by two rules [duplicate-source]
+  --> tools/report/BUILD.buri:10:13
+   |
+10 |   sources: ["render.buri"]
+   |             ^^^^^^^^^^^^^
+   |
+ --> tools/report/BUILD.buri:5:13
+  |
+5 |   sources: ["render.buri"]
+  |             ^^^^^^^^^^^^^ first listed here
+  |
+   = fix: list it under one rule only

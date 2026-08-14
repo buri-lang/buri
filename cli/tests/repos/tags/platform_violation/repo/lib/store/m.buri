@@ -1,0 +1,1 @@
+export fn fromStore(): Str { "store" }

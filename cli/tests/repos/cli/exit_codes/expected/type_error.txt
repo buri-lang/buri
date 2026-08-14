@@ -1,0 +1,7 @@
+error: there is nothing named `notAName` in scope
+ --> cmd/ok/main.buri:6:23
+  |
+6 |   let _ = ctx.println(notAName);
+  |                       ^^^^^^^^
+  |
+  = fix: declare `notAName`, or import it — a name is in scope only from this module's own declarations and its imports

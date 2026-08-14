@@ -1,0 +1,8 @@
+# Declares //lib/a and does not import it, so the only finding on this
+# repository is the cycle itself.
+
+library {
+  sources: ["b.buri"]
+  dependencies: ["//lib/a"]
+  visibility: ["//visibility:public"]
+}

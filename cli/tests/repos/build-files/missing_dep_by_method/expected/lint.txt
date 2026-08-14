@@ -1,0 +1,8 @@
+error: //cmd/app uses //lib/money, which is not in dependencies [missing-dep]
+ --> cmd/app/BUILD.buri:1:1
+  |
+1 | binary {
+  | ^
+  |
+  = a method resolves through its receiver's type rather than through scope, so no import names it
+  = fix: add "//lib/money" to dependencies in cmd/app/BUILD.buri — `buri gen //cmd/app` does this automatically

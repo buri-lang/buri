@@ -1,0 +1,32 @@
+# The other half of `reject/reexport_name_not_exported`, which covers
+# re-exporting a name the source module never exported. This is importing a
+# name from //pkg that lib.buri does not re-export — the same boundary, read
+# from outside.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "importing from //pkg a name that lib.buri does not re-export, though the module inside it does export it"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "build.json"
+}
+
+edit {
+  file: "lib/money/lib.buri"
+  replace: "export { Cents, fromCents, format };"
+  with: "export { Cents, fromCents, format, rawValue };"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

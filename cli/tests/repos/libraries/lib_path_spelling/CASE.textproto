@@ -1,0 +1,31 @@
+# One module, one spelling. `//lib/money/lib` would be a second name for the
+# thing `//lib/money` already names, and two spellings of one module is how a
+# codebase ends up with two of everything downstream of it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "//lib/money/lib rejected as a path, because //lib/money already names that module"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "build.json"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/money/lib\" import { fromCents };"
+  with: "from \"//lib/money\" import { fromCents };"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

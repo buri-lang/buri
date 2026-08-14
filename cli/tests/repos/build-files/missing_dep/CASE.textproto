@@ -1,0 +1,42 @@
+# //cmd/app uses //lib/money and does not declare it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library a source imports and `dependencies` does not name: missing-dep at the import, naming the build file to edit"
+
+# `buri build` does not catch this, and that is not an oversight. The module
+# loader resolves any `//` path through the workspace, so the program is
+# well-formed; `dependencies` is a claim about the graph, and a claim is a lint.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The same diagnostic as a machine reads it, which is also where "every
+# diagnostic carries a fix" is enforced.
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# And the fix it printed works: the entry is what was missing, and nothing else
+# was wrong.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "binary {"
+  with: "binary {\n  dependencies: [\"//lib/money\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -1,0 +1,33 @@
+# `forbids` is declared once, on `server`, and REPO.buri says nothing about
+# what `client` forbids. This is the mirror image of `tag_violation`: a
+# `server` binary reaching `client` code. If the rule were read in only one
+# direction, this repository would pass.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "forbids is symmetric: declared on server, it also catches a server target reaching client code"
+
+run {
+  args: ["lint", "//cmd/api"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/api", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+edit {
+  file: "cmd/api/BUILD.buri"
+  replace: "  tags: [\"server\"]\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

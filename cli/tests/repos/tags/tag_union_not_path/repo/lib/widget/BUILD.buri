@@ -1,0 +1,5 @@
+library {
+  sources: ["m.buri"]
+  tags: ["client"]
+  visibility: ["//visibility:public"]
+}

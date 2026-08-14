@@ -1,0 +1,14 @@
+// `rawValue` is exported by //lib/money/cents and is not on the library's
+// surface, so importing it from //lib/money names something that, from here,
+// does not exist.
+
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/money" import { fromCents, rawValue };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${rawValue(fromCents(450))}");
+  .Ok(())
+}

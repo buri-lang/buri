@@ -1,0 +1,11 @@
+error: //cmd/api cannot contain both "client" and "server" code [tag-violation]
+ --> cmd/api/BUILD.buri:3:10
+  |
+3 |   tags: ["server"]
+  |          ^^^^^^^^
+  |
+  = "client" is carried by //lib/widget
+  = "server" is carried by //cmd/api itself
+  = "client": ships to a user's machine or browser
+  = "server": runs on infrastructure we operate
+  = fix: drop one of the two dependencies, or split //cmd/api into a target per side

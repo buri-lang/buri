@@ -1,0 +1,6 @@
+binary {
+  dependencies: ["//lib/left", "//lib/right"]
+  outputs: [
+    { platform: LINUX, arch: X86_64 },
+  ]
+}

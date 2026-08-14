@@ -1,0 +1,1 @@
+from "//lib/money/testing/fixtures" export { sample };

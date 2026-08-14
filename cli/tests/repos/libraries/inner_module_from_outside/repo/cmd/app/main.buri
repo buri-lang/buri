@@ -1,0 +1,14 @@
+// Reaches past lib.buri into a module inside the library. //lib/money/cents is
+// a real module and this is a real path; it is simply not this package's to
+// name (LIBRARIES.md:80-89).
+
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/money/cents" import { fromCents };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(fromCents(450).format(ctx));
+  .Ok(())
+}

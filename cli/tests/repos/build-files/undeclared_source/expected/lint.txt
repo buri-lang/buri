@@ -1,0 +1,7 @@
+error: lib/thing/orphan.buri is not declared by any rule [undeclared-source]
+ --> lib/thing/BUILD.buri:1:1
+  |
+1 | library {
+  | ^
+  |
+  = fix: add it to a rule's `sources`, or delete it — `buri gen //lib/thing` does this automatically

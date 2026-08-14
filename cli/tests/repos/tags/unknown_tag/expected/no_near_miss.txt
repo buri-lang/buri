@@ -1,0 +1,8 @@
+error: unknown tag "quuxly" [unknown-tag]
+ --> lib/store/BUILD.buri:3:10
+  |
+3 |   tags: ["quuxly"]
+  |          ^^^^^^^^
+  |
+  = no `tag` block in REPO.buri declares this name
+  = fix: declare it with a `tag` block in REPO.buri, or drop it here

@@ -1,0 +1,5 @@
+// The public surface of //lib/money, complete. `toCents` is deliberately
+// absent: it is exported by cents.buri for parse.buri, and stops here.
+
+from "//lib/money/cents" export { Cents, fromCents, format };
+from "//lib/money/parse" export { isSmall };

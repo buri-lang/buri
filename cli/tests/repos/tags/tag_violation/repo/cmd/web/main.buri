@@ -1,0 +1,10 @@
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/store" import { fromStore };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(fromStore());
+  .Ok(())
+}

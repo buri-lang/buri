@@ -1,0 +1,54 @@
+# The diagnostic at BUILD-FILES.md:346-355, including the part that makes it
+# actionable: it names the rule that has to change, which is the *dependency's*
+# build file rather than the one being linted.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a binary depending on a library that is not visible to it: visibility-violation, listing who can see it and naming the build file to edit"
+
+# //lib/friend is inside //lib/..., so the same dependency is fine there. The
+# rule is about who the edge comes from, not about the library being private.
+run {
+  args: ["lint", "//lib/friend"]
+  exit: 0
+  golden: "friend_is_allowed.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# Visibility is checked at build time too, not only by the linter: it is a
+# policy about what may be linked, so `build` may not quietly ignore it.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "build.txt"
+}
+
+# The fix the diagnostic printed, applied.
+edit {
+  file: "lib/secret/BUILD.buri"
+  replace: "visibility: [\"//lib/...\"]"
+  with: "visibility: [\"//lib/...\", \"//cmd/app\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

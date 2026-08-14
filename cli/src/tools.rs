@@ -301,7 +301,11 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
     // method resolves through its receiver's type rather than through scope,
     // so a call that lands in another library counts even though no import
     // names it (BUILD-FILES.md, "Dependencies").
-    let mut used: BTreeSet<String> = reached_by_resolution(s, &analysis, own);
+    let resolved: BTreeSet<String> = reached_by_resolution(s, &analysis, own);
+    let mut used: BTreeSet<String> = resolved.clone();
+    // What an import already complained about, so a library reached both ways
+    // is reported once, at the import, where there is something to point at.
+    let mut reported: BTreeSet<String> = BTreeSet::new();
     for m in &analysis.loaded.modules {
         if m.pkg != Some(own) {
             continue;
@@ -327,6 +331,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
             if !declared.iter().any(|d| d.value == wanted) && !in_test_deps(s, target, &wanted) {
                 let importer = s.map.name(m.file).to_string();
                 let pkg_path = s.ws.pkg(own).path.clone();
+                reported.insert(wanted.clone());
                 diags.push(
                     Diagnostic::error(
                         span,
@@ -340,6 +345,36 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
                 );
             }
         }
+    }
+
+    // A library reached only through method resolution. No import names it, so
+    // there is nothing in a source file to point at — the claim that is wrong
+    // is the one the build file makes, and that is where the span goes
+    // (BUILD-FILES.md, "Dependencies": "an import is not the only way to use").
+    let pkg_path = s.ws.pkg(own).path.clone();
+    let own_label = s.ws.pkg(own).label();
+    for wanted in &resolved {
+        if declared.iter().any(|d| &d.value == wanted)
+            || in_test_deps(s, target, wanted)
+            || reported.contains(wanted)
+        {
+            continue;
+        }
+        diags.push(
+            Diagnostic::error(
+                Span::point(s.ws.pkg(own).build_file_id, 0),
+                format!("{own_label} uses {wanted}, which is not in dependencies"),
+            )
+            .with_code("missing-dep")
+            .with_note(
+                "a method resolves through its receiver's type rather than through scope, \
+                 so no import names it",
+            )
+            .with_fix(format!(
+                "add \"{wanted}\" to dependencies in {pkg_path}/BUILD.buri — \
+                 `buri gen //{pkg_path}` does this automatically"
+            )),
+        );
     }
 
     for d in &declared {

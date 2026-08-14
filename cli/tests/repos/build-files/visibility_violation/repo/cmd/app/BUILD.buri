@@ -1,0 +1,6 @@
+binary {
+  dependencies: ["//lib/secret"]
+  outputs: [
+    { platform: JS },
+  ]
+}

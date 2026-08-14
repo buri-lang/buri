@@ -1,0 +1,4 @@
+// On disk, in the package, and listed by no rule. Nothing compiles it and
+// nothing says so, which is the state `undeclared-source` exists to end.
+
+export fn orphaned(): Str { "nobody builds me" }

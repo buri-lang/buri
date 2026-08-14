@@ -21,6 +21,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::buildfile::Platform;
+
 // ---------------------------------------------------------------------------
 // SHA-256
 // ---------------------------------------------------------------------------
@@ -173,13 +175,64 @@ pub enum Action {
 }
 
 impl Action {
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Action::Compile => "compile",
             Action::Link => "link",
             Action::Test => "test",
         }
     }
+}
+
+/// What became of an action, for `--explain`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Status {
+    /// The toolchain did the work.
+    Run,
+    /// The cache had the answer.
+    Cached,
+    /// The key was computed and folded into something else. Not a hit and not
+    /// a miss: this toolchain caches a binary's whole closure under one `link`
+    /// key, so a member's `compile` key exists without a cache entry of its
+    /// own. Saying so is better than picking one of the other two and being
+    /// wrong in a way a test would then enshrine.
+    Keyed,
+}
+
+impl Status {
+    pub fn name(self) -> &'static str {
+        match self {
+            Status::Run => "run",
+            Status::Cached => "cached",
+            Status::Keyed => "keyed",
+        }
+    }
+}
+
+/// One line per action, for `--explain`:
+///
+/// ```text
+/// keyed  compile //lib/money js c40e19b7ad22
+/// run    link //cmd/web js 3f9a1c2b8d4e
+/// cached test //lib/money js 71c0aa38f5b1
+/// ```
+///
+/// Deliberately boring — fixed fields, single spaces, no timings and no sizes —
+/// so it is both greppable and recordable. Only the first twelve characters of
+/// the key are printed: enough to compare two runs of one tree, and short
+/// enough that nobody is tempted to check a whole key into a golden file, which
+/// would break on every toolchain version (the key includes `cli::VERSION`).
+pub fn explain(on: bool, status: Status, action: Action, label: &str, platform: Platform, key: &str) {
+    if !on {
+        return;
+    }
+    println!(
+        "{:<6} {} {label} {} {}",
+        status.name(),
+        action.name(),
+        platform.slug(),
+        &key[..key.len().min(12)]
+    );
 }
 
 pub struct Cache {

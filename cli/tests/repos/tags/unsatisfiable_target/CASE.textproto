@@ -1,0 +1,42 @@
+# TAGS.md:232-241. `server` requires [LINUX, MACOS] and `browser` requires
+# [JS]; a library carrying both admits no platform at all. The error is raised
+# at the target, before any binary asks for it — otherwise the mistake surfaces
+# as a confusing failure in whichever binary happens to reach it first.
+#
+# There is deliberately no binary in this repository. That absence is the test.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library whose tags require disjoint platform sets is an error at the library, with no binary anywhere that reaches it"
+
+run {
+  args: ["lint", "//lib/impossible"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/impossible", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# And `query` agrees rather than reporting some platform the linter rejects.
+run {
+  args: ["query", "platforms(//lib/impossible)"]
+  exit: 0
+  golden: "platforms.txt"
+}
+
+edit {
+  file: "lib/impossible/BUILD.buri"
+  replace: "tags: [\"server\", \"browser\"]"
+  with: "tags: [\"server\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

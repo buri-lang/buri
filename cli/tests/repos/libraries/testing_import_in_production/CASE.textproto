@@ -1,0 +1,25 @@
+# `reject/testing_import_in_program` covers `core/testing/assert` — the
+# toolchain's own test surface. This is the other one: a *repository's*
+# `testing/` surface, reached from a production source.
+#
+# The build file declares it under `dependencies` rather than
+# `test.dependencies`, so the graph permits the edge and the language has to be
+# what refuses it. Test-only code that can be linked into a shipped artifact is
+# test-only in name only.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "//lib/x/testing imported from a production source, with the dependency declared so that only the language can object"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "build.json"
+}

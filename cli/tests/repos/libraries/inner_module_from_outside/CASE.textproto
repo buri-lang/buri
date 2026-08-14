@@ -1,0 +1,31 @@
+# LIBRARIES.md:80-89 — a module inside a library, named from outside it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "//pkg/inner imported from outside //pkg, where the module exists and the path is simply not this package's to name"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "build.json"
+}
+
+# The library's own modules reach each other by exactly this spelling, so the
+# path is well-formed and the rule is about who is asking.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/money/cents\" import { fromCents };"
+  with: "from \"//lib/money\" import { fromCents };"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

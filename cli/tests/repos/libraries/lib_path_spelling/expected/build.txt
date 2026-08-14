@@ -1,0 +1,14 @@
+error: "//lib/money/lib" is not a legal module path; write "//lib/money", which is that library's surface
+ --> cmd/app/main.buri:7:6
+  |
+7 | from "//lib/money/lib" import { fromCents };
+  |      ^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+error: there is nothing named `fromCents` in scope
+  --> cmd/app/main.buri:11:23
+   |
+11 |   let _ = ctx.println(fromCents(450).format(ctx));
+   |                       ^^^^^^^^^
+   |
+   = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports

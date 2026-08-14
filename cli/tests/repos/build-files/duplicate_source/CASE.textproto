@@ -1,0 +1,31 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "one file listed by two rules in a package that has both: duplicate-source, pointing at the second listing and back at the first"
+
+run {
+  args: ["lint", "//tools/report"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//tools/report", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# One rule only. The binary reaches `render` through the co-located library
+# instead — the implicit edge BUILD-FILES.md:300 describes, which needs no
+# `dependencies` entry.
+edit {
+  file: "tools/report/BUILD.buri"
+  replace: "binary {\n  sources: [\"render.buri\"]\n"
+  with: "binary {\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

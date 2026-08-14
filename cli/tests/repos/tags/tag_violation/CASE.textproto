@@ -1,0 +1,35 @@
+# TAGS.md:191-203. The failure `build-system/example/cmd/web/BUILD.buri`
+# describes in a comment and no test provokes: a `client` binary reaching
+# `server` code. The output is LINUX, so `server`'s platform whitelist is
+# satisfied and the forbids rule is the only thing that can fire.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two tags that forbid each other in one closure: tag-violation, naming who carries each and the path that reached it"
+
+run {
+  args: ["lint", "//cmd/web"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/web", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# Dropping the tag drops the conflict — the diagnostic is about the pair, not
+# about `//lib/store` being tagged at all.
+edit {
+  file: "cmd/web/BUILD.buri"
+  replace: "  tags: [\"client\"]\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

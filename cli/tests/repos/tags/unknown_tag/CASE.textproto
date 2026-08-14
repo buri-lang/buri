@@ -1,0 +1,48 @@
+# The tag vocabulary in REPO.buri is closed: a name a `tag` block does not
+# declare is an error, not a no-op. `"sever"` is one letter from `"server"`, so
+# this is also where the suggestion is checked — and that it appears *alongside*
+# the instruction to declare the tag rather than replacing it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a tag no REPO.buri block declares: unknown-tag, with the near-miss suggestion and the instruction to declare it"
+
+run {
+  args: ["lint", "//lib/store"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/store", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# Taking the suggestion.
+edit {
+  file: "lib/store/BUILD.buri"
+  replace: "tags: [\"sever\"]"
+  with: "tags: [\"server\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# And the other fix: a name with no near miss at all, so only the instruction
+# is offered.
+edit {
+  file: "lib/store/BUILD.buri"
+  replace: "tags: [\"server\"]"
+  with: "tags: [\"quuxly\"]"
+}
+
+run {
+  args: ["lint", "//lib/store"]
+  exit: 1
+  golden: "no_near_miss.txt"
+}

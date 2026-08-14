@@ -1,0 +1,36 @@
+# The two questions `conformance.rs` used to ask with `.contains()`, asked
+# properly. A substring check passes on output that has changed shape entirely,
+# and `query` output is the toolchain's answer to "what does the graph say" —
+# the thing most worth recording exactly.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "query tags and platforms report a tag's own name and the platform set its requires narrows the closure to"
+
+run {
+  args: ["query", "tags(//lib/store)"]
+  exit: 0
+  golden: "tags.txt"
+}
+
+# A server-tagged library does not admit js. This is the positive statement of
+# what `platform_violation` shows firing.
+run {
+  args: ["query", "platforms(//lib/store)"]
+  exit: 0
+  golden: "platforms.txt"
+}
+
+# Tags travel up the closure: the binary carries what it reaches.
+run {
+  args: ["query", "tags(//cmd/api)"]
+  exit: 0
+  golden: "binary_tags.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
