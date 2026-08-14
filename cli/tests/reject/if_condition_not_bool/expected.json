@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `Bool`, found `I64`","location":{"file":"cmd/if_condition_not_bool/main.buri","line":6,"column":7,"endLine":6,"endColumn":8,"text":"  if (n) { 1 } else { 0 }","label":"an `if` condition is `Bool`"},"expected":"`Bool`","actual":"`I64`","fix":"produce a `Bool` here, or change what surrounds it to accept a `I64`","notes":[],"related":[]}

@@ -1,0 +1,9 @@
+error: expected `{`, found `*`
+ --> cmd/export_star/main.buri:4:25
+  |
+4 | from "core/list" export *;
+  |                         ^
+  |
+  = expected: `{`
+  = actual: `*`
+  = fix: write `{` here

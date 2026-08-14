@@ -199,7 +199,10 @@ fn run_suite(
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("test.mjs");
     if let Err(e) = std::fs::write(&path, &source) {
-        diags.push(Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display())));
+        diags.push(
+            Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
+                .with_fix("check the directory exists and is writable"),
+        );
         return Err(diags);
     }
 
@@ -209,7 +212,7 @@ fn run_suite(
         Err(e) => {
             diags.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
-                    .with_note("the test runner needs a JavaScript runtime; install bun, or set BURI_JS"),
+                    .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
             );
             return Err(diags);
         }
@@ -234,6 +237,7 @@ fn run_suite(
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         diags.push(
             Diagnostic::error(Span::NONE, "the test binary did not run")
+                .with_fix("read the runtime's own message below; it is what failed")
                 .with_note(err.trim().to_string()),
         );
         return Err(diags);

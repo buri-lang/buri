@@ -1,0 +1,8 @@
+error: "./helper" is a relative module path
+ --> cmd/relative_module_path/main.buri:4:6
+  |
+4 | from "./helper" import { thing };
+  |      ^^^^^^^^^^
+  |
+  = every module path is absolute, so a path means the same module wherever it is written and a file can move without its imports changing
+  = fix: write the absolute path: `"core/..."` for the standard library, `"//..."` for this repository

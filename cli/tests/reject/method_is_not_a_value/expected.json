@@ -1,0 +1,1 @@
+{"severity":"error","message":"`area` is a method, and a method is not a value","location":{"file":"cmd/method_is_not_a_value/main.buri","line":14,"column":11,"endLine":14,"endColumn":18,"text":"  let f = sq.area;"},"fix":"call it on a receiver: `x.area()`; to pass it on, wrap it in a lambda: `fn(x) => x.area()`","notes":[],"related":[]}

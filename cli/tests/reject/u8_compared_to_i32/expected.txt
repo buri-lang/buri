@@ -1,0 +1,10 @@
+error: expected `U8`, found `I32`
+ --> cmd/u8_compared_to_i32/main.buri:6:8
+  |
+6 |   a == b
+  |        ^ the left operand's type is `U8`
+  |
+  = expected: `U8`
+  = actual: `I32`
+  = there is no implicit promotion of any kind
+  = fix: convert explicitly with `.toU8()?`, which returns a `Result<U8, RangeError>` because not every `I32` fits

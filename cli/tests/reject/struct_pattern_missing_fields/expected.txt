@@ -1,0 +1,7 @@
+error: this pattern does not mention `y`
+ --> cmd/struct_pattern_missing_fields/main.buri:8:7
+  |
+8 |   let Point { x } = p;
+  |       ^^^^^^^^^^^
+  |
+  = fix: match `y` too, or end the pattern with `..` to ignore the rest

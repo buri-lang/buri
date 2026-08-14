@@ -5,9 +5,10 @@
 //!
 //! * `cli/tests/conformance/` — a Buri repository whose `test/` directories
 //!   assert on language semantics. Run with `buri test //...`.
-//! * `cli/tests/reject/` — programs that must *not* compile, each annotated
-//!   with the diagnostic it must produce.
-//! * `cli/tests/golden/` — the expected stdout of every example program.
+//! * `cli/tests/reject/` — programs that must *not* compile, each paired with
+//!   a `.stderr` file holding the diagnostic exactly as a terminal shows it.
+//! * `WEB_STDOUT` — the exact stdout of the worked monorepo's JS binary, so a
+//!   wrong *rendering* fails as loudly as a wrong value.
 //!
 //! The point of the first is that a wrong answer fails, rather than a program
 //! that still exits 0.
@@ -147,19 +148,42 @@ fn conformance_suite_can_fail() {
 // Programs that must not compile
 // ---------------------------------------------------------------------------
 
-/// Each file in `tests/reject/` is a whole program that must fail to compile.
-/// The first line is `// EXPECT: <substring the diagnostic must contain>`.
+/// Each case in `tests/reject/` is a directory holding a whole program that
+/// must fail to compile, together with what the toolchain says about it:
+///
+/// ```text
+/// cli/tests/reject/non_exhaustive_match/
+///   main.buri       the program
+///   expected.txt    the diagnostics, exactly as a terminal shows them
+///   expected.json   the same, as `--error-format=json` emits them
+/// ```
+///
+/// The `// EXPECT:` line in `main.buri` states the intent in one phrase. The
+/// two recorded files pin the rest: the span, the carets, the notes, the order
+/// of several diagnostics, and every word of the prose. A reworded message is a
+/// change to what a user reads, so it should show up as a diff and be looked at
+/// rather than pass silently because a substring survived.
+///
+/// The JSON file is also where the four-part contract is enforced. Every
+/// diagnostic has to carry a `fix`, because a diagnostic that cannot say what
+/// to do about it is not finished.
+///
+/// Regenerate both after a deliberate change:
+///
+/// ```text
+/// BURI_BLESS=1 cargo test -p buri --test conformance rejected_programs
+/// ```
 #[test]
 fn rejected_programs_are_rejected() {
     let dir = tests_dir().join("reject");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+    let mut cases: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("tests/reject exists")
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
+        .filter(|p| p.join("main.buri").is_file())
         .collect();
-    files.sort();
-    assert!(files.len() >= 25, "expected a real reject corpus, found {}", files.len());
+    cases.sort();
+    assert!(cases.len() >= 25, "expected a real reject corpus, found {}", cases.len());
 
     // One scratch repository, one package per case.
     let scratch = std::env::temp_dir().join("buri-reject-corpus");
@@ -171,10 +195,12 @@ fn rejected_programs_are_rejected() {
     )
     .unwrap();
 
+    let bless = std::env::var_os("BURI_BLESS").is_some();
+    let mut blessed = 0usize;
     let mut failures = Vec::new();
-    for path in &files {
-        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let text = std::fs::read_to_string(path).unwrap();
+    for case in &cases {
+        let name = case.file_name().unwrap().to_string_lossy().to_string();
+        let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
         let expect = text
             .lines()
             .find_map(|l| l.trim().strip_prefix("// EXPECT:").map(|s| s.trim().to_string()))
@@ -189,19 +215,63 @@ fn rejected_programs_are_rejected() {
         )
         .unwrap();
 
-        let run = run_in(&scratch, &["build", &format!("//cmd/{name}")]);
-        let output = run.all();
+        let target = format!("//cmd/{name}");
+        let run = run_in(&scratch, &["build", &target]);
+        let printed = run.all();
         if run.code == 0 {
             failures.push(format!("{name}: compiled, but should not have"));
-        } else if !output.contains(&expect) {
+            continue;
+        }
+        if !printed.contains(&expect) {
             failures.push(format!(
                 "{name}: expected a diagnostic containing {expect:?}, got:\n{}",
-                indent(&output)
+                indent(&printed)
             ));
+            continue;
         }
+        let json = run_in(&scratch, &["build", &target, "--error-format=json", "--force"]).all();
+
+        // Every diagnostic answers "what do I do about it?".
+        for (i, line) in json.lines().enumerate() {
+            if !line.starts_with('{') {
+                continue;
+            }
+            if !line.contains("\"fix\":") {
+                failures.push(format!(
+                    "{name}: diagnostic {} carries no `fix`:\n{}",
+                    i + 1,
+                    indent(line)
+                ));
+            }
+        }
+
+        for (file, content) in [("expected.txt", &printed), ("expected.json", &json)] {
+            let path = case.join(file);
+            if bless {
+                std::fs::write(&path, content).unwrap();
+                continue;
+            }
+            match std::fs::read_to_string(&path) {
+                Ok(golden) if &golden == content => {}
+                Ok(golden) => failures.push(format!(
+                    "{name}/{file} does not match what the toolchain prints.\n  recorded:\n{}\n  printed:\n{}",
+                    indent(&golden),
+                    indent(content)
+                )),
+                Err(_) => failures.push(format!(
+                    "{name}/{file} is missing — run with BURI_BLESS=1 to record:\n{}",
+                    indent(content)
+                )),
+            }
+        }
+        blessed += 1;
+    }
+    if bless {
+        eprintln!("reject: recorded {blessed} cases");
+        return;
     }
     assert!(failures.is_empty(), "{} rejection(s) wrong:\n\n{}", failures.len(), failures.join("\n\n"));
-    eprintln!("reject: {} programs correctly rejected", files.len());
+    eprintln!("reject: {} programs rejected, with the exact diagnostics each prints", cases.len());
 }
 
 fn indent(s: &str) -> String {
@@ -286,125 +356,39 @@ fn crashing_programs_crash() {
 // Golden output
 // ---------------------------------------------------------------------------
 
-/// Every example program, compiled and run, with its stdout compared against a
-/// checked-in transcript. This is what catches a backend that produces a
-/// *different* answer rather than no answer.
+/// What `//cmd/web` prints, to the byte. Two entries summed by `total` and
+/// rendered by `Cents.format`, from `build-system/example/cmd/web/main.buri`.
+/// Short enough to read here, so a change to it is a change in the diff rather
+/// than in a file nobody opens.
+const WEB_STDOUT: &str = "basket total: $36.50\n";
+
+/// The worked monorepo's JS binary, built by the real build system and run,
+/// with its stdout compared against the transcript above. This is what catches
+/// a backend that produces a *different* answer rather than no answer: every
+/// other suite here asserts from inside a program, and a wrong rendering on the
+/// way out would not show up in any of them.
 #[test]
-fn examples_produce_their_golden_output() {
-    let root = repo_root();
-    let golden_dir = tests_dir().join("golden");
-    let scratch = std::env::temp_dir().join("buri-golden-corpus");
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch).unwrap();
-    std::fs::write(
-        scratch.join("REPO.buri"),
-        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
-    )
-    .unwrap();
+fn monorepo_binaries_produce_their_golden_output() {
+    let dir = repo_root().join("build-system/example");
 
-    let mut examples: Vec<PathBuf> = std::fs::read_dir(root.join("examples"))
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
-        .collect();
-    examples.sort();
-    assert_eq!(examples.len(), 22, "expected the 22 example programs");
+    let build = run_in(&dir, &["build", "//cmd/web", "--force"]);
+    assert_eq!(build.code, 0, "//cmd/web does not build:\n{}", build.all());
 
-    for path in &examples {
-        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let pkg = scratch.join("cmd").join(&name);
-        std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::copy(path, pkg.join("main.buri")).unwrap();
-        std::fs::write(
-            pkg.join("BUILD.buri"),
-            "binary {\n  outputs: [{ platform: JS }]\n}\n",
-        )
-        .unwrap();
-    }
+    let out = Command::new(js_runtime())
+        .arg(dir.join(".buri/out/js/cmd/web/web.mjs"))
+        .output()
+        .expect("the javascript runtime runs");
+    let printed = String::from_utf8_lossy(&out.stdout).to_string();
+    let _ = run_in(&dir, &["clean"]);
+    assert!(out.status.success(), "//cmd/web exited non-zero:\n{printed}");
 
-    let build = run_in(&scratch, &["build", "//..."]);
-    assert_eq!(build.code, 0, "the examples do not build:\n{}", build.all());
-
-    let mut mismatches = Vec::new();
-    for path in &examples {
-        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let golden_path = golden_dir.join(format!("{name}.txt"));
-        let Ok(expected) = std::fs::read_to_string(&golden_path) else {
-            mismatches.push(format!("{name}: no golden file at {}", golden_path.display()));
-            continue;
-        };
-        // Arguments and input files an example needs are named in the first
-        // line of its golden file, as `# ARGS: ...`.
-        let args: Vec<String> = expected
-            .lines()
-            .find_map(|l| l.strip_prefix("# ARGS:"))
-            .map(|s| s.split_whitespace().map(str::to_string).collect())
-            .unwrap_or_default();
-        // A line whose content genuinely varies between runs — a clock
-        // reading, a roll of the real `Rand`, a network result — is declared
-        // volatile and compared only up to its prefix. Everything else is
-        // compared exactly.
-        let volatile: Vec<String> = expected
-            .lines()
-            .filter_map(|l| l.strip_prefix("# VOLATILE:").map(|s| s.trim().to_string()))
-            .collect();
-        let body: String = expected
-            .lines()
-            .filter(|l| !l.starts_with("# ARGS:") && !l.starts_with("# VOLATILE:"))
-            .map(|l| format!("{l}\n"))
-            .collect();
-
-        // A program that reads a file gets its fixtures from
-        // `tests/golden/<name>.files/`, copied in beside it.
-        let cwd = scratch.join("cmd").join(&name);
-        let fixtures = golden_dir.join(format!("{name}.files"));
-        if fixtures.is_dir() {
-            for e in std::fs::read_dir(&fixtures).unwrap().filter_map(Result::ok) {
-                let _ = std::fs::copy(e.path(), cwd.join(e.file_name()));
-            }
-        }
-        let artifact = scratch
-            .join(".buri/out/js/cmd")
-            .join(&name)
-            .join(format!("{name}.mjs"));
-        let out = Command::new(js_runtime())
-            .arg(&artifact)
-            .args(&args)
-            .current_dir(&cwd)
-            .output()
-            .expect("the javascript runtime runs");
-        let raw = String::from_utf8_lossy(&out.stdout).to_string();
-        // Both sides are reduced to their prefixes on a volatile line, so the
-        // line still has to be *present* and still has to say what it is.
-        let mask = |text: &str| -> String {
-            text.lines()
-                .map(|l| {
-                    match volatile.iter().find(|v| l.starts_with(v.as_str())) {
-                        Some(v) => format!("{v}<volatile>\n"),
-                        None => format!("{l}\n"),
-                    }
-                })
-                .collect()
-        };
-        let actual = mask(&raw);
-        let body = mask(&body);
-        if actual != body {
-            mismatches.push(format!(
-                "{name}:\n  expected:\n{}\n  actual:\n{}",
-                indent(&body),
-                indent(&actual)
-            ));
-        }
-    }
-    assert!(
-        mismatches.is_empty(),
-        "{} example(s) produced the wrong output:\n\n{}",
-        mismatches.len(),
-        mismatches.join("\n\n")
+    assert_eq!(
+        WEB_STDOUT, printed,
+        "//cmd/web printed something other than its transcript"
     );
-    eprintln!("golden: {} examples matched their transcripts", examples.len());
+    eprintln!("golden: //cmd/web matched its transcript");
 }
+
 
 fn js_runtime() -> String {
     std::env::var("BURI_JS").unwrap_or_else(|_| "bun".to_string())
@@ -486,118 +470,68 @@ export fn main(): Result<(), Str> {
 
 /// `--release` mangles every identifier, folds constants, drops unreachable
 /// declarations, and tree-shakes the runtime. None of that may change what a
-/// program prints. This runs the whole example corpus both ways and diffs.
+/// program computes or prints.
+///
+/// The conformance suite is the strongest thing to point at: a thousand
+/// assertions on language semantics, every one of which has to hold after the
+/// minifier has been through it. The monorepo's binary covers the other half —
+/// what a whole program *prints* — and pins that the release artifact is
+/// actually smaller, so "identical behaviour" cannot be bought by doing nothing.
 #[test]
 fn release_and_debug_agree() {
-    let root = repo_root();
-    let scratch = std::env::temp_dir().join("buri-minify-check");
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch).unwrap();
-    std::fs::write(
-        scratch.join("REPO.buri"),
-        "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
-    )
-    .unwrap();
+    let _guard = SUITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let suite = tests_dir().join("conformance");
 
-    let golden_dir = tests_dir().join("golden");
-    let mut examples: Vec<PathBuf> = std::fs::read_dir(root.join("examples"))
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
-        .collect();
-    examples.sort();
-
-    for path in &examples {
-        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let pkg = scratch.join("cmd").join(&name);
-        std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::copy(path, pkg.join("main.buri")).unwrap();
-        std::fs::write(
-            pkg.join("BUILD.buri"),
-            "binary {\n  outputs: [{ platform: JS }]\n}\n",
-        )
-        .unwrap();
-        let fixtures = golden_dir.join(format!("{name}.files"));
-        if fixtures.is_dir() {
-            for e in std::fs::read_dir(&fixtures).unwrap().filter_map(Result::ok) {
-                let _ = std::fs::copy(e.path(), pkg.join(e.file_name()));
-            }
-        }
+    let mut counts = Vec::new();
+    for mode in ["--debug", "--release"] {
+        let run = run_in(&suite, &["test", "//...", mode, "--force"]);
+        assert_eq!(run.code, 0, "the conformance suite fails {mode}:\n{}", run.all());
+        let summary = run
+            .stdout
+            .lines()
+            .rev()
+            .find(|l| l.contains(" passed, "))
+            .unwrap_or_default()
+            .to_string();
+        let passed: usize =
+            summary.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+        assert!(passed > 100, "expected the whole suite {mode}, ran {passed}");
+        counts.push(passed);
     }
+    assert_eq!(counts[0], counts[1], "the two modes ran different numbers of assertions");
 
-    let mut mismatches = Vec::new();
-    let mut smaller = 0usize;
-    for path in &examples {
-        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let args: Vec<String> = std::fs::read_to_string(golden_dir.join(format!("{name}.txt")))
-            .ok()
-            .and_then(|g| {
-                g.lines()
-                    .find_map(|l| l.strip_prefix("# ARGS:"))
-                    .map(|s| s.split_whitespace().map(str::to_string).collect())
-            })
-            .unwrap_or_default();
-        let volatile: Vec<String> = std::fs::read_to_string(golden_dir.join(format!("{name}.txt")))
-            .map(|g| {
-                g.lines()
-                    .filter_map(|l| l.strip_prefix("# VOLATILE:").map(|s| s.trim().to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut outputs = Vec::new();
-        let mut sizes = Vec::new();
-        for mode in ["--debug", "--release"] {
-            let target = format!("//cmd/{name}");
-            let build = run_in(&scratch, &["build", &target, mode, "--force"]);
-            assert_eq!(build.code, 0, "{name} does not build {mode}:\n{}", build.all());
-            let artifact = scratch
-                .join(".buri/out/js/cmd")
-                .join(&name)
-                .join(format!("{name}.mjs"));
-            sizes.push(std::fs::metadata(&artifact).map(|m| m.len()).unwrap_or(0));
-            let out = Command::new(js_runtime())
-                .arg(&artifact)
-                .args(&args)
-                .current_dir(scratch.join("cmd").join(&name))
-                .output()
-                .expect("the javascript runtime runs");
-            let text = String::from_utf8_lossy(&out.stdout).to_string();
-            outputs.push(
-                text.lines()
-                    .map(|l| match volatile.iter().find(|v| l.starts_with(v.as_str())) {
-                        Some(v) => format!("{v}<volatile>\n"),
-                        None => format!("{l}\n"),
-                    })
-                    .collect::<String>(),
-            );
-        }
-        if outputs[0] != outputs[1] {
-            mismatches.push(format!(
-                "{name}:\n  debug:\n{}\n  release:\n{}",
-                indent(&outputs[0]),
-                indent(&outputs[1])
-            ));
-        }
-        if sizes[1] < sizes[0] {
-            smaller += 1;
-        }
+    // And a whole program's stdout, which no assertion inside a program covers.
+    let dir = repo_root().join("build-system/example");
+    let artifact = dir.join(".buri/out/js/cmd/web/web.mjs");
+    let mut outputs = Vec::new();
+    let mut sizes = Vec::new();
+    for mode in ["--debug", "--release"] {
+        let build = run_in(&dir, &["build", "//cmd/web", mode, "--force"]);
+        assert_eq!(build.code, 0, "//cmd/web does not build {mode}:\n{}", build.all());
+        sizes.push(std::fs::metadata(&artifact).map(|m| m.len()).unwrap_or(0));
+        let out = Command::new(js_runtime())
+            .arg(&artifact)
+            .output()
+            .expect("the javascript runtime runs");
+        outputs.push(String::from_utf8_lossy(&out.stdout).to_string());
     }
-    assert!(
-        mismatches.is_empty(),
-        "minification changed the behaviour of {} example(s):\n\n{}",
-        mismatches.len(),
-        mismatches.join("\n\n")
+    let _ = run_in(&dir, &["clean"]);
+    assert_eq!(
+        outputs[0], outputs[1],
+        "minification changed what //cmd/web prints"
     );
     assert!(
-        smaller >= examples.len() - 1,
-        "minification did not shrink {} of {} artifacts",
-        examples.len() - smaller,
-        examples.len()
+        sizes[1] < sizes[0],
+        "the release artifact is not smaller than the debug one ({} vs {} bytes)",
+        sizes[1],
+        sizes[0]
     );
-    eprintln!("minify: {} examples behave identically debug and release", examples.len());
+    eprintln!(
+        "minify: {} assertions hold both ways; //cmd/web {} -> {} bytes",
+        counts[0], sizes[0], sizes[1]
+    );
 }
+
 
 // ---------------------------------------------------------------------------
 // Reproducibility
@@ -608,38 +542,44 @@ fn release_and_debug_agree() {
 /// paths rather than from compilation order, and iteration is by sorted key.
 #[test]
 fn builds_are_reproducible() {
-    let root = repo_root();
-    let example = root.join("examples/20-word-count.buri");
-    let mut hashes = Vec::new();
+    // The worked monorepo, copied to two different paths and built in each. A
+    // real dependency graph rather than a toy, so an ordering that came from a
+    // hash map would show up as a difference — and two directories, so would a
+    // path that leaked into the output.
+    let source = repo_root().join("build-system/example");
+    let mut artifacts = Vec::new();
     for run in 0..2 {
-        // Two *different directories*, so a path leaking into the output would
-        // show up as a difference.
         let scratch = std::env::temp_dir().join(format!("buri-repro-{run}"));
         let _ = std::fs::remove_dir_all(&scratch);
-        std::fs::create_dir_all(scratch.join("cmd/w")).unwrap();
-        std::fs::write(
-            scratch.join("REPO.buri"),
-            "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n",
-        )
-        .unwrap();
-        std::fs::copy(&example, scratch.join("cmd/w/main.buri")).unwrap();
-        std::fs::write(
-            scratch.join("cmd/w/BUILD.buri"),
-            "binary {\n  outputs: [{ platform: JS }]\n}\n",
-        )
-        .unwrap();
-        let build = run_in(&scratch, &["build", "//cmd/w", "--release"]);
+        copy_tree(&source, &scratch);
+        let build = run_in(&scratch, &["build", "//cmd/web", "--release"]);
         assert_eq!(build.code, 0, "build {run} failed:\n{}", build.all());
-        let bytes = std::fs::read(scratch.join(".buri/out/js/cmd/w/w.mjs")).unwrap();
-        hashes.push(bytes);
+        artifacts.push(std::fs::read(scratch.join(".buri/out/js/cmd/web/web.mjs")).unwrap());
     }
     assert!(
-        hashes[0] == hashes[1],
+        artifacts[0] == artifacts[1],
         "two builds of the same source produced different artifacts ({} vs {} bytes)",
-        hashes[0].len(),
-        hashes[1].len()
+        artifacts[0].len(),
+        artifacts[1].len()
     );
     eprintln!("reproducible: identical artifacts from two directories");
+}
+
+/// Copies a source tree, leaving behind anything a previous build wrote.
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().filter_map(Result::ok) {
+        let name = e.file_name();
+        if name == ".buri" {
+            continue;
+        }
+        let (src, dst) = (e.path(), to.join(&name));
+        if src.is_dir() {
+            copy_tree(&src, &dst);
+        } else {
+            std::fs::copy(&src, &dst).unwrap();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

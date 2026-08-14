@@ -1,8 +1,0 @@
-divMod    = 3 rem 2
-swap.0    = one
-tuples    = 45
-port      = 9090
-endpoint  = localhost
-shorthand = 443, tls=true
-mapFirst  = 2
-hasHost   = localhost

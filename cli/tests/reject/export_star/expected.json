@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `{`, found `*`","location":{"file":"cmd/export_star/main.buri","line":4,"column":25,"endLine":4,"endColumn":26,"text":"from \"core/list\" export *;"},"expected":"`{`","actual":"`*`","fix":"write `{` here","notes":[],"related":[]}

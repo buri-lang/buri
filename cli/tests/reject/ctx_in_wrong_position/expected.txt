@@ -1,0 +1,8 @@
+error: `ctx` must come first, or immediately after `self`
+ --> cmd/ctx_in_wrong_position/main.buri:6:33
+  |
+6 | fn shout<C: Stdout>(times: Int, ctx: C): () {
+  |                                 ^^^^^^
+  |
+  = the calling convention is receiver first, context second, everything else after
+  = fix: move `ctx` to that position

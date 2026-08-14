@@ -29,6 +29,10 @@ buri — the toolchain for the Buri language
 Target arguments accept labels and patterns: //lib/money, //lib/..., //...
 With no argument, commands operate on the package containing the working
 directory.
+
+  --error-format=json      diagnostics as one JSON object per line, for tools
+                           and coding agents; the default is human-readable
+  --color=never            no ANSI escapes
 ";
 
 pub struct Args {
@@ -52,8 +56,20 @@ pub struct Flags {
     pub filter: Option<String>,
     pub shuffle: Option<String>,
     pub color: Option<bool>,
+    pub error_format: ErrorFormat,
     pub self_check: bool,
     pub verbose: bool,
+}
+
+/// How diagnostics reach the terminal.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ErrorFormat {
+    /// Source snippet, carets, and the `= ...` block.
+    #[default]
+    Human,
+    /// One JSON object per diagnostic, one per line: stable field names, no
+    /// escapes, nothing to parse out of a pretty-printed snippet.
+    Json,
 }
 
 pub fn parse(argv: &[String]) -> Result<Args, String> {
@@ -96,6 +112,17 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                 "color" => {
                     flags.color = Some(!matches!(value.as_deref(), Some("never" | "off" | "0")))
                 }
+                "error-format" => {
+                    flags.error_format = match value.as_deref() {
+                        Some("json") => ErrorFormat::Json,
+                        Some("human") | None => ErrorFormat::Human,
+                        Some(other) => {
+                            return Err(format!(
+                                "unknown --error-format `{other}`; expected `human` or `json`"
+                            ))
+                        }
+                    }
+                }
                 "help" => return Err(String::new()),
                 other => return Err(format!("unknown flag `--{other}`")),
             }
@@ -116,6 +143,7 @@ pub struct Session {
     pub diags: Diagnostics,
     pub ws: Workspace,
     pub color: bool,
+    pub error_format: ErrorFormat,
 }
 
 /// Finds the repository root, reads `REPO.buri`, and loads every package.
@@ -129,8 +157,10 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
     let ws = Workspace::load(&root, &mut map, &mut diags).map_err(|e| e.to_string())?;
-    let color = flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err());
-    Ok(Session { root, map, diags, ws, color })
+    // JSON carries its own rendering, and escapes would corrupt it.
+    let color = flags.error_format == ErrorFormat::Human
+        && flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err());
+    Ok(Session { root, map, diags, ws, color, error_format: flags.error_format })
 }
 
 impl Session {
@@ -187,7 +217,7 @@ impl Session {
         self.diags.sort(&self.map);
         let mut had_error = false;
         for d in &self.diags.items {
-            eprint!("{}", self.map.render(d, self.color));
+            self.emit(d);
             had_error |= d.is_error();
         }
         self.diags.items.clear();
@@ -197,9 +227,17 @@ impl Session {
     pub fn print(&self, diags: &Diagnostics) -> bool {
         let mut had_error = false;
         for d in &diags.items {
-            eprint!("{}", self.map.render(d, self.color));
+            self.emit(d);
             had_error |= d.is_error();
         }
         had_error
+    }
+
+    /// Every diagnostic leaves through here, so the format is chosen once.
+    pub fn emit(&self, d: &crate::diag::Diagnostic) {
+        match self.error_format {
+            ErrorFormat::Human => eprint!("{}", self.map.render(d, self.color)),
+            ErrorFormat::Json => eprintln!("{}", self.map.to_json(d)),
+        }
     }
 }

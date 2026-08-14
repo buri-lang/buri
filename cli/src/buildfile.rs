@@ -222,8 +222,20 @@ struct Reader {
 }
 
 impl Reader {
-    fn err(&mut self, span: Span, msg: impl Into<String>) {
-        self.errors.push(Diagnostic::error(span, msg));
+    /// Every build-file error carries the edit that resolves it, the same way
+    /// every source diagnostic does.
+    fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
+        self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
+    }
+
+    /// The common shape: a field holds one kind of value and was given
+    /// another.
+    fn wrong_kind(&mut self, span: Span, name: &str, want: &str, found: &str) {
+        self.errors.push(
+            Diagnostic::error(span, format!("`{name}` holds {want}, found {found}"))
+                .with_mismatch(want.to_string(), found.to_string())
+                .with_fix(format!("write {want} for `{name}`")),
+        );
     }
 
     /// Rejects any field the schema does not declare, naming the nearest
@@ -236,9 +248,9 @@ impl Reader {
                     format!("unknown field `{}` in {what}", f.name),
                 );
                 if let Some(near) = nearest(&f.name, known) {
-                    d = d.with_note(format!("did you mean `{near}`?"));
+                    d = d.with_fix(format!("did you mean `{near}`?"));
                 } else {
-                    d = d.with_note(format!("{what} accepts: {}", known.join(", ")));
+                    d = d.with_fix(format!("{what} accepts: {}", known.join(", ")));
                 }
                 self.errors.push(d);
             }
@@ -253,18 +265,18 @@ impl Reader {
                     for item in items {
                         match item {
                             Value::Str(s, sp) => out.push(Sp::new(s.clone(), *sp)),
-                            other => self.err(
-                                other.span(),
-                                format!("`{name}` holds strings, found {}", other.kind()),
-                            ),
+                            other => {
+                                let kind = other.kind().to_string();
+                                self.wrong_kind(other.span(), name, "strings", &kind)
+                            }
                         }
                     }
                 }
                 Value::Str(s, sp) => out.push(Sp::new(s.clone(), *sp)),
-                other => self.err(
-                    other.span(),
-                    format!("`{name}` holds a list of strings, found {}", other.kind()),
-                ),
+                other => {
+                    let kind = other.kind().to_string();
+                    self.wrong_kind(other.span(), name, "a list of strings", &kind)
+                }
             }
         }
         out
@@ -275,7 +287,8 @@ impl Reader {
         match &f.value {
             Value::Str(s, _) => Some(s.clone()),
             other => {
-                self.err(other.span(), format!("`{name}` holds a string, found {}", other.kind()));
+                let kind = other.kind().to_string();
+                self.wrong_kind(other.span(), name, "a string", &kind);
                 None
             }
         }
@@ -286,10 +299,8 @@ impl Reader {
         match &f.value {
             Value::Int(n, sp) if *n >= 0 && *n <= u32::MAX as i64 => Some(*n as u32),
             other => {
-                self.err(
-                    other.span(),
-                    format!("`{name}` holds a non-negative number, found {}", other.kind()),
-                );
+                let kind = other.kind().to_string();
+                self.wrong_kind(other.span(), name, "a non-negative number", &kind);
                 None
             }
         }
@@ -311,8 +322,8 @@ impl Reader {
                                 Diagnostic::error(*sp, format!("`{s}` is not a platform"));
                             let known = ["LINUX", "MACOS", "JS"];
                             d = match nearest(s, &known) {
-                                Some(n) => d.with_note(format!("did you mean `{n}`?")),
-                                None => d.with_note("the platforms are LINUX, MACOS, JS"),
+                                Some(n) => d.with_fix(format!("did you mean `{n}`?")),
+                                None => d.with_fix("the platforms are LINUX, MACOS, JS"),
                             };
                             // `Platform` is a closed enum in the schema. Adding
                             // one is a compiler change, not a configuration
@@ -320,10 +331,10 @@ impl Reader {
                             self.errors.push(d);
                         }
                     },
-                    other => self.err(
-                        other.span(),
-                        format!("`{name}` holds platform names, found {}", other.kind()),
-                    ),
+                    other => {
+                        let kind = other.kind().to_string();
+                        self.wrong_kind(other.span(), name, "platform names", &kind)
+                    }
                 }
             }
         }
@@ -335,7 +346,8 @@ impl Reader {
         match &f.value {
             Value::Msg(m, sp) => Some((m, *sp)),
             other => {
-                self.err(other.span(), format!("`{name}` is a block, found {}", other.kind()));
+                let kind = other.kind().to_string();
+                self.wrong_kind(other.span(), name, "a block", &kind);
                 None
             }
         }
@@ -383,7 +395,8 @@ impl Reader {
             };
             for item in items {
                 let Value::Msg(m, span) = item else {
-                    self.err(item.span(), format!("an output is a block, found {}", item.kind()));
+                    let kind = item.kind().to_string();
+                    self.wrong_kind(item.span(), "outputs", "a block", &kind);
                     continue;
                 };
                 self.check_known(m, &["platform", "arch", "artifact_name", "js"], "an output");
@@ -392,12 +405,20 @@ impl Reader {
                     Value::Ident(s, sp) => match Platform::parse(s) {
                         Some(p) => Some(Sp::new(p, *sp)),
                         None => {
-                            self.err(*sp, format!("`{s}` is not a platform"));
+                            self.err(
+                                *sp,
+                                format!("`{s}` is not a platform"),
+                                "the platforms are LINUX, MACOS, JS",
+                            );
                             None
                         }
                     },
                     other => {
-                        self.err(other.span(), "`platform` names a platform");
+                        self.err(
+                            other.span(),
+                            "`platform` names a platform",
+                            "write a bare word: LINUX, MACOS, or JS",
+                        );
                         None
                     }
                 });
@@ -405,12 +426,20 @@ impl Reader {
                     Value::Ident(s, sp) => match Arch::parse(s) {
                         Some(a) => Some(Sp::new(a, *sp)),
                         None => {
-                            self.err(*sp, format!("`{s}` is not an architecture"));
+                            self.err(
+                                *sp,
+                                format!("`{s}` is not an architecture"),
+                                "the architectures are X86_64 and ARM64",
+                            );
                             None
                         }
                     },
                     other => {
-                        self.err(other.span(), "`arch` names an architecture");
+                        self.err(
+                            other.span(),
+                            "`arch` names an architecture",
+                            "write a bare word: X86_64 or ARM64",
+                        );
                         None
                     }
                 });
@@ -420,12 +449,16 @@ impl Reader {
                     if p.value == Platform::Js {
                         self.errors.push(
                             Diagnostic::error(a.span, "a JS output has no architecture")
-                                .with_note("remove `arch`; JavaScript is not built per machine"),
+                                .with_fix("remove `arch`; JavaScript is not built per machine"),
                         );
                     }
                 }
                 if platform.is_none() {
-                    self.err(*span, "an output must name a platform");
+                    self.err(
+                        *span,
+                        "an output must name a platform",
+                        "add `platform: LINUX`, `MACOS`, or `JS`",
+                    );
                 }
 
                 let artifact_name = self.string(m, "artifact_name");
@@ -437,9 +470,17 @@ impl Reader {
                             Value::Ident(s, sp) => match s.as_str() {
                                 "ESM" | "MODULE_UNSPECIFIED" => js_module = JsModule::Esm,
                                 "CJS" => js_module = JsModule::Cjs,
-                                _ => self.err(*sp, format!("`{s}` is not a module kind")),
+                                _ => self.err(
+                                    *sp,
+                                    format!("`{s}` is not a module kind"),
+                                    "the module kinds are ESM and CJS",
+                                ),
                             },
-                            other => self.err(other.span(), "`module` names ESM or CJS"),
+                            other => self.err(
+                                other.span(),
+                                "`module` names ESM or CJS",
+                                "write a bare word: ESM or CJS",
+                            ),
                         }
                     }
                 }
@@ -451,13 +492,24 @@ impl Reader {
 }
 
 /// Levenshtein-nearest known name, for "did you mean" notes.
+///
+/// `known` usually arrives from a hash map, so ties are broken by name rather
+/// than by whichever candidate came first. A diagnostic that changes between
+/// two runs of the same compiler is a diagnostic nobody can test or diff.
 pub fn nearest<'a>(word: &str, known: &[&'a str]) -> Option<&'a str> {
-    let mut best: Option<(usize, &str)> = None;
+    let mut best: Option<(usize, &'a str)> = None;
     for k in known {
         let d = edit_distance(word, k);
         // Only suggest something genuinely close.
         let limit = (word.len().max(k.len()) / 3).max(1) + 1;
-        if d <= limit && best.map(|(bd, _)| d < bd).unwrap_or(true) {
+        if d > limit {
+            continue;
+        }
+        let better = match best {
+            None => true,
+            Some((bd, bk)) => (d, *k) < (bd, bk),
+        };
+        if better {
             best = Some((d, k));
         }
     }
@@ -527,6 +579,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
                 };
                 r.errors.push(
                     Diagnostic::error(f.name_span, format!("a `binary` has no `{bad}` field"))
+                        .with_fix(format!("remove `{bad}`"))
                         .with_note(note),
                 );
             }
@@ -569,7 +622,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.doc.all("tag") {
         let Value::Msg(m, span) = &f.value else {
-            r.err(f.value.span(), "`tag` is a block");
+            r.err(f.value.span(), "`tag` is a block", "write `tag { name: \"...\" ... }`");
             continue;
         };
         r.check_known(m, &["name", "doc", "forbids", "requires"], "a `tag` block");
@@ -578,11 +631,11 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         let name = match name_field.map(|nf| &nf.value) {
             Some(Value::Str(s, sp)) => Sp::new(s.clone(), *sp),
             Some(other) => {
-                r.err(other.span(), "`name` holds a string");
+                r.err(other.span(), "`name` holds a string", "quote it, as in `name: \"server\"`");
                 continue;
             }
             None => {
-                r.err(*span, "a `tag` block must have a `name`");
+                r.err(*span, "a `tag` block must have a `name`", "add `name: \"...\"`; a tag is identified by it");
                 continue;
             }
         };
@@ -595,6 +648,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             if let Some(p) = fm.get("platforms") {
                 r.errors.push(
                     Diagnostic::error(p.name_span, "`forbids` takes no `platforms`")
+                        .with_fix("move the list under `requires { platforms: [...] }`")
                         .with_note(
                             "a platform restriction is always a whitelist under `requires`, so \
                              that adding a platform to the toolchain cannot silently widen code \
@@ -610,7 +664,9 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             r.check_known(rm, &["platforms"], "a `requires` block");
             if let Some(t) = rm.get("tags") {
                 r.errors.push(
-                    Diagnostic::error(t.name_span, "`requires` takes no `tags`").with_note(
+                    Diagnostic::error(t.name_span, "`requires` takes no `tags`")
+                        .with_fix("what this usually means is `forbids { tags: [...] }`")
+                        .with_note(
                         "carrying no tags is the common case, so requiring a tag transitively \
                          would force it onto every library; what this usually means is \
                          `forbids { tags: [...] }`",
@@ -625,6 +681,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         if let Some(prev) = tags.iter().find(|t| t.name.value == name.value) {
             r.errors.push(
                 Diagnostic::error(name.span, format!("tag `{}` is declared twice", name.value))
+                    .with_fix("rename one, or delete the duplicate")
                     .with_sub(prev.name.span, "first declared here")
                     .with_note("tags are one flat namespace, so a name means one thing"),
             );
@@ -686,7 +743,8 @@ library {
     fn unknown_field_is_an_error_with_a_suggestion() {
         let r = read_build_file("library {\n  source: []\n}\n", FileId(0));
         assert!(r.errors[0].message.contains("unknown field `source`"));
-        assert!(r.errors[0].notes[0].contains("sources"));
+        // The suggestion is the fix, not background: it is the edit to make.
+        assert!(r.errors[0].fix.as_deref().is_some_and(|f| f.contains("sources")));
     }
 
     #[test]

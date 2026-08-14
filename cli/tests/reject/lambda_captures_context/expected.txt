@@ -1,0 +1,8 @@
+error: a lambda may not capture `ctx`, which carries an effect
+ --> cmd/lambda_captures_context/main.buri:8:18
+  |
+8 |   paths.map(ctx, fn(p) => fs.exists(ctx, p))
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a lambda that could close over authority would make the capture rule meaningless
+  = fix: thread the context through a `*Ctx` combinator, which passes it in as a parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`

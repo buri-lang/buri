@@ -1,0 +1,8 @@
+error: `Endless` can never be constructed
+ --> cmd/non_productive_recursive_enum/main.buri:5:1
+  |
+5 | enum Endless { Node(Endless) }
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = every variant recurses, so building one would need one already
+  = fix: give `Endless` a variant that does not mention itself, the way `.None` terminates an `Option`

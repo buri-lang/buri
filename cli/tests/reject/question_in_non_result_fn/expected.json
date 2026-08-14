@@ -1,0 +1,1 @@
+{"severity":"error","message":"`?` on a `Result` needs a `Result` return type, not `I64`","location":{"file":"cmd/question_in_non_result_fn/main.buri","line":6,"column":11,"endLine":6,"endColumn":13,"text":"  let n = r?;"},"fix":"return a `Result` from this function, or handle the error here with `match` or `??`","notes":[],"related":[]}

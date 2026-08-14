@@ -1,0 +1,17 @@
+error: a rest pattern must come last
+ --> cmd/array_two_rest_patterns/main.buri:7:11
+  |
+7 |     [..a, m, ..b] => m,
+  |           ^
+  |
+  = `[first, ..rest]` is legal; `[..init, last]` is not
+  = fix: move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an array pattern does
+error: expected a pattern, found `..`
+ --> cmd/array_two_rest_patterns/main.buri:7:14
+  |
+7 |     [..a, m, ..b] => m,
+  |              ^^
+  |
+  = expected: a pattern
+  = actual: `..`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

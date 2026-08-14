@@ -1256,9 +1256,10 @@ evaluated only when the left is `None` / `Err`. `??` is right-associative, so
 
 ### 6.10 Aborting
 
-There is no `crash`, no `panic`, and no `unreachable` — no way to write that a
-branch cannot happen. Those words are reserved so the mistake is named rather
-than silently allowed as an identifier.
+There is no way to write that a branch cannot happen. `panic` and `unreachable`
+are reserved, so reaching for either is named rather than silently allowed as an
+identifier; `crash` is an ordinary identifier, because the concept is gone
+rather than deferred.
 
 The reason is that they are almost always wrong. A match arm the programmer
 asserts is impossible is an arm the compiler was about to make you handle, and
@@ -1777,15 +1778,16 @@ surface ([`build-system/TESTING.md`](./build-system/TESTING.md)).
 
 ### 11.1 Standard library sketch
 
-Non-normative in v0.3, but the examples assume it. The purity tier of each entry
-is the part that matters.
+Non-normative in v0.3. The purity tier of each entry is the part that matters.
 
 Two conventions run through the whole library: **receiver first, context second**
 (Section 10.6), and **a name has one meaning**. Everything below that operates on
-a value declares that value as `self`, so it is callable as a method —
-`xs.map(ctx, f)`, `s.trim()`, `opt.withDefault(0)` — with no import. There is no overloading, so a pure variant and an
-allocating variant of the same idea get different names (`splitOnce` returns two
-slices and is pure; `split` returns `[Str]` and allocates).
+a value is declared in an `impl` block for that value's type and takes it as
+`self`, so it is callable as a method —
+`xs.map(ctx, f)`, `s.trim()`, `opt.withDefault(0)` — with no import. There is no
+overloading, so a pure variant and an allocating variant of the same idea get
+different names (`splitOnce` returns two slices and is pure; `split` returns
+`[Str]` and allocates).
 
 **Pure — no context parameter at all**
 

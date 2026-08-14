@@ -1,0 +1,15 @@
+error: `if` requires an `else` branch
+ --> cmd/if_without_else/main.buri:6:26
+  |
+6 |   let label = if (n > 0) { 1 };
+  |                          ^^^^^
+  |
+  = `if` is an expression, so both branches must produce a value of the same type
+  = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: there is nothing named `label` in scope
+ --> cmd/if_without_else/main.buri:7:3
+  |
+7 |   label
+  |   ^^^^^
+  |
+  = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports

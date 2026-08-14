@@ -212,6 +212,7 @@ impl<'a> Loader<'a> {
         if !disk.is_file() {
             self.diags.push(
                 Diagnostic::error(span, format!("{rel} does not exist"))
+                    .with_fix("create the file, or remove it from `sources`")
                     .with_note("every source is declared one path at a time; there are no globs"),
             );
             return None;
@@ -230,7 +231,10 @@ impl<'a> Loader<'a> {
             return Some(*id);
         }
         let Some(text) = stdlib::source(path) else {
-            self.diags.push(Diagnostic::error(span, format!("there is no module \"{path}\"")));
+            self.diags.push(
+                Diagnostic::error(span, format!("there is no module \"{path}\""))
+                    .with_fix("check the path; the standard library's modules are all `core/...`"),
+            );
             return None;
         };
         let file = self.map.add(path.to_string(), PathBuf::new(), text.to_string());
@@ -261,13 +265,19 @@ impl<'a> Loader<'a> {
             return self.load_std(path, span);
         }
         let Some(ws) = self.ws else {
-            self.diags.push(Diagnostic::error(span, format!("\"{path}\" is outside any repository")));
+            self.diags.push(
+                Diagnostic::error(span, format!("\"{path}\" is outside any repository"))
+                    .with_fix("import from `\"core/...\"` or from a `//...` path in this repository"),
+            );
             return None;
         };
         match ws.resolve_module(path) {
             Ok(loc) => self.load_file(path, loc.file, role, span),
             Err(msg) => {
-                self.diags.push(Diagnostic::error(span, msg));
+                self.diags.push(Diagnostic::error(span, msg).with_fix(
+                    "create the file the path names, or correct the path — a module path maps \
+                     to exactly one file, with no search",
+                ));
                 None
             }
         }
@@ -289,6 +299,7 @@ impl<'a> Loader<'a> {
             let cycle = self.stack[at..].join(" -> ");
             self.diags.push(
                 Diagnostic::error(span, format!("circular import: {cycle} -> {path}"))
+                    .with_fix("break the cycle: move what both modules need into a third one")
                     .with_note("modules form a graph with no cycles, at the module level and at the package level alike"),
             );
             return None;
@@ -301,7 +312,10 @@ impl<'a> Loader<'a> {
         let file = match self.map.load(&rel, &disk) {
             Ok(f) => f,
             Err(e) => {
-                self.diags.push(Diagnostic::error(span, format!("cannot read {rel}: {e}")));
+                self.diags.push(
+                    Diagnostic::error(span, format!("cannot read {rel}: {e}"))
+                        .with_fix("check the file exists and is readable"),
+                );
                 return None;
             }
         };
@@ -382,6 +396,10 @@ impl<'a> Loader<'a> {
                     .with_note(
                         "every module path is absolute, so a path means the same module wherever \
                          it is written and a file can move without its imports changing",
+                    )
+                    .with_fix(
+                        "write the absolute path: `\"core/...\"` for the standard library, \
+                         `\"//...\"` for this repository",
                     ),
             );
             return false;
@@ -391,6 +409,10 @@ impl<'a> Loader<'a> {
         if path == "core/host" && role != Role::Entry {
             self.diags.push(
                 Diagnostic::error(span, "\"core/host\" is importable only from the module that exports `main`")
+                    .with_fix(
+                        "take what you need as a `ctx` bound instead, and let `main` supply the \
+                         implementation",
+                    )
                     .with_note(
                         "the context `main` builds is the program's complete effect budget; a \
                          module that could import `core/host` would be a second place authority \
@@ -410,7 +432,11 @@ impl<'a> Loader<'a> {
                         "a path containing a `testing` segment may be imported only from a test \
                          source",
                     )
-                    .with_note(format!("{importer_path} is not one")),
+                    .with_note(format!("{importer_path} is not one"))
+                    .with_fix(
+                        "import it from a file listed in a target's `test.sources`, or drop the \
+                         import",
+                    ),
             );
             return false;
         }
@@ -435,7 +461,7 @@ impl<'a> Loader<'a> {
                             span,
                             format!("{path} is internal to {owner}"),
                         )
-                        .with_note(format!("import the library instead: from \"{owner}\" import {{ ... }}"))
+                        .with_fix(format!("import the library instead: from \"{owner}\" import {{ ... }}"))
                         .with_note(format!(
                             "only names re-exported by {}/lib.buri are available",
                             owner.trim_start_matches("//")
@@ -451,6 +477,9 @@ impl<'a> Loader<'a> {
                 if !same_package || !role.is_test_context() {
                     self.diags.push(
                         Diagnostic::error(span, format!("{path} is a binary's entry point"))
+                            .with_fix(
+                                "move what you need into a library both can depend on",
+                            )
                             .with_note(
                                 "only that binary's own test sources may import it; a library may \
                                  not reach the binary in its package at all",

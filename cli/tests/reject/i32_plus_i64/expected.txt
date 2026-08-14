@@ -1,0 +1,20 @@
+error: expected `I64`, found `I32`
+ --> cmd/i32_plus_i64/main.buri:5:41
+  |
+5 | fn widenByAccident(a: I32, b: I64): I64 {
+  |                                         ^ the declared return type is `I64`
+  |
+  = expected: `I64`
+  = actual: `I32`
+  = there is no implicit promotion of any kind
+  = fix: convert explicitly: `.toI64()`, which is exact for every `I32`
+error: expected `I32`, found `I64`
+ --> cmd/i32_plus_i64/main.buri:6:7
+  |
+6 |   a + b
+  |       ^ the left operand's type is `I32`
+  |
+  = expected: `I32`
+  = actual: `I64`
+  = there is no implicit promotion of any kind
+  = fix: convert explicitly with `.toI32()?`, which returns a `Result<I32, RangeError>` because not every `I64` fits

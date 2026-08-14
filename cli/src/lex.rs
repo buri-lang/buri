@@ -108,9 +108,8 @@ impl Kw {
 /// Reserved but unused in v0.3, rejected by the lexer so that later versions can
 /// claim them without breaking source compatibility.
 const RESERVED: &[&str] = &[
-    "async", "await", "break", "continue", "crash", "do", "in", "is", "loop", "module", "mut",
-    "opaque", "panic", "pub", "return", "unreachable", "use", "when", "where", "while", "with",
-    "yield",
+    "async", "await", "break", "continue", "do", "in", "is", "loop", "module", "mut", "opaque",
+    "panic", "pub", "return", "unreachable", "use", "when", "where", "while", "with", "yield",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -304,8 +303,11 @@ impl<'a> Lexer<'a> {
         Span::new(self.file, start, self.pos)
     }
 
-    fn err(&mut self, span: Span, msg: impl Into<String>) {
-        self.errors.push(Diagnostic::error(span, msg));
+    /// Every lexical error carries the edit that resolves it. `fix` is a
+    /// parameter rather than something a caller may add later, so a new error
+    /// site cannot forget one.
+    fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
+        self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
     }
 
     fn push(&mut self, tok: Tok, start: usize) {
@@ -383,7 +385,7 @@ impl<'a> Lexer<'a> {
                     }
                     if depth > 0 {
                         let span = self.span(start);
-                        self.err(span, "unterminated block comment");
+                        self.err(span, "unterminated block comment", "close it with `*/`; block comments nest, so each `/*` needs one");
                     }
                     let raw = self.text[start..self.pos].to_string();
                     self.pending_comments.push(raw);
@@ -413,6 +415,7 @@ impl<'a> Lexer<'a> {
             self.err(
                 span,
                 format!("`{s}` is a reserved word and may not be used as an identifier"),
+                format!("pick another name; `{s}` is not available"),
             );
             self.errors.last_mut().unwrap().notes.push(
                 "reserved for a future version of Buri; see grammar.ebnf, ReservedWord".into(),
@@ -444,7 +447,7 @@ impl<'a> Lexer<'a> {
                 self.text[digits_start..self.pos].chars().filter(|c| *c != '_').collect();
             if digits.is_empty() {
                 let span = self.span(start);
-                self.err(span, format!("`{raw}` has no digits"));
+                self.err(span, format!("`{raw}` has no digits"), "write at least one digit after the base prefix, as in `0x1F`");
                 self.push(Tok::Int(0, raw), start);
                 return;
             }
@@ -452,7 +455,11 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push(Tok::Int(v, raw), start),
                 Err(_) => {
                     let span = self.span(start);
-                    self.err(span, format!("`{raw}` is not a valid base-{radix} integer, or does not fit in 128 bits"));
+                    self.err(
+                span,
+                format!("`{raw}` is not a valid base-{radix} integer, or does not fit in 128 bits"),
+                format!("use digits base-{radix} admits, and a value inside 128 bits"),
+            );
                     self.push(Tok::Int(0, raw), start);
                 }
             }
@@ -496,7 +503,11 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push(Tok::Float(v, raw), start),
                 Err(_) => {
                     let span = self.span(start);
-                    self.err(span, format!("`{raw}` is not a valid float literal"));
+                    self.err(
+                span,
+                format!("`{raw}` is not a valid float literal"),
+                "a float needs a digit on each side of the point, as in `0.5`, and at most one exponent",
+            );
                     self.push(Tok::Float(0.0, raw), start);
                 }
             }
@@ -505,7 +516,7 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push(Tok::Int(v, raw), start),
                 Err(_) => {
                     let span = self.span(start);
-                    self.err(span, format!("`{raw}` does not fit in 128 bits"));
+                    self.err(span, format!("`{raw}` does not fit in 128 bits"), "write a smaller value; 128 bits is the widest integer type");
                     self.push(Tok::Int(0, raw), start);
                 }
             }
@@ -519,7 +530,7 @@ impl<'a> Lexer<'a> {
         loop {
             if self.pos >= self.src.len() {
                 let span = Span::new(self.file, self.pos, self.pos);
-                self.err(span, "unterminated string literal");
+                self.err(span, "unterminated string literal", "close it with `\"`; a string literal does not span a line break");
                 return (out, false);
             }
             match self.peek() {
@@ -541,7 +552,7 @@ impl<'a> Lexer<'a> {
                 }
                 b'\n' => {
                     let span = Span::new(self.file, self.pos, self.pos + 1);
-                    self.err(span, "unterminated string literal");
+                    self.err(span, "unterminated string literal", "close it with `\"`; a string literal does not span a line break");
                     return (out, false);
                 }
                 _ => {
@@ -573,7 +584,11 @@ impl<'a> Lexer<'a> {
             b'u' => {
                 if self.peek() != b'{' {
                     let span = self.span(start);
-                    self.err(span, "`\\u` must be followed by `{`, as in `\\u{1F600}`");
+                    self.err(
+                        span,
+                        "`\\u` must be followed by `{`, as in `\\u{1F600}`",
+                        "brace the code point: `\\u{1F600}`",
+                    );
                     return None;
                 }
                 self.pos += 1;
@@ -584,7 +599,7 @@ impl<'a> Lexer<'a> {
                 let digits = self.text[ds..self.pos].to_string();
                 if self.peek() != b'}' {
                     let span = self.span(start);
-                    self.err(span, "unterminated `\\u{...}` escape");
+                    self.err(span, "unterminated `\\u{...}` escape", "close it with `}`");
                     return None;
                 }
                 self.pos += 1;
@@ -595,6 +610,7 @@ impl<'a> Lexer<'a> {
                         self.err(
                             span,
                             format!("`\\u{{{digits}}}` is not a Unicode scalar value"),
+                            "a scalar value is at most 10FFFF and outside D800-DFFF",
                         );
                         return None;
                     }
@@ -603,7 +619,11 @@ impl<'a> Lexer<'a> {
             _ => {
                 let span = self.span(start);
                 let shown = (c as char).to_string();
-                self.err(span, format!("unknown escape `\\{shown}`"));
+                self.err(
+                    span,
+                    format!("unknown escape `\\{shown}`"),
+                    "the escapes are `\\n` `\\r` `\\t` `\\0` `\\\\` `\\\"` `\\'` `\\$` and `\\u{...}`",
+                );
                 self.errors.last_mut().unwrap().notes.push(
                     "the escapes are \\n \\r \\t \\0 \\\\ \\\" \\' \\$ and \\u{...}".into(),
                 );
@@ -642,7 +662,7 @@ impl<'a> Lexer<'a> {
             self.escape(s).unwrap_or('\0')
         } else if self.pos >= self.src.len() || self.peek() == b'\n' {
             let span = self.span(start);
-            self.err(span, "unterminated character literal");
+            self.err(span, "unterminated character literal", "close it with `\'`");
             self.push(Tok::Char('\0'), start);
             return;
         } else {
@@ -650,7 +670,11 @@ impl<'a> Lexer<'a> {
         };
         if self.peek() != b'\'' {
             let span = self.span(start);
-            self.err(span, "a character literal holds exactly one Unicode scalar value");
+            self.err(
+                span,
+                "a character literal holds exactly one Unicode scalar value",
+                "use a string literal for more than one",
+            );
             // Recover by skipping to the closing quote if one is nearby.
             while self.pos < self.src.len() && self.peek() != b'\'' && self.peek() != b'\n' {
                 self.pos += 1;
@@ -749,7 +773,7 @@ impl<'a> Lexer<'a> {
             _ => {
                 let span = self.span(start);
                 let shown = self.text[start..self.pos].to_string();
-                self.err(span, format!("unexpected character `{shown}`"));
+                self.err(span, format!("unexpected character `{shown}`"), "delete it; no token in the language starts with it");
                 return;
             }
         };

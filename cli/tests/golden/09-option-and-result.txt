@@ -1,6 +1,0 @@
-good      = example.com
-bad       = <unconfigured>
-range     = <unconfigured>
-key port had not-a-number
-optionMap = 5
-retries   = 3

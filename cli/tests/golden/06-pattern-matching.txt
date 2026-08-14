@@ -1,9 +1,0 @@
-classify(-5)  = negative
-token         = semicolon
-quadrant      = IV
-diagonal      = false
-meters        = 1.5
-origin        = elsewhere
-summarize     = three or more
-depth         = 2
-destructuring = 8

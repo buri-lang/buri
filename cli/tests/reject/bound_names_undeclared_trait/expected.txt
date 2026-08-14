@@ -1,0 +1,8 @@
+error: `Bogus` is not a trait or effect
+ --> cmd/bound_names_undeclared_trait/main.buri:5:15
+  |
+5 | fn measure<T: Bogus>(x: T): Int { 1 }
+  |               ^^^^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Bogus` as one

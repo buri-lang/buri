@@ -1,0 +1,1 @@
+{"severity":"error","message":"this arm is unreachable","location":{"file":"cmd/unreachable_after_binding_arm/main.buri","line":8,"column":5,"endLine":8,"endColumn":15,"text":"    .None => 0,"},"fix":"delete it, or move it above the arm that subsumes it","notes":["the arms before it already cover everything it matches"],"related":[]}

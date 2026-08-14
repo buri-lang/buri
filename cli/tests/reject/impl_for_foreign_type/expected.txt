@@ -1,0 +1,8 @@
+error: `Region` is not declared in this module
+ --> cmd/impl_for_foreign_type/main.buri:6:14
+  |
+6 | impl Ord for Region {
+  |              ^^^^^^
+  |
+  = there is no way to implement a trait for someone else's type, which is the same restriction that already applies to methods
+  = fix: move the `impl` into `Region`'s own module, or wrap it in a type of yours — `struct MyRegion(Region);` — and implement the trait for that

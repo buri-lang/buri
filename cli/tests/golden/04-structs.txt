@@ -1,6 +1,0 @@
-b        = (3.0, 4.0)
-distance = 25.0
-describe = somewhere else
-user id  = u-1
-meters   = 9.8
-boxed    = answer=42, pair.1=one

@@ -1,0 +1,9 @@
+error: expected `Bool`, found `I64`
+ --> cmd/if_condition_not_bool/main.buri:6:7
+  |
+6 |   if (n) { 1 } else { 0 }
+  |       ^ an `if` condition is `Bool`
+  |
+  = expected: `Bool`
+  = actual: `I64`
+  = fix: produce a `Bool` here, or change what surrounds it to accept a `I64`

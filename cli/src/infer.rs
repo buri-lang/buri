@@ -457,18 +457,23 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Err((a, b)) = self.subst.unify(&self.c.tables, actual, expected) {
             let a = show(&self.c.tables, Some(&self.subst), &self.generics, &a);
             let b = show(&self.c.tables, Some(&self.subst), &self.generics, &b);
-            let mut d = Diagnostic::error(span, format!("expected `{b}`, found `{a}`"));
+            let mut d = Diagnostic::error(span, format!("expected `{b}`, found `{a}`"))
+                .with_mismatch(format!("`{b}`"), format!("`{a}`"));
             if !what.is_empty() {
                 d = d.with_label(format!("{what} is `{b}`"));
             }
             // There is no implicit promotion of any kind, and the most common
-            // way to hit this is expecting one.
-            if is_numeric_mismatch(&self.c.tables, &a, &b) {
-                d = d.with_note(
-                    "there is no implicit promotion; convert explicitly with a method such as \
-                     `.toI64()` or `.toF64()`",
-                );
-            }
+            // way to hit this is expecting one. The conversion is named
+            // explicitly, because which one it is depends on whether the value
+            // can fail to fit.
+            d = if is_numeric_mismatch(&self.c.tables, &a, &b) {
+                d.with_note("there is no implicit promotion of any kind")
+                    .with_fix(numeric_fix(&a, &b))
+            } else {
+                d.with_fix(format!(
+                    "produce a `{b}` here, or change what surrounds it to accept a `{a}`"
+                ))
+            };
             self.c.diags.push(d);
         }
     }
@@ -514,6 +519,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let trait_name = self.c.tables.trait_(tr).name.clone();
             let shown = self.show_ty(&ty);
             let mut note = None;
+            let mut fix = None;
             if let Some(con) = ty.head() {
                 let derived = self
                     .c
@@ -525,29 +531,44 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // The `derive` is there; one of the components it folds
                     // over is what fails, and naming it is the useful part.
                     let culprit = self.failing_component(con, &ty, tr);
-                    note = Some(match culprit {
-                        Some(c) => format!(
-                            "`{shown}` derives `{trait_name}`, but `{c}` does not satisfy it, and                              a derived implementation is a fold over the type's components"
-                        ),
-                        None => format!(
-                            "`{shown}` derives `{trait_name}`, but one of its components does not                              satisfy it"
-                        ),
-                    });
+                    match culprit {
+                        Some(c) => {
+                            note = Some(format!(
+                                "`{shown}` derives `{trait_name}`, but `{c}` does not satisfy \
+                                 it, and a derived implementation is a fold over the type's \
+                                 components"
+                            ));
+                            fix = Some(format!("make `{c}` satisfy `{trait_name}` first"));
+                        }
+                        None => {
+                            note = Some(format!(
+                                "`{shown}` derives `{trait_name}`, but one of its components \
+                                 does not satisfy it"
+                            ));
+                            fix = Some(format!(
+                                "make every component of `{shown}` satisfy `{trait_name}`"
+                            ));
+                        }
+                    }
                 } else {
                     let has = self.c.traits_of(con);
-                    if has.is_empty() {
-                        note = Some(format!(
-                            "conformance is declared, so add `derive {trait_name} for {shown};`                              in its module, or write an `impl`"
-                        ));
-                    } else {
+                    if !has.is_empty() {
                         note = Some(format!(
                             "`{shown}` implements {}, but not `{trait_name}`",
-                            has.into_iter().collect::<Vec<_>>().join(", ")
+                            crate::diag::names(&has.into_iter().collect::<Vec<_>>())
                         ));
                     }
+                    fix = Some(format!(
+                        "add `derive {trait_name} for {shown};` in that type's own module, or \
+                         write `impl {trait_name} for {shown} {{ ... }}` there"
+                    ));
                 }
             }
+            let fix = fix.unwrap_or_else(|| {
+                format!("bound the type parameter with `{trait_name}`, or use a type that has one")
+            });
             let d = self.err(span, format!("`{shown}` does not satisfy `{trait_name}`"));
+            d.fix(fix);
             if let Some(n) = note {
                 d.notes.push(n);
             }
@@ -659,6 +680,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                     lit.span,
                     format!("{raw} is not representable in `{name}`"),
                 );
+                d = d
+                    .with_mismatch(format!("a value `{name}` can hold"), raw.clone())
+                    .with_fix(if lit.negative && !p.is_signed() {
+                        format!("use a signed type, or drop the sign; `{name}` starts at 0")
+                    } else {
+                        format!(
+                            "write a value inside `{name}`'s range, or annotate a wider type"
+                        )
+                    });
                 if lit.negative && !p.is_signed() {
                     d = d.with_note(format!("`{name}` has no negative values"));
                 } else {
@@ -689,13 +719,48 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !ok {
                 let shown = show(&self.c.tables, Some(&self.subst), &self.generics, &resolved);
                 self.c.diags.push(
-                    Diagnostic::error(span, format!("`{shown}` cannot be interpolated")).with_note(
-                        "a hole holds an `Int`, a `Float`, a `Bool`, a `Char`, or a `Str`; \
-                         convert explicitly, for instance with `.show(ctx)`",
-                    ),
+                    Diagnostic::error(span, format!("`{shown}` cannot be interpolated"))
+                        .with_fix("render it first, for instance with `.show(ctx)`")
+                        .with_note(
+                            "a hole holds an `Int`, a `Float`, a `Bool`, a `Char`, or a `Str`",
+                        ),
                 );
             }
         }
+    }
+}
+
+/// The conversion to reach for, named exactly. Which one it is depends on
+/// whether the value can fail to fit, so a generic "convert it" would leave the
+/// reader to work out the return type for themselves.
+fn numeric_fix(actual: &str, expected: &str) -> String {
+    // A literal has not been pinned to a type yet, so an annotation is the
+    // edit, not a conversion.
+    if actual.starts_with('{') {
+        return format!("annotate the literal, as in `let x: {expected} = ...`");
+    }
+    if expected.starts_with('{') {
+        return format!("write a literal of the right kind, or convert with `.to{actual}()`");
+    }
+    let exact = matches!(
+        (actual, expected),
+        ("I8", "I16" | "I32" | "I64" | "I128" | "F64")
+            | ("I16", "I32" | "I64" | "I128" | "F64")
+            | ("I32", "I64" | "I128" | "F64")
+            | ("I64", "I128")
+            | ("U8", "U16" | "U32" | "U64" | "U128" | "I16" | "I32" | "I64" | "I128" | "F64")
+            | ("U16", "U32" | "U64" | "U128" | "I32" | "I64" | "I128" | "F64")
+            | ("U32", "U64" | "U128" | "I64" | "I128" | "F64")
+            | ("U64", "U128" | "I128")
+            | ("F32", "F64")
+    );
+    if exact {
+        format!("convert explicitly: `.to{expected}()`, which is exact for every `{actual}`")
+    } else {
+        format!(
+            "convert explicitly with `.to{expected}()?`, which returns a \
+             `Result<{expected}, RangeError>` because not every `{actual}` fits"
+        )
     }
 }
 

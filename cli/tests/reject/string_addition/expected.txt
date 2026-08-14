@@ -1,0 +1,8 @@
+error: `Str` does not implement `Add`
+ --> cmd/string_addition/main.buri:6:3
+  |
+6 |   a + b
+  |   ^^^^^
+  |
+  = conformance is nominal: a type satisfies a trait only where a declaration says so
+  = fix: add `derive Add for Str;` in that type's own module, or write `impl Add for Str { ... }` there

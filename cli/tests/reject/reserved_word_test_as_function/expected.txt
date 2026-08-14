@@ -1,0 +1,18 @@
+error: expected an identifier, found `test`
+ --> cmd/reserved_word_test_as_function/main.buri:5:4
+  |
+5 | fn test(n: Int): Int { n }
+  |    ^^^^
+  |
+  = expected: an identifier
+  = actual: `test`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a string literal, found `(`
+ --> cmd/reserved_word_test_as_function/main.buri:5:8
+  |
+5 | fn test(n: Int): Int { n }
+  |        ^
+  |
+  = expected: a string literal
+  = actual: `(`
+  = fix: quote it, as in `"core/list"`

@@ -1,0 +1,1 @@
+{"severity":"error","message":"this pattern does not match every value of its type","location":{"file":"cmd/refutable_let_pattern/main.buri","line":6,"column":7,"endLine":6,"endColumn":15,"text":"  let .Some(n) = o;"},"fix":"use `match`, which makes you say what the other cases do","notes":["a `let` binds unconditionally, so its pattern has to be irrefutable"],"related":[]}

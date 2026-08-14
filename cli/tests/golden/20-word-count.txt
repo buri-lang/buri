@@ -1,7 +1,0 @@
-# ARGS: words.txt --top 4
-11 words, 8 distinct
-
-the    3
-fox    2
-brown  1
-dog    1

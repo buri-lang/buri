@@ -1,0 +1,8 @@
+error: a `test` declaration is legal only in a test source
+ --> cmd/test_declaration_in_program/main.buri:5:1
+  |
+5 | test "a test in a binary source" {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a module is a test source because a rule lists it in `test.sources`; that is the only thing that makes one
+  = fix: move it into a file listed in the target's `test.sources`

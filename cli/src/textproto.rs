@@ -124,7 +124,9 @@ pub fn parse(text: &str, file: FileId) -> ParsedProto {
     let trailing = std::mem::take(&mut p.comments);
     if p.pos < p.src.len() {
         let span = Span::new(file, p.pos, p.src.len());
-        p.errors.push(Diagnostic::error(span, "expected a field"));
+        p.errors.push(Diagnostic::error(span, "expected a field").with_fix(
+            "a build file is a list of `name: value` and `name { ... }` fields",
+        ));
     }
     ParsedProto { doc: Doc { fields, trailing }, errors: p.errors }
 }
@@ -145,9 +147,11 @@ impl<'a> Parser<'a> {
         *self.src.get(self.pos).unwrap_or(&0)
     }
 
-    fn err(&mut self, span: Span, msg: impl Into<String>) {
+    /// Every textproto error carries the edit that resolves it, the same way
+    /// every source diagnostic does.
+    fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
         if self.errors.len() < 32 {
-            self.errors.push(Diagnostic::error(span, msg));
+            self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
         }
     }
 
@@ -227,7 +231,11 @@ impl<'a> Parser<'a> {
             self.msg_value()?
         } else {
             let span = Span::new(self.file, self.pos, self.pos + 1);
-            self.err(span, format!("expected `:` or `{{` after `{name}`"));
+            self.err(
+            span,
+            format!("expected `:` or `{{` after `{name}`"),
+            "write `: value` for a scalar or a list, or `{{ ... }}` for a block",
+        );
             return None;
         };
 
@@ -249,7 +257,11 @@ impl<'a> Parser<'a> {
         if self.pos == start {
             let span = Span::new(self.file, start, start + 1);
             let found = self.text[start..].chars().next().unwrap_or(' ').to_string();
-            self.err(span, format!("expected a field name, found `{found}`"));
+            self.err(
+                span,
+                format!("expected a field name, found `{found}`"),
+                "name a field the schema declares",
+            );
             return None;
         }
         Some(self.text[start..self.pos].to_string())
@@ -261,7 +273,11 @@ impl<'a> Parser<'a> {
         self.depth += 1;
         if self.depth > 32 {
             let span = Span::new(self.file, start, self.pos);
-            self.err(span, "message nests too deeply");
+            self.err(
+                span,
+                "message nests too deeply",
+                "flatten it; the limit exists so a pathological file cannot exhaust the reader's stack",
+            );
             self.depth -= 1;
             return None;
         }
@@ -270,7 +286,7 @@ impl<'a> Parser<'a> {
         self.depth -= 1;
         if self.peek() != b'}' {
             let span = Span::new(self.file, start, self.pos);
-            self.err(span, "unterminated message");
+            self.err(span, "unterminated message", "close it with `}`");
             return None;
         }
         self.pos += 1;
@@ -286,7 +302,7 @@ impl<'a> Parser<'a> {
                 loop {
                     if self.pos >= self.src.len() || self.peek() == b'\n' {
                         let span = Span::new(self.file, start, self.pos);
-                        self.err(span, "unterminated string");
+                        self.err(span, "unterminated string", "close it with a quote");
                         return None;
                     }
                     match self.peek() {
@@ -322,7 +338,7 @@ impl<'a> Parser<'a> {
                     self.skip_trivia();
                     if self.pos >= self.src.len() {
                         let span = Span::new(self.file, start, self.pos);
-                        self.err(span, "unterminated list");
+                        self.err(span, "unterminated list", "close it with `]`");
                         return None;
                     }
                     if self.peek() == b']' {
@@ -361,7 +377,7 @@ impl<'a> Parser<'a> {
                     Err(_) => {
                         let span = Span::new(self.file, start, self.pos);
                         let raw = raw.to_string();
-                        self.err(span, format!("`{raw}` is not a number"));
+                        self.err(span, format!("`{raw}` is not a number"), "write a decimal integer, or quote it if it is meant to be text");
                         None
                     }
                 }
@@ -373,7 +389,11 @@ impl<'a> Parser<'a> {
             _ => {
                 let span = Span::new(self.file, self.pos, self.pos + 1);
                 let found = self.text[self.pos..].chars().next().unwrap_or(' ').to_string();
-                self.err(span, format!("expected a value, found `{found}`"));
+                self.err(
+                span,
+                format!("expected a value, found `{found}`"),
+                "write a string, a number, a bare word, a `[list]`, or a `{{ block }}`",
+            );
                 None
             }
         }

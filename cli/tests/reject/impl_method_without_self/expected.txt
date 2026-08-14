@@ -1,0 +1,8 @@
+error: `unit` is in an `impl` block but takes no `self`
+  --> cmd/impl_method_without_self/main.buri:10:6
+   |
+10 |   fn unit(): Square { Square { side: 1 } }
+   |      ^^^^
+   |
+   = an `impl` block declares methods; a function with no receiver is declared at the top level
+   = fix: give it a `self` parameter, or move it out of the `impl` block

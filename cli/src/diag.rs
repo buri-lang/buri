@@ -10,8 +10,26 @@
 //!  3 | from "//lib/money" import { Cents, format };
 //!    |      ^^^^^^^^^^^^^
 //!    |
-//!    = add "//lib/money" to deps in cmd/server/BUILD.buri
+//!    = expected: a module path this target may see
+//!    = actual: //lib/money, which is not among cmd/server's dependencies
+//!    = fix: add "//lib/money" to deps in cmd/server/BUILD.buri
 //! ```
+//!
+//! Four things every diagnostic answers, in a fixed order, so that neither a
+//! person nor a program has to infer any of them:
+//!
+//! * **where** — the span, rendered as a caret under the source line
+//! * **expected** — what the language required at that location
+//! * **actual** — what the source says instead
+//! * **fix** — the concrete edit that resolves it
+//!
+//! `expected` and `actual` are omitted where the error is not a mismatch (a
+//! duplicate declaration has no "expected"), but `fix` is not: if a diagnostic
+//! cannot say what to do about it, it is not finished. The reject corpus
+//! asserts exactly that, case by case.
+//!
+//! [`Diagnostic::to_json`] renders the same content as one JSON object per
+//! line, for `buri <cmd> --error-format=json`.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -103,9 +121,16 @@ pub struct Diagnostic {
     pub span: Span,
     /// Text printed beside the carets.
     pub label: Option<String>,
-    /// The `= ...` lines beneath the snippet. These carry the "what to do
-    /// about it" half of every diagnostic in the spec.
+    /// What the language required at this location. `None` where the error is
+    /// not a mismatch and inventing one would be noise.
+    pub expected: Option<String>,
+    /// What the source says instead.
+    pub actual: Option<String>,
+    /// The `= ...` lines beneath the snippet: the background a reader needs,
+    /// as opposed to the edit, which is `fix`.
     pub notes: Vec<String>,
+    /// The concrete edit that resolves this. Every diagnostic has one.
+    pub fix: Option<String>,
     pub subs: Vec<SubSpan>,
     /// Lint name, for `buri lint` output.
     pub code: Option<String>,
@@ -118,7 +143,10 @@ impl Diagnostic {
             message: message.into(),
             span,
             label: None,
+            expected: None,
+            actual: None,
             notes: Vec::new(),
+            fix: None,
             subs: Vec::new(),
             code: None,
         }
@@ -148,6 +176,22 @@ impl Diagnostic {
         self
     }
 
+    pub fn with_fix(mut self, fix: impl Into<String>) -> Diagnostic {
+        self.fix = Some(fix.into());
+        self
+    }
+
+    /// The two halves of a mismatch, which are almost always set together.
+    pub fn with_mismatch(
+        mut self,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> Diagnostic {
+        self.expected = Some(expected.into());
+        self.actual = Some(actual.into());
+        self
+    }
+
     /// The in-place forms, for use on the `&mut Diagnostic` a sink hands back.
     pub fn note(&mut self, note: impl Into<String>) -> &mut Diagnostic {
         self.notes.push(note.into());
@@ -161,6 +205,21 @@ impl Diagnostic {
 
     pub fn label(&mut self, label: impl Into<String>) -> &mut Diagnostic {
         self.label = Some(label.into());
+        self
+    }
+
+    pub fn fix(&mut self, fix: impl Into<String>) -> &mut Diagnostic {
+        self.fix = Some(fix.into());
+        self
+    }
+
+    pub fn mismatch(
+        &mut self,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> &mut Diagnostic {
+        self.expected = Some(expected.into());
+        self.actual = Some(actual.into());
         self
     }
 
@@ -296,21 +355,101 @@ impl SourceMap {
             for sub in &d.subs {
                 self.render_snippet(&mut out, sub.span, Some(&sub.label), c_blue, c_blue, c_reset);
             }
+            // The `=` sits in the gutter column, directly under the `|`s above
+            // it, so the left edge of the block is a straight line.
             let gutter = self.gutter_width(d);
-            for note in &d.notes {
-                let mut lines = note.lines();
+            for line in Self::trailer(d) {
+                let mut lines = line.lines();
                 if let Some(first) = lines.next() {
-                    let _ = writeln!(out, "{:w$} {c_blue}={c_reset} {first}", "", w = gutter);
+                    let _ = writeln!(out, "{:w$}{c_blue}={c_reset} {first}", "", w = gutter);
                 }
                 for cont in lines {
-                    let _ = writeln!(out, "{:w$}   {cont}", "", w = gutter);
+                    let _ = writeln!(out, "{:w$}  {cont}", "", w = gutter);
                 }
             }
         } else {
-            for note in &d.notes {
-                let _ = writeln!(out, "  = {note}");
+            for line in Self::trailer(d) {
+                let _ = writeln!(out, "  = {line}");
             }
         }
+        out
+    }
+
+    /// The `= ...` block, in the order a reader needs it: what was required,
+    /// what is there, why, and then what to do — the last line being the one
+    /// to act on.
+    fn trailer(d: &Diagnostic) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(e) = &d.expected {
+            out.push(format!("expected: {e}"));
+        }
+        if let Some(a) = &d.actual {
+            out.push(format!("actual: {a}"));
+        }
+        out.extend(d.notes.iter().cloned());
+        if let Some(f) = &d.fix {
+            out.push(format!("fix: {f}"));
+        }
+        out
+    }
+
+    /// One JSON object per diagnostic, for `--error-format=json`.
+    ///
+    /// The shape is flat and the field names are the questions they answer, so
+    /// a consumer needs no schema to use it: `severity`, `message`,
+    /// `location`, `expected`, `actual`, `notes`, `fix`, and `related`. The
+    /// content is the same as the human form; the rendering is not repeated
+    /// here, because a consumer of this wants the fields, not a picture of
+    /// them.
+    pub fn to_json(&self, d: &Diagnostic) -> String {
+        let mut out = String::from("{");
+        let _ = write!(out, "\"severity\":{}", json_str(d.severity.label()));
+        let _ = write!(out, ",\"message\":{}", json_str(&d.message));
+        if let Some(code) = &d.code {
+            let _ = write!(out, ",\"code\":{}", json_str(code));
+        }
+        out.push_str(",\"location\":");
+        out.push_str(&self.json_location(d.span, d.label.as_deref()));
+        for (key, value) in [("expected", &d.expected), ("actual", &d.actual), ("fix", &d.fix)] {
+            if let Some(v) = value {
+                let _ = write!(out, ",\"{key}\":{}", json_str(v));
+            }
+        }
+        out.push_str(",\"notes\":[");
+        for (i, n) in d.notes.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&json_str(n));
+        }
+        out.push_str("],\"related\":[");
+        for (i, sub) in d.subs.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&self.json_location(sub.span, Some(&sub.label)));
+        }
+        out.push(']');
+        out.push('}');
+        out
+    }
+
+    fn json_location(&self, span: Span, label: Option<&str>) -> String {
+        if span.is_none() {
+            return "null".into();
+        }
+        let f = self.get(span.file);
+        let (line, column) = f.line_col(span.start);
+        let (end_line, end_column) = f.line_col(span.end);
+        let mut out = String::from("{");
+        let _ = write!(out, "\"file\":{}", json_str(&f.name));
+        let _ = write!(out, ",\"line\":{line},\"column\":{column}");
+        let _ = write!(out, ",\"endLine\":{end_line},\"endColumn\":{end_column}");
+        let _ = write!(out, ",\"text\":{}", json_str(f.line_text(line)));
+        if let Some(l) = label {
+            let _ = write!(out, ",\"label\":{}", json_str(l));
+        }
+        out.push('}');
         out
     }
 
@@ -380,6 +519,40 @@ impl SourceMap {
     }
 }
 
+/// A JSON string literal. There is no serde here, on purpose: the toolchain
+/// has no dependencies, and this is the whole of what it needs.
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Joins names for a message, each in backticks: ``a``, ``b`` and ``c``. Every
+/// other identifier in a diagnostic is quoted, and a list of them should not be
+/// the exception.
+pub fn names(items: &[String]) -> String {
+    let quoted: Vec<String> = items.iter().map(|n| format!("`{n}`")).collect();
+    match quoted.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 /// A diagnostic sink that keeps errors in source order and deduplicates.
 #[derive(Default)]
 pub struct Diagnostics {
@@ -424,5 +597,86 @@ impl Diagnostics {
             let name = if d.span.is_none() { String::new() } else { map.name(d.span.file).to_string() };
             (name, d.span.start, d.severity == Severity::Warning)
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn one_file() -> (SourceMap, FileId) {
+        let mut map = SourceMap::new();
+        let id = map.add(
+            "cmd/x/main.buri",
+            PathBuf::from("/tmp/main.buri"),
+            "fn f(): Int {\n  a + b\n}\n".to_string(),
+        );
+        (map, id)
+    }
+
+    #[test]
+    fn the_trailer_reads_expected_actual_notes_then_fix() {
+        let (map, id) = one_file();
+        let d = Diagnostic::error(Span::new(id, 16, 21), "expected `I32`, found `I64`")
+            .with_mismatch("`I32`", "`I64`")
+            .with_note("there is no implicit promotion of any kind")
+            .with_fix("convert explicitly with `.toI32()?`");
+        let text = map.render(&d, false);
+        let trailer: Vec<&str> =
+            text.lines().filter_map(|l| l.trim_start().strip_prefix("= ")).collect();
+        assert_eq!(
+            trailer,
+            vec![
+                "expected: `I32`",
+                "actual: `I64`",
+                "there is no implicit promotion of any kind",
+                "fix: convert explicitly with `.toI32()?`",
+            ],
+            "the fix is last, because it is the line to act on"
+        );
+    }
+
+    #[test]
+    fn the_gutter_is_a_straight_line() {
+        let (map, id) = one_file();
+        let d = Diagnostic::error(Span::new(id, 16, 21), "no")
+            .with_fix("do something else");
+        // Every `|` and every `=` sits in the same column.
+        let columns: Vec<usize> = map
+            .render(&d, false)
+            .lines()
+            .filter(|l| l.contains('|') || l.trim_start().starts_with('='))
+            .map(|l| l.find(['|', '=']).unwrap())
+            .collect();
+        assert!(columns.windows(2).all(|w| w[0] == w[1]), "ragged gutter: {columns:?}");
+    }
+
+    #[test]
+    fn json_omits_what_does_not_apply() {
+        let (map, id) = one_file();
+        let d = Diagnostic::error(Span::new(id, 16, 17), "nope").with_fix("do it differently");
+        let json = map.to_json(&d);
+        assert!(json.contains(r#""severity":"error""#));
+        assert!(json.contains(r#""fix":"do it differently""#));
+        assert!(json.contains(r#""line":2,"column":3"#));
+        assert!(json.contains(r#""text":"  a + b""#));
+        // Absent means "not applicable", so the keys are not emitted at all.
+        assert!(!json.contains("expected"), "{json}");
+        assert!(!json.contains("actual"), "{json}");
+        assert!(!json.contains("rendered"), "{json}");
+        assert!(json.ends_with('}') && json.starts_with('{'));
+        assert!(!json.contains('\n'), "one diagnostic is one line");
+    }
+
+    #[test]
+    fn json_escapes_what_would_break_the_line() {
+        let mut map = SourceMap::new();
+        let id = map.add("a.buri", PathBuf::new(), "let s = \"x\";\n".to_string());
+        let d = Diagnostic::error(Span::new(id, 8, 11), "a \"quoted\" thing\twith a tab")
+            .with_fix("mind the \\ backslash");
+        let json = map.to_json(&d);
+        assert!(json.contains(r#"a \"quoted\" thing\twith a tab"#), "{json}");
+        assert!(json.contains(r#"mind the \\ backslash"#), "{json}");
+        assert!(!json.contains('\t'));
     }
 }

@@ -1,0 +1,8 @@
+error: `Self` is legal only inside a `trait` or `impl`
+ --> cmd/self_type_outside_trait/main.buri:5:22
+  |
+5 | fn identity(x: Int): Self { x }
+  |                      ^^^^
+  |
+  = `Self` stands for the implementing type, and there is none here
+  = fix: name the type itself here

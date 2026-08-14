@@ -31,10 +31,11 @@ quietly eroding them.
 
 - [`SPEC.md`](./SPEC.md) — the language reference
 - [`grammar.ebnf`](./grammar.ebnf) — the normative grammar, in extended BNF
-- [`examples/`](./examples/) — twenty-two annotated example programs
 - [`build-system/`](./build-system/) — the monorepo build system: `BUILD.buri`
   files, library and binary targets, visibility, tags, hermetic incremental
-  builds, and one CLI
+  builds, and one CLI. [`build-system/example/`](./build-system/example/) is a
+  worked monorepo, and the largest body of Buri here to read.
+- [`cli/tests/`](./cli/tests/) — how the toolchain is held to all of the above
 
 ```buri
 from "core/list" import * as list;

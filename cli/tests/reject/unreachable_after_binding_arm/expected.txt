@@ -1,0 +1,8 @@
+error: this arm is unreachable
+ --> cmd/unreachable_after_binding_arm/main.buri:8:5
+  |
+8 |     .None => 0,
+  |     ^^^^^^^^^^
+  |
+  = the arms before it already cover everything it matches
+  = fix: delete it, or move it above the arm that subsumes it

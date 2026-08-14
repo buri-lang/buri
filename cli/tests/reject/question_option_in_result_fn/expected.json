@@ -1,0 +1,1 @@
+{"severity":"error","message":"`?` on an `Option` needs an `Option` return type, not `Result<I64, Str>`","location":{"file":"cmd/question_option_in_result_fn/main.buri","line":6,"column":11,"endLine":6,"endColumn":22,"text":"  let n = xs.first()?;"},"fix":"return an `Option` from this function, or turn absence into an error with `.okOr(e)?`","notes":[],"related":[]}

@@ -1,0 +1,8 @@
+error: comparison operators are non-associative
+ --> cmd/chained_comparison/main.buri:6:9
+  |
+6 |   a < b < c
+  |         ^
+  |
+  = write `a < b && b < c` rather than `a < b < c`
+  = fix: write `a < b && b < c` rather than `a < b < c`

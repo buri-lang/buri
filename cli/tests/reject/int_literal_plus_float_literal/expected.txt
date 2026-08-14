@@ -1,0 +1,20 @@
+error: expected `F64`, found `{integer}`
+ --> cmd/int_literal_plus_float_literal/main.buri:5:19
+  |
+5 | fn mixed(): Float {
+  |                   ^ the declared return type is `F64`
+  |
+  = expected: `F64`
+  = actual: `{integer}`
+  = there is no implicit promotion of any kind
+  = fix: annotate the literal, as in `let x: F64 = ...`
+error: expected `{integer}`, found `{float}`
+ --> cmd/int_literal_plus_float_literal/main.buri:6:7
+  |
+6 |   1 + 1.0
+  |       ^^^ the left operand's type is `{integer}`
+  |
+  = expected: `{integer}`
+  = actual: `{float}`
+  = there is no implicit promotion of any kind
+  = fix: annotate the literal, as in `let x: {integer} = ...`

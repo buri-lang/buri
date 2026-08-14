@@ -46,7 +46,7 @@ pub fn build_target(
                 output.span,
                 format!("the {} backend is not implemented", platform.slug()),
             )
-            .with_note("this toolchain emits JavaScript; build with `--output=js`"),
+            .with_fix("this toolchain emits JavaScript; build with `--output=js`"),
         );
         return Err(diags);
     }
@@ -78,7 +78,7 @@ pub fn build_target(
     let Some(entry) = analysis.checked.entry else {
         diags.push(
             Diagnostic::error(Span::NONE, format!("{} exports no `main`", s.ws.pkg(target.pkg).label()))
-                .with_note("a binary's `main.buri` must export `main`"),
+                .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
         );
         return Err(diags);
     };
@@ -101,7 +101,10 @@ pub fn build_target(
         let _ = std::fs::create_dir_all(parent);
     }
     if let Err(e) = std::fs::write(&path, &source) {
-        diags.push(Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display())));
+        diags.push(
+            Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
+                .with_fix("check the directory exists and is writable"),
+        );
         return Err(diags);
     }
     link_out_symlink(s, output);
@@ -204,7 +207,7 @@ pub fn emit(
                 Span::NONE,
                 format!("the runtime has no implementation of {}", unique.join(", ")),
             )
-            .with_note("this is a toolchain bug, not a problem with your program"),
+            .with_fix("report it: this is a toolchain bug, not a problem with your program"),
         );
         return Err(std::mem::take(diags));
     }
@@ -277,8 +280,8 @@ pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) 
                 Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
                     .with_label("not visible")
                     .with_note(format!("{to} is visible to: {}", s.ws.visibility_list(dep)))
-                    .with_note(format!(
-                        "to allow this, add \"{from}\" to visibility in {to_path}/BUILD.buri"
+                    .with_fix(format!(
+                        "add \"{from}\" to visibility in {to_path}/BUILD.buri"
                     )),
             );
         }
@@ -297,9 +300,10 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
                 let known: Vec<&str> =
                     s.ws.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
                 let mut d = Diagnostic::error(tag.span, format!("unknown tag \"{}\"", tag.value))
-                    .with_note("no `tag` block in REPO.buri declares this name");
+                    .with_note("no `tag` block in REPO.buri declares this name")
+                    .with_fix("declare it with a `tag` block in REPO.buri, or drop it here");
                 if let Some(near) = crate::buildfile::nearest(&tag.value, &known) {
-                    d = d.with_note(format!("did you mean \"{near}\"?"));
+                    d = d.with_fix(format!("did you mean \"{near}\"?"));
                 }
                 diags.push(d);
             }
@@ -321,7 +325,10 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
     let mut d = Diagnostic::error(
         span,
         format!("{label} cannot contain both \"{a}\" and \"{b}\" code"),
-    );
+    )
+    .with_fix(format!(
+        "drop one of the two dependencies, or split {label} into a target per side"
+    ));
     d = d.with_note(if a_by == target {
         format!("\"{a}\" is carried by {label} itself")
     } else {
@@ -374,7 +381,11 @@ pub fn check_platform(
     let mut d = Diagnostic::error(
         span,
         format!("{label} cannot be built for {}", platform.slug()),
-    );
+    )
+    .with_fix(format!(
+        "drop the {} output, or widen the tag's `requires {{ platforms }}` in REPO.buri",
+        platform.slug()
+    ));
     if let Some((blocker, why)) = s.ws.platform_blocker(target, platform) {
         d = d.with_note(why);
         if let Some(path) = s.ws.dep_path(target, blocker) {

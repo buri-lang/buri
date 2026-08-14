@@ -1,0 +1,16 @@
+error: expected an identifier, found `5`
+ --> cmd/float_literal_leading_dot/main.buri:7:15
+  |
+7 |   let half = .5;
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `5`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `half` in scope
+ --> cmd/float_literal_leading_dot/main.buri:8:26
+  |
+8 |   let _ = ctx.println("${half}");
+  |                          ^^^^
+  |
+  = fix: declare `half`, or import it — a name is in scope only from this module's own declarations and its imports

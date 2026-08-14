@@ -1,0 +1,8 @@
+error: "core/list" does not export `notAThing`
+ --> cmd/reexport_name_not_exported/main.buri:4:27
+  |
+4 | from "core/list" export { notAThing };
+  |                           ^^^^^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: add `export` to `notAThing`'s declaration in "core/list", or drop it from this list

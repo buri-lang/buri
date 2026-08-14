@@ -1,0 +1,8 @@
+error: an expression statement is legal only in a test source
+ --> cmd/expression_statement_in_program/main.buri:7:3
+  |
+7 |   ctx.println("hi");
+  |   ^^^^^^^^^^^^^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression

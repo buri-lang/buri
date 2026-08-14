@@ -263,7 +263,7 @@ impl Workspace {
                         Span::point(id, 0),
                         format!("//{path} declares neither a library nor a binary"),
                     )
-                    .with_note("a build file with no rule declares no target; delete it, or add `library {}`"),
+                    .with_fix("add a `library { }` or `binary { }` rule, or delete the build file"),
                 );
             }
             packages.push(Package {
@@ -323,8 +323,8 @@ impl Workspace {
                             p.path, parent
                         ),
                     )
-                    .with_note(format!(
-                        "the module path \"//{}\" would name both; rename one",
+                    .with_fix(format!(
+                        "the module path \"//{}\" would name both; rename one of them",
                         p.path
                     )),
                 );

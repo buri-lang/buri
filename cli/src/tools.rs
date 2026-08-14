@@ -143,7 +143,7 @@ pub fn cmd_lint(args: &cli::Args) -> i32 {
     let mut errors = 0;
     let mut warnings = 0;
     for d in &diags.items {
-        eprint!("{}", s.map.render(d, s.color));
+        s.emit(d);
         if d.is_error() {
             errors += 1;
         } else {
@@ -176,6 +176,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
         diags.push(
             Diagnostic::error(span, format!("{label} can never be built"))
                 .with_code("platform-violation")
+                .with_fix("widen a tag's `requires { platforms }` in REPO.buri, or drop the dependency that narrows it to nothing")
                 .with_note("its dependency closure admits no platform at all"),
         );
         return;
@@ -222,6 +223,7 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
                         format!("{} is listed by two rules", declared[j].0),
                     )
                     .with_code("duplicate-source")
+                    .with_fix("list it under one rule only")
                     .with_sub(declared[i].1, "first listed here"),
                 );
             }
@@ -246,8 +248,11 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
                 format!("{}/{rel} is not declared by any rule", p.path),
             )
             .with_code("undeclared-source")
-            .with_note("add it to the library's sources, or delete it")
-            .with_note(format!("run `buri gen //{}` to do this automatically", p.path)),
+            .with_fix(format!(
+                "add it to a rule's `sources`, or delete it — `buri gen //{}` does this \
+                 automatically",
+                p.path
+            )),
         );
     }
 }
@@ -328,8 +333,10 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
                         format!("{importer} imports {wanted}, which is not in dependencies"),
                     )
                     .with_code("missing-dep")
-                    .with_note(format!("add \"{wanted}\" to dependencies in {pkg_path}/BUILD.buri"))
-                    .with_note(format!("run `buri gen //{pkg_path}` to do this automatically")),
+                    .with_fix(format!(
+                        "add \"{wanted}\" to dependencies in {pkg_path}/BUILD.buri — \
+                         `buri gen //{pkg_path}` does this automatically"
+                    )),
                 );
             }
         }
@@ -340,6 +347,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
             diags.push(
                 Diagnostic::error(d.span, format!("{} is declared but nothing uses it", d.value))
                     .with_code("unused-dep")
+                    .with_fix("remove it from `dependencies`")
                     .with_note("a dependencies entry no source uses makes the graph a description of something other than the code"),
             );
         }
@@ -426,7 +434,8 @@ fn check_cycles(s: &Session, diags: &mut Diagnostics) {
                         span.unwrap_or(Span::point(s.ws.pkg(t.pkg).build_file_id, 0)),
                         format!("{a} and {b} depend on each other"),
                     )
-                    .with_code("dep-cycle"),
+                    .with_code("dep-cycle")
+                    .with_fix("break the cycle: move what both need into a third target"),
                 );
             }
         }
@@ -480,7 +489,7 @@ pub fn cmd_gen(args: &cli::Args) -> i32 {
             }
             Ok(None) => {}
             Err(d) => {
-                eprint!("{}", s.map.render(&d, s.color));
+                s.emit(&d);
                 return 1;
             }
         }

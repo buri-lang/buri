@@ -1,0 +1,14 @@
+error: `self` may appear only as a function's first parameter
+ --> cmd/self_not_first_parameter/main.buri:7:24
+  |
+7 | fn scaled(factor: Int, self: Square): Int {
+  |                        ^^^^
+  |
+  = fix: move it to the front, or rename it if this parameter is not the receiver
+error: `self` may appear only as the first parameter
+ --> cmd/self_not_first_parameter/main.buri:7:24
+  |
+7 | fn scaled(factor: Int, self: Square): Int {
+  |                        ^^^^^^^^^^^^
+  |
+  = fix: move it to the front, or rename it if this parameter is not the receiver

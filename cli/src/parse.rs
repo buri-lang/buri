@@ -120,12 +120,34 @@ impl Parser {
         }
     }
 
-    fn error(&mut self, span: Span, msg: impl Into<String>) {
+    /// Every parser error carries the edit that resolves it. `fix` is the
+    /// third argument rather than something a caller may add later, so a new
+    /// error site cannot forget one.
+    fn error(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
         // One syntax error usually causes several; the first is the useful one.
         if self.errors.iter().any(|e| e.span == span) {
             return;
         }
-        self.errors.push(Diagnostic::error(span, msg));
+        self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
+    }
+
+    /// A syntax error is always a mismatch: the grammar admits one thing here
+    /// and the source has another.
+    fn expected(
+        &mut self,
+        span: Span,
+        want: impl std::fmt::Display,
+        found: impl std::fmt::Display,
+        fix: impl Into<String>,
+    ) {
+        if self.errors.iter().any(|e| e.span == span) {
+            return;
+        }
+        self.errors.push(
+            Diagnostic::error(span, format!("expected {want}, found {found}"))
+                .with_mismatch(want.to_string(), found.to_string())
+                .with_fix(fix),
+        );
     }
 
     fn expect(&mut self, p: Punct) -> PResult<Span> {
@@ -134,7 +156,8 @@ impl Parser {
         } else {
             let found = self.peek().clone();
             let span = self.span();
-            self.error(span, format!("expected `{}`, found {}", p.text(), found));
+            let want = format!("`{}`", p.text());
+            self.expected(span, &want, &found, format!("write {want} here"));
             Err(Bail)
         }
     }
@@ -145,7 +168,8 @@ impl Parser {
         } else {
             let found = self.peek().clone();
             let span = self.span();
-            self.error(span, format!("expected `{}`, found {}", k.text(), found));
+            let want = format!("`{}`", k.text());
+            self.expected(span, &want, &found, format!("write {want} here"));
             Err(Bail)
         }
     }
@@ -158,7 +182,12 @@ impl Parser {
             }
             other => {
                 let span = self.span();
-                self.error(span, format!("expected an identifier, found {other}"));
+                self.expected(
+                    span,
+                    "an identifier",
+                    &other,
+                    "name it: a lowerCamelCase binding, or an UpperCamelCase type",
+                );
                 Err(Bail)
             }
         }
@@ -172,7 +201,7 @@ impl Parser {
             }
             other => {
                 let span = self.span();
-                self.error(span, format!("expected a string literal, found {other}"));
+                self.expected(span, "a string literal", &other, "quote it, as in `\"core/list\"`");
                 Err(Bail)
             }
         }
@@ -182,7 +211,12 @@ impl Parser {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
             let span = self.span();
-            self.error(span, "expression nests too deeply");
+            self.error(
+                span,
+                "expression nests too deeply",
+                "split it with `let` bindings; the limit exists so a pathological \
+                 input cannot exhaust the parser's stack",
+            );
             return Err(Bail);
         }
         Ok(())
@@ -311,19 +345,23 @@ impl Parser {
             // `from "..." export { ... }` after a stray `export`.
             Tok::Kw(Kw::From) if exported => {
                 let span = self.span();
-                self.error(span, "write `from \"...\" export { ... }`, without a leading `export`");
+                self.error(
+                    span,
+                    "write `from \"...\" export { ... }`, without a leading `export`",
+                    "drop the leading `export`: the `export` after the path is the one that \
+                     re-exports",
+                );
                 return Err(Bail);
             }
             other => {
                 let span = self.span();
-                self.error(
+                self.expected(
                     span,
-                    format!("expected a declaration, found {other}"),
-                );
-                self.errors.last_mut().unwrap().notes.push(
-                    "every declaration starts with one of `from` `export` `fn` `struct` `enum` \
-                     `type` `const` `trait` `effect` `impl` `derive` `context` `test`"
-                        .into(),
+                    "a declaration",
+                    &other,
+                    "start it with one of `from` `export` `fn` `struct` `enum` `type` `const` \
+                     `trait` `effect` `impl` `derive` `context` `test` — a module is a list of \
+                     declarations, with no statements between them",
                 );
                 return Err(Bail);
             }
@@ -349,7 +387,12 @@ impl Parser {
             // derivable from the grammar, and the diagnostic says so.
             if !self.is_kw(Kw::As) {
                 let span = self.prev_span();
-                self.error(span, "a namespace import must be named");
+                self.error(
+                    span,
+                    "a namespace import must be named",
+                    "write `import * as list`, so every name it brings in is reached through \
+                     one prefix",
+                );
                 self.errors.last_mut().unwrap().notes.push(
                     "write `import * as name`; bare `import *` is not derivable from the grammar, \
                      so that no identifier enters a module's scope without appearing in that \
@@ -428,7 +471,11 @@ impl Parser {
                 (ParamKind::Normal, self.expect_ident()?)
             };
             if kind == ParamKind::SelfParam && !first {
-                self.error(name.span, "`self` may appear only as a function's first parameter");
+                self.error(
+                    name.span,
+                    "`self` may appear only as a function's first parameter",
+                    "move it to the front, or rename it if this parameter is not the receiver",
+                );
             }
             self.expect(Punct::Colon)?;
             let ty = self.ty()?;
@@ -459,7 +506,13 @@ impl Parser {
         } else if self.is(Punct::Semi) {
             if !self.allow_bodyless {
                 let span = self.span();
-                self.error(span, format!("`{}` has no body", name.name));
+                let n = name.name.clone();
+                self.error(
+                    span,
+                    format!("`{n}` has no body"),
+                    "give it one: `{ ... }`. Only the bundled standard library declares a \
+                     signature with no body, for an operation the runtime supplies",
+                );
                 self.errors
                     .last_mut()
                     .unwrap()
@@ -471,7 +524,7 @@ impl Parser {
         } else {
             let found = self.peek().clone();
             let span = self.span();
-            self.error(span, format!("expected a function body, found {found}"));
+            self.expected(span, "a function body", &found, "write `{ ... }` after the return type");
             return Err(Bail);
         };
         let span = start.to(self.prev_span());
@@ -671,7 +724,11 @@ impl Parser {
             let exported = if self.is_kw(Kw::Export) {
                 if trait_ty.is_some() {
                     let span = self.span();
-                    self.error(span, "an `impl` method is not separately exported");
+                    self.error(
+                    span,
+                    "an `impl` method is not separately exported",
+                    "drop the `export`",
+                );
                     self.errors.last_mut().unwrap().notes.push(
                         "conformance is a property of the type, visible wherever the type is"
                             .into(),
@@ -843,7 +900,11 @@ impl Parser {
             self.expect(Punct::RParen)?;
             if elems.len() < 2 {
                 let span = start.to(self.prev_span());
-                self.error(span, "a tuple type has arity 2 or more");
+                self.error(
+                    span,
+                    "a tuple type has arity 2 or more",
+                    "write the element type on its own for one, or `()` for none",
+                );
                 self.errors
                     .last_mut()
                     .unwrap()
@@ -858,7 +919,7 @@ impl Parser {
             other => {
                 let other = other.clone();
                 let span = self.span();
-                self.error(span, format!("expected a type, found {other}"));
+                self.expected(span, "a type", &other, "name a type here, as in `Int` or `[Str]`");
                 Err(Bail)
             }
         }
@@ -1044,7 +1105,11 @@ impl Parser {
             )
         ) {
             let span = self.span();
-            self.error(span, "comparison operators are non-associative");
+            self.error(
+                span,
+                "comparison operators are non-associative",
+                "write `a < b && b < c` rather than `a < b < c`",
+            );
             self.errors
                 .last_mut()
                 .unwrap()
@@ -1201,7 +1266,11 @@ impl Parser {
         // to produce in a language where `if` is an expression.
         if !self.is_kw(Kw::Else) {
             let span = then.span;
-            self.error(span, "`if` requires an `else` branch");
+            self.error(
+                span,
+                "`if` requires an `else` branch",
+                "add `else { ... }`; an `if` is an expression, so it has a value either way",
+            );
             self.errors.last_mut().unwrap().notes.push(
                 "`if` is an expression, so both branches must produce a value of the same type"
                     .into(),
@@ -1359,7 +1428,11 @@ impl Parser {
                 }
                 let end = self.expect(Punct::RParen)?;
                 if elems.len() < 2 {
-                    self.error(start.to(end), "a tuple has arity 2 or more");
+                    self.error(
+                        start.to(end),
+                        "a tuple has arity 2 or more",
+                        "drop the parentheses for one element, or write `()` for none",
+                    );
                     self.errors
                         .last_mut()
                         .unwrap()
@@ -1370,7 +1443,7 @@ impl Parser {
             }
             other => {
                 let span = self.span();
-                self.error(span, format!("expected an expression, found {other}"));
+                self.expected(span, "an expression", &other, "write a value here");
                 Err(Bail)
             }
         }
@@ -1401,7 +1474,13 @@ impl Parser {
                 }
                 other => {
                     let span = self.span();
-                    self.error(span, format!("expected the rest of the string, found {other}"));
+                    self.expected(
+                        span,
+                        "the rest of the string",
+                        &other,
+                        "close the template: every `${` needs a `}` and the string needs a \
+                         closing quote",
+                    );
                     return Err(Bail);
                 }
             }
@@ -1420,7 +1499,11 @@ impl Parser {
                         Tok::Int(value, raw) => {
                             let index_span = self.bump().span;
                             if value > u32::MAX as u128 {
-                                self.error(index_span, format!("`{raw}` is not a tuple index"));
+                                self.error(
+                                index_span,
+                                format!("`{raw}` is not a tuple index"),
+                                "a tuple index is a plain decimal number, as in `pair.0`",
+                            );
                             }
                             base = Expr::TupleIndex {
                                 base: Box::new(base),
@@ -1434,12 +1517,8 @@ impl Parser {
                             self.error(
                                 span,
                                 format!("`.{raw}` lexes as a float, not two tuple indices"),
+                                "parenthesize the first index: `(t.0).1`",
                             );
-                            self.errors
-                                .last_mut()
-                                .unwrap()
-                                .notes
-                                .push("write `(t.0).1`".into());
                             return Err(Bail);
                         }
                         _ => {
@@ -1475,7 +1554,12 @@ impl Parser {
                     self.bump();
                     if !self.is(Punct::Lt) {
                         let span = self.span();
-                        self.error(span, "expected `<` after `::`");
+                        self.expected(
+                            span,
+                            "`<` after `::`",
+                            "something else",
+                            "write the type arguments, as in `::<Str, C>`",
+                        );
                         self.errors.last_mut().unwrap().notes.push(
                             "explicit type arguments in an expression use the turbofish, \
                              `f::<Int>(x)`"
@@ -1567,7 +1651,12 @@ impl Parser {
                     }
                     other => {
                         let span = self.span();
-                        self.error(span, format!("expected a number after `-`, found {other}"));
+                        self.expected(
+                            span,
+                            "a number after `-`",
+                            &other,
+                            "negation applies to a numeric literal here",
+                        );
                         Err(Bail)
                     }
                 }
@@ -1667,7 +1756,12 @@ impl Parser {
             }
             other => {
                 let span = self.span();
-                self.error(span, format!("expected a pattern, found {other}"));
+                self.expected(
+                    span,
+                    "a pattern",
+                    &other,
+                    "write a pattern: a binding, a literal, `.Variant`, or `_`",
+                );
                 Err(Bail)
             }
         }
@@ -1722,7 +1816,11 @@ impl Parser {
                     None
                 };
                 if rest.is_some() {
-                    self.error(dd, "an array pattern may have at most one rest pattern");
+                    self.error(
+                        dd,
+                        "an array pattern may have at most one rest pattern",
+                        "keep one `..` and match the other elements by position",
+                    );
                 }
                 rest = Some(name);
                 self.eat(Punct::Comma);
@@ -1730,7 +1828,12 @@ impl Parser {
                 // legal, `[..init, last]` is not.
                 if !self.is(Punct::RBracket) {
                     let span = self.span();
-                    self.error(span, "a rest pattern must come last");
+                    self.error(
+                        span,
+                        "a rest pattern must come last",
+                        "move `..` to the end, as in `[first, ..rest]`; matching a prefix is \
+                         what an array pattern does",
+                    );
                     self.errors
                         .last_mut()
                         .unwrap()

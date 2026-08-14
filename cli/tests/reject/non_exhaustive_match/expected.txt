@@ -1,0 +1,8 @@
+error: this `match` does not cover `.Empty`
+ --> cmd/non_exhaustive_match/main.buri:8:3
+  |
+8 |   match (s) {
+  |   ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Empty`, or a `_` arm for everything left

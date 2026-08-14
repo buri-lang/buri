@@ -1,0 +1,7 @@
+error: `main` declares no generic parameters
+ --> cmd/main_with_generic_parameters/main.buri:5:1
+  |
+5 | export fn main<T>(): Result<(), Str> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: drop them: `main` is called by the runtime, so there is nothing to infer them from

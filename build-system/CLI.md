@@ -24,6 +24,10 @@ target in it. With no
 argument, commands operate on the package containing the working directory. All
 commands are safe to run concurrently; a file lock serializes cache writes.
 
+Two flags work on every command: `--color=never` drops the ANSI escapes, and
+`--error-format=json` emits diagnostics as one JSON object per line. See
+[Diagnostics](#diagnostics).
+
 ## `build`
 
 ```
@@ -260,6 +264,64 @@ aware of the build graph: completion inside a `from "//` import offers the
 libraries in `dependencies`, hovering a label shows the target, and an import with no
 matching `dependencies` entry comes with a "add to `dependencies`" code action that edits the
 `BUILD.buri`.
+
+## Diagnostics
+
+Every diagnostic answers four questions, in a fixed order, so neither a person
+nor a program has to infer any of them:
+
+```
+error: expected `I32`, found `I64`
+ --> cmd/report/main.buri:6:7
+  |
+6 |   a + b
+  |       ^ the left operand's type is `I32`
+  |
+  = expected: `I32`
+  = actual: `I64`
+  = there is no implicit promotion of any kind
+  = fix: convert explicitly with `.toI32()?`, which returns a `Result<I32, RangeError>` because not every `I64` fits
+```
+
+| | |
+|---|---|
+| **where** | the span, as a caret under the source line |
+| **expected** | what the language required there |
+| **actual** | what the source says instead |
+| **fix** | the concrete edit that resolves it |
+
+`expected` and `actual` are omitted where the error is not a mismatch — a
+duplicate declaration has no "expected" — but `fix` never is. A diagnostic that
+cannot say what to do about it is not finished, and the reject corpus in
+`cli/tests/reject/` asserts that case by case.
+
+### `--error-format=json`
+
+For editors, CI, and coding agents. One JSON object per diagnostic, one per
+line, on stderr:
+
+```
+buri build //... --error-format=json
+```
+
+```json
+{"severity":"error","message":"this `match` does not cover `.Empty`","location":{"file":"cmd/shapes/main.buri","line":8,"column":3,"endLine":11,"endColumn":4,"text":"  match (s) {","label":"not covered"},"fix":"add an arm for `.Empty`, or a `_` arm for everything left","notes":["every `match` must cover its scrutinee's type"],"related":[]}
+```
+
+| Field | |
+|---|---|
+| `severity` | `error`, `warning`, or `note` |
+| `message` | the one-line summary |
+| `code` | the lint name, on lint findings only |
+| `location` | `file`, `line`, `column`, `endLine`, `endColumn`, the source `text` of that line, and an optional `label`. `null` where the diagnostic is about the invocation rather than a place in a file |
+| `expected`, `actual` | present on a mismatch |
+| `notes` | background, in order |
+| `fix` | the edit to make. Always present |
+| `related` | other locations, each shaped like `location` |
+
+Lines are independent, so a consumer can stream them. Absent fields mean "not
+applicable" rather than "empty", which is why they are omitted rather than
+`null`. `--error-format=json` implies `--color=never`.
 
 ## Exit codes
 

@@ -1,0 +1,8 @@
+error: `Bag`'s `impl Measurable` is missing `isEmptyThing`
+  --> cmd/impl_missing_trait_method/main.buri:12:1
+   |
+12 | impl Measurable for Bag {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = an `impl` supplies every method its trait declares
+   = fix: add `isEmptyThing` to the block, with the signature `Measurable` declares

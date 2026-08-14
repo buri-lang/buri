@@ -1,0 +1,8 @@
+error: `main` must return `Result<(), Str>`
+ --> cmd/main_wrong_return_type/main.buri:5:19
+  |
+5 | export fn main(): Int {
+  |                   ^^^
+  |
+  = `.Ok(())` exits 0; `.Err(msg)` prints `msg` to stderr and exits 1
+  = fix: change the return type to `Result<(), Str>`

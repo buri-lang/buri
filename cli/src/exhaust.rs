@@ -469,7 +469,8 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[hir::Arm], span: S
     for s in reported {
         inf.c.diags.push(
             Diagnostic::error(s, "this arm is unreachable")
-                .with_note("the arms before it already cover everything it matches"),
+                .with_note("the arms before it already cover everything it matches")
+                .with_fix("delete it, or move it above the arm that subsumes it"),
         );
     }
 
@@ -483,11 +484,13 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[hir::Arm], span: S
         let mut d = Diagnostic::error(span, format!("this `match` does not cover `{shown}`"))
             .with_label("not covered");
         if matches!(ctx.all_ctors(scrutinee), None) {
-            d = d.with_note(
-                "exhaustiveness is not attempted over integer or string ranges; add a `_` arm",
-            );
+            d = d
+                .with_note("exhaustiveness is not attempted over integer or string ranges")
+                .with_fix("add a `_` arm");
         } else {
-            d = d.with_note("every `match` must cover its scrutinee's type");
+            d = d
+                .with_note("every `match` must cover its scrutinee's type")
+                .with_fix(format!("add an arm for `{shown}`, or a `_` arm for everything left"));
         }
         inf.c.diags.push(d);
     }

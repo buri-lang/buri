@@ -1,0 +1,10 @@
+error: -129 is not representable in `I8`
+ --> cmd/literal_below_i8_min/main.buri:7:15
+  |
+7 |   let y: I8 = -129;
+  |               ^^^^
+  |
+  = expected: a value `I8` can hold
+  = actual: -129
+  = `I8` holds -128 to 127
+  = fix: write a value inside `I8`'s range, or annotate a wider type

@@ -1,0 +1,8 @@
+error: `side` is already a field of `Square`
+ --> cmd/method_shares_name_with_field/main.buri:8:6
+  |
+8 |   fn side(self: Square): Int {
+  |      ^^^^
+  |
+  = a `.` resolves to a field before a method, so the two may not share a name
+  = fix: rename the method, or rename the field

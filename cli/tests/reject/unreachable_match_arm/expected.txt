@@ -1,0 +1,8 @@
+error: this arm is unreachable
+ --> cmd/unreachable_match_arm/main.buri:9:5
+  |
+9 |     _ => 1,
+  |     ^^^^^^
+  |
+  = the arms before it already cover everything it matches
+  = fix: delete it, or move it above the arm that subsumes it

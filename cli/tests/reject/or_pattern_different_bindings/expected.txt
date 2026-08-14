@@ -1,0 +1,8 @@
+error: or-pattern alternatives must bind the same names
+ --> cmd/or_pattern_different_bindings/main.buri:9:16
+  |
+9 |     .Left(x) | .Right(y) => x,
+  |                ^^^^^^^^^
+  |
+  = it binds `y`, which the others do not
+  = fix: bind the same names in every alternative, or split this into separate arms

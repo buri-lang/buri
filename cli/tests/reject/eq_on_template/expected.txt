@@ -1,0 +1,8 @@
+error: `Template` does not implement `Eq`
+ --> cmd/eq_on_template/main.buri:9:16
+  |
+9 |   let same = a == a;
+  |                ^^
+  |
+  = a Template is a fixed-size view of literal fragments and evaluated holes, not the text it would produce
+  = fix: render both sides first: `str.format(ctx, a) == str.format(ctx, b)`

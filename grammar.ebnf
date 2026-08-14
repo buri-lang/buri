@@ -513,11 +513,11 @@ Keyword         ::= "as"     | "const"  | "context"| "ctx"    | "derive"
 
 (* Reserved but unused in v0.3; rejected by the lexer so that later versions
    can claim them without breaking source compatibility. *)
-ReservedWord    ::= "async"  | "await"  | "break"  | "continue" | "crash"
-                  | "do"     | "in"     | "is"     | "loop"   | "module"
-                  | "mut"    | "opaque" | "panic"  | "pub"    | "return"
-                  | "unreachable"       | "use"    | "when"   | "where"
-                  | "while"  | "with"   | "yield"
+ReservedWord    ::= "async"  | "await"  | "break"  | "continue" | "do"
+                  | "in"     | "is"     | "loop"   | "module" | "mut"
+                  | "opaque" | "panic"  | "pub"    | "return" | "unreachable"
+                  | "use"    | "when"   | "where"  | "while"  | "with"
+                  | "yield"
 
 (* --- Numbers ---------------------------------------------------------------
    A FLOAT must begin with a digit: `.5` is not a literal. This is what makes

@@ -1,0 +1,8 @@
+error: this pattern does not match every value of its type
+ --> cmd/refutable_let_pattern/main.buri:6:7
+  |
+6 |   let .Some(n) = o;
+  |       ^^^^^^^^
+  |
+  = a `let` binds unconditionally, so its pattern has to be irrefutable
+  = fix: use `match`, which makes you say what the other cases do

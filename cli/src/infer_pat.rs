@@ -27,6 +27,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if self.or_bindings.is_none() && self.pattern_names.contains(&name.name) {
                     let n = name.name.clone();
                     self.err(name.span, format!("`{n}` is bound twice in this pattern"))
+                        .fix("rename one of them, or bind one and compare the other in a guard")
                         .note("a name a pattern binds is bound once; to require two positions to be equal, match one and test the other in a guard");
                 }
                 self.pattern_names.push(name.name.clone());
@@ -98,7 +99,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Ty::Error => vec![Ty::Error; elems.len()],
                     other => {
                         let shown = self.show_ty(other);
-                        self.err(span, format!("`{shown}` is not a {}-tuple", elems.len()));
+                        let n = elems.len();
+                        self.err(span, format!("`{shown}` is not a {n}-tuple"))
+                            .fix(format!("match the shape of `{shown}`, not a {n}-tuple"));
                         vec![Ty::Error; elems.len()]
                     }
                 };
@@ -117,7 +120,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Ty::Error => Ty::Error,
                     other => {
                         let shown = self.show_ty(other);
-                        self.err(span, format!("`{shown}` is not an array"));
+                        self.err(span, format!("`{shown}` is not an array"))
+                            .fix(format!("an array pattern matches `[T]`, not `{shown}`"));
                         Ty::Error
                     }
                 };
@@ -127,7 +131,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     name.as_ref().map(|n| {
                         if self.or_bindings.is_none() && self.pattern_names.contains(&n.name) {
                             let dup = n.name.clone();
-                            self.err(n.span, format!("`{dup}` is bound twice in this pattern"));
+                            self.err(n.span, format!("`{dup}` is bound twice in this pattern"))
+                                .fix("rename one of them");
                         }
                         self.pattern_names.push(n.name.clone());
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
@@ -168,23 +173,31 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 these.iter().filter(|n| !first.contains(*n)).collect();
                             let mut note = String::new();
                             if !missing.is_empty() {
+                                let missing: Vec<String> =
+                                    missing.iter().map(|s| s.to_string()).collect();
                                 note.push_str(&format!(
                                     "this alternative does not bind {}",
-                                    missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                                    crate::diag::names(&missing)
                                 ));
                             }
                             if !extra.is_empty() {
                                 if !note.is_empty() {
                                     note.push_str("; ");
                                 }
+                                let extra: Vec<String> =
+                                    extra.iter().map(|s| s.to_string()).collect();
                                 note.push_str(&format!(
-                                    "it binds {} which the others do not",
-                                    extra.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                                    "it binds {}, which the others do not",
+                                    crate::diag::names(&extra)
                                 ));
                             }
                             self.err(
                                 alt.span(),
                                 "or-pattern alternatives must bind the same names",
+                            )
+                            .fix(
+                                "bind the same names in every alternative, or split this into \
+                                 separate arms",
                             )
                             .notes
                             .push(note);
@@ -229,7 +242,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             let Ty::Con(con, args) = ty else {
                 if !ty.is_error() {
                     let shown = self.show_ty(ty);
-                    self.err(span, format!("`{shown}` is not an enum"));
+                    self.err(span, format!("`{shown}` is not an enum"))
+                        .fix("a `.Variant` pattern matches an enum; match this value another way");
                 }
                 return hir::PatKind::Error;
             };
@@ -263,7 +277,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     other => {
                         let want = self.c.tables.tycon(con).name.clone();
                         let shown = self.show_ty(other);
-                        self.err(span, format!("expected `{shown}`, found a `{want}` pattern"));
+                        self.err(span, format!("expected `{shown}`, found a `{want}` pattern"))
+                            .mismatch(format!("`{shown}`"), format!("a `{want}` pattern"))
+                            .fix(format!("match the shape of `{shown}`"));
                         vec![Ty::Error; self.c.tables.tycon(con).arity()]
                     }
                 };
@@ -271,8 +287,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let Some(vname) = variant_name else {
                         let n = self.c.tables.tycon(con).name.clone();
                         self.err(span, format!("`{n}` is an enum; name a variant"))
-                            .notes
-                            .push(format!("write `{n}.Variant` or `.Variant`"));
+                            .fix(format!("write `{n}.Variant` or `.Variant`"));
                         return hir::PatKind::Error;
                     };
                     let Some(index) = self.c.tables.tycon(con).variant_index(vname) else {
@@ -288,6 +303,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => {
                 let shown = path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
                 self.err(span, format!("there is no type `{shown}`"))
+                    .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value")
                     .notes
                     .push(
                         "a bare identifier in a pattern is always a binding; a variant is \
@@ -306,6 +322,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
         let near = crate::buildfile::nearest(name, &refs).map(|s| s.to_string());
         let d = self.err(span, format!("`{ty}` has no variant `{name}`"));
+        d.fix("name a variant the enum declares");
         match near {
             Some(x) => d.notes.push(format!("did you mean `.{x}`?")),
             None if !variants.is_empty() => {
@@ -330,7 +347,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         if owner != self.module && owner.0 != u32::MAX && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
-            self.err(span, format!("variant `{v}` of `{t}` is private to its module"));
+            self.err(span, format!("variant `{v}` of `{t}` is private to its module"))
+                .fix(format!("add `export` to `{v}`, or match through a function `{t}`'s module provides"));
         }
         let fields = self.payload_patterns(&variant.fields, &args, payload, span, &variant.name);
         hir::PatKind::Variant { con, variant: index, fields }
@@ -352,7 +370,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             for f in &decl {
                 if !f.exported {
                     let fname = f.name.clone();
-                    self.err(span, format!("field `{fname}` of `{name}` is private to its module"));
+                    self.err(span, format!("field `{fname}` of `{name}` is private to its module"))
+                        .fix(format!("add `export` to `{fname}`, or read it through a method"));
                     break;
                 }
             }
@@ -372,17 +391,20 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => {
                 if !decl.is_empty() {
                     self.err(span, format!("`{what}` has a payload, so the pattern needs one"))
-                        .notes
-                        .push(format!("write `.{what}(..)` or name each field"));
+                        .fix(format!("write `.{what}(..)`, or name each field"));
                 }
                 Vec::new()
             }
             Some(ast::PatPayload::Tuple(ps)) => {
                 if ps.len() != decl.len() {
+                    let want = decl.len();
+                    let have = ps.len();
                     self.err(
                         span,
-                        format!("`{what}` holds {} values, but {} were matched", decl.len(), ps.len()),
-                    );
+                        format!("`{what}` holds {want} values, but {have} were matched"),
+                    )
+                    .mismatch(want.to_string(), have.to_string())
+                    .fix(format!("match exactly {want}, or end the pattern with `..`"));
                 }
                 ps.iter()
                     .enumerate()
@@ -399,7 +421,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 for f in fields {
                     let Some(i) = decl.iter().position(|d| d.name == f.name.name) else {
                         let n = f.name.name.clone();
-                        self.err(f.name.span, format!("`{what}` has no field `{n}`"));
+                        self.err(f.name.span, format!("`{what}` has no field `{n}`"))
+                            .fix("check the spelling, or name a field it declares");
                         continue;
                     };
                     seen.push(i);
@@ -412,7 +435,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 && self.pattern_names.contains(&f.name.name)
                             {
                                 let n = f.name.name.clone();
-                                self.err(f.name.span, format!("`{n}` is bound twice in this pattern"));
+                                self.err(f.name.span, format!("`{n}` is bound twice in this pattern"))
+                                    .fix("rename one of them");
                             }
                             self.pattern_names.push(f.name.name.clone());
                             let local = self.new_local(&f.name.name, ty.clone(), f.name.span);
@@ -436,12 +460,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .map(|(_, d)| d.name.clone())
                         .collect();
                     if !missing.is_empty() {
-                        self.err(
-                            span,
-                            format!("this pattern does not mention {}", missing.join(", ")),
-                        )
-                        .notes
-                        .push("end the pattern with `..` to ignore the rest".into());
+                        let missing = crate::diag::names(&missing);
+                        self.err(span, format!("this pattern does not mention {missing}"))
+                            .fix(format!("match {missing} too, or end the pattern with `..` to ignore the rest"));
                     }
                 }
                 out

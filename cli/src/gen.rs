@@ -93,7 +93,8 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
                 unplaceable[0]
             ),
         )
-        .with_note("add it to one rule's `sources`; guessing would move code across a boundary that exists to be explicit"));
+        .with_fix("add it to one rule's `sources`")
+        .with_note("guessing would move code across a boundary that exists to be explicit"));
     }
 
     let deps = derive_dependencies(s, pkg);

@@ -1,0 +1,10 @@
+error: 18_446_744_073_709_551_616 is not representable in `U64`
+ --> cmd/literal_above_u64_max/main.buri:7:16
+  |
+7 |   let w: U64 = 18_446_744_073_709_551_616;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = expected: a value `U64` can hold
+  = actual: 18_446_744_073_709_551_616
+  = `U64` holds 0 to 18446744073709551615
+  = fix: write a value inside `U64`'s range, or annotate a wider type

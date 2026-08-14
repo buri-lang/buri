@@ -1,0 +1,10 @@
+error: -1 is not representable in `U32`
+ --> cmd/literal_negative_for_unsigned/main.buri:7:16
+  |
+7 |   let z: U32 = -1;
+  |                ^^
+  |
+  = expected: a value `U32` can hold
+  = actual: -1
+  = `U32` has no negative values
+  = fix: use a signed type, or drop the sign; `U32` starts at 0

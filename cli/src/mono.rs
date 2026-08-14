@@ -557,7 +557,12 @@ impl<'a> Monomorphizer<'a> {
         // that implementation's own type.
         if let Ty::Ctx(id) = &recv {
             let Some(impl_ty) = self.tables().ctx_type(*id).get(trait_id).cloned() else {
-                self.diags.push(Diagnostic::error(span, "this context does not bind that effect"));
+                self.diags.push(
+                    Diagnostic::error(span, "this context does not bind that effect").with_fix(
+                        "bind it where the context is built, or bound this function with the \
+                         effect it needs",
+                    ),
+                );
                 return ExprKind::Error;
             };
             if let Some(first) = args.first_mut() {
@@ -581,13 +586,16 @@ impl<'a> Monomorphizer<'a> {
         }
 
         let Some(con) = recv.head() else {
-            self.diags.push(Diagnostic::error(
-                span,
-                format!(
-                    "`{}` could not be resolved to a concrete type",
-                    self.tables().trait_(trait_id).name
-                ),
-            ));
+            self.diags.push(
+                Diagnostic::error(
+                    span,
+                    format!(
+                        "`{}` could not be resolved to a concrete type",
+                        self.tables().trait_(trait_id).name
+                    ),
+                )
+                .with_fix("annotate the call with a turbofish, as in `f::<Str>(x)`"),
+            );
             return ExprKind::Error;
         };
 
@@ -596,7 +604,11 @@ impl<'a> Monomorphizer<'a> {
             let c = self.tables().tycon(con).name.clone();
             self.diags.push(
                 Diagnostic::error(span, format!("`{c}` does not implement `{t}`"))
-                    .with_note("conformance is declared; add an `impl` or a `derive`"),
+                    .with_note("conformance is nominal: a type satisfies a trait only where a declaration says so")
+                    .with_fix(format!(
+                        "add `derive {t} for {c};` in that type's own module, or write \
+                         `impl {t} for {c} {{ ... }}` there"
+                    )),
             );
             return ExprKind::Error;
         };
@@ -670,10 +682,10 @@ impl<'a> Monomorphizer<'a> {
                 self.derived_operator(op, recv, all, span)
             }
             _ => {
-                self.diags.push(Diagnostic::error(
-                    span,
-                    format!("`{name}` cannot be derived structurally"),
-                ));
+                self.diags.push(
+                    Diagnostic::error(span, format!("`{name}` cannot be derived structurally"))
+                        .with_fix("write the `impl` by hand"),
+                );
                 ExprKind::Error
             }
         }
@@ -699,6 +711,7 @@ impl<'a> Monomorphizer<'a> {
                     span,
                     format!("`{}` derives `{op}` only for a single-field struct", tycon.name),
                 )
+                .with_fix("write the `impl` by hand, or wrap exactly one value")
                 .with_note("an arithmetic newtype wraps exactly one value"),
             );
             return ExprKind::Error;

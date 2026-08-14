@@ -1,6 +1,11 @@
-//! Parses every `.buri` source in the repository. The examples and the worked
-//! monorepo are the corpus the grammar was written against, so anything that
-//! fails to parse here is either a parser bug or drift between the two.
+//! Parses every `.buri` source in the repository that is meant to compile: the
+//! worked monorepo, the conformance suite, and the abort corpus. That is the
+//! body of source the grammar was written against, so anything that fails to
+//! parse here is either a parser bug or drift between the two.
+//!
+//! `tests/reject/` is left out on purpose — those files are supposed to be
+//! turned away, some of them by the parser, and each one's expectation is
+//! checked exactly by the reject harness in `conformance.rs`.
 
 use std::path::{Path, PathBuf};
 
@@ -27,12 +32,19 @@ fn buri_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn every_example_parses() {
-    let root = repo_root();
+/// The files whose text is Buri source rather than textproto.
+fn corpus(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    buri_sources(&root.join("examples"), &mut files);
     buri_sources(&root.join("build-system/example"), &mut files);
+    buri_sources(&root.join("cli/tests/conformance"), &mut files);
+    buri_sources(&root.join("cli/tests/crash"), &mut files);
+    files
+}
+
+#[test]
+fn every_source_in_the_repository_parses() {
+    let root = repo_root();
+    let files = corpus(&root);
     assert!(files.len() > 30, "expected the corpus, found {} files", files.len());
 
     let mut failures = String::new();
@@ -114,9 +126,7 @@ fn formatting_build_files_is_a_fixed_point() {
 #[test]
 fn formatting_is_a_fixed_point() {
     let root = repo_root();
-    let mut files = Vec::new();
-    buri_sources(&root.join("examples"), &mut files);
-    buri_sources(&root.join("build-system/example"), &mut files);
+    let files = corpus(&root);
 
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();

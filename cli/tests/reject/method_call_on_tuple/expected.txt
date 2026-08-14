@@ -1,0 +1,8 @@
+error: `(I64, I64)` has no method `len`
+ --> cmd/method_call_on_tuple/main.buri:6:5
+  |
+6 |   t.len()
+  |     ^^^
+  |
+  = tuples, function types, and `Template` have no defining module, so they have no methods
+  = fix: check the spelling, or declare it in `impl (I64, I64) { ... }` in that type's own module — a method may not be added from anywhere else

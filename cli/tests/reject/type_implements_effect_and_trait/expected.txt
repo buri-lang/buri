@@ -1,0 +1,12 @@
+error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show`
+  --> cmd/type_implements_effect_and_trait/main.buri:14:1
+   |
+14 | impl Show for SilentOut {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+ --> cmd/type_implements_effect_and_trait/main.buri:9:1
+  |
+9 | impl Stdout for SilentOut {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the other one
+  |
+   = fix: split it in two: a type is either part of the world or part of your data

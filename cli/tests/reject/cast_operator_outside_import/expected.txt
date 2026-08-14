@@ -1,0 +1,17 @@
+error: expected `;`, found `as`
+ --> cmd/cast_operator_outside_import/main.buri:7:13
+  |
+7 |   let d = 5 as U8;
+  |             ^^
+  |
+  = expected: `;`
+  = actual: `as`
+  = fix: write `;` here
+error: there is nothing named `d` in scope
+ --> cmd/cast_operator_outside_import/main.buri:8:26
+  |
+8 |   let _ = ctx.println("${d}");
+  |                          ^
+  |
+  = did you mean `Add`?
+  = fix: correct the spelling, or declare it

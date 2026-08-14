@@ -1,0 +1,8 @@
+error: `Alloc` is bound twice
+ --> cmd/context_duplicate_binding/main.buri:6:42
+  |
+6 |   let ctx = context { Alloc: host.alloc, Alloc: host.alloc, Stdout: host.stdout };
+  |                                          ^^^^^^^^^^^^^^^^^
+  |
+  = a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake
+  = fix: delete one of the two bindings

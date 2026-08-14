@@ -1,0 +1,16 @@
+error: `while` is a reserved word and may not be used as an identifier
+ --> cmd/reserved_word_while_as_binding/main.buri:7:7
+  |
+7 |   let while = 3;
+  |       ^^^^^
+  |
+  = reserved for a future version of Buri; see grammar.ebnf, ReservedWord
+  = fix: pick another name; `while` is not available
+error: `while` is a reserved word and may not be used as an identifier
+ --> cmd/reserved_word_while_as_binding/main.buri:8:26
+  |
+8 |   let _ = ctx.println("${while}");
+  |                          ^^^^^
+  |
+  = reserved for a future version of Buri; see grammar.ebnf, ReservedWord
+  = fix: pick another name; `while` is not available

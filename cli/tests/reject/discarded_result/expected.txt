@@ -1,0 +1,7 @@
+error: a `Result` may not be discarded
+ --> cmd/discarded_result/main.buri:8:3
+  |
+8 |   let _ = fs.readText(ctx, "config.toml");
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: consume it: `?` to propagate, `match` to handle both cases, `result.withDefault` to supply one — or, when you really mean to drop it, the explicit and greppable `result.ignore`

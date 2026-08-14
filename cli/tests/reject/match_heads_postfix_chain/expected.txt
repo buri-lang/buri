@@ -1,0 +1,16 @@
+error: expected `}`, found `.`
+  --> cmd/match_heads_postfix_chain/main.buri:11:4
+   |
+11 |   }.x
+   |    ^
+   |
+   = expected: `}`
+   = actual: `.`
+   = fix: write `}` here
+error: there is nothing named `xOf` in scope
+  --> cmd/match_heads_postfix_chain/main.buri:16:26
+   |
+16 |   let _ = ctx.println("${xOf(.None)}");
+   |                          ^^^
+   |
+   = fix: declare `xOf`, or import it — a name is in scope only from this module's own declarations and its imports
