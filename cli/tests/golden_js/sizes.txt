@@ -14,8 +14,8 @@ interpolation: 1506 bytes artifact, 429 generated
 interpreter: 4042 bytes artifact, 5847 generated
 literals: 1574 bytes artifact, 362 generated
 nested_match: 1532 bytes artifact, 776 generated
-nested_option: 5672 bytes artifact, 4719 generated
-option_result: 2278 bytes artifact, 1779 generated
+nested_option: 5711 bytes artifact, 4671 generated
+option_result: 2268 bytes artifact, 1762 generated
 or_patterns: 1466 bytes artifact, 650 generated
 rebound_scrutinee: 1370 bytes artifact, 483 generated
 shared_constants: 1507 bytes artifact, 894 generated
@@ -26,4 +26,4 @@ tail_mutual: 1487 bytes artifact, 666 generated
 tail_self: 1902 bytes artifact, 1155 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 50891 bytes artifact, 26322 generated
+total: 50920 bytes artifact, 26257 generated

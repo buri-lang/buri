@@ -49,36 +49,33 @@ function __cmd_x_main$main(){
     $abort('no arm matched');
   }
   $host_HostStdout_println(ctx_0[1],$t1+' | '+$t3+' | '+$t5);
-  let $t8;
+  let $t10;
   if(ss_1!==void 0){
     const inner_17=$val(ss_1);
-    $t8=inner_17;
+    $t10=inner_17;
   }else if(ss_1===void 0){
-    $t8=void 0;
+    $t10=void 0;
   }else{
     $abort('no arm matched');
   }
-  const $t10=$t8;
-  let $t11;
+  let $t13;
   if(sn_2!==void 0){
     const inner_19=$val(sn_2);
-    $t11=inner_19;
+    $t13=inner_19;
   }else if(sn_2===void 0){
-    $t11=void 0;
+    $t13=void 0;
   }else{
     $abort('no arm matched');
   }
-  const $t13=$t11;
-  let $t14;
+  let $t16;
   if(nn_3!==void 0){
     const inner_21=$val(nn_3);
-    $t14=inner_21;
+    $t16=inner_21;
   }else if(nn_3===void 0){
-    $t14=void 0;
+    $t16=void 0;
   }else{
     $abort('no arm matched');
   }
-  const $t16=$t14;
   $host_HostStdout_println(ctx_0[1],String($t10!==void 0?$t10:-1)+' '+String($t13!==void 0?$t13:-1)+' '+String($t16!==void 0?$t16:-1));
   const o_33=$some($some(1));
   let $t18;
@@ -148,7 +145,7 @@ function __cmd_x_main$main(){
   $host_HostStdout_println(ctx_0[1],$str($eq($k1,$k1))+' '+$str($eq($k1,$k2))+' '+$str($eq($k2,$k2)));
   $host_HostStdout_println(ctx_0[1],$show($k1,$D0)+' '+$show($k2,$D0));
   let $t30;
-  const $t31=2;
+  const $t31=$k1[0];
   if($t31!==void 0){
     $t30=true;
   }else if($t31===void 0){
@@ -157,7 +154,7 @@ function __cmd_x_main$main(){
     $abort('no arm matched');
   }
   let $t32;
-  const $t33=void 0;
+  const $t33=$k2[0];
   if($t33!==void 0){
     $t32=false;
   }else if($t33===void 0){

@@ -58,16 +58,15 @@ function __cmd_x_main$lookup(pairs_0,key_1){
 }
 function __cmd_x_main$port(pairs_0){
   const key_4='port';
-  let $t1;
+  let $t3;
   const $t2=__cmd_x_main$lookup(pairs_0,key_4);
   if($t2!==void 0){
-    $t1=[0,$t2];
+    $t3=[0,$t2];
   }else if($t2===void 0){
-    $t1=[1,[0,key_4]];
+    $t3=[1,[0,key_4]];
   }else{
     $abort('no arm matched');
   }
-  const $t3=$t1;
   if($t3[0]!==0){
     return $t3;
   }

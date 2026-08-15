@@ -2018,6 +2018,11 @@ fn rename_slot(body: Vec<Stmt>, from: &str, to: &str) -> Vec<Stmt> {
 
 fn retarget_stmt(s: Stmt, from: &str, to: &str) -> Stmt {
     match s {
+        // The declaration is the slot, so it is renamed too. Where the caller
+        // has already removed it this matches nothing.
+        Stmt::Var { kind, name, init } if name == from => {
+            Stmt::Var { kind, name: to.to_string(), init }
+        }
         Stmt::Expr(Expr::Assign { target, value }) => {
             let target = match *target {
                 Expr::Ident(n) if n == from => Expr::ident(to.to_string()),
@@ -2087,18 +2092,29 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             continue;
         }
         // The one read has to be the copy, and it has to sit in this same list
-        // so that everything assigning `from` is between the two.
+        // so that everything assigning `from` is between the two. The copy is
+        // either into a slot that already exists, or into a fresh binding —
+        // `?` produces the second, taking the value a `match` just filled in.
         let Some(j) = (i + 1..body.len()).find(|j| match &body[*j] {
             Stmt::Expr(Expr::Assign { target, value }) => {
                 matches!(&**value, Expr::Ident(v) if v == from)
                     && matches!(&**target, Expr::Ident(_))
             }
+            Stmt::Var { name, init: Some(Expr::Ident(v)), .. } => {
+                v == from && name.starts_with('$')
+            }
             _ => false,
         }) else {
             continue;
         };
-        let Stmt::Expr(Expr::Assign { target, .. }) = &body[j] else { unreachable!() };
-        let Expr::Ident(to) = &**target else { unreachable!() };
+        let to = match &body[j] {
+            Stmt::Expr(Expr::Assign { target, .. }) => match &**target {
+                Expr::Ident(n) => n,
+                _ => unreachable!("checked just above"),
+            },
+            Stmt::Var { name, .. } => name,
+            _ => unreachable!("checked just above"),
+        };
         // Only a temporary the backend made, never a name from the source.
         if !to.starts_with('$') {
             continue;
@@ -2114,11 +2130,21 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         if region.uses.contains_key(to) || region.assigned.contains(to) {
             continue;
         }
+        let declares = matches!(&body[j], Stmt::Var { .. });
+        // A copy that declares its destination must be the only declaration of
+        // it, since the renamed `let` takes that role.
+        if declares && facts.declared.get(to).copied() != Some(1) {
+            continue;
+        }
         let (from, to) = (from.clone(), to.clone());
 
         let mut rest: Vec<Stmt> = body.drain(i..).collect();
-        rest.remove(0); // `let from;`
-        rest.remove(j - i - 1); // the copy
+        rest.remove(j - i); // the copy
+        if !declares {
+            // The destination already has a declaration of its own, so this
+            // one goes; otherwise it is kept and renamed into that role.
+            rest.remove(0);
+        }
         body.extend(rename_slot(rest, &from, &to));
         return true;
     }
