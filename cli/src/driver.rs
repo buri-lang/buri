@@ -131,7 +131,7 @@ pub fn run_snippet_in(
     };
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let program = crate::mono::run(
+    let mut program = crate::mono::run(
         &analysis.checked,
         module_paths,
         &mut diags,
@@ -141,7 +141,7 @@ pub fn run_snippet_in(
         return Err(diags);
     }
     let flags = crate::cli::Flags::default();
-    let source = crate::build::emit(&program, &analysis.checked.tables, &flags, &mut diags)?;
+    let source = crate::build::emit(&mut program, &analysis.checked.tables, &flags, &mut diags)?;
     execute(name, &source)
 }
 

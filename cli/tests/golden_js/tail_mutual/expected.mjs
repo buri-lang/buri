@@ -5,8 +5,7 @@ function $tc0($w,$a0){
         if($a0===0){
           return true;
         }else{
-          const $t1=$a0-1;
-          $a0=$t1;
+          $a0=$a0-1;
           $w=1;
           continue;
         }
@@ -14,8 +13,7 @@ function $tc0($w,$a0){
         if($a0===0){
           return false;
         }else{
-          const $t1=$a0-1;
-          $a0=$t1;
+          $a0=$a0-1;
           $w=0;
           continue;
         }
@@ -23,7 +21,7 @@ function $tc0($w,$a0){
   }
 }
 function __cmd_x_main$main(){
-  core_host$HostStdout_println([[],[]][1],[__cmd_x_main$isEven(1e3),' ',__cmd_x_main$isOdd(1001),' ',__cmd_x_main$isEven(7)]);
+  $host_HostStdout_println([],[__cmd_x_main$isEven(1e3),' ',__cmd_x_main$isOdd(1001),' ',__cmd_x_main$isEven(7)]);
   return [0,0];
 }
 function __cmd_x_main$isEven(n_0){
@@ -31,7 +29,4 @@ function __cmd_x_main$isEven(n_0){
 }
 function __cmd_x_main$isOdd(n_0){
   return $tc0(1,n_0);
-}
-function core_host$HostStdout_println(self_0,text_1){
-  return $host_HostStdout_println(self_0,text_1);
 }

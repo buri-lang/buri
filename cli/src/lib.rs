@@ -31,6 +31,7 @@ pub mod infer_pat;
 pub mod js;
 pub mod lex;
 pub mod mono;
+pub mod opt;
 pub mod parse;
 pub mod run;
 pub mod stdlib;

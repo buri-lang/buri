@@ -66,6 +66,27 @@ fn program_only(artifact: &str) -> String {
     out
 }
 
+/// Records what a program prints if nothing has been recorded yet, and
+/// otherwise compares — whether or not this run is blessing.
+///
+/// The rest of this corpus is a record of *output* and is meant to move with
+/// every pass. This is a record of *behaviour*, and a pass may not move it. A
+/// `BURI_BLESS=1` that could rewrite it would turn the one check here that
+/// catches a miscompile into a check that rubber-stamps one.
+fn behaviour(g: &mut Golden, path: &std::path::Path, label: &str, actual: &str) {
+    match std::fs::read_to_string(path) {
+        Ok(recorded) if recorded == actual => {}
+        Ok(recorded) => g.fail(format!(
+            "{label}: the program prints something else now. This is a change in \
+             behaviour, not in output, so it is never blessed — fix it, or delete \
+             the file to re-record deliberately.\n  recorded:\n{}\n  printed:\n{}",
+            indent(&recorded),
+            indent(actual)
+        )),
+        Err(_) => std::fs::write(path, actual).unwrap(),
+    }
+}
+
 #[test]
 fn generated_javascript_matches_its_record() {
     let dir = tests_dir().join("golden_js");
@@ -110,7 +131,15 @@ fn generated_javascript_matches_its_record() {
                 indent(&release_out.stdout)
             ));
         }
-        g.check(
+        // Recorded once and never re-recorded. `expected.mjs` is a record of
+        // *how* a program compiles and is meant to move; `expected.out` is a
+        // claim about what it computes, and blessing one of those would launder
+        // exactly the failure this corpus exists to catch. It caught a
+        // tail-call rebinding that read a parameter after overwriting it, and
+        // would have recorded `4950` for a sum of `5050` had it been writable.
+        // To change one deliberately, delete it and re-record.
+        behaviour(
+            &mut g,
             &case.join("expected.out"),
             &format!("golden_js/{name}/expected.out"),
             &debug_out.stdout,

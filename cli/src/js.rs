@@ -1088,7 +1088,23 @@ fn fold(e: Expr) -> Expr {
         },
         Expr::Member { obj, prop } => Expr::Member { obj: Box::new(fold(*obj)), prop },
         Expr::Index { obj, index } => {
-            Expr::Index { obj: Box::new(fold(*obj)), index: Box::new(fold(*index)) }
+            let obj = fold(*obj);
+            let index = fold(*index);
+            // Reading a known slot out of a value built right here. Structs,
+            // tuples and enum payloads are all arrays, so this is what an
+            // inlined accessor leaves behind once its argument has been moved
+            // to where it is read.
+            if let (Expr::Array(items), Expr::Num(i)) = (&obj, &index) {
+                let n = *i as usize;
+                if *i >= 0.0
+                    && i.fract() == 0.0
+                    && n < items.len()
+                    && items.iter().enumerate().all(|(k, x)| k == n || x.is_pure())
+                {
+                    return items[n].clone();
+                }
+            }
+            Expr::Index { obj: Box::new(obj), index: Box::new(index) }
         }
         Expr::Array(xs) => Expr::Array(xs.into_iter().map(fold).collect()),
         Expr::Object(fs) => Expr::Object(fs.into_iter().map(|(k, v)| (k, fold(v))).collect()),
@@ -1112,6 +1128,205 @@ fn fold(e: Expr) -> Expr {
     }
 }
 
+// -- switch generation -------------------------------------------------------
+//
+// A match compiles to a chain of `if`/`else if`, one test per arm, so reaching
+// the sixth variant of a six-variant enum performs six comparisons. Where every
+// test in a chain compares the *same* expression against a literal, the chain
+// is a `switch` — one dispatch instead of a scan, and one mention of the
+// discriminant instead of one per arm.
+//
+// Recognising the shape here rather than in the backend means it applies
+// whatever produced the chain, and after the peepholes and local cleanup have
+// had their say — by which point the discriminant is a settled expression like
+// `s_0[0]` rather than a temporary that still has to be matched through.
+
+/// A chain of at least this many literal tests is worth a `switch`. Two cases
+/// print shorter as an `if`/`else`.
+const MIN_SWITCH_CASES: usize = 3;
+
+/// The discriminant and the literal, for a test of the form `x === 1`.
+fn equality_test(e: &Expr) -> Option<(&Expr, &Expr)> {
+    let Expr::Binary { op: BinOp::StrictEq, lhs, rhs } = e else { return None };
+    if !rhs.is_pure_literal() || matches!(**rhs, Expr::Ident(_)) {
+        return None;
+    }
+    // A discriminant is read once per dispatch, so it has to be free of
+    // effects and cheap to name.
+    if !lhs.is_pure() {
+        return None;
+    }
+    Some((lhs, rhs))
+}
+
+/// The literals one arm accepts: `x === 1` gives one, `x === 1 || x === 2`
+/// gives two, all against the same discriminant.
+fn case_labels<'a>(test: &'a Expr, disc: &mut Option<&'a Expr>) -> Option<Vec<&'a Expr>> {
+    if let Expr::Binary { op: BinOp::Or, lhs, rhs } = test {
+        let mut out = case_labels(lhs, disc)?;
+        out.extend(case_labels(rhs, disc)?);
+        return Some(out);
+    }
+    let (d, lit) = equality_test(test)?;
+    match disc {
+        Some(seen) if !seen.same_as(d) => None,
+        Some(_) => Some(vec![lit]),
+        None => {
+            *disc = Some(d);
+            Some(vec![lit])
+        }
+    }
+}
+
+/// Rewrites `return d === 1 ? a : d === 2 ? b : c` into a `switch`.
+///
+/// The same chain as below, after folding has turned each arm's `return` into
+/// an arm of a conditional. It is compact, and it is a linear scan: ten arms
+/// means up to ten comparisons where a `switch` is one dispatch. Only the
+/// `return` form is taken, because there each case is a `return` and needs no
+/// `break`, so the switch is barely longer than the chain it replaces.
+fn cond_chain_to_switch(s: Stmt) -> Stmt {
+    let Stmt::Return(Some(Expr::Cond { .. })) = &s else { return s };
+    let Stmt::Return(Some(top)) = &s else { unreachable!("checked just above") };
+
+    let mut disc: Option<&Expr> = None;
+    let mut arms: Vec<(Vec<&Expr>, &Expr)> = Vec::new();
+    let mut cursor = top;
+    let default: &Expr = loop {
+        let Expr::Cond { test, cons, alt } = cursor else { break cursor };
+        let Some(labels) = case_labels(test, &mut disc) else { return s };
+        arms.push((labels, cons));
+        cursor = alt;
+    };
+    if arms.len() < MIN_SWITCH_CASES {
+        return s;
+    }
+    let Some(disc) = disc else { return s };
+    if !distinct(&arms) {
+        return s;
+    }
+
+    let mut cases: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::new();
+    for (labels, value) in &arms {
+        let (last, rest) = labels.split_last().expect("case_labels never returns none");
+        for l in rest {
+            cases.push((Some((*l).clone()), Vec::new()));
+        }
+        cases.push((Some((*last).clone()), vec![Stmt::Return(Some((*value).clone()))]));
+    }
+    cases.push((None, vec![Stmt::Return(Some(default.clone()))]));
+    Stmt::Switch { disc: disc.clone(), cases }
+}
+
+/// Whether no literal appears in two arms. A repeated `case` is a syntax
+/// error, not a fallthrough.
+fn distinct<T>(arms: &[(Vec<&Expr>, T)]) -> bool {
+    let mut seen: Vec<&Expr> = Vec::new();
+    for (labels, _) in arms {
+        for l in labels {
+            if seen.iter().any(|s| s.same_as(l)) {
+                return false;
+            }
+            seen.push(l);
+        }
+    }
+    true
+}
+
+/// Rewrites an `if`/`else if` chain over one discriminant into a `switch`.
+fn to_switch(s: Stmt) -> Stmt {
+    let Stmt::If { .. } = &s else { return cond_chain_to_switch(s) };
+
+    // Walk the chain, collecting each arm's labels, and stop at whatever the
+    // final `else` turns out to be.
+    let mut disc: Option<&Expr> = None;
+    let mut arms: Vec<(Vec<&Expr>, &Vec<Stmt>)> = Vec::new();
+    let mut cursor = &s;
+    let default: &[Stmt] = loop {
+        match cursor {
+            Stmt::If { cond, then, else_ } => {
+                let Some(labels) = case_labels(cond, &mut disc) else { return s };
+                arms.push((labels, then));
+                match else_.as_slice() {
+                    [next @ Stmt::If { .. }] => cursor = next,
+                    rest => break rest,
+                }
+            }
+            _ => break &[],
+        }
+    };
+    if arms.len() < MIN_SWITCH_CASES {
+        return s;
+    }
+    let Some(disc) = disc else { return s };
+
+    if !distinct(&arms) {
+        return s;
+    }
+
+    let mut cases: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::new();
+    for (labels, body) in &arms {
+        let (last, rest) = labels.split_last().expect("case_labels never returns none");
+        // Several literals reaching one body are several empty cases falling
+        // through into it.
+        for l in rest {
+            cases.push((Some((*l).clone()), Vec::new()));
+        }
+        cases.push((Some((*last).clone()), switch_body(body)));
+    }
+    if !default.is_empty() {
+        cases.push((None, switch_body(default)));
+    }
+    Stmt::Switch { disc: disc.clone(), cases }
+}
+
+/// A case body, wrapped so it is its own scope and cannot run on.
+///
+/// Both halves matter. Cases share one lexical scope, so two of them declaring
+/// the same name is a `SyntaxError` — and worse, `rename_scope` gives each case
+/// a cloned map, so the mangler can produce that collision in a release build
+/// while debug passes. And a case that does not end in a jump falls into the
+/// next one.
+fn switch_body(body: &[Stmt]) -> Vec<Stmt> {
+    let mut out = vec![Stmt::Block(body.to_vec())];
+    if !ends_in_jump(body) {
+        out.push(Stmt::Break);
+    }
+    out
+}
+
+fn ends_in_jump(body: &[Stmt]) -> bool {
+    match body.last() {
+        Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue) => true,
+        Some(Stmt::Block(inner)) => ends_in_jump(inner),
+        _ => false,
+    }
+}
+
+/// Applies `to_switch` everywhere a statement can appear.
+fn switches(body: Vec<Stmt>) -> Vec<Stmt> {
+    body.into_iter()
+        .map(|s| {
+            let s = match s {
+                Stmt::If { cond, then, else_ } => {
+                    Stmt::If { cond, then: switches(then), else_: switches(else_) }
+                }
+                Stmt::While { cond, body } => Stmt::While { cond, body: switches(body) },
+                Stmt::Block(b) => Stmt::Block(switches(b)),
+                Stmt::Func { name, params, body } => {
+                    Stmt::Func { name, params, body: switches(body) }
+                }
+                Stmt::Switch { disc, cases } => Stmt::Switch {
+                    disc,
+                    cases: cases.into_iter().map(|(t, b)| (t, switches(b))).collect(),
+                },
+                other => other,
+            };
+            to_switch(s)
+        })
+        .collect()
+}
+
 // -- local cleanup -----------------------------------------------------------
 //
 // Dead code elimination below works on top-level declarations. This works
@@ -1132,6 +1347,9 @@ struct LocalFacts {
     /// neither an alias nor removable, and its declaration has to stay even
     /// when nothing reads it.
     assigned: HashSet<String>,
+    /// How many times each name is assigned. Assigned exactly once, a
+    /// declaration and its assignment are one binding written apart.
+    assigns: HashMap<String, usize>,
     /// How many times each name is *read*.
     uses: HashMap<String, usize>,
     /// How many loops and closures enclose the point being walked.
@@ -1181,6 +1399,7 @@ fn count_expr(e: &Expr, f: &mut LocalFacts) {
                 // The target of a plain assignment is written, not read.
                 Expr::Ident(name) => {
                     f.assigned.insert(name.clone());
+                    *f.assigns.entry(name.clone()).or_insert(0) += 1;
                 }
                 other => count_expr(other, f),
             }
@@ -1548,6 +1767,59 @@ fn resolve_one(
     out
 }
 
+/// `let x; x = e;` is `const x = e`.
+///
+/// The backend declares a slot before a branch and assigns it inside, because
+/// the branches are statements. Once folding has turned a branch into an
+/// expression — or removed all but one of them — the two halves sit next to
+/// each other, and rejoining them is what lets everything else here apply:
+/// until it happens the name is "assigned", which disqualifies it from every
+/// rule above.
+fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
+    let mut changed = false;
+    for s in body.iter_mut() {
+        changed |= match s {
+            Stmt::If { then, else_, .. } => {
+                merge_declarations(then, facts) | merge_declarations(else_, facts)
+            }
+            Stmt::While { body, .. } => merge_declarations(body, facts),
+            Stmt::Block(b) => merge_declarations(b, facts),
+            Stmt::Func { body, .. } => merge_declarations(body, facts),
+            Stmt::Switch { cases, .. } => {
+                cases.iter_mut().fold(false, |a, (_, b)| a | merge_declarations(b, facts))
+            }
+            _ => false,
+        };
+    }
+
+    let mut i = 0;
+    while i + 1 < body.len() {
+        let Stmt::Var { kind: VarKind::Let, name, init: None } = &body[i] else {
+            i += 1;
+            continue;
+        };
+        let Stmt::Expr(Expr::Assign { target, .. }) = &body[i + 1] else {
+            i += 1;
+            continue;
+        };
+        // Assigned anywhere else and the slot is genuinely a slot.
+        if !matches!(&**target, Expr::Ident(t) if t == name)
+            || facts.assigns.get(name).copied() != Some(1)
+        {
+            i += 1;
+            continue;
+        }
+        let name = name.clone();
+        let Stmt::Expr(Expr::Assign { value, .. }) = body.remove(i + 1) else {
+            unreachable!("checked just above")
+        };
+        body[i] = Stmt::Var { kind: VarKind::Const, name, init: Some(*value) };
+        changed = true;
+        i += 1;
+    }
+    changed
+}
+
 /// One pass of local cleanup over a function body. Returns `true` when
 /// anything changed, so the caller can run it again.
 fn clean_body(body: &mut Vec<Stmt>) -> bool {
@@ -1555,6 +1827,9 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     body.iter().for_each(|s| count_stmt(s, &mut facts));
     if facts.opaque {
         return false;
+    }
+    if merge_declarations(body, &facts) {
+        return true;
     }
 
     let mut map: HashMap<String, Expr> = HashMap::new();
@@ -1566,6 +1841,26 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     // A value may name a binding this same round removes, so the map is
     // substituted into itself before it is applied to the body.
     resolve_map(&mut map);
+
+    // Resolution can turn a one-use substitution into a many-use one: `x` is
+    // read once, but only to initialise an alias that is itself read five
+    // times, and following the chain would paste `x`'s value at all five. That
+    // is legal — the value is pure — but it is five allocations where there
+    // was one. Only something free to copy may end up read more than once.
+    let overshot: Vec<String> = map
+        .iter()
+        .filter(|(name, value)| {
+            !value.is_pure_literal() && facts.uses.get(*name).copied().unwrap_or(0) > 1
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in overshot {
+        map.remove(&name);
+        dead.remove(&name);
+    }
+    if map.is_empty() && dead.is_empty() {
+        return false;
+    }
 
     let taken = std::mem::take(body);
     let next: Vec<Stmt> = taken.into_iter().map(|s| subst_stmt(s, &map)).collect();
@@ -1592,7 +1887,9 @@ fn clean_locals(stmts: Vec<Stmt>) -> Vec<Stmt> {
                         break;
                     }
                 }
-                Stmt::Func { name, params, body }
+                // Last, so the chains it looks for have already been folded
+                // and their discriminants have already settled.
+                Stmt::Func { name, params, body: switches(body) }
             }
             other => other,
         })

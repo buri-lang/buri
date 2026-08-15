@@ -164,11 +164,22 @@ cli/tests/golden_js/sizes.txt   release artifact sizes, whole corpus, one file
 
 The runtime is removed because it is the same thousand lines in every case and
 is not what any pass changes; what is left is exactly what the backend
-produced, with debug names, so the diff is readable. Every case is also *run*,
-in both build modes, and the two must print the same bytes — a record of output
-with no record of behaviour would happily bless a miscompile. `sizes.txt` is one
-file rather than one number per case so that the size effect of a change is a
-single diff, and each case must be smaller in release than in debug.
+produced, with debug names, so the diff is readable. `sizes.txt` is one file
+rather than one number per case so that the size effect of a change is a single
+diff, and each case must be smaller in release than in debug.
+
+**`expected.out` is recorded once and never re-recorded.** `expected.mjs` is a
+record of *how* a program compiles and is meant to move with every pass;
+`expected.out` is a claim about what it *computes*, and no pass may move it. So
+`BURI_BLESS=1` writes it when it is missing and refuses to overwrite it
+afterwards — to change one deliberately, delete it and re-record. Every case is
+also run in both build modes and the two must print the same bytes.
+
+This is not hypothetical. A parallel-move optimisation in the tail-call
+rebinding read a parameter after overwriting it, turning a sum of `5050` into
+`4950`; the conformance suite has no tail-recursive accumulator that shape, so
+this corpus was the only thing that saw it — and had `expected.out` been
+blessable, blessing would have recorded the wrong answer and moved on.
 
 ```
 BURI_BLESS=1 cargo test -p buri --test golden_js

@@ -1,7 +1,7 @@
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  core_host$HostStdout_println(ctx_0[1],[__cmd_x_main$render([0,2]),' ',__cmd_x_main$render([1,0,1])]);
-  core_host$HostStdout_println(ctx_0[1],[__cmd_x_main$render([1,3,0]),' ',__cmd_x_main$render([2])]);
+  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render([0,2]),' ',__cmd_x_main$render([1,0,1])]);
+  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render([1,3,0]),' ',__cmd_x_main$render([2])]);
   return [0,0];
 }
 function __cmd_x_main$render(o_0){
@@ -22,7 +22,4 @@ function __cmd_x_main$render(o_0){
   }else{
     $abort('no arm matched');
   }
-}
-function core_host$HostStdout_println(self_0,text_1){
-  return $host_HostStdout_println(self_0,text_1);
 }

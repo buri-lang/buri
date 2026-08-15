@@ -188,7 +188,7 @@ fn run_suite(
 
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let program =
+    let mut program =
         mono::run(&analysis.checked, module_paths, &mut diags, mono::Roots::Tests);
     if diags.has_errors() {
         return Err(diags);
@@ -197,7 +197,7 @@ fn run_suite(
         return Ok(Vec::new());
     }
 
-    let mut source = build::emit(&program, &analysis.checked.tables, &args.flags, &mut diags)?;
+    let mut source = build::emit(&mut program, &analysis.checked.tables, &args.flags, &mut diags)?;
 
     // The runner's in-memory `Fs` contains exactly `test { data: [...] }`, and
     // nothing else on disk is visible.

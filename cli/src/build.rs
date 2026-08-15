@@ -98,7 +98,7 @@ pub fn build_target(
 
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let program = mono::run(
+    let mut program = mono::run(
         &analysis.checked,
         module_paths,
         &mut diags,
@@ -108,7 +108,7 @@ pub fn build_target(
         return Err(diags);
     }
 
-    let source = emit(&program, &analysis.checked.tables, flags, &mut diags)?;
+    let source = emit(&mut program, &analysis.checked.tables, flags, &mut diags)?;
     cache.put(&key, source.as_bytes());
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -245,15 +245,24 @@ pub fn test_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -
     k.finish()
 }
 
-/// Runs monomorphization output through code generation and the minifier.
+/// Runs monomorphization output through the optimiser, code generation and the
+/// minifier.
 pub fn emit(
-    program: &mono::Program,
+    program: &mut mono::Program,
     tables: &crate::types::Tables,
     flags: &Flags,
     diags: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
     let release = flags.release;
-    let opts = codegen::Options { pretty: !release, debug_names: !release };
+    // Both build modes, so that `release_and_debug_agree` keeps covering the
+    // optimiser rather than only the part of it release turns on.
+    crate::opt::run(program, &crate::opt::Options::default());
+
+    let opts = codegen::Options {
+        pretty: !release,
+        debug_names: !release,
+        defensive_aborts: !release,
+    };
     let out = codegen::generate(program, tables, &opts);
 
     let missing = codegen::check_intrinsics(&out.missing_intrinsics);

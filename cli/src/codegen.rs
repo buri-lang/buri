@@ -17,6 +17,13 @@ pub struct Options {
     pub pretty: bool,
     /// Emitted so an abort names the function it came from.
     pub debug_names: bool,
+    /// Whether a match keeps a test on its last arm, and an abort behind it,
+    /// even though `exhaust.rs` has already proved one of the arms runs.
+    ///
+    /// On in debug, off in release. It is the backend's own belt to the
+    /// checker's braces, and `release_and_debug_agree` is what says the two
+    /// still compute the same answers.
+    pub defensive_aborts: bool,
 }
 
 pub struct Output {
@@ -38,6 +45,7 @@ pub struct Gen<'a> {
     /// How the function being emitted returns: plainly, by looping, or by
     /// dispatching within a merged group.
     mode: TailMode,
+    defensive_aborts: bool,
 }
 
 /// Tail-call elimination is a property of how a body is emitted, so it lives
@@ -90,6 +98,7 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
         runtime: runtime_names(),
         plan: tco::analyze(program),
         mode: TailMode::Return,
+        defensive_aborts: opts.defensive_aborts,
     };
 
     let mut stmts = Vec::new();
@@ -273,6 +282,183 @@ impl<'a> Gen<'a> {
     }
 
     // -----------------------------------------------------------------------
+    // Inlining the standard library's bodiless declarations
+    // -----------------------------------------------------------------------
+
+    /// The expansion of a call to an intrinsic, in place of a call to the
+    /// one-line function that forwards to it.
+    ///
+    /// Most of `core/*` is declared without a body, and each such declaration
+    /// becomes its own top-level function whose whole content is
+    /// `return $str_trim(self);`. Every use then costs a real call frame for a
+    /// call it is about to make anyway. Expanding at the call site removes
+    /// both, and the wrapper itself falls out of the artifact once nothing
+    /// names it — except where something still does, through `FnRef`, which is
+    /// why the declaration is still emitted.
+    ///
+    /// Three things have to hold before an expansion may replace a call, and
+    /// they are all about the arguments, because a call binds them and an
+    /// expansion pastes them:
+    ///
+    ///  * no argument may be used twice, or the work would run twice;
+    ///  * no argument may land under a `?:` branch, or it might not run at all;
+    ///  * arguments must appear in the order they were written, because
+    ///    evaluation order is specified (SPEC 8.2).
+    ///
+    /// A literal argument is exempt from all three: duplicating, skipping or
+    /// reordering one is unobservable.
+    fn inline_intrinsic(&mut self, index: usize, args: &[Expr]) -> Option<Expr> {
+        // Copied out of `self` so the callee's borrow does not outlive the
+        // `&mut self` the expansion needs.
+        let program = self.program;
+        let callee = &program.funcs[index];
+        if callee.body.is_some() {
+            return None;
+        }
+        let key = callee.intrinsic.clone()?;
+
+        // Built once against placeholders, purely to see what the expansion
+        // does with each argument.
+        let probe: Vec<Expr> =
+            (0..args.len()).map(|i| Expr::ident(format!("$$arg{i}"))).collect();
+        let shape = self.intrinsic(&key, &probe, callee)?;
+        if js_size(&shape) > MAX_INLINE_INTRINSIC {
+            return None;
+        }
+
+        let mut seen = ArgUse { counts: vec![0; args.len()], conditional: vec![false; args.len()], order: Vec::new() };
+        survey_args(&shape, false, &mut seen);
+        let mut last = 0usize;
+        for i in seen.order.iter().copied() {
+            if args[i].is_pure_literal() {
+                continue;
+            }
+            if seen.counts[i] > 1 || seen.conditional[i] || i < last {
+                return None;
+            }
+            last = i;
+        }
+
+        self.intrinsic(&key, args, callee)
+    }
+}
+
+/// A call worth replacing is small; anything larger is cheaper as a call.
+/// `signum` and the checked-arithmetic expansions sit above this deliberately.
+const MAX_INLINE_INTRINSIC: usize = 8;
+
+#[derive(Default)]
+struct ArgUse {
+    counts: Vec<usize>,
+    /// Whether the argument appears only on one side of a conditional, where
+    /// it might not be evaluated.
+    conditional: Vec<bool>,
+    /// The order the arguments are reached in.
+    order: Vec<usize>,
+}
+
+/// Records where an expansion put each placeholder argument.
+fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
+    if let Expr::Ident(name) = e {
+        if let Some(n) = name.strip_prefix("$$arg") {
+            if let Ok(i) = n.parse::<usize>() {
+                if i < out.counts.len() {
+                    out.counts[i] += 1;
+                    out.conditional[i] |= under_cond;
+                    out.order.push(i);
+                }
+            }
+        }
+        return;
+    }
+    match e {
+        Expr::Array(xs) | Expr::Seq(xs) => {
+            xs.iter().for_each(|x| survey_args(x, under_cond, out))
+        }
+        Expr::Object(fs) => fs.iter().for_each(|(_, v)| survey_args(v, under_cond, out)),
+        Expr::Member { obj, .. } => survey_args(obj, under_cond, out),
+        Expr::Index { obj, index } => {
+            survey_args(obj, under_cond, out);
+            survey_args(index, under_cond, out);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            survey_args(callee, under_cond, out);
+            args.iter().for_each(|a| survey_args(a, under_cond, out));
+        }
+        Expr::Unary { operand, .. } => survey_args(operand, under_cond, out),
+        Expr::Binary { op, lhs, rhs } => {
+            survey_args(lhs, under_cond, out);
+            // The right side of `&&` and `||` is itself conditional.
+            let short = matches!(op, BinOp::And | BinOp::Or | BinOp::Coalesce);
+            survey_args(rhs, under_cond || short, out);
+        }
+        Expr::Cond { test, cons, alt } => {
+            survey_args(test, under_cond, out);
+            survey_args(cons, true, out);
+            survey_args(alt, true, out);
+        }
+        Expr::Assign { target, value } => {
+            survey_args(target, under_cond, out);
+            survey_args(value, under_cond, out);
+        }
+        Expr::Arrow { body, .. } => survey_args(body, true, out),
+        Expr::ArrowBlock { .. } => {}
+        Expr::Spread(x) => survey_args(x, under_cond, out),
+        _ => {}
+    }
+}
+
+/// Whether an expression reads `name`.
+fn reads_ident(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Ident(n) => n == name,
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().any(|x| reads_ident(x, name)),
+        Expr::Object(fs) => fs.iter().any(|(_, v)| reads_ident(v, name)),
+        Expr::Member { obj, .. } => reads_ident(obj, name),
+        Expr::Index { obj, index } => reads_ident(obj, name) || reads_ident(index, name),
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            reads_ident(callee, name) || args.iter().any(|a| reads_ident(a, name))
+        }
+        Expr::Unary { operand, .. } => reads_ident(operand, name),
+        Expr::Binary { lhs, rhs, .. } => reads_ident(lhs, name) || reads_ident(rhs, name),
+        Expr::Cond { test, cons, alt } => {
+            reads_ident(test, name) || reads_ident(cons, name) || reads_ident(alt, name)
+        }
+        Expr::Assign { target, value } => {
+            reads_ident(target, name) || reads_ident(value, name)
+        }
+        Expr::Arrow { body, .. } => reads_ident(body, name),
+        // A closure body is not walked, so a capture is assumed to read
+        // everything: the conservative answer is the safe one here.
+        Expr::ArrowBlock { .. } => true,
+        Expr::Spread(x) => reads_ident(x, name),
+        _ => false,
+    }
+}
+
+/// Node count, for the size gate.
+fn js_size(e: &Expr) -> usize {
+    1 + match e {
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().map(js_size).sum::<usize>(),
+        Expr::Object(fs) => fs.iter().map(|(_, v)| js_size(v)).sum(),
+        Expr::Member { obj, .. } => js_size(obj),
+        Expr::Index { obj, index } => js_size(obj) + js_size(index),
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            js_size(callee) + args.iter().map(js_size).sum::<usize>()
+        }
+        Expr::Unary { operand, .. } => js_size(operand),
+        Expr::Binary { lhs, rhs, .. } => js_size(lhs) + js_size(rhs),
+        Expr::Cond { test, cons, alt } => js_size(test) + js_size(cons) + js_size(alt),
+        Expr::Assign { target, value } => js_size(target) + js_size(value),
+        Expr::Arrow { body, .. } => js_size(body),
+        Expr::Spread(x) => js_size(x),
+        _ => 0,
+    }
+}
+
+impl<'a> Gen<'a> {
+
+    // -----------------------------------------------------------------------
     // Statement position
     // -----------------------------------------------------------------------
 
@@ -333,14 +519,37 @@ impl<'a> Gen<'a> {
             }
             TailMode::Return => return,
         };
-        let mut temps = Vec::new();
-        for v in values {
-            let t = self.fresh();
-            out.push(Stmt::Var { kind: VarKind::Const, name: t.clone(), init: Some(v) });
-            temps.push(t);
+        // Rebinding the parameters is a parallel move: every new value is
+        // computed from the old ones, and then all the slots change at once.
+        // A temporary per parameter is always correct and usually
+        // unnecessary.
+        let remaining = values.clone();
+        //
+        // The values are still unevaluated expressions here, so they are
+        // reached in written order whatever this does; what varies is *when
+        // each slot is written*. A slot may be written as soon as its value
+        // has been reached, unless a value still to come reads it — in which
+        // case the value waits in a temporary and the write happens once
+        // everything has been read.
+        //
+        // `f(n - 1, acc + n)` then needs one temporary and `f(a, b)` none,
+        // where binding every parameter through one needs as many as there are
+        // parameters.
+        let mut deferred: Vec<(usize, Expr)> = Vec::new();
+        for (i, v) in values.into_iter().enumerate() {
+            // `values` was consumed by the loop, so what is still to come is
+            // asked of the original expressions, kept alongside.
+            if remaining[i + 1..].iter().any(|later| reads_ident(later, &targets[i])) {
+                let t = self.fresh();
+                out.push(Stmt::Var { kind: VarKind::Const, name: t.clone(), init: Some(v) });
+                deferred.push((i, Expr::ident(t)));
+            } else {
+                out.push(assign(&targets[i], v));
+            }
         }
-        for (slot, t) in targets.iter().zip(&temps) {
-            out.push(assign(slot, Expr::ident(t.clone())));
+        // Everything parked above, now that every read has happened.
+        for (i, v) in deferred {
+            out.push(assign(&targets[i], v));
         }
         if let Some((w, index)) = which {
             out.push(assign(&w, Expr::Num(index as f64)));
@@ -388,7 +597,12 @@ impl<'a> Gen<'a> {
             if let Some(e) = &func.body {
                 self.tail(e, &mut body);
             }
-            cases.push((Some(Expr::Num(index as f64)), body));
+            // A block, because the cases of a `switch` share one lexical
+            // scope: two members declaring a local at the same index would
+            // otherwise collide — and `js::rename_scope` clones its map per
+            // case, so the collision would appear only once names are
+            // shortened, in release, with debug passing.
+            cases.push((Some(Expr::Num(index as f64)), vec![Stmt::Block(body)]));
         }
         self.mode = TailMode::Return;
 
@@ -511,8 +725,16 @@ impl<'a> Gen<'a> {
         self.bind(&arm.pattern, subject, &mut body);
         self.arm_body(arm, &mut body, target);
 
+        // The last arm of an exhaustive match is the one that runs when no
+        // earlier one did, so testing it is asking a question whose answer is
+        // already known — a six-variant enum performs six comparisons to reach
+        // its sixth. `exhaust.rs` proves exhaustiveness at compile time, and a
+        // release build takes that proof at its word. A debug build keeps the
+        // test and the abort behind it.
+        let last = !self.defensive_aborts && i + 1 == arms.len();
         match self.test(&arm.pattern, subject) {
             // The last arm, or an irrefutable one, needs no test.
+            _ if last => out.extend(body),
             None => out.extend(body),
             Some(cond) => {
                 let mut else_ = Vec::new();
@@ -852,6 +1074,9 @@ impl<'a> Gen<'a> {
             ExprKind::FnRef(f, _) => Expr::ident(self.symbol(f.index())),
             ExprKind::CallFn { func, args, .. } => {
                 let args = self.exprs(args, out);
+                if let Some(e) = self.inline_intrinsic(func.index(), &args) {
+                    return e;
+                }
                 Expr::call(Expr::ident(self.symbol(func.index())), args)
             }
             ExprKind::CallValue { callee, args } => {
@@ -1125,9 +1350,40 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// Operands, in the order they are written.
+    ///
+    /// Evaluation order is specified as left to right (SPEC 8.2), and an
+    /// operand that needs statements is the one place that is not free. Given
+    /// `f(g(), match (x) { .. })`, the match becomes statements *before* the
+    /// call, so `g()` — still sitting unevaluated in the argument list — would
+    /// run after them. Anything computed before such an operand is therefore
+    /// pinned to a binding placed ahead of those statements.
+    ///
+    /// A literal or a name is exempt: it denotes the same value wherever it is
+    /// read, since the language has no assignment (SPEC 8.1).
     fn exprs(&mut self, xs: &[hir::Expr], out: &mut Vec<Stmt>) -> Vec<Expr> {
-        // Arguments are evaluated left to right before the call.
-        xs.iter().map(|x| self.expr(x, out)).collect()
+        let mut vals: Vec<Expr> = Vec::new();
+        for x in xs {
+            let before = out.len();
+            let v = self.expr(x, out);
+            if out.len() > before {
+                let mut at = before;
+                for prev in vals.iter_mut() {
+                    if prev.is_pure_literal() {
+                        continue;
+                    }
+                    let name = self.fresh();
+                    let init = std::mem::replace(prev, Expr::ident(name.clone()));
+                    out.insert(
+                        at,
+                        Stmt::Var { kind: VarKind::Const, name, init: Some(init) },
+                    );
+                    at += 1;
+                }
+            }
+            vals.push(v);
+        }
+        vals
     }
 
     fn symbol(&self, i: usize) -> String {
@@ -1317,4 +1573,75 @@ pub fn check_intrinsics(missing: &[String]) -> Vec<String> {
         .filter(|m| !known.contains(&format!("${}", m.replace('.', "_"))))
         .cloned()
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arg(i: usize) -> Expr {
+        Expr::ident(format!("$$arg{i}"))
+    }
+
+    fn survey(e: &Expr, n: usize) -> ArgUse {
+        let mut out =
+            ArgUse { counts: vec![0; n], conditional: vec![false; n], order: Vec::new() };
+        survey_args(e, false, &mut out);
+        out
+    }
+
+    /// The shape every runtime forwarder has: each argument once, in order,
+    /// unconditionally. This is the case inlining exists for.
+    #[test]
+    fn a_plain_forwarder_uses_each_argument_once_in_order() {
+        let e = Expr::call(Expr::ident("$str_split"), vec![arg(0), arg(1), arg(2)]);
+        let u = survey(&e, 3);
+        assert_eq!(u.counts, vec![1, 1, 1]);
+        assert_eq!(u.conditional, vec![false, false, false]);
+        assert_eq!(u.order, vec![0, 1, 2]);
+    }
+
+    /// `signum` names its argument three times. Pasting it at a call site
+    /// would evaluate the argument three times.
+    #[test]
+    fn a_repeated_argument_is_seen() {
+        let v = arg(0);
+        let e = Expr::cond(
+            Expr::bin(BinOp::Lt, v.clone(), Expr::Num(0.0)),
+            Expr::Num(-1.0),
+            Expr::cond(Expr::bin(BinOp::Gt, v.clone(), Expr::Num(0.0)), Expr::Num(1.0), v),
+        );
+        let u = survey(&e, 1);
+        assert!(u.counts[0] > 1);
+    }
+
+    /// An argument under a `?:` branch might not run at all.
+    #[test]
+    fn an_argument_under_a_branch_is_conditional() {
+        let e = Expr::cond(Expr::ident("c"), arg(0), Expr::Num(0.0));
+        assert!(survey(&e, 1).conditional[0]);
+    }
+
+    /// So is the right operand of a short circuit.
+    #[test]
+    fn an_argument_after_a_short_circuit_is_conditional() {
+        let e = Expr::bin(BinOp::And, Expr::ident("c"), arg(0));
+        assert!(survey(&e, 1).conditional[0]);
+        let e = Expr::bin(BinOp::And, arg(0), Expr::ident("c"));
+        assert!(!survey(&e, 1).conditional[0]);
+    }
+
+    /// Evaluation order is specified, so an expansion that reads its second
+    /// argument first is not the call it replaces.
+    #[test]
+    fn arguments_out_of_order_are_seen() {
+        let e = Expr::call(Expr::ident("$f"), vec![arg(1), arg(0)]);
+        assert_eq!(survey(&e, 2).order, vec![1, 0]);
+    }
+
+    #[test]
+    fn size_counts_every_node() {
+        assert_eq!(js_size(&Expr::ident("x")), 1);
+        assert_eq!(js_size(&Expr::call(Expr::ident("f"), vec![Expr::ident("x")])), 3);
+    }
 }
