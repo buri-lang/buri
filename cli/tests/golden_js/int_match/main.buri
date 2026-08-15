@@ -1,0 +1,26 @@
+// A match over many integer literals — the clearest case for a jump table, and
+// today the clearest case of a linear scan.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn roman(n: Int): Str {
+  match (n) {
+    1 => "I",
+    2 => "II",
+    3 => "III",
+    4 => "IV",
+    5 => "V",
+    6 => "VI",
+    7 => "VII",
+    8 => "VIII",
+    9 => "IX",
+    10 => "X",
+    _ => "?",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${roman(1)} ${roman(9)} ${roman(10)} ${roman(11)}");
+  .Ok(())
+}

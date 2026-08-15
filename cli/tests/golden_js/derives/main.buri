@@ -1,0 +1,23 @@
+// Derived structural operations. Each one is a runtime walk over a type
+// descriptor rather than code specialised to the type it compares.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Pair { a: Int, b: Str }
+
+derive Eq, Ord, Show, Hash for Pair;
+
+enum Tag { Low, High(Int) }
+
+derive Eq, Show for Tag;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let p = Pair { a: 1, b: "x" };
+  let q = Pair { a: 1, b: "y" };
+
+  let _ = ctx.println("${p == q} ${p == p}");
+  let _ = ctx.println("${p.show(ctx)} ${q.show(ctx)}");
+  let _ = ctx.println("${Tag.Low == Tag.High(2)} ${Tag.High(2).show(ctx)}");
+  .Ok(())
+}

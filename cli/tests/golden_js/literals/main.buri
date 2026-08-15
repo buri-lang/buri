@@ -1,0 +1,35 @@
+// The same constant aggregates built over and over. Nothing observes the
+// identity of an immutable value, so each of these could be built once.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Level { Debug, Info, Warn, Error_(Str) }
+
+struct Config { retries: Int, label: Str }
+
+fn defaultConfig(): Config { Config { retries: 3, label: "default" } }
+
+fn quiet(): Level { Level.Info }
+
+fn origin(): (Int, Int) { (0, 0) }
+
+fn primes(): [Int] { [2, 3, 5, 7, 11] }
+
+fn severity(l: Level): Int {
+  match (l) {
+    .Debug => 0,
+    .Info => 1,
+    .Warn => 2,
+    .Error_(_) => 3,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let a = defaultConfig();
+  let b = defaultConfig();
+  let _ = ctx.println("${a.retries + b.retries} ${a.label}");
+  let _ = ctx.println("${severity(quiet())} ${severity(Level.Error_("x"))}");
+  let _ = ctx.println("${origin().0} ${primes().len()} ${primes().sum()}");
+  .Ok(())
+}

@@ -1,0 +1,22 @@
+// Array patterns, including a trailing rest — which allocates, so where the
+// allocation happens relative to the test that guards it is visible here.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(xs: [Int]): Template {
+  match (xs) {
+    [] => "empty",
+    [only] => "one: ${only}",
+    [a, b] => "two: ${a},${b}",
+    [head, ..rest] => "head ${head} and ${rest.len()} more",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(describe([]));
+  let _ = ctx.println(describe([1]));
+  let _ = ctx.println(describe([1, 2]));
+  let _ = ctx.println(describe([1, 2, 3, 4]));
+  .Ok(())
+}

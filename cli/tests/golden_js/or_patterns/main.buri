@@ -1,0 +1,28 @@
+// Alternatives that share a body. Each alternative independently re-tests
+// whatever its siblings already established.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Status { Ok_, NotFound, Gone, Teapot, Server(Int) }
+
+fn kind(s: Status): Str {
+  match (s) {
+    .NotFound | .Gone => "missing",
+    .Teapot | .Ok_ => "fine",
+    .Server(code) => if (code >= 500) { "server" } else { "other" },
+  }
+}
+
+fn small(n: Int): Bool {
+  match (n) {
+    0 | 1 | 2 | 3 => true,
+    _ => false,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${kind(Status.Gone)} ${kind(Status.Ok_)} ${kind(Status.Server(503))}");
+  let _ = ctx.println("${small(2)} ${small(9)}");
+  .Ok(())
+}

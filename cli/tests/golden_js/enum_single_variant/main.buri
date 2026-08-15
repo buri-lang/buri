@@ -1,0 +1,18 @@
+// One variant, so there is nothing to discriminate: the tag test is dead
+// weight and the backend already knows it.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Wrapped { Only(Int, Str) }
+
+fn describe(w: Wrapped): Template {
+  match (w) {
+    .Only(n, s) => "${s}:${n}",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(describe(Wrapped.Only(7, "seven")));
+  .Ok(())
+}

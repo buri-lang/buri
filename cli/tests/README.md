@@ -13,6 +13,7 @@ wrong *answer* fails, not merely a program that fails to run.
 | Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
 | Repositories | `cli/tests/repos/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 | Incrementality | `cli/tests/incrementality.rs` | What the cache may and may not do, read off the `--explain` transcript. |
+| Emitted JavaScript | `cli/tests/golden_js/` | What the backend *compiles to*, one construct per case: the generated code, what it prints, and the release size of the whole corpus. |
 | Golden | `WEB_STDOUT` in `conformance.rs` | The exact stdout of the worked monorepo's JS binary. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -145,6 +146,35 @@ should be read in the diff, not blessed. Everything else about rendering —
 `${}` interpolation of every type, float formatting, captured stdout — is
 asserted from inside the conformance suite, where a wrong answer is a failed
 `assert.eq` rather than a diff.
+
+**The emitted-JavaScript corpus** is the only suite that looks at the output
+rather than the answer. An optimisation is invisible to every other suite here
+by construction: removing an allocation, a call frame or a redundant test
+changes no value anywhere, so without a record of what the backend emits, a
+pass lands unseen and regresses unnoticed. Each case is one small program
+exercising one construct:
+
+```
+cli/tests/golden_js/enum_match/
+  main.buri       the program
+  expected.mjs    the generated code, with the runtime removed
+  expected.out    what it prints
+cli/tests/golden_js/sizes.txt   release artifact sizes, whole corpus, one file
+```
+
+The runtime is removed because it is the same thousand lines in every case and
+is not what any pass changes; what is left is exactly what the backend
+produced, with debug names, so the diff is readable. Every case is also *run*,
+in both build modes, and the two must print the same bytes — a record of output
+with no record of behaviour would happily bless a miscompile. `sizes.txt` is one
+file rather than one number per case so that the size effect of a change is a
+single diff, and each case must be smaller in release than in debug.
+
+```
+BURI_BLESS=1 cargo test -p buri --test golden_js
+```
+
+Blessing without reading the diff is the one way this suite proves nothing.
 
 ## Properties pinned outside the corpora
 

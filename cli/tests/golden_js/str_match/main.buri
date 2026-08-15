@@ -1,0 +1,22 @@
+// A match over string literals: a run of `===` comparisons where a JavaScript
+// `switch` would do.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn code(name: Str): Int {
+  match (name) {
+    "get" => 1,
+    "put" => 2,
+    "post" => 3,
+    "patch" => 4,
+    "delete" => 5,
+    "head" => 6,
+    _ => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${code("get")} ${code("delete")} ${code("nope")}");
+  .Ok(())
+}

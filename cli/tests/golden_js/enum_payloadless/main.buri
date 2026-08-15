@@ -1,0 +1,24 @@
+// Every variant nullary, so the enum is already a bare integer tag. The match
+// over it is the cheapest one the backend has to compile.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Colour { Red, Green, Blue, Cyan, Magenta, Yellow }
+
+fn name(c: Colour): Str {
+  match (c) {
+    .Red => "red",
+    .Green => "green",
+    .Blue => "blue",
+    .Cyan => "cyan",
+    .Magenta => "magenta",
+    .Yellow => "yellow",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${name(Colour.Red)} ${name(Colour.Yellow)}");
+  let _ = ctx.println("${name(Colour.Blue)} ${name(Colour.Magenta)}");
+  .Ok(())
+}

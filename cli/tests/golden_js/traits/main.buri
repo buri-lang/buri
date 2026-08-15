@@ -1,0 +1,34 @@
+// A trait with two implementations. Every call resolves at monomorphisation,
+// so what reaches the backend is a direct call — and a wrapper around it.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+trait Area {
+  fn area(self: Self): Int;
+  fn describe(self: Self): Int;
+}
+
+struct Sq { side: Int }
+
+struct Rect { w: Int, h: Int }
+
+impl Area for Sq {
+  fn area(self: Sq): Int { self.side * self.side }
+  fn describe(self: Sq): Int { self.area() * 2 }
+}
+
+impl Area for Rect {
+  fn area(self: Rect): Int { self.w * self.h }
+  fn describe(self: Rect): Int { self.area() * 3 }
+}
+
+fn total<T: Area>(a: T, b: T): Int { a.area() + b.area() }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let s = Sq { side: 3 };
+  let r = Rect { w: 2, h: 5 };
+  let _ = ctx.println("${s.area()} ${r.area()} ${s.describe()}");
+  let _ = ctx.println("${total(s, Sq { side: 4 })} ${total(r, Rect { w: 1, h: 1 })}");
+  .Ok(())
+}

@@ -1,0 +1,52 @@
+// `Option` and `Result` are ordinary enums, so every `Some`, `None`, `Ok` and
+// `Err` is an allocation. `?` and `??` are the two places the backend already
+// knows their shape.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Bad { Missing(Str), NotANumber(Str) }
+
+fn lookup(pairs: [(Str, Str)], key: Str): Option<Str> {
+  match (pairs.find(fn(p) => p.0 == key)) {
+    .Some(pair) => .Some(pair.1),
+    .None => .None,
+  }
+}
+
+fn require_(pairs: [(Str, Str)], key: Str): Result<Str, Bad> {
+  match (lookup(pairs, key)) {
+    .Some(v) => .Ok(v),
+    .None => .Err(Bad.Missing(key)),
+  }
+}
+
+fn port(pairs: [(Str, Str)]): Result<Int, Bad> {
+  let raw = require_(pairs, "port")?;
+  match (raw.toInt()) {
+    .Some(n) => .Ok(n),
+    .None => .Err(Bad.NotANumber(raw)),
+  }
+}
+
+fn reason(b: Bad): Str {
+  match (b) {
+    .Missing(k) => k,
+    .NotANumber(k) => k,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let pairs = [("port", "8080"), ("host", "local")];
+  let fallback = lookup(pairs, "missing") ?? "none";
+  let _ = ctx.println("${fallback}");
+  let _ = ctx.println(match (port(pairs)) {
+    .Ok(n) => "port ${n}",
+    .Err(e) => "bad ${reason(e)}",
+  });
+  let _ = ctx.println(match (port([])) {
+    .Ok(n) => "port ${n}",
+    .Err(e) => "bad ${reason(e)}",
+  });
+  .Ok(())
+}

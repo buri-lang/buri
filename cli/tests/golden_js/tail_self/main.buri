@@ -1,0 +1,22 @@
+// Self tail recursion, which becomes a loop with the parameters rebound. The
+// rebinding is a parallel move, and most of these need no temporary at all.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn sumTo(n: Int, acc: Int): Int {
+  if (n == 0) { acc } else { sumTo(n - 1, acc + n) }
+}
+
+fn fib(n: Int, a: Int, b: Int): Int {
+  if (n == 0) { a } else { fib(n - 1, b, a + b) }
+}
+
+fn countDigits(n: Int, acc: Int): Int {
+  if (n < 10) { acc + 1 } else { countDigits(n / 10, acc + 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${sumTo(100, 0)} ${fib(30, 0, 1)} ${countDigits(12345, 0)}");
+  .Ok(())
+}

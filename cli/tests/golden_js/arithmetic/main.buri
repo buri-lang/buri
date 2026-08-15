@@ -1,0 +1,27 @@
+// Integer and float arithmetic. Overflow is undefined, so `+ - *` are raw JS
+// operators; `/` and `%` go through the runtime because a zero divisor aborts.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn mix(a: Int, b: Int): Int {
+  ((a + 1) * 2 - b) / 3
+}
+
+fn constants(): Int {
+  (2 + 3) * 4 - 1
+}
+
+fn floats(x: F64, y: F64): F64 {
+  (x * 2.0 + y) / 4.0
+}
+
+fn narrow(a: I32, b: I32): I32 {
+  a * b + 1
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${mix(10, 4)} ${constants()} ${floats(1.5, 3.0)}");
+  let _ = ctx.println("${narrow(3, 4)} ${17 % 5} ${-7 / 2}");
+  .Ok(())
+}

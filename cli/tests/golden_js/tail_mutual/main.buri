@@ -1,0 +1,18 @@
+// A mutually tail-recursive pair, merged into one function with a dispatch
+// switch and a forwarding stub for each member.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn isEven(n: Int): Bool {
+  if (n == 0) { true } else { isOdd(n - 1) }
+}
+
+fn isOdd(n: Int): Bool {
+  if (n == 0) { false } else { isEven(n - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${isEven(1000)} ${isOdd(1001)} ${isEven(7)}");
+  .Ok(())
+}

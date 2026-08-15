@@ -1,0 +1,22 @@
+// A chain of stdlib calls. Every one of these is declared without a body, so
+// each becomes its own one-line function that forwards to the runtime and is
+// then called — a real call frame per use.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+from "core/list" import * as list;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+
+  let text = "  the quick brown fox  ";
+  let trimmed = text.trim();
+  let words = trimmed.split(ctx, " ");
+  let upper = words.mapCtx(ctx, fn(c, w) => w.toUpper(c));
+  let joined = upper.join(ctx, "-");
+
+  let _ = ctx.println("${joined}");
+  let _ = ctx.println("${trimmed.len()} ${words.len()} ${joined.contains("QUICK")}");
+  let _ = ctx.println("${trimmed.startsWith("the")} ${trimmed.endsWith("fox")}");
+  .Ok(())
+}

@@ -1,0 +1,3 @@
+false true
+Pair { a: 1, b: "x" } Pair { a: 1, b: "y" }
+false .High(2)

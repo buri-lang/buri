@@ -1,0 +1,25 @@
+// One generic function instantiated at three types, so what monomorphisation
+// produces — and what it costs when the body is trivial — is visible.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn identity<T>(x: T): T { x }
+
+fn firstOr<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+struct Boxed<T> { value: T }
+
+fn unbox<T>(b: Boxed<T>): T { b.value }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${identity(1)} ${identity("s")} ${identity(true)}");
+  let _ = ctx.println("${firstOr([9, 8], 0)} ${firstOr([], "none")}");
+  let _ = ctx.println("${unbox(Boxed { value: 5 })} ${unbox(Boxed { value: "b" })}");
+  .Ok(())
+}

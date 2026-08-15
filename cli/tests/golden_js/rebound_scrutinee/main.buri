@@ -1,0 +1,35 @@
+// Matching straight on a parameter and returning the binding. The backend
+// emits `const t = param;` and then `const v = t[1];`, so both a name and a
+// projection through that name are removable at once — and the projection must
+// not be left naming a binding that went with it.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Wrapped { Full(Int), Blank }
+
+fn unwrap_(w: Wrapped, fallback: Int): Int {
+  match (w) {
+    .Full(v) => v,
+    .Blank => fallback,
+  }
+}
+
+fn firstField(pair: (Int, Str)): Int {
+  match (pair) {
+    (n, _) => n,
+  }
+}
+
+fn passthrough(o: Option<Int>): Int {
+  match (o) {
+    .Some(v) => v,
+    .None => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${unwrap_(Wrapped.Full(7), 0)} ${unwrap_(Wrapped.Blank, 9)}");
+  let _ = ctx.println("${firstField((3, "x"))} ${passthrough(.Some(5))} ${passthrough(.None)}");
+  .Ok(())
+}

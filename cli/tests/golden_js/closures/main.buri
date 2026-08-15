@@ -1,0 +1,21 @@
+// Closures, capture by value, and a closure passed to a stdlib higher-order
+// function — which is where an eta-expanded wrapper shows up.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+fn add(a: Int, b: Int): Int { a + b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let xs = [1, 2, 3, 4, 5];
+
+  let bias = 10;
+  let biased = xs.map(ctx, fn(x) => x + bias);
+  let doubled = xs.map(ctx, fn(x) => x * 2);
+  let summed = xs.fold(fn(acc, x) => add(acc, x), 0);
+  let big = xs.filter(ctx, fn(x) => x > 2);
+
+  let _ = ctx.println("${biased.sum()} ${doubled.sum()} ${summed} ${big.len()}");
+  .Ok(())
+}
