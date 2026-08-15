@@ -177,16 +177,18 @@ impl Expr {
         Expr::Index { obj: Box::new(obj), index: Box::new(index) }
     }
 
+    /// Simplifies as it builds, so the backend gets the peepholes without
+    /// asking and the folder has one place to call. See `simplify_bin`.
     pub fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
-        Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+        simplify_bin(op, lhs, rhs)
     }
 
     pub fn un(op: UnOp, operand: Expr) -> Expr {
-        Expr::Unary { op, operand: Box::new(operand) }
+        simplify_un(op, operand)
     }
 
     pub fn cond(test: Expr, cons: Expr, alt: Expr) -> Expr {
-        Expr::Cond { test: Box::new(test), cons: Box::new(cons), alt: Box::new(alt) }
+        simplify_cond(test, cons, alt)
     }
 
     pub fn ident(name: impl Into<String>) -> Expr {
@@ -221,6 +223,299 @@ impl Expr {
                 | Expr::Ident(_)
         )
     }
+
+    /// Whether evaluating this can be skipped: no call, no assignment, no
+    /// `new`. Projections count as pure because the language has no null and
+    /// no out-of-bounds index, so `x[0]` on a value the backend built cannot
+    /// throw.
+    pub fn is_pure(&self) -> bool {
+        match self {
+            Expr::Call { .. } | Expr::New { .. } | Expr::Assign { .. } => false,
+            // A block-bodied arrow is a value, not the work inside it, but
+            // treating one as pure invites hoisting it somewhere it would run
+            // a different number of times. Only the value form is claimed.
+            Expr::ArrowBlock { .. } => false,
+            Expr::Arrow { .. } => true,
+            Expr::Array(xs) | Expr::Seq(xs) => xs.iter().all(Expr::is_pure),
+            Expr::Object(fs) => fs.iter().all(|(_, v)| v.is_pure()),
+            Expr::Member { obj, .. } => obj.is_pure(),
+            Expr::Index { obj, index } => obj.is_pure() && index.is_pure(),
+            Expr::Unary { operand, .. } => operand.is_pure(),
+            Expr::Binary { lhs, rhs, .. } => lhs.is_pure() && rhs.is_pure(),
+            Expr::Cond { test, cons, alt } => {
+                test.is_pure() && cons.is_pure() && alt.is_pure()
+            }
+            Expr::Spread(x) => x.is_pure(),
+            _ => true,
+        }
+    }
+
+    /// Whether this certainly evaluates to a JavaScript boolean.
+    ///
+    /// Several rewrites below are sound only for booleans — `!!e` is `e` for a
+    /// boolean and `Boolean(e)` for anything else, and `e && true` is `e` for a
+    /// boolean and `true` for a truthy number. Every operand the backend gives
+    /// these operators is a `Bool`, but the check is syntactic rather than
+    /// trusting that, because the cost of being wrong is a silent miscompile.
+    fn is_boolean(&self) -> bool {
+        match self {
+            Expr::Bool(_) => true,
+            Expr::Unary { op: UnOp::Not, .. } => true,
+            Expr::Binary { op, lhs, rhs } => match op {
+                BinOp::StrictEq
+                | BinOp::StrictNe
+                | BinOp::Lt
+                | BinOp::Le
+                | BinOp::Gt
+                | BinOp::Ge
+                | BinOp::In => true,
+                // `a && b` is `b` when `a` is truthy, so it is a boolean only
+                // when both sides are.
+                BinOp::And | BinOp::Or => lhs.is_boolean() && rhs.is_boolean(),
+                _ => false,
+            },
+            Expr::Cond { cons, alt, .. } => cons.is_boolean() && alt.is_boolean(),
+            _ => false,
+        }
+    }
+
+    /// Structural equality, for the rewrites that need two occurrences of the
+    /// same expression to be the same value. Only shapes that are cheap to
+    /// compare and cannot hold a side effect answer `true`.
+    fn same_as(&self, other: &Expr) -> bool {
+        match (self, other) {
+            (Expr::Ident(a), Expr::Ident(b)) => a == b,
+            (Expr::Str(a), Expr::Str(b)) => a == b,
+            (Expr::Bool(a), Expr::Bool(b)) => a == b,
+            (Expr::Num(a), Expr::Num(b)) => a == b,
+            (Expr::BigInt(a), Expr::BigInt(b)) => a == b,
+            (Expr::Null, Expr::Null) | (Expr::Undefined, Expr::Undefined) => true,
+            (Expr::Member { obj: a, prop: p }, Expr::Member { obj: b, prop: q }) => {
+                p == q && a.same_as(b)
+            }
+            (
+                Expr::Index { obj: a, index: i },
+                Expr::Index { obj: b, index: j },
+            ) => a.same_as(b) && i.same_as(j),
+            (
+                Expr::Unary { op: x, operand: a },
+                Expr::Unary { op: y, operand: b },
+            ) => x == y && a.same_as(b),
+            (
+                Expr::Binary { op: x, lhs: a, rhs: b },
+                Expr::Binary { op: y, lhs: c, rhs: d },
+            ) => x == y && a.same_as(c) && b.same_as(d),
+            _ => false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Peepholes
+// ---------------------------------------------------------------------------
+//
+// These run at construction, so the backend never has to ask for them and the
+// folder never has to duplicate them. Each rewrite is either unconditional in
+// JavaScript or guarded by `is_boolean` / `is_pure`; nothing here relies on
+// what the Buri type checker knows, because this layer cannot see it.
+
+fn simplify_un(op: UnOp, operand: Expr) -> Expr {
+    match (op, &operand) {
+        (UnOp::Not, Expr::Bool(b)) => return Expr::Bool(!b),
+        (UnOp::Neg, Expr::Num(n)) => return Expr::Num(-n),
+        (UnOp::Not, Expr::Unary { op: UnOp::Not, operand: inner })
+            // `!!e` is `e` only when `e` is already a boolean.
+            if inner.is_boolean() =>
+        {
+            return (**inner).clone();
+        }
+        // Negating an equality flips the operator rather than wrapping it.
+        // Relational operators are deliberately absent: `!(a < b)` is not
+        // `a >= b` when either side is NaN.
+        (UnOp::Not, Expr::Binary { op: BinOp::StrictEq, lhs, rhs }) => {
+            return Expr::bin(BinOp::StrictNe, (**lhs).clone(), (**rhs).clone());
+        }
+        (UnOp::Not, Expr::Binary { op: BinOp::StrictNe, lhs, rhs }) => {
+            return Expr::bin(BinOp::StrictEq, (**lhs).clone(), (**rhs).clone());
+        }
+        _ => {}
+    }
+    Expr::Unary { op, operand: Box::new(operand) }
+}
+
+fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
+    // Both operands known.
+    if let (Expr::Num(a), Expr::Num(b)) = (&lhs, &rhs) {
+        let (a, b) = (*a, *b);
+        match op {
+            BinOp::Add => return Expr::Num(a + b),
+            BinOp::Sub => return Expr::Num(a - b),
+            BinOp::Mul => return Expr::Num(a * b),
+            BinOp::Lt => return Expr::Bool(a < b),
+            BinOp::Le => return Expr::Bool(a <= b),
+            BinOp::Gt => return Expr::Bool(a > b),
+            BinOp::Ge => return Expr::Bool(a >= b),
+            BinOp::StrictEq => return Expr::Bool(a == b),
+            BinOp::StrictNe => return Expr::Bool(a != b),
+            _ => {}
+        }
+    }
+    if let (Expr::Str(a), Expr::Str(b)) = (&lhs, &rhs) {
+        match op {
+            BinOp::Add => return Expr::Str(format!("{a}{b}")),
+            BinOp::StrictEq => return Expr::Bool(a == b),
+            BinOp::StrictNe => return Expr::Bool(a != b),
+            _ => {}
+        }
+    }
+    if let (Expr::Bool(a), Expr::Bool(b)) = (&lhs, &rhs) {
+        match op {
+            BinOp::StrictEq => return Expr::Bool(a == b),
+            BinOp::StrictNe => return Expr::Bool(a != b),
+            _ => {}
+        }
+    }
+
+    match op {
+        // Comparing a boolean against a literal is the boolean, or its
+        // negation. This is what a pattern test on `true`/`false` produces.
+        BinOp::StrictEq | BinOp::StrictNe => {
+            let eq = op == BinOp::StrictEq;
+            if let Expr::Bool(b) = rhs {
+                if lhs.is_boolean() {
+                    return if b == eq { lhs } else { Expr::un(UnOp::Not, lhs) };
+                }
+            }
+            if let Expr::Bool(b) = lhs {
+                if rhs.is_boolean() {
+                    return if b == eq { rhs } else { Expr::un(UnOp::Not, rhs) };
+                }
+            }
+        }
+        BinOp::And => {
+            match (&lhs, &rhs) {
+                (Expr::Bool(true), _) => return rhs,
+                (Expr::Bool(false), _) => return Expr::Bool(false),
+                // `e && true` is `e` only for a boolean `e`: `1 && true` is
+                // `true`, not `1`.
+                (_, Expr::Bool(true)) if lhs.is_boolean() => return lhs,
+                (_, Expr::Bool(false)) if lhs.is_pure() => return Expr::Bool(false),
+                _ => {}
+            }
+            if lhs.same_as(&rhs) && lhs.is_pure() {
+                return lhs;
+            }
+            // A tag test cannot hold two different values at once. This is what
+            // an or-pattern's alternatives collapse to once each has been
+            // rewritten against the branch it sits under.
+            if let Some(false) = both_equalities_agree(&lhs, &rhs, true) {
+                return Expr::Bool(false);
+            }
+        }
+        BinOp::Or => {
+            match (&lhs, &rhs) {
+                (Expr::Bool(true), _) => return Expr::Bool(true),
+                (Expr::Bool(false), _) => return rhs,
+                (_, Expr::Bool(false)) if lhs.is_boolean() => return lhs,
+                (_, Expr::Bool(true)) if lhs.is_pure() => return Expr::Bool(true),
+                _ => {}
+            }
+            if lhs.same_as(&rhs) && lhs.is_pure() {
+                return lhs;
+            }
+        }
+        _ => {}
+    }
+
+    Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+}
+
+/// For `x === a` and `x === b` over the same pure `x` and two distinct
+/// literals: `Some(false)` when they cannot both hold. `None` when the shape
+/// does not apply.
+fn both_equalities_agree(lhs: &Expr, rhs: &Expr, conjunction: bool) -> Option<bool> {
+    let (Expr::Binary { op: BinOp::StrictEq, lhs: a, rhs: av }, Expr::Binary { op: BinOp::StrictEq, lhs: b, rhs: bv }) =
+        (lhs, rhs)
+    else {
+        return None;
+    };
+    if !a.same_as(b) || !a.is_pure() {
+        return None;
+    }
+    if !av.is_pure_literal() || !bv.is_pure_literal() || av.same_as(bv) {
+        return None;
+    }
+    // Two different constants, so at most one test can hold.
+    if conjunction {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn simplify_cond(test: Expr, cons: Expr, alt: Expr) -> Expr {
+    match &test {
+        Expr::Bool(true) => return cons,
+        Expr::Bool(false) => return alt,
+        _ => {}
+    }
+    // `c ? true : false` is `c`, and `c ? false : true` is `!c`.
+    if let (Expr::Bool(a), Expr::Bool(b)) = (&cons, &alt) {
+        if *a && !*b && test.is_boolean() {
+            return test;
+        }
+        if !*a && *b {
+            return Expr::un(UnOp::Not, test);
+        }
+    }
+    // Both branches the same value, and nothing observable in choosing.
+    if cons.same_as(&alt) && test.is_pure() {
+        return cons;
+    }
+    // A branch that yields a constant boolean is a short-circuit. Sound only
+    // for a boolean test: `5 ? true : x` is `true`, where `5 || x` is `5`.
+    if test.is_boolean() {
+        match (&cons, &alt) {
+            (Expr::Bool(true), _) => return Expr::bin(BinOp::Or, test, alt),
+            (Expr::Bool(false), _) => {
+                return Expr::bin(BinOp::And, Expr::un(UnOp::Not, test), alt)
+            }
+            (_, Expr::Bool(true)) => {
+                return Expr::bin(BinOp::Or, Expr::un(UnOp::Not, test), cons)
+            }
+            (_, Expr::Bool(false)) => return Expr::bin(BinOp::And, test, cons),
+            _ => {}
+        }
+    }
+    // `!c ? a : b` is `c ? b : a`, which is one character shorter and reads
+    // in the order the source did.
+    if let Expr::Unary { op: UnOp::Not, operand } = &test {
+        if operand.is_boolean() {
+            return simplify_cond((**operand).clone(), alt, cons);
+        }
+    }
+    // A ternary whose branches share an arm folds into a single test.
+    // `c ? (p ? x : y) : y`  ->  `c && p ? x : y`
+    if let Expr::Cond { test: p, cons: x, alt: y } = &cons {
+        if y.same_as(&alt) && p.is_pure() {
+            return simplify_cond(
+                Expr::bin(BinOp::And, test, (**p).clone()),
+                (**x).clone(),
+                alt,
+            );
+        }
+    }
+    // `c ? x : (p ? x : y)`  ->  `c || p ? x : y`
+    if let Expr::Cond { test: p, cons: x, alt: y } = &alt {
+        if x.same_as(&cons) && p.is_pure() {
+            return simplify_cond(
+                Expr::bin(BinOp::Or, test, (**p).clone()),
+                cons,
+                (**y).clone(),
+            );
+        }
+    }
+    Expr::Cond { test: Box::new(test), cons: Box::new(cons), alt: Box::new(alt) }
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +963,10 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], opts: &MinifyOptions) -> Vec<S
     let mut stmts = stmts;
     if opts.fold {
         stmts = fold_block(stmts);
+        // Folding turns branches into expressions, which leaves temporaries
+        // nothing reads; cleanup removes them, which exposes more folding. The
+        // two run together, per body, until neither has anything left to do.
+        stmts = clean_locals(stmts);
     }
     if opts.drop_unreachable {
         stmts = eliminate_dead(stmts, roots);
@@ -697,6 +996,23 @@ fn fold_stmt(s: Stmt) -> Stmt {
                 Expr::Bool(false) if !else_.is_empty() => return Stmt::Block(else_),
                 Expr::Bool(false) => return Stmt::Block(Vec::new()),
                 _ => {}
+            }
+            // Two branches that differ only in a value are one expression.
+            // Because this pass runs bottom-up, a chain collapses from the
+            // inside out: the innermost `if`/`else` becomes a ternary, which
+            // makes its parent's branch a single `return`, and so on.
+            if let (Some(a), Some(b)) = (sole_return(&then), sole_return(&else_)) {
+                return Stmt::Return(Some(Expr::cond(cond, a.clone(), b.clone())));
+            }
+            if let (Some((ta, a)), Some((tb, b))) =
+                (sole_assignment(&then), sole_assignment(&else_))
+            {
+                if ta.same_as(tb) {
+                    return Stmt::Expr(Expr::Assign {
+                        target: Box::new(ta.clone()),
+                        value: Box::new(Expr::cond(cond, a.clone(), b.clone())),
+                    });
+                }
             }
             Stmt::If { cond, then, else_ }
         }
@@ -738,61 +1054,30 @@ fn is_declaration(s: &Stmt) -> bool {
     matches!(s, Stmt::Var { .. } | Stmt::Func { .. } | Stmt::RawDecl { .. })
 }
 
+/// A block that is exactly `return <expr>;`, and nothing else.
+fn sole_return(body: &[Stmt]) -> Option<&Expr> {
+    match body {
+        [Stmt::Return(Some(e))] => Some(e),
+        _ => None,
+    }
+}
+
+/// A block that is exactly one assignment, as `<target> = <value>;`.
+fn sole_assignment(body: &[Stmt]) -> Option<(&Expr, &Expr)> {
+    match body {
+        [Stmt::Expr(Expr::Assign { target, value })] => Some((target, value)),
+        _ => None,
+    }
+}
+
 fn fold(e: Expr) -> Expr {
     match e {
-        Expr::Unary { op, operand } => {
-            let operand = fold(*operand);
-            match (op, &operand) {
-                (UnOp::Not, Expr::Bool(b)) => Expr::Bool(!b),
-                (UnOp::Neg, Expr::Num(n)) => Expr::Num(-n),
-                _ => Expr::Unary { op, operand: Box::new(operand) },
-            }
-        }
-        Expr::Binary { op, lhs, rhs } => {
-            let lhs = fold(*lhs);
-            let rhs = fold(*rhs);
-            if let (Expr::Num(a), Expr::Num(b)) = (&lhs, &rhs) {
-                let (a, b) = (*a, *b);
-                match op {
-                    BinOp::Add => return Expr::Num(a + b),
-                    BinOp::Sub => return Expr::Num(a - b),
-                    BinOp::Mul => return Expr::Num(a * b),
-                    BinOp::Lt => return Expr::Bool(a < b),
-                    BinOp::Le => return Expr::Bool(a <= b),
-                    BinOp::Gt => return Expr::Bool(a > b),
-                    BinOp::Ge => return Expr::Bool(a >= b),
-                    BinOp::StrictEq => return Expr::Bool(a == b),
-                    BinOp::StrictNe => return Expr::Bool(a != b),
-                    _ => {}
-                }
-            }
-            if let (Expr::Str(a), Expr::Str(b)) = (&lhs, &rhs) {
-                match op {
-                    BinOp::Add => return Expr::Str(format!("{a}{b}")),
-                    BinOp::StrictEq => return Expr::Bool(a == b),
-                    BinOp::StrictNe => return Expr::Bool(a != b),
-                    _ => {}
-                }
-            }
-            match (op, &lhs, &rhs) {
-                (BinOp::And, Expr::Bool(true), _) => return rhs,
-                (BinOp::And, Expr::Bool(false), _) => return Expr::Bool(false),
-                (BinOp::Or, Expr::Bool(true), _) => return Expr::Bool(true),
-                (BinOp::Or, Expr::Bool(false), _) => return rhs,
-                _ => {}
-            }
-            Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
-        }
-        Expr::Cond { test, cons, alt } => {
-            let test = fold(*test);
-            let cons = fold(*cons);
-            let alt = fold(*alt);
-            match test {
-                Expr::Bool(true) => cons,
-                Expr::Bool(false) => alt,
-                t => Expr::Cond { test: Box::new(t), cons: Box::new(cons), alt: Box::new(alt) },
-            }
-        }
+        // The simplifications themselves live in the smart constructors, so
+        // that the backend gets them at construction and this pass gets them
+        // again once its operands have folded.
+        Expr::Unary { op, operand } => Expr::un(op, fold(*operand)),
+        Expr::Binary { op, lhs, rhs } => Expr::bin(op, fold(*lhs), fold(*rhs)),
+        Expr::Cond { test, cons, alt } => Expr::cond(fold(*test), fold(*cons), fold(*alt)),
         Expr::Call { callee, args } => Expr::Call {
             callee: Box::new(fold(*callee)),
             args: args.into_iter().map(fold).collect(),
@@ -825,6 +1110,493 @@ fn fold(e: Expr) -> Expr {
         Expr::Spread(x) => Expr::Spread(Box::new(fold(*x))),
         other => other,
     }
+}
+
+// -- local cleanup -----------------------------------------------------------
+//
+// Dead code elimination below works on top-level declarations. This works
+// inside a function body, where the backend leaves a temporary for every match
+// scrutinee, every value-position branch and every pattern binding.
+//
+// A whole function body is treated as one scope. That is sound because the
+// backend names locals from a per-function counter (`codegen::local_name`) and
+// temporaries from a per-function sequence, so no name is declared twice —
+// which `declared` checks rather than assumes.
+
+#[derive(Default)]
+struct LocalFacts {
+    /// How many times each name is *declared*. Anything but once disqualifies
+    /// it: the pass reasons about one binding, not a name.
+    declared: HashMap<String, usize>,
+    /// Names that appear as the target of an assignment. A rebound name is
+    /// neither an alias nor removable, and its declaration has to stay even
+    /// when nothing reads it.
+    assigned: HashSet<String>,
+    /// How many times each name is *read*.
+    uses: HashMap<String, usize>,
+    /// How many loops and closures enclose the point being walked.
+    depth: usize,
+    /// The depth each name was declared at, and the deepest any read of it
+    /// sits. A value read deeper than it was bound would, if moved to its use,
+    /// be computed once per iteration or once per call instead of once.
+    decl_depth: HashMap<String, usize>,
+    use_depth: HashMap<String, usize>,
+    /// Set when something in the body cannot be reasoned about, in which case
+    /// the body is left exactly as it was.
+    opaque: bool,
+}
+
+impl LocalFacts {
+    fn read(&mut self, name: &str) {
+        *self.uses.entry(name.to_string()).or_insert(0) += 1;
+        let d = self.depth;
+        self.use_depth.entry(name.to_string()).and_modify(|x| *x = (*x).max(d)).or_insert(d);
+    }
+
+    fn declare(&mut self, name: &str) {
+        *self.declared.entry(name.to_string()).or_insert(0) += 1;
+        self.decl_depth.insert(name.to_string(), self.depth);
+    }
+
+    /// Whether every read of `name` sits no deeper than its binding.
+    fn read_where_bound(&self, name: &str) -> bool {
+        let decl = self.decl_depth.get(name).copied().unwrap_or(0);
+        self.use_depth.get(name).copied().unwrap_or(0) <= decl
+    }
+}
+
+/// The identifiers an expression reads. Used to check that nothing it depends
+/// on is reassigned between where it is bound and where it would be moved to.
+fn reads_of(e: &Expr, out: &mut HashSet<String>) {
+    let mut f = LocalFacts::default();
+    count_expr(e, &mut f);
+    out.extend(f.uses.into_keys());
+}
+
+fn count_expr(e: &Expr, f: &mut LocalFacts) {
+    match e {
+        Expr::Ident(name) => f.read(name),
+        Expr::Assign { target, value } => {
+            match &**target {
+                // The target of a plain assignment is written, not read.
+                Expr::Ident(name) => {
+                    f.assigned.insert(name.clone());
+                }
+                other => count_expr(other, f),
+            }
+            count_expr(value, f);
+        }
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| count_expr(x, f)),
+        Expr::Object(fs) => fs.iter().for_each(|(_, v)| count_expr(v, f)),
+        Expr::Member { obj, .. } => count_expr(obj, f),
+        Expr::Index { obj, index } => {
+            count_expr(obj, f);
+            count_expr(index, f);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            count_expr(callee, f);
+            args.iter().for_each(|a| count_expr(a, f));
+        }
+        Expr::Unary { operand, .. } => count_expr(operand, f),
+        Expr::Binary { lhs, rhs, .. } => {
+            count_expr(lhs, f);
+            count_expr(rhs, f);
+        }
+        Expr::Cond { test, cons, alt } => {
+            count_expr(test, f);
+            count_expr(cons, f);
+            count_expr(alt, f);
+        }
+        // A closure body runs an unknown number of times, so anything read
+        // inside it counts as read deeper than the enclosing code.
+        Expr::Arrow { params, body } => {
+            params.iter().for_each(|p| f.declare(p));
+            f.depth += 1;
+            count_expr(body, f);
+            f.depth -= 1;
+        }
+        Expr::ArrowBlock { params, body } => {
+            params.iter().for_each(|p| f.declare(p));
+            f.depth += 1;
+            body.iter().for_each(|s| count_stmt(s, f));
+            f.depth -= 1;
+        }
+        Expr::Spread(x) => count_expr(x, f),
+        _ => {}
+    }
+}
+
+fn count_stmt(s: &Stmt, f: &mut LocalFacts) {
+    match s {
+        Stmt::Var { name, init, .. } => {
+            f.declare(name);
+            if let Some(e) = init {
+                count_expr(e, f);
+            }
+        }
+        Stmt::Func { name, params, body } => {
+            f.declare(name);
+            params.iter().for_each(|p| f.declare(p));
+            body.iter().for_each(|s| count_stmt(s, f));
+        }
+        Stmt::Return(e) => {
+            if let Some(e) = e {
+                count_expr(e, f);
+            }
+        }
+        Stmt::If { cond, then, else_ } => {
+            count_expr(cond, f);
+            then.iter().for_each(|s| count_stmt(s, f));
+            else_.iter().for_each(|s| count_stmt(s, f));
+        }
+        Stmt::While { cond, body } => {
+            count_expr(cond, f);
+            f.depth += 1;
+            body.iter().for_each(|s| count_stmt(s, f));
+            f.depth -= 1;
+        }
+        Stmt::Switch { disc, cases } => {
+            count_expr(disc, f);
+            for (t, b) in cases {
+                if let Some(t) = t {
+                    count_expr(t, f);
+                }
+                b.iter().for_each(|s| count_stmt(s, f));
+            }
+        }
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => count_expr(e, f),
+        Stmt::Block(b) => b.iter().for_each(|s| count_stmt(s, f)),
+        // Verbatim source names identifiers this pass cannot see, so a body
+        // holding any is left exactly as it was rather than guessed at.
+        Stmt::Raw(_) | Stmt::RawDecl { .. } => f.opaque = true,
+        Stmt::Break | Stmt::Continue => {}
+    }
+}
+
+fn subst_expr(e: Expr, map: &HashMap<String, Expr>) -> Expr {
+    match e {
+        Expr::Ident(name) => match map.get(&name) {
+            Some(v) => v.clone(),
+            None => Expr::Ident(name),
+        },
+        Expr::Assign { target, value } => {
+            // The target names a storage location, not a value, so it is never
+            // rewritten — only what is assigned to it.
+            let target = match *target {
+                Expr::Ident(n) => Expr::Ident(n),
+                other => subst_expr(other, map),
+            };
+            Expr::Assign { target: Box::new(target), value: Box::new(subst_expr(*value, map)) }
+        }
+        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| subst_expr(x, map)).collect()),
+        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| subst_expr(x, map)).collect()),
+        Expr::Object(fs) => {
+            Expr::Object(fs.into_iter().map(|(k, v)| (k, subst_expr(v, map))).collect())
+        }
+        Expr::Member { obj, prop } => Expr::Member { obj: Box::new(subst_expr(*obj, map)), prop },
+        Expr::Index { obj, index } => Expr::Index {
+            obj: Box::new(subst_expr(*obj, map)),
+            index: Box::new(subst_expr(*index, map)),
+        },
+        Expr::Call { callee, args } => Expr::Call {
+            callee: Box::new(subst_expr(*callee, map)),
+            args: args.into_iter().map(|a| subst_expr(a, map)).collect(),
+        },
+        Expr::New { callee, args } => Expr::New {
+            callee: Box::new(subst_expr(*callee, map)),
+            args: args.into_iter().map(|a| subst_expr(a, map)).collect(),
+        },
+        Expr::Unary { op, operand } => Expr::un(op, subst_expr(*operand, map)),
+        Expr::Binary { op, lhs, rhs } => {
+            Expr::bin(op, subst_expr(*lhs, map), subst_expr(*rhs, map))
+        }
+        Expr::Cond { test, cons, alt } => Expr::cond(
+            subst_expr(*test, map),
+            subst_expr(*cons, map),
+            subst_expr(*alt, map),
+        ),
+        Expr::Arrow { params, body } => {
+            Expr::Arrow { params, body: Box::new(subst_expr(*body, map)) }
+        }
+        Expr::ArrowBlock { params, body } => {
+            let body: Vec<Stmt> = body.into_iter().map(|s| subst_stmt(s, map)).collect();
+            // Rebuilding may leave a body that is one `return`, which is the
+            // concise form.
+            if let [Stmt::Return(Some(e))] = &body[..] {
+                return Expr::Arrow { params, body: Box::new(e.clone()) };
+            }
+            Expr::ArrowBlock { params, body }
+        }
+        Expr::Spread(x) => Expr::Spread(Box::new(subst_expr(*x, map))),
+        other => other,
+    }
+}
+
+fn subst_stmt(s: Stmt, map: &HashMap<String, Expr>) -> Stmt {
+    match s {
+        Stmt::Var { kind, name, init } => {
+            Stmt::Var { kind, name, init: init.map(|e| subst_expr(e, map)) }
+        }
+        Stmt::Func { name, params, body } => Stmt::Func {
+            name,
+            params,
+            body: body.into_iter().map(|s| subst_stmt(s, map)).collect(),
+        },
+        Stmt::Return(e) => Stmt::Return(e.map(|e| subst_expr(e, map))),
+        Stmt::If { cond, then, else_ } => Stmt::If {
+            cond: subst_expr(cond, map),
+            then: then.into_iter().map(|s| subst_stmt(s, map)).collect(),
+            else_: else_.into_iter().map(|s| subst_stmt(s, map)).collect(),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond: subst_expr(cond, map),
+            body: body.into_iter().map(|s| subst_stmt(s, map)).collect(),
+        },
+        Stmt::Switch { disc, cases } => Stmt::Switch {
+            disc: subst_expr(disc, map),
+            cases: cases
+                .into_iter()
+                .map(|(t, b)| {
+                    (
+                        t.map(|t| subst_expr(t, map)),
+                        b.into_iter().map(|s| subst_stmt(s, map)).collect(),
+                    )
+                })
+                .collect(),
+        },
+        Stmt::Expr(e) => Stmt::Expr(subst_expr(e, map)),
+        Stmt::Throw(e) => Stmt::Throw(subst_expr(e, map)),
+        Stmt::ExportDefault(e) => Stmt::ExportDefault(subst_expr(e, map)),
+        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|s| subst_stmt(s, map)).collect()),
+        other => other,
+    }
+}
+
+/// Removes the declarations `drop` names, keeping any value that still has
+/// work to do as a bare expression statement.
+fn drop_bindings(body: Vec<Stmt>, drop: &HashSet<String>) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    for s in body {
+        let s = match s {
+            Stmt::Var { name, init, .. } if drop.contains(&name) => match init {
+                Some(e) if !e.is_pure() => Stmt::Expr(e),
+                _ => continue,
+            },
+            Stmt::If { cond, then, else_ } => Stmt::If {
+                cond,
+                then: drop_bindings(then, drop),
+                else_: drop_bindings(else_, drop),
+            },
+            Stmt::While { cond, body } => Stmt::While { cond, body: drop_bindings(body, drop) },
+            Stmt::Switch { disc, cases } => Stmt::Switch {
+                disc,
+                cases: cases.into_iter().map(|(t, b)| (t, drop_bindings(b, drop))).collect(),
+            },
+            Stmt::Block(b) => Stmt::Block(drop_bindings(b, drop)),
+            Stmt::Func { name, params, body } => {
+                Stmt::Func { name, params, body: drop_bindings(body, drop) }
+            }
+            other => other,
+        };
+        out.push(s);
+    }
+    out
+}
+
+fn collect_cleanup(
+    body: &[Stmt],
+    facts: &LocalFacts,
+    map: &mut HashMap<String, Expr>,
+    dead: &mut HashSet<String>,
+) {
+    for s in body {
+        match s {
+            Stmt::Var { name, init, .. } => {
+                // A name declared twice, or ever assigned, is not one binding
+                // and nothing here applies to it.
+                if facts.declared.get(name).copied() != Some(1)
+                    || facts.assigned.contains(name)
+                {
+                    continue;
+                }
+                let uses = facts.uses.get(name).copied().unwrap_or(0);
+                match init {
+                    // Never read: the binding goes, and the value with it when
+                    // it has nothing to do.
+                    _ if uses == 0 => {
+                        dead.insert(name.clone());
+                    }
+                    // An alias to a name that is never reassigned denotes the
+                    // same value everywhere the alias does, however often it
+                    // is read. This is the `const t = x;` the backend emits
+                    // before every match.
+                    Some(Expr::Ident(src))
+                        if !facts.assigned.contains(src)
+                            && facts.declared.get(src).copied().unwrap_or(1) == 1 =>
+                    {
+                        map.insert(name.clone(), Expr::Ident(src.clone()));
+                        dead.insert(name.clone());
+                    }
+                    // Read exactly once, so moving the value to its use
+                    // duplicates nothing. Three conditions make the move
+                    // legal:
+                    //
+                    //  * the value is pure, so running it later — or, if the
+                    //    use is under a branch, not at all — is unobservable;
+                    //  * nothing it reads is ever reassigned, which is what
+                    //    stops a tail-call loop's rebinding from being read
+                    //    after the parameter it names has moved on;
+                    //  * the use is no deeper than the binding, so the work
+                    //    does not move inside a loop or a closure.
+                    Some(e)
+                        if uses == 1
+                            && e.is_pure()
+                            && facts.read_where_bound(name)
+                            && !depends_on_assigned(e, facts) =>
+                    {
+                        map.insert(name.clone(), e.clone());
+                        dead.insert(name.clone());
+                    }
+                    _ => {}
+                }
+            }
+            Stmt::If { then, else_, .. } => {
+                collect_cleanup(then, facts, map, dead);
+                collect_cleanup(else_, facts, map, dead);
+            }
+            Stmt::While { body, .. } => collect_cleanup(body, facts, map, dead),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    collect_cleanup(b, facts, map, dead);
+                }
+            }
+            Stmt::Block(b) => collect_cleanup(b, facts, map, dead),
+            Stmt::Func { body, .. } => collect_cleanup(body, facts, map, dead),
+            _ => {}
+        }
+    }
+}
+
+/// Whether any name this expression reads is reassigned somewhere in the body.
+///
+/// This is what makes moving a value to its use safe in a tail-call loop:
+/// `const t = n - 1; n = t;` must not become `n = n - 1` if any read of `t`
+/// sits after the assignment.
+fn depends_on_assigned(e: &Expr, facts: &LocalFacts) -> bool {
+    let mut names = HashSet::new();
+    reads_of(e, &mut names);
+    names.iter().any(|n| facts.assigned.contains(n))
+}
+
+/// Substitutes the map into its own values, so one pass over the body
+/// suffices.
+///
+/// This has to reach *inside* a value, not merely follow `a -> b -> c`. Both
+/// halves of
+///
+/// ```js
+/// const t = o;          // t -> o
+/// const v = t[1];       // v -> t[1]
+/// ```
+///
+/// are collected in one round, and `v` must resolve to `o[1]`: substituting
+/// `t[1]` verbatim would name a binding that this same round removes.
+fn resolve_map(map: &mut HashMap<String, Expr>) {
+    let names: Vec<String> = map.keys().cloned().collect();
+    let mut done: HashMap<String, Expr> = HashMap::new();
+    let mut visiting: HashSet<String> = HashSet::new();
+    for name in &names {
+        resolve_one(name, map, &mut done, &mut visiting);
+    }
+    *map = done;
+}
+
+fn resolve_one(
+    name: &str,
+    map: &HashMap<String, Expr>,
+    done: &mut HashMap<String, Expr>,
+    visiting: &mut HashSet<String>,
+) -> Expr {
+    if let Some(e) = done.get(name) {
+        return e.clone();
+    }
+    let Some(raw) = map.get(name).cloned() else {
+        return Expr::Ident(name.to_string());
+    };
+    // A binding cannot name itself — that would not have run — but a bound is
+    // cheaper than trusting it.
+    if !visiting.insert(name.to_string()) {
+        return Expr::Ident(name.to_string());
+    }
+
+    let mut reads = HashSet::new();
+    reads_of(&raw, &mut reads);
+    let mut inner: HashMap<String, Expr> = HashMap::new();
+    // Sorted, so the order values are resolved in cannot depend on hash order.
+    let mut reads: Vec<String> = reads.into_iter().collect();
+    reads.sort();
+    for r in reads {
+        if map.contains_key(&r) {
+            let v = resolve_one(&r, map, done, visiting);
+            inner.insert(r, v);
+        }
+    }
+    visiting.remove(name);
+
+    let out = if inner.is_empty() { raw } else { subst_expr(raw, &inner) };
+    done.insert(name.to_string(), out.clone());
+    out
+}
+
+/// One pass of local cleanup over a function body. Returns `true` when
+/// anything changed, so the caller can run it again.
+fn clean_body(body: &mut Vec<Stmt>) -> bool {
+    let mut facts = LocalFacts::default();
+    body.iter().for_each(|s| count_stmt(s, &mut facts));
+    if facts.opaque {
+        return false;
+    }
+
+    let mut map: HashMap<String, Expr> = HashMap::new();
+    let mut dead: HashSet<String> = HashSet::new();
+    collect_cleanup(body, &facts, &mut map, &mut dead);
+    if map.is_empty() && dead.is_empty() {
+        return false;
+    }
+    // A value may name a binding this same round removes, so the map is
+    // substituted into itself before it is applied to the body.
+    resolve_map(&mut map);
+
+    let taken = std::mem::take(body);
+    let next: Vec<Stmt> = taken.into_iter().map(|s| subst_stmt(s, &map)).collect();
+    *body = drop_bindings(next, &dead);
+    true
+}
+
+/// How many times the local passes may run over one body.
+///
+/// The bound matters for more than termination: `builds_are_reproducible`
+/// compares bytes, so the number of rounds has to be a property of the input
+/// rather than of anything that varies between runs.
+const CLEANUP_ROUNDS: usize = 4;
+
+/// Runs folding and local cleanup over every function body, to a fixed point.
+fn clean_locals(stmts: Vec<Stmt>) -> Vec<Stmt> {
+    stmts
+        .into_iter()
+        .map(|s| match s {
+            Stmt::Func { name, params, mut body } => {
+                for _ in 0..CLEANUP_ROUNDS {
+                    body = fold_block(body);
+                    if !clean_body(&mut body) {
+                        break;
+                    }
+                }
+                Stmt::Func { name, params, body }
+            }
+            other => other,
+        })
+        .collect()
 }
 
 // -- dead code elimination ---------------------------------------------------
@@ -1417,29 +2189,30 @@ mod tests {
 
     #[test]
     fn precedence_adds_only_the_parentheses_it_needs() {
+        // Named operands, not literals: `Expr::bin` folds what it can, and a
+        // folded tree has no precedence left to test.
         let e = Expr::bin(
             BinOp::Mul,
-            Expr::bin(BinOp::Add, Expr::Num(1.0), Expr::Num(2.0)),
-            Expr::Num(3.0),
+            Expr::bin(BinOp::Add, Expr::ident("a"), Expr::ident("b")),
+            Expr::ident("c"),
         );
-        // Folding is a separate pass; the printer alone keeps the structure.
-        assert_eq!(p(e), "(1+2)*3;");
+        assert_eq!(p(e), "(a+b)*c;");
         let e = Expr::bin(
             BinOp::Add,
-            Expr::Num(1.0),
-            Expr::bin(BinOp::Mul, Expr::Num(2.0), Expr::Num(3.0)),
+            Expr::ident("a"),
+            Expr::bin(BinOp::Mul, Expr::ident("b"), Expr::ident("c")),
         );
-        assert_eq!(p(e), "1+2*3;");
+        assert_eq!(p(e), "a+b*c;");
     }
 
     #[test]
     fn subtraction_is_left_associative() {
         let e = Expr::bin(
             BinOp::Sub,
-            Expr::Num(1.0),
-            Expr::bin(BinOp::Sub, Expr::Num(2.0), Expr::Num(3.0)),
+            Expr::ident("a"),
+            Expr::bin(BinOp::Sub, Expr::ident("b"), Expr::ident("c")),
         );
-        assert_eq!(p(e), "1-(2-3);");
+        assert_eq!(p(e), "a-(b-c);");
     }
 
     #[test]
@@ -1470,6 +2243,159 @@ mod tests {
         };
         let out = print(&fold_block(vec![s]), false);
         assert_eq!(out, "return 1;");
+    }
+
+    /// Printing a folded expression, for the peephole cases below.
+    fn f(e: Expr) -> String {
+        let s = print(&[Stmt::Expr(e)], false);
+        s.trim_end_matches(';').to_string()
+    }
+
+    fn a() -> Expr {
+        Expr::ident("a")
+    }
+    fn b() -> Expr {
+        Expr::ident("b")
+    }
+
+    /// `a === b` — a boolean the peepholes are allowed to reason about.
+    fn cmp() -> Expr {
+        Expr::bin(BinOp::StrictEq, a(), b())
+    }
+
+    #[test]
+    fn a_negated_equality_flips_its_operator() {
+        assert_eq!(f(Expr::un(UnOp::Not, cmp())), "a!==b");
+        assert_eq!(f(Expr::un(UnOp::Not, Expr::un(UnOp::Not, cmp()))), "a===b");
+    }
+
+    /// `!(a < b)` is not `a >= b`: NaN compares false both ways. The rewrite
+    /// exists for equality alone, and this is what says so.
+    #[test]
+    fn a_negated_relational_operator_is_left_alone() {
+        assert_eq!(f(Expr::un(UnOp::Not, Expr::bin(BinOp::Lt, a(), b()))), "!(a<b)");
+    }
+
+    /// `!!e` is `e` for a boolean and `Boolean(e)` for anything else, so the
+    /// rewrite has to see that `e` is one.
+    #[test]
+    fn double_negation_only_collapses_on_a_boolean() {
+        let twice = Expr::un(UnOp::Not, Expr::un(UnOp::Not, a()));
+        assert_eq!(f(twice), "!!a");
+    }
+
+    #[test]
+    fn a_boolean_compared_against_a_literal_is_itself() {
+        assert_eq!(f(Expr::bin(BinOp::StrictEq, cmp(), Expr::Bool(true))), "a===b");
+        assert_eq!(f(Expr::bin(BinOp::StrictEq, cmp(), Expr::Bool(false))), "a!==b");
+    }
+
+    /// `1 && true` is `true`, not `1`, so the identity needs a boolean.
+    #[test]
+    fn short_circuit_identities_need_a_boolean() {
+        assert_eq!(f(Expr::bin(BinOp::And, cmp(), Expr::Bool(true))), "a===b");
+        assert_eq!(f(Expr::bin(BinOp::And, a(), Expr::Bool(true))), "a&&true");
+        assert_eq!(f(Expr::bin(BinOp::Or, cmp(), Expr::Bool(false))), "a===b");
+    }
+
+    #[test]
+    fn a_test_repeated_is_the_test() {
+        assert_eq!(f(Expr::bin(BinOp::And, cmp(), cmp())), "a===b");
+    }
+
+    /// The shape an or-pattern's alternatives collapse to once each has been
+    /// narrowed by the branch it sits under.
+    #[test]
+    fn one_value_cannot_equal_two_constants() {
+        let is1 = Expr::bin(BinOp::StrictEq, a(), Expr::Num(1.0));
+        let is2 = Expr::bin(BinOp::StrictEq, a(), Expr::Num(2.0));
+        assert_eq!(f(Expr::bin(BinOp::And, is1, is2)), "false");
+    }
+
+    #[test]
+    fn a_conditional_yielding_booleans_is_its_own_test() {
+        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(true), Expr::Bool(false))), "a===b");
+        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(false), Expr::Bool(true))), "a!==b");
+    }
+
+    #[test]
+    fn a_conditional_with_one_answer_needs_no_test() {
+        assert_eq!(f(Expr::cond(cmp(), a(), a())), "a");
+    }
+
+    #[test]
+    fn a_constant_branch_becomes_a_short_circuit() {
+        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(true), Expr::ident("x"))), "a===b||x");
+        assert_eq!(f(Expr::cond(cmp(), Expr::ident("x"), Expr::Bool(false))), "a===b&&x");
+        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(false), Expr::ident("x"))), "a!==b&&x");
+        assert_eq!(f(Expr::cond(cmp(), Expr::ident("x"), Expr::Bool(true))), "a!==b||x");
+    }
+
+    /// `5 ? true : x` is `true`, where `5 || x` is `5`. Without a boolean test
+    /// the short circuit is a different program.
+    #[test]
+    fn a_constant_branch_needs_a_boolean_test() {
+        assert_eq!(f(Expr::cond(a(), Expr::Bool(true), Expr::ident("x"))), "a?true:x");
+    }
+
+    #[test]
+    fn conditionals_that_share_an_arm_merge_into_one_test() {
+        let inner = Expr::cond(Expr::ident("p"), Expr::ident("x"), Expr::ident("y"));
+        // `c ? (p ? x : y) : y`  ->  `c && p ? x : y`
+        assert_eq!(
+            f(Expr::cond(cmp(), inner.clone(), Expr::ident("y"))),
+            "a===b&&p?x:y"
+        );
+        // `c ? x : (p ? x : y)`  ->  `c || p ? x : y`
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::ident("x"), inner)),
+            "a===b||p?x:y"
+        );
+    }
+
+    #[test]
+    fn two_branches_that_only_return_become_one_expression() {
+        let s = Stmt::If {
+            cond: cmp(),
+            then: vec![Stmt::Return(Some(Expr::Num(1.0)))],
+            else_: vec![Stmt::Return(Some(Expr::Num(2.0)))],
+        };
+        assert_eq!(print(&fold_block(vec![s]), false), "return a===b?1:2;");
+    }
+
+    /// A chain collapses from the inside out, because folding is bottom-up.
+    #[test]
+    fn a_chain_of_returning_branches_collapses_entirely() {
+        let inner = Stmt::If {
+            cond: Expr::bin(BinOp::Gt, a(), Expr::Num(10.0)),
+            then: vec![Stmt::Return(Some(Expr::Str("big".into())))],
+            else_: vec![Stmt::Return(Some(Expr::Str("small".into())))],
+        };
+        let outer = Stmt::If {
+            cond: Expr::bin(BinOp::Lt, a(), Expr::Num(0.0)),
+            then: vec![Stmt::Return(Some(Expr::Str("neg".into())))],
+            else_: vec![inner],
+        };
+        assert_eq!(
+            print(&fold_block(vec![outer]), false),
+            "return a<0?'neg':a>10?'big':'small';"
+        );
+    }
+
+    #[test]
+    fn two_branches_assigning_one_target_become_one_assignment() {
+        let s = Stmt::If {
+            cond: cmp(),
+            then: vec![Stmt::Expr(Expr::Assign {
+                target: Box::new(Expr::ident("r")),
+                value: Box::new(Expr::Num(1.0)),
+            })],
+            else_: vec![Stmt::Expr(Expr::Assign {
+                target: Box::new(Expr::ident("r")),
+                value: Box::new(Expr::Num(2.0)),
+            })],
+        };
+        assert_eq!(print(&fold_block(vec![s]), false), "r=a===b?1:2;");
     }
 
     #[test]
