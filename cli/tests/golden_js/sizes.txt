@@ -11,7 +11,7 @@ generics: 1619 bytes artifact, 598 generated
 guards: 1372 bytes artifact, 396 generated
 int_match: 1494 bytes artifact, 595 generated
 interpolation: 1506 bytes artifact, 429 generated
-interpreter: 3940 bytes artifact, 5864 generated
+interpreter: 3930 bytes artifact, 5838 generated
 literals: 1574 bytes artifact, 362 generated
 nested_match: 1532 bytes artifact, 776 generated
 option_result: 2176 bytes artifact, 1793 generated
@@ -25,4 +25,4 @@ tail_mutual: 1479 bytes artifact, 658 generated
 tail_self: 1902 bytes artifact, 1155 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 44504 bytes artifact, 21333 generated
+total: 44494 bytes artifact, 21307 generated

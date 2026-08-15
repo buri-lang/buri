@@ -22,16 +22,14 @@ function __cmd_x_main$main(){
   let $t1;
   if(parsed_2[0]===0){
     const pair_3=parsed_2[1];
-    let $t3;
     const $t4=__cmd_x_main$eval(pair_3[0]);
     if($t4[0]===0){
-      $t3='value '+String($t4[1])+' depth '+String(__cmd_x_main$depth(pair_3[0]));
+      $t1='value '+String($t4[1])+' depth '+String(__cmd_x_main$depth(pair_3[0]));
     }else if($t4[0]===1){
-      $t3='eval error '+__cmd_x_main$describe($t4[1]);
+      $t1='eval error '+__cmd_x_main$describe($t4[1]);
     }else{
       $abort('no arm matched');
     }
-    $t1=$t3;
   }else if(parsed_2[0]===1){
     $t1='parse error '+__cmd_x_main$describe(parsed_2[1]);
   }else{

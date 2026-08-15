@@ -1998,6 +1998,127 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     changed
 }
 
+/// Renames a slot: both the reads of it and the assignments to it.
+///
+/// `subst_expr` deliberately leaves assignment targets alone, because it
+/// substitutes *values*. This renames the storage itself.
+fn rename_slot(body: Vec<Stmt>, from: &str, to: &str) -> Vec<Stmt> {
+    let mut map = HashMap::new();
+    map.insert(from.to_string(), Expr::ident(to.to_string()));
+    body.into_iter()
+        .map(|s| retarget_stmt(subst_stmt(s, &map), from, to))
+        .collect()
+}
+
+fn retarget_stmt(s: Stmt, from: &str, to: &str) -> Stmt {
+    match s {
+        Stmt::Expr(Expr::Assign { target, value }) => {
+            let target = match *target {
+                Expr::Ident(n) if n == from => Expr::ident(to.to_string()),
+                other => other,
+            };
+            Stmt::Expr(Expr::Assign { target: Box::new(target), value })
+        }
+        Stmt::If { cond, then, else_ } => Stmt::If {
+            cond,
+            then: then.into_iter().map(|s| retarget_stmt(s, from, to)).collect(),
+            else_: else_.into_iter().map(|s| retarget_stmt(s, from, to)).collect(),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond,
+            body: body.into_iter().map(|s| retarget_stmt(s, from, to)).collect(),
+        },
+        Stmt::Switch { disc, cases } => Stmt::Switch {
+            disc,
+            cases: cases
+                .into_iter()
+                .map(|(t, b)| {
+                    (t, b.into_iter().map(|s| retarget_stmt(s, from, to)).collect())
+                })
+                .collect(),
+        },
+        Stmt::Block(b) => {
+            Stmt::Block(b.into_iter().map(|s| retarget_stmt(s, from, to)).collect())
+        }
+        other => other,
+    }
+}
+
+/// Collapses `let a; <branches assigning a>; b = a;` into branches that assign
+/// `b` directly.
+///
+/// A value-position `match` inside another one produces exactly this: the
+/// inner match fills its own slot, and the outer one then copies it across.
+/// Neither slot is anything but a temporary, so there is no reason for two.
+fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
+    for s in body.iter_mut() {
+        let changed = match s {
+            Stmt::If { then, else_, .. } => {
+                coalesce_copies(then, facts) | coalesce_copies(else_, facts)
+            }
+            Stmt::While { body, .. } => coalesce_copies(body, facts),
+            Stmt::Block(b) => coalesce_copies(b, facts),
+            Stmt::Func { body, .. } => coalesce_copies(body, facts),
+            Stmt::Switch { cases, .. } => {
+                cases.iter_mut().fold(false, |a, (_, b)| a | coalesce_copies(b, facts))
+            }
+            _ => false,
+        };
+        if changed {
+            return true;
+        }
+    }
+
+    for i in 0..body.len() {
+        let Stmt::Var { kind: VarKind::Let, name: from, init: None } = &body[i] else {
+            continue;
+        };
+        // Read exactly once, and written at least once, or there is nothing to
+        // move.
+        if facts.uses.get(from).copied() != Some(1)
+            || facts.assigns.get(from).copied().unwrap_or(0) == 0
+        {
+            continue;
+        }
+        // The one read has to be the copy, and it has to sit in this same list
+        // so that everything assigning `from` is between the two.
+        let Some(j) = (i + 1..body.len()).find(|j| match &body[*j] {
+            Stmt::Expr(Expr::Assign { target, value }) => {
+                matches!(&**value, Expr::Ident(v) if v == from)
+                    && matches!(&**target, Expr::Ident(_))
+            }
+            _ => false,
+        }) else {
+            continue;
+        };
+        let Stmt::Expr(Expr::Assign { target, .. }) = &body[j] else { unreachable!() };
+        let Expr::Ident(to) = &**target else { unreachable!() };
+        // Only a temporary the backend made, never a name from the source.
+        if !to.starts_with('$') {
+            continue;
+        }
+        // The writes to `from` move up to where they are, so nothing between
+        // the declaration and the copy may read or write the destination. What
+        // happens to it outside that stretch is unaffected: every write being
+        // moved still precedes the point the copy stood at.
+        let mut region = LocalFacts::default();
+        for s in &body[i..j] {
+            count_stmt(s, &mut region);
+        }
+        if region.uses.contains_key(to) || region.assigned.contains(to) {
+            continue;
+        }
+        let (from, to) = (from.clone(), to.clone());
+
+        let mut rest: Vec<Stmt> = body.drain(i..).collect();
+        rest.remove(0); // `let from;`
+        rest.remove(j - i - 1); // the copy
+        body.extend(rename_slot(rest, &from, &to));
+        return true;
+    }
+    false
+}
+
 /// One pass of local cleanup over a function body. Returns `true` when
 /// anything changed, so the caller can run it again.
 fn clean_body(body: &mut Vec<Stmt>) -> bool {
@@ -2007,6 +2128,9 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
         return false;
     }
     if merge_declarations(body, &facts) {
+        return true;
+    }
+    if coalesce_copies(body, &facts) {
         return true;
     }
 
