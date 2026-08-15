@@ -1110,6 +1110,12 @@ fn fold(e: Expr) -> Expr {
                 if *i >= 0.0
                     && i.fract() == 0.0
                     && n < items.len()
+                    // Only a scalar comes out. Lifting an aggregate out of a
+                    // literal replaces one read of an array that was being
+                    // built anyway with a *fresh* array at every occurrence —
+                    // `ctx[1]` became `[]`, allocating on every call to
+                    // something that ignores the argument.
+                    && items[n].is_pure_literal()
                     && items.iter().enumerate().all(|(k, x)| k == n || x.is_pure())
                 {
                     return items[n].clone();

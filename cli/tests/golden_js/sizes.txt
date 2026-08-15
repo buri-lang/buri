@@ -6,12 +6,12 @@ closures: 1901 bytes artifact, 652 generated
 derives: 2755 bytes artifact, 593 generated
 enum_match: 1576 bytes artifact, 826 generated
 enum_payloadless: 1458 bytes artifact, 695 generated
-enum_single_variant: 1252 bytes artifact, 131 generated
+enum_single_variant: 1260 bytes artifact, 139 generated
 generics: 1619 bytes artifact, 598 generated
-guards: 1372 bytes artifact, 396 generated
-int_match: 1494 bytes artifact, 595 generated
+guards: 1380 bytes artifact, 404 generated
+int_match: 1502 bytes artifact, 603 generated
 interpolation: 1506 bytes artifact, 429 generated
-interpreter: 3930 bytes artifact, 5838 generated
+interpreter: 3938 bytes artifact, 5846 generated
 literals: 1574 bytes artifact, 362 generated
 nested_match: 1532 bytes artifact, 776 generated
 option_result: 2176 bytes artifact, 1793 generated
@@ -19,10 +19,10 @@ or_patterns: 1466 bytes artifact, 650 generated
 rebound_scrutinee: 1334 bytes artifact, 224 generated
 shared_constants: 1507 bytes artifact, 894 generated
 stdlib_chain: 2212 bytes artifact, 621 generated
-str_match: 1456 bytes artifact, 494 generated
+str_match: 1464 bytes artifact, 502 generated
 structs: 1434 bytes artifact, 364 generated
-tail_mutual: 1479 bytes artifact, 658 generated
+tail_mutual: 1487 bytes artifact, 666 generated
 tail_self: 1902 bytes artifact, 1155 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 44494 bytes artifact, 21307 generated
+total: 44542 bytes artifact, 21355 generated

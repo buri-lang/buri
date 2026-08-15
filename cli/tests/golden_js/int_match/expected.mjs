@@ -1,6 +1,6 @@
 const $k0=[0,0];
 function __cmd_x_main$main(){
-  $host_HostStdout_println([],__cmd_x_main$roman(1)+' '+__cmd_x_main$roman(9)+' '+__cmd_x_main$roman(10)+' '+__cmd_x_main$roman(11));
+  $host_HostStdout_println([[],[]][1],__cmd_x_main$roman(1)+' '+__cmd_x_main$roman(9)+' '+__cmd_x_main$roman(10)+' '+__cmd_x_main$roman(11));
   return $k0;
 }
 function __cmd_x_main$roman(n_0){

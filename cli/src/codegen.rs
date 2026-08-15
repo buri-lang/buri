@@ -606,7 +606,6 @@ impl<'a> Gen<'a> {
         // computed from the old ones, and then all the slots change at once.
         // A temporary per parameter is always correct and usually
         // unnecessary.
-        let remaining = values.clone();
         //
         // The values are still unevaluated expressions here, so they are
         // reached in written order whatever this does; what varies is *when
@@ -618,11 +617,27 @@ impl<'a> Gen<'a> {
         // `f(n - 1, acc + n)` then needs one temporary and `f(a, b)` none,
         // where binding every parameter through one needs as many as there are
         // parameters.
+        //
+        // A parameter whose new value is *itself* does not move at all. Those
+        // go first, which also lifts the constraint they would otherwise place
+        // on the others: a slot never written cannot be read too late.
+        let values: Vec<Option<Expr>> = values
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| match &v {
+                Expr::Ident(n) if *n == targets[i] => None,
+                _ => Some(v),
+            })
+            .collect();
+
         let mut deferred: Vec<(usize, Expr)> = Vec::new();
-        for (i, v) in values.into_iter().enumerate() {
-            // `values` was consumed by the loop, so what is still to come is
-            // asked of the original expressions, kept alongside.
-            if remaining[i + 1..].iter().any(|later| reads_ident(later, &targets[i])) {
+        for i in 0..values.len() {
+            let Some(v) = values[i].clone() else { continue };
+            let read_later = values[i + 1..]
+                .iter()
+                .flatten()
+                .any(|later| reads_ident(later, &targets[i]));
+            if read_later {
                 let t = self.fresh();
                 out.push(Stmt::Var { kind: VarKind::Const, name: t.clone(), init: Some(v) });
                 deferred.push((i, Expr::ident(t)));
