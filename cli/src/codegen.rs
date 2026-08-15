@@ -46,6 +46,13 @@ pub struct Gen<'a> {
     /// dispatching within a merged group.
     mode: TailMode,
     defensive_aborts: bool,
+    /// Constant aggregates, shared rather than rebuilt. See `Gen::intern`.
+    consts: Vec<Expr>,
+    /// Printed form of each interned aggregate, so an identical one anywhere
+    /// in the program reaches the same declaration.
+    const_index: HashMap<String, usize>,
+    /// Set while emitting a `context { .. }`, where nothing may be shared.
+    in_context: bool,
 }
 
 /// Tail-call elimination is a property of how a body is emitted, so it lives
@@ -99,6 +106,9 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
         plan: tco::analyze(program),
         mode: TailMode::Return,
         defensive_aborts: opts.defensive_aborts,
+        consts: Vec::new(),
+        const_index: HashMap::new(),
+        in_context: false,
     };
 
     let mut stmts = Vec::new();
@@ -120,6 +130,9 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
         let src = if opts.pretty { src } else { js::strip(&src) };
         stmts.push(Stmt::RawDecl { name, src });
     }
+    // Where the shared constants go, once the bodies below have said which
+    // ones they need.
+    let runtime_end = stmts.len();
 
     // Type descriptors, for the structural operations `derive` stands for.
     // Declared empty first and filled afterwards, because a recursive type's
@@ -198,6 +211,22 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
         stmts.push(Stmt::Func { name: f.symbol.clone(), params, body });
         let _ = i;
     }
+
+    // The shared constants the bodies above reached for, spliced in ahead of
+    // them. Function declarations hoist, so their order relative to these does
+    // not matter; the entry epilogue is a statement and does run, which is why
+    // they are inserted rather than appended.
+    let consts: Vec<Stmt> = g
+        .consts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| Stmt::Var {
+            kind: VarKind::Const,
+            name: const_name(i),
+            init: Some(e.clone()),
+        })
+        .collect();
+    stmts.splice(runtime_end..runtime_end, consts);
 
     let mut roots = Vec::new();
     if let Some(entry) = program.entry {
@@ -281,6 +310,35 @@ impl<'a> Gen<'a> {
         format!("$t{}", self.temp)
     }
 
+    /// Shares a constant aggregate instead of rebuilding it.
+    ///
+    /// `Shape.Empty` is `[0]`, and writing it in a loop allocated an array per
+    /// iteration for a value with no contents. Every value in the language is
+    /// immutable and nothing in the runtime writes through one, so two
+    /// occurrences of the same constant can be the same object: no expression
+    /// can tell. The runtime already does this by hand for `None`.
+    ///
+    /// Only aggregates built entirely from literals qualify, and one built
+    /// inside a `context { .. }` never does — a context is a live effect
+    /// handle, and the runtime *does* write through those.
+    fn intern(&mut self, e: Expr) -> Expr {
+        if self.in_context {
+            return e;
+        }
+        let Expr::Array(items) = &e else { return e };
+        if items.is_empty() || !items.iter().all(shareable) {
+            return e;
+        }
+        let key = js::print(&[Stmt::Expr(e.clone())], false);
+        if let Some(i) = self.const_index.get(&key) {
+            return Expr::ident(const_name(*i));
+        }
+        let i = self.consts.len();
+        self.consts.push(e);
+        self.const_index.insert(key, i);
+        Expr::ident(const_name(i))
+    }
+
     // -----------------------------------------------------------------------
     // Inlining the standard library's bodiless declarations
     // -----------------------------------------------------------------------
@@ -346,6 +404,26 @@ impl<'a> Gen<'a> {
 /// A call worth replacing is small; anything larger is cheaper as a call.
 /// `signum` and the checked-arithmetic expansions sit above this deliberately.
 const MAX_INLINE_INTRINSIC: usize = 8;
+
+/// How many fields a functional update will write out in full before falling
+/// back to copying the base and patching it.
+const MAX_SPELLED_UPDATE: usize = 8;
+
+/// Whether an element is a constant, so an aggregate holding it is one too.
+/// A name qualifies only when it is another shared constant.
+fn shareable(e: &Expr) -> bool {
+    match e {
+        Expr::Num(_) | Expr::BigInt(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Null
+        | Expr::Undefined => true,
+        Expr::Ident(n) => n.starts_with("$k"),
+        Expr::Array(xs) => xs.iter().all(shareable),
+        _ => false,
+    }
+}
+
+fn const_name(i: usize) -> String {
+    format!("$k{i}")
+}
 
 #[derive(Default)]
 struct ArgUse {
@@ -1085,29 +1163,69 @@ impl<'a> Gen<'a> {
                 Expr::call(c, args)
             }
             ExprKind::CallTrait { .. } => Expr::Num(0.0),
-            ExprKind::StructLit { fields, .. } => Expr::Array(self.exprs(fields, out)),
-            ExprKind::StructUpdate { base, updates, .. } => {
-                // Functional update: copy, then replace the named fields. The
-                // runtime is free to do this in place when the value is
-                // provably unshared; that is never observable.
+            ExprKind::StructLit { fields, .. } => {
+                let a = Expr::Array(self.exprs(fields, out));
+                self.intern(a)
+            }
+            ExprKind::StructUpdate { con, base, updates } => {
+                // A functional update names the fields it changes; the type
+                // says what the rest are. So the result is written out in
+                // full, reading the untouched fields from the base — no copy,
+                // no mutation, and one expression rather than a statement per
+                // field.
+                //
+                // `..base` is evaluated first and once, whether or not any
+                // field survives it, because the source says so.
                 let b = self.expr(base, out);
+                let arity = self.tables.tycon(*con).fields().len();
                 let name = self.fresh();
+
+                // Past a certain width, naming every field costs more than a
+                // bulk copy does, in output and in work — so a wide struct is
+                // still copied and patched.
+                if arity > MAX_SPELLED_UPDATE {
+                    out.push(Stmt::Var {
+                        kind: VarKind::Const,
+                        name: name.clone(),
+                        init: Some(Expr::call(Expr::member(b, "slice"), vec![])),
+                    });
+                    for (i, v) in updates {
+                        let value = self.expr(v, out);
+                        out.push(Stmt::Expr(Expr::Assign {
+                            target: Box::new(Expr::index(
+                                Expr::ident(name.clone()),
+                                Expr::Num(*i as f64),
+                            )),
+                            value: Box::new(value),
+                        }));
+                    }
+                    return Expr::ident(name);
+                }
+
                 out.push(Stmt::Var {
                     kind: VarKind::Const,
                     name: name.clone(),
-                    init: Some(Expr::call(Expr::member(b, "slice"), vec![])),
+                    init: Some(b),
                 });
-                for (i, v) in updates {
-                    let value = self.expr(v, out);
-                    out.push(Stmt::Expr(Expr::Assign {
-                        target: Box::new(Expr::index(
+
+                // Left to right over the fields, so a replacement expression
+                // runs in field order rather than in the order it was written
+                // — which is what `StructLit` does, and what the update is
+                // shorthand for.
+                let mut fields: Vec<Expr> = Vec::with_capacity(arity);
+                for i in 0..arity {
+                    match updates.iter().find(|(j, _)| *j == i) {
+                        Some((_, v)) => {
+                            let value = self.expr(v, out);
+                            fields.push(value);
+                        }
+                        None => fields.push(Expr::index(
                             Expr::ident(name.clone()),
-                            Expr::Num(*i as f64),
+                            Expr::Num(i as f64),
                         )),
-                        value: Box::new(value),
-                    }));
+                    }
                 }
-                Expr::ident(name)
+                Expr::Array(fields)
             }
             ExprKind::EnumLit { con, variant, args, .. } => {
                 if self.payloadless(*con) {
@@ -1115,10 +1233,14 @@ impl<'a> Gen<'a> {
                 } else {
                     let mut items = vec![Expr::Num(*variant as f64)];
                     items.extend(self.exprs(args, out));
-                    Expr::Array(items)
+                    let a = Expr::Array(items);
+                    self.intern(a)
                 }
             }
-            ExprKind::Tuple(xs) | ExprKind::Array(xs) => Expr::Array(self.exprs(xs, out)),
+            ExprKind::Tuple(xs) | ExprKind::Array(xs) => {
+                let a = Expr::Array(self.exprs(xs, out));
+                self.intern(a)
+            }
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
                 let b = self.expr(base, out);
                 Expr::index(b, Expr::Num(*index as f64))
@@ -1286,8 +1408,13 @@ impl<'a> Gen<'a> {
                 Expr::Array(items)
             }
             ExprKind::CtxLit { bindings } => {
+                // A context is a live effect handle and the runtime writes
+                // through one, so neither it nor anything built inside it may
+                // be shared with another occurrence.
+                let was = std::mem::replace(&mut self.in_context, true);
                 let items: Vec<Expr> =
                     bindings.iter().map(|(_, v)| self.expr(v, out)).collect();
+                self.in_context = was;
                 Expr::Array(items)
             }
             ExprKind::CtxGet { base, trait_id } => {

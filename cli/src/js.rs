@@ -962,11 +962,19 @@ impl Default for MinifyOptions {
 pub fn minify(stmts: Vec<Stmt>, roots: &[String], opts: &MinifyOptions) -> Vec<Stmt> {
     let mut stmts = stmts;
     if opts.fold {
+        // Sharing a constant aggregate hides its contents from the folder:
+        // `[3, 'x'][0]` is `3`, but `$k0[0]` is an array read. The table lets
+        // the folder see through the declaration; whichever declarations
+        // nothing needs afterwards are dropped below.
+        let table = constant_table(&stmts);
         stmts = fold_block(stmts);
         // Folding turns branches into expressions, which leaves temporaries
-        // nothing reads; cleanup removes them, which exposes more folding. The
-        // two run together, per body, until neither has anything left to do.
-        stmts = clean_locals(stmts);
+        // nothing reads; cleanup removes them, which exposes more folding —
+        // and cleanup is also what turns `const x = $k0; x[0]` into `$k0[0]`,
+        // so reading through has to happen inside that loop rather than
+        // before it. The three run together, per body, until none of them has
+        // anything left to do.
+        stmts = clean_locals(stmts, &table);
     }
     if opts.drop_unreachable {
         stmts = eliminate_dead(stmts, roots);
@@ -1124,6 +1132,140 @@ fn fold(e: Expr) -> Expr {
         }
         Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(fold).collect()),
         Expr::Spread(x) => Expr::Spread(Box::new(fold(*x))),
+        other => other,
+    }
+}
+
+// -- shared constants --------------------------------------------------------
+
+/// Replaces a known slot of a shared constant with the value in it.
+///
+/// The backend shares constant aggregates so that writing `Shape.Empty` in a
+/// loop does not allocate an array per iteration. That is a win at run time
+/// and a loss at compile time: the folder can turn `[3, 'x'][0]` into `3` and
+/// can do nothing with `$k0[0]`. This puts the contents back within reach,
+/// leaving the sharing in place for the reads that are still reads.
+fn constant_table(stmts: &[Stmt]) -> HashMap<String, Vec<Expr>> {
+    let mut table: HashMap<String, Vec<Expr>> = HashMap::new();
+    for s in stmts {
+        if let Stmt::Var { kind: VarKind::Const, name, init: Some(Expr::Array(items)) } = s {
+            if name.starts_with("$k") {
+                table.insert(name.clone(), items.clone());
+            }
+        }
+    }
+    table
+}
+
+fn read_through_stmt(s: Stmt, table: &HashMap<String, Vec<Expr>>) -> Stmt {
+    match s {
+        // The declarations themselves are left alone: one of them may name
+        // another, and rewriting a constant into itself is not the point.
+        Stmt::Var { kind: VarKind::Const, ref name, .. } if name.starts_with("$k") => s,
+        Stmt::Var { kind, name, init } => {
+            Stmt::Var { kind, name, init: init.map(|e| read_through_expr(e, table)) }
+        }
+        Stmt::Func { name, params, body } => Stmt::Func {
+            name,
+            params,
+            body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+        },
+        Stmt::Return(e) => Stmt::Return(e.map(|e| read_through_expr(e, table))),
+        Stmt::If { cond, then, else_ } => Stmt::If {
+            cond: read_through_expr(cond, table),
+            then: then.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+            else_: else_.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond: read_through_expr(cond, table),
+            body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+        },
+        Stmt::Switch { disc, cases } => Stmt::Switch {
+            disc: read_through_expr(disc, table),
+            cases: cases
+                .into_iter()
+                .map(|(t, b)| {
+                    (
+                        t.map(|t| read_through_expr(t, table)),
+                        b.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+                    )
+                })
+                .collect(),
+        },
+        Stmt::Expr(e) => Stmt::Expr(read_through_expr(e, table)),
+        Stmt::Throw(e) => Stmt::Throw(read_through_expr(e, table)),
+        Stmt::ExportDefault(e) => Stmt::ExportDefault(read_through_expr(e, table)),
+        Stmt::Block(b) => {
+            Stmt::Block(b.into_iter().map(|s| read_through_stmt(s, table)).collect())
+        }
+        other => other,
+    }
+}
+
+fn read_through_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
+    // `$k0[2]`, where slot 2 holds something free to copy.
+    if let Expr::Index { obj, index } = &e {
+        if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
+            if let Some(items) = table.get(name) {
+                let n = *i as usize;
+                if *i >= 0.0 && i.fract() == 0.0 && n < items.len() {
+                    // Only a literal: copying a nested aggregate out of a
+                    // shared one would undo the sharing.
+                    if items[n].is_pure_literal() {
+                        return items[n].clone();
+                    }
+                }
+            }
+        }
+    }
+    match e {
+        Expr::Array(xs) => {
+            Expr::Array(xs.into_iter().map(|x| read_through_expr(x, table)).collect())
+        }
+        Expr::Seq(xs) => {
+            Expr::Seq(xs.into_iter().map(|x| read_through_expr(x, table)).collect())
+        }
+        Expr::Object(fs) => Expr::Object(
+            fs.into_iter().map(|(k, v)| (k, read_through_expr(v, table))).collect(),
+        ),
+        Expr::Member { obj, prop } => {
+            Expr::Member { obj: Box::new(read_through_expr(*obj, table)), prop }
+        }
+        Expr::Index { obj, index } => Expr::Index {
+            obj: Box::new(read_through_expr(*obj, table)),
+            index: Box::new(read_through_expr(*index, table)),
+        },
+        Expr::Call { callee, args } => Expr::Call {
+            callee: Box::new(read_through_expr(*callee, table)),
+            args: args.into_iter().map(|a| read_through_expr(a, table)).collect(),
+        },
+        Expr::New { callee, args } => Expr::New {
+            callee: Box::new(read_through_expr(*callee, table)),
+            args: args.into_iter().map(|a| read_through_expr(a, table)).collect(),
+        },
+        Expr::Unary { op, operand } => Expr::un(op, read_through_expr(*operand, table)),
+        Expr::Binary { op, lhs, rhs } => Expr::bin(
+            op,
+            read_through_expr(*lhs, table),
+            read_through_expr(*rhs, table),
+        ),
+        Expr::Cond { test, cons, alt } => Expr::cond(
+            read_through_expr(*test, table),
+            read_through_expr(*cons, table),
+            read_through_expr(*alt, table),
+        ),
+        Expr::Assign { target, value } => Expr::Assign {
+            target: Box::new(read_through_expr(*target, table)),
+            value: Box::new(read_through_expr(*value, table)),
+        },
+        Expr::Arrow { params, body } => {
+            Expr::Arrow { params, body: Box::new(read_through_expr(*body, table)) }
+        }
+        Expr::ArrowBlock { params, body } => Expr::ArrowBlock {
+            params,
+            body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+        },
+        Expr::Spread(x) => Expr::Spread(Box::new(read_through_expr(*x, table))),
         other => other,
     }
 }
@@ -1840,23 +1982,38 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     }
     // A value may name a binding this same round removes, so the map is
     // substituted into itself before it is applied to the body.
-    resolve_map(&mut map);
-
+    //
     // Resolution can turn a one-use substitution into a many-use one: `x` is
     // read once, but only to initialise an alias that is itself read five
     // times, and following the chain would paste `x`'s value at all five. That
     // is legal — the value is pure — but it is five allocations where there
     // was one. Only something free to copy may end up read more than once.
-    let overshot: Vec<String> = map
-        .iter()
-        .filter(|(name, value)| {
-            !value.is_pure_literal() && facts.uses.get(*name).copied().unwrap_or(0) > 1
-        })
-        .map(|(name, _)| name.clone())
-        .collect();
-    for name in overshot {
-        map.remove(&name);
-        dead.remove(&name);
+    //
+    // Withdrawing such an entry has to happen *before* resolution rather than
+    // after it, because resolution also pastes its value inside other entries:
+    // dropping `t -> <expr>` while some `v -> t[1]` had already resolved to
+    // `<expr>[1]` keeps the copy it was meant to prevent. So the two run
+    // together until no entry overshoots — each pass withdraws at least one,
+    // so it terminates.
+    loop {
+        let mut resolved = map.clone();
+        resolve_map(&mut resolved);
+        let overshot: Vec<String> = resolved
+            .iter()
+            .filter(|(name, value)| {
+                !value.is_pure_literal()
+                    && facts.uses.get(*name).copied().unwrap_or(0) > 1
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        if overshot.is_empty() {
+            map = resolved;
+            break;
+        }
+        for name in overshot {
+            map.remove(&name);
+            dead.remove(&name);
+        }
     }
     if map.is_empty() && dead.is_empty() {
         return false;
@@ -1876,12 +2033,16 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
 const CLEANUP_ROUNDS: usize = 4;
 
 /// Runs folding and local cleanup over every function body, to a fixed point.
-fn clean_locals(stmts: Vec<Stmt>) -> Vec<Stmt> {
+fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stmt> {
     stmts
         .into_iter()
         .map(|s| match s {
             Stmt::Func { name, params, mut body } => {
                 for _ in 0..CLEANUP_ROUNDS {
+                    if !table.is_empty() {
+                        body =
+                            body.into_iter().map(|s| read_through_stmt(s, table)).collect();
+                    }
                     body = fold_block(body);
                     if !clean_body(&mut body) {
                         break;
@@ -2751,5 +2912,34 @@ mod tests {
         for i in 0..2000 {
             assert!(seen.insert(short_name(i)), "collision at {i}");
         }
+    }
+}
+
+#[cfg(test)]
+mod shared_constant_tests {
+    use super::*;
+
+    #[test]
+    fn a_known_slot_of_a_shared_constant_reads_through() {
+        let stmts = vec![
+            Stmt::Var {
+                kind: VarKind::Const,
+                name: "$k0".into(),
+                init: Some(Expr::Array(vec![Expr::Num(3.0), Expr::Str("x".into())])),
+            },
+            Stmt::Func {
+                name: "f".into(),
+                params: vec![],
+                body: vec![Stmt::Return(Some(Expr::index(
+                    Expr::ident("$k0"),
+                    Expr::Num(0.0),
+                )))],
+            },
+        ];
+        let table = constant_table(&stmts);
+        let out: Vec<Stmt> =
+            stmts.into_iter().map(|s| read_through_stmt(s, &table)).collect();
+        let printed = print(&out, false);
+        assert!(printed.contains("return 3;"), "did not read through: {printed}");
     }
 }

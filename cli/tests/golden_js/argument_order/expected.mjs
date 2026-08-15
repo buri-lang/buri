@@ -1,3 +1,4 @@
+const $k0=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   const p_1=1;
@@ -24,7 +25,7 @@ function __cmd_x_main$main(){
   }
   const b_7=$t3;
   $host_HostStdout_println(ctx_0[1],[String(a_8*100+(a_6*100+b_7))]);
-  return [0,0];
+  return $k0;
 }
 function __cmd_x_main$noisy$72mdf3(ctx_0,tag_1,v_2){
   $host_HostStdout_println(ctx_0[1],[tag_1]);

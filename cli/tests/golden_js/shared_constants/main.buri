@@ -1,0 +1,38 @@
+// Constant aggregates built inside a function that runs many times. Each of
+// these used to allocate a fresh array per call for a value with no contents
+// and no identity anyone can observe.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Token { Blank, Word(Str), Number(Int) }
+
+struct Origin { x: Int, y: Int }
+
+fn classify(n: Int): Token {
+  if (n < 0) { Token.Blank } else if (n == 0) { Token.Word("zero") } else { Token.Number(n) }
+}
+
+fn weight(t: Token): Int {
+  match (t) {
+    .Blank => 0,
+    .Word(_) => 1,
+    .Number(n) => n,
+  }
+}
+
+fn origin(): Origin { Origin { x: 0, y: 0 } }
+
+fn tally(n: Int, acc: Int): Int {
+  if (n == 0) {
+    acc + origin().x
+  } else {
+    tally(n - 1, acc + weight(classify(n - 5)))
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${tally(10, 0)}");
+  let _ = ctx.println("${weight(Token.Blank)} ${weight(Token.Word("a"))}");
+  .Ok(())
+}

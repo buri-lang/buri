@@ -1,8 +1,10 @@
+const $k0=[9,8];
+const $k3=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   $host_HostStdout_println(ctx_0[1],[String(1),' ','s',' ',true]);
   let $t2;
-  const $t3=$list_get([9,8],0);
+  const $t3=$list_get($k0,0);
   if($t3[0]===0){
     $t2=$t3[1];
   }else if($t3[0]===1){
@@ -21,5 +23,5 @@ function __cmd_x_main$main(){
   }
   $host_HostStdout_println(ctx_0[1],[String($t2),' ',$t4]);
   $host_HostStdout_println(ctx_0[1],[String(5),' ','b']);
-  return [0,0];
+  return $k3;
 }

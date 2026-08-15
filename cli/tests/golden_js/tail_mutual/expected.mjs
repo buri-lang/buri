@@ -1,3 +1,4 @@
+const $k0=[0,0];
 function $tc0($w,$a0){
   while(true){
     switch($w){
@@ -22,7 +23,7 @@ function $tc0($w,$a0){
 }
 function __cmd_x_main$main(){
   $host_HostStdout_println([],[__cmd_x_main$isEven(1e3),' ',__cmd_x_main$isOdd(1001),' ',__cmd_x_main$isEven(7)]);
-  return [0,0];
+  return $k0;
 }
 function __cmd_x_main$isEven(n_0){
   return $tc0(0,n_0);

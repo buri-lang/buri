@@ -1,6 +1,7 @@
+const $k0=[0,0];
 function __cmd_x_main$main(){
   $host_HostStdout_println([],[__cmd_x_main$roman(1),' ',__cmd_x_main$roman(9),' ',__cmd_x_main$roman(10),' ',__cmd_x_main$roman(11)]);
-  return [0,0];
+  return $k0;
 }
 function __cmd_x_main$roman(n_0){
   switch(n_0){

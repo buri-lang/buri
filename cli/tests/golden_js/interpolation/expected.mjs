@@ -1,3 +1,4 @@
+const $k0=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   const name_1='world';
@@ -7,5 +8,5 @@ function __cmd_x_main$main(){
   $host_HostStdout_println(ctx_0[1],['no holes at all']);
   const joined_4=$str_format(ctx_0,['n=',String(n_2)]);
   $host_HostStdout_println(ctx_0[1],[joined_4,joined_4]);
-  return [0,0];
+  return $k0;
 }

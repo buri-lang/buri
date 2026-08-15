@@ -1,8 +1,13 @@
+const $k0=[0,2];
+const $k1=[1,0,1];
+const $k2=[1,3,0];
+const $k3=[2];
+const $k4=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render([0,2]),' ',__cmd_x_main$render([1,0,1])]);
-  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render([1,3,0]),' ',__cmd_x_main$render([2])]);
-  return [0,0];
+  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render($k0),' ',__cmd_x_main$render($k1)]);
+  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render($k2),' ',__cmd_x_main$render($k3)]);
+  return $k4;
 }
 function __cmd_x_main$render(o_0){
   if(o_0[0]===0&&o_0[1]===0){

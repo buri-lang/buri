@@ -1,3 +1,4 @@
+const $k0=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   const trimmed_2=$str_trim('  the quick brown fox  ');
@@ -7,5 +8,5 @@ function __cmd_x_main$main(){
   $host_HostStdout_println(ctx_0[1],[joined_7]);
   $host_HostStdout_println(ctx_0[1],[String($str_len(trimmed_2)),' ',String($list_len(words_3)),' ',$str_contains(joined_7,'QUICK')]);
   $host_HostStdout_println(ctx_0[1],[$str_startsWith(trimmed_2,'the'),' ',$str_endsWith(trimmed_2,'fox')]);
-  return [0,0];
+  return $k0;
 }

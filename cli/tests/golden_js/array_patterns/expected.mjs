@@ -1,10 +1,14 @@
+const $k0=[1];
+const $k1=[1,2];
+const $k2=[1,2,3,4];
+const $k3=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe([]));
-  $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe([1]));
-  $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe([1,2]));
-  $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe([1,2,3,4]));
-  return [0,0];
+  $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe($k0));
+  $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe($k1));
+  $host_HostStdout_println(ctx_0[1],__cmd_x_main$describe($k2));
+  return $k3;
 }
 function __cmd_x_main$describe(xs_0){
   if(xs_0.length===0){
