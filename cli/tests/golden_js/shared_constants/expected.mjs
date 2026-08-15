@@ -3,8 +3,8 @@ const $k2=[0,0];
 const $k3=[1,'zero'];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],[String(__cmd_x_main$tally(10,0))]);
-  $host_HostStdout_println(ctx_0[1],[String(0),' ',String(1)]);
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$tally(10,0)));
+  $host_HostStdout_println(ctx_0[1],String(0)+' '+String(1));
   return $k2;
 }
 function __cmd_x_main$tally(n_0,acc_1){

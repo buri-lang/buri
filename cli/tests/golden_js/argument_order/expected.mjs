@@ -12,7 +12,7 @@ function __cmd_x_main$main(){
     $abort('no arm matched');
   }
   const b_5=$t1;
-  $host_HostStdout_println(ctx_0[1],[String(a_4*100+b_5)]);
+  $host_HostStdout_println(ctx_0[1],String(a_4*100+b_5));
   const a_8=__cmd_x_main$noisy$72mdf3(ctx_0,'one',1);
   const a_6=__cmd_x_main$noisy$72mdf3(ctx_0,'two',2);
   let $t3;
@@ -24,10 +24,10 @@ function __cmd_x_main$main(){
     $abort('no arm matched');
   }
   const b_7=$t3;
-  $host_HostStdout_println(ctx_0[1],[String(a_8*100+(a_6*100+b_7))]);
+  $host_HostStdout_println(ctx_0[1],String(a_8*100+(a_6*100+b_7)));
   return $k0;
 }
 function __cmd_x_main$noisy$72mdf3(ctx_0,tag_1,v_2){
-  $host_HostStdout_println(ctx_0[1],[tag_1]);
+  $host_HostStdout_println(ctx_0[1],tag_1);
   return v_2;
 }

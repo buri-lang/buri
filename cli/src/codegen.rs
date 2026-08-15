@@ -1395,6 +1395,11 @@ impl<'a> Gen<'a> {
                 Expr::call(Expr::ident("$cmp"), a)
             }
             ExprKind::Template { parts } => {
+                // Every part is rendered to a string from its static type, so
+                // the whole interpolation is a concatenation: no array to
+                // allocate and nothing for the runtime to walk. `$fmt` takes a
+                // string as readily as the parts, which is what lets this be a
+                // choice made here rather than a change to every consumer.
                 let mut items = Vec::new();
                 for p in parts {
                     if let Some(t) = &p.text {
@@ -1405,7 +1410,12 @@ impl<'a> Gen<'a> {
                         items.push(self.render_hole(v, &h.ty));
                     }
                 }
-                Expr::Array(items)
+                let mut it = items.into_iter();
+                // An interpolation with no parts at all is the empty string.
+                let first = it.next().unwrap_or(Expr::Str(String::new()));
+                // `Expr::bin` merges adjacent literals, so a template with no
+                // holes collapses to one string here.
+                it.fold(first, |acc, x| Expr::bin(BinOp::Add, acc, x))
             }
             ExprKind::CtxLit { bindings } => {
                 // A context is a live effect handle and the runtime writes
@@ -1469,11 +1479,18 @@ impl<'a> Gen<'a> {
 
     /// A template hole is rendered by its static type. `I8` and `F64` are both
     /// JS numbers, and `5` must not come out as `5.0`.
+    /// A hole, rendered to a string from its static type.
+    ///
+    /// Every arm has to produce a string, because the parts are joined with
+    /// `+`: two boolean holes side by side would otherwise add to `1`. `Str`
+    /// and `Char` are already strings — a `Char` is a one-scalar string — and
+    /// everything else says so explicitly.
     fn render_hole(&self, v: Expr, ty: &Ty) -> Expr {
         match self.tables.as_prim(ty) {
             Some(p) if p.is_integer() => Expr::call(Expr::ident("String"), vec![v]),
             Some(p) if p.is_float() => Expr::call(Expr::ident("$f64"), vec![v]),
-            _ => v,
+            Some(Prim::Str) | Some(Prim::Char) => v,
+            _ => Expr::call(Expr::ident("$str"), vec![v]),
         }
     }
 

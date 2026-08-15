@@ -13,8 +13,8 @@ $D2.push(0,'s');
 $D3.push(3,'Tag',[['Low',false,[],[]],['High',false,['0'],[$D1]]],false);
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],[$eq($k0,$k1),' ',$eq($k0,$k0)]);
-  $host_HostStdout_println(ctx_0[1],[$show($k0,$D0),' ',$show($k1,$D0)]);
-  $host_HostStdout_println(ctx_0[1],[$eq($k2,$k3),' ',$show($k3,$D3)]);
+  $host_HostStdout_println(ctx_0[1],$str($eq($k0,$k1))+' '+$str($eq($k0,$k0)));
+  $host_HostStdout_println(ctx_0[1],$show($k0,$D0)+' '+$show($k1,$D0));
+  $host_HostStdout_println(ctx_0[1],$str($eq($k2,$k3))+' '+$show($k3,$D3));
   return $k4;
 }

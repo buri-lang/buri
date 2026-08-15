@@ -15,7 +15,8 @@
 //   F32, F64        number
 //   Char            a one-scalar string
 //   Str             string
-//   Template        an array of parts, rendered by $fmt
+//   Template        a string -- the backend renders every hole from its
+//                   static type and joins the parts, so nothing here has to
 //   struct          an array of fields, in declaration order
 //   enum            a number (the tag) when no variant has a payload,
 //                   otherwise [tag, ...payload]
@@ -28,7 +29,7 @@
 // The program has no way to say "this cannot happen" — every case is handled —
 // so this is only ever reached from a runtime failure the language does define.
 function $abort(m) {
-  const e = new Error(typeof m === "string" ? m : $fmt(m));
+  const e = new Error(m);
   e.$buri = true;
   throw e;
 }
@@ -61,13 +62,8 @@ function $wrapTo(v, bits, signed) {
 
 // --- Rendering ---------------------------------------------------------------
 
-// Constructing a Template allocates nothing; this is where it is rendered.
-function $fmt(parts) {
-  let out = "";
-  for (let i = 0; i < parts.length; i++) out += $str(parts[i]);
-  return out;
-}
-
+// Rendering a value whose type the backend could not settle statically: the
+// derived `Show`, and the fallback hole.
 function $str(v) {
   const t = typeof v;
   if (t === "string") return v;
@@ -740,24 +736,24 @@ function $host_HostAlloc_allocate(self, n) {
 }
 
 function $host_HostStdout_print(self, t) {
-  $host.out.push($fmt(t));
+  $host.out.push(t);
   if ($host.out.length > 64) $host.flush();
   return 0;
 }
 
 function $host_HostStdout_println(self, t) {
-  $host.out.push($fmt(t) + "\n");
+  $host.out.push(t + "\n");
   if ($host.out.length > 64) $host.flush();
   return 0;
 }
 
 function $host_HostStderr_eprint(self, t) {
-  $host.err.push($fmt(t));
+  $host.err.push(t);
   return 0;
 }
 
 function $host_HostStderr_eprintln(self, t) {
-  $host.err.push($fmt(t) + "\n");
+  $host.err.push(t + "\n");
   return 0;
 }
 
@@ -919,22 +915,22 @@ function $testing_context_captureErr() {
 }
 
 function $testing_context_CaptureOut_print(self, t) {
-  $slot(self).text += $fmt(t);
+  $slot(self).text += t;
   return 0;
 }
 
 function $testing_context_CaptureOut_println(self, t) {
-  $slot(self).text += $fmt(t) + "\n";
+  $slot(self).text += t + "\n";
   return 0;
 }
 
 function $testing_context_CaptureErr_eprint(self, t) {
-  $slot(self).text += $fmt(t);
+  $slot(self).text += t;
   return 0;
 }
 
 function $testing_context_CaptureErr_eprintln(self, t) {
-  $slot(self).text += $fmt(t) + "\n";
+  $slot(self).text += t + "\n";
   return 0;
 }
 
@@ -1091,5 +1087,5 @@ function $sat(v, lo, hi) {
 // Turning a Template into a Str is the point at which interpolation
 // allocates; constructing the Template itself does not.
 function $str_format(c, t) {
-  return $fmt(t);
+  return t;
 }

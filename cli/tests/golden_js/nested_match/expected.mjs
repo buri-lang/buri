@@ -5,8 +5,8 @@ const $k3=[2];
 const $k4=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render($k0),' ',__cmd_x_main$render($k1)]);
-  $host_HostStdout_println(ctx_0[1],[__cmd_x_main$render($k2),' ',__cmd_x_main$render($k3)]);
+  $host_HostStdout_println(ctx_0[1],__cmd_x_main$render($k0)+' '+__cmd_x_main$render($k1));
+  $host_HostStdout_println(ctx_0[1],__cmd_x_main$render($k2)+' '+__cmd_x_main$render($k3));
   return $k4;
 }
 function __cmd_x_main$render(o_0){

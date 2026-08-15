@@ -1,8 +1,8 @@
 const $k0=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],[String(__cmd_x_main$sumTo(100,0)),' ',String(__cmd_x_main$fib(30,0,1)),' ',String(__cmd_x_main$countDigits(12345,0))]);
-  $host_HostStdout_println(ctx_0[1],[String(__cmd_x_main$swapDown(1,2,3)),' ',String(__cmd_x_main$swapDown(1,2,4))]);
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$sumTo(100,0))+' '+String(__cmd_x_main$fib(30,0,1))+' '+String(__cmd_x_main$countDigits(12345,0)));
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$swapDown(1,2,3))+' '+String(__cmd_x_main$swapDown(1,2,4)));
   return $k0;
 }
 function __cmd_x_main$sumTo(n_0,acc_1){

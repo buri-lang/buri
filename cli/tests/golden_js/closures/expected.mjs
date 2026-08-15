@@ -11,7 +11,7 @@ function __cmd_x_main$main(){
     return a_12+b_13;
   },0);
   const big_11=$list_filter($k0,ctx_0,x_10=>x_10>2);
-  $host_HostStdout_println(ctx_0[1],[String(core_list$sum(biased_4)),' ',String(core_list$sum(doubled_6)),' ',String(summed_9),' ',String($list_len(big_11))]);
+  $host_HostStdout_println(ctx_0[1],String(core_list$sum(biased_4))+' '+String(core_list$sum(doubled_6))+' '+String(summed_9)+' '+String($list_len(big_11)));
   return $k1;
 }
 function core_list$sum(self_0){

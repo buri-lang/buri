@@ -2,7 +2,7 @@ const $k0=[9,8];
 const $k3=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],[String(1),' ','s',' ',true]);
+  $host_HostStdout_println(ctx_0[1],String(1)+' '+'s'+' '+$str(true));
   let $t2;
   const $t3=$list_get($k0,0);
   if($t3[0]===0){
@@ -21,7 +21,7 @@ function __cmd_x_main$main(){
   }else{
     $abort('no arm matched');
   }
-  $host_HostStdout_println(ctx_0[1],[String($t2),' ',$t4]);
-  $host_HostStdout_println(ctx_0[1],[String(5),' ','b']);
+  $host_HostStdout_println(ctx_0[1],String($t2)+' '+$t4);
+  $host_HostStdout_println(ctx_0[1],String(5)+' '+'b');
   return $k3;
 }
