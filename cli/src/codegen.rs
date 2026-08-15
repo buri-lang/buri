@@ -46,6 +46,8 @@ pub struct Gen<'a> {
     /// dispatching within a merged group.
     mode: TailMode,
     defensive_aborts: bool,
+    /// Declarations a helper needed to emit alongside what it returned.
+    extra: Vec<Stmt>,
     /// Constant aggregates, shared rather than rebuilt. See `Gen::intern`.
     consts: Vec<Expr>,
     /// Printed form of each interned aggregate, so an identical one anywhere
@@ -106,6 +108,7 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
         plan: tco::analyze(program),
         mode: TailMode::Return,
         defensive_aborts: opts.defensive_aborts,
+        extra: Vec::new(),
         consts: Vec::new(),
         const_index: HashMap::new(),
         in_context: false,
@@ -245,7 +248,9 @@ pub fn generate(program: &Program, tables: &crate::types::Tables, opts: &Options
     }
 
     if !program.tests.is_empty() {
-        stmts.push(g.test_harness());
+        let harness = g.test_harness();
+        stmts.append(&mut g.extra);
+        stmts.push(harness);
         // The runner appends its own epilogue after minification, so what that
         // epilogue names has to survive dead code elimination.
         for name in ["$run", "$write", "$str", "$t", "$host"] {
@@ -1686,18 +1691,24 @@ impl<'a> Gen<'a> {
                 ])
             })
             .collect();
+        // `$cases` is built as a tree rather than as text so that the names in
+        // it are identifiers the later passes can rewrite. Two tests with the
+        // same body are one function afterwards, and each still reports under
+        // its own name.
+        self.extra.push(Stmt::Var {
+            kind: VarKind::Const,
+            name: "$cases".into(),
+            init: Some(Expr::Array(cases)),
+        });
         Stmt::Raw(format!(
-            "const $cases={};\
-             function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
+            "{}function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
              if(filter&&!n.includes(filter))continue;\
              const started=Date.now();try{{f();out.push({{name:n,module:m,ok:true,ms:Date.now()-started}});}}\
              catch(e){{out.push({{name:n,module:m,ok:false,ms:Date.now()-started,\
              error:e&&e.$assert?e.$assert:{{message:String(e&&e.message||e)}},\
              stack:e&&e.stack||\"\"}});}}}}\
              return out;}}",
-            js::print(&[Stmt::Expr(Expr::Array(cases))], false)
-                .trim_end_matches(';')
-                .to_string()
+            ""
         ))
     }
 }

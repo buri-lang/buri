@@ -1,0 +1,151 @@
+// A whole small program: an expression language with a recursive AST, a
+// recursive-descent parser threading a cursor through `Result`, and an
+// evaluator. Bigger than one construct on purpose -- long arm chains, arms
+// that do the same thing, and `?` at every level are what a real program
+// has and a one-construct case does not.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+from "core/list" import * as list;
+
+enum Tok { Num(Int), Plus, Minus, Star, Slash, LParen, RParen, End }
+
+enum Expr {
+  Lit(Int),
+  Add(Expr, Expr),
+  Sub(Expr, Expr),
+  Mul(Expr, Expr),
+  Div(Expr, Expr),
+}
+
+enum Err_ { BadChar(Str), Unexpected(Str), DivZero, Trailing }
+
+struct Cursor { toks: [Tok], at: Int }
+
+fn tokenOf(c: Str): Result<Tok, Err_> {
+  match (c) {
+    "+" => .Ok(Tok.Plus),
+    "-" => .Ok(Tok.Minus),
+    "*" => .Ok(Tok.Star),
+    "/" => .Ok(Tok.Slash),
+    "(" => .Ok(Tok.LParen),
+    ")" => .Ok(Tok.RParen),
+    _ => match (c.toInt()) {
+      .Some(n) => .Ok(Tok.Num(n)),
+      .None => .Err(Err_.BadChar(c)),
+    },
+  }
+}
+
+fn peek(c: Cursor): Tok {
+  match (c.toks.get(c.at)) {
+    .Some(t) => t,
+    .None => Tok.End,
+  }
+}
+
+fn advance(c: Cursor): Cursor { Cursor { ..c, at: c.at + 1 } }
+
+fn parsePrimary(c: Cursor): Result<(Expr, Cursor), Err_> {
+  match (peek(c)) {
+    .Num(n) => .Ok((Expr.Lit(n), advance(c))),
+    .LParen => {
+      let inner = parseSum(advance(c))?;
+      match (peek(inner.1)) {
+        .RParen => .Ok((inner.0, advance(inner.1))),
+        _ => .Err(Err_.Unexpected("expected )")),
+      }
+    },
+    .Minus => {
+      let inner = parsePrimary(advance(c))?;
+      .Ok((Expr.Sub(Expr.Lit(0), inner.0), inner.1))
+    },
+    _ => .Err(Err_.Unexpected("expected a value")),
+  }
+}
+
+fn parseProductFrom(left: Expr, c: Cursor): Result<(Expr, Cursor), Err_> {
+  match (peek(c)) {
+    .Star => {
+      let rhs = parsePrimary(advance(c))?;
+      parseProductFrom(Expr.Mul(left, rhs.0), rhs.1)
+    },
+    .Slash => {
+      let rhs = parsePrimary(advance(c))?;
+      parseProductFrom(Expr.Div(left, rhs.0), rhs.1)
+    },
+    _ => .Ok((left, c)),
+  }
+}
+
+fn parseProduct(c: Cursor): Result<(Expr, Cursor), Err_> {
+  let first = parsePrimary(c)?;
+  parseProductFrom(first.0, first.1)
+}
+
+fn parseSumFrom(left: Expr, c: Cursor): Result<(Expr, Cursor), Err_> {
+  match (peek(c)) {
+    .Plus => {
+      let rhs = parseProduct(advance(c))?;
+      parseSumFrom(Expr.Add(left, rhs.0), rhs.1)
+    },
+    .Minus => {
+      let rhs = parseProduct(advance(c))?;
+      parseSumFrom(Expr.Sub(left, rhs.0), rhs.1)
+    },
+    _ => .Ok((left, c)),
+  }
+}
+
+fn parseSum(c: Cursor): Result<(Expr, Cursor), Err_> {
+  let first = parseProduct(c)?;
+  parseSumFrom(first.0, first.1)
+}
+
+fn eval(e: Expr): Result<Int, Err_> {
+  match (e) {
+    .Lit(n) => .Ok(n),
+    .Add(a, b) => .Ok(eval(a)? + eval(b)?),
+    .Sub(a, b) => .Ok(eval(a)? - eval(b)?),
+    .Mul(a, b) => .Ok(eval(a)? * eval(b)?),
+    .Div(a, b) => {
+      let d = eval(b)?;
+      if (d == 0) { .Err(Err_.DivZero) } else { .Ok(eval(a)? / d) }
+    },
+  }
+}
+
+fn depth(e: Expr): Int {
+  match (e) {
+    .Lit(_) => 1,
+    .Add(a, b) => 1 + max_(depth(a), depth(b)),
+    .Sub(a, b) => 1 + max_(depth(a), depth(b)),
+    .Mul(a, b) => 1 + max_(depth(a), depth(b)),
+    .Div(a, b) => 1 + max_(depth(a), depth(b)),
+  }
+}
+
+fn max_(a: Int, b: Int): Int { if (a > b) { a } else { b } }
+
+fn describe(e: Err_): Str {
+  match (e) {
+    .BadChar(c) => c,
+    .Unexpected(m) => m,
+    .DivZero => "division by zero",
+    .Trailing => "trailing input",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let toks = [Tok.Num(2), Tok.Plus, Tok.Num(3), Tok.Star, Tok.Num(4), Tok.Minus, Tok.LParen, Tok.Num(10), Tok.Slash, Tok.Num(5), Tok.RParen];
+  let parsed = parseSum(Cursor { toks: toks, at: 0 });
+  let _ = ctx.println(match (parsed) {
+    .Ok(pair) => match (eval(pair.0)) {
+      .Ok(v) => "value ${v} depth ${depth(pair.0)}",
+      .Err(e) => "eval error ${describe(e)}",
+    },
+    .Err(e) => "parse error ${describe(e)}",
+  });
+  .Ok(())
+}

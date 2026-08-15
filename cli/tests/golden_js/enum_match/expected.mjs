@@ -12,29 +12,29 @@ function __cmd_x_main$main(){
   return $k4;
 }
 function __cmd_x_main$area(s_0){
-  if(s_0[0]===0){
-    return 0;
-  }else{
-    switch(s_0[0]){
-      case 1:
-        {
-          const r_1=s_0[1];
-          return 3*r_1*r_1;
-        }
-      case 2:
-        {
-          return s_0[1]*s_0[2];
-        }
-      case 3:
-        {
-          const side_4=s_0[1];
-          return side_4*side_4;
-        }
-      default:
-        {
-          $abort('no arm matched');
-        }
-        break;
-    }
+  switch(s_0[0]){
+    case 0:
+      {
+        return 0;
+      }
+    case 1:
+      {
+        const r_1=s_0[1];
+        return 3*r_1*r_1;
+      }
+    case 2:
+      {
+        return s_0[1]*s_0[2];
+      }
+    case 3:
+      {
+        const side_4=s_0[1];
+        return side_4*side_4;
+      }
+    default:
+      {
+        $abort('no arm matched');
+      }
+      break;
   }
 }

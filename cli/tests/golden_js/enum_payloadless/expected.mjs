@@ -19,27 +19,21 @@ function __cmd_x_main$name(c_0){
       {
         return 'blue';
       }
+    case 3:
+      {
+        return 'cyan';
+      }
+    case 4:
+      {
+        return 'magenta';
+      }
+    case 5:
+      {
+        return 'yellow';
+      }
     default:
       {
-        switch(c_0){
-          case 3:
-            {
-              return 'cyan';
-            }
-          case 4:
-            {
-              return 'magenta';
-            }
-          case 5:
-            {
-              return 'yellow';
-            }
-          default:
-            {
-              $abort('no arm matched');
-            }
-            break;
-        }
+        $abort('no arm matched');
       }
       break;
   }

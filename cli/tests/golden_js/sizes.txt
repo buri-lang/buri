@@ -4,13 +4,14 @@ array_patterns: 1682 bytes artifact, 812 generated
 bool_logic: 1431 bytes artifact, 408 generated
 closures: 1901 bytes artifact, 652 generated
 derives: 2755 bytes artifact, 593 generated
-enum_match: 1576 bytes artifact, 867 generated
-enum_payloadless: 1458 bytes artifact, 870 generated
+enum_match: 1576 bytes artifact, 826 generated
+enum_payloadless: 1458 bytes artifact, 695 generated
 enum_single_variant: 1252 bytes artifact, 131 generated
 generics: 1619 bytes artifact, 598 generated
 guards: 1372 bytes artifact, 396 generated
 int_match: 1494 bytes artifact, 595 generated
 interpolation: 1506 bytes artifact, 429 generated
+interpreter: 3940 bytes artifact, 5864 generated
 literals: 1574 bytes artifact, 362 generated
 nested_match: 1532 bytes artifact, 776 generated
 option_result: 2176 bytes artifact, 1793 generated
@@ -24,4 +25,4 @@ tail_mutual: 1479 bytes artifact, 658 generated
 tail_self: 1902 bytes artifact, 1155 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 40564 bytes artifact, 15685 generated
+total: 44504 bytes artifact, 21333 generated

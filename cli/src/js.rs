@@ -975,6 +975,9 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], opts: &MinifyOptions) -> Vec<S
         // before it. The three run together, per body, until none of them has
         // anything left to do.
         stmts = clean_locals(stmts, &table);
+        // Last, so that two instances which only became the same through
+        // folding and inlining are still seen as the same.
+        stmts = merge_identical(stmts, roots);
     }
     if opts.drop_unreachable {
         stmts = eliminate_dead(stmts, roots);
@@ -1419,7 +1422,37 @@ fn to_switch(s: Stmt) -> Stmt {
     if !default.is_empty() {
         cases.push((None, switch_body(default)));
     }
-    Stmt::Switch { disc: disc.clone(), cases }
+    Stmt::Switch { disc: disc.clone(), cases: merge_equal_cases(cases) }
+}
+
+/// Turns runs of cases with the same body into one body reached by several
+/// labels.
+///
+/// Arms that do the same thing are ordinary — a five-variant enum where four
+/// variants are handled alike writes the same body four times, and each copy
+/// is real output. Emptying all but the last makes them fall through to it,
+/// which is what the source said in the first place.
+///
+/// Only a body ending in a jump may be shared this way. One that runs on would
+/// reach the *next* case's body rather than its own once emptied, which is a
+/// different program.
+fn merge_equal_cases(
+    cases: Vec<(Option<Expr>, Vec<Stmt>)>,
+) -> Vec<(Option<Expr>, Vec<Stmt>)> {
+    let printed: Vec<String> =
+        cases.iter().map(|(_, b)| print(b, false)).collect();
+    let mut out: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::with_capacity(cases.len());
+    for (i, (label, body)) in cases.into_iter().enumerate() {
+        let shareable = !body.is_empty()
+            && ends_in_jump(&body)
+            && printed.get(i + 1).is_some_and(|next| *next == printed[i]);
+        if shareable && label.is_some() {
+            out.push((label, Vec::new()));
+        } else {
+            out.push((label, body));
+        }
+    }
+    out
 }
 
 /// A case body, wrapped so it is its own scope and cannot run on.
@@ -1446,25 +1479,28 @@ fn ends_in_jump(body: &[Stmt]) -> bool {
 }
 
 /// Applies `to_switch` everywhere a statement can appear.
+///
+/// Conversion happens *before* the recursion, not after. A chain is a single
+/// `if` whose `else` holds the next one, so rewriting the inside first turns
+/// the tail into a `Switch` — and the head can no longer see a chain to join.
+/// The visible symptom is a five-arm match compiling to two `if`s and a
+/// three-case switch instead of one five-case switch.
 fn switches(body: Vec<Stmt>) -> Vec<Stmt> {
     body.into_iter()
-        .map(|s| {
-            let s = match s {
-                Stmt::If { cond, then, else_ } => {
-                    Stmt::If { cond, then: switches(then), else_: switches(else_) }
-                }
-                Stmt::While { cond, body } => Stmt::While { cond, body: switches(body) },
-                Stmt::Block(b) => Stmt::Block(switches(b)),
-                Stmt::Func { name, params, body } => {
-                    Stmt::Func { name, params, body: switches(body) }
-                }
-                Stmt::Switch { disc, cases } => Stmt::Switch {
-                    disc,
-                    cases: cases.into_iter().map(|(t, b)| (t, switches(b))).collect(),
-                },
-                other => other,
-            };
-            to_switch(s)
+        .map(|s| match to_switch(s) {
+            Stmt::If { cond, then, else_ } => {
+                Stmt::If { cond, then: switches(then), else_: switches(else_) }
+            }
+            Stmt::While { cond, body } => Stmt::While { cond, body: switches(body) },
+            Stmt::Block(b) => Stmt::Block(switches(b)),
+            Stmt::Func { name, params, body } => {
+                Stmt::Func { name, params, body: switches(body) }
+            }
+            Stmt::Switch { disc, cases } => Stmt::Switch {
+                disc,
+                cases: cases.into_iter().map(|(t, b)| (t, switches(b))).collect(),
+            },
+            other => other,
         })
         .collect()
 }
@@ -2055,6 +2091,59 @@ fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stm
             other => other,
         })
         .collect()
+}
+
+// -- merging functions that came out the same ---------------------------------
+
+/// Points every reference to a function at the first function with that body.
+///
+/// Monomorphization produces one instance per `(function, type arguments)`
+/// pair, and the code for two instances is frequently the same: nothing about
+/// `fold` over a list of integers differs from `fold` over a list of strings
+/// once the types are gone. In one conformance artifact 123 of 546 functions
+/// had a byte-identical twin.
+///
+/// Nothing is removed here — the references move, and `eliminate_dead` drops
+/// whatever that leaves unreachable. A name is only ever the *target* of a
+/// merge if it is safe to keep, and only ever the *source* if it is safe to
+/// lose: a root or a name mentioned in verbatim source (the entry epilogue
+/// names its function as text) is neither dropped nor rewritten.
+fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
+    let mut pinned: HashSet<String> = roots.iter().cloned().collect();
+    for s in &stmts {
+        match s {
+            Stmt::Raw(src) => collect_idents_raw(src, &mut pinned),
+            Stmt::RawDecl { src, .. } => collect_idents_raw(src, &mut pinned),
+            _ => {}
+        }
+    }
+
+    // First by emission order wins, so the result does not depend on hash
+    // order — build output is compared byte for byte.
+    let mut first: HashMap<String, String> = HashMap::new();
+    let mut alias: HashMap<String, Expr> = HashMap::new();
+    for s in &stmts {
+        let Stmt::Func { name, params, body } = s else { continue };
+        if pinned.contains(name) {
+            continue;
+        }
+        let key = print(
+            &[Stmt::Func { name: String::new(), params: params.clone(), body: body.clone() }],
+            false,
+        );
+        match first.get(&key) {
+            Some(winner) => {
+                alias.insert(name.clone(), Expr::ident(winner.clone()));
+            }
+            None => {
+                first.insert(key, name.clone());
+            }
+        }
+    }
+    if alias.is_empty() {
+        return stmts;
+    }
+    stmts.into_iter().map(|s| subst_stmt(s, &alias)).collect()
 }
 
 // -- dead code elimination ---------------------------------------------------
