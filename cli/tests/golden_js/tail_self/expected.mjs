@@ -35,7 +35,7 @@ function __cmd_x_main$countDigits(n_0,acc_1){
     if(n_0<10){
       return acc_1+1;
     }else{
-      n_0=$divi(n_0,10);
+      n_0=Math.trunc(n_0/10);
       acc_1=acc_1+1;
       continue;
     }

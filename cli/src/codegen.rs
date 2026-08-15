@@ -414,6 +414,11 @@ const MAX_INLINE_INTRINSIC: usize = 8;
 /// back to copying the base and patching it.
 const MAX_SPELLED_UPDATE: usize = 8;
 
+/// Whether a divisor is written down and is not zero.
+fn nonzero_literal(e: Option<&Expr>) -> bool {
+    matches!(e, Some(Expr::Num(n)) if *n != 0.0)
+}
+
 /// Whether an element is a constant, so an aggregate holding it is one too.
 /// A name qualifies only when it is another shared constant.
 fn shareable(e: &Expr) -> bool {
@@ -1697,10 +1702,17 @@ impl<'a> Gen<'a> {
                 // `saturatingAdd`.
                 self.rounded(v, p)
             }
+            // Integer division and remainder go through the runtime because
+            // a zero divisor aborts — there is no answer to give. Divide by a
+            // literal that is not zero and there is nothing to ask, so the
+            // check and the call both go.
             PrimOp::Div => {
                 if float {
                     let v = two(BinOp::Div, &mut args);
                     self.rounded(v, p)
+                } else if nonzero_literal(args.get(1)) {
+                    let v = two(BinOp::Div, &mut args);
+                    Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])
                 } else {
                     let _ = big;
                     Expr::call(Expr::ident("$divi"), args)
@@ -1710,6 +1722,8 @@ impl<'a> Gen<'a> {
                 if float {
                     let v = two(BinOp::Rem, &mut args);
                     self.rounded(v, p)
+                } else if nonzero_literal(args.get(1)) {
+                    two(BinOp::Rem, &mut args)
                 } else {
                     Expr::call(Expr::ident("$remi"), args)
                 }

@@ -1,5 +1,5 @@
 argument_order: 1511 bytes artifact, 845 generated
-arithmetic: 1597 bytes artifact, 270 generated
+arithmetic: 1351 bytes artifact, 241 generated
 array_patterns: 1682 bytes artifact, 812 generated
 bool_logic: 1431 bytes artifact, 408 generated
 closures: 1901 bytes artifact, 652 generated
@@ -23,7 +23,7 @@ stdlib_chain: 2212 bytes artifact, 621 generated
 str_match: 1464 bytes artifact, 502 generated
 structs: 1434 bytes artifact, 364 generated
 tail_mutual: 1487 bytes artifact, 666 generated
-tail_self: 1902 bytes artifact, 1155 generated
+tail_self: 1739 bytes artifact, 1160 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 50920 bytes artifact, 26257 generated
+total: 50511 bytes artifact, 26233 generated

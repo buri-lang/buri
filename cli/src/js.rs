@@ -357,6 +357,11 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             BinOp::Ge => return Expr::Bool(a >= b),
             BinOp::StrictEq => return Expr::Bool(a == b),
             BinOp::StrictNe => return Expr::Bool(a != b),
+            // A zero divisor is left alone: `1/0` is `Infinity` in JavaScript
+            // and an abort in Buri, so folding it would answer a question the
+            // language says has no answer.
+            BinOp::Div if b != 0.0 => return Expr::Num(a / b),
+            BinOp::Rem if b != 0.0 => return Expr::Num(a % b),
             _ => {}
         }
     }
@@ -1089,10 +1094,18 @@ fn fold(e: Expr) -> Expr {
         Expr::Unary { op, operand } => Expr::un(op, fold(*operand)),
         Expr::Binary { op, lhs, rhs } => Expr::bin(op, fold(*lhs), fold(*rhs)),
         Expr::Cond { test, cons, alt } => Expr::cond(fold(*test), fold(*cons), fold(*alt)),
-        Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(fold(*callee)),
-            args: args.into_iter().map(fold).collect(),
-        },
+        Expr::Call { callee, args } => {
+            let callee = fold(*callee);
+            let args: Vec<Expr> = args.into_iter().map(fold).collect();
+            // `Math.trunc` of something already known. Integer division emits
+            // one of these, so this is what finishes folding `18 / 3`.
+            if let (Expr::Member { obj, prop }, [Expr::Num(n)]) = (&callee, &args[..]) {
+                if prop == "trunc" && matches!(&**obj, Expr::Ident(m) if m == "Math") {
+                    return Expr::Num(n.trunc());
+                }
+            }
+            Expr::Call { callee: Box::new(callee), args }
+        }
         Expr::New { callee, args } => Expr::New {
             callee: Box::new(fold(*callee)),
             args: args.into_iter().map(fold).collect(),
