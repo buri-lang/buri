@@ -1,0 +1,69 @@
+// `None` is absence and `Some(x)` is `x`, which collides exactly once:
+// `Some(None)` would be absence too. Everything here is that corner --
+// construction, matching, `??`, equality, ordering and rendering of an
+// `Option<Option<T>>`, and of an `Option` that came out of the runtime rather
+// than out of generated code.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+struct Holder { inner: Option<Int> }
+
+derive Eq, Ord, Show for Holder;
+
+fn flatten_(o: Option<Option<Int>>): Option<Int> {
+  match (o) {
+    .Some(inner) => inner,
+    .None => .None,
+  }
+}
+
+fn label(o: Option<Option<Int>>): Str {
+  match (o) {
+    .Some(.Some(n)) => "some some",
+    .Some(.None) => "some none",
+    .None => "none",
+  }
+}
+
+fn depthOf(o: Option<Option<Option<Int>>>): Int {
+  match (o) {
+    .None => 0,
+    .Some(.None) => 1,
+    .Some(.Some(.None)) => 2,
+    .Some(.Some(.Some(_))) => 3,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+
+  let ss: Option<Option<Int>> = .Some(.Some(7));
+  let sn: Option<Option<Int>> = .Some(.None);
+  let nn: Option<Option<Int>> = .None;
+
+  let _ = ctx.println("${label(ss)} | ${label(sn)} | ${label(nn)}");
+  let _ = ctx.println("${flatten_(ss) ?? -1} ${flatten_(sn) ?? -1} ${flatten_(nn) ?? -1}");
+  let _ = ctx.println("${depthOf(.Some(.Some(.Some(1))))} ${depthOf(.Some(.Some(.None)))} ${depthOf(.Some(.None))} ${depthOf(.None)}");
+
+  // Through the runtime rather than through generated code: a list of
+  // Options, indexed.
+  let opts: [Option<Int>] = [.Some(1), .None, .Some(3)];
+  let got = opts.get(1);
+  let _ = ctx.println("${label(got)} ${opts.len()}");
+
+  // Derived Eq, Ord and Show over a struct holding an Option.
+  let a = Holder { inner: .Some(2) };
+  let b = Holder { inner: .None };
+  let _ = ctx.println("${a == a} ${a == b} ${b == b}");
+  let _ = ctx.println("${a.show(ctx)} ${b.show(ctx)}");
+  let _ = ctx.println("${a.inner.isSome()} ${b.inner.isNone()}");
+
+  // `None` sorts before every `Some`, which the comparisons in `$cmp` cannot
+  // answer for absence on their own.
+  let sorted = [a, b, Holder { inner: .Some(1) }].sort(ctx);
+  let lowest = sorted.first() ?? a;
+  let _ = ctx.println("${lowest.show(ctx)}");
+  let _ = ctx.println("${b < a} ${a < b} ${a < Holder { inner: .Some(9) }}");
+  .Ok(())
+}

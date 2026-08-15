@@ -60,6 +60,8 @@ pub enum Desc {
     Enum { name: String, variants: Vec<DescVariant>, payloadless: bool },
     Array(usize),
     Tuple(Vec<usize>),
+    /// `Option<T>`, whose value is the payload itself.
+    Option(usize),
     /// A type with no structural rendering.
     Opaque(String),
 }
@@ -784,6 +786,18 @@ impl<'a> Monomorphizer<'a> {
                             fields: fields.iter().map(|f| f.name.clone()).collect(),
                             types,
                         }
+                    }
+                    // `Option` has no tag to read: `None` is `undefined` and
+                    // `Some(x)` is `x`, so its descriptor says only what the
+                    // payload is.
+                    TyDef::Enum { .. } if self.tables().is_option(*con) => {
+                        let payload = substitute(
+                            args.first().unwrap_or(&Ty::Error),
+                            args,
+                            None,
+                        );
+                        let inner = self.descriptor(&payload);
+                        Desc::Option(inner)
                     }
                     TyDef::Enum { variants } => {
                         let payloadless = variants.iter().all(|v| v.fields.is_empty());

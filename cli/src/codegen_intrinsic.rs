@@ -167,7 +167,8 @@ impl<'a> Gen<'a> {
                     };
                     return Some(Expr::cond(
                         Expr::bin(BinOp::StrictEq, y, zero),
-                        Expr::ident("$none"),
+                        // `None` is absence itself.
+                        Expr::Undefined,
                         Expr::call(
                             Expr::ident("$checkedIn"),
                             vec![div, self.int_const(lo, from), self.upper_const(hi, from)],

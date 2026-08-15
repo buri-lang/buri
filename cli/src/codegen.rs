@@ -894,6 +894,24 @@ impl<'a> Gen<'a> {
                     .map(|f| (&f.pattern, Expr::index(subject.clone(), Expr::Num(f.index as f64)))),
             ),
             PatKind::Variant { con, variant, fields } => {
+                if let Some(nested) = self.option_nesting(&pattern.ty) {
+                    // `Some` is anything but absence; `None` is absence.
+                    let present = Expr::bin(
+                        if *variant == 1 { BinOp::StrictEq } else { BinOp::StrictNe },
+                        subject.clone(),
+                        Expr::Undefined,
+                    );
+                    if *variant == 1 {
+                        return Some(present);
+                    }
+                    let inner = self.option_value(subject.clone(), nested);
+                    return match self
+                        .all_tests(fields.iter().map(|f| (&f.pattern, inner.clone())))
+                    {
+                        Some(t) => Some(Expr::bin(BinOp::And, present, t)),
+                        None => Some(present),
+                    };
+                }
                 let flat = self.payloadless(*con);
                 let tag = if flat {
                     subject.clone()
@@ -1011,6 +1029,13 @@ impl<'a> Gen<'a> {
                 }
             }
             PatKind::Variant { fields, .. } => {
+                if let Some(nested) = self.option_nesting(&pattern.ty) {
+                    let inner = self.option_value(subject.clone(), nested);
+                    for f in fields {
+                        self.bind(&f.pattern, &inner, out);
+                    }
+                    return;
+                }
                 for f in fields {
                     self.bind(
                         &f.pattern,
@@ -1107,6 +1132,13 @@ impl<'a> Gen<'a> {
                 }
             }
             PatKind::Variant { fields, .. } => {
+                if let Some(nested) = self.option_nesting(&pattern.ty) {
+                    let inner = self.option_value(subject.clone(), nested);
+                    for f in fields {
+                        self.bind_assignments(&f.pattern, &inner, out);
+                    }
+                    return;
+                }
                 for f in fields {
                     self.bind_assignments(
                         &f.pattern,
@@ -1136,6 +1168,29 @@ impl<'a> Gen<'a> {
             }
             // A nested or-pattern's own alternatives are handled by its test.
             _ => {}
+        }
+    }
+
+    /// How an `Option` value is spelled, given the whole `Option<T>` type.
+    ///
+    /// `None` is `undefined` and `Some(x)` is `x`. Absence is the only thing
+    /// in the value representation that is ever `undefined` (runtime.js), so
+    /// the two are told apart by that alone — no tag, and no array to build.
+    ///
+    /// A nested `Option<Option<U>>` is the one case where they collide, since
+    /// `Some(None)` would be `undefined` too. There the payload is wrapped, by
+    /// `$some` going in and `$val` coming out.
+    fn option_nesting(&self, ty: &Ty) -> Option<bool> {
+        let payload = self.tables.option_payload(ty)?;
+        Some(self.tables.is_option_ty(payload))
+    }
+
+    /// The payload of a `Some`, read out of the value that *is* the payload.
+    fn option_value(&self, subject: Expr, nested: bool) -> Expr {
+        if nested {
+            Expr::call(Expr::ident("$val"), vec![subject])
+        } else {
+            subject
         }
     }
 
@@ -1248,6 +1303,19 @@ impl<'a> Gen<'a> {
                 Expr::Array(fields)
             }
             ExprKind::EnumLit { con, variant, args, .. } => {
+                if let Some(nested) = self.option_nesting(&e.ty) {
+                    // Variant 0 is `Some`, 1 is `None`; `Tables::is_option`
+                    // checks that.
+                    if *variant == 1 {
+                        return Expr::Undefined;
+                    }
+                    let v = self.expr(&args[0], out);
+                    return if nested {
+                        Expr::call(Expr::ident("$some"), vec![v])
+                    } else {
+                        v
+                    };
+                }
                 if self.payloadless(*con) {
                     Expr::Num(*variant as f64)
                 } else {
@@ -1347,30 +1415,35 @@ impl<'a> Gen<'a> {
                     name: name.clone(),
                     init: Some(l),
                 });
-                let ok = Expr::bin(
-                    BinOp::StrictEq,
-                    Expr::index(Expr::ident(name.clone()), Expr::Num(0.0)),
-                    Expr::Num(0.0),
-                );
+                let option = self.option_nesting(&lhs.ty);
+                let ok = match option {
+                    Some(_) => Expr::bin(
+                        BinOp::StrictNe,
+                        Expr::ident(name.clone()),
+                        Expr::Undefined,
+                    ),
+                    None => Expr::bin(
+                        BinOp::StrictEq,
+                        Expr::index(Expr::ident(name.clone()), Expr::Num(0.0)),
+                        Expr::Num(0.0),
+                    ),
+                };
+                let held = match option {
+                    Some(nested) => self.option_value(Expr::ident(name.clone()), nested),
+                    None => Expr::index(Expr::ident(name.clone()), Expr::Num(1.0)),
+                };
                 let _ = kind;
                 let mut r_stmts = Vec::new();
                 let r = self.expr(rhs, &mut r_stmts);
                 if r_stmts.is_empty() {
-                    return Expr::cond(
-                        ok,
-                        Expr::index(Expr::ident(name.clone()), Expr::Num(1.0)),
-                        r,
-                    );
+                    return Expr::cond(ok, held, r);
                 }
                 let result = self.fresh();
                 out.push(Stmt::Var { kind: VarKind::Let, name: result.clone(), init: None });
                 r_stmts.push(assign(&result, r));
                 out.push(Stmt::If {
                     cond: ok,
-                    then: vec![assign(
-                        &result,
-                        Expr::index(Expr::ident(name), Expr::Num(1.0)),
-                    )],
+                    then: vec![assign(&result, held)],
                     else_: r_stmts,
                 });
                 Expr::ident(result)
@@ -1380,6 +1453,24 @@ impl<'a> Gen<'a> {
                 // `.None` are both the value itself, so the failure case
                 // returns what it matched.
                 let b = self.expr(base, out);
+                if let Some(nested) = self.option_nesting(&base.ty) {
+                    let name = self.fresh();
+                    out.push(Stmt::Var {
+                        kind: VarKind::Const,
+                        name: name.clone(),
+                        init: Some(b),
+                    });
+                    out.push(Stmt::If {
+                        cond: Expr::bin(
+                            BinOp::StrictEq,
+                            Expr::ident(name.clone()),
+                            Expr::Undefined,
+                        ),
+                        then: vec![Stmt::Return(Some(Expr::Undefined))],
+                        else_: Vec::new(),
+                    });
+                    return self.option_value(Expr::ident(name), nested);
+                }
                 let name = self.fresh();
                 out.push(Stmt::Var {
                     kind: VarKind::Const,
@@ -1689,6 +1780,9 @@ impl<'a> Gen<'a> {
                 Expr::Num(5.0),
                 Expr::Array(items.iter().map(|t| Expr::ident(desc_name(*t))).collect()),
             ]),
+            Desc::Option(inner) => {
+                Expr::Array(vec![Expr::Num(7.0), Expr::ident(desc_name(*inner))])
+            }
             Desc::Opaque(_) => Expr::Array(vec![Expr::Num(6.0)]),
         }
     }

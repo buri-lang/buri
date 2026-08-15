@@ -194,9 +194,9 @@ function __cmd_x_main$parseSumFrom(left_0,c_1){
 }
 function __cmd_x_main$peek(c_0){
   const $t1=$list_get(c_0[0],c_0[1]);
-  if($t1[0]===0){
-    return $t1[1];
-  }else if($t1[0]===1){
+  if($t1!==void 0){
+    return $t1;
+  }else if($t1===void 0){
     return $k14;
   }else{
     $abort('no arm matched');

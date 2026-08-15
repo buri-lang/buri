@@ -475,6 +475,39 @@ impl Tables {
         &self.tycons[id.index()]
     }
 
+    /// Whether this is `Option`, the one type the backend gives a
+    /// representation of its own.
+    ///
+    /// Identified by shape as well as by name, so that a user type called
+    /// `Option` — which the language permits, in another module — is not
+    /// mistaken for it.
+    pub fn is_option(&self, id: TyConId) -> bool {
+        let t = self.tycon(id);
+        t.name == "Option"
+            && t.generics.len() == 1
+            && matches!(&t.def, TyDef::Enum { variants }
+                if variants.len() == 2
+                    && variants[0].name == "Some"
+                    && variants[0].fields.len() == 1
+                    && variants[1].name == "None"
+                    && variants[1].fields.is_empty())
+    }
+
+    /// `T`, when `ty` is `Option<T>`.
+    pub fn option_payload<'a>(&self, ty: &'a Ty) -> Option<&'a Ty> {
+        match ty {
+            Ty::Con(id, args) if self.is_option(*id) => args.first(),
+            _ => None,
+        }
+    }
+
+    /// Whether a value of this type can itself be `None`, and so cannot be
+    /// told apart from one by being `undefined`. Only these need the boxed
+    /// form (`$some`/`$val`).
+    pub fn is_option_ty(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Con(id, _) if self.is_option(*id))
+    }
+
     pub fn fun(&self, id: FnId) -> &FnInfo {
         &self.fns[id.index()]
     }

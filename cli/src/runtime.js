@@ -20,6 +20,11 @@
 //   struct          an array of fields, in declaration order
 //   enum            a number (the tag) when no variant has a payload,
 //                   otherwise [tag, ...payload]
+//   Option<T>       `None` is undefined and `Some(x)` is `x`. Absence is the
+//                   only undefined there is, so nothing else is needed to
+//                   tell them apart -- and no array is built. The one
+//                   collision is `Option<Option<T>>`, where `Some(None)`
+//                   would be undefined too; see $some/$val
 //   tuple, [T]      an array
 //   fn              a function
 //   context         an array of implementations, in binding order
@@ -91,6 +96,11 @@ function $f64(n) {
 
 function $eq(a, b) {
   if (a === b) return true;
+  // Two `Some(None)`s at the same nesting depth are the same value; they are
+  // distinct objects, so `===` does not say so.
+  if (a !== null && typeof a === "object" && !Array.isArray(a) && a.$n !== undefined) {
+    return b !== null && typeof b === "object" && b.$n === a.$n;
+  }
   // NaN !== NaN, so a struct with an F64 field holding NaN is not equal to
   // itself. That is structural equality being honest about its components.
   if (Array.isArray(a)) {
@@ -103,6 +113,12 @@ function $eq(a, b) {
 
 // Returns the index of an `Order` variant: 0 Less, 1 Equal, 2 Greater.
 function $cmp(a, b) {
+  // `None` sorts before every `Some`, and it is the only `undefined` there
+  // is. Without this the comparisons below answer Equal for it, because
+  // `undefined < x` and `undefined > x` are both false.
+  if (a === undefined || b === undefined) {
+    return a === b ? 1 : a === undefined ? 0 : 2;
+  }
   if (Array.isArray(a)) {
     const n = Math.min(a.length, b.length);
     for (let i = 0; i < n; i++) {
@@ -128,7 +144,9 @@ function $hash(v) {
     if (Array.isArray(x)) {
       mix(x.length);
       for (const y of x) go(y);
-    } else if (typeof x === "string") {
+    } else if (x === undefined) mix(0);
+    else if (x !== null && typeof x === "object" && x.$n !== undefined) mix(x.$n + 1);
+    else if (typeof x === "string") {
       for (let i = 0; i < x.length; i++) mix(x.charCodeAt(i));
     } else if (typeof x === "boolean") mix(x ? 1 : 0);
     else mix(Math.trunc(x) || 0);
@@ -182,6 +200,10 @@ function $show(v, d) {
     }
     return "." + vname + "(" + args.map((x, i) => $show(x, types[i])).join(", ") + ")";
   }
+  // [7, payload] -- an `Option`, which has no tag to read.
+  if (k === 7) {
+    return v === undefined ? ".None" : ".Some(" + $show($val(v), d[1]) + ")";
+  }
   if (k === 4) return "[" + v.map((x) => $show(x, d[1])).join(", ") + "]";
   if (k === 5) return "(" + v.map((x, i) => $show(x, d[1][i])).join(", ") + ")";
   return $str(v);
@@ -189,14 +211,30 @@ function $show(v, d) {
 
 // --- core/list ----------------------------------------------------------------
 //
-// Indexing yields Option<T>, so `get` is where the absence shows up. Option is
-// [0, x] for Some and 1 for None only if it were payloadless, which it is not:
-// Some carries a value, so None is [1].
+// Indexing yields Option<T>, so `get` is where the absence shows up.
 
+// `None` is `undefined` and `Some(x)` is `x`: absence is the only thing in the
+// value representation that is ever `undefined`, so nothing else is needed to
+// tell them apart.
+//
+// `Option<Option<T>>` is the one case where that collides, since `Some(None)`
+// would be `undefined` too. The generated code knows its types and wraps only
+// there; these two are for the runtime, which is shared across every element
+// type and so has to check. The counter carries the nesting depth.
 function $some(x) {
-  return [0, x];
+  if (x === undefined) return { $n: 0 };
+  if (x !== null && typeof x === "object" && !Array.isArray(x) && x.$n !== undefined) {
+    return { $n: x.$n + 1 };
+  }
+  return x;
 }
-const $none = [1];
+
+function $val(x) {
+  if (x !== null && typeof x === "object" && !Array.isArray(x) && x.$n !== undefined) {
+    return x.$n === 0 ? undefined : { $n: x.$n - 1 };
+  }
+  return x;
+}
 
 function $list_len(xs) {
   return xs.length;
@@ -204,7 +242,7 @@ function $list_len(xs) {
 
 function $list_get(xs, i) {
   const n = Number(i);
-  return n >= 0 && n < xs.length ? $some(xs[n]) : $none;
+  return n >= 0 && n < xs.length ? $some(xs[n]) : undefined;
 }
 
 function $list_fold(xs, f, acc) {
@@ -240,12 +278,12 @@ function $list_all(xs, p) {
 
 function $list_find(xs, p) {
   for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(xs[i]);
-  return $none;
+  return undefined;
 }
 
 function $list_findIndex(xs, p) {
   for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(i);
-  return $none;
+  return undefined;
 }
 
 function $list_count(xs, p) {
@@ -364,7 +402,7 @@ function $str_len(s) {
 function $str_charAt(s, i) {
   const cs = $chars(s);
   const n = Number(i);
-  return n >= 0 && n < cs.length ? $some(cs[n]) : $none;
+  return n >= 0 && n < cs.length ? $some(cs[n]) : undefined;
 }
 
 function $str_slice(s, a, b) {
@@ -399,14 +437,14 @@ function $str_contains(s, n) {
 
 function $str_indexOf(s, n) {
   const i = s.indexOf(n);
-  return i < 0 ? $none : $some($chars(s.slice(0, i)).length);
+  return i < 0 ? undefined : $some($chars(s.slice(0, i)).length);
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
 // neither half is a copy.
 function $str_splitOnce(s, sep) {
   const i = s.indexOf(sep);
-  return i < 0 ? $none : $some([s.slice(0, i), s.slice(i + sep.length)]);
+  return i < 0 ? undefined : $some([s.slice(0, i), s.slice(i + sep.length)]);
 }
 
 function $str_compare(a, b) {
@@ -415,23 +453,23 @@ function $str_compare(a, b) {
 
 function $str_toInt(s) {
   const t = s.trim();
-  if (!/^[+-]?\d+$/.test(t)) return $none;
+  if (!/^[+-]?\d+$/.test(t)) return undefined;
   try {
     const v = Number(t);
     // `Int` is `I64`, and a double represents integers exactly only to 2^53.
     // Past that there is no `Int` to parse to, which is what the `Option` is
     // for — rather than handing back a value that is quietly not the one
     // written.
-    if (!Number.isSafeInteger(v)) return $none;
+    if (!Number.isSafeInteger(v)) return undefined;
     return $some(v);
   } catch {
-    return $none;
+    return undefined;
   }
 }
 
 function $str_toFloat(s) {
   const t = s.trim();
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return $none;
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return undefined;
   return $some(Number(t));
 }
 
@@ -539,7 +577,7 @@ function $char_toU32(c) {
 
 function $char_toDigit(c, radix) {
   const n = parseInt(c, Number(radix));
-  return Number.isNaN(n) ? $none : $some(n);
+  return Number.isNaN(n) ? undefined : $some(n);
 }
 
 // --- core/math --------------------------------------------------------------------
@@ -771,7 +809,7 @@ function $host_HostStdin_readLine(self) {
     $stdinLines = text.length ? text.split("\n") : [];
     if ($stdinLines.length && $stdinLines[$stdinLines.length - 1] === "") $stdinLines.pop();
   }
-  return $stdinAt < $stdinLines.length ? $some($stdinLines[$stdinAt++]) : $none;
+  return $stdinAt < $stdinLines.length ? $some($stdinLines[$stdinAt++]) : undefined;
 }
 
 // `IoError` has a variant with a payload (`Other(Str)`), so every value of it
@@ -866,7 +904,7 @@ function $host_HostRand_nextFloat(self) {
 function $host_HostEnv_variable(self, name) {
   const env = typeof process !== "undefined" ? process.env : {};
   const v = env[name];
-  return v === undefined ? $none : $some(v);
+  return v === undefined ? undefined : $some(v);
 }
 
 function $host_HostEnv_arguments(self) {
@@ -948,7 +986,7 @@ function $testing_context_stdin(lines) {
 
 function $testing_context_TestStdin_readLine(self) {
   const s = $slot(self);
-  return s.at < s.lines.length ? $some(s.lines[s.at++]) : $none;
+  return s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined;
 }
 
 // In-memory, rooted at the package directory, containing exactly test.data.
@@ -1041,7 +1079,7 @@ function $testing_context_envOf(vars, args) {
 
 function $testing_context_TestEnv_variable(self, name) {
   const v = $slot(self).vars;
-  return name in v ? $some(v[name]) : $none;
+  return name in v ? $some(v[name]) : undefined;
 }
 
 function $testing_context_TestEnv_arguments(self) {
@@ -1076,7 +1114,7 @@ function $testing_assert_failExpected(kind, got, d) {
 // --- Checked and saturating arithmetic -----------------------------------------
 
 function $checkedIn(v, lo, hi) {
-  if (!Number.isFinite(v) || v < lo || v > hi) return $none;
+  if (!Number.isFinite(v) || v < lo || v > hi) return undefined;
   return $some(v);
 }
 

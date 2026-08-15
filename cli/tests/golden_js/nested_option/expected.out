@@ -1,0 +1,9 @@
+some some | some none | none
+7 -1 -1
+3 2 1 0
+some none 3
+true false true
+Holder { inner: .Some(2) } Holder { inner: .None }
+true true
+Holder { inner: .None }
+true false true
