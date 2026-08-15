@@ -1,4 +1,4 @@
-error: this arm is unreachable
+error: this arm is unreachable [unreachable-arm]
  --> cmd/unreachable_after_binding_arm/main.buri:8:5
   |
 8 |     .None => 0,

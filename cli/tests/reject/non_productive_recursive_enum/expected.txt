@@ -1,4 +1,4 @@
-error: `Endless` can never be constructed
+error: `Endless` can never be constructed [uninhabited]
  --> cmd/non_productive_recursive_enum/main.buri:5:1
   |
 5 | enum Endless { Node(Endless) }

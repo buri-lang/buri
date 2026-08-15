@@ -1,4 +1,4 @@
-error: `?` on a `Result` needs a `Result` return type, not `I64`
+error: `?` on a `Result` needs a `Result` return type, not `I64` [question-mark-mismatch]
  --> cmd/question_in_non_result_fn/main.buri:6:11
   |
 6 |   let n = r?;

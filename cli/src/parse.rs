@@ -38,6 +38,7 @@ pub fn parse_stdlib(text: &str, file: FileId) -> Parsed {
 
 fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
     let lexed = lex(text, file);
+    let first_item = lexed.tokens.first().map(|t| t.span.start).unwrap_or(0);
     let mut p = Parser {
         toks: lexed.tokens,
         pos: 0,
@@ -45,7 +46,21 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         allow_bodyless,
         depth: 0,
     };
-    let module = p.module();
+    let mut module = p.module();
+    // `//!` documents the module, so it belongs above everything. One that
+    // appears later is almost always a mistyped `///`, and silently attaching
+    // it to the module would publish a comment somebody wrote about a
+    // declaration.
+    for (line, span) in lexed.module_docs {
+        if span.start <= first_item {
+            module.docs.push(line);
+        } else {
+            p.errors.push(
+                Diagnostic::error(span, "`//!` documents the module, so it must come first").with_code("module-doc-not-first")
+                    .with_fix("move it above the first declaration, or write `///` to document the declaration below it"),
+            );
+        }
+    }
     Parsed { module, errors: p.errors }
 }
 
@@ -123,12 +138,20 @@ impl Parser {
     /// Every parser error carries the edit that resolves it. `fix` is the
     /// third argument rather than something a caller may add later, so a new
     /// error site cannot forget one.
-    fn error(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
+    /// Hands the diagnostic back so the caller can name the rule it enforces.
+    /// Returns `None` when the error was suppressed as a duplicate.
+    fn error(
+        &mut self,
+        span: Span,
+        msg: impl Into<String>,
+        fix: impl Into<String>,
+    ) -> Option<&mut Diagnostic> {
         // One syntax error usually causes several; the first is the useful one.
         if self.errors.iter().any(|e| e.span == span) {
-            return;
+            return None;
         }
         self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
+        self.errors.last_mut()
     }
 
     /// A syntax error is always a mismatch: the grammar admits one thing here
@@ -144,7 +167,7 @@ impl Parser {
             return;
         }
         self.errors.push(
-            Diagnostic::error(span, format!("expected {want}, found {found}"))
+            Diagnostic::error(span, format!("expected {want}, found {found}")).with_code("unexpected-token")
                 .with_mismatch(want.to_string(), found.to_string())
                 .with_fix(fix),
         );
@@ -312,7 +335,7 @@ impl Parser {
                 self.bump();
             }
         }
-        Module { items }
+        Module { items, docs: Vec::new() }
     }
 
     fn item(&mut self) -> PResult<Option<Item>> {
@@ -323,7 +346,7 @@ impl Parser {
             return Ok(Some(self.import_or_reexport()?));
         }
         if self.is_kw(Kw::Impl) {
-            return Ok(Some(Item::Impl(self.impl_decl()?)));
+            return Ok(Some(Item::Impl(self.impl_decl(docs)?)));
         }
         if self.is_kw(Kw::Derive) {
             return Ok(Some(Item::Derive(self.derive_decl()?)));
@@ -392,7 +415,7 @@ impl Parser {
                     "a namespace import must be named",
                     "write `import * as list`, so every name it brings in is reached through \
                      one prefix",
-                );
+                ).map(|d| d.code("unnamed-namespace-import"));
                 self.errors.last_mut().unwrap().notes.push(
                     "write `import * as name`; bare `import *` is not derivable from the grammar, \
                      so that no identifier enters a module's scope without appearing in that \
@@ -475,7 +498,7 @@ impl Parser {
                     name.span,
                     "`self` may appear only as a function's first parameter",
                     "move it to the front, or rename it if this parameter is not the receiver",
-                );
+                ).map(|d| d.code("self-not-first"));
             }
             self.expect(Punct::Colon)?;
             let ty = self.ty()?;
@@ -683,11 +706,12 @@ impl Parser {
         self.expect(Punct::LBrace)?;
         let mut methods = Vec::new();
         while !self.is(Punct::RBrace) && !self.at_eof() {
+            let before = self.pos;
             match self.method_sig() {
                 Ok(m) => methods.push(m),
                 Err(Bail) => {
                     self.sync_stmt();
-                    if self.is(Punct::RBrace) {
+                    if self.is(Punct::RBrace) || self.pos == before {
                         break;
                     }
                 }
@@ -698,7 +722,7 @@ impl Parser {
         Ok(TraitDecl { name, generics, methods, is_effect, exported, span, docs })
     }
 
-    fn impl_decl(&mut self) -> PResult<ImplDecl> {
+    fn impl_decl(&mut self, docs: Vec<String>) -> PResult<ImplDecl> {
         let start = self.expect_kw(Kw::Impl)?;
         let generics = self.generic_params()?;
         // A full type either side: `[T]` has methods of its own, so the self
@@ -715,7 +739,9 @@ impl Parser {
         };
         self.expect(Punct::LBrace)?;
         let mut methods = Vec::new();
+        let mut escaped = false;
         while !self.is(Punct::RBrace) && !self.at_eof() {
+            let before = self.pos;
             let docs = self.docs();
             let mstart = self.span();
             // A method of the type's own is exported on its own terms. A
@@ -728,7 +754,7 @@ impl Parser {
                     span,
                     "an `impl` method is not separately exported",
                     "drop the `export`",
-                );
+                ).map(|d| d.code("impl-method-export"));
                     self.errors.last_mut().unwrap().notes.push(
                         "conformance is a property of the type, visible wherever the type is"
                             .into(),
@@ -742,15 +768,40 @@ impl Parser {
             match self.fn_decl(exported, docs, mstart) {
                 Ok(f) => methods.push(f),
                 Err(Bail) => {
-                    self.sync_item();
+                    // `sync_stmt`, not `sync_item`: it stops *at* the closing
+                    // brace without consuming it, which keeps recovery inside
+                    // the body it was recovering in. `sync_item` consumed the
+                    // brace, so whatever followed the `impl` was swallowed as
+                    // a method — and when that was an item keyword it could
+                    // not be, so the loop resynchronized to the same token
+                    // forever. `impl V { ... }` followed by any declaration
+                    // used to hang the compiler outright.
+                    self.sync_stmt();
                     if self.is(Punct::RBrace) {
+                        break;
+                    }
+                    if self.pos == before {
+                        escaped = true;
                         break;
                     }
                 }
             }
         }
-        self.expect(Punct::RBrace)?;
-        Ok(ImplDecl { generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
+        if escaped {
+            // The body is already behind us, so consuming a `}` that is not
+            // there would eat the next declaration. Report and hand the item
+            // back: the `fn` after a mangled `impl` still deserves to be
+            // parsed and type-checked.
+            let span = self.span();
+            self.error(
+                span,
+                "this `impl` body holds something that is not a method",
+                "an `impl` holds `fn` declarations and nothing else",
+            );
+        } else {
+            self.expect(Punct::RBrace)?;
+        }
+        Ok(ImplDecl { docs, generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
     }
 
     fn derive_decl(&mut self) -> PResult<DeriveDecl> {
@@ -1109,7 +1160,7 @@ impl Parser {
                 span,
                 "comparison operators are non-associative",
                 "write `a < b && b < c` rather than `a < b < c`",
-            );
+            ).map(|d| d.code("chained-comparison"));
             self.errors
                 .last_mut()
                 .unwrap()
@@ -1270,7 +1321,8 @@ impl Parser {
                 span,
                 "`if` requires an `else` branch",
                 "add `else { ... }`; an `if` is an expression, so it has a value either way",
-            );
+            )
+            .map(|d| d.code("if-without-else"));
             self.errors.last_mut().unwrap().notes.push(
                 "`if` is an expression, so both branches must produce a value of the same type"
                     .into(),
@@ -1833,7 +1885,7 @@ impl Parser {
                         "a rest pattern must come last",
                         "move `..` to the end, as in `[first, ..rest]`; matching a prefix is \
                          what an array pattern does",
-                    );
+                    ).map(|d| d.code("rest-pattern-not-last"));
                     self.errors
                         .last_mut()
                         .unwrap()
@@ -1991,5 +2043,29 @@ mod tests {
         assert!(!p.errors.is_empty());
         // The good declaration after the bad one is still parsed.
         assert!(p.module.items.iter().any(|i| matches!(i, Item::Fn(f) if f.name.name == "b")));
+    }
+
+    /// An `impl` body that holds something other than a method, followed by
+    /// another item, used to hang: `fn_decl` bailed without consuming and
+    /// `sync_item` stopped at the next keyword without consuming, so the
+    /// method loop spun. `{ ... }` is how documentation elides a body, which
+    /// is how this was found.
+    #[test]
+    fn a_malformed_impl_body_does_not_hang() {
+        for src in [
+            "struct V(Int);\nimpl V { ... }\nderive Eq for V;",
+            "impl Ord for V { ... }\nfn after(): Int { 1 }",
+            "trait T { ... }\nstruct W(Int);",
+            "impl V { ... }",
+        ] {
+            let p = parse(src, FileId(0));
+            assert!(!p.errors.is_empty(), "expected a diagnostic for `{src}`");
+        }
+        // Recovery still reaches the item after the malformed body.
+        let p = parse("impl V { ... }\nfn after(): Int { 1 }", FileId(0));
+        assert!(
+            p.module.items.iter().any(|i| matches!(i, Item::Fn(f) if f.name.name == "after")),
+            "the declaration after a malformed `impl` should still parse"
+        );
     }
 }

@@ -1,4 +1,4 @@
-error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri)
+error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri) [module-not-found]
  --> cmd/import_invisible_target/main.buri:4:6
   |
 4 | from "//cmd/discarded_result" import { main };

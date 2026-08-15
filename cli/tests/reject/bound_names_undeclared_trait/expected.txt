@@ -1,4 +1,4 @@
-error: `Bogus` is not a trait or effect
+error: `Bogus` is not a trait or effect [not-a-trait]
  --> cmd/bound_names_undeclared_trait/main.buri:5:15
   |
 5 | fn measure<T: Bogus>(x: T): Int { 1 }

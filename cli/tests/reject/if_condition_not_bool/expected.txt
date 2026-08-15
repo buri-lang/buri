@@ -1,4 +1,4 @@
-error: expected `Bool`, found `I64`
+error: expected `Bool`, found `I64` [type-mismatch]
  --> cmd/if_condition_not_bool/main.buri:6:7
   |
 6 |   if (n) { 1 } else { 0 }

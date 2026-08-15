@@ -1,18 +1,18 @@
-// core/testing/assert — assertions.
-//
-// An ordinary module, imported like any other: `assert` is not a keyword, and
-// the name comes from `import * as assert`. A file is free to call it
-// something else.
-//
-// Two things about this module are not ordinary, and both follow from its
-// being a platform module rather than a library:
-//
-//   - its functions take no `ctx` and still render a failure message.
-//     Rendering is the runner's, not the program's — which is why this
-//     signature would be a lie anywhere else, and why the module is importable
-//     only from a test source.
-//   - a failure ends that test and no other. The runner reports the file, the
-//     line, and both values.
+//! core/testing/assert — assertions.
+//!
+//! An ordinary module, imported like any other: `assert` is not a keyword, and
+//! the name comes from `import * as assert`. A file is free to call it
+//! something else.
+//!
+//! Two things about this module are not ordinary, and both follow from its
+//! being a platform module rather than a library:
+//!
+//!   - its functions take no `ctx` and still render a failure message.
+//!     Rendering is the runner's, not the program's — which is why this
+//!     signature would be a lie anywhere else, and why the module is importable
+//!     only from a test source.
+//!   - a failure ends that test and no other. The runner reports the file, the
+//!     line, and both values.
 
 from "core/order" import { Eq, Show };
 

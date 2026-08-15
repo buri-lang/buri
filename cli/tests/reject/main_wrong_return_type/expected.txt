@@ -1,4 +1,4 @@
-error: `main` must return `Result<(), Str>`
+error: `main` must return `Result<(), Str>` [main-signature]
  --> cmd/main_wrong_return_type/main.buri:5:19
   |
 5 | export fn main(): Int {

@@ -1,0 +1,27 @@
+// FINDING 4, sharpened. SPEC 10.6: "Without this rule, a value of type
+// `fn(Str) => Str` could smuggle a file handle past a signature with no `ctx`
+// parameter, and the purity theorem would be false."
+//
+// `wrap` is pure by every syntactic criterion: no `ctx` parameter, no
+// effect-carrying `self`, no context construction, and no lambda in its body
+// captures anything the taint predicate flags -- `T` is unbounded, and
+// `fn(T) => ()` is untainted because only the RESULT counts (types.rs:575).
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
+  fn() => f(x)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+
+  // `fn(c) => c.println(..)` is the sanctioned `*Ctx` shape: the capability
+  // arrives as a PARAMETER, so the capture rule is silent.
+  let sneaky = wrap(ctx, fn(c) => c.println("SMUGGLED: I/O from fn() => ()"));
+
+  // `sneaky : fn() => ()`. Untainted. A signature accepting it would say
+  // nothing about I/O.
+  let _ = sneaky();
+  .Ok(())
+}

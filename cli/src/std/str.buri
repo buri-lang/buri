@@ -1,12 +1,12 @@
-// core/str — the defining module of `Str`.
-//
-// `Str` is an immutable UTF-8 string. `trim`, `slice`, and `splitOnce` are
-// pure because it is immutable and sliceable: they return views, not copies.
-// Anything whose result length depends on runtime data names `Alloc`.
-//
-// There is no overloading, so a pure variant and an allocating variant of the
-// same idea get different names: `splitOnce` returns two slices and is pure;
-// `split` returns `[Str]` and allocates.
+//! core/str — the defining module of `Str`.
+//!
+//! `Str` is an immutable UTF-8 string. `trim`, `slice`, and `splitOnce` are
+//! pure because it is immutable and sliceable: they return views, not copies.
+//! Anything whose result length depends on runtime data names `Alloc`.
+//!
+//! There is no overloading, so a pure variant and an allocating variant of the
+//! same idea get different names: `splitOnce` returns two slices and is pure;
+//! `split` returns `[Str]` and allocates.
 
 from "core/cap" import { Alloc };
 from "core/order" import { Order };

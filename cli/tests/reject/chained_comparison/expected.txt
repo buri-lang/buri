@@ -1,4 +1,4 @@
-error: comparison operators are non-associative
+error: comparison operators are non-associative [chained-comparison]
  --> cmd/chained_comparison/main.buri:6:9
   |
 6 |   a < b < c

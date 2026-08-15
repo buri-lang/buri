@@ -1,30 +1,30 @@
-// core/num — the defining module of every integer and float type.
-//
-// Two names, one set of types. `Int` and `Float` are aliases for `I64` and
-// `F64`, not a separate tier, so everyday code and code that names an exact
-// width interoperate with no conversion at the boundary.
-//
-// Every one of them is a JavaScript `number`, which represents every integer
-// up to 2^53 exactly and nothing above it. Overflow and underflow are
-// undefined behaviour (SPEC 6.2), so that ceiling is inside what the language
-// promises — and it is what keeps ordinary integer code as fast as ordinary
-// JavaScript. Where a program needs an exact answer above 2^53, `core/bits`
-// is the exception: it computes on the bit pattern rather than the value.
-//
-// The conversion methods — `toI64`, `wrapToU8`, and the rest, one per
-// source-and-target pair — are declared by the compiler on the primitive types
-// themselves rather than written out here. They are methods, resolved by the
-// receiver's type, so `i32.toI64()` and `i64.toI32()` are different operations
-// with different return types and no overloading is involved. `buri query` and
-// the language reference list them; SPEC 6.2.1 gives the three shapes:
-//
-//   x.toT()      where every value fits  -> T
-//   x.toT()      where it might not      -> Result<T, RangeError>
-//   x.wrapToT()  modular                 -> T
-//
-// Also declared by the compiler, per primitive: `abs`, `signum`, `compare`,
-// `eq`, `show`, `hash`, the operator-trait methods, and the `Checked` and
-// `Wrapping` method sets.
+//! core/num — the defining module of every integer and float type.
+//!
+//! Two names, one set of types. `Int` and `Float` are aliases for `I64` and
+//! `F64`, not a separate tier, so everyday code and code that names an exact
+//! width interoperate with no conversion at the boundary.
+//!
+//! Every one of them is a JavaScript `number`, which represents every integer
+//! up to 2^53 exactly and nothing above it. Overflow and underflow are
+//! undefined behaviour (SPEC 6.2), so that ceiling is inside what the language
+//! promises — and it is what keeps ordinary integer code as fast as ordinary
+//! JavaScript. Where a program needs an exact answer above 2^53, `core/bits`
+//! is the exception: it computes on the bit pattern rather than the value.
+//!
+//! The conversion methods — `toI64`, `wrapToU8`, and the rest, one per
+//! source-and-target pair — are declared by the compiler on the primitive types
+//! themselves rather than written out here. They are methods, resolved by the
+//! receiver's type, so `i32.toI64()` and `i64.toI32()` are different operations
+//! with different return types and no overloading is involved. `buri query` and
+//! the language reference list them; SPEC 6.2.1 gives the three shapes:
+//!
+//!   x.toT()      where every value fits  -> T
+//!   x.toT()      where it might not      -> Result<T, RangeError>
+//!   x.wrapToT()  modular                 -> T
+//!
+//! Also declared by the compiler, per primitive: `abs`, `signum`, `compare`,
+//! `eq`, `show`, `hash`, the operator-trait methods, and the `Checked` and
+//! `Wrapping` method sets.
 
 from "core/order" import { Eq, Ord, Order, Show };
 

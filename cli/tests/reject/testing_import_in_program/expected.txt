@@ -1,4 +1,4 @@
-error: this is a test-only module
+error: this is a test-only module [test-only-import]
  --> cmd/testing_import_in_program/main.buri:4:6
   |
 4 | from "core/testing/assert" import * as assert;

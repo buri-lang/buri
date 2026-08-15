@@ -1,11 +1,11 @@
-error: `.Some` needs a known expected type
+error: `.Some` needs a known expected type [unannotated-variant]
  --> cmd/dot_form_without_expected_type/main.buri:6:11
   |
 6 |   let v = .Some(3);
   |           ^^^^^
   |
   = fix: write the qualified form, as in `Option.Some(...)`, or annotate what this value is being used as
-error: there is nothing named `n` in scope
+error: there is nothing named `n` in scope [unresolved-name]
  --> cmd/dot_form_without_expected_type/main.buri:8:17
   |
 8 |     .Some(n) => n,

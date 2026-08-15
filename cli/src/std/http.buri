@@ -1,4 +1,4 @@
-// core/net/http — HTTP over the `Net` effect.
+//! core/net/http — HTTP over the `Net` effect.
 
 from "core/cap" import { Alloc, Net, NetError };
 from "core/cap" export { NetError };

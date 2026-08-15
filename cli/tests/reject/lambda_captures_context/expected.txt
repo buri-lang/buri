@@ -1,4 +1,4 @@
-error: a lambda may not capture `ctx`, which carries an effect
+error: a lambda may not capture `ctx`, which carries an effect [lambda-captures-effect]
  --> cmd/lambda_captures_context/main.buri:8:18
   |
 8 |   paths.map(ctx, fn(p) => fs.exists(ctx, p))

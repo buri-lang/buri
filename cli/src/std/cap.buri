@@ -1,14 +1,14 @@
-// core/cap — the effect declarations.
-//
-// An effect is an interface declared with `effect` instead of `trait`. Its
-// methods are the operations it grants. Only platform modules may declare
-// effects, so the set of things a Buri program can do to the world is fixed by
-// its platform rather than open-ended (SPEC 10.1).
-//
-// Two rules separate an effect from an ordinary trait:
-//   - its implementors are effect-carrying, and so may be passed only as
-//     `self` or `ctx`;
-//   - no type may implement both an effect and a trait.
+//! core/cap — the effect declarations.
+//!
+//! An effect is an interface declared with `effect` instead of `trait`. Its
+//! methods are the operations it grants. Only platform modules may declare
+//! effects, so the set of things a Buri program can do to the world is fixed by
+//! its platform rather than open-ended (SPEC 10.1).
+//!
+//! Two rules separate an effect from an ordinary trait:
+//!   - its implementors are effect-carrying, and so may be passed only as
+//!     `self` or `ctx`;
+//!   - no type may implement both an effect and a trait.
 
 /// A region of memory. `Alloc` is a *resource* effect: it can fail and it
 /// costs something, but it is not observable, which is what makes a function

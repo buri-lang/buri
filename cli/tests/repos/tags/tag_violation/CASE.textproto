@@ -1,4 +1,4 @@
-# TAGS.md:191-203. The failure `build-system/example/cmd/web/BUILD.buri`
+# TAGS.md:191-203. The failure `cli/tests/example/cmd/web/BUILD.buri`
 # describes in a comment and no test provokes: a `client` binary reaching
 # `server` code. The output is LINUX, so `server`'s platform whitelist is
 # satisfied and the forbids rule is the only thing that can fire.

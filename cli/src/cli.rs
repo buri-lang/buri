@@ -12,30 +12,12 @@ use std::path::PathBuf;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub const USAGE: &str = "\
-buri — the toolchain for the Buri language
+/// The short help. Generated from `commands::COMMANDS`, so it cannot list a
+/// command that does not exist or omit one that does.
+pub fn usage() -> String {
+    crate::commands::usage()
+}
 
-  buri build   [targets]   compile
-  buri test    [targets]   compile and run test suites
-  buri run     <target>    build one binary and execute it
-  buri format  [paths]     format .buri sources and BUILD.buri files
-  buri lint    [targets]   static checks beyond type checking
-  buri gen     [targets]   regenerate sources/deps in existing BUILD.buri files
-  buri query   <expr>      ask about the build graph
-  buri clean               drop the local cache
-  buri lsp                 language server, over stdio
-  buri version             toolchain version and the REPO.buri pin
-
-Target arguments accept labels and patterns: //lib/money, //lib/..., //...
-With no argument, commands operate on the package containing the working
-directory.
-
-  --error-format=json      diagnostics as one JSON object per line, for tools
-                           and coding agents; the default is human-readable
-  --color=never            no ANSI escapes
-  --explain                one line per action: whether it ran or the cache
-                           served it, and the key that decided
-";
 
 pub struct Args {
     pub command: String,
@@ -50,21 +32,33 @@ pub struct Flags {
     pub release: bool,
     pub debug: bool,
     pub check: bool,
-    pub fix: bool,
     pub force: bool,
     pub accept: bool,
     pub outputs_only: bool,
     pub output: Option<String>,
     pub filter: Option<String>,
-    pub shuffle: Option<String>,
     pub color: Option<bool>,
     pub error_format: ErrorFormat,
+    /// How `buri docs` prints a page. Distinct from `--error-format`, which is
+    /// about diagnostics and applies to every command.
+    pub format: Option<Format>,
+    /// Print headings and examples only, dropping most prose. For agents.
+    pub dense: bool,
     pub self_check: bool,
     pub verbose: bool,
     /// Report each action, its key, and whether the cache served it. The build
     /// system's claims are about *which actions run*, and a claim nothing can
     /// observe from outside is not one anybody can hold the toolchain to.
     pub explain: bool,
+}
+
+/// How `buri docs` prints a page.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Format {
+    /// The markdown source, unrendered.
+    Markdown,
+    /// One JSON object, for a tool or a coding agent.
+    Json,
 }
 
 /// How diagnostics reach the terminal.
@@ -87,6 +81,9 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
     let mut passthrough = Vec::new();
     let mut flags = Flags::default();
     let mut after_dashdash = false;
+    // `help` is not in the table — it prints the table — so flag checking is
+    // skipped for it rather than special-cased inside the loop.
+    let known_command = crate::commands::find(&command).is_some();
 
     for arg in it {
         if after_dashdash {
@@ -102,37 +99,36 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                 Some((n, v)) => (n, Some(v.to_string())),
                 None => (rest, None),
             };
-            match name {
-                "release" => flags.release = true,
-                "debug" => flags.debug = true,
-                "check" => flags.check = true,
-                "fix" => flags.fix = true,
-                "force" => flags.force = true,
-                "accept" => flags.accept = true,
-                "outputs" => flags.outputs_only = true,
-                "self-check" => flags.self_check = true,
-                "verbose" => flags.verbose = true,
-                "explain" => flags.explain = true,
-                "output" => flags.output = value,
-                "filter" => flags.filter = value,
-                "shuffle" => flags.shuffle = Some(value.unwrap_or_else(|| "on".into())),
-                "color" => {
-                    flags.color = Some(!matches!(value.as_deref(), Some("never" | "off" | "0")))
-                }
-                "error-format" => {
-                    flags.error_format = match value.as_deref() {
-                        Some("json") => ErrorFormat::Json,
-                        Some("human") | None => ErrorFormat::Human,
-                        Some(other) => {
-                            return Err(format!(
-                                "unknown --error-format `{other}`; expected `human` or `json`"
-                            ))
-                        }
-                    }
-                }
-                "help" => return Err(String::new()),
-                other => return Err(format!("unknown flag `--{other}`")),
+            if name == "help" {
+                return Err(String::new());
             }
+            let Some(flag) = crate::commands::flag(name) else {
+                return Err(unknown_flag(name));
+            };
+            // A flag that exists but belongs to another command is a different
+            // mistake from one that does not exist, and saying which commands
+            // do take it is the fix.
+            if known_command && !crate::commands::accepts(&command, name) {
+                let takers = crate::commands::commands_taking(name);
+                return Err(format!(
+                    "`buri {command}` does not take `--{name}`; {} does",
+                    match takers.len() {
+                        0 => "no command".to_string(),
+                        1 => format!("`buri {}`", takers[0]),
+                        _ => format!(
+                            "`buri {}`",
+                            takers.join("`, `buri ")
+                        ),
+                    }
+                ));
+            }
+            if matches!(flag.value, crate::commands::Value::Required(_)) && value.is_none() {
+                return Err(format!("`--{name}` needs a value, as in `--{name}=...`"));
+            }
+            if matches!(flag.value, crate::commands::Value::None) && value.is_some() {
+                return Err(format!("`--{name}` takes no value"));
+            }
+            (flag.set)(&mut flags, value.as_deref())?;
             continue;
         }
         targets.push(arg.clone());
@@ -142,6 +138,35 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         return Err("`--release` and `--debug` are exclusive".into());
     }
     Ok(Args { command, targets, flags, passthrough })
+}
+
+/// An unknown flag, with the nearest real one when there is a plausible
+/// candidate — the same treatment an unknown identifier gets.
+fn unknown_flag(name: &str) -> String {
+    let known: Vec<&str> = crate::commands::FLAGS.iter().map(|f| f.name).collect();
+    match crate::buildfile::nearest(name, &known) {
+        Some(near) => format!("unknown flag `--{name}`; did you mean `--{near}`?"),
+        None => format!("unknown flag `--{name}`"),
+    }
+}
+
+/// Writes to standard output, treating a closed pipe as success.
+///
+/// `buri docs lang/types | head` is the first thing anybody does, and the
+/// `print!` macro panics when the reader goes away. Nothing has gone wrong in
+/// that case — the caller got what it asked for — so exit quietly.
+pub fn out(text: &str) {
+    use std::io::Write;
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    match lock.write_all(text.as_bytes()).and_then(|()| lock.flush()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(0),
+        Err(e) => {
+            eprintln!("error: cannot write to stdout: {e}");
+            std::process::exit(2);
+        }
+    }
 }
 
 pub struct Session {

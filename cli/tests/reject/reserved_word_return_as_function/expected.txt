@@ -1,4 +1,4 @@
-error: `return` is a reserved word and may not be used as an identifier
+error: `return` is a reserved word and may not be used as an identifier [reserved-word]
  --> cmd/reserved_word_return_as_function/main.buri:5:4
   |
 5 | fn return(n: Int): Int { n }

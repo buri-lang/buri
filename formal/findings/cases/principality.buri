@@ -1,0 +1,17 @@
+// FINDING 5: `satisfies` returns true for Ty::Var (infer.rs), so bounds are
+// discharged only AFTER default_numerics commits a literal to I64/F64. Is
+// there a bound that I64 fails but another integer type satisfies?
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/num" import { Neg, Wrapping };
+
+fn negate<T: Neg>(x: T): T { -x }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  // Only constraint on this literal is `T: Neg`. Defaulting picks I64, which
+  // has Neg -- so this should work.
+  let a = negate(5);
+  let _ = ctx.println("negate(5) = ${a}");
+  .Ok(())
+}

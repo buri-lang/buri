@@ -1,4 +1,4 @@
-error: expected `U8`, found `I32`
+error: expected `U8`, found `I32` [type-mismatch]
  --> cmd/u8_compared_to_i32/main.buri:6:8
   |
 6 |   a == b

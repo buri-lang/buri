@@ -1,9 +1,9 @@
-// core/result — the defining module of `Result<T, E>`.
-//
-// A value of type `Result<T, E>` may not be discarded (SPEC 5.7.1). Since
-// there are no expression statements, `let _ =` is the only place a value can
-// be thrown away, so the rule has one line and no holes. The legal ways to
-// consume one are `?`, `match`, `withDefault`, and `ignore`.
+//! core/result — the defining module of `Result<T, E>`.
+//!
+//! A value of type `Result<T, E>` may not be discarded (SPEC 5.7.1). Since
+//! there are no expression statements, `let _ =` is the only place a value can
+//! be thrown away, so the rule has one line and no holes. The legal ways to
+//! consume one are `?`, `match`, `withDefault`, and `ignore`.
 
 export enum Result<T, E> {
   export Ok(T),

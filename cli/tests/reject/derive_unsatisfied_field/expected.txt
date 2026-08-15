@@ -1,4 +1,4 @@
-error: `Outer` cannot derive `Eq`: `inner` has type `Inner`
+error: `Outer` cannot derive `Eq`: `inner` has type `Inner` [underivable]
   --> cmd/derive_unsatisfied_field/main.buri:10:1
    |
 10 | derive Eq for Outer;
@@ -6,7 +6,7 @@ error: `Outer` cannot derive `Eq`: `inner` has type `Inner`
    |
    = a derived implementation is a fold over the type's components, and `Inner` does not satisfy `Eq`
    = fix: make `Inner` satisfy `Eq` first — `derive Eq for Inner;` in its own module, or an `impl` — or drop `Eq` from this `derive`
-error: `Outer` does not implement `Eq`
+error: `Outer` does not implement `Eq` [missing-conformance]
   --> cmd/derive_unsatisfied_field/main.buri:15:26
    |
 15 |   let _ = ctx.println("${a == a}");

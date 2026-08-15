@@ -1,4 +1,4 @@
-error: "./helper" is a relative module path
+error: "./helper" is a relative module path [relative-import]
  --> cmd/relative_module_path/main.buri:4:6
   |
 4 | from "./helper" import { thing };

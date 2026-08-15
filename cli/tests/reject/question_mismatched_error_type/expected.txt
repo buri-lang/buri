@@ -1,4 +1,4 @@
-error: `?` would propagate `IoError`, but this function returns `Str`
+error: `?` would propagate `IoError`, but this function returns `Str` [question-mark-mismatch]
  --> cmd/question_mismatched_error_type/main.buri:7:14
   |
 7 |   let text = fs.readText(ctx, path)?;

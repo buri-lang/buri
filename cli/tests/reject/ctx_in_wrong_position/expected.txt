@@ -1,4 +1,4 @@
-error: `ctx` must come first, or immediately after `self`
+error: `ctx` must come first, or immediately after `self` [ctx-not-first]
  --> cmd/ctx_in_wrong_position/main.buri:6:33
   |
 6 | fn shout<C: Stdout>(times: Int, ctx: C): () {

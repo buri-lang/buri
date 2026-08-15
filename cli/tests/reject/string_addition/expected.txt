@@ -1,4 +1,4 @@
-error: `Str` does not implement `Add`
+error: `Str` does not implement `Add` [missing-conformance]
  --> cmd/string_addition/main.buri:6:3
   |
 6 |   a + b

@@ -1,0 +1,31 @@
+## What it does
+
+Serves the language reference, the build system documentation, and this CLI
+reference — from the binary, so what you read is what this toolchain does.
+There is no website to fall out of date and no second copy to forget.
+
+```text
+buri docs                       every topic, grouped
+buri docs lang/effects          one topic
+buri docs cli build             one command, flags generated from the dispatch table
+buri docs search <words>        every page at once
+buri docs manifest              every id and output shape, for an agent
+buri docs assemble              regenerate SPEC.md and README.md from the topics
+```
+
+It works outside a repository: the prose ships inside the executable.
+
+## For agents
+
+`--format=json` prints one object on one line. `--dense` drops prose but keeps
+every heading and **every example** — code is what a caller needs most, so it
+is never abridged. `buri docs manifest` lists every id that can be fetched, and
+a test asserts that each one really can be.
+
+## Why this cannot go stale
+
+Every fenced example in every page is compiled by the test suite against the
+real standard library; the ones that print something are executed and their
+output compared. `SPEC.md` and `README.md` are generated from these same
+topics, and a test fails if the checked-in files drift from what the topics
+produce.

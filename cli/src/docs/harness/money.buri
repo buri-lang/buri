@@ -1,0 +1,17 @@
+// Money as minor units, for the sections that explain structs, derives, and
+// operator traits. A newtype over `Int` is the example every one of them
+// reaches for.
+
+export struct Cents(export Int);
+
+derive Eq, Ord, Show for Cents;
+
+export fn fromCents(n: Int): Cents {
+  Cents(n)
+}
+
+impl Cents {
+  export fn plus(self: Cents, other: Cents): Cents {
+    Cents(self.0 + other.0)
+  }
+}

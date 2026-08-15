@@ -5,7 +5,7 @@
 //! bless-or-compare loop that turns printed output into a diff.
 //!
 //! Nothing here writes inside a checked-in tree. A test that builds in
-//! `build-system/example` leaves `.buri/` and an `out` symlink behind, and a
+//! `cli/tests/example` leaves `.buri/` and an `out` symlink behind, and a
 //! test that edits a fixture in place corrupts it if it panics first — so every
 //! suite works on a copy under `CARGO_TARGET_TMPDIR` instead.
 
@@ -36,7 +36,7 @@ pub fn repo_root() -> PathBuf {
 }
 
 pub fn example_repo() -> PathBuf {
-    repo_root().join("build-system/example")
+    repo_root().join("cli/tests/example")
 }
 
 pub fn js_runtime() -> String {
@@ -249,7 +249,7 @@ impl Scratch {
     }
 
     /// A copy of a checked-in tree, leaving behind what a previous build wrote.
-    /// This is how a suite tests `build-system/example` or the conformance
+    /// This is how a suite tests `cli/tests/example` or the conformance
     /// repository without writing into either.
     pub fn copy_of(name: &str, source: &Path) -> Scratch {
         let s = Scratch::empty(name);

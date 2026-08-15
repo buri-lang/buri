@@ -1,4 +1,4 @@
-error: an `impl` method is not separately exported
+error: an `impl` method is not separately exported [impl-method-export]
   --> cmd/exported_trait_method/main.buri:12:3
    |
 12 |   export fn eq(self: Version, other: Version): Bool { self.major == other.major }

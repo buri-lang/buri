@@ -1,4 +1,4 @@
-error: or-pattern alternatives must bind the same names
+error: or-pattern alternatives must bind the same names [or-pattern-bindings]
  --> cmd/or_pattern_different_bindings/main.buri:9:16
   |
 9 |     .Left(x) | .Right(y) => x,

@@ -1,7 +1,7 @@
-// core/math — floating-point mathematics.
-//
-// Free functions rather than methods, because `F64`'s methods live in
-// `core/num` and a type's operations must be declared in its defining module.
+//! core/math — floating-point mathematics.
+//!
+//! Free functions rather than methods, because `F64`'s methods live in
+//! `core/num` and a type's operations must be declared in its defining module.
 
 export fn sqrt(x: Float): Float;
 export fn cbrt(x: Float): Float;

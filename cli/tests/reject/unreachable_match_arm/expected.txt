@@ -1,4 +1,4 @@
-error: this arm is unreachable
+error: this arm is unreachable [unreachable-arm]
  --> cmd/unreachable_match_arm/main.buri:9:5
   |
 9 |     _ => 1,

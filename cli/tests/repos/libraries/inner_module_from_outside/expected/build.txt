@@ -1,4 +1,4 @@
-error: //lib/money/cents is internal to //lib/money
+error: //lib/money/cents is internal to //lib/money [internal-import]
  --> cmd/app/main.buri:8:6
   |
 8 | from "//lib/money/cents" import { fromCents };
@@ -6,7 +6,7 @@ error: //lib/money/cents is internal to //lib/money
   |
   = only names re-exported by lib/money/lib.buri are available
   = fix: import the library instead: from "//lib/money" import { ... }
-error: there is nothing named `fromCents` in scope
+error: there is nothing named `fromCents` in scope [unresolved-name]
   --> cmd/app/main.buri:12:23
    |
 12 |   let _ = ctx.println(fromCents(450).format(ctx));

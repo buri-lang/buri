@@ -1,4 +1,4 @@
-error: there is nothing named `notAName` in scope
+error: there is nothing named `notAName` in scope [unresolved-name]
  --> cmd/ok/main.buri:6:23
   |
 6 |   let _ = ctx.println(notAName);

@@ -1,13 +1,13 @@
-// core/list — the defining module of `[T]`.
-//
-// The split that runs through this file is the one SPEC 10.5 draws: an
-// operation whose result size is fixed is pure, and an operation whose result
-// size depends on runtime data names `Alloc`. `len` and `fold` are pure;
-// `map` and `filter` are not, and say so in their signatures.
-//
-// Everything here takes its collection as `self`, so it is callable as a
-// method with no import: receiver first, context second, everything else
-// after (SPEC 10.7).
+//! core/list — the defining module of `[T]`.
+//!
+//! The split that runs through this file is the one SPEC 10.5 draws: an
+//! operation whose result size is fixed is pure, and an operation whose result
+//! size depends on runtime data names `Alloc`. `len` and `fold` are pure;
+//! `map` and `filter` are not, and say so in their signatures.
+//!
+//! Everything here takes its collection as `self`, so it is callable as a
+//! method with no import: receiver first, context second, everything else
+//! after (SPEC 10.7).
 
 from "core/cap" import { Alloc };
 from "core/order" import { Order, Ord };

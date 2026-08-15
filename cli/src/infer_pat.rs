@@ -26,7 +26,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // mistake, not a shorthand for "equal".
                 if self.or_bindings.is_none() && self.pattern_names.contains(&name.name) {
                     let n = name.name.clone();
-                    self.err(name.span, format!("`{n}` is bound twice in this pattern"))
+                    self.err(name.span, format!("`{n}` is bound twice in this pattern")).code("duplicate-bound")
                         .fix("rename one of them, or bind one and compare the other in a guard")
                         .note("a name a pattern binds is bound once; to require two positions to be equal, match one and test the other in a guard");
                 }
@@ -131,7 +131,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     name.as_ref().map(|n| {
                         if self.or_bindings.is_none() && self.pattern_names.contains(&n.name) {
                             let dup = n.name.clone();
-                            self.err(n.span, format!("`{dup}` is bound twice in this pattern"))
+                            self.err(n.span, format!("`{dup}` is bound twice in this pattern")).code("duplicate-bound")
                                 .fix("rename one of them");
                         }
                         self.pattern_names.push(n.name.clone());
@@ -194,7 +194,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                             self.err(
                                 alt.span(),
                                 "or-pattern alternatives must bind the same names",
-                            )
+                            ).code("or-pattern-bindings")
                             .fix(
                                 "bind the same names in every alternative, or split this into \
                                  separate arms",
@@ -302,7 +302,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {
                 let shown = path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
-                self.err(span, format!("there is no type `{shown}`"))
+                self.err(span, format!("there is no type `{shown}`")).code("unresolved-type")
                     .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value")
                     .notes
                     .push(
@@ -435,7 +435,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 && self.pattern_names.contains(&f.name.name)
                             {
                                 let n = f.name.name.clone();
-                                self.err(f.name.span, format!("`{n}` is bound twice in this pattern"))
+                                self.err(f.name.span, format!("`{n}` is bound twice in this pattern")).code("duplicate-bound")
                                     .fix("rename one of them");
                             }
                             self.pattern_names.push(f.name.name.clone());
@@ -461,7 +461,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .collect();
                     if !missing.is_empty() {
                         let missing = crate::diag::names(&missing);
-                        self.err(span, format!("this pattern does not mention {missing}"))
+                        self.err(span, format!("this pattern does not mention {missing}")).code("missing-field-pattern")
                             .fix(format!("match {missing} too, or end the pattern with `..` to ignore the rest"));
                     }
                 }

@@ -1,4 +1,4 @@
-// core/time — the clock.
+//! core/time — the clock.
 
 from "core/cap" import { Clock };
 from "core/order" import { Eq, Ord, Show };

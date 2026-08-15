@@ -1,7 +1,7 @@
-// core/bool — the defining module of `Bool`.
-//
-// These are the eager forms. `&&` and `||` short-circuit; `and` and `or` do
-// not, because an argument is evaluated before a call.
+//! core/bool — the defining module of `Bool`.
+//!
+//! These are the eager forms. `&&` and `||` short-circuit; `and` and `or` do
+//! not, because an argument is evaluated before a call.
 
 impl Bool {
   export fn not(self: Bool): Bool {

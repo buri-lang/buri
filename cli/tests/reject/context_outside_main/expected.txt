@@ -1,4 +1,4 @@
-error: a context may not be constructed here
+error: a context may not be constructed here [context-not-allowed]
  --> cmd/context_outside_main/main.buri:7:15
   |
 7 |   let inner = context { Alloc: host.alloc, Stdout: host.stdout };

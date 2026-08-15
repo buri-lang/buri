@@ -1,9 +1,9 @@
-// core/order — `Order`, and the four traits every type is expected to be able
-// to opt into.
-//
-// Conformance is nominal: declaring a method that happens to match one of
-// these signatures does not make a type conform. An `impl` or a `derive` is
-// what does (SPEC 5.12.1).
+//! core/order — `Order`, and the four traits every type is expected to be able
+//! to opt into.
+//!
+//! Conformance is nominal: declaring a method that happens to match one of
+//! these signatures does not make a type conform. An `impl` or a `derive` is
+//! what does (SPEC 5.12.1).
 
 from "core/cap" import { Alloc };
 

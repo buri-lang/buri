@@ -1,4 +1,4 @@
-// core/char — the defining module of `Char`, a Unicode scalar value.
+//! core/char — the defining module of `Char`, a Unicode scalar value.
 
 impl Char {
   export fn isDigit(self: Char): Bool;

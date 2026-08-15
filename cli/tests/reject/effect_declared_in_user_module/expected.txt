@@ -1,4 +1,4 @@
-error: only a platform module may declare an effect
+error: only a platform module may declare an effect [effect-outside-platform]
  --> cmd/effect_declared_in_user_module/main.buri:5:1
   |
 5 | effect Mischief {

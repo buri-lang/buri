@@ -1,4 +1,4 @@
-error: expected a declaration, found `impl`
+error: expected a declaration, found `impl` [unexpected-token]
  --> cmd/exported_impl/main.buri:8:8
   |
 8 | export impl Eq for Version {

@@ -1,4 +1,4 @@
-error: `main` takes no parameters
+error: `main` takes no parameters [main-signature]
  --> cmd/main_with_parameters/main.buri:5:1
   |
 5 | export fn main(argc: Int): Result<(), Str> {

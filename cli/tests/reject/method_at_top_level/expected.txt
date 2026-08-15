@@ -1,4 +1,4 @@
-error: `area` takes `self`, so it is a method
+error: `area` takes `self`, so it is a method [method-declared-free]
   --> cmd/method_at_top_level/main.buri:10:9
    |
 10 | fn area(self: Square): Int {
@@ -6,7 +6,7 @@ error: `area` takes `self`, so it is a method
    |
    = a method is found through its receiver's type, so it is declared with that type
    = fix: move it into an `impl` block for its type, as in `impl Square { fn area(self: Square): Int { ... } }`
-error: `Square` has no method `area`
+error: `Square` has no method `area` [no-such-method]
   --> cmd/method_at_top_level/main.buri:16:45
    |
 16 |   let _ = ctx.println("${Square { side: 3 }.area()}");

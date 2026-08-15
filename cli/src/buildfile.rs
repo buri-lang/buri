@@ -1,6 +1,6 @@
 //! `BUILD.buri` and `REPO.buri`, typed.
 //!
-//! The normative schemas are `build-system/schema/build.proto` and
+//! The normative schemas are `cli/src/docs/schema/build.proto` and
 //! `repo.proto`. This module is the reader for them: it walks the textproto
 //! tree and produces typed values, rejecting an unknown field with a line
 //! number rather than ignoring it. That is the point of the schema being a real

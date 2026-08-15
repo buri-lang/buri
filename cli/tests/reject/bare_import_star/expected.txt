@@ -1,4 +1,4 @@
-error: a namespace import must be named
+error: a namespace import must be named [unnamed-namespace-import]
  --> cmd/bare_import_star/main.buri:4:25
   |
 4 | from "core/list" import *;

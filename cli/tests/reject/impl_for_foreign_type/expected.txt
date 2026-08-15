@@ -1,4 +1,4 @@
-error: `Region` is not declared in this module
+error: `Region` is not declared in this module [unresolved-name]
  --> cmd/impl_for_foreign_type/main.buri:6:14
   |
 6 | impl Ord for Region {

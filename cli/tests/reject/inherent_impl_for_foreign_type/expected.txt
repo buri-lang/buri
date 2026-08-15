@@ -1,4 +1,4 @@
-error: `Str` is not declared in this module
+error: `Str` is not declared in this module [unresolved-name]
  --> cmd/inherent_impl_for_foreign_type/main.buri:8:6
   |
 8 | impl Str {

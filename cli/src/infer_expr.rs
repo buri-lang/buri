@@ -49,7 +49,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // An expression statement is legal only in a test source,
                     // and only when its type is `()`.
                     if self.role != Role::TestSource {
-                        self.err(*span, "an expression statement is legal only in a test source")
+                        self.err(*span, "an expression statement is legal only in a test source").code("expression-statement")
                             .fix("bind it: `let _ = ...;`, or make it the block's result expression")
                             .notes
                             .push("a block is `let`s followed by a result expression".into());
@@ -115,7 +115,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // pattern. Since `let _ =` is the only place a value can be thrown
         // away, the rule has no holes (SPEC 5.7.1).
         if matches!(pattern, ast::Pattern::Wild { .. }) && self.is_result(&ty) {
-            self.err(span, "a `Result` may not be discarded")
+            self.err(span, "a `Result` may not be discarded").code("result-discarded")
                 .fix(
                     "consume it: `?` to propagate, `match` to handle both cases, \
                      `result.withDefault` to supply one — or, when you really mean to drop it, \
@@ -128,7 +128,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The pattern in a `let` must be irrefutable. Use `match` for anything
         // else.
         if !pat.is_irrefutable(&self.c.tables) {
-            self.err(pattern.span(), "this pattern does not match every value of its type")
+            self.err(pattern.span(), "this pattern does not match every value of its type").code("refutable-pattern")
                 .fix("use `match`, which makes you say what the other cases do")
                 .notes
                 .push("a `let` binds unconditionally, so its pattern has to be irrefutable".into());
@@ -499,7 +499,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                          module's own declarations and its imports"
                     ),
                 };
-                let d = self.err(span, format!("there is nothing named `{name}` in scope"));
+                let d = self.err(span, format!("there is nothing named `{name}` in scope")).code("unresolved-name");
                 d.fix(fix);
                 if let Some(n) = note {
                     d.notes.push(n);
@@ -694,7 +694,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     );
                 }
                 if !self.may_build_context() {
-                    self.err(span, "a context may not be constructed here")
+                    self.err(span, "a context may not be constructed here").code("context-not-allowed")
                         .fix(
                             "build it in `main` and pass it down as a `ctx` parameter, or make \
                              this a test source, where a context may be built per test",
@@ -1131,7 +1131,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {}
         }
-        let d = self.err(span, format!("`{shown}` has no method `{name}`"));
+        let d = self.err(span, format!("`{shown}` has no method `{name}`")).code("no-such-method");
         d.fix(format!(
             "check the spelling, or declare it in `impl {shown} {{ ... }}` in that type's own \
              module — a method may not be added from anywhere else"
@@ -1195,7 +1195,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // A method is not a value: `x.f` must be immediately called.
                 if self.c.tables.methods.contains_key(&(*con, name.name.clone())) {
                     let n = name.name.clone();
-                    self.err(span, format!("`{n}` is a method, and a method is not a value"))
+                    self.err(span, format!("`{n}` is a method, and a method is not a value")).code("method-not-a-value")
                         .fix(format!(
                             "call it on a receiver: `x.{n}()`; to pass it on, wrap it in a \
                              lambda: `fn(x) => x.{n}()`"
@@ -1251,7 +1251,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> hir::Expr {
         let Some(exp) = expected.map(|t| self.resolve(t)) else {
             let n = name.name.clone();
-            self.err(dot_span, format!("`.{n}` needs a known expected type"))
+            self.err(dot_span, format!("`.{n}` needs a known expected type")).code("unannotated-variant")
                 .fix(format!(
                     "write the qualified form, as in `Option.{n}(...)`, or annotate what this \
                      value is being used as"
@@ -1370,7 +1370,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The head must be a type path, optionally with a turbofish, or the
         // dot form (SPEC 14.1).
         if !head.is_type_path() {
-            self.err(head.span(), "the head of a struct literal must be a type")
+            self.err(head.span(), "the head of a struct literal must be a type").code("struct-literal-head")
                 .fix("name the type, as in `Point { x: 1, y: 2 }`, or `.Variant { ... }` where the expected type is known")
                 .notes
                 .push("the grammar permits `f(x) { a: 1 }`; the checker does not".into());
@@ -1772,7 +1772,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if matches!(prim, Some(Prim::Template))
             && matches!(op, B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge)
         {
-            self.err(op_span, "`Template` does not implement `Eq`")
+            self.err(op_span, "`Template` does not implement `Eq`").code("missing-conformance")
                 .fix("render both sides first: `str.format(ctx, a) == str.format(ctx, b)`")
                 .note("a Template is a fixed-size view of literal fragments and evaluated holes, not the text it would produce");
             return self.error_expr(span);
@@ -1884,7 +1884,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let mut d = Diagnostic::error(
                 span,
                 format!("`{shown}` does not implement `{trait_name}`"),
-            );
+            ).with_code("missing-conformance");
             if ty.head().is_some() {
                 d = d
                     .with_note("conformance is nominal: a type satisfies a trait only where a declaration says so")
@@ -1986,7 +1986,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                             self.err(
                                 span,
                                 format!("`?` would propagate `{from}`, but this function returns `{to}`"),
-                            )
+                            ).code("question-mark-mismatch")
                             .fix(format!(
                                 "map the error first: `.mapErr(fn(e) => ...)?`, producing a \
                                  `{to}` — there is no automatic error conversion"
@@ -1995,7 +1995,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                     _ => {
                         let shown = self.show_ty(&ret);
-                        self.err(span, format!("`?` on a `Result` needs a `Result` return type, not `{shown}`"))
+                        self.err(span, format!("`?` on a `Result` needs a `Result` return type, not `{shown}`")).code("question-mark-mismatch")
                             .fix("return a `Result` from this function, or handle the error here with `match` or `??`");
                     }
                 }
@@ -2006,7 +2006,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             {
                 if !self.is_option(&ret) {
                     let shown = self.show_ty(&ret);
-                    self.err(span, format!("`?` on an `Option` needs an `Option` return type, not `{shown}`"))
+                    self.err(span, format!("`?` on an `Option` needs an `Option` return type, not `{shown}`")).code("question-mark-mismatch")
                         .fix("return an `Option` from this function, or turn absence into an error with `.okOr(e)?`");
                 }
                 (args[0].clone(), hir::OptionOrResult::Option)
@@ -2129,7 +2129,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         for c in &captures {
             if self.effect_locals.contains(c) {
                 let name = self.locals[c.index()].name.clone();
-                self.err(span, format!("a lambda may not capture `{name}`, which carries an effect"))
+                self.err(span, format!("a lambda may not capture `{name}`, which carries an effect")).code("lambda-captures-effect")
                     .fix(
                         "thread the context through a `*Ctx` combinator, which passes it in as a \
                          parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`",
@@ -2158,7 +2158,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> hir::Expr {
         if !self.may_build_context() {
-            self.err(span, "a context may not be constructed here")
+            self.err(span, "a context may not be constructed here").code("context-not-allowed")
                 .fix(
                     "build it in `main` and pass it down as a `ctx` parameter, or make this a \
                      test source, where a context may be built per test",
@@ -2216,7 +2216,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
                 let shown = binding.effect.head_name().unwrap_or("?").to_string();
-                self.err(binding.effect.span(), format!("`{shown}` is not a declared effect"))
+                self.err(binding.effect.span(), format!("`{shown}` is not a declared effect")).code("not-an-effect")
                     .fix(format!(
                         "name an effect the platform declares, as in `Alloc` or `Stdout`; \
                          `{shown}` is not one"
@@ -2238,7 +2238,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !self.satisfies(&vty, tid) && !vty.is_error() {
                 let shown = self.show_ty(&vty);
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.err(binding.value.span(), format!("`{shown}` does not implement `{eff}`"))
+                self.err(binding.value.span(), format!("`{shown}` does not implement `{eff}`")).code("missing-conformance")
                     .fix(format!(
                         "bind a value whose type has `impl {eff} for ...`; an effect is an \
                          ordinary interface, so a test double is a struct with those methods"
@@ -2248,7 +2248,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             // it; two explicit bindings of one effect is an error.
             if explicit.contains(&tid) {
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.err(binding.span, format!("`{eff}` is bound twice"))
+                self.err(binding.span, format!("`{eff}` is bound twice")).code("duplicate-bound")
                     .fix("delete one of the two bindings")
                     .note("a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake");
             }

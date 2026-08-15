@@ -1,4 +1,4 @@
-error: expected `I64`, found `Str`
+error: expected `I64`, found `Str` [type-mismatch]
  --> cmd/if_branches_disagree/main.buri:6:21
   |
 6 |   if (b) { 1 } else { "zero" }

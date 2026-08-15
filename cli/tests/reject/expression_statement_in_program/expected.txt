@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source
+error: an expression statement is legal only in a test source [expression-statement]
  --> cmd/expression_statement_in_program/main.buri:7:3
   |
 7 |   ctx.println("hi");

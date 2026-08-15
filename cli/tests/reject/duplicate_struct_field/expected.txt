@@ -1,4 +1,4 @@
-error: field `a` is declared twice
+error: field `a` is declared twice [duplicate-declaration]
  --> cmd/duplicate_struct_field/main.buri:5:31
   |
 5 | struct Twice { export a: Int, export a: Int }

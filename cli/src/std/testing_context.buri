@@ -1,16 +1,16 @@
-// core/testing/context — the test runner's platform.
-//
-// One implementation per effect, not one pre-assembled world. Each is real
-// where it can be and hermetic everywhere else, and each is an ordinary struct
-// with methods — there is no distinction between the runner's implementations
-// and yours (SPEC 11.2).
-//
-// The structs carry an `I64` handle rather than their state. A captured stdout
-// and an in-memory filesystem accumulate what a test does to them, and Buri
-// has no mutation, so the state lives on the runner's side and the value here
-// names it. That is also why a named context is *called* — `Hermetic()` —
-// rather than referred to: each call allocates fresh handles, so what one test
-// writes is invisible to the next.
+//! core/testing/context — the test runner's platform.
+//!
+//! One implementation per effect, not one pre-assembled world. Each is real
+//! where it can be and hermetic everywhere else, and each is an ordinary struct
+//! with methods — there is no distinction between the runner's implementations
+//! and yours (SPEC 11.2).
+//!
+//! The structs carry an `I64` handle rather than their state. A captured stdout
+//! and an in-memory filesystem accumulate what a test does to them, and Buri
+//! has no mutation, so the state lives on the runner's side and the value here
+//! names it. That is also why a named context is *called* — `Hermetic()` —
+//! rather than referred to: each call allocates fresh handles, so what one test
+//! writes is invisible to the next.
 
 from "core/cap" import {
   Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdin, Stdout,

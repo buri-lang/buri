@@ -239,7 +239,7 @@ impl<'a> Checker<'a> {
             ast::Item::Trait(d) => {
                 // `effect` may be declared only by platform modules.
                 if d.is_effect && self.module(module).role != Role::Platform {
-                    self.err(d.span, "only a platform module may declare an effect")
+                    self.err(d.span, "only a platform module may declare an effect").code("effect-outside-platform")
                         .note(
                             "the set of things a Buri program can do to the world is fixed by \
                              its platform rather than open-ended",
@@ -291,7 +291,7 @@ impl<'a> Checker<'a> {
                 // exporting `main`, a test source, or a test-only module.
                 let role = self.module(module).role;
                 if !role.may_build_context() {
-                    self.err(d.span, "a `context` declaration is not legal here")
+                    self.err(d.span, "a `context` declaration is not legal here").code("context-not-allowed")
                         .fix("move it into the module that exports `main`, or into a test-only module")
                         .note(
                         "a context may be declared only in the module exporting `main`, in a \
@@ -452,7 +452,7 @@ impl<'a> Checker<'a> {
                         let d = self.err(
                             spec.name.span,
                             format!("\"{module_path}\" does not export `{name}`"),
-                        );
+                        ).code("no-such-export");
                         d.fix(format!(
                             "check the spelling, or add `export` to `{name}`'s declaration in \
                              \"{module_path}\""
@@ -476,7 +476,7 @@ impl<'a> Checker<'a> {
             let Some(sym) = self.lookup_export(from, &spec.name.name) else {
                 let path = re.path.clone();
                 let name = spec.name.name.clone();
-                self.err(spec.name.span, format!("\"{path}\" does not export `{name}`"))
+                self.err(spec.name.span, format!("\"{path}\" does not export `{name}`")).code("no-such-export")
                     .fix(format!("add `export` to `{name}`'s declaration in \"{path}\", or drop it from this list"))
                     .notes
                     .push("a re-export may name only what its module path exports".into());
@@ -700,7 +700,7 @@ impl<'a> Checker<'a> {
         if let Some(first) = params.first() {
             if first.role == ParamRole::SelfParam {
                 let n = d.name.name.clone();
-                self.err(first.span, format!("`{n}` takes `self`, so it is a method"))
+                self.err(first.span, format!("`{n}` takes `self`, so it is a method")).code("method-declared-free")
                     .fix("move it into an `impl` block for its type, as in `impl Square { fn area(self: Square): Int { ... } }`")
                     .note("a method is found through its receiver's type, so it is declared with that type");
             }
@@ -722,7 +722,7 @@ impl<'a> Checker<'a> {
                 ParamRole::SelfParam => {
                     self_count += 1;
                     if i != 0 {
-                        self.err(p.span, "`self` may appear only as the first parameter")
+                        self.err(p.span, "`self` may appear only as the first parameter").code("self-not-first")
                             .fix("move it to the front, or rename it if this parameter is not the receiver");
                     }
                 }
@@ -733,7 +733,7 @@ impl<'a> Checker<'a> {
                         self.err(
                             p.span,
                             "`ctx` must come first, or immediately after `self`",
-                        )
+                        ).code("ctx-not-first")
                         .fix("move `ctx` to that position")
                         .notes
                         .push(
@@ -759,7 +759,7 @@ impl<'a> Checker<'a> {
                         self.err(
                             p.span,
                             format!("`{name}` carries an effect, so it must be named `ctx`"),
-                        )
+                        ).code("effect-param-not-ctx")
                         .fix(format!(
                             "rename `{name}` to `ctx` and make it the first parameter, or drop \
                              the effect bound if this parameter is ordinary data"
@@ -785,7 +785,7 @@ impl<'a> Checker<'a> {
     fn check_main_signature(&mut self, fid: FnId, d: &ast::FnDecl) {
         let info = self.tables.fun(fid).clone();
         if !info.params.is_empty() {
-            self.err(d.span, "`main` takes no parameters")
+            self.err(d.span, "`main` takes no parameters").code("main-signature")
                 .fix("drop them, and build the context `main` needs in its own body")
                 .notes
                 .push(
@@ -795,7 +795,7 @@ impl<'a> Checker<'a> {
             );
         }
         if !info.generics.is_empty() {
-            self.err(d.span, "`main` declares no generic parameters")
+            self.err(d.span, "`main` declares no generic parameters").code("main-signature")
                 .fix("drop them: `main` is called by the runtime, so there is nothing to infer them from");
         }
         let unit = Ty::Unit;
@@ -810,7 +810,7 @@ impl<'a> Checker<'a> {
             _ => false,
         };
         if !ok && !info.ret.is_error() {
-            self.err(d.ret.span(), "`main` must return `Result<(), Str>`")
+            self.err(d.ret.span(), "`main` must return `Result<(), Str>`").code("main-signature")
                 .fix("change the return type to `Result<(), Str>`")
                 .notes
                 .push("`.Ok(())` exits 0; `.Err(msg)` prints `msg` to stderr and exits 1".into());
@@ -852,7 +852,7 @@ impl<'a> Checker<'a> {
                     Some(t) => bounds.push(t),
                     None => {
                         let shown = b.head_name().unwrap_or("?").to_string();
-                        self.err(b.span(), format!("`{shown}` is not a trait or effect"))
+                        self.err(b.span(), format!("`{shown}` is not a trait or effect")).code("not-a-trait")
                             .fix(format!(
                                 "name a declared trait or effect, or declare `{shown}` as one"
                             ))
@@ -933,7 +933,7 @@ impl<'a> Checker<'a> {
                 // `Self` stands for the implementing type and is legal only
                 // inside a trait or an `impl` body.
                 if !self.in_self_scope {
-                    self.err(*span, "`Self` is legal only inside a `trait` or `impl`")
+                    self.err(*span, "`Self` is legal only inside a `trait` or `impl`").code("self-type-outside-impl")
                         .fix("name the type itself here")
                         .note("`Self` stands for the implementing type, and there is none here");
                     return Ty::Error;
@@ -1015,7 +1015,7 @@ impl<'a> Checker<'a> {
                         if let Some(near) = self.nearest_type_name(module, name) {
                             note = Some(format!("did you mean `{near}`?"));
                         }
-                        let d = self.err(*span, format!("there is no type `{shown}`"));
+                        let d = self.err(*span, format!("there is no type `{shown}`")).code("unresolved-type");
                 d.fix("declare it, import it, or correct the spelling");
                         if let Some(n) = note {
                             d.notes.push(n);
@@ -1074,7 +1074,7 @@ impl<'a> Checker<'a> {
         for f in &fields {
             if !seen.insert(f.name.clone()) {
                 let n = f.name.clone();
-                self.err(f.span, format!("field `{n}` is declared twice"))
+                self.err(f.span, format!("field `{n}` is declared twice")).code("duplicate-declaration")
                     .fix("rename one of them, or delete the duplicate");
             }
         }
@@ -1087,7 +1087,7 @@ impl<'a> Checker<'a> {
         for v in &variants {
             if seen.contains(&v.name) {
                 let n = v.name.clone();
-                self.err(v.span, format!("variant `{n}` is declared twice"))
+                self.err(v.span, format!("variant `{n}` is declared twice")).code("duplicate-declaration")
                     .fix("rename one of them; `match` tells variants apart by name");
             }
             seen.push(v.name.clone());
@@ -1097,7 +1097,7 @@ impl<'a> Checker<'a> {
                 if fields.contains(&f.name) {
                     let fname = f.name.clone();
                     let vname = v.name.clone();
-                    self.err(f.span, format!("field `{fname}` of `{vname}` is declared twice"))
+                    self.err(f.span, format!("field `{fname}` of `{vname}` is declared twice")).code("duplicate-declaration")
                         .fix("rename one of them, or delete the duplicate");
                 }
                 fields.push(f.name.clone());
@@ -1117,7 +1117,7 @@ impl<'a> Checker<'a> {
         });
         if !productive {
             let name = self.tables.tycon(con).name.clone();
-            self.err(span, format!("`{name}` can never be constructed"))
+            self.err(span, format!("`{name}` can never be constructed")).code("uninhabited")
                 .fix(format!(
                     "give `{name}` a variant that does not mention itself, the way `.None` \
                      terminates an `Option`"
@@ -1216,7 +1216,7 @@ impl<'a> Checker<'a> {
         // A method may not share a name with a field of its `self` type.
         if self.tables.tycon(con).field_index(name).is_some() {
             let ty = self.tables.tycon(con).name.clone();
-            self.err(span, format!("`{name}` is already a field of `{ty}`"))
+            self.err(span, format!("`{name}` is already a field of `{ty}`")).code("duplicate-field")
                 .fix("rename the method, or rename the field")
                 .notes
                 .push(
@@ -1249,7 +1249,7 @@ impl<'a> Checker<'a> {
         };
         let Some(trait_id) = self.resolve_trait(module, trait_ref) else {
             let shown = trait_ref.head_name().unwrap_or("?").to_string();
-            self.err(trait_ref.span(), format!("`{shown}` is not a trait or effect"))
+            self.err(trait_ref.span(), format!("`{shown}` is not a trait or effect")).code("not-a-trait")
                 .fix(format!(
                     "name a declared trait or effect after `impl`, or drop the `for` clause if \
                      `{shown}` was meant to be the type whose own methods these are"
@@ -1273,7 +1273,7 @@ impl<'a> Checker<'a> {
                 == self.module(module).path;
         if owner != module && !is_prim {
             let name = self.tables.tycon(self_con).name.clone();
-            self.err(d.self_ty.span(), format!("`{name}` is not declared in this module"))
+            self.err(d.self_ty.span(), format!("`{name}` is not declared in this module")).code("unresolved-name")
                 .fix(format!(
                     "move the `impl` into `{name}`'s own module, or wrap it in a type of yours \
                      — `struct MyRegion(Region);` — and implement the trait for that"
@@ -1304,7 +1304,7 @@ impl<'a> Checker<'a> {
             self.err(
                 d.span,
                 format!("`{name}` cannot implement both the effect `{eff}` and the trait `{tr}`"),
-            )
+            ).code("effect-and-trait")
             .fix("split it in two: a type is either part of the world or part of your data")
             .subs
             .push(crate::diag::SubSpan { span: other_span, label: "the other one".into() });
@@ -1368,7 +1368,7 @@ impl<'a> Checker<'a> {
             let t = self.tables.trait_(trait_id).name.clone();
             let c = self.tables.tycon(self_con).name.clone();
             let missing = crate::diag::names(&missing);
-            self.err(d.span, format!("`{c}`'s `impl {t}` is missing {missing}"))
+            self.err(d.span, format!("`{c}`'s `impl {t}` is missing {missing}")).code("incomplete-impl")
                 .fix(format!("add {missing} to the block, with the signature `{t}` declares"))
                 .note("an `impl` supplies every method its trait declares");
         }
@@ -1398,7 +1398,7 @@ impl<'a> Checker<'a> {
             Ty::Error => return,
             other => {
                 let shown = show(&self.tables, None, generics, other);
-                self.err(d.self_ty.span(), format!("`{shown}` has no methods"))
+                self.err(d.self_ty.span(), format!("`{shown}` has no methods")).code("no-such-method")
                     .fix("write a free function instead, and call it as one")
                     .note("tuples, function types, and `Template` have no defining module");
                 return;
@@ -1415,7 +1415,7 @@ impl<'a> Checker<'a> {
                     == self.module(module).path;
             if owner != module && !is_prim {
                 let name = self.tables.tycon(con).name.clone();
-                self.err(d.self_ty.span(), format!("`{name}` is not declared in this module"))
+                self.err(d.self_ty.span(), format!("`{name}` is not declared in this module")).code("unresolved-name")
                     .fix(format!(
                         "move the `impl` into `{name}`'s own module, or write a free function \
                          here and call it as one"
@@ -1444,7 +1444,7 @@ impl<'a> Checker<'a> {
                     self.err(
                         method.name.span,
                         format!("`{n}` is in an `impl` block but takes no `self`"),
-                    )
+                    ).code("impl-fn-without-self")
                     .fix("give it a `self` parameter, or move it out of the `impl` block")
                     .note("an `impl` block declares methods; a function with no receiver is declared at the top level");
                     continue;
@@ -1490,7 +1490,7 @@ impl<'a> Checker<'a> {
         };
         if self.tables.tycon(self_con).module != module {
             let name = self.tables.tycon(self_con).name.clone();
-            self.err(d.self_ty.span(), format!("`{name}` is not declared in this module"))
+            self.err(d.self_ty.span(), format!("`{name}` is not declared in this module")).code("unresolved-name")
                 .fix(format!("move the `derive` into `{name}`'s own module"));
             return;
         }
@@ -1558,7 +1558,7 @@ impl<'a> Checker<'a> {
             }
             _ => {
                 let shown = path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
-                self.err(*span, format!("there is no type `{shown}`"))
+                self.err(*span, format!("there is no type `{shown}`")).code("unresolved-type")
                     .fix("declare it, import it, or correct the spelling");
                 None
             }
@@ -1604,7 +1604,7 @@ impl<'a> Checker<'a> {
                     self.err(
                         span,
                         format!("`{c}` cannot derive `{t}`: `{name}` has type `{shown}`"),
-                    )
+                    ).code("underivable")
                     .note(format!("a derived implementation is a fold over the type's components, and `{shown}` does not satisfy `{t}`"))
                     .fix(format!(
                         "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in its \
@@ -1674,7 +1674,7 @@ impl<'a> Checker<'a> {
                 // `test` declarations are legal only in a test source.
                 if let ast::Item::Test(t) = item {
                     if role != Role::TestSource {
-                        self.err(t.span, "a `test` declaration is legal only in a test source")
+                        self.err(t.span, "a `test` declaration is legal only in a test source").code("test-outside-test-source")
                             .fix("move it into a file listed in the target's `test.sources`")
                             .notes
                             .push(

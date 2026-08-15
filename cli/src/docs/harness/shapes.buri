@@ -1,0 +1,17 @@
+// A worked enum, for the sections that explain `match`, exhaustiveness, and
+// pattern forms. Three variants with three different shapes of payload is the
+// smallest thing that makes all three explanations concrete.
+
+export enum Shape {
+  export Point,
+  export Circle(Float),
+  export Rect(Float, Float),
+}
+
+export fn area(shape: Shape): Float {
+  match (shape) {
+    .Point => 0.0,
+    .Circle(r) => 3.14159 * r * r,
+    .Rect(w, h) => w * h,
+  }
+}

@@ -1,4 +1,4 @@
-error: `side` is already a field of `Square`
+error: `side` is already a field of `Square` [duplicate-field]
  --> cmd/method_shares_name_with_field/main.buri:8:6
   |
 8 |   fn side(self: Square): Int {

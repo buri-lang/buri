@@ -1,4 +1,4 @@
-error: 300 is not representable in `U8`
+error: 300 is not representable in `U8` [literal-out-of-range]
  --> cmd/literal_out_of_range_u8/main.buri:7:15
   |
 7 |   let x: U8 = 300;

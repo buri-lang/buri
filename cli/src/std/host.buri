@@ -1,14 +1,14 @@
-// core/host — the platform's implementations of the effects it grants.
-//
-// Importable only from the module that exports `main`. That restriction, and
-// the `testing` segment rule, name every place in a program where authority
-// can enter (SPEC 4.1.1).
-//
-// A program that never names `host.net` cannot open a socket anywhere in its
-// transitive call graph, because nothing anywhere can obtain a value bounded
-// by `Net`. A platform that does not grant an effect simply does not export
-// it, so requesting one is an ordinary unresolved-name error at the one line
-// that asked for it.
+//! core/host — the platform's implementations of the effects it grants.
+//!
+//! Importable only from the module that exports `main`. That restriction, and
+//! the `testing` segment rule, name every place in a program where authority
+//! can enter (SPEC 4.1.1).
+//!
+//! A program that never names `host.net` cannot open a socket anywhere in its
+//! transitive call graph, because nothing anywhere can obtain a value bounded
+//! by `Net`. A platform that does not grant an effect simply does not export
+//! it, so requesting one is an ordinary unresolved-name error at the one line
+//! that asked for it.
 
 from "core/cap" import {
   Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout,

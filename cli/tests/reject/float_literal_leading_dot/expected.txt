@@ -1,4 +1,4 @@
-error: expected an identifier, found `5`
+error: expected an identifier, found `5` [unexpected-token]
  --> cmd/float_literal_leading_dot/main.buri:7:15
   |
 7 |   let half = .5;
@@ -7,7 +7,7 @@ error: expected an identifier, found `5`
   = expected: an identifier
   = actual: `5`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is nothing named `half` in scope
+error: there is nothing named `half` in scope [unresolved-name]
  --> cmd/float_literal_leading_dot/main.buri:8:26
   |
 8 |   let _ = ctx.println("${half}");

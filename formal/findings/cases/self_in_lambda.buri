@@ -1,0 +1,23 @@
+// FINDING 3: does the capture rule fire on a NON-effect-carrying `self`?
+// `Report` implements no effect, so SPEC 10.6 / SPEC 14 rule 8 should permit
+// the lambda to capture it. `infer.rs:58-60` inserts every `self` into
+// `effect_locals` regardless of `is_effect_carrying`.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+struct Report { n: Int }
+
+impl Report {
+  export fn above<C: Alloc>(self: Report, ctx: C, xs: [Int]): [Int] {
+    xs.filter(ctx, fn(x) => x > self.n)
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let r = Report { n: 2 };
+  let got = r.above(ctx, [1, 2, 3, 4]).len();
+  let _ = ctx.println("${got}");
+  .Ok(())
+}

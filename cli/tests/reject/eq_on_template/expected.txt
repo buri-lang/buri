@@ -1,4 +1,4 @@
-error: `Template` does not implement `Eq`
+error: `Template` does not implement `Eq` [missing-conformance]
  --> cmd/eq_on_template/main.buri:9:16
   |
 9 |   let same = a == a;

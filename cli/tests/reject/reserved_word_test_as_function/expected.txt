@@ -1,4 +1,4 @@
-error: expected an identifier, found `test`
+error: expected an identifier, found `test` [unexpected-token]
  --> cmd/reserved_word_test_as_function/main.buri:5:4
   |
 5 | fn test(n: Int): Int { n }
@@ -7,7 +7,7 @@ error: expected an identifier, found `test`
   = expected: an identifier
   = actual: `test`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: expected a string literal, found `(`
+error: expected a string literal, found `(` [unexpected-token]
  --> cmd/reserved_word_test_as_function/main.buri:5:8
   |
 5 | fn test(n: Int): Int { n }

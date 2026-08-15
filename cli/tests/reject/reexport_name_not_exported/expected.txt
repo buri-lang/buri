@@ -1,4 +1,4 @@
-error: "core/list" does not export `notAThing`
+error: "core/list" does not export `notAThing` [no-such-export]
  --> cmd/reexport_name_not_exported/main.buri:4:27
   |
 4 | from "core/list" export { notAThing };

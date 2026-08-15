@@ -1,4 +1,4 @@
-error: a `Result` may not be discarded
+error: a `Result` may not be discarded [result-discarded]
  --> cmd/discarded_result/main.buri:8:3
   |
 8 |   let _ = fs.readText(ctx, "config.toml");

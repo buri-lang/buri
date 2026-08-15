@@ -1,4 +1,4 @@
-error: `if` requires an `else` branch
+error: `if` requires an `else` branch [if-without-else]
  --> cmd/if_without_else/main.buri:6:26
   |
 6 |   let label = if (n > 0) { 1 };
@@ -6,7 +6,7 @@ error: `if` requires an `else` branch
   |
   = `if` is an expression, so both branches must produce a value of the same type
   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
-error: there is nothing named `label` in scope
+error: there is nothing named `label` in scope [unresolved-name]
  --> cmd/if_without_else/main.buri:7:3
   |
 7 |   label

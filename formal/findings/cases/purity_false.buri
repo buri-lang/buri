@@ -1,0 +1,27 @@
+// The purity theorem (SPEC 10.4), falsified.
+//
+// `runTwice` has no `ctx` parameter, no effect-carrying `self`, captures
+// nothing, and constructs no context. SPEC 10.4 therefore claims it "performs
+// no observable effect" and "may be freely cached, reordered, or eliminated".
+// It prints twice.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
+  fn() => f(x)
+}
+
+// Pure by every criterion SPEC 10.4 names.
+fn runTwice(f: fn() => ()): Int {
+  let _ = f();
+  let _ = f();
+  7
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let sneaky = wrap(ctx, fn(c) => c.println("effect from a pure function"));
+  let n = runTwice(sneaky);
+  let _ = ctx.println("runTwice returned ${n}");
+  .Ok(())
+}

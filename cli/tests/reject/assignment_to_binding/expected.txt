@@ -1,4 +1,4 @@
-error: expected `}`, found `=`
+error: expected `}`, found `=` [unexpected-token]
  --> cmd/assignment_to_binding/main.buri:8:5
   |
 8 |   n = 2;
@@ -7,7 +7,7 @@ error: expected `}`, found `=`
   = expected: `}`
   = actual: `=`
   = fix: write `}` here
-error: expected a declaration, found `let`
+error: expected a declaration, found `let` [unexpected-token]
  --> cmd/assignment_to_binding/main.buri:9:3
   |
 9 |   let _ = ctx.println("${n}");
@@ -16,7 +16,7 @@ error: expected a declaration, found `let`
   = expected: a declaration
   = actual: `let`
   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `const` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-error: expected a declaration, found `.`
+error: expected a declaration, found `.` [unexpected-token]
   --> cmd/assignment_to_binding/main.buri:10:3
    |
 10 |   .Ok(())

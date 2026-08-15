@@ -1,4 +1,4 @@
-error: `Region` is not a declared effect
+error: `Region` is not a declared effect [not-an-effect]
  --> cmd/context_binding_not_an_effect/main.buri:6:42
   |
 6 |   let ctx = context { Alloc: host.alloc, Region: host.alloc, Stdout: host.stdout };

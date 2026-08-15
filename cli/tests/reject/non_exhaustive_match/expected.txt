@@ -1,4 +1,4 @@
-error: this `match` does not cover `.Empty`
+error: this `match` does not cover `.Empty` [match-not-exhaustive]
  --> cmd/non_exhaustive_match/main.buri:8:3
   |
 8 |   match (s) {

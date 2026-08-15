@@ -1,10 +1,10 @@
-// core/option — the defining module of `Option<T>`.
-//
-// There is no `null` and no `undefined`. Absence is `Option<T>`.
-//
-// `Option` is deliberately NOT must-use: ignoring an absent value is usually
-// harmless, and making it an error would put `option.ignore` in front of half
-// the standard library for no safety gain (SPEC 5.7.1).
+//! core/option — the defining module of `Option<T>`.
+//!
+//! There is no `null` and no `undefined`. Absence is `Option<T>`.
+//!
+//! `Option` is deliberately NOT must-use: ignoring an absent value is usually
+//! harmless, and making it an error would put `option.ignore` in front of half
+//! the standard library for no safety gain (SPEC 5.7.1).
 
 export enum Option<T> {
   export Some(T),

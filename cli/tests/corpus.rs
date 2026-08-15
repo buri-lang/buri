@@ -35,9 +35,12 @@ fn buri_sources(dir: &Path, out: &mut Vec<PathBuf>) {
 /// The files whose text is Buri source rather than textproto.
 fn corpus(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    buri_sources(&root.join("build-system/example"), &mut files);
+    buri_sources(&root.join("cli/tests/example"), &mut files);
     buri_sources(&root.join("cli/tests/conformance"), &mut files);
     buri_sources(&root.join("cli/tests/crash"), &mut files);
+    // The documentation's shared preambles are real source and are held to the
+    // same standard: they parse, and `buri format` leaves them alone.
+    buri_sources(&root.join("cli/src/docs/harness"), &mut files);
     files
 }
 
@@ -82,7 +85,7 @@ fn proto_files(dir: &Path, out: &mut Vec<PathBuf>) {
 fn every_build_file_reads() {
     let root = repo_root();
     let mut files = Vec::new();
-    proto_files(&root.join("build-system/example"), &mut files);
+    proto_files(&root.join("cli/tests/example"), &mut files);
     assert!(files.len() >= 7, "expected the example build files, found {}", files.len());
 
     let mut failures = String::new();
@@ -109,7 +112,7 @@ fn every_build_file_reads() {
 fn formatting_build_files_is_a_fixed_point() {
     let root = repo_root();
     let mut files = Vec::new();
-    proto_files(&root.join("build-system/example"), &mut files);
+    proto_files(&root.join("cli/tests/example"), &mut files);
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
         let once = buri::textproto::print(&buri::textproto::parse(&text, buri::diag::FileId(0)).doc);

@@ -1,4 +1,4 @@
-error: a `Result` may not be discarded
+error: a `Result` may not be discarded [result-discarded]
   --> cmd/discarded_result_pure/main.buri:11:3
    |
 11 |   let _ = parse("hi");

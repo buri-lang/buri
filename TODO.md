@@ -1,6 +1,6 @@
 # Untested areas of the build-system spec
 
-What `build-system/*.md` specifies that no test currently pins. Compiled by
+What `cli/src/docs/*.md` specifies that no test currently pins. Compiled by
 reading the seven spec documents against `cli/tests/` (`conformance.rs`,
 `corpus.rs`, `example_repo.rs`, `stdlib.rs`), the `reject/` and `crash/`
 corpora, and the `#[cfg(test)]` modules in `cli/src/`.

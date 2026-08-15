@@ -1,7 +1,7 @@
 //! Diagnostics: source map, spans, and the renderer.
 //!
 //! The output shape is fixed by the examples throughout `SPEC.md` and
-//! `build-system/`:
+//! `cli/src/docs/`:
 //!
 //! ```text
 //! error: cmd/server/routes.buri imports //lib/money, which is not in deps
@@ -205,6 +205,17 @@ impl Diagnostic {
 
     pub fn label(&mut self, label: impl Into<String>) -> &mut Diagnostic {
         self.label = Some(label.into());
+        self
+    }
+
+    /// A stable name for the rule this diagnostic enforces.
+    ///
+    /// The code is what `buri docs error <code>` explains, and what a reader
+    /// greps for. It is kebab-case rather than a number because a number is
+    /// unsearchable in a repository whose whole aesthetic is that the message
+    /// says the thing.
+    pub fn code(&mut self, code: impl Into<String>) -> &mut Diagnostic {
+        self.code = Some(code.into());
         self
     }
 
@@ -521,7 +532,10 @@ impl SourceMap {
 
 /// A JSON string literal. There is no serde here, on purpose: the toolchain
 /// has no dependencies, and this is the whole of what it needs.
-fn json_str(s: &str) -> String {
+///
+/// Public because `buri docs --format=json` emits the same shape of output and
+/// must escape it the same way; one escaper means one set of edge cases.
+pub fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {

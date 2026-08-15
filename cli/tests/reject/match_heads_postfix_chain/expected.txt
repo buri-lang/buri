@@ -1,4 +1,4 @@
-error: expected `}`, found `.`
+error: expected `}`, found `.` [unexpected-token]
   --> cmd/match_heads_postfix_chain/main.buri:11:4
    |
 11 |   }.x
@@ -7,7 +7,7 @@ error: expected `}`, found `.`
    = expected: `}`
    = actual: `.`
    = fix: write `}` here
-error: there is nothing named `xOf` in scope
+error: there is nothing named `xOf` in scope [unresolved-name]
   --> cmd/match_heads_postfix_chain/main.buri:16:26
    |
 16 |   let _ = ctx.println("${xOf(.None)}");

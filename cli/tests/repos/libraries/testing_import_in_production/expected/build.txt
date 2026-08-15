@@ -1,4 +1,4 @@
-error: this is a test-only module
+error: this is a test-only module [test-only-import]
  --> cmd/app/main.buri:8:6
   |
 8 | from "//lib/money/testing" import { sample };
@@ -7,7 +7,7 @@ error: this is a test-only module
   = a path containing a `testing` segment may be imported only from a test source
   = //cmd/app/main is not one
   = fix: import it from a file listed in a target's `test.sources`, or drop the import
-error: there is nothing named `sample` in scope
+error: there is nothing named `sample` in scope [unresolved-name]
   --> cmd/app/main.buri:12:23
    |
 12 |   let _ = ctx.println(sample().format(ctx));

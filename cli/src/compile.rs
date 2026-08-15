@@ -198,6 +198,70 @@ impl<'a> Loader<'a> {
         }
     }
 
+    /// Loads a module from text rather than from disk.
+    ///
+    /// This is what lets a fenced block in a document be compiled in-process:
+    /// the documentation examples are real modules, checked by the real
+    /// checker against the real standard library, with no temporary directory
+    /// and no second process. `name` is what diagnostics will call the module,
+    /// so callers pass the document's path and remap the line afterwards.
+    ///
+    /// `Role::Std` parses with bodyless declarations allowed, which is how a
+    /// document can show a signature without inventing an implementation for
+    /// it.
+    pub fn load_source(
+        &mut self,
+        path: &str,
+        role: Role,
+        text: String,
+    ) -> Option<ModuleId> {
+        self.load_source_in(path, role, text, None)
+    }
+
+    /// The same, but the module belongs to `pkg`.
+    ///
+    /// Documentation about a library shows the library's *own* files —
+    /// `cents.buri` importing its neighbour — and those imports are legal only
+    /// from inside the package. Saying which package the example belongs to is
+    /// what lets such a block be compiled rather than merely displayed.
+    pub fn load_source_in(
+        &mut self,
+        path: &str,
+        role: Role,
+        text: String,
+        pkg: Option<crate::workspace::PkgId>,
+    ) -> Option<ModuleId> {
+        if let Some(id) = self.by_path.get(path) {
+            return Some(*id);
+        }
+        let file = self.map.add(path.to_string(), PathBuf::new(), text);
+        let parsed = match role {
+            Role::Std | Role::Platform => {
+                crate::parse::parse_stdlib(self.map.text(file), file)
+            }
+            _ => crate::parse::parse(self.map.text(file), file),
+        };
+        self.diags.extend(parsed.errors);
+        let id = ModuleId(self.modules.len() as u32);
+        self.by_path.insert(path.to_string(), id);
+        self.modules.push(ModuleData {
+            id,
+            path: path.to_string(),
+            file,
+            role,
+            ast: parsed.module,
+            pkg,
+            disk: PathBuf::new(),
+        });
+        if role == Role::Entry {
+            self.entry = Some(id);
+        }
+        self.stack.push(path.to_string());
+        self.load_imports(id);
+        self.stack.pop();
+        Some(id)
+    }
+
     /// A source listed in a rule, named by its package-relative path.
     fn load_package_source(
         &mut self,
@@ -232,7 +296,7 @@ impl<'a> Loader<'a> {
         }
         let Some(text) = stdlib::source(path) else {
             self.diags.push(
-                Diagnostic::error(span, format!("there is no module \"{path}\""))
+                Diagnostic::error(span, format!("there is no module \"{path}\"")).with_code("no-such-module")
                     .with_fix("check the path; the standard library's modules are all `core/...`"),
             );
             return None;
@@ -266,7 +330,7 @@ impl<'a> Loader<'a> {
         }
         let Some(ws) = self.ws else {
             self.diags.push(
-                Diagnostic::error(span, format!("\"{path}\" is outside any repository"))
+                Diagnostic::error(span, format!("\"{path}\" is outside any repository")).with_code("module-outside-repository")
                     .with_fix("import from `\"core/...\"` or from a `//...` path in this repository"),
             );
             return None;
@@ -274,7 +338,7 @@ impl<'a> Loader<'a> {
         match ws.resolve_module(path) {
             Ok(loc) => self.load_file(path, loc.file, role, span),
             Err(msg) => {
-                self.diags.push(Diagnostic::error(span, msg).with_fix(
+                self.diags.push(Diagnostic::error(span, msg).with_code("module-not-found").with_fix(
                     "create the file the path names, or correct the path — a module path maps \
                      to exactly one file, with no search",
                 ));
@@ -298,7 +362,7 @@ impl<'a> Loader<'a> {
         if let Some(at) = self.stack.iter().position(|p| p == path) {
             let cycle = self.stack[at..].join(" -> ");
             self.diags.push(
-                Diagnostic::error(span, format!("circular import: {cycle} -> {path}"))
+                Diagnostic::error(span, format!("circular import: {cycle} -> {path}")).with_code("circular-import")
                     .with_fix("break the cycle: move what both modules need into a third one")
                     .with_note("modules form a graph with no cycles, at the module level and at the package level alike"),
             );
@@ -392,7 +456,7 @@ impl<'a> Loader<'a> {
     ) -> bool {
         if path.starts_with('.') {
             self.diags.push(
-                Diagnostic::error(span, format!("\"{path}\" is a relative module path"))
+                Diagnostic::error(span, format!("\"{path}\" is a relative module path")).with_code("relative-import")
                     .with_note(
                         "every module path is absolute, so a path means the same module wherever \
                          it is written and a file can move without its imports changing",
@@ -408,7 +472,7 @@ impl<'a> Loader<'a> {
         // `core/host` is importable only from the module that exports `main`.
         if path == "core/host" && role != Role::Entry {
             self.diags.push(
-                Diagnostic::error(span, "\"core/host\" is importable only from the module that exports `main`")
+                Diagnostic::error(span, "\"core/host\" is importable only from the module that exports `main`").with_code("host-import")
                     .with_fix(
                         "take what you need as a `ctx` bound instead, and let `main` supply the \
                          implementation",
@@ -426,7 +490,7 @@ impl<'a> Loader<'a> {
         // source — or from another test-only module.
         if is_test_only_path(path) && !role.is_test_context() {
             self.diags.push(
-                Diagnostic::error(span, "this is a test-only module")
+                Diagnostic::error(span, "this is a test-only module").with_code("test-only-import")
                     .with_label("importable only from a test source")
                     .with_note(
                         "a path containing a `testing` segment may be imported only from a test \
@@ -460,7 +524,7 @@ impl<'a> Loader<'a> {
                         Diagnostic::error(
                             span,
                             format!("{path} is internal to {owner}"),
-                        )
+                        ).with_code("internal-import")
                         .with_fix(format!("import the library instead: from \"{owner}\" import {{ ... }}"))
                         .with_note(format!(
                             "only names re-exported by {}/lib.buri are available",
@@ -476,7 +540,7 @@ impl<'a> Loader<'a> {
                 let same_package = loc.pkg == importer_pkg;
                 if !same_package || !role.is_test_context() {
                     self.diags.push(
-                        Diagnostic::error(span, format!("{path} is a binary's entry point"))
+                        Diagnostic::error(span, format!("{path} is a binary's entry point")).with_code("binary-entry-import")
                             .with_fix(
                                 "move what you need into a library both can depend on",
                             )

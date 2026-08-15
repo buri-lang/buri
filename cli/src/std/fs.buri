@@ -1,7 +1,7 @@
-// core/fs — the filesystem.
-//
-// Every function here names `Fs` in its bounds, so the disk is visible in the
-// signature.
+//! core/fs — the filesystem.
+//!
+//! Every function here names `Fs` in its bounds, so the disk is visible in the
+//! signature.
 
 from "core/cap" import { Alloc, Fs, IoError };
 from "core/cap" export { IoError };

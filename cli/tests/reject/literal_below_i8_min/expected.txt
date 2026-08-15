@@ -1,4 +1,4 @@
-error: -129 is not representable in `I8`
+error: -129 is not representable in `I8` [literal-out-of-range]
  --> cmd/literal_below_i8_min/main.buri:7:15
   |
 7 |   let y: I8 = -129;

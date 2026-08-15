@@ -1,4 +1,4 @@
-error: `Self` is legal only inside a `trait` or `impl`
+error: `Self` is legal only inside a `trait` or `impl` [self-type-outside-impl]
  --> cmd/self_type_outside_trait/main.buri:5:22
   |
 5 | fn identity(x: Int): Self { x }

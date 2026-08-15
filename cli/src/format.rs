@@ -73,8 +73,20 @@ impl Fmt {
     }
 
     fn module(&mut self, m: &Module, _text: &str) {
+        // The module's own documentation comes back first, and is separated
+        // from the first declaration by a blank line.
+        for line in &m.docs {
+            if line.is_empty() {
+                self.out.push_str("//!\n");
+            } else {
+                let _ = writeln!(self.out, "//! {line}");
+            }
+        }
+        if !m.docs.is_empty() {
+            self.out.push('\n');
+        }
         for (i, item) in m.items.iter().enumerate() {
-            self.emit_trivia(item.span().start, i == 0);
+            self.emit_trivia(item.span().start, i == 0 && m.docs.is_empty());
             self.item(item);
         }
     }
@@ -363,7 +375,7 @@ impl Fmt {
     }
 }
 
-fn field_decl(f: &FieldDecl) -> String {
+pub fn field_decl(f: &FieldDecl) -> String {
     format!(
         "{}{}: {}",
         if f.exported { "export " } else { "" },
@@ -372,7 +384,7 @@ fn field_decl(f: &FieldDecl) -> String {
     )
 }
 
-fn variant(v: &Variant) -> String {
+pub fn variant(v: &Variant) -> String {
     let ex = if v.exported { "export " } else { "" };
     match &v.payload {
         VariantPayload::None => format!("{ex}{}", v.name.name),
@@ -389,7 +401,7 @@ fn variant(v: &Variant) -> String {
     }
 }
 
-fn signature(d: &FnDecl) -> String {
+pub fn signature(d: &FnDecl) -> String {
     let params = d
         .params
         .iter()
@@ -404,7 +416,7 @@ fn signature(d: &FnDecl) -> String {
     )
 }
 
-fn generics(g: &[GenericParam]) -> String {
+pub fn generics(g: &[GenericParam]) -> String {
     if g.is_empty() {
         return String::new();
     }

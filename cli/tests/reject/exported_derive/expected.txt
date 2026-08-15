@@ -1,4 +1,4 @@
-error: expected a declaration, found `derive`
+error: expected a declaration, found `derive` [unexpected-token]
  --> cmd/exported_derive/main.buri:8:8
   |
 8 | export derive Eq for Version;

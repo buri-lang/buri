@@ -2,8 +2,9 @@
 //!
 //! Tests are ordinary build actions. Because there is no mutable global state,
 //! no ambient I/O, and no observable ordering, the runner is free to shard
-//! across processes and to run a suite's tests in any order — `--shuffle` is on
-//! by default and the seed is printed.
+//! across processes and to run a suite's tests in any order. Nothing about a
+//! suite's result may depend on that freedom, so the runner does not offer a
+//! knob to turn it off.
 
 use crate::build;
 use crate::buildfile::Platform;

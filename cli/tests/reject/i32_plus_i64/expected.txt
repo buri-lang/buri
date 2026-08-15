@@ -1,4 +1,4 @@
-error: expected `I64`, found `I32`
+error: expected `I64`, found `I32` [type-mismatch]
  --> cmd/i32_plus_i64/main.buri:5:41
   |
 5 | fn widenByAccident(a: I32, b: I64): I64 {
@@ -8,7 +8,7 @@ error: expected `I64`, found `I32`
   = actual: `I32`
   = there is no implicit promotion of any kind
   = fix: convert explicitly: `.toI64()`, which is exact for every `I32`
-error: expected `I32`, found `I64`
+error: expected `I32`, found `I64` [type-mismatch]
  --> cmd/i32_plus_i64/main.buri:6:7
   |
 6 |   a + b

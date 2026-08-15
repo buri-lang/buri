@@ -1,4 +1,4 @@
-error: the head of a struct literal must be a type
+error: the head of a struct literal must be a type [struct-literal-head]
   --> cmd/struct_literal_head_not_a_path/main.buri:10:11
    |
 10 |   let h = identity(1) { a: 1 };

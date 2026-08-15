@@ -1,4 +1,4 @@
-error: `area` is a method, and a method is not a value
+error: `area` is a method, and a method is not a value [method-not-a-value]
   --> cmd/method_is_not_a_value/main.buri:14:11
    |
 14 |   let f = sq.area;

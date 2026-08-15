@@ -1,4 +1,4 @@
-error: `Bag`'s `impl Measurable` is missing `isEmptyThing`
+error: `Bag`'s `impl Measurable` is missing `isEmptyThing` [incomplete-impl]
   --> cmd/impl_missing_trait_method/main.buri:12:1
    |
 12 | impl Measurable for Bag {

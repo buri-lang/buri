@@ -27,6 +27,9 @@ impl Ident {
 #[derive(Clone, Debug, Default)]
 pub struct Module {
     pub items: Vec<Item>,
+    /// `//!` lines at the top of the file. These document the module itself,
+    /// which is what `buri docs <module>` prints above the item list.
+    pub docs: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -281,6 +284,7 @@ pub struct TraitDecl {
 
 #[derive(Clone, Debug)]
 pub struct ImplDecl {
+    pub docs: Vec<String>,
     pub generics: Vec<GenericParam>,
     /// `None` for an inherent `impl Type { ... }`, which declares the type's
     /// own methods. `Some` for `impl Trait for Type`, which declares

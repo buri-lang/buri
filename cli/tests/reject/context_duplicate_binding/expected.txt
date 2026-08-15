@@ -1,4 +1,4 @@
-error: `Alloc` is bound twice
+error: `Alloc` is bound twice [duplicate-bound]
  --> cmd/context_duplicate_binding/main.buri:6:42
   |
 6 |   let ctx = context { Alloc: host.alloc, Alloc: host.alloc, Stdout: host.stdout };

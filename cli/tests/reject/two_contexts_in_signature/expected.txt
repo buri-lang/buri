@@ -1,4 +1,4 @@
-error: `other` carries an effect, so it must be named `ctx`
+error: `other` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
  --> cmd/two_contexts_in_signature/main.buri:6:37
   |
 6 | fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): Bool {

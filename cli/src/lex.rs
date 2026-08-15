@@ -43,6 +43,38 @@ pub enum Kw {
 }
 
 impl Kw {
+    /// Every keyword, so a test can hold the hand-written grammar and the
+    /// lexer to the same list. Adding a variant without adding it here is a
+    /// compile error, because `text` matches exhaustively and this is checked
+    /// against it.
+    pub const ALL: &'static [Kw] = &[
+        Kw::As,
+        Kw::Const,
+        Kw::Context,
+        Kw::Ctx,
+        Kw::Derive,
+        Kw::Effect,
+        Kw::Else,
+        Kw::Enum,
+        Kw::Export,
+        Kw::False,
+        Kw::Fn,
+        Kw::For,
+        Kw::From,
+        Kw::If,
+        Kw::Impl,
+        Kw::Import,
+        Kw::Let,
+        Kw::Match,
+        Kw::SelfValue,
+        Kw::SelfType,
+        Kw::Struct,
+        Kw::Test,
+        Kw::Trait,
+        Kw::True,
+        Kw::Type,
+    ];
+
     pub fn text(self) -> &'static str {
         match self {
             Kw::As => "as",
@@ -258,12 +290,16 @@ pub struct Lexer<'a> {
     brace_depth: u32,
     pending_docs: Vec<String>,
     pending_comments: Vec<String>,
+    module_docs: Vec<(String, Span)>,
     blank_before: bool,
 }
 
 pub struct Lexed {
     pub tokens: Vec<Token>,
     pub errors: Vec<Diagnostic>,
+    /// `//!` lines, with the span of each, in source order. The parser keeps
+    /// the ones before the first item and reports the rest.
+    pub module_docs: Vec<(String, Span)>,
 }
 
 pub fn lex(text: &str, file: FileId) -> Lexed {
@@ -278,10 +314,11 @@ pub fn lex(text: &str, file: FileId) -> Lexed {
         brace_depth: 0,
         pending_docs: Vec::new(),
         pending_comments: Vec::new(),
+        module_docs: Vec::new(),
         blank_before: false,
     };
     l.run();
-    Lexed { tokens: l.tokens, errors: l.errors }
+    Lexed { tokens: l.tokens, errors: l.errors, module_docs: l.module_docs }
 }
 
 impl<'a> Lexer<'a> {
@@ -306,8 +343,15 @@ impl<'a> Lexer<'a> {
     /// Every lexical error carries the edit that resolves it. `fix` is a
     /// parameter rather than something a caller may add later, so a new error
     /// site cannot forget one.
-    fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
+    /// Hands the diagnostic back so a caller can name the rule it enforces.
+    fn err(
+        &mut self,
+        span: Span,
+        msg: impl Into<String>,
+        fix: impl Into<String>,
+    ) -> &mut Diagnostic {
         self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
+        self.errors.last_mut().unwrap()
     }
 
     fn push(&mut self, tok: Tok, start: usize) {
@@ -356,11 +400,20 @@ impl<'a> Lexer<'a> {
                 b'/' if self.peek_at(1) == b'/' => {
                     let start = self.pos;
                     let is_doc = self.peek_at(2) == b'/' && self.peek_at(3) != b'/';
+                    // `//!` documents the module rather than the declaration
+                    // that follows, which is the only comment form that
+                    // attaches upward. It is legal only before the first
+                    // token; `check` reports one that appears later, where a
+                    // reader would take it for a `///` typo.
+                    let is_module_doc = self.peek_at(2) == b'!';
                     while self.pos < self.src.len() && self.peek() != b'\n' {
                         self.pos += 1;
                     }
                     let raw = &self.text[start..self.pos];
-                    if is_doc {
+                    if is_module_doc {
+                        let span = self.span(start);
+                        self.module_docs.push((raw[3..].trim().to_string(), span));
+                    } else if is_doc {
                         self.pending_docs.push(raw[3..].trim().to_string());
                     } else {
                         self.pending_comments.push(raw.trim_end().to_string());
@@ -385,7 +438,7 @@ impl<'a> Lexer<'a> {
                     }
                     if depth > 0 {
                         let span = self.span(start);
-                        self.err(span, "unterminated block comment", "close it with `*/`; block comments nest, so each `/*` needs one");
+                        self.err(span, "unterminated block comment", "close it with `*/`; block comments nest, so each `/*` needs one").code("unterminated-comment");
                     }
                     let raw = self.text[start..self.pos].to_string();
                     self.pending_comments.push(raw);
@@ -416,7 +469,7 @@ impl<'a> Lexer<'a> {
                 span,
                 format!("`{s}` is a reserved word and may not be used as an identifier"),
                 format!("pick another name; `{s}` is not available"),
-            );
+            ).code("reserved-word");
             self.errors.last_mut().unwrap().notes.push(
                 "reserved for a future version of Buri; see grammar.ebnf, ReservedWord".into(),
             );
@@ -787,6 +840,24 @@ fn is_ident_start(c: u8) -> bool {
 
 fn is_ident_continue(c: u8) -> bool {
     c == b'_' || c.is_ascii_alphanumeric()
+}
+
+#[cfg(test)]
+mod kw_tests {
+    use super::Kw;
+
+    /// `ALL` must list every variant. `text` matches exhaustively, so the
+    /// compiler catches a missing variant there; this catches a variant that
+    /// exists but was left out of `ALL`.
+    #[test]
+    fn all_lists_every_keyword() {
+        let mut texts: Vec<&str> = Kw::ALL.iter().map(|k| k.text()).collect();
+        texts.sort();
+        texts.dedup();
+        assert_eq!(texts.len(), Kw::ALL.len(), "`ALL` repeats a keyword");
+        // `self` and `Self` differ only in case, so the count is the guard.
+        assert_eq!(Kw::ALL.len(), 25, "a keyword was added without updating `ALL`");
+    }
 }
 
 #[cfg(test)]

@@ -204,7 +204,7 @@ fn crashing_programs_crash() {
 // ---------------------------------------------------------------------------
 
 /// What `//cmd/web` prints, to the byte. Two entries summed by `total` and
-/// rendered by `Cents.format`, from `build-system/example/cmd/web/main.buri`.
+/// rendered by `Cents.format`, from `cli/tests/example/cmd/web/main.buri`.
 /// Short enough to read here, so a change to it is a change in the diff rather
 /// than in a file nobody opens.
 const WEB_STDOUT: &str = "basket total: $36.50\n";
@@ -361,7 +361,7 @@ fn builds_are_reproducible() {
 // The worked monorepo
 // ---------------------------------------------------------------------------
 
-/// `build-system/example` is the build system's own corpus. It has to lint
+/// `cli/tests/example` is the build system's own corpus. It has to lint
 /// clean and its suites have to pass, through the real CLI.
 ///
 /// What the policy checks *print* when they fire lives in `repos.rs`; this is

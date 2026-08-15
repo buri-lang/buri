@@ -1,4 +1,4 @@
-error: a context may not be constructed here
+error: a context may not be constructed here [context-not-allowed]
   --> cmd/named_context_constructed_outside_main/main.buri:12:15
    |
 12 |   let inner = Program();

@@ -1,4 +1,4 @@
-error: expected `F64`, found `{integer}`
+error: expected `F64`, found `{integer}` [type-mismatch]
  --> cmd/int_literal_plus_float_literal/main.buri:5:19
   |
 5 | fn mixed(): Float {
@@ -8,7 +8,7 @@ error: expected `F64`, found `{integer}`
   = actual: `{integer}`
   = there is no implicit promotion of any kind
   = fix: annotate the literal, as in `let x: F64 = ...`
-error: expected `{integer}`, found `{float}`
+error: expected `{integer}`, found `{float}` [type-mismatch]
  --> cmd/int_literal_plus_float_literal/main.buri:6:7
   |
 6 |   1 + 1.0

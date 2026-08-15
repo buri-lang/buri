@@ -1,4 +1,4 @@
-error: `HostStdout` does not implement `Alloc`
+error: `HostStdout` does not implement `Alloc` [missing-conformance]
  --> cmd/context_binding_wrong_implementation/main.buri:6:30
   |
 6 |   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };

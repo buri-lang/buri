@@ -1,4 +1,4 @@
-error: a rest pattern must come last
+error: a rest pattern must come last [rest-pattern-not-last]
  --> cmd/array_two_rest_patterns/main.buri:7:11
   |
 7 |     [..a, m, ..b] => m,
@@ -6,7 +6,7 @@ error: a rest pattern must come last
   |
   = `[first, ..rest]` is legal; `[..init, last]` is not
   = fix: move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an array pattern does
-error: expected a pattern, found `..`
+error: expected a pattern, found `..` [unexpected-token]
  --> cmd/array_two_rest_patterns/main.buri:7:14
   |
 7 |     [..a, m, ..b] => m,

@@ -1,4 +1,4 @@
-error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show`
+error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show` [effect-and-trait]
   --> cmd/type_implements_effect_and_trait/main.buri:14:1
    |
 14 | impl Show for SilentOut {

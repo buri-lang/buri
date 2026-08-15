@@ -1,4 +1,4 @@
-error: expected `;`, found `as`
+error: expected `;`, found `as` [unexpected-token]
  --> cmd/cast_operator_outside_import/main.buri:7:13
   |
 7 |   let d = 5 as U8;
@@ -7,7 +7,7 @@ error: expected `;`, found `as`
   = expected: `;`
   = actual: `as`
   = fix: write `;` here
-error: there is nothing named `d` in scope
+error: there is nothing named `d` in scope [unresolved-name]
  --> cmd/cast_operator_outside_import/main.buri:8:26
   |
 8 |   let _ = ctx.println("${d}");

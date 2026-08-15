@@ -457,7 +457,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Err((a, b)) = self.subst.unify(&self.c.tables, actual, expected) {
             let a = show(&self.c.tables, Some(&self.subst), &self.generics, &a);
             let b = show(&self.c.tables, Some(&self.subst), &self.generics, &b);
-            let mut d = Diagnostic::error(span, format!("expected `{b}`, found `{a}`"))
+            let mut d = Diagnostic::error(span, format!("expected `{b}`, found `{a}`")).with_code("type-mismatch")
                 .with_mismatch(format!("`{b}`"), format!("`{a}`"));
             if !what.is_empty() {
                 d = d.with_label(format!("{what} is `{b}`"));
@@ -568,6 +568,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 format!("bound the type parameter with `{trait_name}`, or use a type that has one")
             });
             let d = self.err(span, format!("`{shown}` does not satisfy `{trait_name}`"));
+            d.code("missing-conformance");
             d.fix(fix);
             if let Some(n) = note {
                 d.notes.push(n);
@@ -679,7 +680,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let mut d = Diagnostic::error(
                     lit.span,
                     format!("{raw} is not representable in `{name}`"),
-                );
+                ).with_code("literal-out-of-range");
                 d = d
                     .with_mismatch(format!("a value `{name}` can hold"), raw.clone())
                     .with_fix(if lit.negative && !p.is_signed() {

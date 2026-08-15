@@ -1,4 +1,4 @@
-error: a rest pattern must come last
+error: a rest pattern must come last [rest-pattern-not-last]
  --> cmd/array_rest_not_final/main.buri:7:14
   |
 7 |     [..init, last] => last,

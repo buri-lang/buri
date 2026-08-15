@@ -1,11 +1,11 @@
-//! The worked monorepo in `build-system/example` is the build system's own
+//! The worked monorepo in `cli/tests/example` is the build system's own
 //! corpus: every rule shape, the tag policy, the testing surface, and a
 //! package with both a library and a binary.
 
 use std::path::{Path, PathBuf};
 
 fn example_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("build-system/example")
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("cli/tests/example")
 }
 
 fn check_target(kind: buri::workspace::RuleKind, pkg: &str, with_tests: bool) -> String {

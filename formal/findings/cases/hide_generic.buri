@@ -1,0 +1,21 @@
+// FINDING 4: `Ty::Param(i)` with no effect bound is not effect-carrying, and
+// `check_ctx_rule` runs on the pre-instantiation signature. So a generic
+// closure-builder should typecheck, and instantiating T at a context type
+// would put a capability in a closure the capture rule never inspected.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+// Nothing here mentions an effect, so the capture rule is silent.
+fn hide<T>(x: T): fn() => T {
+  fn() => x
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+
+  // Does the *instantiation* at a context type get caught?
+  let smuggler = hide(ctx);
+  let recovered = smuggler();
+  let _ = recovered.println("laundered");
+  .Ok(())
+}
