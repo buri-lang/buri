@@ -1,0 +1,18 @@
+// EXPECT: `Outer` cannot derive `ToJson`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/json" import { ToJson };
+from "core/json" import * as json;
+
+struct Inner { export x: Int }
+
+struct Outer { export inner: Inner }
+
+derive ToJson for Outer;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let a = Outer { inner: Inner { x: 1 } };
+  let _ = ctx.println(json.stringify(ctx, json.encode(ctx, a)));
+  .Ok(())
+}

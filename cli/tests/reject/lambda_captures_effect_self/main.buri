@@ -1,0 +1,22 @@
+// EXPECT: a lambda may not capture `self`, which carries an effect
+// The capture rule is scoped to effect-carrying values, and an effect-carrying
+// `self` is one: `Holder<C>` stores a `C` bounded by `Fs` (SPEC 10.6).
+from "core/cap" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+from "core/list" import * as list;
+
+struct Holder<C> { export inner: C }
+
+impl<C: Fs> Holder<C> {
+  export fn checkAll<A: Alloc>(self: Holder<C>, ctx: A, paths: [Str]): [Bool] {
+    paths.map(ctx, fn(p) => fs.exists(self.inner, p))
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let found = Holder { inner: ctx }.checkAll(ctx, ["a"]).len();
+  let _ = ctx.println("${found}");
+  .Ok(())
+}

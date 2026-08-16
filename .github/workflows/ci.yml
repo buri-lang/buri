@@ -1,0 +1,91 @@
+name: CI
+
+# Every push to every branch. `push` with no filter is exactly that.
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The whole Rust suite: unit tests plus every integration binary
+  # (conformance, repositories, golden_javascript, hermeticity, formatting,
+  # lean_vectors replay, ...). Compiled programs are executed with `bun`;
+  # the constant-stack tail-call tests additionally run under `node`
+  # (JavaScriptCore has proper tail calls, V8 does not — the tests exist
+  # because of that difference, so both runtimes must be present).
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      # node is preinstalled on GitHub runners; assert rather than assume.
+      - run: node --version && bun --version
+      - run: cargo test -p buri --no-fail-fast
+
+  # The formal development: the build must succeed, the audit must record no
+  # sorryAx, and no proof may contain `sorry`/`admit`. The toolchain is pinned
+  # by formal/lean-toolchain; elan reads it.
+  lean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install elan
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: formal/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain', 'formal/lakefile.toml') }}
+      - name: Build
+        working-directory: formal
+        run: lake build
+      - name: Audit
+        working-directory: formal
+        run: |
+          lake env lean Audit.lean | tee audit.out
+          ! grep -q sorryAx audit.out
+      - name: No sorry or admit
+        working-directory: formal
+        run: "! grep -rn 'sorry\\|admit' Buri/"
+
+  # The editor grammar: generated grammar.js compiles, every highlight query
+  # compiles, and the tree-sitter parse of every test source agrees with the
+  # compiler's own verdict.
+  #
+  # The verdict is asked for rather than recorded — `check.sh` pipes the corpus
+  # through `--example parse_verdicts` and compares — so this needs the
+  # tree-sitter CLI and cargo. The build below is what `check.sh` would do for
+  # itself; it is written out so that the step that takes the time is the one
+  # named for it.
+  tree-sitter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm install -g tree-sitter-cli
+      - run: cargo build -p buri --example parse_verdicts
+      - run: ./check.sh
+        working-directory: editors/tree-sitter-buri
+
+  # Packaging: the flake evaluates and the package builds. This is the
+  # `nix run github:...` path users take, so it is held to green like a test.
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix flake check --all-systems
+      - run: nix build .#default
+      - run: ./result/bin/buri version

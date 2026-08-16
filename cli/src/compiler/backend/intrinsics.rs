@@ -21,6 +21,20 @@ impl<'a> Gen<'a> {
         if parts.len() == 2 && parts[0] == "num" {
             return self.numeric_free(parts[1], args, f);
         }
+        // `json.decode` is asked for a type rather than handed one, so what it
+        // compiles to is the descriptor walk over `T` and the document. The
+        // context is the allocator, which the JavaScript runtime does not
+        // need, so it is dropped here rather than passed and ignored.
+        if key == "json.decode" {
+            let d = f.desc?;
+            return Some(Expr::call(
+                Expr::ident("$json_decode"),
+                vec![
+                    args.get(1)?.clone(),
+                    Expr::ident(crate::compiler::backend::generate::descriptor_name(d)),
+                ],
+            ));
+        }
         // Everything else is a runtime function of the same name.
         let name = format!("${}", key.replace('.', "_"));
         if self.runtime_has(&name) {
@@ -36,14 +50,21 @@ impl<'a> Gen<'a> {
             Some("eq") if args.len() == 2 => {
                 Some(Expr::bin(BinOp::StrictEq, args[0].clone(), args[1].clone()))
             }
-            Some("compare") if args.len() == 2 => {
-                Some(Expr::call(Expr::ident("$cmp"), args.to_vec()))
-            }
+            Some("compare") if args.len() == 2 => Some(
+                compare_inline(&args[0], &args[1])
+                    .unwrap_or_else(|| Expr::call(Expr::ident("$cmp"), args.to_vec())),
+            ),
             Some("hash") if !args.is_empty() => {
                 Some(Expr::call(Expr::ident("$hash"), vec![args[0].clone()]))
             }
             Some("show") if !args.is_empty() => {
                 Some(Expr::call(Expr::ident("$str"), vec![args[0].clone()]))
+            }
+            // `Str` and `Char` are both JavaScript strings, and a `Char` is a
+            // one-character one, so both are a JSON string.
+            Some("toJson") if !args.is_empty() => {
+                let helper = if parts.first() == Some(&"bool") { "$json_bool" } else { "$json_str" };
+                Some(Expr::call(Expr::ident(helper), vec![args[0].clone()]))
             }
             _ => None,
         }
@@ -115,9 +136,15 @@ impl<'a> Gen<'a> {
             }
             "compare" => {
                 let (x, y) = two();
-                Some(Expr::call(Expr::ident("$cmp"), vec![x, y]))
+                Some(
+                    compare_inline(&x, &y)
+                        .unwrap_or_else(|| Expr::call(Expr::ident("$cmp"), vec![x, y])),
+                )
             }
             "hash" => Some(Expr::call(Expr::ident("$hash"), vec![a?])),
+            // JSON has one number type, and every Buri number is already a
+            // JavaScript one, so the width does not survive the trip.
+            "toJson" => Some(Expr::call(Expr::ident("$json_num"), vec![a?])),
             "show" => {
                 let v = a?;
                 Some(if from.is_float() {
@@ -335,4 +362,30 @@ impl<'a> Gen<'a> {
         let _ = p;
         Expr::Num(1.0)
     }
+}
+
+/// `compare` at a primitive: three comparisons instead of a call into a walker
+/// that begins by asking whether either side is `None` and whether either is
+/// an array — neither of which a primitive ever is.
+///
+/// `Order`'s variants carry nothing, so it is a bare number: 0 Less, 1 Equal,
+/// 2 Greater, which is what `$cmp` answers too. The comparisons agree with it
+/// at the awkward values by construction: `NaN` is unordered, so both tests
+/// fail and the answer is Equal, and `-0.0 < 0.0` is false both ways.
+///
+/// Only where both operands are free to duplicate. The ternary reads each of
+/// them twice, and binding them first would cost what the call cost.
+fn compare_inline(a: &Expr, b: &Expr) -> Option<Expr> {
+    if !a.is_pure_literal() || !b.is_pure_literal() {
+        return None;
+    }
+    Some(Expr::cond(
+        Expr::bin(BinOp::Lt, a.clone(), b.clone()),
+        Expr::Num(0.0),
+        Expr::cond(
+            Expr::bin(BinOp::Gt, a.clone(), b.clone()),
+            Expr::Num(2.0),
+            Expr::Num(1.0),
+        ),
+    ))
 }

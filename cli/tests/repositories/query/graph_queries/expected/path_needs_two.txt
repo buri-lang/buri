@@ -1,0 +1,1 @@
+error: `path` takes two targets

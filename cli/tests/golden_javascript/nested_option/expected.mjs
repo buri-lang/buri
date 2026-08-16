@@ -10,6 +10,12 @@ const $D2=[];
 $D0.push(2,'Holder',true,['inner'],[$D1]);
 $D1.push(7,$D2);
 $D2.push(0,'i');
+function $eqD0(a,b){
+  if(a===b){
+    return true;
+  }
+  return $eq(a[0],b[0]);
+}
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   const ss_1=$some(7);
@@ -142,7 +148,7 @@ function __cmd_x_main$main(){
     $abort('no arm matched');
   }
   $host_HostStdout_println(ctx_0[1],$t27+' '+String($list_len($k0)));
-  $host_HostStdout_println(ctx_0[1],$str($eq($k1,$k1))+' '+$str($eq($k1,$k2))+' '+$str($eq($k2,$k2)));
+  $host_HostStdout_println(ctx_0[1],$str($eqD0($k1,$k1))+' '+$str($eqD0($k1,$k2))+' '+$str($eqD0($k2,$k2)));
   $host_HostStdout_println(ctx_0[1],$show($k1,$D0)+' '+$show($k2,$D0));
   let $t30;
   const $t31=$k1[0];

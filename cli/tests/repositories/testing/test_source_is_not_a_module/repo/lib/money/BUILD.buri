@@ -1,0 +1,10 @@
+# Two suites in one package. They are compiled independently — one test binary
+# each — which is why neither can name the other.
+
+library {
+  sources: ["cents.buri"]
+
+  test {
+    sources: ["test/cents.buri", "test/parse.buri"]
+  }
+}

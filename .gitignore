@@ -1,3 +1,6 @@
 target/
 .buri/
 out
+# `nix build`'s symlink to the store path it produced.
+result
+result-*

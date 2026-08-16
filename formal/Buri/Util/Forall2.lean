@@ -35,35 +35,6 @@ theorem append {as₁ bs₁ as₂ bs₂} :
   | nil => exact h₂
   | cons hab _ ih => exact .cons hab ih
 
-/-- Splitting at the boundary of a known-length prefix. This is the workhorse
-for every `specialize` step, where a row's head is replaced by its
-sub-patterns and the tail carries on unchanged. -/
-theorem split_right {as : List α} {bs₁ bs₂ : List β} :
-    Forall₂ R as (bs₁ ++ bs₂) →
-    ∃ cs₁ cs₂, as = cs₁ ++ cs₂ ∧ Forall₂ R cs₁ bs₁ ∧ Forall₂ R cs₂ bs₂ := by
-  intro h
-  induction bs₁ generalizing as with
-  | nil => exact ⟨[], as, rfl, .nil, h⟩
-  | cons b bs ih =>
-    cases h with
-    | cons hab habs =>
-      rename_i a as'
-      obtain ⟨cs₁, cs₂, rfl, h₁, h₂⟩ := ih habs
-      exact ⟨a :: cs₁, cs₂, rfl, .cons hab h₁, h₂⟩
-
-theorem split_left {as₁ as₂ : List α} {bs : List β} :
-    Forall₂ R (as₁ ++ as₂) bs →
-    ∃ ds₁ ds₂, bs = ds₁ ++ ds₂ ∧ Forall₂ R as₁ ds₁ ∧ Forall₂ R as₂ ds₂ := by
-  intro h
-  induction as₁ generalizing bs with
-  | nil => exact ⟨[], bs, rfl, .nil, h⟩
-  | cons a as ih =>
-    cases h with
-    | cons hab habs =>
-      rename_i b bs'
-      obtain ⟨ds₁, ds₂, rfl, h₁, h₂⟩ := ih habs
-      exact ⟨b :: ds₁, ds₂, rfl, .cons hab h₁, h₂⟩
-
 /-- Every element of a list related to a `replicate` is related to the repeated
 element. Arrays are homogeneous, so this is how `HasType` on an array is
 consumed. -/
@@ -80,6 +51,45 @@ theorem of_replicate {as : List α} {b : β} :
       rcases List.mem_cons.mp ha with rfl | h'
       · exact hxb
       · exact ih restFree a h'
+
+/-- Transport along a function on the left. Every place a list of expressions
+is erased to a list of values pointwise goes through this. -/
+theorem imp_map {γ : Type} {Q : γ → β → Prop} {f : α → γ} {as : List α} {bs : List β}
+    (h : Forall₂ R as bs) (himp : ∀ a ∈ as, ∀ b, R a b → Q (f a) b) :
+    Forall₂ Q (as.map f) bs := by
+  induction h with
+  | nil => exact .nil
+  | @cons a b as bs hab _ ih =>
+    exact .cons (himp a (by simp) b hab) (ih fun x hx => himp x (by simp [hx]))
+
+/-- Reading off the element related to a known one on the right. This is how
+the `var` case of the substitution lemma finds the term it substitutes. -/
+theorem getElem? {as : List α} {bs : List β} (h : Forall₂ R as bs) :
+    ∀ (i : Nat) (b : β), bs[i]? = some b → ∃ a, as[i]? = some a ∧ R a b := by
+  induction h with
+  | nil => intro i b hb; simp at hb
+  | @cons a b as bs hab _ ih =>
+    intro i b' hb'
+    cases i with
+    | zero => simp at hb'; exact ⟨a, by simp, hb' ▸ hab⟩
+    | succ k => simpa using ih k b' (by simpa using hb')
+
+/-- Isolating one element of the left list, with a licence to replace it by
+anything else related to the same right-hand element. Every congruence rule in
+`Semantics.lean` steps one argument of a list and leaves the rest alone; this
+is how the typing derivation follows. -/
+theorem middle {pre post : List α} {a : α} {bs : List β}
+    (h : Forall₂ R (pre ++ a :: post) bs) :
+    ∃ b, R a b ∧ ∀ a', R a' b → Forall₂ R (pre ++ a' :: post) bs := by
+  induction pre generalizing bs with
+  | nil =>
+    cases h with
+    | cons hab hrest => exact ⟨_, hab, fun a' ha' => .cons ha' hrest⟩
+  | cons x xs ih =>
+    cases h with
+    | cons hxb hrest =>
+      obtain ⟨b, hab, hrepl⟩ := ih hrest
+      exact ⟨b, hab, fun a' ha' => .cons hxb (hrepl a' ha')⟩
 
 theorem to_replicate {as : List α} {b : β} :
     (∀ a ∈ as, R a b) → Forall₂ R as (List.replicate as.length b) := by

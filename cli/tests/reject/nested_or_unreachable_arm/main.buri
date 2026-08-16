@@ -1,0 +1,19 @@
+// EXPECT: this arm is unreachable
+// The alternation covers both of `Bool`'s constructors, so an arm naming one
+// of them afterwards can never run.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(x: Option<Bool>): Int {
+  match (x) {
+    .Some(true | false) => 1,
+    .Some(true) => 2,
+    .None => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe(.Some(true))}");
+  .Ok(())
+}

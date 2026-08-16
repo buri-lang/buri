@@ -1,0 +1,7 @@
+export fn f<C: Alloc>(ctx: C): Str {
+    someModule
+        .something(ctx, 0, 40)
+        .mapEveryOne(ctx)
+        .filterTheRestOfThem(ctx)
+        .joinItAllUp(ctx, ", ")
+}

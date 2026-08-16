@@ -1,0 +1,60 @@
+# `--output` selects one of the outputs a target declares, out of all of them.
+#
+# The honest boundary is the whole reason this case is short: this toolchain
+# has a JavaScript backend and no native one, so `--output=linux/x86_64` on a
+# target that declares it gets as far as the backend and is refused there. What
+# `--output` *selects* is testable now and is what is pinned here; what a
+# native artifact looks like is not, and no assertion here pretends otherwise.
+# See TODO.md, the native-backend entry.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "--output selects one declared output, names the declared ones when it selects none, and reaches the backend for a platform with none"
+
+run {
+  args: ["build", "//cmd/app", "--output=js"]
+  exit: 0
+  golden: "app_js.txt"
+}
+
+# //cmd/app declares one output and it is not this one. Selecting nothing at
+# all used to build nothing and exit 0, which is a build system reporting
+# success for work it did not do.
+run {
+  args: ["build", "//cmd/app", "--output=linux/x86_64"]
+  exit: 2
+  golden: "no_such_output.txt"
+}
+
+# //cmd/native declares two. Selecting the one that exists builds it and
+# nothing else.
+run {
+  args: ["build", "//cmd/native", "--output=js"]
+  exit: 0
+  golden: "native_js.txt"
+}
+
+# Selecting the other one reaches the backend, which says what is missing. Exit
+# 1: the selector was a real output, so the invocation was fine.
+run {
+  args: ["build", "//cmd/native", "--output=linux/x86_64"]
+  exit: 1
+  golden: "native_linux.txt"
+}
+
+# The dash spelling is the directory under `.buri/out`, and selects the same
+# entry as the slash spelling.
+run {
+  args: ["build", "//cmd/native", "--output=linux-x86_64"]
+  exit: 1
+  golden: "native_linux.txt"
+}
+
+# With no selector, every declared output is built — which for this target is
+# one artifact and one refusal.
+run {
+  args: ["build", "//cmd/native"]
+  exit: 1
+  golden: "native_all.txt"
+}

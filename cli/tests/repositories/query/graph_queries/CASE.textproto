@@ -1,0 +1,102 @@
+# `buri query` answers questions about the build graph without building
+# anything. Four forms are recorded here — `deps`, `rdeps`, `path` and
+# `sources`; `tags` and `platforms` have their own case next door in
+# repositories/tags/tags_query, because what they answer is about policy.
+#
+# `path` is the one CLI.md says earns its place: the answer to "why does the
+# browser build pull in the database layer" is an edge, and printing the edge
+# with the line that declares it is faster than reading build files. So the
+# repository is that shape — //cmd/web reaches //lib/store only through
+# //lib/ledger — and //cmd/tool is here so that the *absence* of a path is
+# recorded beside the presence of one.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "query deps, rdeps, path and sources answer off the graph, and path names the edge that explains a link"
+
+# Transitive: //lib/money and //lib/store are reached through //lib/ledger and
+# named by nothing in cmd/web/BUILD.buri.
+run {
+  args: ["query", "deps(//cmd/web)"]
+  exit: 0
+  golden: "deps.txt"
+}
+
+# A leaf has none, and says so by printing nothing. Recorded next to the answer
+# above rather than alone: an empty file passes for a broken command too, and
+# what makes this one evidence is that the same binary printed three lines a
+# step earlier.
+run {
+  args: ["query", "deps(//lib/store)"]
+  exit: 0
+  golden: "deps_of_a_leaf.txt"
+}
+
+# The other direction, and it is not merely `deps` reversed: //lib/money is
+# reached by two binaries down two different chains.
+run {
+  args: ["query", "rdeps(//lib/money)"]
+  exit: 0
+  golden: "rdeps.txt"
+}
+
+run {
+  args: ["query", "rdeps(//lib/store)"]
+  exit: 0
+  golden: "rdeps_narrow.txt"
+}
+
+# The edge chain, with the build file and line that declares each hop.
+run {
+  args: ["query", "path(//cmd/web, //lib/store)"]
+  exit: 0
+  golden: "path.txt"
+}
+
+# No path is an answer to the question rather than a complaint about the
+# invocation, so it is on stdout and the exit code is 0.
+run {
+  args: ["query", "path(//cmd/tool, //lib/store)"]
+  exit: 0
+  golden: "no_path.txt"
+}
+
+# The files as the build sees them: the entry point the rule kind names, plus
+# everything `sources` lists, whatever the directory happens to hold.
+run {
+  args: ["query", "sources(//lib/ledger)"]
+  exit: 0
+  golden: "sources.txt"
+}
+
+run {
+  args: ["query", "sources(//cmd/web)"]
+  exit: 0
+  golden: "sources_of_a_binary.txt"
+}
+
+# `path` between two targets takes two targets.
+run {
+  args: ["query", "path(//cmd/web)"]
+  exit: 2
+  golden: "path_needs_two.txt"
+}
+
+run {
+  args: ["query", "deps(//lib/nope)"]
+  exit: 2
+  golden: "no_such_target.txt"
+}
+
+# `--output=proto` is documented nowhere and accepted nowhere. It was in
+# CLI.md once, and the flag table in commands/mod.rs is what ended the
+# disagreement: a flag that nothing reads cannot be listed, and deleting it
+# from FLAGS is the only way to stop accepting it. Recorded so that a future
+# reader of the old TODO entry finds the answer rather than the question — see
+# TODO.md, CLI.md section.
+run {
+  args: ["query", "deps(//cmd/web)", "--output=proto"]
+  exit: 2
+  golden: "no_proto_output.txt"
+}

@@ -1,0 +1,8 @@
+error: a test source may not export
+ --> lib/money/test/cents.buri:8:1
+  |
+8 | export fn twice(n: I64): I64 { n + n }
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = test sources are compiled independently and are not modules anybody can name; shared helpers belong in a library
+  = fix: drop the `export`; move the declaration into a library if something else needs it

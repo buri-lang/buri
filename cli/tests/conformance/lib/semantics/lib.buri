@@ -18,6 +18,7 @@ from "//lib/semantics/shapes" export {
   Tree, insert, treeOf, size, depth, has, inOrder, mapTree,
   // closures
   applyTwice, makeAdder, makeScaler, compose, pipeline, callWith,
+  Report, occursIn, composeThrice,
   // `?` and `??`
   sumFirstTwo, parseSum, lambdaTry, lambdaTryResult, tryThenCoalesce, defaulted, defaultedResult,
   // blocks and scope

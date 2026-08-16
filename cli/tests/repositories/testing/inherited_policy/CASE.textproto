@@ -1,0 +1,34 @@
+# TAGS.md:266-269. A test suite inherits its target's tags and platform
+# restrictions, so a suite for a `server` library is checked as server code
+# without saying anything.
+#
+# Inheritance is invisible when it agrees with you, which is why the case ends
+# with the edit that makes it disagree: the suite asks for a JS run, and it is
+# refused by a rule written in REPO.buri about a tag the suite never mentions
+# and carried by a library the suite never names. Nothing in the `test` block
+# says `server`, and the diagnostic still does.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite inherits its target's tags and platform restrictions: silently when they agree, and by refusing a run when they do not"
+
+run {
+  args: ["test", "//lib/store", "--force"]
+  exit: 0
+  golden: "clean.txt"
+  stream: OUT
+}
+
+edit {
+  file: "lib/store/BUILD.buri"
+  replace: "    sources: [\"test/store.buri\"]"
+  with: "    sources: [\"test/store.buri\"]\n    platforms: [JS]"
+}
+
+run {
+  args: ["test", "//lib/store", "--force"]
+  exit: 1
+  golden: "inherited.txt"
+  stream: ERR
+}

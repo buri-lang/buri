@@ -26,9 +26,28 @@
 //! ```text
 //! doc:  "one line saying what the case is about"
 //! run  { args: [...]  exit: 1  golden: "lint.txt"  stream: ALL  stdin: "session.jsonl" }
+//! run  { args: ["build"]  exit: 0  cwd: "lib/money" }
 //! edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
+//! file { path: ".buri/out/js/cmd/app/app.mjs"  absent: "a marker" }
+//! path { path: ".buri/out"  exists: false }
+//! path { path: "out"  symlink: ".buri/out/js" }
 //! ```
+//!
+//! `run { cwd }` is how the no-argument forms are covered: CLI.md says a
+//! command with no target operates on the package containing the working
+//! directory, and there is no way to ask that question from the root.
+//!
+//! `path` is for the commands whose contract is about what they leave on
+//! disk. `buri clean --outputs` and the `out/` symlink print almost nothing,
+//! and what they print is not the claim — an exit code cannot tell a cache
+//! that survived from one that was deleted and rebuilt. Exactly one
+//! expectation per step, spelled out: an assertion is never inferred.
+//!
+//! `file { contains }` and `file { absent }` are for the files a whole-file
+//! golden would be the wrong record of — a build artifact is mostly runtime,
+//! so recording one would move on every unrelated backend change and would
+//! bury the claim. Neither is ever blessed.
 //!
 //! `exit` is hand-written and required, and `golden` names a file that
 //! `BURI_BLESS=1` records. That split is deliberate: blessing can rewrite what
@@ -43,7 +62,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{indent, Golden, Scratch};
+use super::{indent, run_in, Golden, Scratch};
 
 use buri::build::textproto::{self, Msg, Value};
 use buri::diagnostics::FileId;
@@ -65,6 +84,9 @@ pub enum Step {
         /// The harness adds the `Content-Length` framing, so the fixture stays
         /// something a person can read and diff.
         stdin: Option<String>,
+        /// A directory inside the repository to run from, for the forms that
+        /// take no target and mean "the package I am standing in".
+        cwd: Option<String>,
     },
     Edit {
         file: String,
@@ -73,8 +95,30 @@ pub enum Step {
     },
     File {
         path: String,
-        golden: String,
+        golden: Option<String>,
+        /// Text that must appear in the file, and text that must not.
+        ///
+        /// A whole-file golden is the right record of something a person
+        /// reads. A build *artifact* is not: it is mostly runtime, so pinning
+        /// it would move on every unrelated backend change and say nothing
+        /// about the claim. A claim about an artifact is stated instead as the
+        /// one string that settles it.
+        contains: Option<String>,
+        absent: Option<String>,
     },
+    /// What a command left on disk, as opposed to what it printed.
+    Path {
+        path: String,
+        expect: PathExpectation,
+    },
+}
+
+pub enum PathExpectation {
+    Exists(bool),
+    /// A symlink, and where it points. The link's own target is read rather
+    /// than followed: `out -> .buri/out/js` is the claim, and a resolved path
+    /// would pass just as well for a copied directory.
+    Symlink(String),
 }
 
 pub struct Case {
@@ -116,6 +160,7 @@ pub fn load_case(dir: &Path) -> Case {
                     exit: req_int(&name, "run", "exit", &m),
                     golden: opt_str(&name, "run.golden", &m),
                     stdin: opt_str(&name, "run.stdin", &m),
+                    cwd: opt_str(&name, "run.cwd", &m),
                     stream: match opt_ident(&name, "run.stream", &m).as_deref() {
                         None | Some("ALL") => Stream::All,
                         Some("OUT") => Stream::Out,
@@ -136,13 +181,44 @@ pub fn load_case(dir: &Path) -> Case {
             }
             "file" => {
                 let m = as_msg(&name, "file", &field.value);
-                steps.push(Step::File {
+                let step = Step::File {
                     path: req_str(&name, "file", "path", &m),
-                    golden: req_str(&name, "file", "golden", &m),
+                    golden: opt_str(&name, "file.golden", &m),
+                    contains: opt_str(&name, "file.contains", &m),
+                    absent: opt_str(&name, "file.absent", &m),
+                };
+                if let Step::File { golden: None, contains: None, absent: None, .. } = step {
+                    panic!(
+                        "{name}: a `file` step says nothing about the file; give it `golden`, \
+                         `contains`, or `absent`"
+                    );
+                }
+                steps.push(step);
+            }
+            "path" => {
+                let m = as_msg(&name, "path", &field.value);
+                let symlink = opt_str(&name, "path.symlink", &m);
+                let exists = opt_ident(&name, "path.exists", &m).map(|v| match v.as_str() {
+                    "true" => true,
+                    "false" => false,
+                    other => panic!("{name}: path.exists is {other}, not true or false"),
+                });
+                steps.push(Step::Path {
+                    path: req_str(&name, "path", "path", &m),
+                    expect: match (exists, symlink) {
+                        (Some(_), Some(_)) => panic!(
+                            "{name}: a `path` step says both `exists` and `symlink`; one claim each"
+                        ),
+                        (Some(b), None) => PathExpectation::Exists(b),
+                        (None, Some(t)) => PathExpectation::Symlink(t),
+                        (None, None) => panic!(
+                            "{name}: a `path` step claims nothing — write `exists: false` or `symlink: \"...\"`"
+                        ),
+                    },
                 });
             }
             other => panic!(
-                "{name}: CASE.textproto has no field `{other}`; the forms are doc, run, edit, file"
+                "{name}: CASE.textproto has no field `{other}`; the forms are doc, run, edit, file, path"
             ),
         }
     }
@@ -223,10 +299,25 @@ pub fn run_case(case: &Case, g: &mut Golden) {
     let scratch = Scratch::copy_of(&case.name, &case.dir.join("repo"));
     for (i, step) in case.steps.iter().enumerate() {
         match step {
-            Step::Run { args, exit, golden, stream, stdin } => {
+            Step::Run { args, exit, golden, stream, stdin, cwd } => {
                 let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+                // A `cwd` is a directory inside the scratch copy, so the run
+                // is the one a user makes standing in a package.
+                let from = match cwd {
+                    None => scratch.root.clone(),
+                    Some(rel) => {
+                        let dir = scratch.path(rel);
+                        assert!(
+                            dir.is_dir(),
+                            "{}: step {} runs in `{rel}`, which is not a directory in the case",
+                            case.name,
+                            i + 1
+                        );
+                        dir
+                    }
+                };
                 let mut run = match stdin {
-                    None => scratch.run(&argv),
+                    None => run_in(&from, &argv),
                     Some(file) => {
                         let path = case.dir.join(file);
                         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
@@ -248,10 +339,14 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                 let _ = &mut run;
                 if run.code != *exit {
                     g.fail(format!(
-                        "{}: step {} `buri {}` exited {} rather than {exit}\n  {}\n  printed:\n{}",
+                        "{}: step {} `buri {}`{} exited {} rather than {exit}\n  {}\n  printed:\n{}",
                         case.name,
                         i + 1,
                         args.join(" "),
+                        match cwd {
+                            Some(rel) => format!(" (in {rel})"),
+                            None => String::new(),
+                        },
                         run.code,
                         case.doc,
                         indent(&run.all())
@@ -260,14 +355,8 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                 if let Some(golden) = golden {
                     let printed = match stream {
                         Stream::All => run.normalised(&scratch.root),
-                        Stream::Out => run.stdout.replace(
-                            &scratch.root.display().to_string(),
-                            "<scratch>",
-                        ),
-                        Stream::Err => run.stderr.replace(
-                            &scratch.root.display().to_string(),
-                            "<scratch>",
-                        ),
+                        Stream::Out => super::normalise(&run.stdout, &scratch.root),
+                        Stream::Err => super::normalise(&run.stderr, &scratch.root),
                     };
                     g.check(
                         &case.dir.join("expected").join(golden),
@@ -291,11 +380,69 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                 }
             }
             Step::Edit { file, from, to } => scratch.edit(file, from, to),
-            Step::File { path, golden } => g.check(
-                &case.dir.join("expected").join(golden),
-                &format!("{}/{golden}", case.name),
-                &scratch.read(path),
-            ),
+            Step::File { path, golden, contains, absent } => {
+                let text = scratch.read(path);
+                if let Some(golden) = golden {
+                    g.check(
+                        &case.dir.join("expected").join(golden),
+                        &format!("{}/{golden}", case.name),
+                        &text,
+                    );
+                }
+                // Never blessed: `contains` and `absent` are hand-written the
+                // way `exit` is, so a claim about an artifact cannot be
+                // quietly rewritten into whatever the artifact happens to say.
+                if let Some(needle) = contains {
+                    if !text.contains(needle.as_str()) {
+                        g.fail(format!(
+                            "{}: {path} does not contain {needle:?}\n  {}",
+                            case.name, case.doc
+                        ));
+                    }
+                }
+                if let Some(needle) = absent {
+                    if text.contains(needle.as_str()) {
+                        g.fail(format!(
+                            "{}: {path} contains {needle:?}, and must not\n  {}",
+                            case.name, case.doc
+                        ));
+                    }
+                }
+            }
+            Step::Path { path, expect } => {
+                let full = scratch.path(path);
+                match expect {
+                    // `symlink_metadata`, not `exists`: a dangling symlink is
+                    // still something on disk, and reporting it as absent
+                    // would hide the state `clean` is most likely to leave.
+                    PathExpectation::Exists(want) => {
+                        let there = full.symlink_metadata().is_ok();
+                        if there != *want {
+                            g.fail(format!(
+                                "{}: step {} expected `{path}` to {}, and it does{}",
+                                case.name,
+                                i + 1,
+                                if *want { "exist" } else { "be gone" },
+                                if there { "" } else { " not" }
+                            ));
+                        }
+                    }
+                    PathExpectation::Symlink(want) => match std::fs::read_link(&full) {
+                        Ok(actual) if actual == std::path::Path::new(want) => {}
+                        Ok(actual) => g.fail(format!(
+                            "{}: step {} expected `{path}` to point at `{want}`, and it points at `{}`",
+                            case.name,
+                            i + 1,
+                            actual.display()
+                        )),
+                        Err(e) => g.fail(format!(
+                            "{}: step {} expected `{path}` to be a symlink to `{want}`: {e}",
+                            case.name,
+                            i + 1
+                        )),
+                    },
+                }
+            }
         }
     }
 }

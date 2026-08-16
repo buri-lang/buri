@@ -1,0 +1,8 @@
+from "//tools/report/argv" import { has };
+from "//tools/report/shared" import { heading };
+
+export struct Flags { export verbose: Bool, export title: Str }
+
+export fn parseFlags(args: [Str]): Flags {
+  Flags { verbose: has(args, "--verbose"), title: heading() }
+}

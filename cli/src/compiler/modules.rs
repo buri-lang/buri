@@ -98,6 +98,10 @@ pub struct Loader<'a> {
     stack: Vec<String>,
     entry: Option<ModuleId>,
     test_sources: Vec<ModuleId>,
+    /// The schema each `.proto` module was generated from, kept because a
+    /// schema importing another needs that one's declarations to resolve its
+    /// field types — and because a diamond should be read once.
+    schemas: HashMap<String, crate::build::protoschema::Schema>,
 }
 
 impl<'a> Loader<'a> {
@@ -115,6 +119,7 @@ impl<'a> Loader<'a> {
             stack: Vec::new(),
             entry: None,
             test_sources: Vec::new(),
+            schemas: HashMap::new(),
         }
     }
 
@@ -145,7 +150,11 @@ impl<'a> Loader<'a> {
         match target.kind {
             RuleKind::Library => {
                 let Some(lib) = &pkg.build.library else { return };
+                self.check_testing_surface_declared(target);
                 self.load_path(&pkg.label(), Role::Source, Span::NONE);
+                for src in &lib.proto_sources {
+                    self.load_declared_proto(target, &src.value, src.span);
+                }
                 for src in &lib.sources {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
@@ -167,6 +176,17 @@ impl<'a> Loader<'a> {
             }
             RuleKind::Binary => {
                 let Some(bin) = &pkg.build.binary else { return };
+                // A `testing/` surface belongs to the library rule. A package
+                // that has no library rule still has the directory, and
+                // nothing else would look at it, so the binary asks on its
+                // behalf — and only then, so a package with both rules is not
+                // told twice.
+                if !pkg.has_library() {
+                    self.check_testing_surface_declared(target);
+                }
+                for src in &bin.proto_sources {
+                    self.load_declared_proto(target, &src.value, src.span);
+                }
                 let entry = self.load_path(&format!("{}/main", pkg.label()), Role::Entry, Span::NONE);
                 self.entry = entry;
                 for src in &bin.sources {
@@ -279,6 +299,48 @@ impl<'a> Loader<'a> {
         Some(id)
     }
 
+    /// The `testing` block is required when the directory is there
+    /// (BUILD-FILES.md:194-196).
+    ///
+    /// Nothing else can ask this. `undeclared-source` walks the files and
+    /// finds the ones inside `testing/` — but `testing/lib.buri` is an entry
+    /// point, so it is in the known set unconditionally, and a `testing/`
+    /// directory holding nothing but its own entry point passed with no block
+    /// at all. The surface was then invisible: no target compiled it, and
+    /// `//pkg/testing` resolved to a file the build had never heard of.
+    fn check_testing_surface_declared(&mut self, target: TargetId) {
+        let Some(ws) = self.ws else { return };
+        let pkg = ws.pkg(target.pkg);
+        let dir = pkg.dir.join("testing");
+        if !dir.is_dir() {
+            return;
+        }
+        // A `testing/` that carries its own BUILD.buri is a package of its
+        // own, and its files are that package's business.
+        if ws.owning_package(&dir.join("x")) != Some(target.pkg) {
+            return;
+        }
+        if pkg.build.library.as_ref().is_some_and(|l| l.testing.present) {
+            return;
+        }
+        self.diags.push(
+            Diagnostic::error(
+                Span::point(pkg.build_file_id, 0),
+                format!("{} has a testing/ directory and no `testing` block", pkg.label()),
+            )
+            .with_code("undeclared-testing-surface")
+            .with_note(
+                "the block is what puts the surface in the build; without it nothing compiles \
+                 testing/lib.buri and no dependent can name it",
+            )
+            .with_fix(format!(
+                "add a `testing {{ }}` block to the library rule in {}/BUILD.buri — empty if the \
+                 entry point is the whole of it — or delete the directory",
+                pkg.path
+            )),
+        );
+    }
+
     /// A source listed in a rule, named by its package-relative path.
     fn load_package_source(
         &mut self,
@@ -289,6 +351,24 @@ impl<'a> Loader<'a> {
     ) -> Option<ModuleId> {
         let ws = self.ws?;
         let pkg = ws.pkg(target.pkg);
+        // An entry point is named by the rule kind rather than listed
+        // (BUILD-FILES.md:140-144, 194-196). Listing one says nothing the rule
+        // did not already say, and it reads as though the rule could be
+        // written without it — which is not a state the build system wants to
+        // have a diagnostic for.
+        if is_entry_point(rel) {
+            self.diags.push(
+                Diagnostic::error(span, format!("{rel} is named by the rule, not listed"))
+                    .with_code("entry-point-listed")
+                    .with_note(
+                        "an entry point is named by the rule kind — lib.buri for a library, \
+                         main.buri for a binary, testing/lib.buri for a `testing` block — rather \
+                         than listed among its inputs",
+                    )
+                    .with_fix(format!("remove \"{rel}\" from the list; the rule already names it")),
+            );
+            return None;
+        }
         let disk = pkg.dir.join(rel);
         if !disk.is_file() {
             self.diags.push(
@@ -305,6 +385,120 @@ impl<'a> Loader<'a> {
             format!("//{}/{stem}", pkg.path)
         };
         self.load_file(&path, disk, role, span)
+    }
+
+    /// A `.proto` a rule lists in `proto_sources`.
+    fn load_declared_proto(&mut self, target: TargetId, rel: &str, span: Span) -> Option<ModuleId> {
+        let ws = self.ws?;
+        let pkg = ws.pkg(target.pkg);
+        if !rel.ends_with(".proto") {
+            self.diags.push(
+                Diagnostic::error(span, format!("{rel} is not a .proto file"))
+                    .with_code("proto-source-not-a-schema")
+                    .with_fix("list `.buri` files under `sources`; `proto_sources` holds schemas"),
+            );
+            return None;
+        }
+        let disk = pkg.dir.join(rel);
+        if !disk.is_file() {
+            self.diags.push(
+                Diagnostic::error(span, format!("{rel} does not exist"))
+                    .with_fix("create the file, or remove it from `proto_sources`")
+                    .with_note("every source is declared one path at a time; there are no globs"),
+            );
+            return None;
+        }
+        let path = if pkg.path.is_empty() {
+            format!("//{rel}")
+        } else {
+            format!("//{}/{rel}", pkg.path)
+        };
+        self.load_proto(&path, disk, Role::Source, span)
+    }
+
+    /// Reads a `.proto` schema and loads the module it *becomes*.
+    ///
+    /// This is the one module in a compilation that is generated rather than
+    /// read. Everything downstream is unchanged: the generated text goes
+    /// through `load_source_in`, the same seam the documentation harness
+    /// compiles a fenced block through, so the real parser and the real checker
+    /// see it. A type error in generated code is therefore a toolchain bug that
+    /// fails loudly rather than a wrong program that compiles.
+    fn load_proto(
+        &mut self,
+        path: &str,
+        disk: PathBuf,
+        role: Role,
+        span: Span,
+    ) -> Option<ModuleId> {
+        if let Some(id) = self.by_path.get(path) {
+            return Some(*id);
+        }
+        if let Some(at) = self.stack.iter().position(|p| p == path) {
+            let cycle = self.stack[at..].join(" -> ");
+            self.diags.push(
+                Diagnostic::error(span, format!("circular import: {cycle} -> {path}"))
+                    .with_code("circular-import")
+                    .with_fix("break the cycle: move what both schemas need into a third one")
+                    .with_note("schemas form a graph with no cycles, exactly as modules do"),
+            );
+            return None;
+        }
+
+        let rel = match self.ws {
+            Some(ws) => ws.rel_of(&disk),
+            None => disk.display().to_string(),
+        };
+        let file = match self.map.load(&rel, &disk) {
+            Ok(f) => f,
+            Err(e) => {
+                self.diags.push(
+                    Diagnostic::error(span, format!("cannot read {rel}: {e}"))
+                        .with_fix("check the file exists and is readable"),
+                );
+                return None;
+            }
+        };
+        let parsed = crate::build::protoschema::parse(self.map.text(file), file);
+        for d in parsed.errors {
+            self.diags.push(d);
+        }
+        let schema = parsed.schema;
+        self.schemas.insert(path.to_string(), schema.clone());
+
+        // A schema's imports are written from the repository root, so they are
+        // module paths once `//` is put in front of them. They have to be
+        // loaded first: a field's type may live in any of them.
+        self.stack.push(path.to_string());
+        let mut deps: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
+        for import in &schema.imports {
+            let dep_path = crate::build::protogen::import_module_path(&import.path);
+            match self.ws.map(|ws| ws.resolve_module(&dep_path)) {
+                Some(Ok(loc)) if loc.kind == crate::build::workspace::ModuleKind::Proto => {
+                    self.load_proto(&dep_path, loc.file, role, import.span);
+                }
+                _ => {
+                    self.diags.push(crate::build::protogen::unresolved_import(
+                        import.span,
+                        &import.path,
+                    ));
+                    continue;
+                }
+            }
+            if let Some(dep) = self.schemas.get(&dep_path) {
+                deps.push((dep_path, dep.clone()));
+            }
+        }
+        let mut gen_diags = Vec::new();
+        let generated =
+            crate::build::protogen::generate(&rel, &schema, &deps, &mut gen_diags);
+        for d in gen_diags {
+            self.diags.push(d);
+        }
+        self.stack.pop();
+
+        let pkg = self.ws.and_then(|ws| ws.owning_package(&disk));
+        self.load_source_in(path, role, generated.source, pkg)
     }
 
     fn load_std(&mut self, path: &str, span: Span) -> Option<ModuleId> {
@@ -353,6 +547,7 @@ impl<'a> Loader<'a> {
             return None;
         };
         match ws.resolve_module(path) {
+            Ok(loc) if loc.kind == ModuleKind::Proto => self.load_proto(path, loc.file, role, span),
             Ok(loc) => self.load_file(path, loc.file, role, span),
             Err(msg) => {
                 self.diags.push(Diagnostic::error(span, msg).with_code("module-not-found").with_fix(
@@ -425,13 +620,28 @@ impl<'a> Loader<'a> {
     /// Loads everything a module imports, checking each import line against
     /// the rules that govern where a path may be named from.
     fn load_imports(&mut self, id: ModuleId) {
-        let imports: Vec<(String, Span)> = self.modules[id.index()]
+        // The names an import binds travel with it, because one of the
+        // restrictions below has to say what to re-export, and a fix that names
+        // the symbol is the difference between a rule and an instruction.
+        let imports: Vec<(String, Span, Vec<String>)> = self.modules[id.index()]
             .ast
             .items
             .iter()
             .filter_map(|item| match item {
-                tree::Item::Import(i) => Some((i.path.clone(), i.path_span)),
-                tree::Item::ReExport(r) => Some((r.path.clone(), r.path_span)),
+                tree::Item::Import(i) => {
+                    let names = match &i.clause {
+                        tree::ImportClause::Named(specs) => {
+                            specs.iter().map(|s| s.name.name.clone()).collect()
+                        }
+                        tree::ImportClause::Namespace(_) => Vec::new(),
+                    };
+                    Some((i.path.clone(), i.path_span, names))
+                }
+                tree::Item::ReExport(r) => Some((
+                    r.path.clone(),
+                    r.path_span,
+                    r.specs.iter().map(|s| s.name.name.clone()).collect(),
+                )),
                 _ => None,
             })
             .collect();
@@ -440,8 +650,9 @@ impl<'a> Loader<'a> {
         let importer_path = self.modules[id.index()].path.clone();
         let importer_pkg = self.modules[id.index()].pkg;
 
-        for (path, span) in imports {
-            if !self.check_import_legality(&importer_path, importer_pkg, role, &path, span) {
+        for (path, span, names) in imports {
+            if !self.check_import_legality(&importer_path, importer_pkg, role, &path, span, &names)
+            {
                 continue;
             }
             // What a module imports is loaded in the role its own path
@@ -451,12 +662,31 @@ impl<'a> Loader<'a> {
         }
     }
 
+    /// The role a module is loaded in when something imports it.
+    ///
+    /// A module's role is a property of the module, not of whoever named it,
+    /// so this asks the path and the workspace rather than the importer. The
+    /// case that matters is a binary's entry point: `main.buri` is an `Entry`
+    /// wherever it is reached from, and the only thing that may reach it is
+    /// that binary's own test sources (TESTING.md, "Testing a binary"). Loaded
+    /// as ordinary `Source` it would have its `core/host` import and its
+    /// `context` rejected — the two things an entry point exists to do.
+    ///
+    /// In a real build this was latent, because `load_unit` pre-loads the
+    /// entry point as `Role::Entry` before anything can import it. A test
+    /// binary compiled on its own, or a documentation example standing in the
+    /// package, reaches it here first.
     fn role_for(&self, path: &str) -> Role {
         if path.starts_with("core/") {
             return if standard_library::is_platform_module(path) { Role::Platform } else { Role::Std };
         }
         if is_test_only_path(path) {
             return Role::TestOnly;
+        }
+        if let Some(ws) = self.ws {
+            if matches!(ws.resolve_module(path), Ok(loc) if loc.kind == ModuleKind::BinaryEntry) {
+                return Role::Entry;
+            }
         }
         Role::Source
     }
@@ -470,6 +700,7 @@ impl<'a> Loader<'a> {
         role: Role,
         path: &str,
         span: Span,
+        names: &[String],
     ) -> bool {
         if path.starts_with('.') {
             self.diags.push(
@@ -532,9 +763,33 @@ impl<'a> Loader<'a> {
             return true;
         };
 
+        // A test source is not a module anybody can name. Test sources are
+        // compiled independently — one test binary each — so there is nothing
+        // for an import to resolve to, whoever writes it (TESTING.md, "What a
+        // test can reach").
+        if is_declared_test_source(ws, loc.pkg, path) {
+            self.diags.push(
+                Diagnostic::error(span, format!("{path} is a test source"))
+                    .with_code("test-source-import")
+                    .with_label("test sources are not importable")
+                    .with_note(
+                        "test sources are compiled independently and are not modules anybody \
+                         can name",
+                    )
+                    .with_fix(
+                        "put the shared helper in a library and list it in `test.dependencies` \
+                         — a path with a `testing` segment if it is test-only",
+                    ),
+            );
+            return false;
+        }
+
         match loc.kind {
-            // A `//pkg/inner` import resolves only inside `//pkg`.
-            ModuleKind::Internal => {
+            // A `//pkg/inner` import resolves only inside `//pkg`. A
+            // generated `.proto` module is one of these: it belongs to the
+            // rule that declared the schema, and reaches the outside world the
+            // way every other internal module does — through `lib.buri`.
+            ModuleKind::Internal | ModuleKind::Proto => {
                 if loc.pkg != importer_pkg {
                     let owner = ws.pkg(loc.pkg.unwrap()).label();
                     self.diags.push(
@@ -549,6 +804,88 @@ impl<'a> Loader<'a> {
                         )),
                     );
                     return false;
+                }
+                // Inside the package, every other module may reach it — but a
+                // test source may not. A test reaches its library the way a
+                // dependent does, and that is the rule that confines a suite to
+                // the public surface (TESTING.md:105-130).
+                if is_declared_test_source(ws, importer_pkg, importer_path) {
+                    let owner = ws.pkg(loc.pkg.unwrap()).label();
+                    let dir = owner.trim_start_matches("//");
+                    let what = match names {
+                        [] => "what the test needs".to_string(),
+                        [one] => format!("`{one}`"),
+                        many => format!("`{}`", many.join("`, `")),
+                    };
+                    self.diags.push(
+                        Diagnostic::error(
+                            span,
+                            format!(
+                                "{} imports a library-internal module",
+                                source_file_of(importer_path)
+                            ),
+                        )
+                        .with_code("test-internal-import")
+                        .with_label("internal to the library under test")
+                        .with_note("tests reach their library the same way dependents do")
+                        .with_fix(format!(
+                            "import {owner}, and re-export {what} from {dir}/lib.buri if it is \
+                             part of the surface you meant to test"
+                        )),
+                    );
+                    return false;
+                }
+                // Inside one package, the boundary is still there: it belongs
+                // to the *rule*, not to the directory (BUILD-FILES.md:301-308).
+                // A binary's sources reach the library beside them only
+                // through `//pkg`, and a library may not reach the binary at
+                // all. Asking which package the importer is in answered the
+                // first question with "yes, it is right there", which is
+                // exactly the case the two rules are about.
+                let rule_of = |pkg: Option<crate::build::workspace::PkgId>, p: &str| {
+                    let id = pkg?;
+                    let rel = package_relative_source(ws, id, p)?;
+                    ws.rule_of_file(id, &rel)
+                };
+                let importer_rule = rule_of(importer_pkg, importer_path);
+                let target_rule = rule_of(loc.pkg, path);
+                if let (Some(from), Some(to)) = (importer_rule, target_rule) {
+                    if from != to {
+                        let owner = ws.pkg(loc.pkg.unwrap()).label();
+                        let dir = owner.trim_start_matches("//");
+                        let importer_file = source_file_of(importer_path);
+                        let d = match to {
+                            RuleKind::Library => Diagnostic::error(
+                                span,
+                                format!("{path} is internal to the library {owner}"),
+                            )
+                            .with_code("internal-import")
+                            .with_label("the binary reaches the library only through its entry point")
+                            .with_note(format!(
+                                "only names re-exported by {dir}/lib.buri are available, and \
+                                 {importer_file} belongs to the binary rule rather than the library's"
+                            ))
+                            .with_fix(format!(
+                                "import the library instead: from \"{owner}\" import {{ ... }}"
+                            )),
+                            RuleKind::Binary => Diagnostic::error(
+                                span,
+                                format!("{path} belongs to the binary in {owner}"),
+                            )
+                            .with_code("internal-import")
+                            .with_label("a library may not reach the binary beside it")
+                            .with_note(format!(
+                                "{importer_file} belongs to the library rule, and the binary \
+                                 depends on the library rather than the other way round"
+                            ))
+                            .with_fix(
+                                "move what you need into the library, or into a third one both \
+                                 can depend on",
+                            ),
+                        };
+                        self.diags.push(d);
+                        return false;
+                    }
                 }
             }
             // A binary's entry point is importable only from that binary's own
@@ -573,4 +910,66 @@ impl<'a> Loader<'a> {
         }
         true
     }
+}
+
+/// The three package-relative names a rule names by its kind rather than by
+/// listing: a library's surface, a binary's entry point, and the `testing`
+/// block's surface.
+fn is_entry_point(rel: &str) -> bool {
+    matches!(rel, "lib.buri" | "main.buri" | "testing/lib.buri")
+}
+
+/// The file a `//...` module path names, relative to the repository root:
+/// `//lib/money/test/cents` -> `lib/money/test/cents.buri`.
+///
+/// Used only in prose, so a path that is not a repository path comes back
+/// unchanged rather than being an error.
+fn source_file_of(path: &str) -> String {
+    match path.strip_prefix("//") {
+        Some(rest) if rest.ends_with(".proto") => rest.to_string(),
+        Some(rest) => format!("{rest}.buri"),
+        None => path.to_string(),
+    }
+}
+
+/// The file a module path names inside its own package:
+/// `//lib/money/test/cents` -> `test/cents.buri`.
+fn package_relative_source(
+    ws: &Workspace,
+    pkg: crate::build::workspace::PkgId,
+    path: &str,
+) -> Option<String> {
+    let rest = path.strip_prefix("//")?;
+    let pkg_path = ws.pkg(pkg).path.clone();
+    let rel = if pkg_path.is_empty() {
+        rest
+    } else {
+        rest.strip_prefix(&format!("{pkg_path}/"))?
+    };
+    if rel.ends_with(".proto") {
+        return Some(rel.to_string());
+    }
+    Some(format!("{rel}.buri"))
+}
+
+/// True when a rule lists this module in its `test.sources`.
+///
+/// That is the only thing that makes a module a test source (TESTING.md:37-40)
+/// — not the directory it sits in and not a flag — so it is also the only thing
+/// worth asking. A snippet compiled from a document is named by its origin
+/// rather than by a `//...` path, so it is never one, which is what keeps a
+/// documented example of a library's own internals compilable.
+fn is_declared_test_source(
+    ws: &Workspace,
+    pkg: Option<crate::build::workspace::PkgId>,
+    path: &str,
+) -> bool {
+    let Some(pkg_id) = pkg else { return false };
+    let Some(rel) = package_relative_source(ws, pkg_id, path) else { return false };
+    let build = &ws.pkg(pkg_id).build;
+    let listed = |suite: &crate::build::buildfile::TestSuite| {
+        suite.sources.iter().any(|s| s.value == rel)
+    };
+    build.library.as_ref().is_some_and(|l| listed(&l.test))
+        || build.binary.as_ref().is_some_and(|b| listed(&b.test))
 }

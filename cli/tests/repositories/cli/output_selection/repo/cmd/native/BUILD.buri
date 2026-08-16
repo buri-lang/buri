@@ -1,0 +1,8 @@
+# Two declared outputs. `--output` selects one of them; with no selector every
+# one of them is built.
+binary {
+  outputs: [
+    { platform: JS },
+    { platform: LINUX, arch: X86_64 },
+  ]
+}

@@ -1,0 +1,90 @@
+# In a package with both rules, `gen` needs to know which rule a new file
+# belongs to. CLI.md gives four rules in order, and all four are here:
+#
+#   1. a file already listed in a rule's `sources` stays there — render.buri
+#      and flags.buri never move;
+#   2. reachable from main.buri and not from lib.buri goes to the binary —
+#      argv.buri;
+#   3. reachable from lib.buri goes to the library — stray.buri, once
+#      something reaches it;
+#   4. reachable from neither, or from both, is an error that names the file
+#      and asks you to place it — shared.buri, then stray.buri.
+#
+# The case walks it backwards, because rule 4 is the one that fires first:
+# both errors, then the two edits that answer them, then the run that places
+# the rest. Guessing at rule 4 would silently move code across a boundary that
+# exists to be explicit, so the two refusals are the point of the case and the
+# clean run at the end is what says the refusal was not merely a failure.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the four-rule assignment in a both-rules package, including the file reachable from both and the file reachable from neither"
+
+# shared.buri is imported by render.buri and by flags.buri.
+run {
+  args: ["gen", "//tools/report"]
+  exit: 1
+  golden: "both.txt"
+}
+
+# Answering it: the binary stops reaching into the library's half. Two edits,
+# because an import and its use are two places.
+edit {
+  file: "tools/report/flags.buri"
+  replace: "from \"//tools/report/shared\" import { heading };\n"
+  with: ""
+}
+
+edit {
+  file: "tools/report/flags.buri"
+  replace: "title: heading()"
+  with: "title: \"flags\""
+}
+
+# Now shared.buri is the library's, and stray.buri is the next one nothing
+# reaches.
+run {
+  args: ["gen", "//tools/report"]
+  exit: 1
+  golden: "neither.txt"
+}
+
+edit {
+  file: "tools/report/render.buri"
+  replace: "from \"//tools/report/shared\" import { heading };"
+  with: "from \"//tools/report/shared\" import { heading };\nfrom \"//tools/report/stray\" import { footer };"
+}
+
+edit {
+  file: "tools/report/render.buri"
+  replace: "\"${heading()} ${total}\""
+  with: "\"${heading()} ${total} ${footer()}\""
+}
+
+run {
+  args: ["gen", "//tools/report"]
+  exit: 0
+  golden: "gen.txt"
+}
+
+# argv.buri under the binary, shared.buri and stray.buri under the library,
+# and the two files that were already listed exactly where they were.
+file {
+  path: "tools/report/BUILD.buri"
+  golden: "regenerated.buri"
+}
+
+# The assignment is not merely stable, it is the one that compiles: a file put
+# under the wrong rule is an `internal-import` the moment anything uses it.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["test", "//tools/report"]
+  exit: 0
+  golden: "test.txt"
+}

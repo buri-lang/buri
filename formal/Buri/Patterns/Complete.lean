@@ -1,6 +1,5 @@
-import Buri.Patterns.WellFormed
 import Buri.Patterns.Correct
-import Buri.Patterns.Spec
+import Buri.Patterns.Usefulness
 
 /-!
 # Completeness: the checker never misses an uncovered value
@@ -20,10 +19,10 @@ Three invariants travel with the recursion, and each earns its place:
 * **`Matrix.WellFormed`** -- rows are or-free, rest-free, have one pattern per
   type, and carry no more sub-patterns than their constructor has fields.
   `WellFormed.lean` proves both matrix steps preserve it.
-* **`Row.WellFormed`** on the *pattern vector* too. This is what makes the
-  or-pattern case vacuous: `expand` runs before `useful` is ever called, so an
-  alternation cannot reach the algorithm. (`exhaustiveness.rs` still has a
-  branch for it; that branch is dead code.)
+* **`Row.WellFormed`** on the *pattern vector* too. The or-pattern case is
+  *not* vacuous -- `expand` splits only the alternations at the top of a
+  column, so a nested one reaches the algorithm intact -- and well-formedness
+  is what lets the induction step into an alternative.
 * **`Value.BoundedList`** -- the array-length restriction. `allConstructors`
   enumerates array constructors only up to `limit`, so this theorem holds in
   the universe the algorithm reasons about. `Expand.lean` discharges it.
@@ -31,33 +30,13 @@ Three invariants travel with the recursion, and each earns its place:
 ## One-directional coverage
 
 Completeness needs only one direction of each matrix step, and the `default`
-one is far cheaper than the biconditional in `Correct.lean`:
-`covers_of_defaultMatrix` needs **no hypotheses at all**, because every default
-row came from a wildcard-headed row and a wildcard matches whatever sits in
-that column. The biconditionals are what `useful_sound` will need; completeness
-gets away with less.
+one is free: `covers_of_defaultMatrix` needs **no hypotheses at all**, because
+every default row is reached through a wildcard in the head column and a
+wildcard matches whatever sits there. The biconditionals in `Correct.lean` are
+what `useful_sound` needs; completeness gets away with less.
 -/
 
 namespace Buri
-
-/-- Coverage of the tail by the default matrix lifts to coverage of the whole
-vector, whatever the head value is. -/
-theorem covers_of_defaultMatrix {matrix : List Row} {value : Value} {values : List Value}
-    (h : Matrix.covers (defaultMatrix matrix) values) :
-    Matrix.covers matrix (value :: values) := by
-  obtain ⟨row', hmem, hmatch⟩ := h
-  obtain ⟨row, hrow, hdefault⟩ := List.mem_filterMap.mp hmem
-  refine ⟨row, hrow, ?_⟩
-  match row with
-  | .wildcard :: rest =>
-    simp only [defaultRow, Option.some.injEq] at hdefault
-    subst hdefault
-    show (Pattern.matches .wildcard value && Pattern.matchesAll rest values) = true
-    simp only [Pattern.matches_wildcard, Bool.true_and]
-    exact hmatch
-  | [] => simp [defaultRow] at hdefault
-  | .constructor _ _ :: _ => simp [defaultRow] at hdefault
-  | .or _ :: _ => simp [defaultRow] at hdefault
 
 theorem Value.BoundedList.append {limit : Nat} {as bs : List Value}
     (ha : Value.BoundedList limit as) (hb : Value.BoundedList limit bs) :
@@ -67,21 +46,6 @@ theorem Value.BoundedList.append {limit : Nat} {as bs : List Value}
   rcases List.mem_append.mp hv with h | h
   · exact ha v h
   · exact hb v h
-
-/-- Lifting coverage back through `specialize`. Both constructor branches of
-the induction end this way, so the well-formedness plumbing lives here once. -/
-private theorem covers_lift {signature : Signature} {t : Ty} {ts : List Ty}
-    {matrix : List Row} {target : Constructor} {v₀ : Value} {values : List Value}
-    (hmatrix : Matrix.WellFormed signature (t :: ts) matrix)
-    (hasTarget : v₀.constructorOf = some target)
-    (hfields : v₀.fields.length = target.arity signature t)
-    (h : Matrix.covers (specialize matrix target (target.arity signature t))
-      (v₀.fields ++ values)) :
-    Matrix.covers matrix (v₀ :: values) :=
-  covers_of_specialize (target := target) hasTarget hfields
-    (fun r hr sp rest heq => Row.WellFormed.head_arity (hmatrix r hr) heq)
-    (fun r hr => Row.WellFormed.head_not_rest (hmatrix r hr))
-    h
 
 /-- **Completeness of the usefulness algorithm.**
 
@@ -154,11 +118,11 @@ theorem isUseful_false_covers (signature : Signature) (limit : Nat) :
     obtain ⟨⟨hasTarget, hsubs⟩, htail⟩ := hmatches
     have hfields : v₀.fields.length = head.arity signature t :=
       HasType.fields_length hv₀ hasTarget
-    have hspec : specializeRow head (head.arity signature t)
-        (Pattern.constructor head subpatterns :: v)
-        = some ((subpatterns ++ List.replicate (head.arity signature t) Pattern.wildcard).take
-            (head.arity signature t) ++ v) := by
-      simp [specializeRow]
+    have hspec : ((subpatterns ++ List.replicate (head.arity signature t) Pattern.wildcard).take
+            (head.arity signature t) ++ v)
+        ∈ specializeRow head (head.arity signature t)
+            (Pattern.constructor head subpatterns :: v) := by
+      simp
     have hmatches' : Row.matches
         ((subpatterns ++ List.replicate (head.arity signature t) Pattern.wildcard).take
           (head.arity signature t) ++ v) (v₀.fields ++ vs') = true := by
@@ -169,10 +133,10 @@ theorem isUseful_false_covers (signature : Signature) (limit : Nat) :
           Pattern.matchesAll_pad harity hfields]
       simp [hsubs, htail]
     rw [isUseful_constructor] at hfalse
-    refine covers_lift hmatrix hasTarget hfields ?_
+    refine covers_of_specialize hmatrix hasTarget hfields ?_
     exact ih hfalse
       (Matrix.WellFormed.specialize (target := head) hmatrix)
-      (Row.WellFormed.specializeRow (target := head) hrow hspec)
+      (Row.WellFormed.specializeRow (target := head) _ hrow _ hspec)
       _ (Forall₂.append (HasType.fields_typed hv₀ hasTarget) hvs')
       (Value.BoundedList.append
         (Value.BoundedList_iff.mpr (Value.Bounded.fields hbounded.1)) hbounded.2)
@@ -211,7 +175,7 @@ theorem isUseful_false_covers (signature : Signature) (limit : Nat) :
     rw [isUseful_wildcard_complete signature limit matrix v (t :: ts') all hall hcomplete] at hfalse
     have hstep := List.any_eq_false.mp hfalse ⟨target, hmem⟩ (List.mem_attach _ _)
     simp only [Bool.not_eq_true] at hstep
-    refine covers_lift hmatrix hasTarget hfields ?_
+    refine covers_of_specialize hmatrix hasTarget hfields ?_
     exact ih ⟨target, hmem⟩ hstep
       (Matrix.WellFormed.specialize (target := target) hmatrix) hrow'
       _ (Forall₂.append (HasType.fields_typed hv₀ hasTarget) hvs')

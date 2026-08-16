@@ -1,0 +1,9 @@
+/// The rendered statement. The golden file records what it produced last time
+/// somebody looked at it.
+export fn render(): Str { "coffee 4.50\nbooks 32.00\nrefund 1.00\n" }
+
+/// Not a golden file — an ordinary expected value written in the test.
+export fn trailer(): Str { "3 entries" }
+
+/// Neither is this, and the file that would hold it does not exist.
+export fn footer(): Str { "settled" }

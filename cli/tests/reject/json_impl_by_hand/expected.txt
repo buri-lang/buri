@@ -1,0 +1,15 @@
+error: `ToJson` is derived, not implemented [derive-only-trait]
+ --> cmd/json_impl_by_hand/main.buri:9:1
+  |
+9 | impl ToJson for Point {
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
+  = fix: write `derive ToJson for Point;` instead
+error: `Point` does not satisfy `ToJson` [missing-conformance]
+  --> cmd/json_impl_by_hand/main.buri:18:43
+   |
+18 |   let _ = ctx.println(json.stringify(ctx, json.encode(ctx, p)));
+   |                                           ^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: add `derive ToJson for Point;` in that type's own module

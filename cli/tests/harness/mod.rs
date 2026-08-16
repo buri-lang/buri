@@ -149,15 +149,25 @@ impl Run {
     /// be recorded. Everything else is already deterministic: file names are
     /// repository-relative, targets are sorted, and diagnostics are sorted.
     pub fn normalised(&self, root: &Path) -> String {
-        let mut s = self.all();
-        // An absolute path. Only a toolchain failure can print one, so it is
-        // replaced rather than deleted: a golden holding `<scratch>` is a
-        // visible bug rather than a silent one.
-        s = s.replace(&root.display().to_string(), "<scratch>");
-        s = replace_between(&s, "(", "s)", "(0.0s)");
-        s = replace_between(&s, "(", " bytes)", "(N bytes)");
-        s
+        normalise(&self.all(), root)
     }
+}
+
+/// The same, for one stream on its own. A case that records only stdout or
+/// only stderr needs the same three substitutions — an elapsed time in a
+/// golden is an elapsed time in a golden whichever pipe it came down.
+pub fn normalise(text: &str, root: &Path) -> String {
+    // An absolute path. Only a toolchain failure can print one, so it is
+    // replaced rather than deleted: a golden holding `<scratch>` is a visible
+    // bug rather than a silent one.
+    let mut s = text.replace(&root.display().to_string(), "<scratch>");
+    // `(0.4s, 11 cached)` first: the elapsed time is the same quantity in both
+    // spellings, and the two-part form does not end at the `s`.
+    s = replace_between(&s, "(", "s, ", "(0.0s, ");
+    s = replace_between(&s, "(", "s)", "(0.0s)");
+    s = replace_between(&s, "(", " bytes)", "(N bytes)");
+    s = replace_between(&s, "(", " bytes, cached)", "(N bytes, cached)");
+    s
 }
 
 /// Replaces `(<digits and dots>s)` and `(<digits> bytes)` — elapsed time and
@@ -198,7 +208,22 @@ pub fn run_in(dir: &Path, args: &[&str]) -> Run {
 /// which `Command::output` does not do on its own.
 pub fn run_in_with_stdin(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Run {
     let mut cmd = Command::new(buri());
-    cmd.args(args).arg("--color=never").current_dir(dir);
+    // `--color=never` belongs to `buri`, so it goes *before* any `--`.
+    // Appended, it would land in the argument list `buri run` hands to the
+    // program, and a golden would record the harness rather than the product.
+    let mut argv: Vec<&str> = Vec::new();
+    match args.iter().position(|a| *a == "--") {
+        Some(i) => {
+            argv.extend_from_slice(&args[..i]);
+            argv.push("--color=never");
+            argv.extend_from_slice(&args[i..]);
+        }
+        None => {
+            argv.extend_from_slice(args);
+            argv.push("--color=never");
+        }
+    }
+    cmd.args(&argv).current_dir(dir);
     let out = match stdin {
         None => cmd.output().expect("the buri binary runs"),
         Some(bytes) => {

@@ -1,0 +1,3 @@
+export fn f<C: Alloc>(ctx: C): Str {
+  aModuleName.aRatherLongFunctionName(ctx, aLongArgumentName, anotherLongOne, fn(c, x) => { let n = x.toI64(); n })
+}

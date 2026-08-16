@@ -1,0 +1,8 @@
+error: a lambda may not capture `c`, which carries an effect [lambda-captures-effect]
+  --> cmd/lambda_captures_lambda_parameter/main.buri:11:17
+   |
+11 |     let inner = fn() => fs.exists(c, p);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a lambda that could close over authority would make the capture rule meaningless
+   = fix: thread the context through a `*Ctx` combinator, which passes it in as a parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`

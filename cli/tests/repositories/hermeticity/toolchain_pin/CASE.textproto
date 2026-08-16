@@ -1,0 +1,78 @@
+# REPO-CONFIG.md: "An exact version, never a range … the CLI refuses to run if
+# the toolchain it resolved does not hash to it, which is the difference between
+# pinning a version and pinning a compiler."
+#
+# Both halves of that sentence, and the sentinel that lets a repository whose
+# toolchain has no published release say so. Exit 2 throughout: a repository
+# pinned to a compiler this is not is the thing you asked *with* being wrong,
+# not the thing you asked about — there is no program yet to have an opinion on.
+#
+# Only the version refusal is recorded. The sha256 refusal names the hash of
+# whichever `buri` the test suite just compiled, which is not a thing a golden
+# can hold; `cli/tests/hermeticity.rs` asserts that message, and asserts the
+# positive half — that this executable satisfies a pin on its own hash — which
+# no checked-in file can express either.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a REPO.buri pinned to another toolchain refuses to run, and zeros mean unpinned"
+
+# The sentinel. `sha256: "00"` is what every fixture in this suite writes, and
+# it means the repository has not pinned rather than that it has pinned badly.
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 0
+}
+
+# The version half. An exact version, never a range.
+edit {
+  file: "REPO.buri"
+  replace: "version: \"0.3.0\""
+  with: "version: \"0.2.9\""
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "version_mismatch.txt"
+}
+
+# Every command that opens a repository comes through the same check, so a
+# refusal is not something `build` remembers and `lint` forgets.
+run {
+  args: ["lint", "//cmd/ok"]
+  exit: 2
+  golden: "version_mismatch.txt"
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "version: \"0.2.9\""
+  with: "version: \"0.3.0\""
+}
+
+# The sha256 half. Sixty-four hex digits that are not all zeros is a pin, and
+# this executable does not hash to it.
+edit {
+  file: "REPO.buri"
+  replace: "sha256: \"00\""
+  with: "sha256: \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+}
+
+# The negative twin: the fix the refusal names actually works. Without this the
+# case proves only that something failed.
+edit {
+  file: "REPO.buri"
+  replace: "sha256: \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+  with: "sha256: \"00\""
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 0
+}

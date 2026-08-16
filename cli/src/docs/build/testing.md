@@ -76,7 +76,8 @@ place the language admits an expression statement. `assert.ok`, `assert.err`,
 and `assert.some` return the unwrapped value, which is how a `Result` is
 consumed in a test:
 
-```buri role=test
+```buri repo=cli/tests/example role=test
+# from "//lib/money" import { parse, ParseError };
 # from "core/testing/assert" import * as assert;
 test "rejects text that is not a number" {
   let e = assert.err(parse("nineteen"));
@@ -135,8 +136,8 @@ A helper that more than one suite needs is not a test source — it is ordinary
 library code that happens to be test-only, and it lives behind a path with a
 `testing` segment ([`LIBRARIES.md`](./cli/src/docs/build/libraries.md#the-testing-surface)):
 
-```buri repo=cli/tests/example pkg=//lib/ledger role=test
-# from "core/testing/context" import { Hermetic };
+```buri repo=cli/tests/example pkg=//lib/ledger role=testing
+# from "core/testing/context" import { Hermetic, files };
 # from "core/cap" import { Fs };
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.
@@ -178,9 +179,11 @@ library {
 }
 ```
 
-```buri repo=cli/tests/example pkg=//lib/ledger role=test
-// tools/report/test/render.buri — a different package's suite, using it.
-from "//lib/ledger/testing" import { sample, WithLedger };
+```buri repo=cli/tests/example pkg=//tools/report role=test
+// tools/report/test/render.buri — a different package's suite, using it. A
+// name reaches this suite only if `testing/lib.buri` re-exports it, exactly as
+// `lib.buri` decides the library's own surface one level up.
+from "//lib/ledger/testing" import { sample, oneOff };
 ```
 
 with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
@@ -215,7 +218,7 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-```buri repo=cli/tests/example role=test pkg=//cmd/server
+```buri repo=cli/tests/example pkg=//cmd/server role=test
 # from "core/testing/assert" import * as assert;
 // cmd/server/test/routes.buri
 
@@ -238,20 +241,38 @@ hand it ([`SPEC.md` §11](./SPEC.md)). A binary whose failure modes you want to
 assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/cap" import { Alloc, Env, Fs, Stdout };
+# from "core/host" import * as host;
+# from "core/env" import * as env;
+# from "core/fs" import * as fs;
 // cmd/server/main.buri
-export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> { ... }
+export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
+  fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Fs:     host.fs,
+    Env:    host.env,
+  };
   run(ctx, env.get(ctx, "LEDGER_LOG") ?? "ledger.log")
 }
 ```
 
+`main`'s context has to bind `Env` for `env.get` as much as it binds `Fs` for
+`run` — the bounds a body reaches for are the bounds the entry point has to
+supply, and it is the same list in both directions.
+
 ```buri role=test
 # from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic };
-# from "core/cap" import { Fs };
+# from "core/testing/context" import { Hermetic, data, readOnly };
+# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/fs" import * as fs;
+# fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
+#   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
+# }
 // cmd/server/test/run.buri
 test "run fails cleanly when the log is unwritable" {
   let ctx = context { ..Hermetic(), Fs: readOnly(data()) };
@@ -284,8 +305,10 @@ may use it directly, declare its own on top of it, or build one per test:
 
 ```buri role=test
 # from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic };
+# from "core/testing/context" import { Hermetic, envOf };
 # from "core/cap" import { Env };
+# from "core/env" import * as env;
+# fn logPath<C: Env>(ctx: C): Str { env.get(ctx, "LEDGER_LOG") ?? "ledger.log" }
 context Fixture {
   ..Hermetic(),
   Env: envOf([("LEDGER_LOG", "custom.log")], ["--verbose"]),
@@ -313,27 +336,41 @@ exactly the way the runner's own implementations are:
 ```buri role=test
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic };
-# from "core/cap" import { Net, NetError };
-struct FlakyNet { export failuresLeft: Int }
+# from "core/cap" import { Net, NetError, NetResponse };
+# fn body<C: Net>(ctx: C, url: Str): Result<Str, NetError> {
+#   ctx.fetch("GET", url, "").map(fn(r) => r.body)
+# }
+struct StubNet { export failing: Str }
 
-impl Net for FlakyNet {
-  fn get(self: FlakyNet, url: Str): Result<Response, NetError> {
-    if (self.failuresLeft > 0) { .Err(.Timeout) } else { .Ok(cannedResponse()) }
+impl Net for StubNet {
+  fn fetch(self: StubNet, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
+    if (url == self.failing) {
+      .Err(.Timeout)
+    } else {
+      .Ok(NetResponse { status: 200, body: "{}" })
+    }
   }
 }
 
-test "retries a timeout once" {
-  let ctx = context { ..Hermetic(), Net: FlakyNet { failuresLeft: 1 } };
-  assert.ok(fetchWithRetry(ctx, "https://example.test/x"));
+test "a timeout reaches the caller as an error" {
+  let ctx = context { ..Hermetic(), Net: StubNet { failing: "https://example.test/slow" } };
+  assert.eq(assert.err(body(ctx, "https://example.test/slow")), NetError.Timeout);
+  assert.eq(assert.ok(body(ctx, "https://example.test/x")), "{}");
 }
 ```
+
+The fake answers from its fields rather than from a counter, because there is no
+mutation to hold one in: a stub that has to change between calls carries a handle
+and keeps the state on the runner's side, which is exactly what
+`core/testing/context`'s own implementations do.
 
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot
 open a socket in anything it transitively calls — that is
-[`SPEC.md` §10](./SPEC.md), not a build system feature. The sandbox in
-[`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md) is the third layer,
-covering the compiler and the runner themselves.
+[`SPEC.md` §10](./SPEC.md), not a build system feature. There is no third layer:
+the toolchain applies no operating-system confinement, because a suite has no
+name for a real capability to begin with
+([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md)).
 
 ## Test data and golden files
 
@@ -350,7 +387,13 @@ test {
 ```buri role=test
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic };
-# from "core/cap" import { Fs };
+# from "core/cap" import { Alloc, Fs };
+# from "core/fs" import * as fs;
+# struct Entry { export memo: Str }
+# fn sample(): [Entry] { [Entry { memo: "coffee" }] }
+# fn render<C: Alloc>(ctx: C, entries: [Entry]): Str {
+#   entries.mapCtx(ctx, fn(c, e) => e.memo).join(ctx, "\n")
+# }
 test "renders the statement" {
   let ctx = Hermetic();          // its `Fs` is `data()`, so the golden file is there
   let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));

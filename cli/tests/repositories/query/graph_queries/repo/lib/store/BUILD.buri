@@ -1,0 +1,4 @@
+library {
+  sources: ["codec.buri"]
+  visibility: ["//visibility:public"]
+}

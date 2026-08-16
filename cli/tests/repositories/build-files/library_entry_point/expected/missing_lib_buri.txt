@@ -1,0 +1,2 @@
+error: "//cmd/app" names no file (cmd/app/lib.buri) [module-not-found]
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search

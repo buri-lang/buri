@@ -1,0 +1,18 @@
+// EXPECT: this `match` does not cover `.Some(false)`
+// The alternation under `.Some` names one of `Bool`'s two constructors, so it
+// completes nothing.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(x: Option<Bool>): Int {
+  match (x) {
+    .Some(true) => 1,
+    .None => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe(.Some(false))}");
+  .Ok(())
+}

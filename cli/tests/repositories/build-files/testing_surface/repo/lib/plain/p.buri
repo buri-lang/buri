@@ -1,0 +1,1 @@
+export fn p(): I64 { 9 }

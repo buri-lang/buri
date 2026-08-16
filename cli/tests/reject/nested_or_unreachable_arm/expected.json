@@ -1,0 +1,1 @@
+{"severity":"error","message":"this arm is unreachable","code":"unreachable-arm","location":{"file":"cmd/nested_or_unreachable_arm/main.buri","line":10,"column":5,"endLine":10,"endColumn":21,"text":"    .Some(true) => 2,"},"fix":"delete it, or move it above the arm that subsumes it","notes":["the arms before it already cover everything it matches"],"related":[]}

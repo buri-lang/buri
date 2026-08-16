@@ -1,0 +1,5 @@
+from "//lib/money/cents" import { Cents, fromCents };
+
+export fn zero(): Cents {
+    fromCents(0)
+}

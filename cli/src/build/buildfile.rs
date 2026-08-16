@@ -158,6 +158,9 @@ pub struct TestingSurface {
 #[derive(Clone, Debug, Default)]
 pub struct Library {
     pub sources: Vec<Sp<String>>,
+    /// The `.proto` schemas this rule owns. Each one becomes a module, and the
+    /// module belongs to this rule exactly as a `.buri` source does.
+    pub proto_sources: Vec<Sp<String>>,
     pub dependencies: Vec<Sp<String>>,
     pub tags: Vec<Sp<String>>,
     pub platforms: Vec<Sp<Platform>>,
@@ -170,6 +173,7 @@ pub struct Library {
 #[derive(Clone, Debug, Default)]
 pub struct Binary {
     pub sources: Vec<Sp<String>>,
+    pub proto_sources: Vec<Sp<String>>,
     pub dependencies: Vec<Sp<String>>,
     pub tags: Vec<Sp<String>>,
     pub outputs: Vec<Output>,
@@ -547,11 +551,21 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let library = r.sub_msg(&msg, "library").map(|(m, span)| {
         r.check_known(
             m,
-            &["sources", "dependencies", "tags", "platforms", "visibility", "test", "testing"],
+            &[
+                "sources",
+                "proto_sources",
+                "dependencies",
+                "tags",
+                "platforms",
+                "visibility",
+                "test",
+                "testing",
+            ],
             "a `library` rule",
         );
         Library {
             sources: r.strings(m, "sources"),
+            proto_sources: r.strings(m, "proto_sources"),
             dependencies: r.strings(m, "dependencies"),
             tags: r.strings(m, "tags"),
             platforms: r.platforms(m, "platforms"),
@@ -567,7 +581,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         // says — and no `visibility`, because nothing can depend on a binary.
         r.check_known(
             m,
-            &["sources", "dependencies", "tags", "outputs", "test"],
+            &["sources", "proto_sources", "dependencies", "tags", "outputs", "test"],
             "a `binary` rule",
         );
         for bad in ["platforms", "visibility"] {
@@ -586,6 +600,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
         Binary {
             sources: r.strings(m, "sources"),
+            proto_sources: r.strings(m, "proto_sources"),
             dependencies: r.strings(m, "dependencies"),
             tags: r.strings(m, "tags"),
             outputs: r.outputs(m),

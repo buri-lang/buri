@@ -1,0 +1,3 @@
+argc 1
+argv --fail
+note the real filesystem

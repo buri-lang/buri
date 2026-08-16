@@ -323,6 +323,99 @@ test "an or-pattern nested under a variant" {
   assert.eq(out, "even and small");
 }
 
+// --- a nested or-pattern completes a match ------------------------------------
+//
+// Every test above leaves a `_` arm behind the alternation, so the alternation
+// never had to *cover* anything. These are the cases where it does: the arm is
+// exhaustive only because the alternatives together exhaust the sub-type, and
+// nothing else in the match mentions it. Exhaustiveness splits alternations at
+// the top of a column and used to drop an or-headed row once a constructor was
+// peeled off it, so `.Some(true | false)` was rejected as not covering
+// `.Some(false)` — a value that plainly matches the first arm (SPEC 7.3).
+
+test "a nested or-pattern covers its sub-type" {
+  let describe = fn(x: Option<Bool>) => match (x) {
+    .Some(true | false) => 1,
+    .None => 0,
+  };
+  assert.eq(describe(.Some(true)), 1);
+  assert.eq(describe(.Some(false)), 1);
+  assert.eq(describe(.None), 0);
+}
+
+test "a nested or-pattern covers an enum under a constructor" {
+  let describe = fn(x: Option<Colour>) => match (x) {
+    .Some(.Red | .Green | .Blue) => "some colour",
+    .None => "none",
+  };
+  assert.eq(describe(.Some(Colour.Green)), "some colour");
+  assert.eq(describe(.Some(Colour.Blue)), "some colour");
+  assert.eq(describe(.None), "none");
+}
+
+test "a nested or-pattern covers a tuple position" {
+  let describe = fn(p: (Bool, Colour)) => match (p) {
+    (true | false, .Red) => "red",
+    (_, .Green | .Blue) => "cool",
+  };
+  assert.eq(describe((true, Colour.Red)), "red");
+  assert.eq(describe((false, Colour.Red)), "red");
+  assert.eq(describe((true, Colour.Blue)), "cool");
+}
+
+test "a nested or-pattern covers an array element" {
+  let describe = fn(xs: [Bool]) => match (xs) {
+    [] => 0,
+    [true | false] => 1,
+    [_, ..rest] => 2 + rest.len(),
+  };
+  assert.eq(describe([]), 0);
+  assert.eq(describe([true]), 1);
+  assert.eq(describe([false]), 1);
+  assert.eq(describe([true, false]), 3);
+}
+
+test "an or-pattern two constructors deep covers its sub-type" {
+  let describe = fn(x: Option<Option<Bool>>) => match (x) {
+    .Some(.Some(true | false) | .None) => "inner",
+    .None => "outer",
+  };
+  assert.eq(describe(.Some(.Some(true))), "inner");
+  assert.eq(describe(.Some(.Some(false))), "inner");
+  assert.eq(describe(.Some(.None)), "inner");
+  assert.eq(describe(.None), "outer");
+}
+
+test "two nested or-patterns in one arm both count" {
+  let describe = fn(p: (Bool, Bool)) => match (p) {
+    (true | false, true | false) => "covered",
+  };
+  assert.eq(describe((true, false)), "covered");
+  assert.eq(describe((false, false)), "covered");
+}
+
+test "a nested or-pattern with a wildcard alternative covers everything" {
+  let describe = fn(x: Option<Shape>) => match (x) {
+    .Some(.Circle(_) | _) => "some",
+    .None => "none",
+  };
+  assert.eq(describe(.Some(Shape.Empty)), "some");
+  assert.eq(describe(.Some(Shape.Circle(1))), "some");
+  assert.eq(describe(.None), "none");
+}
+
+test "a nested or-pattern splits the arms that follow it" {
+  // `.Some(false)` is covered by the alternation, so the arm after it is
+  // reachable only for `.None` — and still reachable, which is the other half
+  // of the algorithm.
+  let describe = fn(x: Option<Bool>) => match (x) {
+    .Some(true | false) => "some",
+    _ => "rest",
+  };
+  assert.eq(describe(.Some(false)), "some");
+  assert.eq(describe(.None), "rest");
+}
+
 // --- struct patterns ----------------------------------------------------------
 
 test "a struct pattern with field shorthand binds each field" {

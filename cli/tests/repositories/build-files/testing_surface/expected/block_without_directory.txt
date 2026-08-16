@@ -1,0 +1,10 @@
+error: "//lib/plain/testing" names no file (lib/plain/testing/lib.buri) [module-not-found]
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+error: testing/helpers.buri does not exist
+ --> lib/plain/BUILD.buri:6:15
+  |
+6 |     sources: ["testing/helpers.buri"]
+  |               ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = every source is declared one path at a time; there are no globs
+  = fix: create the file, or remove it from `sources`

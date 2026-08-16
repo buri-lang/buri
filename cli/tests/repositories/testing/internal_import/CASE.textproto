@@ -1,0 +1,49 @@
+# TESTING.md:105-130. A test source may not import a library-internal module,
+# and the spec calls the resulting message "the whole design in one message":
+# either the function belongs on the surface, in which case say so in lib.buri
+# and everyone gets it, or the test is asserting on an implementation detail.
+#
+# The rule is about the *file*, not the directory: `test/cents.buri` is a test
+# source because `test.sources` lists it, so the same import from `cents.buri`
+# beside it is ordinary and legal.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test source importing a library-internal module is an error naming the surface to import and the name to re-export"
+
+# The suite reaching //lib/money, which is what it is supposed to do.
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 0
+  golden: "clean.txt"
+  stream: OUT
+}
+
+# One path, one line, and now the suite is reaching past the surface for a
+# function `lib.buri` never re-exported.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "from \"//lib/money\" import { fromCents, format };"
+  with: "from \"//lib/money/cents\" import { fromCents, toCents };"
+}
+
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "assert.eq(format(fromCents(1905)), \"some\");"
+  with: "assert.eq(toCents(fromCents(1905)), 1905);"
+}
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 1
+  golden: "internal.txt"
+  stream: ERR
+}
+
+run {
+  args: ["test", "//lib/money", "--force", "--error-format=json"]
+  exit: 1
+  golden: "internal.json"
+  stream: ERR
+}

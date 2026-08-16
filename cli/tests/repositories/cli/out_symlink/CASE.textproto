@@ -1,0 +1,74 @@
+# "A convenience symlink `out/` points at the most recent" build. What it
+# points at is a *platform* directory, not a target's, so two builds of two
+# targets both land under it — the link is how you get at the last thing you
+# built without typing `.buri/out/<platform>`.
+#
+# The honest boundary: this toolchain emits JavaScript and nothing else, so
+# every build produces `.buri/out/js` and "most recent" has one possible
+# answer. What is pinned here is everything that can be: the link exists, it is
+# a link rather than a directory, it names the platform directory relatively,
+# both artifacts are reachable through it, and a build after the link is
+# removed puts it back. When a second backend exists, this case gains the step
+# that tells the two apart — see TODO.md.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the out/ symlink points at the platform directory of the most recent build, and a build recreates it"
+
+run {
+  args: ["build", "//cmd/first"]
+  exit: 0
+  golden: "first.txt"
+}
+
+path {
+  path: "out"
+  symlink: ".buri/out/js"
+}
+
+path {
+  path: "out/cmd/first/first.mjs"
+  exists: true
+}
+
+run {
+  args: ["build", "//cmd/second"]
+  exit: 0
+  golden: "second.txt"
+}
+
+path {
+  path: "out"
+  symlink: ".buri/out/js"
+}
+
+path {
+  path: "out/cmd/second/second.mjs"
+  exists: true
+}
+
+# `clean` takes the link with the directory it points into.
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+path {
+  path: "out"
+  exists: false
+}
+
+# And a build puts it back, which is what makes it the *most recent* build's
+# rather than the first one's.
+run {
+  args: ["build", "//cmd/second"]
+  exit: 0
+  golden: "second_again.txt"
+}
+
+path {
+  path: "out"
+  symlink: ".buri/out/js"
+}

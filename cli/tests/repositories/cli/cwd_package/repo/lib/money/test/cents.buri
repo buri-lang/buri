@@ -1,0 +1,7 @@
+from "core/testing/assert" import * as assert;
+
+from "//lib/money" import { fromCents };
+
+test "cents keep the value they were made with" {
+  assert.eq(fromCents(5).value, 5);
+}

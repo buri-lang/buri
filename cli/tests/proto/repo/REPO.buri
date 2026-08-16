@@ -1,0 +1,8 @@
+# The conformance testee is a repository of its own so that the vendored
+# schemas are declared by a rule like any other source, and so that nothing
+# here is part of the toolchain's own build.
+
+toolchain {
+  version: "0.3.0"
+  sha256: "00"
+}

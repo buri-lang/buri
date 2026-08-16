@@ -1,0 +1,3 @@
+export fn isEmpty(s: Str): Bool {
+    s.len() == 0
+}

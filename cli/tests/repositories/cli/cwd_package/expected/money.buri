@@ -1,0 +1,10 @@
+# `sources` is deliberately missing, so that the no-argument `buri gen` run
+# inside this directory has something to write and says so.
+library {
+  visibility: ["//visibility:public"]
+  sources: ["cents.buri"]
+
+  test {
+    sources: ["test/cents.buri"]
+  }
+}

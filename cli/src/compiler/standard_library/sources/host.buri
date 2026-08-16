@@ -24,6 +24,7 @@ export struct HostStdout {}
 impl Stdout for HostStdout {
   fn print(self: HostStdout, text: Template): ();
   fn println(self: HostStdout, text: Template): ();
+  fn writeBytes(self: HostStdout, b: [U8]): ();
 }
 
 export struct HostStderr {}
@@ -35,6 +36,7 @@ impl Stderr for HostStderr {
 export struct HostStdin {}
 impl Stdin for HostStdin {
   fn readLine(self: HostStdin): Option<Str>;
+  fn readBytes(self: HostStdin, n: Int): Option<[U8]>;
 }
 
 export struct HostFs {}

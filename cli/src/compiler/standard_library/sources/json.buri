@@ -1,11 +1,11 @@
 //! core/json — JSON, as a value.
 //!
 //! `Json` is a tree, and `parse` and `stringify` turn text into one and back.
-//! There is no `derive`-driven mapping to your own types here: Buri has no
-//! reflection and no macros, and `derive` takes a fixed list (SPEC 6.7.5), so
-//! anything of that shape has to be a language feature rather than a library.
-//! What this module is, is the value layer that such a feature would be built
-//! on, and the layer you write by hand today.
+//! `ToJson` and `FromJson` map it to your own types: they are on `derive`'s
+//! fixed list (SPEC 6.7.5), so `derive ToJson for Point;` writes the encoder
+//! the way `derive Show` writes the renderer — a fold over the type's
+//! components, with no reflection and no macro anywhere. `encode` and `decode`
+//! are the two functions that use them.
 //!
 //! **An object is an ordered association list, not a map.** Three reasons, in
 //! order of weight: it round-trips — parse then stringify gives the key order
@@ -13,6 +13,10 @@
 //! is comparable and renderable with nothing but `derive`; and JSON objects are
 //! small in practice. The cost is that `get` is O(n), which is stated here
 //! rather than discovered.
+//!
+//! `\uXXXX` is read, surrogate pairs included; a lone surrogate is an error
+//! rather than a replacement character, for the same reason a bad UTF-8
+//! sequence is one in `core/bytes`.
 //!
 //! **Every number is a `Float`.** That is what JSON says a number is. A
 //! document holding an integer larger than 2^53 does not survive the round
@@ -261,15 +265,72 @@ fn stringBody<C: Alloc>(
     .Some('"') => .Ok((str.fromChars(ctx, acc), i + 1)),
     .Some('\\') => match (cs.get(i + 1)) {
       .None => .Err(.Unterminated),
-      .Some(e) => match (unescape(e)) {
-        .Some(c) => stringBody(ctx, cs, i + 2, acc.push(ctx, c)),
-        // `\u` is the one escape that is not a single character rewrite, and
-        // the one this module does not read. A document using it parses as an
-        // error rather than as the wrong text.
-        .None => .Err(.BadEscape(i + 1)),
+      .Some(e) => if (e == 'u') {
+        // `\uXXXX` is the one escape that is not a single-character rewrite:
+        // it names a UTF-16 code unit, and a character above the basic plane is
+        // written as a surrogate pair. Both halves are read here, because a
+        // lone half is not a character and a document that carries one is
+        // saying something no reader can honour.
+        let (c, next) = unicodeEscape(cs, i)?;
+        stringBody(ctx, cs, next, acc.push(ctx, c))
+      } else {
+        match (unescape(e)) {
+          .Some(c) => stringBody(ctx, cs, i + 2, acc.push(ctx, c)),
+          .None => .Err(.BadEscape(i + 1)),
+        }
       },
     },
     .Some(c) => stringBody(ctx, cs, i + 1, acc.push(ctx, c)),
+  }
+}
+
+/// The character a `\uXXXX` escape at `i` denotes, and the index just past it.
+/// `i` points at the backslash.
+fn unicodeEscape(cs: [Char], i: Int): Result<(Char, Int), JsonError> {
+  let hi = hex4(cs, i + 2)?;
+  if (hi < 55296 || hi > 56319) {
+    // Not a high surrogate. A *low* surrogate on its own is not a character
+    // either, and is refused for the same reason.
+    if (hi >= 56320 && hi <= 57343) {
+      .Err(.BadEscape(i + 2))
+    } else {
+      match (hi.wrapToU32().toChar()) {
+        .Ok(c) => .Ok((c, i + 6)),
+        .Err(_e) => .Err(.BadEscape(i + 2)),
+      }
+    }
+  } else {
+    match ((cs.get(i + 6), cs.get(i + 7))) {
+      (.Some('\\'), .Some('u')) => {
+        let lo = hex4(cs, i + 8)?;
+        if (lo < 56320 || lo > 57343) {
+          .Err(.BadEscape(i + 8))
+        } else {
+          let code = 65536 + (hi - 55296) * 1024 + (lo - 56320);
+          match (code.wrapToU32().toChar()) {
+            .Ok(c) => .Ok((c, i + 12)),
+            .Err(_e) => .Err(.BadEscape(i + 2)),
+          }
+        }
+      },
+      _ => .Err(.BadEscape(i + 2)),
+    }
+  }
+}
+
+/// Four hexadecimal digits, either case, as a number.
+fn hex4(cs: [Char], i: Int): Result<Int, JsonError> {
+  match ((cs.get(i), cs.get(i + 1), cs.get(i + 2), cs.get(i + 3))) {
+    (.Some(a), .Some(b), .Some(c), .Some(d)) => match ((
+      a.toDigit(16),
+      b.toDigit(16),
+      c.toDigit(16),
+      d.toDigit(16),
+    )) {
+      (.Some(w), .Some(x), .Some(y), .Some(z)) => .Ok(w * 4096 + x * 256 + y * 16 + z),
+      _ => .Err(.BadEscape(i)),
+    },
+    _ => .Err(.Unterminated),
   }
 }
 
@@ -286,6 +347,10 @@ fn unescape(e: Char): Option<Char> {
     .Some('\r')
   } else if (e == 't') {
     .Some('\t')
+  } else if (e == 'b') {
+    .Some('\u{0008}')
+  } else if (e == 'f') {
+    .Some('\u{000c}')
   } else {
     .None
   }
@@ -388,10 +453,18 @@ fn escape<C: Alloc>(ctx: C, c: Char): Str {
     "\\r"
   } else if (c == '\t') {
     "\\t"
+  } else if (c.toU32().toI64() < 32) {
+    // JSON forbids a raw control character inside a string, and the four with
+    // short spellings are above. The rest go out as `\u00XX`, which is the
+    // only way to write them at all.
+    let n = c.toU32().toI64();
+    str.format(ctx, "\\u00${HEX2.charAt(n / 16).withDefault('0')}${HEX2.charAt(n % 16).withDefault('0')}")
   } else {
     str.fromChars(ctx, [c])
   }
 }
+
+const HEX2: Str = "0123456789abcdef";
 
 // -----------------------------------------------------------------------------
 // Looking inside one
@@ -456,3 +529,138 @@ impl Json {
     }
   }
 }
+
+// -----------------------------------------------------------------------------
+// Typed encoding
+// -----------------------------------------------------------------------------
+//
+// `derive ToJson for Point;` and `derive FromJson for Point;` are folds over
+// the type's components, exactly as `derive Show` is. The compiler already
+// ships a *descriptor* of every type the structural operations reach — field
+// names, variant shapes, element types — and the runtime walks it. So this
+// costs no reflection, no macro, and no generated source: one walker for the
+// whole program rather than one encoder per type.
+//
+// A type derives one of these only if every one of its components does, which
+// the checker decides the way it decides `derive Eq`: a component that reaches
+// back to the type being derived stops there rather than asking the question
+// again, so a recursive type — a tree, a rose, a list of itself — is derivable
+// rather than a hang.
+//
+// **The mapping**, stated here rather than discovered by reading output:
+//
+//   * `Bool` is a JSON boolean; every integer and float type is a JSON number;
+//     `Str` is a string, and `Char` is a one-character string.
+//   * `()` is `null`.
+//   * `[T]` is an array, and so is a tuple: a tuple is positional data, and
+//     JSON's positional container is the array.
+//   * `Option<T>` is the encoding of `T`, or `null` for `.None`. JSON has one
+//     null, so `Option<Option<T>>` does not round-trip — `.Some(.None)` and
+//     `.None` both write `null` and both read back as `.None`. That is the
+//     price of the obvious encoding, and it is paid here rather than hidden.
+//   * A struct with named fields is an object keyed by those names, in
+//     declaration order.
+//   * A struct with positional fields is an array, in declaration order — a
+//     one-field struct included. Writing a newtype "transparently" as its one
+//     field would make the document's shape depend on how many fields the type
+//     happens to have today, so adding a second field would silently change
+//     every document already written.
+//   * An enum is **externally tagged**: a variant with no fields is its own
+//     name as a string, a variant with named fields is `{"Name": { ... }}`,
+//     and a variant with positional fields is `{"Name": [ ... ]}`. The
+//     alternative — `{"tag": "Name", ...}` — reserves a key, and a struct
+//     variant with a field called `tag` then collides with it silently.
+//     Externally tagged reserves nothing.
+//
+// **These two traits are derived, never written by hand.** What the derive
+// stands for is the *shape*, which is what the descriptor carries — so a
+// hand-written `impl ToJson for Date` would be called where a `Date` is
+// encoded on its own and walked straight past where an `Appointment` holding
+// one is, which is worse than not having it. An `impl` of either is rejected
+// rather than half-obeyed.
+//
+// **`Json` itself is neither**, for the same reason: the structural walk would
+// write `Json.Str("x")` as `{"Str": ["x"]}`, and a `Json` is already JSON.
+// A type with a `Json` field therefore does not derive these; convert at the
+// boundary instead, which is a line of code a reader can see.
+
+/// Encoding a value as JSON. Derived, never written by hand — see above.
+///
+/// Rendering allocates, so `toJson` names `Alloc` and nothing else, exactly as
+/// `Show.show` does.
+export trait ToJson {
+  fn toJson<C: Alloc>(self: Self, ctx: C): Json;
+}
+
+/// Decoding a value from JSON. Derived, never written by hand — see above.
+///
+/// Its method takes no `self`: there is no value yet. So it is reached through
+/// `decode` rather than through a receiver, the way `Bounded` is reached
+/// through `num.maxValue`.
+export trait FromJson {
+  fn fromJson(value: Json): Result<Self, DecodeError>;
+}
+
+/// Why a document could not be read as the type asked for, and *where*.
+///
+/// `path` is written `$` for the document itself, `.name` for a member and
+/// `[i]` for an element, so `$.center.x` and `$.tags[2]` name a place a reader
+/// can find in the text in front of them.
+export enum DecodeError {
+  /// An object with no member of that name.
+  export Missing { path: Str },
+  /// A value of the wrong shape: what the type wanted, and what was there.
+  export WrongType { path: Str, wanted: Str, found: Str },
+  /// A tag naming no variant of the enum being read.
+  export UnknownVariant { path: Str, tag: Str },
+}
+
+derive Eq, Show for DecodeError;
+
+/// Encodes any `ToJson` value.
+///
+/// ```buri run
+/// from "core/cap" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/json" import { DecodeError, ToJson, FromJson };
+/// from "core/json" import * as json;
+///
+/// struct Point { x: Int, y: Int }
+/// derive Eq, ToJson, FromJson for Point;
+///
+/// enum Shape {
+///   Dot,
+///   Line(Point, Point),
+/// }
+/// derive Eq, ToJson, FromJson for Shape;
+///
+/// export fn main(): Result<(), Str> {
+///   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+///   let shape = Shape.Line(Point { x: 0, y: 0 }, Point { x: 3, y: 4 });
+///   let text = json.stringify(ctx, json.encode(ctx, shape));
+///   let _ = ctx.println(text);
+///
+///   // The type comes from the annotation, not from a turbofish.
+///   let back: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, shape));
+///   let _ = ctx.println("${back == .Ok(shape)}");
+///   .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// {"Line":[{"x":0,"y":0},{"x":3,"y":4}]}
+/// true
+/// ```
+export fn encode<T: ToJson, C: Alloc>(ctx: C, value: T): Json {
+  value.toJson(ctx)
+}
+
+/// Reads a `Json` as a `T`, or says where it stopped.
+///
+/// **The type comes from the annotation.** `decode` is generic in both the
+/// type being read and the context it allocates in, and a turbofish has to
+/// name every type argument — a context type has no name to write (SPEC 11.3),
+/// so there is nothing to put in the second slot. Write the type on the
+/// binding instead — `let point: Result<Point, DecodeError> = json.decode(ctx,
+/// doc);` — as the example on `encode` does.
+export fn decode<T: FromJson, C: Alloc>(ctx: C, value: Json): Result<T, DecodeError>;

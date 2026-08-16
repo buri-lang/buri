@@ -30,3 +30,17 @@ export fn eprintln<C: Stderr>(ctx: C, text: Template): () {
 export fn readLine<C: Stdin>(ctx: C): Option<Str> {
   ctx.readLine()
 }
+
+/// Exactly `n` octets from standard input, or fewer at end of input.
+///
+/// Text and octets are two different questions about the same stream, so they
+/// are two different operations: `readLine` decodes, this does not. Mixing them
+/// on one stream is undefined, and a program should pick one.
+export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
+  ctx.readBytes(n)
+}
+
+/// Octets to standard output, encoded as nothing.
+export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): () {
+  ctx.writeBytes(b)
+}

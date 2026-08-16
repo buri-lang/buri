@@ -1,0 +1,8 @@
+error: the linux backend is not implemented [platform-not-implemented]
+ --> lib/codec/BUILD.buri:8:8
+  |
+8 |   test {
+  |        ^
+  |
+  = this toolchain emits JavaScript, so only a JS run can be executed
+  = fix: drop LINUX from `test.platforms` until the backend exists

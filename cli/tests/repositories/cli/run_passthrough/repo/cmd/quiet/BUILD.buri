@@ -1,0 +1,7 @@
+# A second binary, so that `buri run //...` has more than one to choose from
+# and has to refuse.
+binary {
+  outputs: [
+    { platform: JS },
+  ]
+}

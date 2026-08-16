@@ -1,0 +1,4 @@
+library {
+  visibility: ["//visibility:public"]
+  proto_sources: ["point.proto"]
+}

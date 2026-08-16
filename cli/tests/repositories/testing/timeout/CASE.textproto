@@ -1,0 +1,33 @@
+# TESTING.md:342-347. `test { timeout_seconds: N }` bounds the whole suite, not
+# one test: when it fires the run is killed, so no test in it has a result and
+# the diagnostic says so rather than picking one to blame.
+#
+# Nothing in a test blocks on I/O, so the only way to run forever is a loop
+# with no exit — which is what `spin` is, and what the edit at the bottom takes
+# away.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite that runs past its declared timeout_seconds is killed and reported as the suite's failure, not one test's"
+
+run {
+  args: ["test", "//lib/spin", "--force"]
+  exit: 1
+  golden: "timeout.txt"
+  stream: ERR
+}
+
+# The negative twin: a base case, and the same declaration lets it through.
+edit {
+  file: "lib/spin/spin.buri"
+  replace: "export fn spin(n: I64): I64 { spin(n + 1) }"
+  with: "export fn spin(n: I64): I64 { if (n == 0) { 0 } else { spin(n - 1) } }"
+}
+
+run {
+  args: ["test", "//lib/spin", "--force"]
+  exit: 0
+  golden: "clean.txt"
+  stream: OUT
+}

@@ -1,8 +1,10 @@
 //! `buri gen`.
 //!
-//! Rewrites the fields that restate the sources, and no others. `tags`,
-//! `platforms`, `timeout_seconds`, `visibility`, `outputs`, `test.data`, and
-//! every comment come back saying exactly what they said — see
+//! Rewrites the seven fields that restate the sources — `sources`,
+//! `proto_sources`, `dependencies`, `test.sources`, `test.dependencies`,
+//! `testing.sources`, `testing.dependencies` — and no others. `tags`, `platforms`,
+//! `timeout_seconds`, `visibility`, `outputs`, `test.data`, `test.platforms`,
+//! and every comment come back saying exactly what they said — see
 //! `crate::build::regenerate`, which does the rewriting.
 
 use crate::build::session;
@@ -10,8 +12,9 @@ use crate::build::workspace::PkgId;
 use crate::commands::arguments;
 
 /// Rewrites the fields that restate the sources, and no others. `tags`,
-/// `platforms`, `timeout_seconds`, `visibility`, `outputs`, `test.data`, and
-/// every comment come back saying exactly what they said.
+/// `platforms`, `timeout_seconds`, `visibility`, `outputs`, `test.data`,
+/// `test.platforms`, and every comment come back saying exactly what they
+/// said.
 pub fn cmd_gen(args: &arguments::Args) -> i32 {
     let mut s = match session::open(&args.flags) {
         Ok(s) => s,

@@ -1,0 +1,14 @@
+// The JSON conformance package: what `derive ToJson` and `derive FromJson`
+// mean, at every shape a value can have.
+//
+// The mapping is a promise about a *document*, which is to say about bytes
+// somebody else's program reads. So it is asserted on the text rather than on
+// a round trip alone: a round trip is symmetric and would pass just as happily
+// if both halves changed together, and the whole point of writing the mapping
+// down in `core/json` is that it does not change under anybody.
+
+from "//lib/json/shapes" export {
+  Point, Segment, Meters, Pair, Hollow, Everything, Wrapper,
+  Colour, Shape, Rose, Chain,
+  point, rose, chain, everything,
+};

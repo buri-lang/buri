@@ -1,0 +1,4 @@
+/// A string that is empty, for a suite that wants one by name.
+export fn blank(): Str {
+    ""
+}

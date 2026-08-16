@@ -35,7 +35,7 @@ function __cmd_x_main$main(){
   }else{
     $abort('no arm matched');
   }
-  $host_HostStdout_println([[],[]][1],$t1);
+  $host_HostStdout_println([],$t1);
   return $k12;
 }
 function __cmd_x_main$parseSum(c_0){

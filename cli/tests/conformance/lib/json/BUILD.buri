@@ -1,0 +1,10 @@
+library {
+  sources: ["shapes.buri"]
+
+  test {
+    sources: [
+      "test/encoding.buri",
+      "test/decoding.buri",
+    ]
+  }
+}

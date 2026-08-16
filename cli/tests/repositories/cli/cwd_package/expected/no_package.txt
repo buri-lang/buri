@@ -1,0 +1,1 @@
+error: no package at `lib`; name one, as in `buri build //lib/money`

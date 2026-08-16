@@ -83,34 +83,7 @@ pub fn build_target(
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let unit = Unit { target: Some(target), platform, with_tests: false };
-    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
-    if analysis.diags.has_errors() {
-        return Err(analysis.diags);
-    }
-    diags.extend(analysis.diags.items);
-
-    let Some(entry) = analysis.checked.entry else {
-        diags.push(
-            Diagnostic::error(Span::NONE, format!("{} exports no `main`", s.ws.pkg(target.pkg).label()))
-                .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
-        );
-        return Err(diags);
-    };
-
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut program = monomorphize::run(
-        &analysis.checked,
-        module_paths,
-        &mut diags,
-        monomorphize::Roots::Main(entry),
-    );
-    if diags.has_errors() {
-        return Err(diags);
-    }
-
-    let source = emit(&mut program, &analysis.checked.tables, flags, &mut diags)?;
+    let source = compile_artifact(s, target, platform, flags, &mut diags)?;
     cache.put(&key, source.as_bytes());
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -124,6 +97,66 @@ pub fn build_target(
     }
     link_out_symlink(s, output);
     Ok(Artifact { target, path, bytes: source.len(), cached: false })
+}
+
+/// The `link` action itself: sources in, artifact bytes out, and nothing on
+/// disk touched either way.
+///
+/// Split out of `build_target` so that it can be run twice without the cache
+/// and without an output directory, which is what `--check-reproducible` needs
+/// and what makes "two builds of the same commit produce identical bytes"
+/// something the toolchain can be asked rather than something a comment claims.
+pub fn compile_artifact(
+    s: &mut Session,
+    target: TargetId,
+    platform: Platform,
+    flags: &Flags,
+    diags: &mut Diagnostics,
+) -> Result<String, Diagnostics> {
+    let unit = Unit { target: Some(target), platform, with_tests: false };
+    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
+    if analysis.diags.has_errors() {
+        return Err(analysis.diags);
+    }
+    diags.extend(analysis.diags.items);
+
+    let Some(entry) = analysis.checked.entry else {
+        diags.push(
+            Diagnostic::error(Span::NONE, format!("{} exports no `main`", s.ws.pkg(target.pkg).label()))
+                .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
+        );
+        return Err(std::mem::take(diags));
+    };
+
+    let module_paths: Vec<String> =
+        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        module_paths,
+        diags,
+        monomorphize::Roots::Main(entry),
+    );
+    if diags.has_errors() {
+        return Err(std::mem::take(diags));
+    }
+    emit(&mut program, &analysis.checked.tables, flags, diags)
+}
+
+/// The first byte at which two artifacts differ, or `None` when they are the
+/// same bytes.
+///
+/// A byte offset rather than a diff: the artifacts are machine output, so what
+/// a reader needs is somewhere to look and the fact that there is somewhere to
+/// look. A length difference reports the first byte past the shorter one, which
+/// is where the two stop agreeing.
+pub fn first_difference(a: &[u8], b: &[u8]) -> Option<usize> {
+    let common = a.len().min(b.len());
+    for i in 0..common {
+        if a[i] != b[i] {
+            return Some(i);
+        }
+    }
+    (a.len() != b.len()).then_some(common)
 }
 
 /// The key for one action on one target. Paths are repository-relative, so two
@@ -166,6 +199,10 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
         RuleKind::Library => {
             if let Some(lib) = &pkg.build.library {
                 sources.extend(lib.sources.iter().map(|x| x.value.clone()));
+                // A `.proto` is an input like any other: the module it becomes
+                // is a pure function of its bytes, so editing a schema changes
+                // this key exactly as editing a source does.
+                sources.extend(lib.proto_sources.iter().map(|x| x.value.clone()));
                 if lib.testing.present {
                     sources.push("testing/lib.buri".into());
                     sources.extend(lib.testing.sources.iter().map(|x| x.value.clone()));
@@ -175,6 +212,7 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
         RuleKind::Binary => {
             if let Some(bin) = &pkg.build.binary {
                 sources.extend(bin.sources.iter().map(|x| x.value.clone()));
+                sources.extend(bin.proto_sources.iter().map(|x| x.value.clone()));
             }
         }
     }
@@ -204,14 +242,69 @@ pub fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags
     k.finish()
 }
 
+/// The schemas a rule declares, package-relative and sorted.
+pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
+    let pkg = s.ws.pkg(target.pkg);
+    let mut out: Vec<String> = match target.kind {
+        RuleKind::Library => pkg
+            .build
+            .library
+            .as_ref()
+            .map(|l| l.proto_sources.iter().map(|x| x.value.clone()).collect())
+            .unwrap_or_default(),
+        RuleKind::Binary => pkg
+            .build
+            .binary
+            .as_ref()
+            .map(|b| b.proto_sources.iter().map(|x| x.value.clone()).collect())
+            .unwrap_or_default(),
+    };
+    out.sort();
+    out
+}
+
+/// The key for turning one rule's schemas into modules.
+///
+/// Content, not paths and not timestamps — the generated module is a pure
+/// function of the schema text, so this is the whole of what it depends on.
+/// The platform is in it for the same reason it is in every other key, even
+/// though generation does not vary along it today: a key that leaves out
+/// something a future action varies on is the shape of a stale-cache bug.
+pub fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> String {
+    let mut k = KeyBuilder::new(Action::Proto, &s.ws.repo.toolchain, flags.release);
+    k.platform(
+        output.platform.as_ref().map(|p| p.value).unwrap_or(Platform::Js),
+        output.arch.as_ref().map(|a| a.value),
+    );
+    let pkg = s.ws.pkg(target.pkg);
+    let schemas = proto_sources(s, target);
+    k.rule_identity(&pkg.label(), "proto", &schemas);
+    for rel in &schemas {
+        let full = pkg.dir.join(rel);
+        k.input(&s.ws.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
+    }
+    k.finish()
+}
+
 /// Reports every action a build of `target` involves, deepest first: one
-/// `compile` line per closure member, then the `link` that consumed them.
+/// `proto` line per rule that declares a schema, one `compile` line per closure
+/// member, then the `link` that consumed them.
 pub fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags) {
     if !flags.explain {
         return;
     }
     let platform = output.platform.as_ref().map(|p| p.value).unwrap_or(Platform::Js);
     for member in s.ws.closure(target) {
+        if !proto_sources(s, member).is_empty() {
+            crate::build::cache::explain(
+                true,
+                crate::build::cache::Status::Keyed,
+                Action::Proto,
+                &s.ws.label(member),
+                platform,
+                &proto_key(s, member, output, flags),
+            );
+        }
         let key = compile_key(s, member, output, flags);
         crate::build::cache::explain(
             true,
@@ -337,8 +430,19 @@ pub fn check_policy(
 }
 
 pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) {
-    for member in s.ws.closure(target) {
-        for (dep, span) in s.ws.dep_edges(member) {
+    // Production edges are checked across the whole closure: a violation
+    // anywhere in it is a reason this target may not be linked. Test edges are
+    // checked on the target itself only — a suite is not linked into anything
+    // downstream, so a consumer neither depends on that edge nor could fix it,
+    // and `//...` reaches every target's own suite anyway.
+    let edges = s
+        .ws
+        .closure(target)
+        .into_iter()
+        .map(|m| (m, s.ws.dep_edges(m)))
+        .chain(std::iter::once((target, s.ws.test_dep_edges(target))));
+    for (member, member_edges) in edges {
+        for (dep, span) in member_edges {
             let Some(span) = span else { continue };
             if s.ws.visible(member.pkg, dep) {
                 continue;
@@ -410,22 +514,28 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
     .with_fix(format!(
         "drop one of the two dependencies, or split {label} into a target per side"
     ));
-    d = d.with_note(if a_by == target {
-        format!("\"{a}\" is carried by {label} itself")
-    } else {
-        format!("\"{a}\" is carried by {a_label}")
-    });
-    let mut second = if b_by == target {
-        format!("\"{b}\" is carried by {label} itself")
-    } else {
-        format!("\"{b}\" is carried by {b_label}")
-    };
-    if let Some(path) = s.ws.dep_path(target, b_by) {
-        if path.len() > 1 {
-            let names: Vec<String> = path.iter().map(|(t, _)| s.ws.label(*t)).collect();
-            second.push_str(&format!("\n    reached by: {}", names.join(" -> ")));
+    // Both tags get the same treatment. The introducing edge is what makes
+    // this diagnostic useful (TAGS.md:191-203), and printing it for only one
+    // of the two leaves the reader to go and find the other by hand — which is
+    // exactly the work the note exists to save. A tag the target carries
+    // itself has no path to print, and that is the only asymmetry.
+    let note_for = |tag: &str, by: TargetId, by_label: &str| -> String {
+        let mut note = if by == target {
+            format!("\"{tag}\" is carried by {label} itself")
+        } else {
+            format!("\"{tag}\" is carried by {by_label}")
+        };
+        if let Some(path) = s.ws.dep_path(target, by) {
+            if path.len() > 1 {
+                let names: Vec<String> = path.iter().map(|(t, _)| s.ws.label(*t)).collect();
+                note.push_str(&format!("\n    reached by: {}", names.join(" -> ")));
+            }
         }
-    }
+        note
+    };
+    let first = note_for(&a, a_by, &a_label);
+    let second = note_for(&b, b_by, &b_label);
+    d = d.with_note(first);
     d = d.with_note(second);
     // The doc strings are printed because the tag is a policy, and the policy
     // should say why.
@@ -506,5 +616,28 @@ pub fn selected_outputs(s: &Session, target: TargetId, flags: &Flags) -> Vec<Out
     match &flags.output {
         Some(sel) => outputs.into_iter().filter(|o| o.matches_selector(sel)).collect(),
         None => outputs,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--check-reproducible`'s red path. A build that is genuinely
+    /// irreproducible is hard to arrange in a hermetic system — which is the
+    /// point of the system — so what the flag reports when two artifacts
+    /// disagree is asserted on the comparison rather than on a build.
+    #[test]
+    fn two_artifacts_that_disagree_report_where() {
+        assert_eq!(first_difference(b"same", b"same"), None);
+        assert_eq!(first_difference(b"", b""), None);
+        // A byte that moved.
+        assert_eq!(first_difference(b"const x=1;", b"const x=2;"), Some(8));
+        assert_eq!(first_difference(b"abc", b"xbc"), Some(0));
+        // A length that moved: the first byte past the shorter one is where
+        // the two stop agreeing, whichever side is shorter.
+        assert_eq!(first_difference(b"abc", b"abcd"), Some(3));
+        assert_eq!(first_difference(b"abcd", b"abc"), Some(3));
+        assert_eq!(first_difference(b"", b"a"), Some(0));
     }
 }

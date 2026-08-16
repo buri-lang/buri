@@ -22,6 +22,12 @@ export effect Alloc {
 export effect Stdout {
   fn print(self: Self, text: Template): ();
   fn println(self: Self, text: Template): ();
+  /// Octets, written through unchanged.
+  ///
+  /// `print` takes a `Template` and the platform encodes it; this takes bytes
+  /// and the platform encodes nothing. A program speaking a binary protocol
+  /// over a pipe needs the second, and could not get it by rendering the first.
+  fn writeBytes(self: Self, b: [U8]): ();
 }
 
 export effect Stderr {
@@ -31,6 +37,14 @@ export effect Stderr {
 
 export effect Stdin {
   fn readLine(self: Self): Option<Str>;
+  /// Exactly `n` octets, or fewer at end of input — `.None` when there were
+  /// none at all.
+  ///
+  /// This blocks until the octets arrive, which is what makes a
+  /// request/response protocol over a pipe expressible: `readLine` reads the
+  /// input to its end, so a program using it cannot answer before the other
+  /// side has finished speaking.
+  fn readBytes(self: Self, n: Int): Option<[U8]>;
 }
 
 export effect Fs {

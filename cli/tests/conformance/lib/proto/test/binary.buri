@@ -1,0 +1,357 @@
+// What a message writes on the wire, asserted on the *bytes*.
+//
+// The bytes rather than a round trip, for the same reason `lib/json` asserts on
+// the document: a round trip is symmetric and would pass just as happily if
+// both halves changed together, and the point of a wire format is that somebody
+// else's program reads it. Every hex string below was checked by hand against
+// the protobuf encoding rules — the tag is `(number << 3) | wire_type` as a
+// varint, and the comment on each assertion says what the bytes are.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+from "core/cap" import { Alloc };
+from "core/bytes" import * as bytes;
+from "core/list" import * as list;
+
+from "//lib/proto" import {
+  Everything, Everything_Note, Everything_Contact, Shade,
+  Address, Country,
+  defaultEverything, encodeEverything, decodeEverything,
+  defaultAddress, defaultEmpty, encodeEmpty, decodeEmpty,
+};
+
+fn hex<C: Alloc>(ctx: C, v: Everything): Str {
+  bytes.toHex(ctx, encodeEverything(ctx, v))
+}
+
+/// The bytes a hex string names.
+fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
+  match (bytes.fromHex(ctx, text)) {
+    .Ok(b) => b,
+    .Err(_e) => list.empty::<U8>(),
+  }
+}
+
+// --- what proto3 leaves out ---------------------------------------------------
+
+test "a message whose fields are all default writes nothing" {
+  let ctx = Hermetic();
+  // proto3's canonical encoding omits a singular field holding its default, so
+  // the whole message is zero bytes.
+  assert.eq(hex(ctx, defaultEverything()), "");
+  assert.eq(bytes.toHex(ctx, encodeEmpty(ctx, defaultEmpty())), "");
+}
+
+test "a message of no bytes decodes to every default" {
+  let ctx = Hermetic();
+  assert.eq(decodeEverything(ctx, list.empty::<U8>()), .Ok(defaultEverything()));
+  assert.eq(decodeEmpty(ctx, list.empty::<U8>()), .Ok(defaultEmpty()));
+}
+
+// --- one field at a time ------------------------------------------------------
+
+test "a string field is a tag, a length, and UTF-8" {
+  let ctx = Hermetic();
+  // field 1, wire 2 -> (1 << 3) | 2 = 0x0a; length 3; "Ada" is 41 64 61.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), name: "Ada" }), "0a03416461");
+}
+
+test "a varint field is a tag and base-128 digits" {
+  let ctx = Hermetic();
+  // field 2, wire 0 -> 0x10. 300 = 0b100101100 -> 0xac 0x02.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), count: 300 }), "10ac02");
+  // field 3, wire 0 -> 0x18. 1 is one byte.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), total: 1 }), "1801");
+}
+
+test "a negative int32 is the ten-byte two's complement" {
+  let ctx = Hermetic();
+  // -1 at 64 bits is all ones: nine groups of seven ones, then the top bit.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), count: -1 }), "10ffffffffffffffffff01");
+  // And it reads back as the number it was, not as 2^64 - 1.
+  let v = Everything { ..defaultEverything(), count: -1 };
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+}
+
+test "a sint field zigzags, so a small negative is a small varint" {
+  let ctx = Hermetic();
+  // field 6, wire 0 -> 0x30. zigzag(-1) = 1.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), delta: -1 }), "3001");
+  // zigzag(-64) = 127, which is still one byte; the two's complement form
+  // would have been ten.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), delta: -64 }), "307f");
+  // field 7 -> 0x38. zigzag(1) = 2.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), offset: 1 }), "3802");
+}
+
+test "the zigzag transform is its own documented pair" {
+  // Held here as well as in `core/bytes` because the mapping's promise is that
+  // a `sint32` field means *this* transform.
+  assert.eq(bytes.zigzag(0), 0);
+  assert.eq(bytes.zigzag(-1), 1);
+  assert.eq(bytes.zigzag(1), 2);
+  assert.eq(bytes.zigzag(-2), 3);
+  assert.eq(bytes.unzigzag(bytes.zigzag(-2147483648)), -2147483648);
+  assert.eq(bytes.unzigzag(bytes.zigzag(2147483647)), 2147483647);
+}
+
+test "a fixed field is little-endian and never varint" {
+  let ctx = Hermetic();
+  // field 8, wire 5 -> (8 << 3) | 5 = 0x45. 1 as four bytes, low byte first.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), tagId: 1 }), "4501000000");
+  // field 9, wire 1 -> (9 << 3) | 1 = 0x49. 2^32 as eight bytes.
+  assert.eq(
+    hex(ctx, Everything { ..defaultEverything(), serial: 4294967296 }),
+    "490000000001000000",
+  );
+  // field 10, wire 5 -> 0x55. -1 as four bytes is ff ff ff ff.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), signedSmall: -1 }), "55ffffffff");
+  // field 11, wire 1 -> 0x59. -1 as eight bytes.
+  assert.eq(
+    hex(ctx, Everything { ..defaultEverything(), signedBig: -1 }),
+    "59ffffffffffffffff",
+  );
+}
+
+test "a double is its IEEE 754 bytes, little-endian" {
+  let ctx = Hermetic();
+  // field 14, wire 1 -> (14 << 3) | 1 = 0x71. 0.5 is 0x3fe0000000000000.
+  assert.eq(
+    hex(ctx, Everything { ..defaultEverything(), ratio: 0.5 }),
+    "71000000000000e03f",
+  );
+  // field 15, wire 5 -> (15 << 3) | 5 = 0x7d. 0.5 at single precision is
+  // 0x3f000000.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), rough: 0.5 }), "7d0000003f");
+}
+
+test "a bool is one varint byte, and false is not written at all" {
+  let ctx = Hermetic();
+  // field 12, wire 0 -> 0x60.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), active: true }), "6001");
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), active: false }), "");
+}
+
+test "bytes are length-delimited and are not text" {
+  let ctx = Hermetic();
+  // field 13, wire 2 -> (13 << 3) | 2 = 0x6a. Two bytes, one of them not UTF-8.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), blob: [0.wrapToU8(), 255.wrapToU8()] }), "6a0200ff");
+}
+
+test "an enum is its number" {
+  let ctx = Hermetic();
+  // field 16, wire 0 -> (16 << 3) = 0x80 0x01 as a varint.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), shade: Shade.DARK }), "800102");
+  // The zero value is the default, so it is omitted.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), shade: Shade.SHADE_UNSPECIFIED }), "");
+}
+
+// --- presence -----------------------------------------------------------------
+
+test "an optional field set to its own default is still written" {
+  let ctx = Hermetic();
+  // This is the whole difference `optional` buys: field 20, wire 0 -> 0xa0 0x01.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), age: .Some(0) }), "a00100");
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), age: .None }), "");
+  let v = Everything { ..defaultEverything(), age: .Some(0) };
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+}
+
+test "a singular scalar cannot tell unset from its default, and says so" {
+  let ctx = Hermetic();
+  // `count: 0` writes nothing, so what comes back is the default — which is
+  // the same value. The mismatch proto3 has with an explicit `Option` is
+  // resolved by not offering one.
+  let v = Everything { ..defaultEverything(), count: 0 };
+  assert.eq(encodeEverything(ctx, v), list.empty::<U8>());
+  assert.eq(decodeEverything(ctx, list.empty::<U8>()), .Ok(v));
+}
+
+test "a message field is an Option whatever its label says" {
+  let ctx = Hermetic();
+  // field 40, wire 2 -> (40 << 3) | 2 = 322 -> varint c2 02. The body is an
+  // Address holding only `city: "A"`, which is 0a 01 41.
+  let v = Everything {
+    ..defaultEverything(),
+    home: .Some(Address { ..defaultAddress(), city: "A" }),
+  };
+  assert.eq(hex(ctx, v), "c202030a0141");
+  // An empty message still occupies a field: presence is what it carries.
+  let empty = Everything { ..defaultEverything(), home: .Some(defaultAddress()) };
+  assert.eq(hex(ctx, empty), "c20200");
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, empty)), .Ok(empty));
+}
+
+// --- repeated -----------------------------------------------------------------
+
+test "a repeated numeric field is packed into one length-delimited field" {
+  let ctx = Hermetic();
+  // field 30, wire 2 -> (30 << 3) | 2 = 242 -> f2 01. Three varints, 3 bytes.
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), scores: [1, 2, 3] }), "f20103010203");
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), scores: list.empty::<Int>() }), "");
+}
+
+test "a repeated string field is one whole field per element" {
+  let ctx = Hermetic();
+  // field 31, wire 2 -> (31 << 3) | 2 = 250 -> fa 01. Packing strings would be
+  // indistinguishable from one long string, so they are not packed.
+  assert.eq(
+    hex(ctx, Everything { ..defaultEverything(), labels: ["a", "b"] }),
+    "fa010161fa010162",
+  );
+}
+
+test "an unpacked repeated numeric field still decodes" {
+  let ctx = Hermetic();
+  // A writer is allowed to send the unpacked form, so a reader takes it: three
+  // separate field-30 varints rather than one packed run.
+  let unpacked = raw(ctx, "f00101f00102f00103");
+  assert.eq(
+    decodeEverything(ctx, unpacked),
+    .Ok(Everything { ..defaultEverything(), scores: [1, 2, 3] }),
+  );
+}
+
+test "repeated messages and enums round-trip" {
+  let ctx = Hermetic();
+  let v = Everything {
+    ..defaultEverything(),
+    places: [
+      Address { city: "London", zip: 1, country: Country.UK },
+      Address { city: "Tokyo", zip: 2, country: Country.JP },
+    ],
+    shades: [Shade.LIGHT, Shade.DARK],
+  };
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+}
+
+// --- oneof and nesting ----------------------------------------------------------
+
+test "a oneof writes exactly the case it holds" {
+  let ctx = Hermetic();
+  // field 60, wire 2 -> (60 << 3) | 2 = 482 -> e2 03. "9" is 39.
+  assert.eq(
+    hex(ctx, Everything { ..defaultEverything(), contact: .Some(Everything_Contact.Phone("9")) }),
+    "e2030139",
+  );
+  // field 62, wire 0 -> (62 << 3) = 496 -> f0 03.
+  assert.eq(
+    hex(ctx, Everything {
+      ..defaultEverything(),
+      contact: .Some(Everything_Contact.ExtensionNumber(5)),
+    }),
+    "f00305",
+  );
+  assert.eq(hex(ctx, Everything { ..defaultEverything(), contact: .None }), "");
+}
+
+test "a oneof case holding its type's default is still written" {
+  let ctx = Hermetic();
+  // Presence is tracked for a oneof, so the empty string is on the wire.
+  let v = Everything { ..defaultEverything(), contact: .Some(Everything_Contact.Phone("")) };
+  assert.eq(hex(ctx, v), "e20300");
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+}
+
+test "a nested message is a type of its own, named for its nesting" {
+  let ctx = Hermetic();
+  // field 41, wire 2 -> (41 << 3) | 2 = 330 -> ca 02.
+  let v = Everything { ..defaultEverything(), note: .Some(Everything_Note { text: "n" }) };
+  assert.eq(hex(ctx, v), "ca02030a016e");
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+}
+
+// --- the whole thing ------------------------------------------------------------
+
+fn everything<C: Alloc>(ctx: C): Everything {
+  let _ = ctx;
+  Everything {
+    name: "Ada",
+    count: -7,
+    total: 9007199254740991,
+    small: 4294967295,
+    large: 1,
+    delta: -3,
+    offset: -4,
+    tagId: 305419896,
+    serial: 4294967296,
+    signedSmall: -2,
+    signedBig: -4294967296,
+    active: true,
+    blob: [1.wrapToU8(), 255.wrapToU8(), 0.wrapToU8()],
+    ratio: 0.25,
+    rough: 0.5,
+    shade: Shade.DARK,
+    age: .Some(0),
+    nickname: .Some(""),
+    scores: [0, 1, -1, 300],
+    labels: ["a", "", "c"],
+    places: [Address { city: "London", zip: 1, country: Country.UK }],
+    shades: [Shade.LIGHT, Shade.SHADE_UNSPECIFIED],
+    home: .Some(Address { city: "Kyoto", zip: 600, country: Country.JP }),
+    note: .Some(Everything_Note { text: "hi" }),
+    type_: "t",
+    userName: "ada",
+    contact: .Some(Everything_Contact.Office(defaultAddress())),
+  }
+}
+
+test "every field kind at once round-trips through the wire format" {
+  let ctx = Hermetic();
+  let v = everything(ctx);
+  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+}
+
+test "encoding is deterministic" {
+  let ctx = Hermetic();
+  // Fields go out in schema order, so the same value is the same bytes — which
+  // is what makes an encoding something a golden file can hold.
+  let a = bytes.toHex(ctx, encodeEverything(ctx, everything(ctx)));
+  let b = bytes.toHex(ctx, encodeEverything(ctx, everything(ctx)));
+  assert.eq(a, b);
+}
+
+// --- forward compatibility ------------------------------------------------------
+
+test "a field this schema does not know is skipped" {
+  let ctx = Hermetic();
+  // Four unknown fields, one of each wire type, around a known one:
+  //   field 100 varint  -> (100 << 3) | 0 = 800 -> a0 06, then 01
+  //   field 101 i64     -> (101 << 3) | 1 = 809 -> a9 06, then eight bytes
+  //   field 102 len     -> (102 << 3) | 2 = 818 -> b2 06, then 02 and two bytes
+  //   field 103 i32     -> (103 << 3) | 5 = 829 -> bd 06, then four bytes
+  let noise = raw(
+    ctx,
+    "a00601a9060102030405060708b20602aabbbd0611223344",
+  );
+  let known = raw(ctx, "0a03416461");
+  let mixed = noise.concat(ctx, known).concat(ctx, noise);
+  assert.eq(
+    decodeEverything(ctx, mixed),
+    .Ok(Everything { ..defaultEverything(), name: "Ada" }),
+  );
+}
+
+test "an unknown enum number decodes to the zero value" {
+  let ctx = Hermetic();
+  // field 16 carrying 99, which this schema does not know. Failing instead
+  // would mean that adding a value to an enum broke every reader built before
+  // it — which is the thing proto3's rule exists to prevent.
+  assert.eq(
+    decodeEverything(ctx, raw(ctx, "800163")),
+    .Ok(Everything { ..defaultEverything(), shade: Shade.SHADE_UNSPECIFIED }),
+  );
+}
+
+test "unknown fields are dropped rather than carried" {
+  let ctx = Hermetic();
+  // Re-encoding a message decoded from a newer schema loses what that schema
+  // added. Buri's generated types have nowhere to keep it, and the loss is
+  // stated rather than discovered.
+  let with_extra = raw(ctx, "a006010a03416461");
+  let back = match (decodeEverything(ctx, with_extra)) {
+    .Ok(v) => v,
+    .Err(_e) => defaultEverything(),
+  };
+  assert.eq(bytes.toHex(ctx, encodeEverything(ctx, back)), "0a03416461");
+}

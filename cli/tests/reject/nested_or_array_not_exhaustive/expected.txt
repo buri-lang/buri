@@ -1,0 +1,8 @@
+error: this `match` does not cover `[false]` [match-not-exhaustive]
+ --> cmd/nested_or_array_not_exhaustive/main.buri:7:3
+  |
+7 |   match (xs) {
+  |   ^^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `[false]`, or a `_` arm for everything left

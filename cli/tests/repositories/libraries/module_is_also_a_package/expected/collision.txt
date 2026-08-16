@@ -1,0 +1,7 @@
+error: //lib/money/cents is a package, and lib/money/cents.buri is a module in //lib/money
+ --> lib/money/cents/BUILD.buri:1:1
+  |
+1 | # A package whose label is //lib/money/cents. Its parent already has a
+  | ^
+  |
+  = fix: the module path "//lib/money/cents" would name both; rename one of them

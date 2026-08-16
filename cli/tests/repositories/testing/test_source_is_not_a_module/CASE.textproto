@@ -1,0 +1,70 @@
+# TESTING.md:109-111. A test source may not import another test source, and may
+# not be imported by anything. Test sources are compiled independently and are
+# not modules anybody can name, so both halves are the same fact seen from the
+# two ends — and both are checked at the import line, where the person writing
+# it is looking.
+#
+# The second diagnostic in each recording is the resolver saying the name never
+# arrived, which is what an import that was refused leaves behind. It is the
+# same pair `internal-import` produces, and recording it is how it stays that
+# way.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test source is not importable: not by a sibling suite, and not by the library it tests"
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 0
+  golden: "clean.txt"
+  stream: OUT
+}
+
+# One suite reaching for the other's private helper — the mistake this rule
+# exists to catch, and the one a shared `testing` library is the answer to.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "from \"core/testing/assert\" import * as assert;"
+  with: "from \"//lib/money/test/parse\" import { digits };\nfrom \"core/testing/assert\" import * as assert;"
+}
+
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "fromCents(1905)"
+  with: "fromCents(digits(1905))"
+}
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 1
+  golden: "from_a_suite.txt"
+  stream: ERR
+}
+
+# Put it back, and try the other end: ordinary library code naming a test
+# source. The rule does not care who is asking.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "from \"//lib/money/test/parse\" import { digits };\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "fromCents(digits(1905))"
+  with: "fromCents(1905)"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "export fn fromCents(n: I64): I64 { n }"
+  with: "from \"//lib/money/test/parse\" import { digits };\n\nexport fn fromCents(n: I64): I64 { digits(n) }"
+}
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 1
+  golden: "from_the_library.txt"
+  stream: ERR
+}

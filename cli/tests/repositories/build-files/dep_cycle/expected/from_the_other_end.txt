@@ -13,10 +13,3 @@ error: //lib/a is declared but nothing uses it [unused-dep]
   |
   = a dependencies entry no source uses makes the graph a description of something other than the code
   = fix: remove it from `dependencies`
-error: //lib/b and //lib/a depend on each other [dep-cycle]
- --> lib/b/BUILD.buri:7:18
-  |
-7 |   dependencies: ["//lib/a"]
-  |                  ^^^^^^^^^
-  |
-  = fix: break the cycle: move what both need into a third target

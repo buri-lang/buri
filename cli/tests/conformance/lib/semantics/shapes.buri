@@ -528,6 +528,40 @@ export fn callWith<A, B>(f: fn(A) => B, x: A): B {
   f(x)
 }
 
+/// What a lambda may close over, at the edges of the capture rule (SPEC 10.6).
+///
+/// The rule is scoped to *effect-carrying* values. `Report` implements no
+/// effect, so a lambda may capture the receiver — but `self` used to be marked
+/// effect-carrying whatever its type was, which made these two methods
+/// impossible to write.
+export struct Report { export n: Int }
+
+impl Report {
+  /// `self` inside a lambda that is consumed on the spot.
+  export fn above<C: Alloc>(self: Report, ctx: C, xs: [Int]): [Int] {
+    xs.filter(ctx, fn(x) => x > self.n)
+  }
+
+  /// `self` inside a lambda that escapes. Still fine: what escapes is an
+  /// `Int`, and an `Int` is not authority.
+  export fn threshold(self: Report): fn(Int) => Bool {
+    fn(x) => x > self.n
+  }
+}
+
+/// A lambda may capture a value whose type is a *bounded* type parameter. A
+/// type is either part of the world or part of your data (SPEC 10.1), so a
+/// `T: Eq` is never a context, and the capture rule has nothing to say.
+export fn occursIn<T: Eq>(xs: [T], needle: T): Bool {
+  xs.any(fn(x) => x == needle)
+}
+
+/// And a closure may be captured whatever its type parameters are: a closure
+/// holds exactly what it captured, and that is what the capture rule checks.
+export fn composeThrice<T>(f: fn(T) => T): fn(T) => T {
+  fn(x) => f(f(f(x)))
+}
+
 // =============================================================================
 // 8. `?` and `??`
 // =============================================================================

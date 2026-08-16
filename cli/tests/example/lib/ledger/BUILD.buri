@@ -19,6 +19,9 @@ library {
 
   testing {
     sources: ["testing/fixtures.buri"]
+    # The fixtures build real `Entry` values, so the surface uses //lib/money
+    # the way the library beside it does. `buri gen` writes this field.
+    dependencies: ["//lib/money"]
   }
 
   test {

@@ -1,0 +1,7 @@
+# A package whose label is //lib/money/cents. Its parent already has a
+# cents.buri, so the module path "//lib/money/cents" would name two files.
+
+library {
+  sources: ["round.buri"]
+  visibility: ["//visibility:public"]
+}

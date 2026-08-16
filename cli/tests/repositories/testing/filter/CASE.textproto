@@ -1,0 +1,62 @@
+# TESTING.md:373-378. `--filter=<substring>` is a substring match on the test's
+# name — no globs, no regular expressions, nothing to quote past the shell.
+# What it leaves out is counted and printed rather than silently absent, so a
+# filter that matches nothing reads differently from a suite that holds
+# nothing.
+#
+# `--shuffle` is at the bottom, and it is not a flag. TESTING.md:396-398 is
+# explicit that the runner is free to run a suite's tests in any order and that
+# there is no knob to turn that off — a suite that would need one is a suite
+# with a dependency it has not admitted to. A flag that nothing reads cannot be
+# listed in `commands::FLAGS`, so the CLI table is what makes this true, and
+# this step is what says so out loud.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "--filter matches a substring of a test's name and reports the rest as skipped; there is no --shuffle to match"
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 0
+  golden: "all.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/money", "--force", "--filter=pads"]
+  exit: 0
+  golden: "one.txt"
+  stream: OUT
+}
+
+# A substring, not a word: `composes` sits at the end of one name.
+run {
+  args: ["test", "//lib/money", "--force", "--filter=composes"]
+  exit: 0
+  golden: "suffix.txt"
+  stream: OUT
+}
+
+# Matching nothing is not an error, and it does not look like an empty suite.
+run {
+  args: ["test", "//lib/money", "--force", "--filter=nonesuch"]
+  exit: 0
+  golden: "none.txt"
+  stream: OUT
+}
+
+# The invocation is wrong, not the code, which is what exit 2 means. There is
+# no golden here on purpose: what `buri` prints for an unknown flag is the
+# whole generated usage page, and recording it in *this* corpus would make a
+# new command break a test about test filtering. The exit code is the claim,
+# and it is hand-written.
+run {
+  args: ["test", "//lib/money", "--shuffle"]
+  exit: 2
+}
+
+run {
+  args: ["test", "//lib/money", "--shuffle=off"]
+  exit: 2
+}

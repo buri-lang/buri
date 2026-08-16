@@ -130,6 +130,7 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
+| `proto_sources` | Every `.proto` schema in the package that belongs to this library. Each becomes a module named by its own path, holding the types it declares and their codecs. See [`PROTO.md`](./cli/src/docs/build/proto.md). |
 | `dependencies` | Labels of libraries this one may use. |
 | `tags` | Labels saying what this code is; the policy they carry is declared in `REPO.buri`. See [`TAGS.md`](./cli/src/docs/build/tags.md). |
 | `platforms` | The platforms it can be built for. Omit unless the code is genuinely platform-specific — unset means all of them. |
@@ -144,8 +145,8 @@ possible to write a `library` without one, which is not a state the build system
 wants to have a diagnostic for.
 
 Every other `.buri` file in the package must appear in exactly one rule's
-`sources`, `test.sources`, or `testing.sources`. A file that appears in none is
-an error —
+`sources`, `test.sources`, or `testing.sources`, and every `.proto` in exactly
+one rule's `proto_sources`. A file that appears in none is an error —
 
 ```
 error: lib/ledger/posting/interest.buri is not declared by any rule
@@ -379,7 +380,7 @@ who wrote the edge that pulled the code in.
   from "//lib/ledger" import { Entry };
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —
   // no import names //lib/money, and this target still depends on it.
-  fn line<C: Alloc>(e: Entry, ctx: C): Str { e.amount.format(ctx) }
+  fn line<C: Alloc>(ctx: C, e: Entry): Str { e.amount.format(ctx) }
   ```
 
   requires `//lib/money` in `dependencies` as much as an import would.

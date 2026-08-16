@@ -1,0 +1,23 @@
+error: //lib/money/test/parse is a test source [test-source-import]
+ --> lib/money/test/cents.buri:2:6
+  |
+2 | from "//lib/money/test/parse" import { digits };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^ test sources are not importable
+  |
+  = test sources are compiled independently and are not modules anybody can name
+  = fix: put the shared helper in a library and list it in `test.dependencies` — a path with a `testing` segment if it is test-only
+error: "//lib/money/test/parse" does not export `digits` [no-such-export]
+ --> lib/money/test/cents.buri:2:40
+  |
+2 | from "//lib/money/test/parse" import { digits };
+  |                                        ^^^^^^
+  |
+  = `digits` is declared in "//lib/money/test/parse" but not exported
+  = fix: check the spelling, or add `export` to `digits`'s declaration in "//lib/money/test/parse"
+error: there is nothing named `digits` in scope [unresolved-name]
+ --> lib/money/test/cents.buri:6:30
+  |
+6 |   assert.eq(format(fromCents(digits(1905))), "some");
+  |                              ^^^^^^
+  |
+  = fix: declare `digits`, or import it — a name is in scope only from this module's own declarations and its imports

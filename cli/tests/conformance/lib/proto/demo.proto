@@ -1,0 +1,74 @@
+// One message of every field kind proto3 has, so that a change to the mapping
+// fails an assertion rather than a review.
+//
+// The field numbers are deliberately not consecutive: a tag is the number, not
+// the position, and a corpus where the two agree cannot tell them apart.
+
+syntax = "proto3";
+
+package conformance.proto.v1;
+
+// An import is written from the repository root, the way protoc resolves one
+// against `-I.`.
+import "lib/proto/address.proto";
+
+// A value the reader is expected not to know: nothing constructs LATER, and a
+// binary message carrying its number decodes to the zero value.
+enum Shade {
+  SHADE_UNSPECIFIED = 0;
+  LIGHT = 1;
+  DARK = 2;
+}
+
+message Everything {
+  // Implicit presence: always there, defaulted when absent.
+  string name = 1;
+  int32 count = 2;
+  int64 total = 3;
+  uint32 small = 4;
+  uint64 large = 5;
+  sint32 delta = 6;
+  sint64 offset = 7;
+  fixed32 tag_id = 8;
+  fixed64 serial = 9;
+  sfixed32 signed_small = 10;
+  sfixed64 signed_big = 11;
+  bool active = 12;
+  bytes blob = 13;
+  double ratio = 14;
+  float rough = 15;
+  Shade shade = 16;
+
+  // Explicit presence.
+  optional int32 age = 20;
+  optional string nickname = 21;
+
+  // Repeated: packed for the numeric ones, one field each for the rest.
+  repeated int32 scores = 30;
+  repeated string labels = 31;
+  repeated Address places = 32;
+  repeated Shade shades = 33;
+
+  // A message field, which always tracks presence.
+  Address home = 40;
+
+  // Nesting, which flattens to Everything_Note.
+  message Note {
+    string text = 1;
+  }
+
+  Note note = 41;
+
+  // A field whose name is a Buri keyword, and one that is snake_case.
+  string type = 50;
+  string user_name = 51;
+
+  oneof contact {
+    string phone = 60;
+    Address office = 61;
+    int64 extension_number = 62;
+  }
+}
+
+// A message with nothing in it: the degenerate case both codecs have to hold.
+message Empty {}

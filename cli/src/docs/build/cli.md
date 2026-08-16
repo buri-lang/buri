@@ -53,6 +53,13 @@ whether a build is permitted, never what it produces.
 `--release` and `--debug` are flags on the command rather than repository
 configuration, are part of the cache key, and default to `--debug`.
 
+`--check-reproducible` builds every requested binary twice, from two freshly
+opened sessions, with the cache turned off, into two separate directories, and
+compares the artifacts byte for byte. Silent and exit `0` when they agree; exit
+`1` naming the artifact and the first differing byte when they do not. It writes
+no artifact of its own — a check must not double as a build
+([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md#reproducibility)).
+
 ## `test`
 
 ```
@@ -66,6 +73,14 @@ Covered in [`TESTING.md`](./cli/src/docs/build/testing.md). A suite whose inputs
 not re-run and reports as cached; `--force` re-runs anyway, which is the honest
 way to check that a suite is not accidentally depending on the cache.
 
+Two findings belong to the run rather than to the graph, and both are about the
+suite as a whole rather than about one test in it:
+
+| | |
+|---|---|
+| `test-timeout` | The suite ran past its `test { timeout_seconds }` and was killed, so no test in it has a result. |
+| `platform-not-implemented` | A platform in `test { platforms }` that this toolchain has no backend for. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
+
 ## `run`
 
 ```
@@ -74,8 +89,8 @@ buri run //cmd/server -- --port=8080
 ```
 
 A package holds at most one binary, so a label is enough to name it. Builds it
-for the host configuration and executes it — **outside** the
-sandbox, with the real environment and the real filesystem. That is the point of
+for the host configuration and executes it — **outside** the build graph, with
+the real environment and the real filesystem. That is the point of
 `run`: it is the one command that produces a program with authority. Everything
 before it in the pipeline is hermetic. Arguments after `--` go to the program.
 
@@ -122,8 +137,10 @@ Build-graph rules — always errors, not configurable:
 
 | | |
 |---|---|
-| `undeclared-source` | A `.buri` file in a package that no rule lists. |
+| `undeclared-source` | A `.buri` or `.proto` file in a package that no rule lists. The fix names the field it belongs in — `sources` for one, `proto_sources` for the other. |
 | `duplicate-source` | A file listed by two rules. |
+| `entry-point-listed` | An entry point written into a `sources` list. `lib.buri`, `main.buri` and `testing/lib.buri` are named by the rule kind, so listing one says nothing the rule had not already said. |
+| `undeclared-testing-surface` | A `testing/` directory with no `testing` block to declare it. The block is what puts the surface in the build; without it nothing compiles `testing/lib.buri` and no dependent can name it. |
 | `missing-dep` | Use of a library that is not in `dependencies` — by import, or by a method call resolving into it. |
 | `unused-dep` | A `dependencies` entry no source uses. |
 | `dep-cycle` | A cycle between packages. |
@@ -131,13 +148,20 @@ Build-graph rules — always errors, not configurable:
 | `no-such-module` | A path that names no module. There are two kinds and no others: `core/...` and `//...`. |
 | `module-outside-repository` | A `//...` path used where there is no repository to be relative to. |
 | `host-import` | An import of `core/host` from a module other than the one exporting `main`. The context `main` builds is the program's whole effect budget; a second module able to import `core/host` would be a second place authority enters. |
-| `internal-import` | An import of a module internal to another package. |
+| `internal-import` | An import of a module internal to another library — another package's, or the one sharing a package with the importing binary. The boundary is the *rule's*, not the directory's. |
 | `binary-entry-import` | An import of a binary's entry point from outside that binary's own test sources. |
 | `test-only-import` | A non-test source importing a path with a `testing` segment. |
+| `test-internal-import` | A file listed in `test.sources` importing a module internal to the library it tests. A test reaches its library the way a dependent does. |
+| `test-source-import` | An import of a file listed in `test.sources`. Test sources are compiled independently, so there is no module for one to name. |
 | `visibility-violation` | A dependency the target is not visible to. |
 | `tag-violation` | Two tags that forbid each other in one dependency closure. |
 | `platform-violation` | A target in the closure that does not admit the platform being built. |
 | `unknown-tag` | A `tags` entry naming no `tag` block in `REPO.buri`. Suggests the nearest declared name. |
+| `proto-schema` | A `.proto` file that is not a well-formed proto3 schema: a missing `syntax` line, a field number outside 1..536870911, an enum whose first value is not zero. |
+| `proto-unsupported` | A proto3 construct the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `required`, `google.protobuf.Any`, `import public`, or a `syntax` other than proto3. [PROTO.md](./cli/src/docs/build/proto.md) says why each one is out. |
+| `proto-unknown-type` | A field whose type names no message or enum, in this schema or in one it imports. |
+| `proto-import-not-found` | An `import` inside a schema naming no file. The path is written from the repository root, the way protoc resolves one against `-I.`. |
+| `proto-source-not-a-schema` | A `proto_sources` entry that is not a `.proto` file. |
 
 Style and hygiene rules:
 

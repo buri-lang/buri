@@ -454,14 +454,27 @@ impl<'a> Checker<'a> {
                         } else if let Some(near) = self.nearest_export(from, &name) {
                             note = Some(format!("did you mean `{near}`?"));
                         }
+                        // A package path resolves to its `lib.buri`, whose
+                        // surface is what it re-exports — the declaration
+                        // itself may already be exported, so pointing at it
+                        // would send the reader to the wrong file.
+                        let is_surface = self.loaded.module(from).disk.file_name()
+                            .is_some_and(|f| f == "lib.buri");
                         let d = self.err(
                             spec.name.span,
                             format!("\"{module_path}\" does not export `{name}`"),
                         ).code("no-such-export");
-                        d.fix(format!(
-                            "check the spelling, or add `export` to `{name}`'s declaration in \
-                             \"{module_path}\""
-                        ));
+                        if is_surface {
+                            d.fix(format!(
+                                "check the spelling, or re-export `{name}` from \
+                                 \"{module_path}\"'s `lib.buri`"
+                            ));
+                        } else {
+                            d.fix(format!(
+                                "check the spelling, or add `export` to `{name}`'s declaration in \
+                                 \"{module_path}\""
+                            ));
+                        }
                         if let Some(n) = note {
                             d.notes.push(n);
                         }
@@ -1164,6 +1177,22 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // `core/json` is loaded on import rather than eagerly, so these are
+        // known exactly when a program could name them — which is the only
+        // time a primitive needs an implementation of either to be found.
+        if let Some(m) = self.loaded.find("core/json") {
+            for name in ["ToJson", "FromJson", "DecodeError", "Json"] {
+                match self.scopes[m.index()].exports.get(name) {
+                    Some(Sym::Trait(t)) => {
+                        self.known_traits.insert(name.to_string(), *t);
+                    }
+                    Some(Sym::Ty(c)) => {
+                        self.known_types.insert(name.to_string(), *c);
+                    }
+                    _ => {}
+                }
+            }
+        }
         if let Some(m) = self.loaded.find("core/cap") {
             for name in ["Alloc", "IoError", "Region"] {
                 match self.scopes[m.index()].exports.get(name) {
@@ -1287,6 +1316,27 @@ impl<'a> Checker<'a> {
                 .push(
                     "there is no way to implement a trait for someone else's type, which is the \
                      same restriction that already applies to methods"
+                        .into(),
+                );
+            return;
+        }
+
+        // `ToJson` and `FromJson` say what a type's *shape* is on the wire,
+        // and the shape is what the type descriptor carries — so a derived
+        // implementation that holds a hand-written one encodes it structurally
+        // and never calls it. Rather than obey an `impl` in some positions and
+        // ignore it in others, there is no hand-written one.
+        let tname = self.tables.trait_(trait_id).name.clone();
+        if tname == "ToJson" || tname == "FromJson" {
+            let c = self.tables.tycon(self_con).name.clone();
+            self.err(d.span, format!("`{tname}` is derived, not implemented"))
+                .code("derive-only-trait")
+                .fix(format!("write `derive {tname} for {c};` instead"))
+                .notes
+                .push(
+                    "a derived encoder is a fold over the type's shape, and would encode a \
+                     hand-written one structurally rather than calling it — so an `impl` \
+                     would be obeyed at the top of a document and ignored inside it"
                         .into(),
                 );
             return;
@@ -1507,10 +1557,11 @@ impl<'a> Checker<'a> {
                 continue;
             };
             let name = self.tables.trait_(trait_id).name.clone();
-            // Derivation is available for Eq, Ord, Show, Hash, and the
-            // operator traits. It is a fold over one type definition.
+            // Derivation is available for Eq, Ord, Show, Hash, the JSON pair,
+            // and the operator traits. It is a fold over one type definition.
             const DERIVABLE: &[&str] = &[
-                "Eq", "Ord", "Show", "Hash", "Add", "Sub", "Mul", "Div", "Rem", "Neg",
+                "Eq", "Ord", "Show", "Hash", "ToJson", "FromJson", "Add", "Sub", "Mul",
+                "Div", "Rem", "Neg",
             ];
             if !DERIVABLE.contains(&name.as_str()) {
                 self.err(t.span(), format!("`{name}` cannot be derived"))
@@ -1611,10 +1662,17 @@ impl<'a> Checker<'a> {
                         format!("`{c}` cannot derive `{t}`: `{name}` has type `{shown}`"),
                     ).code("underivable")
                     .note(format!("a derived implementation is a fold over the type's components, and `{shown}` does not satisfy `{t}`"))
-                    .fix(format!(
-                        "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in its \
-                         own module, or an `impl` — or drop `{t}` from this `derive`"
-                    ));
+                    .fix(if crate::compiler::semantics::types::is_derive_only(&t) {
+                        format!(
+                            "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
+                             its own module — or drop `{t}` from this `derive`"
+                        )
+                    } else {
+                        format!(
+                            "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
+                             its own module, or an `impl` — or drop `{t}` from this `derive`"
+                        )
+                    });
                     break;
                 }
             }

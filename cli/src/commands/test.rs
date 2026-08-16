@@ -4,19 +4,28 @@
 //! no ambient I/O, and no observable ordering, the runner is free to shard
 //! across processes and to run a suite's tests in any order. Nothing about a
 //! suite's result may depend on that freedom, so the runner does not offer a
-//! knob to turn it off.
+//! knob to turn it off — there is no `--shuffle`, and a suite that would need
+//! one is a suite with a dependency it has not admitted to
+//! (TESTING.md, "Running").
+//!
+//! `test` is the only action that leaves this process, so it is the only one
+//! whose spawn has to be made deterministic: `build/spawn.rs` gives it an
+//! explicit environment and a clock frozen at `1970-01-01T00:00:00Z`. That is
+//! about determinism rather than confinement — what keeps a suite from reaching
+//! the machine is that a test source has no name for `core/host` at all, and
+//! that its capabilities are fakes this runner injects.
 
 use crate::build::actions;
 use crate::build::buildfile::Platform;
 use crate::build::session::{self, Session};
 use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments;
-use crate::compiler::modules::Unit;
 use crate::compiler::backend::javascript;
+use crate::compiler::modules::Unit;
 use crate::compiler::transform::monomorphize;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The JavaScript runtime `buri run` and the test runner execute artifacts
 /// with. `bun` unless `BURI_JS` says otherwise.
@@ -34,6 +43,17 @@ struct Case {
     message: String,
     actual: Option<String>,
     expected: Option<String>,
+}
+
+/// What one suite produced: the cases that ran, and the ones a `--filter` left
+/// out. A skipped test is reported rather than silently absent, so a filter
+/// that matches nothing looks different from a suite that holds nothing.
+#[derive(Default)]
+struct Outcome {
+    cases: Vec<Case>,
+    skipped: usize,
+    /// Golden files `--accept` rewrote, for the blank line before the summary.
+    accepted: usize,
 }
 
 pub fn cmd_test(args: &arguments::Args) -> i32 {
@@ -58,8 +78,10 @@ pub fn cmd_test(args: &arguments::Args) -> i32 {
     let started = Instant::now();
     let mut passed = 0usize;
     let mut failed = 0usize;
+    let mut skipped = 0usize;
     let mut cached = 0usize;
     let mut suites = 0usize;
+    let mut printed = false;
     let mut hard_error = false;
 
     for target in targets {
@@ -68,8 +90,10 @@ pub fn cmd_test(args: &arguments::Args) -> i32 {
         }
         suites += 1;
         match run_suite(&mut s, target, args) {
-            Ok(cases) => {
-                for c in &cases {
+            Ok(outcome) => {
+                skipped += outcome.skipped;
+                printed |= outcome.accepted > 0;
+                for c in &outcome.cases {
                     if c.cached {
                         cached += 1;
                     }
@@ -78,6 +102,7 @@ pub fn cmd_test(args: &arguments::Args) -> i32 {
                     } else {
                         failed += 1;
                         report_failure(&s, target, c);
+                        printed = true;
                     }
                 }
             }
@@ -93,7 +118,10 @@ pub fn cmd_test(args: &arguments::Args) -> i32 {
         return 0;
     }
     let note = if cached > 0 { format!(", {cached} cached") } else { String::new() };
-    println!("{passed} passed, {failed} failed ({elapsed:.1}s{note})");
+    if printed {
+        println!();
+    }
+    println!("{passed} passed, {failed} failed, {skipped} skipped ({elapsed:.1}s{note})");
     if hard_error || failed > 0 {
         return 1;
     }
@@ -120,34 +148,86 @@ fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestS
     }
 }
 
+/// One suite, once per platform it runs on.
 fn run_suite(
     s: &mut Session,
     target: TargetId,
     args: &arguments::Args,
-) -> Result<Vec<Case>, Diagnostics> {
+) -> Result<Outcome, Diagnostics> {
     let mut diags = Diagnostics::new();
     // A suite inherits its target's tags and platform restrictions, so a suite
     // for a `server` library is checked as server code without saying
     // anything. A suite that names no platforms runs once on the host, and the
     // host here is the machine, not the JavaScript the backend emits.
-    let declared = suite(s, target).map(|x| x.platforms).unwrap_or_default();
-    let platforms: Vec<Platform> = if declared.is_empty() {
+    let declared: Vec<Platform> =
+        suite(s, target).map(|x| x.platforms).unwrap_or_default().iter().map(|p| p.value).collect();
+    let checked: Vec<Platform> = if declared.is_empty() {
         vec![crate::compiler::driver::host_native_platform()]
     } else {
-        declared.iter().map(|p| p.value).collect()
+        declared.clone()
     };
-    for p in &platforms {
+    // A platform a suite names must be one the target admits: asking for a JS
+    // run of a `[LINUX, MACOS]` library is an error, not a skip
+    // (TAGS.md, "Tags and tests").
+    for p in &checked {
         actions::check_policy(s, target, *p, &mut diags);
     }
     if diags.has_errors() {
         return Err(diags);
     }
 
+    // One run per declared platform. Only the JavaScript backend exists, so a
+    // suite that *names* a platform this toolchain cannot execute is told so
+    // rather than quietly run through the backend that does exist; a suite that
+    // names none is checked against the host and executed as JavaScript, which
+    // is what `buri test` has always done.
+    let runs: Vec<Platform> = if declared.is_empty() { vec![Platform::Js] } else { declared };
+    let mut outcome = Outcome::default();
+    for platform in runs {
+        if platform != Platform::Js {
+            let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
+            diags.push(
+                Diagnostic::error(
+                    span,
+                    format!("the {} backend is not implemented", platform.slug()),
+                )
+                .with_code("platform-not-implemented")
+                .with_note("this toolchain emits JavaScript, so only a JS run can be executed")
+                .with_fix(format!(
+                    "drop {} from `test.platforms` until the backend exists",
+                    platform.proto()
+                )),
+            );
+            continue;
+        }
+        match run_on(s, target, platform, args) {
+            Ok(one) => {
+                outcome.cases.extend(one.cases);
+                outcome.skipped += one.skipped;
+                outcome.accepted += one.accepted;
+            }
+            Err(d) => diags.extend(d.items),
+        }
+    }
+    if diags.has_errors() {
+        return Err(diags);
+    }
+    Ok(outcome)
+}
+
+fn run_on(
+    s: &mut Session,
+    target: TargetId,
+    platform: Platform,
+    args: &arguments::Args,
+) -> Result<Outcome, Diagnostics> {
+    let mut diags = Diagnostics::new();
+
     // A suite whose inputs are unchanged is not re-run and reports as cached;
     // `--force` re-runs anyway, which is the honest way to check that a suite
     // is not accidentally depending on the cache.
     let output = crate::build::buildfile::Output {
-        platform: Some(crate::build::buildfile::Sp::new(Platform::Js, Span::NONE)),
+        platform: Some(crate::build::buildfile::Sp::new(platform, Span::NONE)),
         ..Default::default()
     };
     let key = actions::test_key(s, target, &output, &args.flags);
@@ -166,10 +246,10 @@ fn run_suite(
                     crate::build::cache::Status::Cached,
                     crate::build::cache::Action::Test,
                     &label,
-                    Platform::Js,
+                    platform,
                     &key,
                 );
-                return Ok(cached);
+                return Ok(Outcome { cases: cached, skipped: 0, accepted: 0 });
             }
         }
     }
@@ -178,11 +258,11 @@ fn run_suite(
         crate::build::cache::Status::Run,
         crate::build::cache::Action::Test,
         &label,
-        Platform::Js,
+        platform,
         &key,
     );
 
-    let unit = Unit { target: Some(target), platform: Platform::Js, with_tests: true };
+    let unit = Unit { target: Some(target), platform, with_tests: true };
     let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
@@ -196,8 +276,16 @@ fn run_suite(
         return Err(diags);
     }
     if program.tests.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Outcome::default());
     }
+
+    // What a `--filter` leaves out is counted here rather than in the runner:
+    // the names are known before the binary is built, and a count nobody has to
+    // run a process to learn is one the summary can always print.
+    let skipped = match &args.flags.filter {
+        Some(f) => program.tests.iter().filter(|t| !t.name.contains(f.as_str())).count(),
+        None => 0,
+    };
 
     let mut source = actions::emit(&mut program, &analysis.checked.tables, &args.flags, &mut diags)?;
 
@@ -205,6 +293,11 @@ fn run_suite(
     // nothing else on disk is visible.
     let data = load_test_data(s, target);
     source.push_str(&format!("\n$t.data={data};\n"));
+    // The action's clock, spliced in after the runtime is defined and before a
+    // test could reach one. A test has no name for `core/host` to begin with;
+    // this is what keeps a suite's *record* the same bytes twice, so that
+    // reproducibility is a question worth asking about a suite.
+    source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
     let filter = args
         .flags
         .filter
@@ -226,9 +319,30 @@ fn run_suite(
         return Err(diags);
     }
 
-    let out = std::process::Command::new(js_runtime()).arg(&path).output();
-    let out = match out {
-        Ok(o) => o,
+    let limit = suite(s, target).and_then(|x| x.timeout_seconds);
+    let out = match execute(&path, limit) {
+        Ok(Execution::Finished(out)) => out,
+        Ok(Execution::TimedOut) => {
+            let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
+            let seconds = limit.unwrap_or(0);
+            diags.push(
+                Diagnostic::error(
+                    span,
+                    format!("{label}'s test suite ran longer than {seconds}s"),
+                )
+                .with_code("test-timeout")
+                .with_label("the timeout this suite declares")
+                .with_note(
+                    "the run was killed, so no test in this suite has a result — a timeout is \
+                     the suite's, not one test's",
+                )
+                .with_fix(
+                    "raise `timeout_seconds`, or find the test that does not finish; a test that \
+                     never returns is a loop with no exit, since nothing here blocks on I/O",
+                ),
+            );
+            return Err(diags);
+        }
         Err(e) => {
             diags.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -239,9 +353,15 @@ fn run_suite(
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // Only a clean run is worth remembering: a failure is what you are trying
-    // to fix, and re-running it should re-run it.
+    // to fix, and re-running it should re-run it. `--accept` is outside the
+    // cache in both directions — it is the one mode that writes to the source
+    // tree, and a mode that writes must not also be able to be served.
     let mut cases = parse_results(&stdout);
-    if !cases.is_empty() && cases.iter().all(|c| c.ok) && args.flags.filter.is_none() {
+    if !cases.is_empty()
+        && cases.iter().all(|c| c.ok)
+        && args.flags.filter.is_none()
+        && !args.flags.accept
+    {
         cache.put(&key, stdout.as_bytes());
     }
     for c in &mut cases {
@@ -262,7 +382,163 @@ fn run_suite(
         );
         return Err(diags);
     }
-    Ok(cases)
+    let accepted = if args.flags.accept { accept_goldens(s, target, &cases) } else { 0 };
+    Ok(Outcome { cases, skipped, accepted })
+}
+
+enum Execution {
+    Finished(std::process::Output),
+    TimedOut,
+}
+
+/// Runs the test binary, killing it if the suite declared a `timeout_seconds`
+/// and it runs past one.
+///
+/// A test cannot block on I/O — every effect it can reach is one the runner
+/// supplied — so the only way to run forever is a loop with no exit, and the
+/// only thing to do about one is to stop it. The wait is a poll rather than a
+/// thread because the suite is the only child and there is nothing else for
+/// this process to do while it runs.
+///
+/// The command comes from `build/spawn.rs` rather than from
+/// `Command::new(js_runtime())`, which is the whole of what distinguishes an
+/// action's process from any other: an explicit environment and a frozen clock,
+/// so that the same suite produces the same record on a machine set to a
+/// different time zone.
+fn execute(path: &std::path::Path, limit: Option<u32>) -> std::io::Result<Execution> {
+    use std::process::Stdio;
+    let runtime = js_runtime();
+    let Some(mut cmd) = crate::build::spawn::command(&runtime) else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("`{runtime}` is not on PATH"),
+        ));
+    };
+    let mut child = cmd
+        .arg(path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let Some(limit) = limit else {
+        return Ok(Execution::Finished(child.wait_with_output()?));
+    };
+    let deadline = Instant::now() + Duration::from_secs(u64::from(limit));
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(Execution::Finished(child.wait_with_output()?));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(Execution::TimedOut);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// --accept
+// ---------------------------------------------------------------------------
+
+/// Rewrites the declared `data` files whose contents a failing `assert.eq`
+/// expected, and prints a diff for each.
+///
+/// Rewriting a golden file is not something a hermetic action may do, so this
+/// is a separate mode rather than a step in the normal path (TESTING.md, "Test
+/// data and golden files"). Three things bound it, and all three are visible
+/// here: only a file listed in `data` is considered, a file that does not exist
+/// is never created, and the value written is the one the test actually
+/// produced. Everything else about the run is unchanged — the failure is still
+/// reported and still counted, because what `--accept` changes is the source
+/// tree, not the verdict.
+fn accept_goldens(s: &Session, target: TargetId, cases: &[Case]) -> usize {
+    let Some(suite) = suite(s, target) else { return 0 };
+    if suite.data.is_empty() {
+        return 0;
+    }
+    let dir = s.ws.pkg(target.pkg).dir.clone();
+    let label = s.ws.label(target);
+    let mut accepted = 0usize;
+    for c in cases.iter().filter(|c| !c.ok) {
+        let (Some(actual), Some(expected)) = (&c.actual, &c.expected) else { continue };
+        // Only a text assertion can name a file's contents, and `$show` renders
+        // a `Str` as a JSON string. Anything else is a failure `--accept` has
+        // no opinion about.
+        let (Some(actual), Some(expected)) = (unquote(actual), unquote(expected)) else {
+            continue;
+        };
+        for d in &suite.data {
+            let path = dir.join(&d.value);
+            // Never creates a file: a golden that is not there is a golden
+            // nobody declared the contents of, and inventing one would make
+            // `--accept` a way to add test data by running the tests.
+            let Ok(body) = std::fs::read_to_string(&path) else { continue };
+            if body != expected {
+                continue;
+            }
+            if std::fs::write(&path, &actual).is_err() {
+                continue;
+            }
+            print_diff(&label, &d.value, &body, &actual);
+            accepted += 1;
+            break;
+        }
+    }
+    accepted
+}
+
+/// The diff `--accept` prints for one rewritten golden.
+///
+/// Line-oriented, with the common head and tail elided, because what a reader
+/// checks is the lines that moved.
+fn print_diff(label: &str, file: &str, before: &str, after: &str) {
+    println!("accepted {label}  {file}");
+    let old: Vec<&str> = before.lines().collect();
+    let new: Vec<&str> = after.lines().collect();
+    let mut head = 0;
+    while head < old.len() && head < new.len() && old[head] == new[head] {
+        head += 1;
+    }
+    let mut tail = 0;
+    while tail < old.len() - head && tail < new.len() - head
+        && old[old.len() - 1 - tail] == new[new.len() - 1 - tail]
+    {
+        tail += 1;
+    }
+    for line in &old[head..old.len() - tail] {
+        println!("  -{line}");
+    }
+    for line in &new[head..new.len() - tail] {
+        println!("  +{line}");
+    }
+}
+
+/// A JSON string literal back to the text it stands for, or `None` when the
+/// rendering is not one.
+fn unquote(shown: &str) -> Option<String> {
+    let inner = shown.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next()? {
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' => out.push('\u{8}'),
+            'f' => out.push('\u{c}'),
+            'u' => {
+                let hex: String = chars.by_ref().take(4).collect();
+                let code = u32::from_str_radix(&hex, 16).ok()?;
+                out.push(char::from_u32(code)?);
+            }
+            other => out.push(other),
+        }
+    }
+    Some(out)
 }
 
 fn load_test_data(s: &Session, target: TargetId) -> String {
@@ -375,4 +651,20 @@ fn report_failure(s: &Session, target: TargetId, c: &Case) {
         println!("  --> {}", c.location);
     }
     let _ = c.ms;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_json_string_comes_back_as_the_text_it_stands_for() {
+        assert_eq!(unquote("\"zero\"").as_deref(), Some("zero"));
+        assert_eq!(unquote("\"a\\tb\\n\"").as_deref(), Some("a\tb\n"));
+        assert_eq!(unquote("\"say \\\"hi\\\"\"").as_deref(), Some("say \"hi\""));
+        assert_eq!(unquote("\"\\u0041\"").as_deref(), Some("A"));
+        // Not a string rendering: `--accept` has no opinion about these.
+        assert_eq!(unquote("19"), None);
+        assert_eq!(unquote(".Some(1)"), None);
+    }
 }

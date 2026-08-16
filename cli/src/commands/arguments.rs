@@ -31,6 +31,9 @@ pub struct Flags {
     /// Apply the findings that have one mechanical answer. `buri lint` only.
     pub fix: bool,
     pub force: bool,
+    /// Build twice in separate sandboxes and compare the artifacts byte for
+    /// byte. `buri build` only.
+    pub check_reproducible: bool,
     pub accept: bool,
     pub outputs_only: bool,
     pub output: Option<String>,
@@ -109,14 +112,11 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             if known_command && !crate::commands::accepts(&command, name) {
                 let takers = crate::commands::commands_taking(name);
                 return Err(format!(
-                    "`buri {command}` does not take `--{name}`; {} does",
+                    "`buri {command}` does not take `--{name}`; {}",
                     match takers.len() {
-                        0 => "no command".to_string(),
-                        1 => format!("`buri {}`", takers[0]),
-                        _ => format!(
-                            "`buri {}`",
-                            takers.join("`, `buri ")
-                        ),
+                        0 => "no command does".to_string(),
+                        1 => format!("`buri {}` does", takers[0]),
+                        _ => format!("`buri {}` do", takers.join("`, `buri ")),
                     }
                 ));
             }

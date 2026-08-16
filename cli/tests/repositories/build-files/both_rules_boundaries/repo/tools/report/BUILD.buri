@@ -1,0 +1,16 @@
+# Two rules, one directory, one build file, and no names: the rule kind tells
+# them apart. The `sources` sets are disjoint, which is the first of the rules
+# at BUILD-FILES.md:299-308; `duplicate_source` is what happens when they are
+# not.
+
+library {
+  sources: ["detail.buri", "render.buri"]
+  visibility: ["//visibility:public"]
+}
+
+binary {
+  sources: ["flags.buri"]
+  outputs: [
+    { platform: JS },
+  ]
+}

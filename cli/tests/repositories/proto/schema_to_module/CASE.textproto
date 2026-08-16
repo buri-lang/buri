@@ -1,0 +1,88 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a .proto in a package is a source like any other: undeclared until a rule lists it, placed by `buri gen`, keyed by its contents, and reachable only through lib.buri"
+
+# A schema no rule lists is `undeclared-source`, exactly as a stray .buri is —
+# and the fix names `proto_sources` rather than `sources`.
+run {
+  args: ["lint", "//lib/wire"]
+  exit: 1
+  golden: "undeclared.txt"
+}
+
+# `buri gen` places it, because where a file lives is something the tool can
+# derive. What rule it belongs to is the same question asked of a .buri.
+run {
+  args: ["gen", "//lib/wire"]
+  exit: 0
+  golden: "gen.txt"
+}
+
+file {
+  path: "lib/wire/BUILD.buri"
+  golden: "regenerated.buri"
+}
+
+run {
+  args: ["gen", "//lib/wire", "--check"]
+  exit: 0
+  golden: "gen_again.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The generated module carries a `proto` action of its own, keyed on the
+# schema's contents.
+run {
+  args: ["build", "//cmd/app", "--explain"]
+  exit: 0
+  golden: "explain.txt"
+}
+
+# The program built from it runs, and the bytes are the wire format's:
+# field 1 varint 1 (0x08 0x01), field 2 varint 300 (0x10 0xac 0x02).
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+# Nothing changed, so nothing is rebuilt.
+run {
+  args: ["build", "//cmd/app", "--explain"]
+  exit: 0
+  golden: "cached.txt"
+}
+
+# Editing the schema changes the key, and the artifact.
+edit {
+  file: "lib/wire/point.proto"
+  replace: "int32 y = 2;"
+  with: "int32 y = 3;"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "after_edit.txt"
+}
+
+# A generated module is internal to the rule that declared the schema: another
+# package reaches it the way it reaches any other internal module, through
+# `lib.buri`.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/wire\" import"
+  with: "from \"//lib/wire/point.proto\" import"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "internal.txt"
+}

@@ -1,0 +1,8 @@
+error: //tools/report/flags belongs to the binary in //tools/report [internal-import]
+ --> tools/report/detail.buri:6:6
+  |
+6 | from "//tools/report/flags" import { label };
+  |      ^^^^^^^^^^^^^^^^^^^^^^ a library may not reach the binary beside it
+  |
+  = tools/report/detail.buri belongs to the library rule, and the binary depends on the library rather than the other way round
+  = fix: move what you need into the library, or into a third one both can depend on

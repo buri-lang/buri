@@ -1,0 +1,40 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a malformed schema fails with a line number and an edit: no syntax line, a field number out of range, an enum that does not start at zero, an import that names nothing, a type that names nothing"
+
+run {
+  args: ["lint", "//lib/bad"]
+  exit: 1
+  golden: "broken.txt"
+}
+
+# Repaired one line at a time, and then it checks.
+edit {
+  file: "lib/bad/broken.proto"
+  replace: "package bad.v1;"
+  with: "syntax = \"proto3\";\n\npackage bad.v1;"
+}
+
+edit {
+  file: "lib/bad/broken.proto"
+  replace: "import \"lib/bad/missing.proto\";"
+  with: ""
+}
+
+edit {
+  file: "lib/bad/broken.proto"
+  replace: "  LOW = 1;"
+  with: "  LEVEL_UNSPECIFIED = 0;\n  LOW = 1;"
+}
+
+edit {
+  file: "lib/bad/broken.proto"
+  replace: "  string name = 0;\n  Unknown other = 2;\n  int32 reserved_range = 19500;\n"
+  with: "  string name = 1;\n  Level other = 2;\n  int32 range = 3;\n}\n"
+}
+
+run {
+  args: ["lint", "//lib/bad"]
+  exit: 0
+  golden: "repaired.txt"
+}

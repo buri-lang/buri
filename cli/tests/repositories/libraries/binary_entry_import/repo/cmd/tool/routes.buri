@@ -1,0 +1,3 @@
+export fn route(path: Str): Str {
+  if (path == "/health") { "health" } else { "fallback" }
+}

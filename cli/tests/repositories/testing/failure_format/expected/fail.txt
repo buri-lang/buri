@@ -1,0 +1,7 @@
+FAIL //lib/money  test/cents.buri  "pads the cents place"
+  assert.eq failed
+    actual:   "19.5"
+    expected: "19.05"
+  --> lib/money/test/cents.buri:4:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

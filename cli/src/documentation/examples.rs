@@ -269,10 +269,14 @@ fn parse_block(fence: &Fence, origin: &Origin, next: Option<&Fence>) -> Result<B
         Some("std") => Some(Role::Std),
         Some("platform") => Some(Role::Platform),
         Some("test") => Some(Role::TestSource),
+        // A `testing/` module is not a test source: it is ordinary library
+        // code that only test sources may import, so it may `export`, and it
+        // is the one place a `context` may be exported from.
+        Some("testing") => Some(Role::TestOnly),
         Some(other) => {
             return Err(fail(
                 format!("`role={other}` is not a role"),
-                "the roles are source, entry, std, platform, test",
+                "the roles are source, entry, std, platform, test, testing",
             ))
         }
     };

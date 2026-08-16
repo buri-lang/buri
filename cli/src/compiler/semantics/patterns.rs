@@ -47,10 +47,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                 };
                 self.bind(&name.name, local);
-                let generics = self.generics.clone();
-                if self.c.tables.is_effect_carrying(&ty, &generics) {
-                    self.effect_locals.insert(local);
-                }
+                self.note_capture_risk(local, &ty);
                 let sub = sub.as_ref().map(|s| Box::new(self.check_pattern(s, &ty)));
                 typed::PatKind::Bind { local, sub }
             }

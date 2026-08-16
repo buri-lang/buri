@@ -1,0 +1,20 @@
+// EXPECT: this `match` does not cover `.Empty`
+// A nested alternation covers its own sub-type and nothing else. Splitting it
+// must not make the rest of the scrutinee's type look covered too.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Shape { Circle(Bool), Square(Int), Empty }
+
+fn describe(s: Shape): Int {
+  match (s) {
+    .Circle(true | false) => 1,
+    .Square(n) => n,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe(Shape.Empty)}");
+  .Ok(())
+}

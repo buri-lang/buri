@@ -83,41 +83,12 @@ without losing the typing invariant. -/
 theorem HasType.fields_typed {S : Signature} {t : Ty} {v : Value} {target : Constructor}
     (hv : S ⊢ᵥ v : t) (hasTarget : v.constructorOf = some target) :
     Forall₂ (HasType S) v.fields (target.fieldTypes S t) := by
-  cases hv with
-  | variant hlt hf =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simpa [Value.fields, Constructor.fieldTypes, Ty.typeArguments] using hf
-  | «struct» hst hf =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simpa [Value.fields, Constructor.fieldTypes] using hf
-  | tuple hf =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simpa [Value.fields, Constructor.fieldTypes] using hf
-  | unit =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simp [Value.fields, Constructor.fieldTypes]
-    exact .nil
-  | bool hp =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simp [Value.fields, Constructor.fieldTypes]
-    exact .nil
-  | lit hp nonEmpty =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simp [Value.fields, Constructor.fieldTypes]
-    exact .nil
-  | array hf =>
-    simp only [Value.constructorOf, Option.some.injEq] at hasTarget
-    subst hasTarget
-    simpa [Value.fields, Constructor.fieldTypes, Ty.elementType] using hf
-  | fnv => simp [Value.constructorOf] at hasTarget
-  | ctxv => simp [Value.constructorOf] at hasTarget
-  | paramv => simp [Value.constructorOf] at hasTarget
+  cases hv <;>
+    simp only [Value.constructorOf, Option.some.injEq, reduceCtorEq] at hasTarget <;> subst hasTarget <;>
+    first
+      | exact .nil
+      | simpa [Value.fields, Constructor.fieldTypes, Ty.typeArguments, Ty.elementType] using
+          ‹Forall₂ _ _ _›
 
 theorem HasType.fields_length {S : Signature} {t : Ty} {v : Value} {target : Constructor}
     (hv : S ⊢ᵥ v : t) (hasTarget : v.constructorOf = some target) :
@@ -185,20 +156,5 @@ theorem HasType.constructorOf_mem {S : Signature} {limit : Nat} {t : Ty} {v : Va
   | fn _ _ => simp [allConstructors] at hall
   | ctx _ => simp [allConstructors] at hall
   | param _ => simp [allConstructors] at hall
-
-/-- The contrapositive shape the `defaultMatrix` branch wants: when a value's
-constructor is missing from the matrix's heads, no constructor-headed row can
-match it. -/
-theorem HasType.constructorOf_not_in_headConstructors {v : Value} {P : List Row} {target : Constructor}
-    (hasTarget : v.constructorOf = some target) (notInMatrix : target ∉ headConstructors P) :
-    ∀ r ∈ P, ∀ c subpatterns rest, r = .constructor c subpatterns :: rest → v.constructorOf ≠ some c := by
-  intro r hr c subpatterns rest hrq
-  subst hrq
-  intro hcv
-  rw [hasTarget] at hcv
-  cases hcv
-  exact notInMatrix (by
-    refine List.mem_filterMap.mpr ⟨_, hr, ?_⟩
-    simp)
 
 end Buri

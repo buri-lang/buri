@@ -1,0 +1,134 @@
+// SPEC 5.1.1 — `Str` indexes and counts *Unicode scalar values*, across the
+// whole range of things a UTF-16 host string can hold.
+//
+// The runtime answers these without materialising an array whenever the string
+// holds no surrogate code unit, because then one code unit is one scalar. Every
+// string below is chosen for which side of that it lands on:
+//
+//   * pure ASCII, and Latin-1 with precomposed accents — one code unit each;
+//   * CJK — three bytes in UTF-8, but still one UTF-16 code unit each;
+//   * emoji — astral, so a surrogate *pair* per scalar;
+//   * a combining mark — two scalars that render as one glyph, and must count
+//     as two;
+//   * a string mixing all of them, where the fast path must not be taken.
+//
+// The answers here are what `len` meant before there was a fast path, so this
+// is the test that the two agree.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { alloc };
+from "core/cap" import { Alloc };
+from "core/str" import * as str;
+from "core/list" import * as list;
+
+// --- len ---------------------------------------------------------------------------
+
+test "len counts scalars in strings with no surrogate" {
+  assert.eq("".len(), 0);
+  assert.eq("abc".len(), 3);
+  assert.eq("héllo".len(), 5);
+  assert.eq("日本語".len(), 3);
+  assert.eq("  spaced  ".len(), 10);
+}
+
+test "len counts an astral scalar once, not twice" {
+  // A surrogate pair is one scalar. Counting UTF-16 code units would say 2.
+  assert.eq("😀".len(), 1);
+  assert.eq("😀😁😂".len(), 3);
+  assert.eq("a😀b".len(), 3);
+}
+
+test "len counts a combining mark as its own scalar" {
+  // `e` followed by U+0301, which renders as one glyph and is two scalars.
+  assert.eq("e\u{301}".len(), 2);
+  assert.eq("é".len(), 1);
+}
+
+test "len counts a mixed string one scalar at a time" {
+  assert.eq("mix日😀éd".len(), 7);
+}
+
+// --- charAt ------------------------------------------------------------------------
+
+test "charAt indexes by scalar in a string with no surrogate" {
+  assert.eq("abc".charAt(0), .Some('a'));
+  assert.eq("abc".charAt(2), .Some('c'));
+  assert.eq("abc".charAt(3), .None);
+  assert.eq("abc".charAt(-1), .None);
+  assert.eq("日本語".charAt(1), .Some('本'));
+}
+
+test "charAt indexes by scalar past an astral scalar" {
+  // Index 1 is `b`, not the low surrogate half of the emoji.
+  assert.eq("a😀b".charAt(0), .Some('a'));
+  assert.eq("a😀b".charAt(1), .Some('😀'));
+  assert.eq("a😀b".charAt(2), .Some('b'));
+  assert.eq("a😀b".charAt(3), .None);
+  assert.eq("😀😁😂".charAt(2), .Some('😂'));
+}
+
+// --- slice -------------------------------------------------------------------------
+
+test "slice cuts on scalar boundaries with no surrogate" {
+  assert.eq("abcdef".slice(0, 3), "abc");
+  assert.eq("abcdef".slice(2, 4), "cd");
+  assert.eq("abcdef".slice(0, 99), "abcdef");
+  assert.eq("abcdef".slice(4, 2), "");
+  assert.eq("abcdef".slice(9, 12), "");
+  assert.eq("日本語".slice(1, 3), "本語");
+}
+
+test "slice never cuts an astral scalar in half" {
+  assert.eq("a😀b".slice(0, 2), "a😀");
+  assert.eq("a😀b".slice(1, 3), "😀b");
+  assert.eq("😀😁😂".slice(1, 2), "😁");
+  assert.eq("😀😁😂".slice(2, 1), "");
+  assert.eq("mix日😀éd".slice(3, 5), "日😀");
+}
+
+// --- indexOf -----------------------------------------------------------------------
+
+test "indexOf answers a scalar index with no surrogate" {
+  assert.eq("abcdef".indexOf("a"), .Some(0));
+  assert.eq("abcdef".indexOf("cd"), .Some(2));
+  assert.eq("abcdef".indexOf("zz"), .None);
+  assert.eq("abcdef".indexOf(""), .Some(0));
+  assert.eq("日本語".indexOf("語"), .Some(2));
+}
+
+test "indexOf counts an astral scalar in the prefix once" {
+  // Code-unit counting would say 2 for `b`, because the emoji is a pair.
+  assert.eq("a😀b".indexOf("b"), .Some(2));
+  assert.eq("a😀b".indexOf("😀"), .Some(1));
+  assert.eq("😀😁😂".indexOf("😂"), .Some(2));
+  assert.eq("mix日😀éd".indexOf("d"), .Some(6));
+}
+
+// --- padStart / padEnd -------------------------------------------------------------
+
+test "padding measures the width in scalars" {
+  let ctx = context { Alloc: alloc() };
+  assert.eq("abc".padStart(ctx, 5, '.'), "..abc");
+  assert.eq("abc".padEnd(ctx, 5, '.'), "abc..");
+  assert.eq("abc".padStart(ctx, 3, '.'), "abc");
+  assert.eq("abc".padStart(ctx, 0, '.'), "abc");
+}
+
+test "padding counts an astral scalar as one wide" {
+  let ctx = context { Alloc: alloc() };
+  // `😀` is one scalar, so it needs four more to reach five.
+  assert.eq("😀".padStart(ctx, 5, '.'), "....😀");
+  assert.eq("😀".padEnd(ctx, 5, '.'), "😀....");
+  assert.eq("a😀b".padStart(ctx, 5, '.'), "..a😀b");
+}
+
+// --- chars -------------------------------------------------------------------------
+
+test "chars agrees with len and charAt" {
+  let ctx = context { Alloc: alloc() };
+  let mixed = "mix日😀éd";
+  assert.eq(mixed.chars(ctx).len(), mixed.len());
+  assert.eq(mixed.chars(ctx).get(3), mixed.charAt(3));
+  assert.eq(mixed.chars(ctx).get(4), mixed.charAt(4));
+  assert.eq("".chars(ctx).len(), 0);
+}

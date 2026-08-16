@@ -1,0 +1,9 @@
+error: this is a test-only module [test-only-import]
+ --> cmd/app/main.buri:5:6
+  |
+5 | from "//lib/widget/testing" import { fakeWidget };
+  |      ^^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
+  |
+  = a path containing a `testing` segment may be imported only from a test source
+  = //cmd/app/main is not one
+  = fix: import it from a file listed in a target's `test.sources`, or drop the import

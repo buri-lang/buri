@@ -257,10 +257,33 @@ fn pingB(n: Int): Bool {
   if (n == 0) { false } else { pingA(n - 1) }
 }
 
+fn everyBelow(n: Int): Bool {
+  if (n == 0) { true } else { n > -1 && everyBelow(n - 1) }
+}
+
+fn anyBelow(n: Int): Bool {
+  if (n == 0) { true } else { n < 0 || anyBelow(n - 1) }
+}
+
+fn noneAt(n: Int): Option<Int> {
+  if (n < 0) { .Some(n) } else { .None }
+}
+
+fn searchDown(n: Int): Int {
+  if (n == 0) { 0 } else { noneAt(n) ?? searchDown(n - 1) }
+}
+
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let _ = ctx.println("self: ${countDown(10000000, 0)}");
   let _ = ctx.println("mutual: ${pingA(10000001)}");
+  // The right operand of a short-circuiting operator is a tail position too.
+  // These three are the shapes of `all`, `any` and a linear search, and each
+  // of them recursed on the JavaScript stack until the backend learned to
+  // descend into `&&`, `||` and `??`.
+  let _ = ctx.println("and: ${everyBelow(2000000)}");
+  let _ = ctx.println("or: ${anyBelow(2000000)}");
+  let _ = ctx.println("coalesce: ${searchDown(2000000)}");
   .Ok(())
 }
 "#,
@@ -277,7 +300,11 @@ export fn main(): Result<(), Str> {
             out.status.success(),
             "ten million tail calls overflowed on {engine}:\n{stderr}"
         );
-        assert_eq!(stdout, "self: 10000000\nmutual: false\n", "wrong answer on {engine}");
+        assert_eq!(
+            stdout,
+            "self: 10000000\nmutual: false\nand: true\nor: true\ncoalesce: 0\n",
+            "wrong answer on {engine}"
+        );
     }
 }
 
@@ -391,4 +418,18 @@ fn outside_a_repository_is_a_bad_invocation() {
     let nowhere = Scratch::empty("not-a-repo");
     let run = nowhere.run(&["build", "//..."]);
     run.exits(2).says("REPO.buri");
+}
+
+/// `buri version` is the one command with something to say outside a
+/// repository, and CLI.md says so explicitly: there is nothing to pin against,
+/// and that is not an error. It cannot be a repository case for the same
+/// reason as the test above — a case *is* a repository. The pin itself, and
+/// what a mismatched one prints, is `repositories/cli/version_pin`.
+#[test]
+fn version_works_outside_a_repository() {
+    let nowhere = Scratch::empty("not-a-repo-version");
+    let run = nowhere.run(&["version"]);
+    run.ok().says("buri ");
+    // The pin is what it has nothing to say about, so it must not claim one.
+    run.silent_about("REPO.buri pins");
 }

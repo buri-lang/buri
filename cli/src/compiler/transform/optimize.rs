@@ -603,6 +603,7 @@ mod tests {
             entry: Some(0),
             tests: Vec::new(),
             descriptors: Vec::new(),
+            desc_index: Default::default(),
             ctx_layouts: Default::default(),
         }
     }

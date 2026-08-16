@@ -30,6 +30,7 @@ const DOCUMENTS: &[&str] = &[
     "cli/src/docs/build/testing.md",
     "cli/src/docs/build/repo-config.md",
     "cli/src/docs/build/cli.md",
+    "cli/src/docs/build/proto.md",
     "cli/src/docs/build/hermeticity.md",
     "cli/tests/README.md",
 ];
@@ -272,6 +273,11 @@ fn no_document_invents_a_flag() {
         }
         let text = read(doc);
         for (n, line) in text.lines().enumerate() {
+            // A line that invokes `cargo` documents cargo's flags, not ours
+            // (the install-from-source instructions in the guide).
+            if line.trim_start().starts_with("cargo ") {
+                continue;
+            }
             // Everything after a bare `--` is passed to the program `buri run`
             // executes, so those are its flags and not ours.
             let mut rest = match line.split_once(" -- ") {

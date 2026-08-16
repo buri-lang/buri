@@ -1,0 +1,51 @@
+error: the file does not declare its syntax [proto-schema]
+ --> lib/bad/broken.proto:1:1
+  |
+1 | package bad.v1;
+  | ^
+  |
+  = without the line, protoc reads a file as proto2, whose presence rules are not the ones this mapping is written against
+  = fix: add `syntax = "proto3";` as the first line
+error: "lib/bad/missing.proto" names no schema in this repository [proto-import-not-found]
+ --> lib/bad/broken.proto:3:8
+  |
+3 | import "lib/bad/missing.proto";
+  |        ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`
+  = fix: write the path from the repository root, as in `import "proto/address.proto";`
+error: the first value of `Level` is not zero [proto-schema]
+ --> lib/bad/broken.proto:6:3
+  |
+6 |   LOW = 1;
+  |   ^^^
+  |
+  = fix: give `LOW` the number 0, or put a zero value first
+error: 0 is not a field number [proto-schema]
+  --> lib/bad/broken.proto:11:17
+   |
+11 |   string name = 0;
+   |                 ^
+   |
+   = fix: field numbers run from 1 to 536870911
+error: `Unknown` names no message or enum [proto-unknown-type]
+  --> lib/bad/broken.proto:12:3
+   |
+12 |   Unknown other = 2;
+   |   ^^^^^^^^^^^^^^^^^^
+   |
+   = fix: declare it in this file, or `import` the file that declares it — an import path is written from the repository root
+error: 19500 is in the range protobuf reserves for itself [proto-schema]
+  --> lib/bad/broken.proto:13:26
+   |
+13 |   int32 reserved_range = 19500;
+   |                          ^^^^^
+   |
+   = fix: use a number outside 19000..19999
+error: `Thing` is not closed [proto-schema]
+  --> lib/bad/broken.proto:14:1
+   |
+14 | 
+   | ^
+   |
+   = fix: close the message with `}`

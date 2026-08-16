@@ -1,0 +1,3 @@
+no platform: //lib/impossible's dependency closure admits none
+  //lib/impossible is tagged "browser", which requires js
+  //lib/impossible is tagged "server", which requires linux, macos

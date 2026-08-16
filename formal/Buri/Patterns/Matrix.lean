@@ -18,30 +18,26 @@ the time a pattern reaches `useful`:
 * it contains no `Constructor::ArrayRest` -- `expand_lengths` (`exhaust.rs:163`) has
   rewritten each into a disjunction of fixed lengths.
 
-That is worth stating precisely, because it is load-bearing. `allConstructors` reports
-the constructor set of an array type as `array 0 .. array limit` and *nothing
+Only the second is true. `expand` splits the alternations it finds at the
+*top* of a column and leaves nested ones alone, so `.Some(true | false)`
+reaches the algorithm with the alternation buried; `specialize` then peels the
+`.Some` off and exposes it. That is `findings/README.md` 6, and the fix -- now
+in `exhaustiveness.rs` -- is that `specialize` and `default_matrix`
+*distribute* over an or-headed row rather than dropping it, and `head_ctors`
+descends into alternatives. The model below is of the fixed algorithm; the
+consequence for the proofs is that or-freeness is nowhere a hypothesis.
+
+Rest-freeness is load-bearing, though. `allConstructors` reports the
+constructor set of an array type as `array 0 .. array limit` and *nothing
 else*, so a surviving `arrayRest` row would be silently dropped by every
 `specialize` -- the matrix would lose coverage it actually had, and the checker
 would report a non-exhaustive match that was exhaustive. The reason that never
-happens is the rewrite, not the algorithm. `RestFree` below names the property
-the theorems then assume, and `Expand.lean` is where it is discharged.
+happens is the rewrite, not the algorithm. `Pattern.WellFormed`
+(`WellFormed.lean`) is where rest-freeness is recorded as a hypothesis, and
+`Expand.lean` is where it is discharged.
 -/
 
 namespace Buri
-
-/-- No `arrayRest` anywhere. Established by `expandLengths`, assumed by the
-usefulness theorems. -/
-def Pattern.RestFree : Pattern → Prop
-  | .wildcard => True
-  | .constructor (.arrayRest _) _ => False
-  | .constructor _ subpatterns => ∀ p ∈ subpatterns, Pattern.RestFree p
-  | .or alternatives => ∀ p ∈ alternatives, Pattern.RestFree p
-
-/-- No `or` anywhere. Established by `expand`. -/
-def Pattern.OrFree : Pattern → Prop
-  | .wildcard => True
-  | .constructor _ subpatterns => ∀ p ∈ subpatterns, Pattern.OrFree p
-  | .or _ => False
 
 /-!
 ## Arity and field types
@@ -123,45 +119,142 @@ def allConstructors (S : Signature) (limit : Nat) : Ty → Option (List Construc
 
 /-!
 ## Matrix operations
+
+Each of the three takes an or-headed row apart rather than dropping it, which
+is the `findings/README.md` 6 fix. Distribution is why a row now maps to a
+*list* of rows instead of an `Option`: `(a | b) :: rest` becomes two rows.
 -/
 
-/-- `Ctx::specialize` (`exhaust.rs:236`): the rows whose first pattern is
-`constructor`, with that pattern's sub-patterns spliced in. A wildcard head matches
-every constructor and expands to `arity` wildcards; sub-patterns are padded and
-truncated to `arity`, which is what makes the short `subpatterns` vectors that
-`exhaust.rs:114` produces for record patterns work. -/
-def specializeRow (target : Constructor) (arity : Nat) : Row → Option Row
-  | [] => none
-  | .wildcard :: rest => some (List.replicate arity Pattern.wildcard ++ rest)
+/-- `Ctx::specialize` (`exhaustiveness.rs`): the rows whose first pattern is
+`target`, with that pattern's sub-patterns spliced in.
+
+* a wildcard head matches every constructor and expands to `arity` wildcards;
+* a constructor head survives only if it *is* `target`, and its sub-patterns
+  are padded and truncated to `arity` -- which is what makes the short
+  `subpatterns` vectors `lower` produces for record patterns work;
+* an **alternation** head distributes: one row per alternative, each carrying
+  the rest of the original row, specialised in turn. Dropping the row instead
+  would lose the coverage it provides. -/
+def specializeRow (target : Constructor) (arity : Nat) : Row → List Row
+  | [] => []
+  | .wildcard :: rest => [List.replicate arity Pattern.wildcard ++ rest]
   | .constructor c subpatterns :: rest =>
       if c = target then
-        some ((subpatterns ++ List.replicate arity Pattern.wildcard).take arity ++ rest)
-      else none
-  | .or _ :: _ => none
+        [(subpatterns ++ List.replicate arity Pattern.wildcard).take arity ++ rest]
+      else []
+  | .or alternatives :: rest =>
+      alternatives.attach.flatMap fun a => specializeRow target arity (a.1 :: rest)
+termination_by row => row
+decreasing_by
+  have := List.sizeOf_lt_of_mem a.2
+  simp_wf
+  omega
+
+/-- `specializeRow`'s pad-and-truncate, when the sub-patterns already fit.
+Padding to the arity and then truncating there is just padding: the truncation
+is a no-op. Every proof that touches `specializeRow` needs this, and the
+hypothesis `subpatterns.length <= arity` is exactly the well-formedness clause
+that makes the truncation harmless -- see `WellFormed.lean`. -/
+theorem pad_take {alpha : Type} {l : List alpha} {x : alpha} {a : Nat} (h : l.length <= a) :
+    (l ++ List.replicate a x).take a = l ++ List.replicate (a - l.length) x := by
+  rw [List.take_append, List.take_of_length_le h, List.take_replicate,
+      Nat.min_eq_left (by omega)]
+
+/-! `attach` is a termination artefact -- the recursion is on an element of
+`alternatives`, and Lean needs the membership proof to see it shrink. These
+three equations put the plain `flatMap` back, and every proof below uses them
+rather than unfolding the definitions. -/
+
+theorem List.attach_flatMap {α β : Type} (l : List α) (f : α → List β) :
+    (l.attach.flatMap fun a => f a.1) = l.flatMap f := by
+  simp [List.flatMap_def]
+
+@[simp] theorem specializeRow_nil (target : Constructor) (arity : Nat) :
+    specializeRow target arity [] = [] := by rw [specializeRow]
+
+@[simp] theorem specializeRow_wildcard (target : Constructor) (arity : Nat) (rest : Row) :
+    specializeRow target arity (Pattern.wildcard :: rest)
+      = [List.replicate arity Pattern.wildcard ++ rest] := by rw [specializeRow]
+
+@[simp] theorem specializeRow_constructor (target : Constructor) (arity : Nat)
+    (c : Constructor) (subpatterns : List Pattern) (rest : Row) :
+    specializeRow target arity (Pattern.constructor c subpatterns :: rest)
+      = if c = target then
+          [(subpatterns ++ List.replicate arity Pattern.wildcard).take arity ++ rest]
+        else [] := by rw [specializeRow]
+
+@[simp] theorem specializeRow_or (target : Constructor) (arity : Nat)
+    (alternatives : List Pattern) (rest : Row) :
+    specializeRow target arity (Pattern.or alternatives :: rest)
+      = alternatives.flatMap fun a => specializeRow target arity (a :: rest) := by
+  rw [specializeRow]
+  exact List.attach_flatMap alternatives (fun a => specializeRow target arity (a :: rest))
 
 def specialize (P : List Row) (target : Constructor) (arity : Nat) : List Row :=
-  P.filterMap (specializeRow target arity)
+  P.flatMap (specializeRow target arity)
 
-/-- `Ctx::default_matrix` (`exhaust.rs:252`): rows whose first pattern is a
-wildcard, with that column dropped. -/
-def defaultRow : Row → Option Row
-  | .wildcard :: rest => some rest
-  | _ => none
+/-- `Ctx::default_matrix` (`exhaustiveness.rs`): rows whose first pattern is a
+wildcard, with that column dropped -- and, since the fix, rows whose first
+pattern is an alternation *one of whose alternatives* is a wildcard. -/
+def defaultRow : Row → List Row
+  | [] => []
+  | .wildcard :: rest => [rest]
+  | .constructor _ _ :: _ => []
+  | .or alternatives :: rest =>
+      alternatives.attach.flatMap fun a => defaultRow (a.1 :: rest)
+termination_by row => row
+decreasing_by
+  have := List.sizeOf_lt_of_mem a.2
+  simp_wf
+  omega
+
+@[simp] theorem defaultRow_nil : defaultRow [] = [] := by rw [defaultRow]
+
+@[simp] theorem defaultRow_wildcard (rest : Row) : defaultRow (Pattern.wildcard :: rest) = [rest] := by
+  rw [defaultRow]
+
+@[simp] theorem defaultRow_constructor (c : Constructor) (subpatterns : List Pattern) (rest : Row) :
+    defaultRow (Pattern.constructor c subpatterns :: rest) = [] := by rw [defaultRow]
+
+@[simp] theorem defaultRow_or (alternatives : List Pattern) (rest : Row) :
+    defaultRow (Pattern.or alternatives :: rest)
+      = alternatives.flatMap fun a => defaultRow (a :: rest) := by
+  rw [defaultRow]
+  exact List.attach_flatMap alternatives (fun a => defaultRow (a :: rest))
 
 def defaultMatrix (P : List Row) : List Row :=
-  P.filterMap defaultRow
+  P.flatMap defaultRow
 
-/-- `Ctx::head_ctors` (`exhaust.rs:260`). -/
+/-- `collect_head_ctors` (`exhaustiveness.rs`): the constructors a pattern's
+head can start with. An alternation contributes every constructor any of its
+alternatives does, so that a column covered by `true | false` counts as
+complete. -/
+def Pattern.headConstructors : Pattern → List Constructor
+  | .wildcard => []
+  | .constructor c _ => [c]
+  | .or alternatives => alternatives.attach.flatMap fun a => Pattern.headConstructors a.1
+decreasing_by
+  have := List.sizeOf_lt_of_mem a.2
+  simp_wf
+  omega
+
+@[simp] theorem Pattern.headConstructors_wildcard :
+    Pattern.headConstructors .wildcard = [] := by rw [Pattern.headConstructors]
+
+@[simp] theorem Pattern.headConstructors_constructor (c : Constructor) (subpatterns : List Pattern) :
+    Pattern.headConstructors (.constructor c subpatterns) = [c] := by rw [Pattern.headConstructors]
+
+@[simp] theorem Pattern.headConstructors_or (alternatives : List Pattern) :
+    Pattern.headConstructors (.or alternatives)
+      = alternatives.flatMap Pattern.headConstructors := by
+  rw [Pattern.headConstructors]
+  exact List.attach_flatMap alternatives Pattern.headConstructors
+
+/-- `Ctx::head_ctors`. Rust deduplicates as it goes; nothing here ever asks for
+more than membership, so this does not. -/
 def headConstructors (P : List Row) : List Constructor :=
-  P.filterMap fun r =>
-    match r with
-    | .constructor c _ :: _ => some c
-    | _ => none
-
-/-- The guard `exhaust.rs:328` tests before splitting on constructors. -/
-def isComplete (S : Signature) (limit : Nat) (t : Ty) (P : List Row) : Bool :=
-  match allConstructors S limit t with
-  | some all => all.all fun c => headConstructors P |>.contains c
-  | none => false
+  P.flatMap fun row => match row with
+    | [] => []
+    | p :: _ => p.headConstructors
 
 end Buri

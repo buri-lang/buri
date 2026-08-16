@@ -1,0 +1,2 @@
+// The testing surface of //lib/money.
+from "//lib/money/testing/fixtures" export { sample };

@@ -1,0 +1,7 @@
+export fn f(): (Int, Int, Int) {
+    (
+        aRatherLongFunctionCall(1),
+        anotherRatherLongFunctionCall(2),
+        aThirdRatherLongOne(33),
+    )
+}

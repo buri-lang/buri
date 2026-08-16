@@ -1,0 +1,11 @@
+// A binary's suite addresses the target under test by its module path, which
+// is the one place `//cmd/tool/main` may be written (TESTING.md, "Testing a
+// binary").
+
+from "//cmd/tool/main" import { banner, route };
+from "core/testing/assert" import * as assert;
+
+test "the entry point's own exports are what the suite sees" {
+  assert.eq(banner(), "tool");
+  assert.eq(route("/nope"), "fallback");
+}

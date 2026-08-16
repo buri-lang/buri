@@ -155,6 +155,17 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "check-reproducible",
+        value: Value::None,
+        choices: &[],
+        blurb: "build twice in separate sandboxes and compare the artifacts byte for byte",
+        global: false,
+        set: |f, _| {
+            f.check_reproducible = true;
+            Ok(())
+        },
+    },
+    Flag {
         name: "accept",
         value: Value::None,
         choices: &[],
@@ -313,7 +324,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile",
         doc: include_str!("../docs/cli/build.md"),
-        flags: &["release", "debug", "output", "force", "explain"],
+        flags: &["release", "debug", "output", "force", "explain", "check-reproducible"],
         targets: Targets::Any,
         needs_repo: true,
         run: build::cmd_build,

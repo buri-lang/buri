@@ -21,14 +21,14 @@ use harness::*;
 /// the declaration and the code disagree.
 #[test]
 fn build_file_rules() {
-    run_corpus(&tests_dir().join("repositories/build-files"), "build-files", 8);
+    run_corpus(&tests_dir().join("repositories/build-files"), "build-files", 12);
 }
 
 /// LIBRARIES.md: `lib.buri` is a library's entire public surface, and the
 /// boundary it draws applies to methods as much as to names.
 #[test]
 fn library_boundaries() {
-    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 5);
+    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 8);
 }
 
 /// TAGS.md: a tag is a property of a whole dependency closure, and the two
@@ -40,10 +40,31 @@ fn tag_policy() {
 }
 
 /// CLI.md: the exit codes, and the commands whose contract is about what they
-/// leave on disk rather than what they compute.
+/// leave on disk rather than what they compute — `gen`, `run`, `clean`,
+/// `version`, the `out/` symlink, and the no-argument forms that mean "the
+/// package I am standing in".
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 2);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 10);
+}
+
+/// CLI.md's `query`: what the graph says, asked without building anything.
+/// Its own corpus because the answers are the recorded output rather than a
+/// diagnostic — a query that has stopped working prints a plausible wrong
+/// answer rather than failing.
+#[test]
+fn graph_queries() {
+    run_corpus(&tests_dir().join("repositories/query"), "query", 1);
+}
+
+/// PROTO.md: a `.proto` schema is a source that becomes a module. One case for
+/// the build-file half — declared, placed by `gen`, keyed on its contents,
+/// internal to the rule that declared it — and one for each half of what the
+/// schema reader refuses: the constructs that are out of scope, and the files
+/// that are not schemas at all.
+#[test]
+fn proto_schemas() {
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 3);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
@@ -53,6 +74,14 @@ fn cli_contract() {
 #[test]
 fn lint_catalogue() {
     run_corpus(&tests_dir().join("repositories/linting"), "linting", 7);
+}
+
+/// TESTING.md: where tests live, what a test source may reach, and what the
+/// runner does with a suite — the flags, the timeout, the golden-file update
+/// mode, and the exact shape of a failure report.
+#[test]
+fn test_suites() {
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 10);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

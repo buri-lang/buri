@@ -143,13 +143,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         } else {
             // A binding of an effect-carrying value is itself effect-carrying,
             // so the capture rule follows it.
-            let generics = self.generics.clone();
-            if self.c.tables.is_effect_carrying(&self.resolve(&ty), &generics) {
-                let mut locals = Vec::new();
-                pat.binds(&mut locals);
-                for l in locals {
-                    self.effect_locals.insert(l);
-                }
+            let mut locals = Vec::new();
+            pat.binds(&mut locals);
+            for l in locals {
+                self.note_capture_risk(l, &ty);
             }
         }
         typed::Stmt::Let { pattern: pat, value: value_hir, span }
@@ -2068,6 +2065,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.push_scope();
         self.lambda_depth += 1;
         let outer_scopes = self.scopes.len();
+        // Locals are numbered in the order they are bound, so everything this
+        // lambda introduces — its parameters, its `let`s, the names its match
+        // arms bind — is at or past this mark, and everything a capture could
+        // name is before it.
+        let outer_locals = self.locals.len();
         let mut locals = Vec::new();
         let mut ptypes = Vec::new();
         for (i, p) in params.iter().enumerate() {
@@ -2083,6 +2085,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             let local = self.new_local(&p.name.name, ty.clone(), p.span);
             self.bind(&p.name.name, local);
+            // A lambda's parameter is a binding like any other, so a lambda
+            // *inside* it may not close over one that carries authority. This
+            // is the `fn(c, p) => { let g = fn() => fs.exists(c, p); g() }`
+            // route: `c` is the context a `*Ctx` combinator passed in, and
+            // without this the capture rule would stop at one level.
+            self.note_capture_risk(local, &ty);
             locals.push(local);
             ptypes.push(ty);
         }
@@ -2124,7 +2132,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         // no `ctx` parameter, and the purity theorem would be false.
         let mut captures = Vec::new();
         collect_locals(&body_hir, &mut captures);
-        captures.retain(|l| !locals.contains(l));
+        // A name the body itself binds is not a capture. Filtering only the
+        // lambda's parameters left `match (best) { .Some(b) => ... }` counting
+        // `b` as one, which is harmless for a `[Int]` but not for a `[T]`.
+        captures.retain(|l| l.index() < outer_locals);
         captures.sort();
         captures.dedup();
         for c in &captures {
@@ -2141,6 +2152,31 @@ impl<'a, 'b> Infer<'a, 'b> {
                          meaningless"
                             .into(),
                     );
+                break;
+            }
+            if self.poly_locals.contains(c) {
+                let name = self.locals[c.index()].name.clone();
+                let shown = self.show_ty(&self.locals[c.index()].ty.clone());
+                self.err(
+                    span,
+                    format!(
+                        "a lambda may not capture `{name}`, whose type `{shown}` could be a \
+                         context"
+                    ),
+                )
+                .code("lambda-captures-generic")
+                .fix(
+                    "take it as a parameter of the lambda instead — the `fn(C, A) => B` shape a \
+                     `*Ctx` combinator passes — or return the value rather than a closure over it",
+                )
+                .notes
+                .push(
+                    "a generic body is checked once, for every instantiation at once (SPEC 13.5), \
+                     so a type parameter here stands for a context type too — and `fn wrap<T>(x: \
+                     T, f: fn(T) => ()): fn() => ()` would otherwise launder one into a closure \
+                     whose type mentions no effect at all"
+                        .into(),
+                );
                 break;
             }
         }

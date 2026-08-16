@@ -8,9 +8,14 @@
 # There is no name, no defaults block, no lint block, and no place to put a
 # compiler flag — see REPO-CONFIG.md for why each of those is absent.
 
+# A `sha256` of nothing but zeros is the sentinel for *unpinned*, and the CLI
+# verifies a pin that is not one against the executable running it. This
+# repository is built by whichever `buri` the test suite just compiled, so it
+# has no release to name — and the hash that used to sit here was a plausible
+# fake, which is the one thing a field nobody checked should never have been.
 toolchain {
   version: "0.3.0"
-  sha256: "9f2b1c4e8a7d3f60b5c1e9a24d7f8036b1c5e2a94f7d0b83c6e1a5d2f9b04c7e3"
+  sha256: "0000000000000000000000000000000000000000000000000000000000000000"
 }
 
 # The whole tag vocabulary, and the whole of build policy. A build file says

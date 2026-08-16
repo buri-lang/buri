@@ -11,9 +11,12 @@
      X*               zero or more
      X+               one or more
      "..."            terminal (literal token text)
+     "a".."z"         a range of characters (lexical grammar only)
      UPPER_CAMEL      non-terminal
      ALL_CAPS         lexical token class (see LEXICAL GRAMMAR at the end)
+     name=X           a label: what a syntax tree calls its capture of X
      (* ... *)        comment
+     (* @... *)       a directive (see GENERATING A PARSER, below)
 
    PROPERTIES
      The syntactic grammar below is context-free and unambiguous, and is
@@ -29,11 +32,82 @@
 
 
 (* --------------------------------------------------------------------------
+   GENERATING A PARSER
+
+   This file is the SOURCE OF TRUTH for Buri's syntax, and it is executable
+   twice over. `editors/tree-sitter-buri/grammar.js` is GENERATED from it by
+   `cli/src/documentation/grammar.rs`; a test regenerates it and fails on any
+   difference, so the two cannot drift:
+
+       BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar
+
+   And `cli/src/parsing/parser.rs` is the hand-written implementation, held to
+   this file by the corpus: every source the compiler parses, the generated
+   tree-sitter grammar must parse with no error node, and every source the
+   compiler rejects *in the parser* it must reject
+   (`editors/tree-sitter-buri/check.sh`).
+
+   A context-free grammar does not say what a syntax tree should look like,
+   and a generated parser needs to be told. Everything it needs beyond the
+   productions is written as a directive — an ordinary EBNF comment whose
+   first character is `@`, applying to the production that follows it. Nothing
+   a production already states is stated again: a node's name comes from the
+   production's name, an operator's precedence from its position in the
+   cascade, and its associativity from the shape of its production.
+
+     `@node NAME`   the node's name, where the derived one would be wrong
+     `@hidden`      the node is inlined into its parent and never appears
+     `@inline`      no rule at all; the body is substituted at each use
+     `@external`    the terminal comes from the hand-written scanner
+     `@token`       one lexical token; the pattern is compiled from the body
+     `@regex RE`    the pattern, where the lexical grammar states it in prose
+     `@prose`       the body is documentation, and is not read as grammar
+     `@as NAME`     the syntax tree represents this as another production
+     `@prec ...`    a disambiguation a generated parser needs and LR(1) does
+                    not; the shape of the production is unaffected
+     `@raw JS`      the escape hatch: this rule, in the generator's own terms
+
+   Five more describe the whole grammar rather than one production, and are
+   written out below: `@grammar`, `@word`, `@extras`, `@externals` and
+   `@words`. A sixth, `@cascade`, states the precedence ladder and lives with
+   the expressions in section 5, where a reader is already looking at it. A
+   seventh, `@conflicts`, would declare a place the parser must explore two
+   readings at once; this grammar has none, which is a second opinion on the
+   LR(1) claim above.
+
+   A line that opens with an `@` is a directive; that is why the list of them
+   above writes each one in backticks.
+
+   @grammar buri
+
+   @word IDENT
+   @extras Whitespace LineComment DocComment ModuleDoc BlockComment
+
+   The scanner keeps no stack: it is told which tokens are valid where it
+   stands, and "a template span is valid here" is the whole of the state. The
+   order below is the order of the enum in `src/scanner.c`.
+
+   @externals STRING TEMPLATE_HEAD TEMPLATE_SPAN TEMPLATE_TAIL BlockComment
+
+   How a production's name becomes a node's name: split on the capitals,
+   expand each word, join with underscores. A plural is its singular's
+   expansion with an `s`, so `Params` follows `Param` without being listed.
+
+   @words Decl=declaration Expr=expression Fn=function Lit=literal
+          Stmt=statement Param=parameter Spec=specifier Arg=argument
+          Init=initializer
+
+   -------------------------------------------------------------------------- *)
+
+
+(* --------------------------------------------------------------------------
    1. COMPILATION UNIT
    -------------------------------------------------------------------------- *)
 
+(* @node source_file *)
 Module          ::= Item*
 
+(* @hidden *)
 Item            ::= Import
                   | ReExport
                   | Exportable
@@ -49,23 +123,27 @@ Item            ::= Import
    named before the specifier list is typed, and can complete it.
    -------------------------------------------------------------------------- *)
 
-Import          ::= "from" STRING "import" ImportClause ";"
+Import          ::= "from" path=STRING "import" ImportClause ";"
 
 (* A namespace import MUST be named: `import * as list` is the only wildcard
    form, and bare `import *` is not derivable. Nothing ever enters a scope
-   without a name written in the importing file. *)
+   without a name written in the importing file.
+
+   @hidden *)
 ImportClause    ::= "{" ImportSpecs? "}"
-                  | "*" "as" IDENT
+                  | NamespaceImport
+
+NamespaceImport ::= "*" "as" name=IDENT
 
 ImportSpecs     ::= ImportSpec ("," ImportSpec)* ","?
 
-ImportSpec      ::= IDENT ("as" IDENT)?
+ImportSpec      ::= name=IDENT ("as" alias=IDENT)?
 
 (* A re-export publishes a name this module imported, and mirrors `import` in
    both shape and restriction: there is no `export *`, so every name a module
    publishes is written in that module's own source. A library's lib.buri is
    made of these. *)
-ReExport        ::= "from" STRING "export" "{" ImportSpecs? "}" ";"
+ReExport        ::= "from" path=STRING "export" "{" ImportSpecs? "}" ";"
 
 (* STRING in an Import or ReExport is a module path, and has two forms:
      "core/list"           a standard library module
@@ -79,6 +157,7 @@ ReExport        ::= "from" STRING "export" "{" ImportSpecs? "}" ";"
 
 Exportable      ::= "export"? ExportableBody
 
+(* @hidden *)
 ExportableBody  ::= FnDecl
                   | StructDecl
                   | EnumDecl
@@ -89,7 +168,19 @@ ExportableBody  ::= FnDecl
                   | ContextDecl            (* exportable only from a test-only *)
                                            (* module; SPEC 11.3               *)
 
-FnDecl          ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type Block
+(* A declaration with no body ends in `;` instead of a Block. It is how the
+   bundled standard library declares the operations the runtime supplies
+   (`export fn len(self: Str): Int;`, std/str.buri:18) and, as MethodSig below,
+   how a trait or an effect states a method.
+
+   The two are one production because they are one shape to the parser, which
+   reads the `;` wherever a body could stand. Where it is *allowed* is a
+   separate rule, and not a syntactic one: outside a trait, an effect, or a
+   module of the bundled standard library, a body-less FnDecl parses and is
+   then rejected, so that the diagnostic can say what is missing rather than
+   what was unexpected. *)
+FnDecl          ::= "fn" name=IDENT GenericParams? "(" Params? ")"
+                    ":" return_type=Type (body=Block | ";")
 
 (* A function is a METHOD if and only if it is declared inside an `impl` block
    and takes `self` first. Neither half is optional: a top-level `fn` may not
@@ -102,34 +193,42 @@ Params          ::= SelfParam ("," CtxParam)? ("," Param)* ","?
                   | Param ("," Param)* ","?
 SelfParam       ::= "self" ":" Type
 CtxParam        ::= "ctx" ":" Type
-Param           ::= IDENT ":" Type
+Param           ::= name=IDENT ":" type=Type
 
 GenericParams   ::= "<" GenericParam ("," GenericParam)* ","? ">"
-GenericParam    ::= IDENT (":" Bounds)?
+GenericParam    ::= name=IDENT (":" Bounds)?
 Bounds          ::= NamedType ("+" NamedType)*
 
 (* Struct fields and enum variants are module-private unless exported. That is
    the only visibility mechanism: record structs, tuple structs, and enums all
    use the same rule, and there is no `opaque` modifier. *)
-StructDecl      ::= "struct" IDENT GenericParams? StructBody
-StructBody      ::= "{" FieldDecls? "}"              (* record struct *)
-                  | "(" TupleFields? ")" ";"         (* tuple struct  *)
+StructDecl      ::= "struct" name=IDENT GenericParams? StructBody
+
+(* @inline *)
+StructBody      ::= FieldDeclsBlock                  (* record struct *)
+                  | TupleFieldsBlock                 (* tuple struct  *)
+
+FieldDeclsBlock ::= "{" FieldDecls? "}"
+TupleFieldsBlock
+                ::= "(" TupleFields? ")" ";"
 
 FieldDecls      ::= FieldDecl ("," FieldDecl)* ","?
-FieldDecl       ::= "export"? IDENT ":" Type
+FieldDecl       ::= "export"? name=IDENT ":" type=Type
 
 TupleFields     ::= TupleField ("," TupleField)* ","?
 TupleField      ::= "export"? Type
 
-EnumDecl        ::= "enum" IDENT GenericParams? "{" Variants? "}"
+EnumDecl        ::= "enum" name=IDENT GenericParams? "{" Variants? "}"
 Variants        ::= Variant ("," Variant)* ","?
-Variant         ::= "export"? IDENT VariantPayload?
+Variant         ::= "export"? name=IDENT VariantPayload?
+
+(* @hidden *)
 VariantPayload  ::= "(" Types ")"
                   | "{" FieldDecls "}"
 
-TypeAliasDecl   ::= "type" IDENT GenericParams? "=" Type ";"
+TypeAliasDecl   ::= "type" name=IDENT GenericParams? "=" Type ";"
 
-ConstDecl       ::= "const" IDENT ":" Type "=" Expr ";"
+ConstDecl       ::= "const" name=IDENT ":" type=Type "=" value=Expr ";"
 
 
 (* --- Traits and effects ----------------------------------------------------
@@ -142,9 +241,18 @@ ConstDecl       ::= "const" IDENT ":" Type "=" Expr ";"
    `ctx`. Effects may be declared only by platform modules, and no type may
    implement both an effect and a trait. *)
 
-TraitDecl       ::= "trait" IDENT GenericParams? "{" MethodSig* "}"
-EffectDecl      ::= "effect" IDENT GenericParams? "{" MethodSig* "}"
-MethodSig       ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
+TraitDecl       ::= "trait" name=IDENT GenericParams? "{" MethodSig* "}"
+EffectDecl      ::= "effect" name=IDENT GenericParams? "{" MethodSig* "}"
+
+(* MethodSig is the body-less FnDecl, named separately because here it is the
+   only form: a trait or an effect states signatures and supplies no bodies,
+   so the `;` is required rather than merely admitted. A syntax tree does not
+   distinguish them -- one node accepts both, and the highlight queries do not
+   have to name two -- so the requirement is checked where the rest of the
+   trait's rules are.
+
+   @as FnDecl *)
+MethodSig       ::= "fn" name=IDENT GenericParams? "(" Params? ")" ":" Type ";"
 
 (* An `impl` with no `for` clause declares the type's own methods. It is the
    only place a method may be declared: every FnDecl inside one takes `self`
@@ -154,10 +262,22 @@ MethodSig       ::= "fn" IDENT GenericParams? "(" Params? ")" ":" Type ";"
    Both positions are a full Type rather than a NamedType, because `[T]` has
    methods of its own. That the trait position must name a trait is a static
    rule, checked where the rest of trait resolution is. One token of lookahead
-   after the first Type decides the form. *)
-ImplDecl        ::= "impl" GenericParams? Type ("for" Type)? "{" FnDecl* "}"
+   after the first Type decides the form.
 
-DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" NamedType ";"
+   The two forms differ in one more way, which is why they are written out
+   separately here. A method of the type's own is part of the type's API and
+   is exported on its own terms, so it may be written `export fn` — every
+   `impl` in the standard library and in cli/tests/example does. A method that
+   satisfies a trait may not: conformance is a property of the type and is
+   visible wherever the type is, so there is nothing for an `export` to say
+   and writing one is an error. *)
+ImplDecl        ::= "impl" GenericParams? type=Type "{" ImplMethod* "}"
+                  | "impl" GenericParams? type=Type "for" trait=Type
+                    "{" FnDecl* "}"
+
+ImplMethod      ::= "export"? FnDecl
+
+DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" type=NamedType ";"
 
 
 (* --- Contexts --------------------------------------------------------------
@@ -174,13 +294,13 @@ DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" NamedType ";"
    The left side of a binding is a NamedType because it names an effect, which
    may be written qualified (`cap.Alloc`). The right side is any expression. *)
 
-ContextDecl     ::= "context" IDENT ContextBody
+ContextDecl     ::= "context" name=IDENT ContextBody
 
 ContextExpr     ::= "context" ContextBody
 
 ContextBody     ::= "{" Spread? ContextBindings? "}"
 ContextBindings ::= ContextBinding ("," ContextBinding)* ","?
-ContextBinding  ::= NamedType ":" Expr
+ContextBinding  ::= effect=NamedType ":" value=Expr
 
 (* Spread is the same production a struct literal uses (section 5): a context
    and a struct literal are both a brace-delimited list of `Name: value` pairs
@@ -194,7 +314,7 @@ ContextBinding  ::= NamedType ":" Expr
    calls one the file declared, and passes unless an assertion fails. The name
    is a STRING because test names are prose. *)
 
-TestDecl        ::= "test" STRING Block
+TestDecl        ::= "test" name=STRING body=Block
 
 
 (* --------------------------------------------------------------------------
@@ -205,6 +325,7 @@ TestDecl        ::= "test" STRING Block
    by the turbofish `::<...>`.
    -------------------------------------------------------------------------- *)
 
+(* @hidden *)
 Type            ::= FnType
                   | PrimaryType
 
@@ -212,6 +333,7 @@ FnType          ::= "fn" "(" Types? ")" "=>" Type
 
 Types           ::= Type ("," Type)* ","?
 
+(* @hidden *)
 PrimaryType     ::= NamedType
                   | SelfType
                   | UnitType
@@ -257,24 +379,49 @@ TupleType       ::= "(" Type ("," Type)+ ","? ")"
        * / %                 left
        - ! ~                 prefix
        postfix chain         . .N (args) [i] ? ::<T> {fields}
+
+   That table is the cascade below, and a generated parser is given it as a
+   number per level rather than as eleven nested productions -- otherwise
+   every literal in a program would sit under nine wrappers. The number is the
+   level's position in the list; the associativity is the shape of the
+   production, since `X ::= X op Y | Y` is left, `X ::= Y op X | Y` is right,
+   and `X ::= Y op Y | Y` is neither. The nine binary levels are one node,
+   because a highlight query should not have to know the whole chain.
+
+   Non-associativity is the one thing a generated parser is not told: it reads
+   `a < b < c` as left-associative and the compiler rejects the chain with its
+   own message, which is better than an editor showing a syntax error where
+   the compiler has a sentence.
+
+   @cascade _operand
+     OrExpr CoalesceExpr AndExpr CmpExpr BitOrExpr BitXorExpr
+     BitAndExpr AddExpr MulExpr           = binary_expression
+     UnaryExpr                            = unary_expression
+     PostfixExpr
+
    -------------------------------------------------------------------------- *)
 
+(* @hidden *)
 Expr            ::= Lambda
                   | OrExpr
 
 Lambda          ::= "fn" "(" LambdaParams? ")" (":" Type)? "=>" Expr
 LambdaParams    ::= LambdaParam ("," LambdaParam)* ","?
-LambdaParam     ::= IDENT (":" Type)?
+LambdaParam     ::= name=IDENT (":" Type)?
 
 OrExpr          ::= OrExpr "||" CoalesceExpr
                   | CoalesceExpr
 
-CoalesceExpr    ::= AndExpr ("??" CoalesceExpr)?
+CoalesceExpr    ::= AndExpr "??" CoalesceExpr
+                  | AndExpr
 
 AndExpr         ::= AndExpr "&&" CmpExpr
                   | CmpExpr
 
-CmpExpr         ::= BitOrExpr (CmpOp BitOrExpr)?
+CmpExpr         ::= BitOrExpr CmpOp BitOrExpr
+                  | BitOrExpr
+
+(* @inline *)
 CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">="
 
 BitOrExpr       ::= BitOrExpr "|" BitXorExpr
@@ -299,25 +446,35 @@ UnaryExpr       ::= ("-" | "!" | "~") UnaryExpr
 (* Brace-terminated, self-delimiting expressions. They may appear as operands
    of binary operators, but they may NOT be the head of a postfix chain --
    that restriction is what keeps `if (c) { a } else { b } { x: 1 }`
-   from having two parses. *)
+   from having two parses.
+
+   @hidden *)
 BlockLikeExpr   ::= Block
                   | IfExpr
                   | MatchExpr
                   | ContextExpr
 
-PostfixExpr     ::= PostfixExpr PostfixOp
-                  | PrimaryExpr
+(* Method calls have no production of their own: `sq.area()` is FieldExpr
+   followed by CallExpr, identical in shape to a field access or a module
+   member access. Which one it is, is settled during name resolution.
 
-(* Method calls have no production of their own: `sq.area()` is `"." IDENT`
-   followed by a call, identical in shape to a field access or a module member
-   access. Which one it is, is settled during name resolution. *)
-PostfixOp       ::= "." IDENT                   (* field / member / method *)
-                  | "." INT                     (* tuple element access    *)
-                  | "(" Args? ")"               (* call                    *)
-                  | "[" Expr "]"                (* index -> Option<T>      *)
-                  | "?"                         (* try-propagate           *)
-                  | "::" TypeArgs               (* turbofish               *)
-                  | StructLitBody               (* struct literal          *)
+   @hidden *)
+PostfixExpr     ::= PrimaryExpr
+                  | FieldExpr
+                  | TupleIndexExpr
+                  | CallExpr
+                  | IndexExpr
+                  | TryExpr
+                  | TurbofishExpr
+                  | StructLit
+
+FieldExpr       ::= value=PostfixExpr "." field=IDENT        (* field / member / method *)
+TupleIndexExpr  ::= value=PostfixExpr "." index=INT          (* tuple element access    *)
+CallExpr        ::= function=PostfixExpr "(" Args? ")"       (* call                    *)
+IndexExpr       ::= value=PostfixExpr "[" Expr "]"           (* index -> Option<T>      *)
+TryExpr         ::= PostfixExpr "?"                          (* try-propagate           *)
+TurbofishExpr   ::= PostfixExpr "::" TypeArgs                (* turbofish               *)
+StructLit       ::= type=PostfixExpr StructLitBody           (* struct literal          *)
 
 (* With records gone, a `{` that opens an expression is ALWAYS a block, and a
    `{` following a path is ALWAYS a struct literal. Nothing competes, so field
@@ -325,38 +482,47 @@ PostfixOp       ::= "." IDENT                   (* field / member / method *)
 StructLitBody   ::= "{" Spread? FieldInits? "}"
 Spread          ::= ".." Expr ","?
 FieldInits      ::= FieldInit ("," FieldInit)* ","?
-FieldInit       ::= IDENT (":" Expr)?
+FieldInit       ::= name=IDENT (":" value=Expr)?
 
 Args            ::= Expr ("," Expr)* ","?
 
 (* `self` and `ctx` are keywords, so IDENT does not cover them, but both are
-   ordinary values once bound and appear in expressions like any other name. *)
+   ordinary values once bound and appear in expressions like any other name.
+
+   @hidden *)
 PrimaryExpr     ::= Literal
                   | IDENT
-                  | "self"                      (* in a method body        *)
-                  | "ctx"                       (* the context in scope    *)
-                  | "." IDENT                   (* inferred-type variant   *)
-                  | UnitLit
-                  | ArrayLit
-                  | TupleLit
+                  | SelfExpr
+                  | CtxExpr
+                  | VariantExpr
+                  | UnitExpr
+                  | ArrayExpr
+                  | TupleExpr
                   | GroupedExpr
 
-UnitLit         ::= "(" ")"
+SelfExpr        ::= "self"                    (* in a method body        *)
+CtxExpr         ::= "ctx"                     (* the context in scope    *)
+VariantExpr     ::= "." name=IDENT            (* inferred-type variant   *)
 
-ArrayLit        ::= "[" (Expr ("," Expr)* ","?)? "]"
+UnitExpr        ::= "(" ")"
+
+ArrayExpr       ::= "[" (Expr ("," Expr)* ","?)? "]"
 
 (* Arity >= 2; `(e)` is grouping and `()` is unit. *)
-TupleLit        ::= "(" Expr ("," Expr)+ ","? ")"
+TupleExpr       ::= "(" Expr ("," Expr)+ ","? ")"
 
 GroupedExpr     ::= "(" Expr ")"
 
-IfExpr          ::= "if" "(" Expr ")" Block "else" ElseBranch
+IfExpr          ::= "if" "(" condition=Expr ")" consequence=Block
+                    "else" alternative=ElseBranch
+
+(* @inline *)
 ElseBranch      ::= Block
                   | IfExpr
 
-MatchExpr       ::= "match" "(" Expr ")" "{" MatchArms? "}"
+MatchExpr       ::= "match" "(" value=Expr ")" "{" MatchArms? "}"
 MatchArms       ::= MatchArm ("," MatchArm)* ","?
-MatchArm        ::= Pattern Guard? "=>" Expr
+MatchArm        ::= pattern=Pattern Guard? "=>" value=Expr
 Guard           ::= "if" Expr
 
 (* There are no loops. Iteration is recursion (guaranteed tail-call
@@ -370,13 +536,19 @@ Guard           ::= "if" Expr
    There are no expression statements, no `return`, and no loops.
    -------------------------------------------------------------------------- *)
 
-Block           ::= "{" Stmt+ "}"
-                  | "{" Stmt* Expr "}"
+(* The result expression is optional *syntactically*. A block without one has
+   no value, which is an error everywhere a block may stand, but it is the
+   same kind of error as a block whose value is of the wrong type -- so it is
+   reported by the checker, which can say what the block was expected to
+   produce, rather than by the parser, which cannot. *)
+Block           ::= "{" Stmt* Expr? "}"
 
 (* `let` is the only statement outside a test source. ExprStmt is legal only in
    a test source and only when its type is () -- both static rules, SPEC 11.2 --
    so nothing must-use can be dropped by it. It stays LR(1): after an Expr, a
-   ";" means statement and a "}" means result expression. *)
+   ";" means statement and a "}" means result expression.
+
+   @hidden *)
 Stmt            ::= LetStmt
                   | ExprStmt
 
@@ -384,8 +556,8 @@ Stmt            ::= LetStmt
    because a context's type is generated and never written (SPEC.md 11.3), and
    it is legal only where a context may be built. After "let", one token of
    lookahead decides which form this is. *)
-LetStmt         ::= "let" Pattern (":" Type)? "=" Expr ";"
-                  | "let" "ctx" "=" Expr ";"
+LetStmt         ::= "let" pattern=Pattern (":" Type)? "=" value=Expr ";"
+                  | "let" "ctx" "=" value=Expr ";"
 
 ExprStmt        ::= Expr ";"
 
@@ -396,10 +568,21 @@ ExprStmt        ::= Expr ";"
    A bare IDENT is ALWAYS a binding. Enum variants must be written qualified
    (`Option.None`) or with the inferred-type dot form (`.None`). This is what
    makes patterns parseable without name resolution.
+
+   The `@prec` directives below are the one place a generated parser is told
+   something LR(1) settles for itself. An IDENT may open a BindPattern or a
+   PathPattern, and one token of lookahead decides which; a parser that
+   explores both needs to be told which to keep.
    -------------------------------------------------------------------------- *)
 
-Pattern         ::= PatternNoOr ("|" PatternNoOr)*
+(* @hidden *)
+Pattern         ::= OrPattern
+                  | PatternNoOr
 
+(* @prec left *)
+OrPattern       ::= PatternNoOr ("|" PatternNoOr)+
+
+(* @hidden *)
 PatternNoOr     ::= BindPattern
                   | WildcardPattern
                   | LiteralPattern
@@ -409,7 +592,8 @@ PatternNoOr     ::= BindPattern
                   | ArrayPattern
                   | GroupedPattern
 
-BindPattern     ::= IDENT ("@" PatternNoOr)?
+(* @prec 1 *)
+BindPattern     ::= name=IDENT ("@" PatternNoOr)?
 
 WildcardPattern ::= "_"
 
@@ -417,12 +601,13 @@ LiteralPattern  ::= "-"? INT
                   | "-"? FLOAT
                   | STRING
                   | CHAR
-                  | "true"
-                  | "false"
+                  | True
+                  | False
 
+(* @prec 2 *)
 PathPattern     ::= IDENT PatternPayload                  (* struct / tuple-struct *)
                   | QualifiedPath PatternPayload?         (* Enum.Variant          *)
-                  | "." IDENT PatternPayload?             (* .Variant              *)
+                  | "." name=IDENT PatternPayload?        (* .Variant              *)
 
 QualifiedPath   ::= IDENT "." IDENT ("." IDENT)*
 
@@ -431,9 +616,12 @@ PatternPayload  ::= "(" Patterns? ")"
 
 Patterns        ::= Pattern ("," Pattern)* ","?
 
-FieldPatterns   ::= FieldPattern ("," FieldPattern)* ("," "..")? ","?
-                  | ".." ","?
-FieldPattern    ::= IDENT (":" Pattern)?
+FieldPatterns   ::= FieldPattern ("," FieldPattern)* ("," Rest)? ","?
+                  | Rest ","?
+FieldPattern    ::= name=IDENT (":" Pattern)?
+
+(* The `..` that says a struct pattern names only some of the fields. *)
+Rest            ::= ".."
 
 UnitPattern     ::= "(" ")"
 
@@ -442,23 +630,29 @@ TuplePattern    ::= "(" Pattern ("," Pattern)+ ","? ")"
 GroupedPattern  ::= "(" Pattern ")"
 
 ArrayPattern    ::= "[" ArrayPatternBody? "]"
+
+(* @hidden *)
 ArrayPatternBody
                 ::= Pattern ("," Pattern)* ("," RestPattern)? ","?
                   | RestPattern ","?
-RestPattern     ::= ".." IDENT?
+RestPattern     ::= ".." name=IDENT?
 
 
 (* --------------------------------------------------------------------------
    8. LITERALS
    -------------------------------------------------------------------------- *)
 
+(* @hidden *)
 Literal         ::= INT
                   | FLOAT
                   | STRING
                   | CHAR
-                  | "true"
-                  | "false"
+                  | True
+                  | False
                   | TemplateLiteral
+
+True            ::= "true"
+False           ::= "false"
 
 (* String interpolation. The three token classes are produced by the lexer's
    template mode; the nesting is handled lexically so that the *syntactic*
@@ -474,17 +668,37 @@ TemplateLiteral ::= TEMPLATE_HEAD Expr (TEMPLATE_SPAN Expr)* TEMPLATE_TAIL
    ========================================================================== *)
 
 (* Source text is UTF-8. Whitespace and comments are insignificant and may
-   appear between any two tokens. Buri is NOT newline-sensitive. *)
+   appear between any two tokens. Buri is NOT newline-sensitive.
 
+   @token @inline *)
 Whitespace      ::= (" " | "\t" | "\r" | "\n")+
 
 Comment         ::= LineComment | BlockComment
+
+(* A `///` is a doc comment and a `////` deliberately is not, so the longer run
+   of slashes is an ordinary comment. The lexer settles that by longest match;
+   a generated one has to be told, which is what these three patterns are.
+
+   @regex \/\/(?:[^!\/\n][^\n]*|\/\/+[^\n]*|) *)
 LineComment     ::= "//" (any character except "\n")*
+
+(* @external @prose *)
 BlockComment    ::= "/*" (BlockComment | any character)* "*/"     (* nestable *)
+
+(* @regex \/\/\/(?:[^\/\n][^\n]*|\/|) *)
 DocComment      ::= "///" (any character except "\n")*            (* a LineComment
                                                                      attached to the
                                                                      next Item      *)
 
+(* @regex \/\/![^\n]* *)
+ModuleDoc       ::= "//!" (any character except "\n")*            (* attached to the
+                                                                     file itself    *)
+
+(* A keyword is not a separate token class: it is an IDENT the lexer refuses to
+   hand over, so the two lists below are subtracted from this one.
+
+   @node identifier
+   @regex [A-Za-z_][A-Za-z0-9_]* *)
 IDENT           ::= (Letter | "_") (Letter | Digit | "_")*
                     minus Keyword minus ReservedWord
 
@@ -512,7 +726,10 @@ Keyword         ::= "as"     | "const"  | "context"| "ctx"    | "derive"
    Both restrictions are static rules. *)
 
 (* Reserved but unused in v0.3; rejected by the lexer so that later versions
-   can claim them without breaking source compatibility. *)
+   can claim them without breaking source compatibility. A generated parser is
+   NOT told about them: it would then refuse the program the compiler's own
+   error message is about, and the language server is where that message
+   belongs. *)
 ReservedWord    ::= "async"  | "await"  | "break"  | "continue" | "do"
                   | "in"     | "is"     | "loop"   | "module" | "mut"
                   | "opaque" | "panic"  | "pub"    | "return" | "unreachable"
@@ -523,6 +740,7 @@ ReservedWord    ::= "async"  | "await"  | "break"  | "continue" | "do"
    A FLOAT must begin with a digit: `.5` is not a literal. This is what makes
    tuple access `pair.0` lex as IDENT "." INT rather than IDENT FLOAT.        *)
 
+(* @node integer_literal @token *)
 INT             ::= DecInt | HexInt | OctInt | BinInt
 DecInt          ::= Digit (Digit | "_")*
 HexInt          ::= "0x" HexDigit (HexDigit | "_")*
@@ -532,24 +750,43 @@ HexDigit        ::= Digit | "a".."f" | "A".."F"
 OctDigit        ::= "0".."7"
 BinDigit        ::= "0" | "1"
 
+(* @node float_literal @token *)
 FLOAT           ::= DecInt "." DecInt Exponent?
                   | DecInt Exponent
 Exponent        ::= ("e" | "E") ("+" | "-")? DecInt
 
 (* --- Text ---------------------------------------------------------------- *)
 
+(* A string is scanned by hand rather than matched, because a `${` opens a hole
+   and the `}` that closes it is not the `}` that closes a block.
+
+   @node string_literal @external *)
 STRING          ::= '"' StrChar* '"'
+
+(* @node char_literal @token *)
 CHAR            ::= "'" (CharChar | Escape) "'"
 
-StrChar         ::= any character except '"', "\", or an unescaped "${"
+(* A prose body: quoting the characters it is about would need the quotes it
+   is about. It is documentation, and nothing reads it as grammar.
+
+   @prose *)
+StrChar         ::= any character other than a double quote, a backslash,
+                    or an unescaped dollar-brace
                   | Escape
-CharChar        ::= any character except "'" or "\"
+
+(* @regex [^'\\] *)
+CharChar        ::= any character other than a single quote or a backslash
 
 Escape          ::= "\\" ("n" | "r" | "t" | "0" | "\\" | '"' | "'" | "$"
                           | "u" "{" HexDigit+ "}")
 
+(* @node template_head @external *)
 TEMPLATE_HEAD   ::= '"' StrChar* "${"
+
+(* @node template_span @external *)
 TEMPLATE_SPAN   ::= "}"  StrChar* "${"
+
+(* @node template_tail @external *)
 TEMPLATE_TAIL   ::= "}"  StrChar* '"'
 
 (* The lexer keeps a stack of open interpolations so that a `}` closing a

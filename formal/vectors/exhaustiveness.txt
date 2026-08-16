@@ -1,0 +1,917 @@
+# Lean-generated exhaustiveness vectors for cli/tests/lean_vectors.rs.
+# Regenerate: cd formal && lake env lean --run Vectors.lean
+# P<TAB>line                 a prelude declaration, in order
+# id<TAB>E|N<TAB>unreachable<TAB>scrutinee-type<TAB>arm...
+#   E = the Lean model says the arms are exhaustive, N = they are not
+#   unreachable = comma-separated arm indices, or - for none
+P	enum Color { Red, Green, Blue }
+P	enum Opt { None, Some(Bool) }
+P	enum Pair { P(Bool, Bool) }
+P	struct Wrap { a: Bool }
+0	E	-	Bool	_
+1	N	-	Bool	true
+2	N	-	Bool	false
+3	E	-	Bool	true | false
+4	E	1	Bool	_	true
+5	E	1	Bool	_	false
+6	E	1	Bool	_	true | false
+7	E	-	Bool	true	_
+8	E	-	Bool	true	false
+9	E	-	Bool	true	true | false
+10	E	-	Bool	false	_
+11	E	-	Bool	false	true
+12	E	-	Bool	false	true | false
+13	E	1	Bool	true | false	_
+14	E	1	Bool	true | false	true
+15	E	1	Bool	true | false	false
+16	E	1,2	Bool	_	true	false
+17	E	1,2	Bool	_	true	true | false
+18	E	1,2	Bool	_	false	true
+19	E	1,2	Bool	_	false	true | false
+20	E	1,2	Bool	_	true | false	true
+21	E	1,2	Bool	_	true | false	false
+22	E	2	Bool	true	_	false
+23	E	2	Bool	true	_	true | false
+24	E	2	Bool	true	false	_
+25	E	2	Bool	true	false	true | false
+26	E	2	Bool	true	true | false	_
+27	E	2	Bool	true	true | false	false
+28	E	2	Bool	false	_	true
+29	E	2	Bool	false	_	true | false
+30	E	2	Bool	false	true	_
+31	E	2	Bool	false	true	true | false
+32	E	2	Bool	false	true | false	_
+33	E	2	Bool	false	true | false	true
+34	E	1,2	Bool	true | false	_	true
+35	E	1,2	Bool	true | false	_	false
+36	E	1,2	Bool	true | false	true	_
+37	E	1,2	Bool	true | false	true	false
+38	E	1,2	Bool	true | false	false	_
+39	E	1,2	Bool	true | false	false	true
+40	E	-	Int	_
+41	N	-	Int	0
+42	N	-	Int	1
+43	E	1	Int	_	0
+44	E	1	Int	_	1
+45	E	-	Int	0	_
+46	N	-	Int	0	1
+47	E	-	Int	1	_
+48	N	-	Int	1	0
+49	E	1,2	Int	_	0	1
+50	E	1,2	Int	_	1	0
+51	E	2	Int	0	_	1
+52	E	-	Int	0	1	_
+53	E	2	Int	1	_	0
+54	E	-	Int	1	0	_
+55	E	-	Color	_
+56	N	-	Color	.Red
+57	N	-	Color	.Green
+58	N	-	Color	.Blue
+59	N	-	Color	.Red | .Green
+60	E	1	Color	_	.Red
+61	E	1	Color	_	.Green
+62	E	1	Color	_	.Blue
+63	E	1	Color	_	.Red | .Green
+64	E	-	Color	.Red	_
+65	N	-	Color	.Red	.Green
+66	N	-	Color	.Red	.Blue
+67	N	-	Color	.Red	.Red | .Green
+68	E	-	Color	.Green	_
+69	N	-	Color	.Green	.Red
+70	N	-	Color	.Green	.Blue
+71	N	-	Color	.Green	.Red | .Green
+72	E	-	Color	.Blue	_
+73	N	-	Color	.Blue	.Red
+74	N	-	Color	.Blue	.Green
+75	E	-	Color	.Blue	.Red | .Green
+76	E	-	Color	.Red | .Green	_
+77	N	1	Color	.Red | .Green	.Red
+78	N	1	Color	.Red | .Green	.Green
+79	E	-	Color	.Red | .Green	.Blue
+80	E	1,2	Color	_	.Red	.Green
+81	E	1,2	Color	_	.Red	.Blue
+82	E	1,2	Color	_	.Red	.Red | .Green
+83	E	1,2	Color	_	.Green	.Red
+84	E	1,2	Color	_	.Green	.Blue
+85	E	1,2	Color	_	.Green	.Red | .Green
+86	E	1,2	Color	_	.Blue	.Red
+87	E	1,2	Color	_	.Blue	.Green
+88	E	1,2	Color	_	.Blue	.Red | .Green
+89	E	1,2	Color	_	.Red | .Green	.Red
+90	E	1,2	Color	_	.Red | .Green	.Green
+91	E	1,2	Color	_	.Red | .Green	.Blue
+92	E	2	Color	.Red	_	.Green
+93	E	2	Color	.Red	_	.Blue
+94	E	2	Color	.Red	_	.Red | .Green
+95	E	-	Color	.Red	.Green	_
+96	E	-	Color	.Red	.Green	.Blue
+97	N	2	Color	.Red	.Green	.Red | .Green
+98	E	-	Color	.Red	.Blue	_
+99	E	-	Color	.Red	.Blue	.Green
+100	E	-	Color	.Red	.Blue	.Red | .Green
+101	E	-	Color	.Red	.Red | .Green	_
+102	N	2	Color	.Red	.Red | .Green	.Green
+103	E	-	Color	.Red	.Red | .Green	.Blue
+104	E	2	Color	.Green	_	.Red
+105	E	2	Color	.Green	_	.Blue
+106	E	2	Color	.Green	_	.Red | .Green
+107	E	-	Color	.Green	.Red	_
+108	E	-	Color	.Green	.Red	.Blue
+109	N	2	Color	.Green	.Red	.Red | .Green
+110	E	-	Color	.Green	.Blue	_
+111	E	-	Color	.Green	.Blue	.Red
+112	E	-	Color	.Green	.Blue	.Red | .Green
+113	E	-	Color	.Green	.Red | .Green	_
+114	N	2	Color	.Green	.Red | .Green	.Red
+115	E	-	Color	.Green	.Red | .Green	.Blue
+116	E	2	Color	.Blue	_	.Red
+117	E	2	Color	.Blue	_	.Green
+118	E	2	Color	.Blue	_	.Red | .Green
+119	E	-	Color	.Blue	.Red	_
+120	E	-	Color	.Blue	.Red	.Green
+121	E	-	Color	.Blue	.Red	.Red | .Green
+122	E	-	Color	.Blue	.Green	_
+123	E	-	Color	.Blue	.Green	.Red
+124	E	-	Color	.Blue	.Green	.Red | .Green
+125	E	2	Color	.Blue	.Red | .Green	_
+126	E	2	Color	.Blue	.Red | .Green	.Red
+127	E	2	Color	.Blue	.Red | .Green	.Green
+128	E	2	Color	.Red | .Green	_	.Red
+129	E	2	Color	.Red | .Green	_	.Green
+130	E	2	Color	.Red | .Green	_	.Blue
+131	E	1	Color	.Red | .Green	.Red	_
+132	N	1,2	Color	.Red | .Green	.Red	.Green
+133	E	1	Color	.Red | .Green	.Red	.Blue
+134	E	1	Color	.Red | .Green	.Green	_
+135	N	1,2	Color	.Red | .Green	.Green	.Red
+136	E	1	Color	.Red | .Green	.Green	.Blue
+137	E	2	Color	.Red | .Green	.Blue	_
+138	E	2	Color	.Red | .Green	.Blue	.Red
+139	E	2	Color	.Red | .Green	.Blue	.Green
+140	E	-	Opt	_
+141	N	-	Opt	.None
+142	N	-	Opt	.Some(_)
+143	N	-	Opt	.Some(true)
+144	N	-	Opt	.Some(false)
+145	N	-	Opt	.Some(true | false)
+146	E	1	Opt	_	.None
+147	E	1	Opt	_	.Some(_)
+148	E	1	Opt	_	.Some(true)
+149	E	1	Opt	_	.Some(false)
+150	E	1	Opt	_	.Some(true | false)
+151	E	-	Opt	.None	_
+152	E	-	Opt	.None	.Some(_)
+153	N	-	Opt	.None	.Some(true)
+154	N	-	Opt	.None	.Some(false)
+155	E	-	Opt	.None	.Some(true | false)
+156	E	-	Opt	.Some(_)	_
+157	E	-	Opt	.Some(_)	.None
+158	N	1	Opt	.Some(_)	.Some(true)
+159	N	1	Opt	.Some(_)	.Some(false)
+160	N	1	Opt	.Some(_)	.Some(true | false)
+161	E	-	Opt	.Some(true)	_
+162	N	-	Opt	.Some(true)	.None
+163	N	-	Opt	.Some(true)	.Some(_)
+164	N	-	Opt	.Some(true)	.Some(false)
+165	N	-	Opt	.Some(true)	.Some(true | false)
+166	E	-	Opt	.Some(false)	_
+167	N	-	Opt	.Some(false)	.None
+168	N	-	Opt	.Some(false)	.Some(_)
+169	N	-	Opt	.Some(false)	.Some(true)
+170	N	-	Opt	.Some(false)	.Some(true | false)
+171	E	-	Opt	.Some(true | false)	_
+172	E	-	Opt	.Some(true | false)	.None
+173	N	1	Opt	.Some(true | false)	.Some(_)
+174	N	1	Opt	.Some(true | false)	.Some(true)
+175	N	1	Opt	.Some(true | false)	.Some(false)
+176	E	1,2	Opt	_	.None	.Some(_)
+177	E	1,2	Opt	_	.None	.Some(true)
+178	E	1,2	Opt	_	.None	.Some(false)
+179	E	1,2	Opt	_	.None	.Some(true | false)
+180	E	1,2	Opt	_	.Some(_)	.None
+181	E	1,2	Opt	_	.Some(_)	.Some(true)
+182	E	1,2	Opt	_	.Some(_)	.Some(false)
+183	E	1,2	Opt	_	.Some(_)	.Some(true | false)
+184	E	1,2	Opt	_	.Some(true)	.None
+185	E	1,2	Opt	_	.Some(true)	.Some(_)
+186	E	1,2	Opt	_	.Some(true)	.Some(false)
+187	E	1,2	Opt	_	.Some(true)	.Some(true | false)
+188	E	1,2	Opt	_	.Some(false)	.None
+189	E	1,2	Opt	_	.Some(false)	.Some(_)
+190	E	1,2	Opt	_	.Some(false)	.Some(true)
+191	E	1,2	Opt	_	.Some(false)	.Some(true | false)
+192	E	1,2	Opt	_	.Some(true | false)	.None
+193	E	1,2	Opt	_	.Some(true | false)	.Some(_)
+194	E	1,2	Opt	_	.Some(true | false)	.Some(true)
+195	E	1,2	Opt	_	.Some(true | false)	.Some(false)
+196	E	2	Opt	.None	_	.Some(_)
+197	E	2	Opt	.None	_	.Some(true)
+198	E	2	Opt	.None	_	.Some(false)
+199	E	2	Opt	.None	_	.Some(true | false)
+200	E	2	Opt	.None	.Some(_)	_
+201	E	2	Opt	.None	.Some(_)	.Some(true)
+202	E	2	Opt	.None	.Some(_)	.Some(false)
+203	E	2	Opt	.None	.Some(_)	.Some(true | false)
+204	E	-	Opt	.None	.Some(true)	_
+205	E	-	Opt	.None	.Some(true)	.Some(_)
+206	E	-	Opt	.None	.Some(true)	.Some(false)
+207	E	-	Opt	.None	.Some(true)	.Some(true | false)
+208	E	-	Opt	.None	.Some(false)	_
+209	E	-	Opt	.None	.Some(false)	.Some(_)
+210	E	-	Opt	.None	.Some(false)	.Some(true)
+211	E	-	Opt	.None	.Some(false)	.Some(true | false)
+212	E	2	Opt	.None	.Some(true | false)	_
+213	E	2	Opt	.None	.Some(true | false)	.Some(_)
+214	E	2	Opt	.None	.Some(true | false)	.Some(true)
+215	E	2	Opt	.None	.Some(true | false)	.Some(false)
+216	E	2	Opt	.Some(_)	_	.None
+217	E	2	Opt	.Some(_)	_	.Some(true)
+218	E	2	Opt	.Some(_)	_	.Some(false)
+219	E	2	Opt	.Some(_)	_	.Some(true | false)
+220	E	2	Opt	.Some(_)	.None	_
+221	E	2	Opt	.Some(_)	.None	.Some(true)
+222	E	2	Opt	.Some(_)	.None	.Some(false)
+223	E	2	Opt	.Some(_)	.None	.Some(true | false)
+224	E	1	Opt	.Some(_)	.Some(true)	_
+225	E	1	Opt	.Some(_)	.Some(true)	.None
+226	N	1,2	Opt	.Some(_)	.Some(true)	.Some(false)
+227	N	1,2	Opt	.Some(_)	.Some(true)	.Some(true | false)
+228	E	1	Opt	.Some(_)	.Some(false)	_
+229	E	1	Opt	.Some(_)	.Some(false)	.None
+230	N	1,2	Opt	.Some(_)	.Some(false)	.Some(true)
+231	N	1,2	Opt	.Some(_)	.Some(false)	.Some(true | false)
+232	E	1	Opt	.Some(_)	.Some(true | false)	_
+233	E	1	Opt	.Some(_)	.Some(true | false)	.None
+234	N	1,2	Opt	.Some(_)	.Some(true | false)	.Some(true)
+235	N	1,2	Opt	.Some(_)	.Some(true | false)	.Some(false)
+236	E	2	Opt	.Some(true)	_	.None
+237	E	2	Opt	.Some(true)	_	.Some(_)
+238	E	2	Opt	.Some(true)	_	.Some(false)
+239	E	2	Opt	.Some(true)	_	.Some(true | false)
+240	E	-	Opt	.Some(true)	.None	_
+241	E	-	Opt	.Some(true)	.None	.Some(_)
+242	E	-	Opt	.Some(true)	.None	.Some(false)
+243	E	-	Opt	.Some(true)	.None	.Some(true | false)
+244	E	-	Opt	.Some(true)	.Some(_)	_
+245	E	-	Opt	.Some(true)	.Some(_)	.None
+246	N	2	Opt	.Some(true)	.Some(_)	.Some(false)
+247	N	2	Opt	.Some(true)	.Some(_)	.Some(true | false)
+248	E	-	Opt	.Some(true)	.Some(false)	_
+249	E	-	Opt	.Some(true)	.Some(false)	.None
+250	N	2	Opt	.Some(true)	.Some(false)	.Some(_)
+251	N	2	Opt	.Some(true)	.Some(false)	.Some(true | false)
+252	E	-	Opt	.Some(true)	.Some(true | false)	_
+253	E	-	Opt	.Some(true)	.Some(true | false)	.None
+254	N	2	Opt	.Some(true)	.Some(true | false)	.Some(_)
+255	N	2	Opt	.Some(true)	.Some(true | false)	.Some(false)
+256	E	2	Opt	.Some(false)	_	.None
+257	E	2	Opt	.Some(false)	_	.Some(_)
+258	E	2	Opt	.Some(false)	_	.Some(true)
+259	E	2	Opt	.Some(false)	_	.Some(true | false)
+260	E	-	Opt	.Some(false)	.None	_
+261	E	-	Opt	.Some(false)	.None	.Some(_)
+262	E	-	Opt	.Some(false)	.None	.Some(true)
+263	E	-	Opt	.Some(false)	.None	.Some(true | false)
+264	E	-	Opt	.Some(false)	.Some(_)	_
+265	E	-	Opt	.Some(false)	.Some(_)	.None
+266	N	2	Opt	.Some(false)	.Some(_)	.Some(true)
+267	N	2	Opt	.Some(false)	.Some(_)	.Some(true | false)
+268	E	-	Opt	.Some(false)	.Some(true)	_
+269	E	-	Opt	.Some(false)	.Some(true)	.None
+270	N	2	Opt	.Some(false)	.Some(true)	.Some(_)
+271	N	2	Opt	.Some(false)	.Some(true)	.Some(true | false)
+272	E	-	Opt	.Some(false)	.Some(true | false)	_
+273	E	-	Opt	.Some(false)	.Some(true | false)	.None
+274	N	2	Opt	.Some(false)	.Some(true | false)	.Some(_)
+275	N	2	Opt	.Some(false)	.Some(true | false)	.Some(true)
+276	E	2	Opt	.Some(true | false)	_	.None
+277	E	2	Opt	.Some(true | false)	_	.Some(_)
+278	E	2	Opt	.Some(true | false)	_	.Some(true)
+279	E	2	Opt	.Some(true | false)	_	.Some(false)
+280	E	2	Opt	.Some(true | false)	.None	_
+281	E	2	Opt	.Some(true | false)	.None	.Some(_)
+282	E	2	Opt	.Some(true | false)	.None	.Some(true)
+283	E	2	Opt	.Some(true | false)	.None	.Some(false)
+284	E	1	Opt	.Some(true | false)	.Some(_)	_
+285	E	1	Opt	.Some(true | false)	.Some(_)	.None
+286	N	1,2	Opt	.Some(true | false)	.Some(_)	.Some(true)
+287	N	1,2	Opt	.Some(true | false)	.Some(_)	.Some(false)
+288	E	1	Opt	.Some(true | false)	.Some(true)	_
+289	E	1	Opt	.Some(true | false)	.Some(true)	.None
+290	N	1,2	Opt	.Some(true | false)	.Some(true)	.Some(_)
+291	N	1,2	Opt	.Some(true | false)	.Some(true)	.Some(false)
+292	E	1	Opt	.Some(true | false)	.Some(false)	_
+293	E	1	Opt	.Some(true | false)	.Some(false)	.None
+294	N	1,2	Opt	.Some(true | false)	.Some(false)	.Some(_)
+295	N	1,2	Opt	.Some(true | false)	.Some(false)	.Some(true)
+296	E	-	Pair	_
+297	E	-	Pair	.P(_, _)
+298	N	-	Pair	.P(true, _)
+299	N	-	Pair	.P(false, _)
+300	N	-	Pair	.P(_, true)
+301	N	-	Pair	.P(true, true)
+302	E	1	Pair	_	.P(_, _)
+303	E	1	Pair	_	.P(true, _)
+304	E	1	Pair	_	.P(false, _)
+305	E	1	Pair	_	.P(_, true)
+306	E	1	Pair	_	.P(true, true)
+307	E	1	Pair	.P(_, _)	_
+308	E	1	Pair	.P(_, _)	.P(true, _)
+309	E	1	Pair	.P(_, _)	.P(false, _)
+310	E	1	Pair	.P(_, _)	.P(_, true)
+311	E	1	Pair	.P(_, _)	.P(true, true)
+312	E	-	Pair	.P(true, _)	_
+313	E	-	Pair	.P(true, _)	.P(_, _)
+314	E	-	Pair	.P(true, _)	.P(false, _)
+315	N	-	Pair	.P(true, _)	.P(_, true)
+316	N	1	Pair	.P(true, _)	.P(true, true)
+317	E	-	Pair	.P(false, _)	_
+318	E	-	Pair	.P(false, _)	.P(_, _)
+319	E	-	Pair	.P(false, _)	.P(true, _)
+320	N	-	Pair	.P(false, _)	.P(_, true)
+321	N	-	Pair	.P(false, _)	.P(true, true)
+322	E	-	Pair	.P(_, true)	_
+323	E	-	Pair	.P(_, true)	.P(_, _)
+324	N	-	Pair	.P(_, true)	.P(true, _)
+325	N	-	Pair	.P(_, true)	.P(false, _)
+326	N	1	Pair	.P(_, true)	.P(true, true)
+327	E	-	Pair	.P(true, true)	_
+328	E	-	Pair	.P(true, true)	.P(_, _)
+329	N	-	Pair	.P(true, true)	.P(true, _)
+330	N	-	Pair	.P(true, true)	.P(false, _)
+331	N	-	Pair	.P(true, true)	.P(_, true)
+332	E	1,2	Pair	_	.P(_, _)	.P(true, _)
+333	E	1,2	Pair	_	.P(_, _)	.P(false, _)
+334	E	1,2	Pair	_	.P(_, _)	.P(_, true)
+335	E	1,2	Pair	_	.P(_, _)	.P(true, true)
+336	E	1,2	Pair	_	.P(true, _)	.P(_, _)
+337	E	1,2	Pair	_	.P(true, _)	.P(false, _)
+338	E	1,2	Pair	_	.P(true, _)	.P(_, true)
+339	E	1,2	Pair	_	.P(true, _)	.P(true, true)
+340	E	1,2	Pair	_	.P(false, _)	.P(_, _)
+341	E	1,2	Pair	_	.P(false, _)	.P(true, _)
+342	E	1,2	Pair	_	.P(false, _)	.P(_, true)
+343	E	1,2	Pair	_	.P(false, _)	.P(true, true)
+344	E	1,2	Pair	_	.P(_, true)	.P(_, _)
+345	E	1,2	Pair	_	.P(_, true)	.P(true, _)
+346	E	1,2	Pair	_	.P(_, true)	.P(false, _)
+347	E	1,2	Pair	_	.P(_, true)	.P(true, true)
+348	E	1,2	Pair	_	.P(true, true)	.P(_, _)
+349	E	1,2	Pair	_	.P(true, true)	.P(true, _)
+350	E	1,2	Pair	_	.P(true, true)	.P(false, _)
+351	E	1,2	Pair	_	.P(true, true)	.P(_, true)
+352	E	1,2	Pair	.P(_, _)	_	.P(true, _)
+353	E	1,2	Pair	.P(_, _)	_	.P(false, _)
+354	E	1,2	Pair	.P(_, _)	_	.P(_, true)
+355	E	1,2	Pair	.P(_, _)	_	.P(true, true)
+356	E	1,2	Pair	.P(_, _)	.P(true, _)	_
+357	E	1,2	Pair	.P(_, _)	.P(true, _)	.P(false, _)
+358	E	1,2	Pair	.P(_, _)	.P(true, _)	.P(_, true)
+359	E	1,2	Pair	.P(_, _)	.P(true, _)	.P(true, true)
+360	E	1,2	Pair	.P(_, _)	.P(false, _)	_
+361	E	1,2	Pair	.P(_, _)	.P(false, _)	.P(true, _)
+362	E	1,2	Pair	.P(_, _)	.P(false, _)	.P(_, true)
+363	E	1,2	Pair	.P(_, _)	.P(false, _)	.P(true, true)
+364	E	1,2	Pair	.P(_, _)	.P(_, true)	_
+365	E	1,2	Pair	.P(_, _)	.P(_, true)	.P(true, _)
+366	E	1,2	Pair	.P(_, _)	.P(_, true)	.P(false, _)
+367	E	1,2	Pair	.P(_, _)	.P(_, true)	.P(true, true)
+368	E	1,2	Pair	.P(_, _)	.P(true, true)	_
+369	E	1,2	Pair	.P(_, _)	.P(true, true)	.P(true, _)
+370	E	1,2	Pair	.P(_, _)	.P(true, true)	.P(false, _)
+371	E	1,2	Pair	.P(_, _)	.P(true, true)	.P(_, true)
+372	E	2	Pair	.P(true, _)	_	.P(_, _)
+373	E	2	Pair	.P(true, _)	_	.P(false, _)
+374	E	2	Pair	.P(true, _)	_	.P(_, true)
+375	E	2	Pair	.P(true, _)	_	.P(true, true)
+376	E	2	Pair	.P(true, _)	.P(_, _)	_
+377	E	2	Pair	.P(true, _)	.P(_, _)	.P(false, _)
+378	E	2	Pair	.P(true, _)	.P(_, _)	.P(_, true)
+379	E	2	Pair	.P(true, _)	.P(_, _)	.P(true, true)
+380	E	2	Pair	.P(true, _)	.P(false, _)	_
+381	E	2	Pair	.P(true, _)	.P(false, _)	.P(_, _)
+382	E	2	Pair	.P(true, _)	.P(false, _)	.P(_, true)
+383	E	2	Pair	.P(true, _)	.P(false, _)	.P(true, true)
+384	E	-	Pair	.P(true, _)	.P(_, true)	_
+385	E	-	Pair	.P(true, _)	.P(_, true)	.P(_, _)
+386	E	-	Pair	.P(true, _)	.P(_, true)	.P(false, _)
+387	N	2	Pair	.P(true, _)	.P(_, true)	.P(true, true)
+388	E	1	Pair	.P(true, _)	.P(true, true)	_
+389	E	1	Pair	.P(true, _)	.P(true, true)	.P(_, _)
+390	E	1	Pair	.P(true, _)	.P(true, true)	.P(false, _)
+391	N	1	Pair	.P(true, _)	.P(true, true)	.P(_, true)
+392	E	2	Pair	.P(false, _)	_	.P(_, _)
+393	E	2	Pair	.P(false, _)	_	.P(true, _)
+394	E	2	Pair	.P(false, _)	_	.P(_, true)
+395	E	2	Pair	.P(false, _)	_	.P(true, true)
+396	E	2	Pair	.P(false, _)	.P(_, _)	_
+397	E	2	Pair	.P(false, _)	.P(_, _)	.P(true, _)
+398	E	2	Pair	.P(false, _)	.P(_, _)	.P(_, true)
+399	E	2	Pair	.P(false, _)	.P(_, _)	.P(true, true)
+400	E	2	Pair	.P(false, _)	.P(true, _)	_
+401	E	2	Pair	.P(false, _)	.P(true, _)	.P(_, _)
+402	E	2	Pair	.P(false, _)	.P(true, _)	.P(_, true)
+403	E	2	Pair	.P(false, _)	.P(true, _)	.P(true, true)
+404	E	-	Pair	.P(false, _)	.P(_, true)	_
+405	E	-	Pair	.P(false, _)	.P(_, true)	.P(_, _)
+406	E	-	Pair	.P(false, _)	.P(_, true)	.P(true, _)
+407	N	2	Pair	.P(false, _)	.P(_, true)	.P(true, true)
+408	E	-	Pair	.P(false, _)	.P(true, true)	_
+409	E	-	Pair	.P(false, _)	.P(true, true)	.P(_, _)
+410	E	-	Pair	.P(false, _)	.P(true, true)	.P(true, _)
+411	N	2	Pair	.P(false, _)	.P(true, true)	.P(_, true)
+412	E	2	Pair	.P(_, true)	_	.P(_, _)
+413	E	2	Pair	.P(_, true)	_	.P(true, _)
+414	E	2	Pair	.P(_, true)	_	.P(false, _)
+415	E	2	Pair	.P(_, true)	_	.P(true, true)
+416	E	2	Pair	.P(_, true)	.P(_, _)	_
+417	E	2	Pair	.P(_, true)	.P(_, _)	.P(true, _)
+418	E	2	Pair	.P(_, true)	.P(_, _)	.P(false, _)
+419	E	2	Pair	.P(_, true)	.P(_, _)	.P(true, true)
+420	E	-	Pair	.P(_, true)	.P(true, _)	_
+421	E	-	Pair	.P(_, true)	.P(true, _)	.P(_, _)
+422	E	-	Pair	.P(_, true)	.P(true, _)	.P(false, _)
+423	N	2	Pair	.P(_, true)	.P(true, _)	.P(true, true)
+424	E	-	Pair	.P(_, true)	.P(false, _)	_
+425	E	-	Pair	.P(_, true)	.P(false, _)	.P(_, _)
+426	E	-	Pair	.P(_, true)	.P(false, _)	.P(true, _)
+427	N	2	Pair	.P(_, true)	.P(false, _)	.P(true, true)
+428	E	1	Pair	.P(_, true)	.P(true, true)	_
+429	E	1	Pair	.P(_, true)	.P(true, true)	.P(_, _)
+430	N	1	Pair	.P(_, true)	.P(true, true)	.P(true, _)
+431	N	1	Pair	.P(_, true)	.P(true, true)	.P(false, _)
+432	E	2	Pair	.P(true, true)	_	.P(_, _)
+433	E	2	Pair	.P(true, true)	_	.P(true, _)
+434	E	2	Pair	.P(true, true)	_	.P(false, _)
+435	E	2	Pair	.P(true, true)	_	.P(_, true)
+436	E	2	Pair	.P(true, true)	.P(_, _)	_
+437	E	2	Pair	.P(true, true)	.P(_, _)	.P(true, _)
+438	E	2	Pair	.P(true, true)	.P(_, _)	.P(false, _)
+439	E	2	Pair	.P(true, true)	.P(_, _)	.P(_, true)
+440	E	-	Pair	.P(true, true)	.P(true, _)	_
+441	E	-	Pair	.P(true, true)	.P(true, _)	.P(_, _)
+442	E	-	Pair	.P(true, true)	.P(true, _)	.P(false, _)
+443	N	-	Pair	.P(true, true)	.P(true, _)	.P(_, true)
+444	E	-	Pair	.P(true, true)	.P(false, _)	_
+445	E	-	Pair	.P(true, true)	.P(false, _)	.P(_, _)
+446	E	-	Pair	.P(true, true)	.P(false, _)	.P(true, _)
+447	N	2	Pair	.P(true, true)	.P(false, _)	.P(_, true)
+448	E	-	Pair	.P(true, true)	.P(_, true)	_
+449	E	-	Pair	.P(true, true)	.P(_, true)	.P(_, _)
+450	N	-	Pair	.P(true, true)	.P(_, true)	.P(true, _)
+451	N	-	Pair	.P(true, true)	.P(_, true)	.P(false, _)
+452	E	-	Wrap	_
+453	E	-	Wrap	Wrap { a: _ }
+454	N	-	Wrap	Wrap { a: true }
+455	N	-	Wrap	Wrap { a: false }
+456	E	1	Wrap	_	Wrap { a: _ }
+457	E	1	Wrap	_	Wrap { a: true }
+458	E	1	Wrap	_	Wrap { a: false }
+459	E	1	Wrap	Wrap { a: _ }	_
+460	E	1	Wrap	Wrap { a: _ }	Wrap { a: true }
+461	E	1	Wrap	Wrap { a: _ }	Wrap { a: false }
+462	E	-	Wrap	Wrap { a: true }	_
+463	E	-	Wrap	Wrap { a: true }	Wrap { a: _ }
+464	E	-	Wrap	Wrap { a: true }	Wrap { a: false }
+465	E	-	Wrap	Wrap { a: false }	_
+466	E	-	Wrap	Wrap { a: false }	Wrap { a: _ }
+467	E	-	Wrap	Wrap { a: false }	Wrap { a: true }
+468	E	1,2	Wrap	_	Wrap { a: _ }	Wrap { a: true }
+469	E	1,2	Wrap	_	Wrap { a: _ }	Wrap { a: false }
+470	E	1,2	Wrap	_	Wrap { a: true }	Wrap { a: _ }
+471	E	1,2	Wrap	_	Wrap { a: true }	Wrap { a: false }
+472	E	1,2	Wrap	_	Wrap { a: false }	Wrap { a: _ }
+473	E	1,2	Wrap	_	Wrap { a: false }	Wrap { a: true }
+474	E	1,2	Wrap	Wrap { a: _ }	_	Wrap { a: true }
+475	E	1,2	Wrap	Wrap { a: _ }	_	Wrap { a: false }
+476	E	1,2	Wrap	Wrap { a: _ }	Wrap { a: true }	_
+477	E	1,2	Wrap	Wrap { a: _ }	Wrap { a: true }	Wrap { a: false }
+478	E	1,2	Wrap	Wrap { a: _ }	Wrap { a: false }	_
+479	E	1,2	Wrap	Wrap { a: _ }	Wrap { a: false }	Wrap { a: true }
+480	E	2	Wrap	Wrap { a: true }	_	Wrap { a: _ }
+481	E	2	Wrap	Wrap { a: true }	_	Wrap { a: false }
+482	E	2	Wrap	Wrap { a: true }	Wrap { a: _ }	_
+483	E	2	Wrap	Wrap { a: true }	Wrap { a: _ }	Wrap { a: false }
+484	E	2	Wrap	Wrap { a: true }	Wrap { a: false }	_
+485	E	2	Wrap	Wrap { a: true }	Wrap { a: false }	Wrap { a: _ }
+486	E	2	Wrap	Wrap { a: false }	_	Wrap { a: _ }
+487	E	2	Wrap	Wrap { a: false }	_	Wrap { a: true }
+488	E	2	Wrap	Wrap { a: false }	Wrap { a: _ }	_
+489	E	2	Wrap	Wrap { a: false }	Wrap { a: _ }	Wrap { a: true }
+490	E	2	Wrap	Wrap { a: false }	Wrap { a: true }	_
+491	E	2	Wrap	Wrap { a: false }	Wrap { a: true }	Wrap { a: _ }
+492	E	-	(Bool, Bool)	_
+493	E	-	(Bool, Bool)	(_, _)
+494	N	-	(Bool, Bool)	(true, _)
+495	N	-	(Bool, Bool)	(false, _)
+496	N	-	(Bool, Bool)	(_, true)
+497	N	-	(Bool, Bool)	(true, true)
+498	E	1	(Bool, Bool)	_	(_, _)
+499	E	1	(Bool, Bool)	_	(true, _)
+500	E	1	(Bool, Bool)	_	(false, _)
+501	E	1	(Bool, Bool)	_	(_, true)
+502	E	1	(Bool, Bool)	_	(true, true)
+503	E	1	(Bool, Bool)	(_, _)	_
+504	E	1	(Bool, Bool)	(_, _)	(true, _)
+505	E	1	(Bool, Bool)	(_, _)	(false, _)
+506	E	1	(Bool, Bool)	(_, _)	(_, true)
+507	E	1	(Bool, Bool)	(_, _)	(true, true)
+508	E	-	(Bool, Bool)	(true, _)	_
+509	E	-	(Bool, Bool)	(true, _)	(_, _)
+510	E	-	(Bool, Bool)	(true, _)	(false, _)
+511	N	-	(Bool, Bool)	(true, _)	(_, true)
+512	N	1	(Bool, Bool)	(true, _)	(true, true)
+513	E	-	(Bool, Bool)	(false, _)	_
+514	E	-	(Bool, Bool)	(false, _)	(_, _)
+515	E	-	(Bool, Bool)	(false, _)	(true, _)
+516	N	-	(Bool, Bool)	(false, _)	(_, true)
+517	N	-	(Bool, Bool)	(false, _)	(true, true)
+518	E	-	(Bool, Bool)	(_, true)	_
+519	E	-	(Bool, Bool)	(_, true)	(_, _)
+520	N	-	(Bool, Bool)	(_, true)	(true, _)
+521	N	-	(Bool, Bool)	(_, true)	(false, _)
+522	N	1	(Bool, Bool)	(_, true)	(true, true)
+523	E	-	(Bool, Bool)	(true, true)	_
+524	E	-	(Bool, Bool)	(true, true)	(_, _)
+525	N	-	(Bool, Bool)	(true, true)	(true, _)
+526	N	-	(Bool, Bool)	(true, true)	(false, _)
+527	N	-	(Bool, Bool)	(true, true)	(_, true)
+528	E	1,2	(Bool, Bool)	_	(_, _)	(true, _)
+529	E	1,2	(Bool, Bool)	_	(_, _)	(false, _)
+530	E	1,2	(Bool, Bool)	_	(_, _)	(_, true)
+531	E	1,2	(Bool, Bool)	_	(_, _)	(true, true)
+532	E	1,2	(Bool, Bool)	_	(true, _)	(_, _)
+533	E	1,2	(Bool, Bool)	_	(true, _)	(false, _)
+534	E	1,2	(Bool, Bool)	_	(true, _)	(_, true)
+535	E	1,2	(Bool, Bool)	_	(true, _)	(true, true)
+536	E	1,2	(Bool, Bool)	_	(false, _)	(_, _)
+537	E	1,2	(Bool, Bool)	_	(false, _)	(true, _)
+538	E	1,2	(Bool, Bool)	_	(false, _)	(_, true)
+539	E	1,2	(Bool, Bool)	_	(false, _)	(true, true)
+540	E	1,2	(Bool, Bool)	_	(_, true)	(_, _)
+541	E	1,2	(Bool, Bool)	_	(_, true)	(true, _)
+542	E	1,2	(Bool, Bool)	_	(_, true)	(false, _)
+543	E	1,2	(Bool, Bool)	_	(_, true)	(true, true)
+544	E	1,2	(Bool, Bool)	_	(true, true)	(_, _)
+545	E	1,2	(Bool, Bool)	_	(true, true)	(true, _)
+546	E	1,2	(Bool, Bool)	_	(true, true)	(false, _)
+547	E	1,2	(Bool, Bool)	_	(true, true)	(_, true)
+548	E	1,2	(Bool, Bool)	(_, _)	_	(true, _)
+549	E	1,2	(Bool, Bool)	(_, _)	_	(false, _)
+550	E	1,2	(Bool, Bool)	(_, _)	_	(_, true)
+551	E	1,2	(Bool, Bool)	(_, _)	_	(true, true)
+552	E	1,2	(Bool, Bool)	(_, _)	(true, _)	_
+553	E	1,2	(Bool, Bool)	(_, _)	(true, _)	(false, _)
+554	E	1,2	(Bool, Bool)	(_, _)	(true, _)	(_, true)
+555	E	1,2	(Bool, Bool)	(_, _)	(true, _)	(true, true)
+556	E	1,2	(Bool, Bool)	(_, _)	(false, _)	_
+557	E	1,2	(Bool, Bool)	(_, _)	(false, _)	(true, _)
+558	E	1,2	(Bool, Bool)	(_, _)	(false, _)	(_, true)
+559	E	1,2	(Bool, Bool)	(_, _)	(false, _)	(true, true)
+560	E	1,2	(Bool, Bool)	(_, _)	(_, true)	_
+561	E	1,2	(Bool, Bool)	(_, _)	(_, true)	(true, _)
+562	E	1,2	(Bool, Bool)	(_, _)	(_, true)	(false, _)
+563	E	1,2	(Bool, Bool)	(_, _)	(_, true)	(true, true)
+564	E	1,2	(Bool, Bool)	(_, _)	(true, true)	_
+565	E	1,2	(Bool, Bool)	(_, _)	(true, true)	(true, _)
+566	E	1,2	(Bool, Bool)	(_, _)	(true, true)	(false, _)
+567	E	1,2	(Bool, Bool)	(_, _)	(true, true)	(_, true)
+568	E	2	(Bool, Bool)	(true, _)	_	(_, _)
+569	E	2	(Bool, Bool)	(true, _)	_	(false, _)
+570	E	2	(Bool, Bool)	(true, _)	_	(_, true)
+571	E	2	(Bool, Bool)	(true, _)	_	(true, true)
+572	E	2	(Bool, Bool)	(true, _)	(_, _)	_
+573	E	2	(Bool, Bool)	(true, _)	(_, _)	(false, _)
+574	E	2	(Bool, Bool)	(true, _)	(_, _)	(_, true)
+575	E	2	(Bool, Bool)	(true, _)	(_, _)	(true, true)
+576	E	2	(Bool, Bool)	(true, _)	(false, _)	_
+577	E	2	(Bool, Bool)	(true, _)	(false, _)	(_, _)
+578	E	2	(Bool, Bool)	(true, _)	(false, _)	(_, true)
+579	E	2	(Bool, Bool)	(true, _)	(false, _)	(true, true)
+580	E	-	(Bool, Bool)	(true, _)	(_, true)	_
+581	E	-	(Bool, Bool)	(true, _)	(_, true)	(_, _)
+582	E	-	(Bool, Bool)	(true, _)	(_, true)	(false, _)
+583	N	2	(Bool, Bool)	(true, _)	(_, true)	(true, true)
+584	E	1	(Bool, Bool)	(true, _)	(true, true)	_
+585	E	1	(Bool, Bool)	(true, _)	(true, true)	(_, _)
+586	E	1	(Bool, Bool)	(true, _)	(true, true)	(false, _)
+587	N	1	(Bool, Bool)	(true, _)	(true, true)	(_, true)
+588	E	2	(Bool, Bool)	(false, _)	_	(_, _)
+589	E	2	(Bool, Bool)	(false, _)	_	(true, _)
+590	E	2	(Bool, Bool)	(false, _)	_	(_, true)
+591	E	2	(Bool, Bool)	(false, _)	_	(true, true)
+592	E	2	(Bool, Bool)	(false, _)	(_, _)	_
+593	E	2	(Bool, Bool)	(false, _)	(_, _)	(true, _)
+594	E	2	(Bool, Bool)	(false, _)	(_, _)	(_, true)
+595	E	2	(Bool, Bool)	(false, _)	(_, _)	(true, true)
+596	E	2	(Bool, Bool)	(false, _)	(true, _)	_
+597	E	2	(Bool, Bool)	(false, _)	(true, _)	(_, _)
+598	E	2	(Bool, Bool)	(false, _)	(true, _)	(_, true)
+599	E	2	(Bool, Bool)	(false, _)	(true, _)	(true, true)
+600	E	-	(Bool, Bool)	(false, _)	(_, true)	_
+601	E	-	(Bool, Bool)	(false, _)	(_, true)	(_, _)
+602	E	-	(Bool, Bool)	(false, _)	(_, true)	(true, _)
+603	N	2	(Bool, Bool)	(false, _)	(_, true)	(true, true)
+604	E	-	(Bool, Bool)	(false, _)	(true, true)	_
+605	E	-	(Bool, Bool)	(false, _)	(true, true)	(_, _)
+606	E	-	(Bool, Bool)	(false, _)	(true, true)	(true, _)
+607	N	2	(Bool, Bool)	(false, _)	(true, true)	(_, true)
+608	E	2	(Bool, Bool)	(_, true)	_	(_, _)
+609	E	2	(Bool, Bool)	(_, true)	_	(true, _)
+610	E	2	(Bool, Bool)	(_, true)	_	(false, _)
+611	E	2	(Bool, Bool)	(_, true)	_	(true, true)
+612	E	2	(Bool, Bool)	(_, true)	(_, _)	_
+613	E	2	(Bool, Bool)	(_, true)	(_, _)	(true, _)
+614	E	2	(Bool, Bool)	(_, true)	(_, _)	(false, _)
+615	E	2	(Bool, Bool)	(_, true)	(_, _)	(true, true)
+616	E	-	(Bool, Bool)	(_, true)	(true, _)	_
+617	E	-	(Bool, Bool)	(_, true)	(true, _)	(_, _)
+618	E	-	(Bool, Bool)	(_, true)	(true, _)	(false, _)
+619	N	2	(Bool, Bool)	(_, true)	(true, _)	(true, true)
+620	E	-	(Bool, Bool)	(_, true)	(false, _)	_
+621	E	-	(Bool, Bool)	(_, true)	(false, _)	(_, _)
+622	E	-	(Bool, Bool)	(_, true)	(false, _)	(true, _)
+623	N	2	(Bool, Bool)	(_, true)	(false, _)	(true, true)
+624	E	1	(Bool, Bool)	(_, true)	(true, true)	_
+625	E	1	(Bool, Bool)	(_, true)	(true, true)	(_, _)
+626	N	1	(Bool, Bool)	(_, true)	(true, true)	(true, _)
+627	N	1	(Bool, Bool)	(_, true)	(true, true)	(false, _)
+628	E	2	(Bool, Bool)	(true, true)	_	(_, _)
+629	E	2	(Bool, Bool)	(true, true)	_	(true, _)
+630	E	2	(Bool, Bool)	(true, true)	_	(false, _)
+631	E	2	(Bool, Bool)	(true, true)	_	(_, true)
+632	E	2	(Bool, Bool)	(true, true)	(_, _)	_
+633	E	2	(Bool, Bool)	(true, true)	(_, _)	(true, _)
+634	E	2	(Bool, Bool)	(true, true)	(_, _)	(false, _)
+635	E	2	(Bool, Bool)	(true, true)	(_, _)	(_, true)
+636	E	-	(Bool, Bool)	(true, true)	(true, _)	_
+637	E	-	(Bool, Bool)	(true, true)	(true, _)	(_, _)
+638	E	-	(Bool, Bool)	(true, true)	(true, _)	(false, _)
+639	N	-	(Bool, Bool)	(true, true)	(true, _)	(_, true)
+640	E	-	(Bool, Bool)	(true, true)	(false, _)	_
+641	E	-	(Bool, Bool)	(true, true)	(false, _)	(_, _)
+642	E	-	(Bool, Bool)	(true, true)	(false, _)	(true, _)
+643	N	2	(Bool, Bool)	(true, true)	(false, _)	(_, true)
+644	E	-	(Bool, Bool)	(true, true)	(_, true)	_
+645	E	-	(Bool, Bool)	(true, true)	(_, true)	(_, _)
+646	N	-	(Bool, Bool)	(true, true)	(_, true)	(true, _)
+647	N	-	(Bool, Bool)	(true, true)	(_, true)	(false, _)
+648	E	-	[Bool]	_
+649	N	-	[Bool]	[]
+650	N	-	[Bool]	[_]
+651	N	-	[Bool]	[true]
+652	N	-	[Bool]	[_, _]
+653	N	-	[Bool]	[_, ..rest]
+654	N	-	[Bool]	[_, _, ..rest]
+655	E	1	[Bool]	_	[]
+656	E	1	[Bool]	_	[_]
+657	E	1	[Bool]	_	[true]
+658	E	1	[Bool]	_	[_, _]
+659	E	1	[Bool]	_	[_, ..rest]
+660	E	1	[Bool]	_	[_, _, ..rest]
+661	E	-	[Bool]	[]	_
+662	N	-	[Bool]	[]	[_]
+663	N	-	[Bool]	[]	[true]
+664	N	-	[Bool]	[]	[_, _]
+665	E	-	[Bool]	[]	[_, ..rest]
+666	N	-	[Bool]	[]	[_, _, ..rest]
+667	E	-	[Bool]	[_]	_
+668	N	-	[Bool]	[_]	[]
+669	N	1	[Bool]	[_]	[true]
+670	N	-	[Bool]	[_]	[_, _]
+671	N	-	[Bool]	[_]	[_, ..rest]
+672	N	-	[Bool]	[_]	[_, _, ..rest]
+673	E	-	[Bool]	[true]	_
+674	N	-	[Bool]	[true]	[]
+675	N	-	[Bool]	[true]	[_]
+676	N	-	[Bool]	[true]	[_, _]
+677	N	-	[Bool]	[true]	[_, ..rest]
+678	N	-	[Bool]	[true]	[_, _, ..rest]
+679	E	-	[Bool]	[_, _]	_
+680	N	-	[Bool]	[_, _]	[]
+681	N	-	[Bool]	[_, _]	[_]
+682	N	-	[Bool]	[_, _]	[true]
+683	N	-	[Bool]	[_, _]	[_, ..rest]
+684	N	-	[Bool]	[_, _]	[_, _, ..rest]
+685	E	-	[Bool]	[_, ..rest]	_
+686	E	-	[Bool]	[_, ..rest]	[]
+687	N	1	[Bool]	[_, ..rest]	[_]
+688	N	1	[Bool]	[_, ..rest]	[true]
+689	N	1	[Bool]	[_, ..rest]	[_, _]
+690	N	1	[Bool]	[_, ..rest]	[_, _, ..rest]
+691	E	-	[Bool]	[_, _, ..rest]	_
+692	N	-	[Bool]	[_, _, ..rest]	[]
+693	N	-	[Bool]	[_, _, ..rest]	[_]
+694	N	-	[Bool]	[_, _, ..rest]	[true]
+695	N	1	[Bool]	[_, _, ..rest]	[_, _]
+696	N	-	[Bool]	[_, _, ..rest]	[_, ..rest]
+697	E	1,2	[Bool]	_	[]	[_]
+698	E	1,2	[Bool]	_	[]	[true]
+699	E	1,2	[Bool]	_	[]	[_, _]
+700	E	1,2	[Bool]	_	[]	[_, ..rest]
+701	E	1,2	[Bool]	_	[]	[_, _, ..rest]
+702	E	1,2	[Bool]	_	[_]	[]
+703	E	1,2	[Bool]	_	[_]	[true]
+704	E	1,2	[Bool]	_	[_]	[_, _]
+705	E	1,2	[Bool]	_	[_]	[_, ..rest]
+706	E	1,2	[Bool]	_	[_]	[_, _, ..rest]
+707	E	1,2	[Bool]	_	[true]	[]
+708	E	1,2	[Bool]	_	[true]	[_]
+709	E	1,2	[Bool]	_	[true]	[_, _]
+710	E	1,2	[Bool]	_	[true]	[_, ..rest]
+711	E	1,2	[Bool]	_	[true]	[_, _, ..rest]
+712	E	1,2	[Bool]	_	[_, _]	[]
+713	E	1,2	[Bool]	_	[_, _]	[_]
+714	E	1,2	[Bool]	_	[_, _]	[true]
+715	E	1,2	[Bool]	_	[_, _]	[_, ..rest]
+716	E	1,2	[Bool]	_	[_, _]	[_, _, ..rest]
+717	E	1,2	[Bool]	_	[_, ..rest]	[]
+718	E	1,2	[Bool]	_	[_, ..rest]	[_]
+719	E	1,2	[Bool]	_	[_, ..rest]	[true]
+720	E	1,2	[Bool]	_	[_, ..rest]	[_, _]
+721	E	1,2	[Bool]	_	[_, ..rest]	[_, _, ..rest]
+722	E	1,2	[Bool]	_	[_, _, ..rest]	[]
+723	E	1,2	[Bool]	_	[_, _, ..rest]	[_]
+724	E	1,2	[Bool]	_	[_, _, ..rest]	[true]
+725	E	1,2	[Bool]	_	[_, _, ..rest]	[_, _]
+726	E	1,2	[Bool]	_	[_, _, ..rest]	[_, ..rest]
+727	E	2	[Bool]	[]	_	[_]
+728	E	2	[Bool]	[]	_	[true]
+729	E	2	[Bool]	[]	_	[_, _]
+730	E	2	[Bool]	[]	_	[_, ..rest]
+731	E	2	[Bool]	[]	_	[_, _, ..rest]
+732	E	-	[Bool]	[]	[_]	_
+733	N	2	[Bool]	[]	[_]	[true]
+734	N	-	[Bool]	[]	[_]	[_, _]
+735	E	-	[Bool]	[]	[_]	[_, ..rest]
+736	E	-	[Bool]	[]	[_]	[_, _, ..rest]
+737	E	-	[Bool]	[]	[true]	_
+738	N	-	[Bool]	[]	[true]	[_]
+739	N	-	[Bool]	[]	[true]	[_, _]
+740	E	-	[Bool]	[]	[true]	[_, ..rest]
+741	N	-	[Bool]	[]	[true]	[_, _, ..rest]
+742	E	-	[Bool]	[]	[_, _]	_
+743	N	-	[Bool]	[]	[_, _]	[_]
+744	N	-	[Bool]	[]	[_, _]	[true]
+745	E	-	[Bool]	[]	[_, _]	[_, ..rest]
+746	N	-	[Bool]	[]	[_, _]	[_, _, ..rest]
+747	E	2	[Bool]	[]	[_, ..rest]	_
+748	E	2	[Bool]	[]	[_, ..rest]	[_]
+749	E	2	[Bool]	[]	[_, ..rest]	[true]
+750	E	2	[Bool]	[]	[_, ..rest]	[_, _]
+751	E	2	[Bool]	[]	[_, ..rest]	[_, _, ..rest]
+752	E	-	[Bool]	[]	[_, _, ..rest]	_
+753	E	-	[Bool]	[]	[_, _, ..rest]	[_]
+754	N	-	[Bool]	[]	[_, _, ..rest]	[true]
+755	N	2	[Bool]	[]	[_, _, ..rest]	[_, _]
+756	E	-	[Bool]	[]	[_, _, ..rest]	[_, ..rest]
+757	E	2	[Bool]	[_]	_	[]
+758	E	2	[Bool]	[_]	_	[true]
+759	E	2	[Bool]	[_]	_	[_, _]
+760	E	2	[Bool]	[_]	_	[_, ..rest]
+761	E	2	[Bool]	[_]	_	[_, _, ..rest]
+762	E	-	[Bool]	[_]	[]	_
+763	N	2	[Bool]	[_]	[]	[true]
+764	N	-	[Bool]	[_]	[]	[_, _]
+765	E	-	[Bool]	[_]	[]	[_, ..rest]
+766	E	-	[Bool]	[_]	[]	[_, _, ..rest]
+767	E	1	[Bool]	[_]	[true]	_
+768	N	1	[Bool]	[_]	[true]	[]
+769	N	1	[Bool]	[_]	[true]	[_, _]
+770	N	1	[Bool]	[_]	[true]	[_, ..rest]
+771	N	1	[Bool]	[_]	[true]	[_, _, ..rest]
+772	E	-	[Bool]	[_]	[_, _]	_
+773	N	-	[Bool]	[_]	[_, _]	[]
+774	N	2	[Bool]	[_]	[_, _]	[true]
+775	N	-	[Bool]	[_]	[_, _]	[_, ..rest]
+776	N	-	[Bool]	[_]	[_, _]	[_, _, ..rest]
+777	E	-	[Bool]	[_]	[_, ..rest]	_
+778	E	-	[Bool]	[_]	[_, ..rest]	[]
+779	N	2	[Bool]	[_]	[_, ..rest]	[true]
+780	N	2	[Bool]	[_]	[_, ..rest]	[_, _]
+781	N	2	[Bool]	[_]	[_, ..rest]	[_, _, ..rest]
+782	E	-	[Bool]	[_]	[_, _, ..rest]	_
+783	E	-	[Bool]	[_]	[_, _, ..rest]	[]
+784	N	2	[Bool]	[_]	[_, _, ..rest]	[true]
+785	N	2	[Bool]	[_]	[_, _, ..rest]	[_, _]
+786	N	2	[Bool]	[_]	[_, _, ..rest]	[_, ..rest]
+787	E	2	[Bool]	[true]	_	[]
+788	E	2	[Bool]	[true]	_	[_]
+789	E	2	[Bool]	[true]	_	[_, _]
+790	E	2	[Bool]	[true]	_	[_, ..rest]
+791	E	2	[Bool]	[true]	_	[_, _, ..rest]
+792	E	-	[Bool]	[true]	[]	_
+793	N	-	[Bool]	[true]	[]	[_]
+794	N	-	[Bool]	[true]	[]	[_, _]
+795	E	-	[Bool]	[true]	[]	[_, ..rest]
+796	N	-	[Bool]	[true]	[]	[_, _, ..rest]
+797	E	-	[Bool]	[true]	[_]	_
+798	N	-	[Bool]	[true]	[_]	[]
+799	N	-	[Bool]	[true]	[_]	[_, _]
+800	N	-	[Bool]	[true]	[_]	[_, ..rest]
+801	N	-	[Bool]	[true]	[_]	[_, _, ..rest]
+802	E	-	[Bool]	[true]	[_, _]	_
+803	N	-	[Bool]	[true]	[_, _]	[]
+804	N	-	[Bool]	[true]	[_, _]	[_]
+805	N	-	[Bool]	[true]	[_, _]	[_, ..rest]
+806	N	-	[Bool]	[true]	[_, _]	[_, _, ..rest]
+807	E	-	[Bool]	[true]	[_, ..rest]	_
+808	E	-	[Bool]	[true]	[_, ..rest]	[]
+809	N	2	[Bool]	[true]	[_, ..rest]	[_]
+810	N	2	[Bool]	[true]	[_, ..rest]	[_, _]
+811	N	2	[Bool]	[true]	[_, ..rest]	[_, _, ..rest]
+812	E	-	[Bool]	[true]	[_, _, ..rest]	_
+813	N	-	[Bool]	[true]	[_, _, ..rest]	[]
+814	N	-	[Bool]	[true]	[_, _, ..rest]	[_]
+815	N	2	[Bool]	[true]	[_, _, ..rest]	[_, _]
+816	N	-	[Bool]	[true]	[_, _, ..rest]	[_, ..rest]
+817	E	2	[Bool]	[_, _]	_	[]
+818	E	2	[Bool]	[_, _]	_	[_]
+819	E	2	[Bool]	[_, _]	_	[true]
+820	E	2	[Bool]	[_, _]	_	[_, ..rest]
+821	E	2	[Bool]	[_, _]	_	[_, _, ..rest]
+822	E	-	[Bool]	[_, _]	[]	_
+823	N	-	[Bool]	[_, _]	[]	[_]
+824	N	-	[Bool]	[_, _]	[]	[true]
+825	E	-	[Bool]	[_, _]	[]	[_, ..rest]
+826	N	-	[Bool]	[_, _]	[]	[_, _, ..rest]
+827	E	-	[Bool]	[_, _]	[_]	_
+828	N	-	[Bool]	[_, _]	[_]	[]
+829	N	2	[Bool]	[_, _]	[_]	[true]
+830	N	-	[Bool]	[_, _]	[_]	[_, ..rest]
+831	N	-	[Bool]	[_, _]	[_]	[_, _, ..rest]
+832	E	-	[Bool]	[_, _]	[true]	_
+833	N	-	[Bool]	[_, _]	[true]	[]
+834	N	-	[Bool]	[_, _]	[true]	[_]
+835	N	-	[Bool]	[_, _]	[true]	[_, ..rest]
+836	N	-	[Bool]	[_, _]	[true]	[_, _, ..rest]
+837	E	-	[Bool]	[_, _]	[_, ..rest]	_
+838	E	-	[Bool]	[_, _]	[_, ..rest]	[]
+839	N	2	[Bool]	[_, _]	[_, ..rest]	[_]
+840	N	2	[Bool]	[_, _]	[_, ..rest]	[true]
+841	N	2	[Bool]	[_, _]	[_, ..rest]	[_, _, ..rest]
+842	E	-	[Bool]	[_, _]	[_, _, ..rest]	_
+843	N	-	[Bool]	[_, _]	[_, _, ..rest]	[]
+844	N	-	[Bool]	[_, _]	[_, _, ..rest]	[_]
+845	N	-	[Bool]	[_, _]	[_, _, ..rest]	[true]
+846	N	-	[Bool]	[_, _]	[_, _, ..rest]	[_, ..rest]
+847	E	2	[Bool]	[_, ..rest]	_	[]
+848	E	2	[Bool]	[_, ..rest]	_	[_]
+849	E	2	[Bool]	[_, ..rest]	_	[true]
+850	E	2	[Bool]	[_, ..rest]	_	[_, _]
+851	E	2	[Bool]	[_, ..rest]	_	[_, _, ..rest]
+852	E	2	[Bool]	[_, ..rest]	[]	_
+853	E	2	[Bool]	[_, ..rest]	[]	[_]
+854	E	2	[Bool]	[_, ..rest]	[]	[true]
+855	E	2	[Bool]	[_, ..rest]	[]	[_, _]
+856	E	2	[Bool]	[_, ..rest]	[]	[_, _, ..rest]
+857	E	1	[Bool]	[_, ..rest]	[_]	_
+858	E	1	[Bool]	[_, ..rest]	[_]	[]
+859	N	1,2	[Bool]	[_, ..rest]	[_]	[true]
+860	N	1,2	[Bool]	[_, ..rest]	[_]	[_, _]
+861	N	1,2	[Bool]	[_, ..rest]	[_]	[_, _, ..rest]
+862	E	1	[Bool]	[_, ..rest]	[true]	_
+863	E	1	[Bool]	[_, ..rest]	[true]	[]
+864	N	1,2	[Bool]	[_, ..rest]	[true]	[_]
+865	N	1,2	[Bool]	[_, ..rest]	[true]	[_, _]
+866	N	1,2	[Bool]	[_, ..rest]	[true]	[_, _, ..rest]
+867	E	1	[Bool]	[_, ..rest]	[_, _]	_
+868	E	1	[Bool]	[_, ..rest]	[_, _]	[]
+869	N	1,2	[Bool]	[_, ..rest]	[_, _]	[_]
+870	N	1,2	[Bool]	[_, ..rest]	[_, _]	[true]
+871	N	1,2	[Bool]	[_, ..rest]	[_, _]	[_, _, ..rest]
+872	E	1	[Bool]	[_, ..rest]	[_, _, ..rest]	_
+873	E	1	[Bool]	[_, ..rest]	[_, _, ..rest]	[]
+874	N	1,2	[Bool]	[_, ..rest]	[_, _, ..rest]	[_]
+875	N	1,2	[Bool]	[_, ..rest]	[_, _, ..rest]	[true]
+876	N	1,2	[Bool]	[_, ..rest]	[_, _, ..rest]	[_, _]
+877	E	2	[Bool]	[_, _, ..rest]	_	[]
+878	E	2	[Bool]	[_, _, ..rest]	_	[_]
+879	E	2	[Bool]	[_, _, ..rest]	_	[true]
+880	E	2	[Bool]	[_, _, ..rest]	_	[_, _]
+881	E	2	[Bool]	[_, _, ..rest]	_	[_, ..rest]
+882	E	-	[Bool]	[_, _, ..rest]	[]	_
+883	E	-	[Bool]	[_, _, ..rest]	[]	[_]
+884	N	-	[Bool]	[_, _, ..rest]	[]	[true]
+885	N	2	[Bool]	[_, _, ..rest]	[]	[_, _]
+886	E	-	[Bool]	[_, _, ..rest]	[]	[_, ..rest]
+887	E	-	[Bool]	[_, _, ..rest]	[_]	_
+888	E	-	[Bool]	[_, _, ..rest]	[_]	[]
+889	N	2	[Bool]	[_, _, ..rest]	[_]	[true]
+890	N	2	[Bool]	[_, _, ..rest]	[_]	[_, _]
+891	N	2	[Bool]	[_, _, ..rest]	[_]	[_, ..rest]
+892	E	-	[Bool]	[_, _, ..rest]	[true]	_
+893	N	-	[Bool]	[_, _, ..rest]	[true]	[]
+894	N	-	[Bool]	[_, _, ..rest]	[true]	[_]
+895	N	2	[Bool]	[_, _, ..rest]	[true]	[_, _]
+896	N	-	[Bool]	[_, _, ..rest]	[true]	[_, ..rest]
+897	E	1	[Bool]	[_, _, ..rest]	[_, _]	_
+898	N	1	[Bool]	[_, _, ..rest]	[_, _]	[]
+899	N	1	[Bool]	[_, _, ..rest]	[_, _]	[_]
+900	N	1	[Bool]	[_, _, ..rest]	[_, _]	[true]
+901	N	1	[Bool]	[_, _, ..rest]	[_, _]	[_, ..rest]
+902	E	-	[Bool]	[_, _, ..rest]	[_, ..rest]	_
+903	E	-	[Bool]	[_, _, ..rest]	[_, ..rest]	[]
+904	N	2	[Bool]	[_, _, ..rest]	[_, ..rest]	[_]
+905	N	2	[Bool]	[_, _, ..rest]	[_, ..rest]	[true]
+906	N	2	[Bool]	[_, _, ..rest]	[_, ..rest]	[_, _]

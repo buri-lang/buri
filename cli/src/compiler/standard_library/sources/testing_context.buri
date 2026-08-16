@@ -33,6 +33,9 @@ export struct CaptureOut(I64);
 impl Stdout for CaptureOut {
   fn print(self: CaptureOut, text: Template): ();
   fn println(self: CaptureOut, text: Template): ();
+  /// Captured as the UTF-8 text the octets spell, so `captured` answers one
+  /// question rather than two.
+  fn writeBytes(self: CaptureOut, b: [U8]): ();
 }
 export fn captureOut(): CaptureOut;
 
@@ -59,8 +62,12 @@ impl CaptureErr {
 export struct TestStdin(I64);
 impl Stdin for TestStdin {
   fn readLine(self: TestStdin): Option<Str>;
+  fn readBytes(self: TestStdin, n: Int): Option<[U8]>;
 }
 export fn stdin(lines: [Str]): TestStdin;
+
+/// Reads those octets, then end-of-input. The binary twin of `stdin`.
+export fn stdinBytes(b: [U8]): TestStdin;
 
 // --- Filesystem ---------------------------------------------------------------
 

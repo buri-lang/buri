@@ -141,7 +141,7 @@ theorem Pattern.matchesAll_expandLengths (limit : Nat) :
   | cons p ps ih =>
     intro ws hsound h
     cases ws with
-    | nil => exact absurd h (by simp [Pattern.expandLengthsList, Pattern.matchesAll])
+    | nil => exact absurd h (by simp [Pattern.expandLengthsList])
     | cons w ws =>
       have h' : (Pattern.matches (p.expandLengths limit) w &&
           Pattern.matchesAll (Pattern.expandLengthsList limit ps) ws) = true := h
@@ -149,6 +149,24 @@ theorem Pattern.matchesAll_expandLengths (limit : Nat) :
       show (Pattern.matches p w && Pattern.matchesAll ps ws) = true
       rw [hsound p (by simp) w h₁, ih ws (fun q hq => hsound q (by simp [hq])) h₂]
       rfl
+
+/-- The non-`arrayRest` half of `expandLengths_sound`: every other
+constructor is rewritten by recursing into its sub-patterns and nothing else,
+so soundness is exactly soundness of the sub-patterns. Factored out because
+otherwise it is five identical case branches. -/
+private theorem expandLengths_sound_constructor {limit : Nat} {head : Constructor}
+    {subpatterns : List Pattern} {w : Value}
+    (hrest : ∀ n, head ≠ .arrayRest n)
+    (hsub : ∀ q ∈ subpatterns, ∀ u,
+      Pattern.matches (q.expandLengths limit) u = true → Pattern.matches q u = true)
+    (h : Pattern.matches ((Pattern.constructor head subpatterns).expandLengths limit) w = true) :
+    Pattern.matches (.constructor head subpatterns) w = true := by
+  rw [Pattern.expandLengths_constructor limit _ subpatterns hrest,
+      Pattern.matches_constructor _ _ _ hrest] at h
+  rw [Pattern.matches_constructor _ _ _ hrest]
+  obtain ⟨hc, hall⟩ := Bool.and_eq_true .. |>.mp h
+  rw [hc, Pattern.matchesAll_expandLengths limit subpatterns _ hsub hall]
+  simp
 
 /-- **`expand_lengths` is sound**: whatever the rewritten pattern matches, the
 original matches. -/
@@ -208,46 +226,7 @@ theorem Pattern.expandLengths_sound (limit : Nat) :
       rw [Pattern.matchesAll_expandLengths limit subpatterns (vs.take n) hsub hsplit]
       simp
       omega
-    | array k =>
-      have hnotrest : ∀ m, Constructor.array k ≠ .arrayRest m := by intro m; simp
-      rw [Pattern.expandLengths_constructor limit _ subpatterns hnotrest,
-          Pattern.matches_constructor _ _ _ hnotrest] at h
-      rw [Pattern.matches_constructor _ _ _ hnotrest]
-      obtain ⟨hc, hall⟩ := Bool.and_eq_true .. |>.mp h
-      rw [hc, Pattern.matchesAll_expandLengths limit subpatterns _ hsub hall]
-      simp
-    | variant c j =>
-      have hnotrest : ∀ m, Constructor.variant c j ≠ .arrayRest m := by intro m; simp
-      rw [Pattern.expandLengths_constructor limit _ subpatterns hnotrest,
-          Pattern.matches_constructor _ _ _ hnotrest] at h
-      rw [Pattern.matches_constructor _ _ _ hnotrest]
-      obtain ⟨hc, hall⟩ := Bool.and_eq_true .. |>.mp h
-      rw [hc, Pattern.matchesAll_expandLengths limit subpatterns _ hsub hall]
-      simp
-    | single =>
-      have hnotrest : ∀ m, Constructor.single ≠ .arrayRest m := by intro m; simp
-      rw [Pattern.expandLengths_constructor limit _ subpatterns hnotrest,
-          Pattern.matches_constructor _ _ _ hnotrest] at h
-      rw [Pattern.matches_constructor _ _ _ hnotrest]
-      obtain ⟨hc, hall⟩ := Bool.and_eq_true .. |>.mp h
-      rw [hc, Pattern.matchesAll_expandLengths limit subpatterns _ hsub hall]
-      simp
-    | bool b =>
-      have hnotrest : ∀ m, Constructor.bool b ≠ .arrayRest m := by intro m; simp
-      rw [Pattern.expandLengths_constructor limit _ subpatterns hnotrest,
-          Pattern.matches_constructor _ _ _ hnotrest] at h
-      rw [Pattern.matches_constructor _ _ _ hnotrest]
-      obtain ⟨hc, hall⟩ := Bool.and_eq_true .. |>.mp h
-      rw [hc, Pattern.matchesAll_expandLengths limit subpatterns _ hsub hall]
-      simp
-    | lit s =>
-      have hnotrest : ∀ m, Constructor.lit s ≠ .arrayRest m := by intro m; simp
-      rw [Pattern.expandLengths_constructor limit _ subpatterns hnotrest,
-          Pattern.matches_constructor _ _ _ hnotrest] at h
-      rw [Pattern.matches_constructor _ _ _ hnotrest]
-      obtain ⟨hc, hall⟩ := Bool.and_eq_true .. |>.mp h
-      rw [hc, Pattern.matchesAll_expandLengths limit subpatterns _ hsub hall]
-      simp
+    | _ => exact expandLengths_sound_constructor (by intro m; simp) hsub h
 
 /-! ## `expand` -/
 

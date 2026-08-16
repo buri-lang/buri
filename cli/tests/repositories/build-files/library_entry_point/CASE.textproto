@@ -1,0 +1,90 @@
+# `lib.buri` is a library rule's entry point, named by the rule kind rather
+# than listed in `sources` (BUILD-FILES.md:140-144). Two things follow, and
+# this case is both:
+#
+#   - a `library` rule in a package with no lib.buri names a file that is not
+#     there, and the toolchain says so
+#   - listing lib.buri in `sources` says nothing the rule did not already say,
+#     and is an error rather than a redundancy the build quietly absorbs
+#
+# The second used to be accepted: `check_sources_declared` puts the three entry
+# points into the known set unconditionally, so a listing of one matched
+# itself and nothing looked at whether the rule had already named it. It is
+# caught in the loader now, where the rule is turned into a list of modules.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library rule whose package has no lib.buri names a file that is not there; lib.buri listed in `sources` is named twice and is an error"
+
+# The redundant listing, on its own.
+run {
+  args: ["lint", "//lib/listed"]
+  exit: 1
+  golden: "lib_in_sources.txt"
+}
+
+run {
+  args: ["lint", "//lib/listed", "--error-format=json"]
+  exit: 1
+  golden: "lib_in_sources.json"
+}
+
+# The fix the diagnostic printed. Nothing else in the rule changes, because
+# nothing else needed to: the rule already named the file.
+edit {
+  file: "lib/listed/BUILD.buri"
+  replace: "  sources: [\"lib.buri\", \"b.buri\"]\n"
+  with: "  sources: [\"b.buri\"]\n"
+}
+
+run {
+  args: ["lint", "//lib/listed"]
+  exit: 0
+  golden: "lib_in_sources_removed.txt"
+}
+
+# //cmd/app is a binary and nothing else, so nothing looks for a lib.buri.
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+  golden: "binary_only.txt"
+}
+
+# Now a `library` rule in the same package, which there is no lib.buri for.
+# The negative twin is one edit away and in the same file, which is the only
+# way the clean result above is evidence of anything.
+# The rule declares no `sources`, so nothing here is about a source file: the
+# only thing the rule adds is the entry point the rule kind names, and that is
+# the file that is not there.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "binary {"
+  with: "library {}\n\nbinary {"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "missing_lib_buri.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "missing_lib_buri.json"
+}
+
+# The binary's own entry point, listed the same way. One rule, one clause of
+# the spec, and it reads the same whichever rule kind names the file.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "library {}\n\nbinary {\n  sources: [\"flags.buri\"]\n"
+  with: "binary {\n  sources: [\"main.buri\", \"flags.buri\"]\n"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "main_in_sources.txt"
+}

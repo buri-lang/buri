@@ -1,0 +1,67 @@
+# LIBRARIES.md: code under `testing/` is never linked into a production
+# artifact. Every other test of the `testing` surface is about what the
+# *toolchain says*; this one is about what it *emits*, which is the claim
+# itself and the only place it can be settled.
+#
+# The evidence is a marker string defined in exactly one file — the fake in
+# `lib/widget/testing/fixtures.buri` — read back out of the binary's own
+# artifact. On its own that would pass for the wrong reason (a mistyped path,
+# an artifact that was never written, a build that emitted nothing), so the
+# same step also asserts the *production* marker is there. One string must be
+# present and the other must not, in the same file, in the same read.
+#
+# Neither is recorded as a golden. The artifact is mostly runtime, so pinning
+# it would move on every unrelated backend change and bury the one line that
+# is the point.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "code under testing/ is never linked into a production artifact, read off the emitted artifact itself"
+
+# The fake is real code, reachable, and prints the marker: the suite asserts on
+# it, so the string below is not absent from the artifact for want of existing.
+run {
+  args: ["test", "//cmd/app"]
+  exit: 0
+  golden: "suite.txt"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+file {
+  path: ".buri/out/js/cmd/app/app.mjs"
+  contains: "WIDGET-PRODUCTION-MARKER"
+  absent: "WIDGET-TESTING-ONLY-MARKER"
+}
+
+# And in release, where the whole program is minified into one line — the pass
+# that could most plausibly drag something in.
+run {
+  args: ["build", "//cmd/app", "--release", "--force"]
+  exit: 0
+}
+
+file {
+  path: ".buri/out/js/cmd/app/app.mjs"
+  contains: "WIDGET-PRODUCTION-MARKER"
+  absent: "WIDGET-TESTING-ONLY-MARKER"
+}
+
+# The negative twin: a production source that names the testing surface is
+# refused, which is the rule that makes the absence above structural rather
+# than a property of this program.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/widget\" import { widget };\n"
+  with: "from \"//lib/widget\" import { widget };\nfrom \"//lib/widget/testing\" import { fakeWidget };\n"
+}
+
+run {
+  args: ["build", "//cmd/app", "--force"]
+  exit: 1
+  golden: "testing_from_production.txt"
+}

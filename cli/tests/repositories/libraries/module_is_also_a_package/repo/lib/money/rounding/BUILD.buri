@@ -1,0 +1,8 @@
+# The near miss, in the same repository so that the rule cannot be "every
+# subpackage collides": //lib/money has no rounding.buri, so this package's
+# label names nothing else.
+
+library {
+  sources: ["mode.buri"]
+  visibility: ["//visibility:public"]
+}

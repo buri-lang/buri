@@ -1,0 +1,1 @@
+{"severity":"error","message":"\"//cmd/app\" names no file (cmd/app/lib.buri)","code":"module-not-found","location":null,"fix":"create the file the path names, or correct the path — a module path maps to exactly one file, with no search","notes":[],"related":[]}

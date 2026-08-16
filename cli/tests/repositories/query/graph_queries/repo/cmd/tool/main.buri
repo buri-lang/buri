@@ -1,0 +1,13 @@
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/money" import { fromCents };
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+  let _ = ctx.println("${fromCents(450).value}");
+  .Ok(())
+}

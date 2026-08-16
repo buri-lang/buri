@@ -297,11 +297,13 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
     };
     if let Some(lib) = &p.build.library {
         push(&lib.sources, &mut declared);
+        push(&lib.proto_sources, &mut declared);
         push(&lib.test.sources, &mut declared);
         push(&lib.testing.sources, &mut declared);
     }
     if let Some(bin) = &p.build.binary {
         push(&bin.sources, &mut declared);
+        push(&bin.proto_sources, &mut declared);
         push(&bin.test.sources, &mut declared);
     }
 
@@ -333,6 +335,10 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
         if known.contains(&rel) {
             continue;
         }
+        // A `.proto` is declared in `proto_sources` rather than `sources`, and
+        // the fix has to say which — the rule is the same rule ("everything is
+        // declared"), so the code is the same code.
+        let field = if rel.ends_with(".proto") { "proto_sources" } else { "sources" };
         diags.push(
             Diagnostic::error(
                 Span::point(p.build_file_id, 0),
@@ -340,7 +346,7 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
             )
             .with_code("undeclared-source")
             .with_fix(format!(
-                "add it to a rule's `sources`, or delete it — `buri gen //{}` does this \
+                "add it to a rule's `{field}`, or delete it — `buri gen //{}` does this \
                  automatically",
                 p.path
             )),
@@ -369,7 +375,9 @@ fn collect_package_sources(
                 continue;
             }
             collect_package_sources(root, &p, s, pkg, out);
-        } else if p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri" {
+        } else if (p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri")
+            || p.extension().is_some_and(|x| x == "proto")
+        {
             let rel = p.strip_prefix(root).unwrap().display().to_string().replace('\\', "/");
             out.push(rel);
         }
@@ -496,7 +504,7 @@ fn check_hygiene(
 ) {
     let own = target.pkg;
     for m in &analysis.loaded.modules {
-        if m.pkg == Some(own) {
+        if m.pkg == Some(own) && !is_generated(&m.path) {
             check_unused_imports(s, m, diags);
         }
     }
@@ -567,6 +575,13 @@ fn check_unreachable_exports(
         if m.path.ends_with("/lib") || !matches!(m.role, crate::compiler::modules::Role::Source) {
             continue;
         }
+        // A generated module is not a file anybody can edit, so neither of the
+        // two fixes this rule offers exists for one. A `.proto` schema exports
+        // the whole of what it declares — that is what a schema *is* — and
+        // `lib.buri` re-exports the part of it the library means to publish.
+        if is_generated(&m.path) {
+            continue;
+        }
         if taken_whole.contains(m.path.as_str()) {
             continue;
         }
@@ -590,6 +605,13 @@ fn check_unreachable_exports(
             );
         }
     }
+}
+
+/// A module the toolchain wrote rather than a person: today, one generated
+/// from a `.proto` schema. The hygiene rules ask a person to make an edit, and
+/// there is no file here to edit.
+fn is_generated(path: &str) -> bool {
+    crate::build::protogen::is_proto_path(path)
 }
 
 /// The name a module-level item exports, when it exports one.
@@ -843,15 +865,6 @@ fn calls_into(
     out
 }
 
-/// The same computation, for `buri gen`.
-pub(crate) fn reached_by_resolution_pub(
-    s: &Session,
-    analysis: &crate::compiler::driver::Analysis,
-    own: PkgId,
-) -> BTreeSet<String> {
-    reached_by_resolution(s, analysis, own)
-}
-
 /// Every library a package's own code reaches through a resolved call, which
 /// the tool can compute because resolution is a single lookup.
 pub(crate) fn reached_by_resolution(
@@ -909,24 +922,44 @@ fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
 }
 
 /// `dep-cycle`: package cycles are the module rule one level up.
+///
+/// One diagnostic per cycle, not one per edge in it. A cycle has no first end,
+/// so reporting it from each is the same finding written twice — and
+/// BUILD-FILES.md:389-390 describes one. The cycle's *members* are its
+/// identity: every target mutually reachable with this edge's tail is in it,
+/// and that set is the same set whichever edge of the cycle is walked first.
+/// So the set is what deduplicates, and the first edge to reach it is the one
+/// the diagnostic points at.
 fn check_cycles(s: &Session, diags: &mut Diagnostics) {
+    let mut reported: BTreeSet<Vec<TargetId>> = BTreeSet::new();
     for t in s.ws.targets() {
         for (dep, span) in s.ws.dep_edges(t) {
             if dep == t {
                 continue;
             }
-            if s.ws.closure(dep).contains(&t) {
-                let a = s.ws.label(t);
-                let b = s.ws.label(dep);
-                diags.push(
-                    Diagnostic::error(
-                        span.unwrap_or(Span::point(s.ws.pkg(t.pkg).build_file_id, 0)),
-                        format!("{a} and {b} depend on each other"),
-                    )
-                    .with_code("dep-cycle")
-                    .with_fix("break the cycle: move what both need into a third target"),
-                );
+            if !s.ws.closure(dep).contains(&t) {
+                continue;
             }
+            let mut members: Vec<TargetId> = s
+                .ws
+                .closure(t)
+                .into_iter()
+                .filter(|m| s.ws.closure(*m).contains(&t))
+                .collect();
+            members.sort();
+            if !reported.insert(members) {
+                continue;
+            }
+            let a = s.ws.label(t);
+            let b = s.ws.label(dep);
+            diags.push(
+                Diagnostic::error(
+                    span.unwrap_or(Span::point(s.ws.pkg(t.pkg).build_file_id, 0)),
+                    format!("{a} and {b} depend on each other"),
+                )
+                .with_code("dep-cycle")
+                .with_fix("break the cycle: move what both need into a third target"),
+            );
         }
     }
 }

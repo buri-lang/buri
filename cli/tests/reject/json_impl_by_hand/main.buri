@@ -1,0 +1,20 @@
+// EXPECT: `ToJson` is derived, not implemented
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/json" import { Json, ToJson };
+from "core/json" import * as json;
+
+struct Point { export x: Int, export y: Int }
+
+impl ToJson for Point {
+  fn toJson<C: Alloc>(self: Point, ctx: C): Json {
+    Json.Num(0.0)
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let p = Point { x: 1, y: 2 };
+  let _ = ctx.println(json.stringify(ctx, json.encode(ctx, p)));
+  .Ok(())
+}

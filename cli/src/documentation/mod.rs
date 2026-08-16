@@ -19,6 +19,7 @@
 pub mod assemble;
 pub mod errors;
 pub mod examples;
+pub mod grammar;
 pub mod harness;
 pub mod markdown;
 pub mod reference;

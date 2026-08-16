@@ -74,6 +74,7 @@ pub const DOCUMENTS: &[Document] = &[
             sec("", "guide/errors"),
             sec("", "guide/imports"),
             sec("", "guide/whats-in"),
+            sec("", "guide/installing"),
             sec("", "guide/status"),
             sec("", "guide/naming"),
         ],

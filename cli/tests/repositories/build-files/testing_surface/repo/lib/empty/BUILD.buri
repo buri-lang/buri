@@ -1,0 +1,9 @@
+# An empty `testing {}` is accepted: the block says the surface exists, and
+# testing/lib.buri is named by the block rather than listed.
+
+library {
+  sources: ["e.buri"]
+  visibility: ["//visibility:public"]
+
+  testing {}
+}

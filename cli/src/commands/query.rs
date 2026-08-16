@@ -4,6 +4,7 @@
 //! the graph `crate::build::workspace` already loaded, answered without
 //! building anything.
 
+use crate::build::buildfile::Platform;
 use crate::build::session;
 use crate::build::workspace::TargetId;
 use crate::commands::arguments;
@@ -42,7 +43,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
     match func.trim() {
         "deps" => {
             let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target {}", arguments[0]);
+                eprintln!("error: no target `{}`", arguments[0]);
                 return 2;
             };
             for m in s.ws.closure(t) {
@@ -53,7 +54,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         }
         "rdeps" => {
             let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target {}", arguments[0]);
+                eprintln!("error: no target `{}`", arguments[0]);
                 return 2;
             };
             for other in s.ws.targets() {
@@ -94,7 +95,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         }
         "tags" => {
             let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target {}", arguments[0]);
+                eprintln!("error: no target `{}`", arguments[0]);
                 return 2;
             };
             for (tag, by) in s.ws.closure_tags(t) {
@@ -103,16 +104,37 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         }
         "platforms" => {
             let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target {}", arguments[0]);
+                eprintln!("error: no target `{}`", arguments[0]);
                 return 2;
             };
-            for p in s.ws.platforms(t) {
+            let allowed = s.ws.platforms(t);
+            // An empty answer printed as nothing is indistinguishable from a
+            // command that did nothing, and "this target can be built nowhere"
+            // is the one answer here a reader most needs said out loud. It
+            // goes to stdout, beside `path`'s "no path": it is the answer to
+            // the question, not a complaint about the invocation, so the exit
+            // code stays 0 and the constraints that produced it follow.
+            if allowed.is_empty() {
+                println!("no platform: {}'s dependency closure admits none", s.ws.label(t));
+                let mut why = Vec::new();
+                for p in Platform::ALL {
+                    if let Some((_, reason)) = s.ws.platform_blocker(t, p) {
+                        if !why.contains(&reason) {
+                            why.push(reason);
+                        }
+                    }
+                }
+                for reason in why {
+                    println!("  {reason}");
+                }
+            }
+            for p in allowed {
                 println!("{}", p.slug());
             }
         }
         "sources" => {
             let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target {}", arguments[0]);
+                eprintln!("error: no target `{}`", arguments[0]);
                 return 2;
             };
             let p = s.ws.pkg(t.pkg);
@@ -120,10 +142,15 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             if let Some(lib) = &p.build.library {
                 all.push("lib.buri".to_string());
                 all.extend(lib.sources.iter().map(|x| x.value.clone()));
+                // A `.proto` is a source of this target too — the module it
+                // becomes is compiled into the artifact — so a question about
+                // what a target is made of has to name it.
+                all.extend(lib.proto_sources.iter().map(|x| x.value.clone()));
             }
             if let Some(bin) = &p.build.binary {
                 all.push("main.buri".to_string());
                 all.extend(bin.sources.iter().map(|x| x.value.clone()));
+                all.extend(bin.proto_sources.iter().map(|x| x.value.clone()));
             }
             all.sort();
             for a in all {

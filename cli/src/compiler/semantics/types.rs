@@ -378,6 +378,30 @@ impl TraitInfo {
     }
 }
 
+/// Whether a trait is one a program may only ever `derive`.
+///
+/// `core/json`'s two are: what a derived encoder stands for is the type's
+/// shape, so a hand-written one would be obeyed where the type is encoded on
+/// its own and ignored where a type holding it is. `semantics::resolve`
+/// rejects the `impl`; this is here so that no diagnostic elsewhere offers
+/// writing one as the fix.
+pub fn is_derive_only(trait_name: &str) -> bool {
+    matches!(trait_name, "ToJson" | "FromJson")
+}
+
+/// "add `derive T for X;` in that type's own module, or write `impl ...`" —
+/// minus the half that is not available.
+pub fn conformance_fix(trait_name: &str, shown: &str) -> String {
+    if is_derive_only(trait_name) {
+        format!("add `derive {trait_name} for {shown};` in that type's own module")
+    } else {
+        format!(
+            "add `derive {trait_name} for {shown};` in that type's own module, or write \
+             `impl {trait_name} for {shown} {{ ... }}` there"
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TraitMethod {
     pub name: String,
@@ -606,6 +630,66 @@ impl Tables {
             // shape `list.mapCtx` takes, and SPEC 10.6 mandates it. A
             // function that *returns* a context does carry it.
             Ty::Fn(_, r) => self.is_effect_carrying(r, generics),
+            _ => false,
+        }
+    }
+
+    /// Whether a value of this type *could* carry an effect under some
+    /// instantiation of the enclosing signature's generics.
+    ///
+    /// `is_effect_carrying` answers the question a *signature* asks: does this
+    /// type, as written, mention an effect? That is the right question for the
+    /// `ctx` rule, and the wrong one for the capture rule, because a generic
+    /// body is checked once and polymorphically (SPEC 13.5) — so at the point
+    /// the capture rule runs, `T` is opaque and nothing rules out `T := C` for
+    /// a context type `C`. A predicate that answers "no" for `T` is not an
+    /// inductive invariant:
+    ///
+    /// ```text
+    /// fn wrap<T>(x: T, f: fn(T) => ()): fn() => () { fn() => f(x) }
+    /// ```
+    ///
+    /// Every step there is sanctioned by `is_effect_carrying` and the
+    /// composition smuggles a capability into a closure whose type mentions no
+    /// effect at all. So the capture rule asks this question instead, and an
+    /// unbounded type parameter answers "yes".
+    ///
+    /// One kind of parameter escapes: one carrying an **ordinary trait**
+    /// bound. A type is either part of the world or part of your data
+    /// (SPEC 10.1), and `Infer::satisfies_seen` enforces that at every
+    /// instantiation — an effect-carrying type satisfies no ordinary bound —
+    /// so `T: Eq` cannot be a context and `xs.any(fn(x) => x == needle)` stays
+    /// legal. A parameter bounded only by effects has no such guarantee, and
+    /// `is_effect_carrying` has already answered `true` for it anyway.
+    ///
+    /// A **function type** answers `false` outright, where `is_effect_carrying`
+    /// looks at its result. The two are asking different questions. The `ctx`
+    /// rule asks what a type *says*, and `fn() => C` says "hands out a
+    /// context", so it must arrive as `ctx`. The capture rule asks what a
+    /// value *holds*, and a closure holds exactly what it captured — which is
+    /// what this rule checks. So the answer for closures is inductive rather
+    /// than structural: no closure holds a capability, because no closure was
+    /// allowed to capture one, and a context cannot be constructed inside a
+    /// lambda (SPEC 11.3). That is what keeps `fn compose<A, B, C>(f: fn(A) =>
+    /// B, g: fn(B) => C): fn(A) => C` legal.
+    ///
+    /// Everything else is the shape of `is_effect_carrying`.
+    pub fn may_carry_effect(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
+        match ty {
+            Ty::Param(i) => match generics.get(*i as usize) {
+                Some(g) => !g.bounds.iter().any(|b| !self.trait_(*b).is_effect),
+                None => true,
+            },
+            Ty::Ctx(_) => true,
+            Ty::Con(id, args) => {
+                args.iter().any(|a| self.may_carry_effect(a, generics))
+                    || self.impls.keys().any(|(t, c)| *c == *id && self.trait_(*t).is_effect)
+            }
+            Ty::Array(e) => self.may_carry_effect(e, generics),
+            Ty::Tuple(es) => es.iter().any(|e| self.may_carry_effect(e, generics)),
+            // Spelled out rather than folded into the catch-all, because this
+            // is the one place the two predicates deliberately disagree.
+            Ty::Fn(..) => false,
             _ => false,
         }
     }

@@ -15,7 +15,11 @@ afterward:
 7. Every arm of a `match` produces a value of the arm type. There is no bottom
    type and no way to declare a branch unreachable, so an arm cannot opt out
    (Section 6.10).
-8. A lambda may not capture a effect-carrying value (Section 10.6).
+8. A lambda may not capture a effect-carrying value, nor one whose type could be
+   a context at some instantiation — that is, one mentioning a type parameter
+   that carries no ordinary trait bound, anywhere `is effect-carrying` would
+   have looked (Section 10.6). Function types are exempt: a closure holds only
+   what this rule let it capture.
 9. Opaque types may not be constructed or destructured outside their defining
    module, and private fields may not be read, written, or matched outside it.
 10. Numeric conversion methods are declared per source-and-target pair in
@@ -62,7 +66,10 @@ Capabilities:
     effect bound, or any type mentioning one. A `context` expression is the only
     construct in which more than one effect-carrying value may appear.
 27. `effect` declarations may appear only in platform modules, and no type may
-    implement both an effect and a trait.
+    implement both an effect and a trait. An effect-carrying type satisfies no
+    ordinary trait bound, so the separation survives composition: a
+    `Holder<C>` that stores a context does not reach a `T: Eq` even where
+    `Holder` implements `Eq` (Section 10.1).
 28. `impl` and `derive` may not be exported, and may appear only in the defining
     module of the type they name. A method inside an inherent `impl` may be
     exported; a method supplied to a trait may not.

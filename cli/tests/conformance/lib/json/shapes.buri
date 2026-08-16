@@ -1,0 +1,153 @@
+// One type of every shape `derive ToJson` and `derive FromJson` have to fold
+// over, so that a change to the mapping fails an assertion rather than a
+// review.
+//
+// They live here rather than in the test files because there are two of those
+// — one for what a value writes, one for what a document reads back — and both
+// have to be talking about the same types for a round trip to mean anything. A
+// test source may not `export`.
+
+from "core/json" import { ToJson, FromJson };
+
+// --- structs ------------------------------------------------------------------
+
+/// Named fields: an object keyed by those names.
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+derive Eq, Show, ToJson, FromJson for Point;
+
+/// Nesting, and a list of a type that is itself derived.
+export struct Segment {
+  export start: Point,
+  export stop: Point,
+  export label: Str,
+  export waypoints: [Point],
+}
+
+derive Eq, Show, ToJson, FromJson for Segment;
+
+/// One positional field. It is still an array of one: transparency would make
+/// the wire format depend on the field count.
+export struct Meters(export Int);
+
+derive Eq, Show, ToJson, FromJson for Meters;
+
+/// Two positional fields.
+export struct Pair(export Int, export Str);
+
+derive Eq, Show, ToJson, FromJson for Pair;
+
+/// A struct with nothing in it, which is an empty object.
+export struct Hollow {}
+
+derive Eq, Show, ToJson, FromJson for Hollow;
+
+/// One component of every kind a fold can reach.
+export struct Everything {
+  export flag: Bool,
+  export letter: Char,
+  export ratio: Float,
+  export text: Str,
+  export nothing: (),
+  export both: (Int, Str),
+  export present: Option<Point>,
+  export absent: Option<Point>,
+  export many: [Point],
+}
+
+derive Eq, Show, ToJson, FromJson for Everything;
+
+/// A generic wrapper. The fold is over the *instantiated* components, so
+/// `Wrapper<Point>` and `Wrapper<[Int]>` write different documents from one
+/// `derive`.
+export struct Wrapper<T> {
+  export value: T,
+  export tag: Str,
+}
+
+derive Eq, Show, ToJson, FromJson for Wrapper;
+
+// --- enums --------------------------------------------------------------------
+
+/// Every variant payload-free, which is the case a bare string covers.
+export enum Colour {
+  export Red,
+  export Green,
+  export Blue,
+}
+
+derive Eq, Show, ToJson, FromJson for Colour;
+
+/// All three variant shapes in one type: no payload, positional, named.
+export enum Shape {
+  export Empty,
+  export Circle(Int),
+  export Line(Point, Point),
+  export Rect { width: Int, height: Int },
+}
+
+derive Eq, Show, ToJson, FromJson for Shape;
+
+// --- recursion ----------------------------------------------------------------
+
+/// A rose tree: the type recurses through a *list* of itself, which is the
+/// shape that has no type constructor at the head and so used to walk the
+/// checker off the end of its stack.
+export enum Rose {
+  export Leaf(Int),
+  export Branch([Rose]),
+}
+
+derive Eq, Show, ToJson, FromJson for Rose;
+
+/// The same recursion through an `Option` as well as a list, so the walk has
+/// to survive two containers rather than one.
+export struct Chain {
+  export head: Int,
+  export rest: Option<[Chain]>,
+}
+
+derive Eq, Show, ToJson, FromJson for Chain;
+
+// --- constructors -------------------------------------------------------------
+//
+// Every value in the tests is built by a function, so two equal values are two
+// objects. Written as literals the compiler is free to share one, and a round
+// trip that came back the same object would prove nothing.
+
+export fn point(x: Int, y: Int): Point {
+  Point { x: x, y: y }
+}
+
+export fn rose(n: Int): Rose {
+  if (n <= 0) {
+    Rose.Leaf(0)
+  } else {
+    Rose.Branch([Rose.Leaf(n), rose(n - 1)])
+  }
+}
+
+export fn chain(n: Int): Chain {
+  if (n <= 0) {
+    Chain { head: 0, rest: .None }
+  } else {
+    Chain { head: n, rest: .Some([chain(n - 1)]) }
+  }
+}
+
+export fn everything(): Everything {
+  Everything {
+    flag: true,
+    letter: 'q',
+    ratio: 1.5,
+    text: "hi",
+    nothing: (),
+    both: (7, "z"),
+    present: .Some(point(1, 2)),
+    absent: .None,
+    many: [point(3, 4)],
+  }
+}

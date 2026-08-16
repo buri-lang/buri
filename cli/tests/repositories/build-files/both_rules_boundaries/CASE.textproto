@@ -1,0 +1,115 @@
+# BUILD-FILES.md:299-308, the two rules about which way code may cross the
+# library boundary *inside* one package. The disjoint-`sources` rule is
+# `duplicate_source`; these are the other two.
+#
+#   - the binary reaches the library only through `//tools/report`, and may not
+#     import a module inside it
+#   - the library may not reach the binary at all: neither `//tools/report/main`
+#     nor a file the binary lists in its own `sources`
+#
+# Both are enforced now, and by the same question: which *rule* does the
+# importing file belong to. Asking which package it is in — which is what the
+# `ModuleKind::Internal` arm used to ask — answers "the same one" for every
+# file in a both-rules package, which is precisely the case these two rules
+# are about.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the library boundary inside a package with both rules: the binary may not reach past the library's entry point, and the library may not reach the binary at all"
+
+# The package builds: two rules, disjoint sources, and the implicit edge from
+# the binary to the library it sits beside.
+run {
+  args: ["build", "//tools/report"]
+  exit: 0
+}
+
+run {
+  args: ["lint", "//tools/report"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# `verbose` lives in detail.buri, which lib.buri does not re-export, so
+# reaching for it means naming a module inside the library. That is the import
+# the rule forbids — and the file doing it sits in the same directory, which is
+# why the package question was never the right one.
+edit {
+  file: "tools/report/main.buri"
+  replace: "from \"//tools/report\" import { render };\n"
+  with: "from \"//tools/report\" import { render };\nfrom \"//tools/report/detail\" import { verbose };\n"
+}
+
+run {
+  args: ["lint", "//tools/report"]
+  exit: 1
+  golden: "binary_reaches_library_internal.txt"
+}
+
+run {
+  args: ["lint", "//tools/report", "--error-format=json"]
+  exit: 1
+  golden: "binary_reaches_library_internal.json"
+}
+
+edit {
+  file: "tools/report/main.buri"
+  replace: "\nfrom \"//tools/report/detail\" import { verbose };"
+  with: ""
+}
+
+# The other direction, at the binary's entry point.
+edit {
+  file: "tools/report/lib.buri"
+  replace: "from \"//tools/report/render\" export { render };\n"
+  with: "from \"//tools/report/render\" export { render };\nfrom \"//tools/report/main\" import { main };\n"
+}
+
+run {
+  args: ["lint", "//tools/report"]
+  exit: 1
+  golden: "library_reaches_binary.txt"
+}
+
+run {
+  args: ["lint", "//tools/report", "--error-format=json"]
+  exit: 1
+  golden: "library_reaches_binary.json"
+}
+
+edit {
+  file: "tools/report/lib.buri"
+  replace: "\nfrom \"//tools/report/main\" import { main };"
+  with: ""
+}
+
+# The same direction again, and neither end is an entry point: detail.buri is
+# a library source and flags.buri is a binary source. `main.buri` is not what
+# makes the binary unreachable — the rule is, and flags.buri belongs to it.
+edit {
+  file: "tools/report/detail.buri"
+  replace: "export fn verbose"
+  with: "from \"//tools/report/flags\" import { label };\n\nexport fn verbose"
+}
+
+run {
+  args: ["lint", "//tools/report"]
+  exit: 1
+  golden: "library_reaches_binary_source.txt"
+}
+
+# The fix each of the three printed is the same shape: go through a surface.
+# Here that means the name moves to the library, which is where a thing both
+# rules want belongs.
+edit {
+  file: "tools/report/detail.buri"
+  replace: "from \"//tools/report/flags\" import { label };\n\nexport fn verbose"
+  with: "export fn verbose"
+}
+
+run {
+  args: ["lint", "//tools/report"]
+  exit: 0
+  golden: "clean.txt"
+}

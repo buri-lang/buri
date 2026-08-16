@@ -1,0 +1,3 @@
+// A directory of Buri files with no BUILD.buri. It is not a package, because
+// nobody decided it was one, and `buri gen` will not decide for them.
+from "//lib/orphan/helper" export { nothing };

@@ -1,0 +1,60 @@
+# BUILD-FILES.md:357-361. Two edges skip the visibility check — a target's own
+# test suite reaching the target under test, and a binary reaching the library
+# in its own package — and `visibility_skips` covers those. This is the
+# sentence that follows them: "Everything else, including a test suite reaching
+# a library named in `test.dependencies`, is checked normally."
+#
+# It was not. `dep_edges` walked only the rule-level `dependencies`, so a test
+# dependency was the one declared edge in the system that no check ever looked
+# at, and a private library could be reached from any package that wrote the
+# label under `test`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test suite reaching a private library through test.dependencies is a visibility violation, exactly as the same edge under dependencies would be"
+
+run {
+  args: ["lint", "//lib/subject"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/subject", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# And it is not only the linter: `test` builds the suite, so the policy has to
+# hold there too, or the check is one a `buri test` run walks straight past.
+#
+# Only stderr is recorded. The runner's own summary line is not what this case
+# is about, and pinning it here would make a change to the report's wording a
+# failure of a visibility test.
+run {
+  args: ["test", "//lib/subject", "--force"]
+  exit: 1
+  golden: "test.txt"
+  stream: ERR
+}
+
+# The fix the diagnostic printed, applied.
+edit {
+  file: "lib/helper/BUILD.buri"
+  replace: "library {"
+  with: "library {\n  visibility: [\"//lib/subject\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The suite that could not be built now builds and passes, so the rule was
+# about the edge and not about the code.
+run {
+  args: ["test", "//lib/subject", "--force"]
+  exit: 0
+}

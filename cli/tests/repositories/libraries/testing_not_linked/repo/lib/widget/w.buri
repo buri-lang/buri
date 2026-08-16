@@ -1,0 +1,5 @@
+// The production half. Its marker is here so that the artifact check below has
+// a positive control: a string that *is* linked, in the same repository, read
+// out of the same file.
+
+export fn widget(): Str { "WIDGET-PRODUCTION-MARKER" }

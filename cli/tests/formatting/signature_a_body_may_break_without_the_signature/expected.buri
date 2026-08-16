@@ -1,0 +1,5 @@
+export fn everything<C: Alloc>(ctx: C, b: [U8], t: (Int, Int)): Str {
+    let a = 1;
+    let b = 2;
+    "done"
+}

@@ -79,6 +79,10 @@ pub struct Program {
     pub entry: Option<usize>,
     pub tests: Vec<TestEntry>,
     pub descriptors: Vec<Desc>,
+    /// Which descriptor describes a type, so the backend can compile a
+    /// structural operation *at* a type instead of calling a runtime walker
+    /// that rediscovers the shape on every element.
+    pub desc_index: HashMap<Ty, usize>,
     /// Number of effect slots each context type carries, in binding order.
     pub ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
 }
@@ -151,6 +155,7 @@ pub fn run(
         entry,
         tests,
         descriptors: m.descriptors,
+        desc_index: m.desc_index,
         ctx_layouts: m.ctx_layouts,
     }
 }
@@ -272,6 +277,15 @@ impl<'a> Monomorphizer<'a> {
                 if let Some(t) = self.funcs[slot].param_types.get(2).cloned() {
                     self.funcs[slot].desc = Some(self.descriptor(&t));
                 } else if let Some(t) = self.funcs[slot].param_types.get(1).cloned() {
+                    self.funcs[slot].desc = Some(self.descriptor(&t));
+                }
+            }
+            // `json.decode` is the one operation whose subject is in neither a
+            // parameter nor the receiver: it is asked for a `T` and handed a
+            // `Json`. `T` is the first type argument, and the descriptor of it
+            // is the whole of what the runtime needs to read one.
+            if key == "json.decode" {
+                if let Some(t) = targs.first().cloned() {
                     self.funcs[slot].desc = Some(self.descriptor(&t));
                 }
             }
@@ -471,7 +485,16 @@ impl<'a> Monomorphizer<'a> {
                 ExprKind::Prim { op, prim, args: self.rewrite_all(args, targs) }
             }
             ExprKind::StructuralEq { negate, args } => {
-                ExprKind::StructuralEq { negate, args: self.rewrite_all(args, targs) }
+                let args = self.rewrite_all(args, targs);
+                // The backend compiles this at the type rather than calling a
+                // walker that rediscovers the shape per element, and the
+                // descriptor is where the shape is written down. Nothing else
+                // asks for one at this type, so ask here.
+                if let Some(a) = args.first() {
+                    let t = a.ty.clone();
+                    self.descriptor(&t);
+                }
+                ExprKind::StructuralEq { negate, args }
             }
             ExprKind::StructuralCmp { op, args } => {
                 ExprKind::StructuralCmp { op, args: self.rewrite_all(args, targs) }
@@ -607,10 +630,7 @@ impl<'a> Monomorphizer<'a> {
             self.diags.push(
                 Diagnostic::error(span, format!("`{c}` does not implement `{t}`"))
                     .with_note("conformance is nominal: a type satisfies a trait only where a declaration says so")
-                    .with_fix(format!(
-                        "add `derive {t} for {c};` in that type's own module, or write \
-                         `impl {t} for {c} {{ ... }}` there"
-                    )),
+                    .with_fix(crate::compiler::semantics::types::conformance_fix(&t, &c)),
             );
             return ExprKind::Error;
         };
@@ -674,6 +694,17 @@ impl<'a> Monomorphizer<'a> {
                 trimmed.push(all[0].clone());
                 trimmed.push(all[all.len() - 1].clone());
                 ExprKind::Intrinsic { name: "structuralShow".into(), targs: Vec::new(), args: trimmed }
+            }
+            ("ToJson", _) => {
+                // Like `show`, `toJson` takes a context it does not use here:
+                // building the tree is the runtime's. Drop it so the intrinsic
+                // sees value and descriptor only.
+                let trimmed = vec![all[0].clone(), all[all.len() - 1].clone()];
+                ExprKind::Intrinsic {
+                    name: "structuralToJson".into(),
+                    targs: Vec::new(),
+                    args: trimmed,
+                }
             }
             ("Hash", _) => {
                 ExprKind::Intrinsic { name: "structuralHash".into(), targs: Vec::new(), args: all }

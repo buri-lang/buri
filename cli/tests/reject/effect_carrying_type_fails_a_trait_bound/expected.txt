@@ -1,0 +1,8 @@
+error: `Holder<a context>` carries an effect, so it does not satisfy `Eq` [missing-conformance]
+  --> cmd/effect_carrying_type_fails_a_trait_bound/main.buri:21:18
+   |
+21 |   let smuggler = hide(Holder { inner: ctx });
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a type is either part of the world or part of your data (SPEC 10.1), and that is what lets a lambda capture a `T: Ord` without laundering a context (SPEC 10.6)
+   = fix: pass a type that holds no capability, or drop the `Eq` bound

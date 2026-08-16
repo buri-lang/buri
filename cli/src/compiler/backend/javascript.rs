@@ -282,7 +282,7 @@ impl Expr {
     /// Structural equality, for the rewrites that need two occurrences of the
     /// same expression to be the same value. Only shapes that are cheap to
     /// compare and cannot hold a side effect answer `true`.
-    fn same_as(&self, other: &Expr) -> bool {
+    pub(crate) fn same_as(&self, other: &Expr) -> bool {
         match (self, other) {
             (Expr::Ident(a), Expr::Ident(b)) => a == b,
             (Expr::Str(a), Expr::Str(b)) => a == b,
@@ -995,6 +995,52 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], opts: &MinifyOptions) -> Vec<S
 
 // -- constant folding --------------------------------------------------------
 
+/// Whether a `continue` in these statements targets *this* loop.
+///
+/// A `continue` inside a nested loop belongs to that loop, and one inside a
+/// nested function or closure is not a `continue` at all, so neither is
+/// descended into.
+fn reaches_continue(body: &[Stmt]) -> bool {
+    body.iter().any(|s| match s {
+        Stmt::Continue => true,
+        Stmt::If { then, else_, .. } => reaches_continue(then) || reaches_continue(else_),
+        Stmt::Switch { cases, .. } => cases.iter().any(|(_, b)| reaches_continue(b)),
+        Stmt::Block(b) => reaches_continue(b),
+        _ => false,
+    })
+}
+
+/// Whether a `break` in these statements targets *this* loop.
+///
+/// A `break` is not merely a loop exit: inside a `switch` it ends the case, and
+/// the same `break` in a body that stopped being a loop would mean something
+/// else. Rather than reason about which, the loop is only unwrapped when there
+/// is no `break` to reason about — which is the case for every arm that
+/// `return`s, and that is the shape this exists for.
+fn reaches_break(body: &[Stmt]) -> bool {
+    body.iter().any(|s| match s {
+        Stmt::Break => true,
+        Stmt::If { then, else_, .. } => reaches_break(then) || reaches_break(else_),
+        Stmt::Block(b) => reaches_break(b),
+        // A `break` inside a nested `switch` or loop belongs to that one.
+        _ => false,
+    })
+}
+
+/// Whether every path through these statements leaves — which is what makes a
+/// `while (true)` with no `break` and no `continue` run exactly once rather
+/// than forever.
+fn always_exits(body: &[Stmt]) -> bool {
+    match body.last() {
+        Some(Stmt::Return(_) | Stmt::Throw(_)) => true,
+        Some(Stmt::Block(b)) => always_exits(b),
+        Some(Stmt::If { then, else_, .. }) => {
+            !else_.is_empty() && always_exits(then) && always_exits(else_)
+        }
+        _ => false,
+    }
+}
+
 fn fold_stmt(s: Stmt) -> Stmt {
     match s {
         Stmt::Var { kind, name, init } => Stmt::Var { kind, name, init: init.map(fold) },
@@ -1032,7 +1078,31 @@ fn fold_stmt(s: Stmt) -> Stmt {
             }
             Stmt::If { cond, then, else_ }
         }
-        Stmt::While { cond, body } => Stmt::While { cond: fold(cond), body: fold_block(body) },
+        Stmt::While { cond, body } => {
+            let cond = fold(cond);
+            let body = fold_block(body);
+            // A guarded match compiles to `while(true)` because an arm that
+            // matches may still fall through to the next one. Where no arm
+            // does — every one of them `return`s — nothing jumps back to the
+            // top and nothing jumps out, so the loop runs exactly once and is
+            // only a wrapper. Removing it is what lets `fold_block`'s
+            // truncation-after-a-terminator and the `sole_return` rule above
+            // reach the arms.
+            //
+            // A tail-call loop and a merged dispatch group both `continue`,
+            // and a guarded match in statement position `break`s out with its
+            // answer — where the `break` is doing real work and removing the
+            // loop around it would run the arms after it as well. Both are
+            // left exactly as they were.
+            if matches!(cond, Expr::Bool(true))
+                && !reaches_continue(&body)
+                && !reaches_break(&body)
+                && always_exits(&body)
+            {
+                return Stmt::Block(fold_block(body));
+            }
+            Stmt::While { cond, body }
+        }
         Stmt::Switch { disc, cases } => Stmt::Switch {
             disc: fold(disc),
             cases: cases.into_iter().map(|(t, b)| (t.map(fold), fold_block(b))).collect(),
@@ -1795,28 +1865,80 @@ fn drop_bindings(body: Vec<Stmt>, drop: &HashSet<String>) -> Vec<Stmt> {
     for s in body {
         let s = match s {
             Stmt::Var { name, init, .. } if drop.contains(&name) => match init {
-                Some(e) if !e.is_pure() => Stmt::Expr(e),
+                Some(e) if !e.is_pure() => Stmt::Expr(drop_in_expr(e, drop)),
                 _ => continue,
             },
+            Stmt::Var { kind, name, init } => {
+                Stmt::Var { kind, name, init: init.map(|e| drop_in_expr(e, drop)) }
+            }
             Stmt::If { cond, then, else_ } => Stmt::If {
-                cond,
+                cond: drop_in_expr(cond, drop),
                 then: drop_bindings(then, drop),
                 else_: drop_bindings(else_, drop),
             },
-            Stmt::While { cond, body } => Stmt::While { cond, body: drop_bindings(body, drop) },
+            Stmt::While { cond, body } => Stmt::While {
+                cond: drop_in_expr(cond, drop),
+                body: drop_bindings(body, drop),
+            },
             Stmt::Switch { disc, cases } => Stmt::Switch {
-                disc,
+                disc: drop_in_expr(disc, drop),
                 cases: cases.into_iter().map(|(t, b)| (t, drop_bindings(b, drop))).collect(),
             },
             Stmt::Block(b) => Stmt::Block(drop_bindings(b, drop)),
             Stmt::Func { name, params, body } => {
                 Stmt::Func { name, params, body: drop_bindings(body, drop) }
             }
+            Stmt::Return(e) => Stmt::Return(e.map(|e| drop_in_expr(e, drop))),
+            Stmt::Expr(e) => Stmt::Expr(drop_in_expr(e, drop)),
+            Stmt::Throw(e) => Stmt::Throw(drop_in_expr(e, drop)),
+            Stmt::ExportDefault(e) => Stmt::ExportDefault(drop_in_expr(e, drop)),
             other => other,
         };
         out.push(s);
     }
     out
+}
+
+/// The same removal, inside the closures an expression holds — which is where
+/// `collect_cleanup` now also looks, and a binding it marked dead there has to
+/// actually go.
+fn drop_in_expr(e: Expr, drop: &HashSet<String>) -> Expr {
+    let go = |x: Box<Expr>| Box::new(drop_in_expr(*x, drop));
+    match e {
+        Expr::ArrowBlock { params, body } => {
+            let body = drop_bindings(body, drop);
+            // Rebuilding may leave a body that is one `return`, which is the
+            // concise form — the same collapse `subst_expr` makes.
+            if let [Stmt::Return(Some(x))] = &body[..] {
+                return Expr::Arrow { params, body: Box::new(x.clone()) };
+            }
+            Expr::ArrowBlock { params, body }
+        }
+        Expr::Arrow { params, body } => Expr::Arrow { params, body: go(body) },
+        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| drop_in_expr(x, drop)).collect()),
+        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| drop_in_expr(x, drop)).collect()),
+        Expr::Object(fs) => {
+            Expr::Object(fs.into_iter().map(|(k, v)| (k, drop_in_expr(v, drop))).collect())
+        }
+        Expr::Member { obj, prop } => Expr::Member { obj: go(obj), prop },
+        Expr::Index { obj, index } => Expr::Index { obj: go(obj), index: go(index) },
+        Expr::Call { callee, args } => Expr::Call {
+            callee: go(callee),
+            args: args.into_iter().map(|a| drop_in_expr(a, drop)).collect(),
+        },
+        Expr::New { callee, args } => Expr::New {
+            callee: go(callee),
+            args: args.into_iter().map(|a| drop_in_expr(a, drop)).collect(),
+        },
+        Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
+        Expr::Binary { op, lhs, rhs } => Expr::Binary { op, lhs: go(lhs), rhs: go(rhs) },
+        Expr::Cond { test, cons, alt } => {
+            Expr::Cond { test: go(test), cons: go(cons), alt: go(alt) }
+        }
+        Expr::Assign { target, value } => Expr::Assign { target, value: go(value) },
+        Expr::Spread(x) => Expr::Spread(go(x)),
+        other => other,
+    }
 }
 
 fn collect_cleanup(
@@ -1890,6 +2012,76 @@ fn collect_cleanup(
             Stmt::Func { body, .. } => collect_cleanup(body, facts, map, dead),
             _ => {}
         }
+        // A lambda's body is a statement list like any other, and it is where
+        // inlining leaves the most bindings behind — but it hangs off an
+        // *expression*, so a walk over statements alone never reaches it. The
+        // facts were collected over the whole body, including the closures, so
+        // everything decided here is decided on the same information.
+        stmt_exprs(s, &mut |e| expr_cleanup(e, facts, map, dead));
+    }
+}
+
+/// Applies `f` to the expressions a statement holds directly. The statements
+/// nested in it are the caller's business.
+fn stmt_exprs(s: &Stmt, f: &mut impl FnMut(&Expr)) {
+    match s {
+        Stmt::Var { init, .. } => {
+            if let Some(e) = init {
+                f(e);
+            }
+        }
+        Stmt::Return(Some(e)) | Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => f(e),
+        Stmt::If { cond, .. } | Stmt::While { cond, .. } => f(cond),
+        Stmt::Switch { disc, cases } => {
+            f(disc);
+            for (label, _) in cases {
+                if let Some(l) = label {
+                    f(l);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Finds the closures in an expression and cleans up inside them.
+fn expr_cleanup(
+    e: &Expr,
+    facts: &LocalFacts,
+    map: &mut HashMap<String, Expr>,
+    dead: &mut HashSet<String>,
+) {
+    let mut go = |x: &Expr| expr_cleanup(x, facts, map, dead);
+    match e {
+        Expr::ArrowBlock { body, .. } => collect_cleanup(body, facts, map, dead),
+        Expr::Arrow { body, .. } => go(body),
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(go),
+        Expr::Object(fs) => fs.iter().for_each(|(_, v)| go(v)),
+        Expr::Member { obj, .. } => go(obj),
+        Expr::Index { obj, index } => {
+            expr_cleanup(obj, facts, map, dead);
+            expr_cleanup(index, facts, map, dead);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            expr_cleanup(callee, facts, map, dead);
+            args.iter().for_each(|a| expr_cleanup(a, facts, map, dead));
+        }
+        Expr::Unary { operand, .. } => go(operand),
+        Expr::Binary { lhs, rhs, .. } => {
+            expr_cleanup(lhs, facts, map, dead);
+            expr_cleanup(rhs, facts, map, dead);
+        }
+        Expr::Cond { test, cons, alt } => {
+            expr_cleanup(test, facts, map, dead);
+            expr_cleanup(cons, facts, map, dead);
+            expr_cleanup(alt, facts, map, dead);
+        }
+        Expr::Assign { target, value } => {
+            expr_cleanup(target, facts, map, dead);
+            expr_cleanup(value, facts, map, dead);
+        }
+        Expr::Spread(x) => go(x),
+        _ => {}
     }
 }
 
@@ -2178,6 +2370,9 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     if coalesce_copies(body, &facts) {
         return true;
     }
+    if read_through_locals(body, &facts) {
+        return true;
+    }
 
     let mut map: HashMap<String, Expr> = HashMap::new();
     let mut dead: HashSet<String> = HashSet::new();
@@ -2228,6 +2423,329 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     let next: Vec<Stmt> = taken.into_iter().map(|s| subst_stmt(s, &map)).collect();
     *body = drop_bindings(next, &dead);
     true
+}
+
+// -- reading a local aggregate through to its uses -----------------------------
+//
+// A functional update leaves the aggregate it was built from behind:
+//
+//     const $t1=[n_1,2,'first'];
+//     const m_3=[$t1[0],$t1[1],'second'];
+//
+// `$t1` exists only to be taken apart again, so where every use of it is a
+// constant-index read the elements can go straight to those uses and the array
+// never has to be built. That is one allocation per functional update, in a
+// language where a functional update is the only way to change a field.
+//
+// Three conditions, and each of them is load-bearing:
+//
+//  * every use is `t[k]` with a literal `k` in range — a use of `t` itself
+//    would need the array to exist;
+//  * an element that is not a literal is extracted at most once, or one
+//    allocation would become several — the same trap `clean_body`'s `overshot`
+//    loop guards against;
+//  * every read sits at the binding's own depth, so nothing moves inside a
+//    loop or a closure. This is what keeps a *context* — an array the runtime
+//    writes through — from being copied per call: a context read once, at its
+//    own depth, is still exactly one array.
+
+/// A table, printed, so two of them can be compared for a fixed point. The
+/// order has to be stable or `builds_are_reproducible` would depend on how a
+/// hash map happened to iterate.
+fn print_table(table: &HashMap<String, Vec<Expr>>) -> String {
+    let mut names: Vec<&String> = table.keys().collect();
+    names.sort();
+    let mut out = String::new();
+    for n in names {
+        out.push_str(n);
+        out.push('=');
+        out.push_str(&print(
+            &[Stmt::Expr(Expr::Array(table[n].clone()))],
+            false,
+        ));
+        out.push(';');
+    }
+    out
+}
+
+/// What is known about a candidate aggregate after walking the body.
+#[derive(Default)]
+struct AggregateUse {
+    /// How many times each slot is read.
+    reads: HashMap<usize, usize>,
+    /// A use that is not a constant-index read, which settles the matter.
+    escapes: bool,
+}
+
+fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
+    let mut cands: HashMap<String, Vec<Expr>> = HashMap::new();
+    collect_aggregates(body, facts, &mut cands);
+    if cands.is_empty() {
+        return false;
+    }
+
+    let mut uses: HashMap<String, AggregateUse> = HashMap::new();
+    for name in cands.keys() {
+        uses.insert(name.clone(), AggregateUse::default());
+    }
+    survey_aggregates(body, &mut uses);
+
+    let mut table: HashMap<String, Vec<Expr>> = cands
+        .into_iter()
+        .filter(|(name, items)| {
+            let Some(u) = uses.get(name) else { return false };
+            if u.escapes || u.reads.is_empty() {
+                return false;
+            }
+            // Every read accounted for: `uses` counts bare reads of the name,
+            // and each of ours is one, so a mismatch means something else read
+            // it in a shape the survey did not recognise.
+            if facts.uses.get(name).copied().unwrap_or(0) != u.reads.values().sum::<usize>() {
+                return false;
+            }
+            u.reads.iter().all(|(k, n)| {
+                items.get(*k).is_some_and(|e| e.is_pure_literal() || *n == 1)
+            })
+        })
+        .collect();
+    if table.is_empty() {
+        return false;
+    }
+
+    // A functional update reads one aggregate to build the next, so one
+    // candidate's elements routinely read another — and the declarations all
+    // go together. The values are resolved against each other first, or a
+    // pasted element would name a binding that is about to disappear. A `const`
+    // can only read what came before it, so this cannot cycle.
+    for _ in 0..table.len() {
+        let snapshot = table.clone();
+        let next: HashMap<String, Vec<Expr>> = snapshot
+            .iter()
+            .map(|(name, items)| {
+                let items = items
+                    .iter()
+                    .map(|e| extract_expr(e.clone(), &snapshot))
+                    .collect::<Vec<_>>();
+                (name.clone(), items)
+            })
+            .collect();
+        if print_table(&next) == print_table(&table) {
+            break;
+        }
+        table = next;
+    }
+
+    let taken = std::mem::take(body);
+    *body = taken.into_iter().map(|s| extract_stmt(s, &table)).collect();
+    let names: HashSet<String> = table.into_keys().collect();
+    *body = drop_bindings(std::mem::take(body), &names);
+    true
+}
+
+/// The `const t = [<pure>]` bindings that could be read through.
+fn collect_aggregates(
+    body: &[Stmt],
+    facts: &LocalFacts,
+    out: &mut HashMap<String, Vec<Expr>>,
+) {
+    for s in body {
+        if let Stmt::Var { kind: VarKind::Const, name, init: Some(Expr::Array(items)) } = s {
+            let single = facts.declared.get(name).copied() == Some(1)
+                && !facts.assigned.contains(name)
+                && facts.read_where_bound(name);
+            // Everything the array holds has to be free to move to a use, and
+            // everything *not* moved has to be free to drop.
+            if single && items.iter().all(|e| e.is_pure()) && !items.is_empty() {
+                out.insert(name.clone(), items.clone());
+            }
+        }
+        match s {
+            Stmt::If { then, else_, .. } => {
+                collect_aggregates(then, facts, out);
+                collect_aggregates(else_, facts, out);
+            }
+            Stmt::While { body, .. } => collect_aggregates(body, facts, out),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    collect_aggregates(b, facts, out);
+                }
+            }
+            Stmt::Block(b) | Stmt::Func { body: b, .. } => collect_aggregates(b, facts, out),
+            _ => {}
+        }
+    }
+}
+
+fn survey_aggregates(body: &[Stmt], out: &mut HashMap<String, AggregateUse>) {
+    for s in body {
+        stmt_exprs(s, &mut |e| survey_aggregate_expr(e, out));
+        match s {
+            Stmt::If { then, else_, .. } => {
+                survey_aggregates(then, out);
+                survey_aggregates(else_, out);
+            }
+            Stmt::While { body, .. } => survey_aggregates(body, out),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    survey_aggregates(b, out);
+                }
+            }
+            Stmt::Block(b) | Stmt::Func { body: b, .. } => survey_aggregates(b, out),
+            _ => {}
+        }
+    }
+}
+
+fn survey_aggregate_expr(e: &Expr, out: &mut HashMap<String, AggregateUse>) {
+    // `t[k]`, the only shape that does not need the array itself.
+    if let Expr::Index { obj, index } = e {
+        if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
+            if let Some(u) = out.get_mut(name) {
+                if *i >= 0.0 && i.fract() == 0.0 {
+                    *u.reads.entry(*i as usize).or_insert(0) += 1;
+                } else {
+                    u.escapes = true;
+                }
+                return;
+            }
+        }
+    }
+    if let Expr::Ident(name) = e {
+        if let Some(u) = out.get_mut(name) {
+            u.escapes = true;
+        }
+        return;
+    }
+    let mut go = |x: &Expr| survey_aggregate_expr(x, out);
+    match e {
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(go),
+        Expr::Object(fs) => fs.iter().for_each(|(_, v)| go(v)),
+        Expr::Member { obj, .. } => go(obj),
+        Expr::Index { obj, index } => {
+            survey_aggregate_expr(obj, out);
+            survey_aggregate_expr(index, out);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            survey_aggregate_expr(callee, out);
+            args.iter().for_each(|a| survey_aggregate_expr(a, out));
+        }
+        Expr::Unary { operand, .. } => go(operand),
+        Expr::Binary { lhs, rhs, .. } => {
+            survey_aggregate_expr(lhs, out);
+            survey_aggregate_expr(rhs, out);
+        }
+        Expr::Cond { test, cons, alt } => {
+            survey_aggregate_expr(test, out);
+            survey_aggregate_expr(cons, out);
+            survey_aggregate_expr(alt, out);
+        }
+        Expr::Assign { target, value } => {
+            survey_aggregate_expr(target, out);
+            survey_aggregate_expr(value, out);
+        }
+        Expr::Arrow { body, .. } => go(body),
+        Expr::ArrowBlock { body, .. } => survey_aggregates(body, out),
+        Expr::Spread(x) => go(x),
+        _ => {}
+    }
+}
+
+fn extract_stmt(s: Stmt, table: &HashMap<String, Vec<Expr>>) -> Stmt {
+    match s {
+        // The declarations themselves are left alone; `drop_bindings` removes
+        // them, and rewriting an aggregate into itself is not the point.
+        Stmt::Var { kind: VarKind::Const, ref name, .. } if table.contains_key(name) => s,
+        Stmt::Var { kind, name, init } => {
+            Stmt::Var { kind, name, init: init.map(|e| extract_expr(e, table)) }
+        }
+        Stmt::Func { name, params, body } => Stmt::Func {
+            name,
+            params,
+            body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
+        },
+        Stmt::Return(e) => Stmt::Return(e.map(|e| extract_expr(e, table))),
+        Stmt::If { cond, then, else_ } => Stmt::If {
+            cond: extract_expr(cond, table),
+            then: then.into_iter().map(|s| extract_stmt(s, table)).collect(),
+            else_: else_.into_iter().map(|s| extract_stmt(s, table)).collect(),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond: extract_expr(cond, table),
+            body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
+        },
+        Stmt::Switch { disc, cases } => Stmt::Switch {
+            disc: extract_expr(disc, table),
+            cases: cases
+                .into_iter()
+                .map(|(t, b)| {
+                    (
+                        t.map(|t| extract_expr(t, table)),
+                        b.into_iter().map(|s| extract_stmt(s, table)).collect(),
+                    )
+                })
+                .collect(),
+        },
+        Stmt::Expr(e) => Stmt::Expr(extract_expr(e, table)),
+        Stmt::Throw(e) => Stmt::Throw(extract_expr(e, table)),
+        Stmt::ExportDefault(e) => Stmt::ExportDefault(extract_expr(e, table)),
+        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|s| extract_stmt(s, table)).collect()),
+        other => other,
+    }
+}
+
+fn extract_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
+    if let Expr::Index { obj, index } = &e {
+        if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
+            if let Some(items) = table.get(name) {
+                if let Some(item) = items.get(*i as usize) {
+                    return item.clone();
+                }
+            }
+        }
+    }
+    match e {
+        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| extract_expr(x, table)).collect()),
+        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| extract_expr(x, table)).collect()),
+        Expr::Object(fs) => {
+            Expr::Object(fs.into_iter().map(|(k, v)| (k, extract_expr(v, table))).collect())
+        }
+        Expr::Member { obj, prop } => {
+            Expr::Member { obj: Box::new(extract_expr(*obj, table)), prop }
+        }
+        Expr::Index { obj, index } => Expr::Index {
+            obj: Box::new(extract_expr(*obj, table)),
+            index: Box::new(extract_expr(*index, table)),
+        },
+        Expr::Call { callee, args } => Expr::Call {
+            callee: Box::new(extract_expr(*callee, table)),
+            args: args.into_iter().map(|a| extract_expr(a, table)).collect(),
+        },
+        Expr::New { callee, args } => Expr::New {
+            callee: Box::new(extract_expr(*callee, table)),
+            args: args.into_iter().map(|a| extract_expr(a, table)).collect(),
+        },
+        Expr::Unary { op, operand } => Expr::un(op, extract_expr(*operand, table)),
+        Expr::Binary { op, lhs, rhs } => {
+            Expr::bin(op, extract_expr(*lhs, table), extract_expr(*rhs, table))
+        }
+        Expr::Cond { test, cons, alt } => Expr::cond(
+            extract_expr(*test, table),
+            extract_expr(*cons, table),
+            extract_expr(*alt, table),
+        ),
+        Expr::Assign { target, value } => {
+            Expr::Assign { target, value: Box::new(extract_expr(*value, table)) }
+        }
+        Expr::Arrow { params, body } => {
+            Expr::Arrow { params, body: Box::new(extract_expr(*body, table)) }
+        }
+        Expr::ArrowBlock { params, body } => Expr::ArrowBlock {
+            params,
+            body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
+        },
+        Expr::Spread(x) => Expr::Spread(Box::new(extract_expr(*x, table))),
+        other => other,
+    }
 }
 
 /// How many times the local passes may run over one body.

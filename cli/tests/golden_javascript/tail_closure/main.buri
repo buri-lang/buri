@@ -1,0 +1,40 @@
+// A closure built inside a tail loop.
+//
+// The loop rebinds its parameters in place, which is exact for every read
+// inside the iteration that wrote them — and wrong for a closure, which holds
+// the slot and is called after the loop has finished. Elm generates this shape
+// and has had the resulting silent miscompile open since 2016
+// (elm/compiler#2268): the closures all report the value the loop stopped at.
+//
+// What to read for in the record: `adders` takes `$p1` and opens its loop body
+// with `const i_1=$p1;`, so the closure captures a binding that iteration owns
+// and the rebinding writes the carrier instead. `sumTo` next to it has no
+// closure and keeps the plain in-place rebinding, which is the point of doing
+// this per slot rather than everywhere.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 4) { acc } else { adders(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
+}
+
+// A parameter the closure captures but the loop never rebinds needs no copy.
+fn scalers<C: Alloc>(ctx: C, k: Int, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 3) { acc } else { scalers(ctx, k, i + 1, acc.push(ctx, fn(x) => x * k)) }
+}
+
+// No closure at all: the tighter in-place rebinding is unchanged.
+fn sumTo(n: Int, acc: Int): Int {
+  if (n == 0) { acc } else { sumTo(n - 1, acc + n) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let fs = adders(ctx, 0, []);
+  let gs = scalers(ctx, 7, 0, []);
+  let _ = ctx.println("${fs.map(ctx, fn(f) => f(100)).len()} ${sumTo(100, 0)}");
+  let _ = ctx.println("${fs.get(0).map(fn(f) => f(100)) ?? -1} ${fs.get(3).map(fn(f) => f(100)) ?? -1}");
+  let _ = ctx.println("${gs.get(0).map(fn(g) => g(2)) ?? -1} ${gs.get(2).map(fn(g) => g(2)) ?? -1}");
+  .Ok(())
+}

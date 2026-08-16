@@ -1,0 +1,42 @@
+# `buri version` prints the toolchain's version and what `REPO.buri` pins, and
+# disagreeing with the pin is an error rather than a warning: the pin is an
+# exact version and never a range, because two checkouts of one commit must not
+# build with two different compilers.
+#
+# The recorded output names a version, so it moves when the toolchain's version
+# moves. That is deliberate and it is not a maintenance cost: every `REPO.buri`
+# in this corpus already pins `0.3.0`, so a release moves them together and the
+# diff is the release.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "version prints the toolchain version and the REPO.buri pin, and refuses a repository pinned to a different one"
+
+run {
+  args: ["version"]
+  exit: 0
+  golden: "version.txt"
+}
+
+# A repository that pins a version this toolchain is not. Exit 2: the thing you
+# asked *with* is wrong — there is nothing wrong with the code.
+edit {
+  file: "REPO.buri"
+  replace: "version: \"0.3.0\""
+  with: "version: \"0.2.9\""
+}
+
+run {
+  args: ["version"]
+  exit: 2
+  golden: "mismatch.txt"
+}
+
+# And every other command refuses too, rather than `version` being the only one
+# that looks. A pin nothing enforces is a comment.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "build_refused.txt"
+}

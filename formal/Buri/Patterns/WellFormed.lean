@@ -92,20 +92,6 @@ def Matrix.WellFormed (signature : Signature) (types : List Ty) (matrix : List R
 theorem Pattern.WellFormed.wildcard {signature : Signature} {type : Ty} :
     Pattern.WellFormed signature type .wildcard := trivial
 
-theorem Row.WellFormed.length_eq {signature : Signature} :
-    ∀ {types : List Ty} {row : Row},
-      Row.WellFormed signature types row → row.length = types.length := by
-  intro types
-  induction types with
-  | nil => intro row h; cases row with
-    | nil => rfl
-    | cons _ _ => exact absurd h (by simp [Row.WellFormed])
-  | cons type types ih =>
-    intro row h
-    cases row with
-    | nil => exact absurd h (by simp [Row.WellFormed])
-    | cons p ps => simp [Row.WellFormed] at h; simp [ih h.2]
-
 theorem Row.WellFormed.replicate_wildcard (signature : Signature) :
     ∀ types : List Ty,
       Row.WellFormed signature types (List.replicate types.length Pattern.wildcard) := by
@@ -209,73 +195,73 @@ theorem Row.WellFormed.head_arity {signature : Signature} {type : Ty} {types : L
     have := Pattern.WellFormedPrefix.length_le (signature := signature) hp
     rwa [Constructor.fieldTypes_length] at this
 
-theorem Row.WellFormed.tail {signature : Signature} {type : Ty} {types : List Ty}
-    {p : Pattern} {rest : Row} (h : Row.WellFormed signature (type :: types) (p :: rest)) :
-    Row.WellFormed signature types rest := h.2
+/-! ## The operations preserve it
 
-/-! ## The operations preserve it -/
+Both are now recursive -- an or-headed row distributes into one row per
+alternative -- so both proofs run by the recursion the operation itself uses,
+and the alternation case is exactly `WellFormedAlternatives.mem`. -/
 
 theorem Row.WellFormed.specializeRow {signature : Signature} {type : Ty} {types : List Ty}
-    {row row' : Row} {target : Constructor}
-    (h : Row.WellFormed signature (type :: types) row)
-    (specializes : specializeRow target (target.arity signature type) row = some row') :
-    Row.WellFormed signature (target.fieldTypes signature type ++ types) row' := by
+    {target : Constructor} :
+    ∀ (row : Row), Row.WellFormed signature (type :: types) row →
+      ∀ row' ∈ _root_.Buri.specializeRow target (target.arity signature type) row,
+        Row.WellFormed signature (target.fieldTypes signature type ++ types) row' := by
   have harity : (target.fieldTypes signature type).length = target.arity signature type :=
     Constructor.fieldTypes_length _ _ _
-  match row with
-  | [] => simp [_root_.Buri.specializeRow] at specializes
-  | .or _ :: _ => simp [_root_.Buri.specializeRow] at specializes
-  | .wildcard :: rest =>
-    simp only [_root_.Buri.specializeRow, Option.some.injEq] at specializes
-    subst specializes
+  intro row
+  induction row using _root_.Buri.specializeRow.induct target with
+  | case1 => intro h; exact absurd h (by simp [Row.WellFormed])
+  | case2 rest =>
+    intro h row' hmem
+    simp only [specializeRow_wildcard, List.mem_singleton] at hmem
+    subst hmem
     refine Row.WellFormed.append ?_ h.2
     rw [← harity]
     exact Row.WellFormed.replicate_wildcard signature _
-  | .constructor head subpatterns :: rest =>
-    simp only [_root_.Buri.specializeRow] at specializes
-    split at specializes
-    · next heq =>
-      subst heq
-      simp only [Option.some.injEq] at specializes
-      subst specializes
-      refine Row.WellFormed.append ?_ h.2
-      -- The padded-and-truncated sub-pattern list is exactly the padded one,
-      -- because well-formedness caps its length at the arity.
-      have hp : Pattern.WellFormedPrefix signature
-          (head.fieldTypes signature type) subpatterns := by
-        have := h.1
-        cases head with
-        | arrayRest n => exact absurd this (by simp [Pattern.WellFormed])
-        | _ => exact this
-      have hle : subpatterns.length ≤ head.arity signature type := by
-        have := Pattern.WellFormedPrefix.length_le (signature := signature) hp
-        rwa [Constructor.fieldTypes_length] at this
-      have hsplit : (subpatterns ++ List.replicate
-            (head.arity signature type) Pattern.wildcard).take
-              (head.arity signature type)
-          = subpatterns ++ List.replicate
-              (head.arity signature type - subpatterns.length) Pattern.wildcard := by
-        have hmin : min (head.arity signature type - subpatterns.length)
-            (head.arity signature type) = head.arity signature type - subpatterns.length := by
-          omega
-        rw [List.take_append, List.take_of_length_le hle, List.take_replicate, hmin]
-      rw [hsplit, ← harity]
-      exact Pattern.WellFormedPrefix.pad hp
-    · simp at specializes
+  | case3 subpatterns rest =>
+    intro h row' hmem
+    simp at hmem
+    subst hmem
+    refine Row.WellFormed.append ?_ h.2
+    -- The padded-and-truncated sub-pattern list is exactly the padded one,
+    -- because well-formedness caps its length at the arity.
+    have hp : Pattern.WellFormedPrefix signature
+        (target.fieldTypes signature type) subpatterns := by
+      have := h.1
+      cases target with
+      | arrayRest n => exact absurd this (by simp [Pattern.WellFormed])
+      | _ => exact this
+    have hle : subpatterns.length ≤ target.arity signature type := by
+      have := Pattern.WellFormedPrefix.length_le (signature := signature) hp
+      rwa [Constructor.fieldTypes_length] at this
+    rw [pad_take hle, ← harity]
+    exact Pattern.WellFormedPrefix.pad hp
+  | case4 c subpatterns rest hne =>
+    intro _ row' hmem
+    simp [hne] at hmem
+  | case5 alternatives rest ih =>
+    intro h row' hmem
+    simp only [specializeRow_or, List.mem_flatMap] at hmem
+    obtain ⟨a, ha, hmem'⟩ := hmem
+    exact ih ⟨a, ha⟩ ⟨Pattern.WellFormedAlternatives.mem h.1 ha, h.2⟩ row' hmem'
 
-theorem Row.WellFormed.defaultRow {signature : Signature} {type : Ty} {types : List Ty}
-    {row row' : Row}
-    (h : Row.WellFormed signature (type :: types) row)
-    (hd : defaultRow row = some row') :
-    Row.WellFormed signature types row' := by
-  match row with
-  | .wildcard :: rest =>
-    simp only [_root_.Buri.defaultRow, Option.some.injEq] at hd
-    subst hd
+theorem Row.WellFormed.defaultRow {signature : Signature} {type : Ty} {types : List Ty} :
+    ∀ (row : Row), Row.WellFormed signature (type :: types) row →
+      ∀ row' ∈ _root_.Buri.defaultRow row, Row.WellFormed signature types row' := by
+  intro row
+  induction row using _root_.Buri.defaultRow.induct with
+  | case1 => intro h; exact absurd h (by simp [Row.WellFormed])
+  | case2 rest =>
+    intro h row' hmem
+    simp only [defaultRow_wildcard, List.mem_singleton] at hmem
+    subst hmem
     exact h.2
-  | [] => simp [_root_.Buri.defaultRow] at hd
-  | .constructor _ _ :: _ => simp [_root_.Buri.defaultRow] at hd
-  | .or _ :: _ => simp [_root_.Buri.defaultRow] at hd
+  | case3 c subpatterns rest => intro _ row' hmem; simp at hmem
+  | case4 alternatives rest ih =>
+    intro h row' hmem
+    simp only [defaultRow_or, List.mem_flatMap] at hmem
+    obtain ⟨a, ha, hmem'⟩ := hmem
+    exact ih ⟨a, ha⟩ ⟨Pattern.WellFormedAlternatives.mem h.1 ha, h.2⟩ row' hmem'
 
 theorem Matrix.WellFormed.specialize {signature : Signature} {type : Ty} {types : List Ty}
     {matrix : List Row} {target : Constructor}
@@ -283,15 +269,15 @@ theorem Matrix.WellFormed.specialize {signature : Signature} {type : Ty} {types 
     Matrix.WellFormed signature (target.fieldTypes signature type ++ types)
       (_root_.Buri.specialize matrix target (target.arity signature type)) := by
   intro row' hmem
-  obtain ⟨row, hrow, hspec⟩ := List.mem_filterMap.mp hmem
-  exact Row.WellFormed.specializeRow (h row hrow) hspec
+  obtain ⟨row, hrow, hspec⟩ := List.mem_flatMap.mp hmem
+  exact Row.WellFormed.specializeRow row (h row hrow) row' hspec
 
 theorem Matrix.WellFormed.defaultMatrix {signature : Signature} {type : Ty} {types : List Ty}
     {matrix : List Row}
     (h : Matrix.WellFormed signature (type :: types) matrix) :
     Matrix.WellFormed signature types (_root_.Buri.defaultMatrix matrix) := by
   intro row' hmem
-  obtain ⟨row, hrow, hd⟩ := List.mem_filterMap.mp hmem
-  exact Row.WellFormed.defaultRow (h row hrow) hd
+  obtain ⟨row, hrow, hd⟩ := List.mem_flatMap.mp hmem
+  exact Row.WellFormed.defaultRow row (h row hrow) row' hd
 
 end Buri

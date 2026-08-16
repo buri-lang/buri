@@ -14,6 +14,20 @@
 //! Both are exact: the emitted loop is what a hand-written loop would have
 //! been. They apply because Buri has no dynamic dispatch, so the call graph of
 //! direct calls is fully known after monomorphization.
+//!
+//! Two things about the shape are easy to get wrong, and both were:
+//!
+//!  * **What counts as tail position.** It is not only a block's result, an
+//!    `if` arm and a match arm: the right operand of `&&`, `||` and `??` is
+//!    the whole expression's result whenever it is reached, so a call there is
+//!    a tail call too. `tail_callees` below decides this, and
+//!    `generate::tail` has to agree with it — a shape one of them counts and
+//!    the other does not gives a `while (true)` nothing ever continues, which
+//!    looks like elimination and is not.
+//!  * **What the loop rebinds.** The loop assigns the parameters in place,
+//!    which is exact for every read within the iteration that wrote them and
+//!    wrong for a closure, which keeps the slot rather than the value. See
+//!    `generate::snapshot_captures`.
 
 use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::transform::monomorphize::Program;
@@ -52,9 +66,17 @@ pub fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
                 tail_callees(&a.body, out);
             }
         }
-        // `??`'s right operand is in tail position when the whole expression
-        // is; the left is not, because its value is inspected.
-        ExprKind::Coalesce { rhs, .. } => tail_callees(rhs, out),
+        // The right operand of a short-circuiting operator *is* the result
+        // whenever it is reached — `a && f(x)` is `f(x)` when `a` holds,
+        // `a || f(x)` is `f(x)` when it does not, and `opt ?? f(x)` is `f(x)`
+        // when `opt` is empty — so it is in tail position when the whole
+        // expression is. The left operand never is: its value is inspected.
+        //
+        // These are the shapes of `all`, `any` and a linear search, which is
+        // to say the recursion an immutable language writes most often.
+        ExprKind::And { rhs, .. }
+        | ExprKind::Or { rhs, .. }
+        | ExprKind::Coalesce { rhs, .. } => tail_callees(rhs, out),
         _ => {}
     }
 }

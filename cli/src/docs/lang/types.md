@@ -470,8 +470,15 @@ derive Eq, Ord, Show for Version;
 order, enum variants in declaration order, recursing into field types. It is a
 fold over one type definition — no search, no instances to resolve.
 
-Derivation is available for `Eq`, `Ord`, `Show`, `Hash`, and the operator traits.
-A `derive` fails to compile if any field's type does not itself satisfy the trait.
+Derivation is available for `Eq`, `Ord`, `Show`, `Hash`, `ToJson`, `FromJson`,
+and the operator traits. A `derive` fails to compile if any field's type does not
+itself satisfy the trait.
+
+`ToJson` and `FromJson` — `core/json`'s typed encoding — are *only* ever derived.
+What a derived implementation stands for is the type's shape, so a hand-written
+one would be obeyed where the type is encoded on its own and ignored where a type
+holding it is; an `impl` of either is rejected rather than half-obeyed. The
+mapping from Buri shapes onto JSON ones is stated in `core/json`.
 
 #### 5.12.4 Operators are trait methods
 

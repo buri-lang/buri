@@ -486,16 +486,28 @@ impl SourceMap {
         out
     }
 
+    /// The column the trailing `= ...` block sits in.
+    ///
+    /// Each snippet gets a gutter as wide as *its own* line number, so a
+    /// diagnostic whose spans are on lines 10 and 5 renders two gutters of
+    /// different widths. The `=` block belongs to the snippet directly above
+    /// it — the last sub-span, or the primary span when there is none — so it
+    /// is that one's width that puts the `=` under the `|`s it continues.
+    /// Taking the widest of all of them instead indented the block for a line
+    /// number that is no longer the one on screen.
     fn gutter_width(&self, d: &Diagnostic) -> usize {
-        let mut w = 1;
-        for span in std::iter::once(d.span).chain(d.subs.iter().map(|s| s.span)) {
-            if span.is_none() {
-                continue;
-            }
-            let (line, _) = self.get(span.file).line_col(span.start);
-            w = w.max(line.to_string().len());
+        let last = d
+            .subs
+            .iter()
+            .rev()
+            .map(|s| s.span)
+            .find(|s| !s.is_none())
+            .unwrap_or(d.span);
+        if last.is_none() {
+            return 2;
         }
-        w + 1
+        let (line, _) = self.get(last.file).line_col(last.start);
+        line.to_string().len().max(1) + 1
     }
 
     fn render_snippet(
@@ -685,6 +697,38 @@ mod tests {
             .map(|l| l.find(['|', '=']).unwrap())
             .collect();
         assert!(columns.windows(2).all(|w| w[0] == w[1]), "ragged gutter: {columns:?}");
+    }
+
+    /// Two spans whose line numbers are different widths. The `=` block sits
+    /// under the *second* snippet, so it is the second snippet's gutter it has
+    /// to line up with — `duplicate-source` (lines 10 and 5) is the case that
+    /// showed this, and it rendered the block indented for line 10 while
+    /// sitting under line 5.
+    #[test]
+    fn the_trailer_lines_up_with_the_snippet_above_it() {
+        let mut map = SourceMap::new();
+        let text: String = (1..=12).map(|n| format!("line {n}\n")).collect();
+        let id = map.add("x/BUILD.buri", PathBuf::from("/tmp/BUILD.buri"), text);
+        // Line 10 starts at byte 9 * 7 = 63; line 5 at byte 4 * 7 = 28.
+        let d = Diagnostic::error(Span::new(id, 63, 67), "listed by two rules")
+            .with_sub(Span::new(id, 28, 32), "first listed here")
+            .with_fix("list it under one rule only");
+        let rendered = map.render(&d, false);
+        let gutters: Vec<usize> = rendered
+            .lines()
+            .filter(|l| l.contains('|') || l.trim_start().starts_with('='))
+            .map(|l| l.find(['|', '=']).unwrap())
+            .collect();
+        // Four lines for the primary snippet (|, source, carets, |) at width 3,
+        // then four for the sub at width 2, then the `=` — which belongs to the
+        // sub.
+        let last = *gutters.last().unwrap();
+        let under = gutters[gutters.len() - 2];
+        assert_eq!(last, under, "the `=` is not under the `|` above it: {gutters:?}\n{rendered}");
+        assert!(
+            rendered.contains("\n  = fix: list it under one rule only\n"),
+            "expected the fix in line 5's gutter:\n{rendered}"
+        );
     }
 
     #[test]

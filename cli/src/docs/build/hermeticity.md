@@ -29,38 +29,85 @@ no dependency on how anything is implemented. The consequence:
 
 In a repository where most edits are to bodies, most of the graph does not move.
 
-## The sandbox
+## Hermeticity is a property of the language
 
-Every action runs in a sandbox containing exactly its declared inputs, and
-nothing else:
+An action is a pure function of its declared inputs. Most build systems have to
+*impose* that on tools they did not write, with a filesystem namespace, a
+scrubbed environment, and a denied network — a sandbox, in the operating-system
+sense. This one does not, and the reason is worth stating plainly rather than
+leaving as an absence:
 
-- **Filesystem**: a fresh directory holding the input files, read-only, at
-  paths relative to the repository root. No access to the source tree, the home
-  directory, the system, or anything a previous action wrote that this one did
-  not declare.
-- **Environment**: empty. Not filtered — empty. `PATH`, `HOME`, `LANG`, `TZ`,
-  and every other variable are absent, so nothing can read one.
-- **Network**: unavailable. There is nothing to fetch: the toolchain is pinned
-  and verified before the build starts, and there are no external repositories.
-- **Clock**: actions do not read one. Timestamps in outputs are fixed
-  (`1970-01-01T00:00:00Z`); file ordering is sorted; nothing embeds a build date,
-  a hostname, or a working directory path.
-- **Concurrency**: actions cannot observe each other. There is no shared
-  scratch directory and no way to write outside the declared outputs.
+- **Every ambient read is an intrinsic.** There is no ambient I/O in the
+  language. Reading the clock, the environment, a file, or a socket happens
+  through a `$host_*` intrinsic and nowhere else.
+- **Only `main` can name one.** `core/host` is importable only from the module
+  that exports `main` ([`SPEC.md` §11](./SPEC.md)). A library, an inner module,
+  and a test source that write `from "core/host" import …` are rejected —
+  `host-import`, pinned by the reject corpus. So no code that participates in an
+  action has a *name* for ambient state.
+- **A test's capabilities are fakes.** A suite is handed a context the runner
+  builds: an in-memory `Fs` holding exactly `test { data: [...] }`, a clock the
+  test sets, a seeded `Rand`, an `Env` of the test's own pairs
+  ([`TESTING.md`](./cli/src/docs/build/testing.md)). There is no real capability
+  to withhold.
+- **The action set is closed.** Four kinds — `interface`, `compile`, `link`,
+  `test` — all of them this toolchain's own code, with no way for a repository
+  to define a fifth. There is no user-supplied program in the graph to distrust.
 
-A tool that violates the sandbox fails the action rather than degrading to a
-non-hermetic build. Hermeticity that is best-effort is hermeticity you cannot
-rely on for caching, and caching is why it is here.
+Three of the four kinds never leave this process at all: they are the compiler
+reading declared files and returning bytes. The fourth, `test`, spawns a
+JavaScript runtime, and that spawn is made **deterministic** rather than
+confined:
+
+- **An explicit environment.** `env_clear`, then exactly two constants: `TZ=UTC`
+  and `SOURCE_DATE_EPOCH=0`. Not to hide the parent's environment from a program
+  that could read it — nothing in an action can — but so that the same action
+  produces the same bytes on a machine set to a different time zone or carrying
+  a different `LANG`.
+- **A frozen clock.** `Date.now`, `Math.random`, and the host clock intrinsics
+  are replaced in the action's own script, so the instant every action observes
+  is `1970-01-01T00:00:00Z`. Belt and braces against a runtime regression, and
+  what makes a reproducibility check meaningful for a suite: two runs of one
+  suite produce the same record rather than two records differing in a timing
+  field.
 
 `buri run` is the deliberate exception and the only one: it executes a built
-artifact outside the sandbox, with the real environment. Building is hermetic;
-running a program is the point at which you stop building.
+artifact with the real environment and the real filesystem. Building is
+hermetic; running a program is the point at which you stop building.
 
-**The language does most of this work already.** There is no `#include` path, no
-conditional compilation, no macro that can read a file, no reflection, no build
-script, and no ambient I/O — a Buri module's meaning is a function of its own
-text and its imports. The sandbox is enforcing a property the language already
-has, which is why it can be strict without breaking anything.
+### What is not enforced, and what catches it instead
+
+**The toolchain confines nothing at the operating-system level.** No namespace,
+no seccomp filter, no `sandbox-exec` profile, on any platform. An earlier version
+of this document promised one; it was built, and then removed, because measuring
+what it actually bought made the trade clear.
+
+What it would have bought is a second opinion about *toolchain* bugs — an
+intrinsic that read something it should not, a code generator that embedded a
+path. It would not have bought anything about repository code, which has no name
+for ambient state to begin with. And it would have bought that second opinion
+only on macOS, only for writes and the network, and not for reads at all: a
+profile tight enough to deny reads outside an action's directory also denies the
+JavaScript runtime its own binary, and the runtime aborts before the action
+starts. On Linux it would have needed user namespaces or `seccomp` — privileges,
+or a dependency, or both.
+
+So: a partial second opinion, on one platform, about a class of bug it would
+catch late and unevenly. That is not what catches this class of bug here.
+
+| The bug | What catches it |
+|---|---|
+| A library or test reaching for ambient state | The type system, at compile time. `host-import` and the effect bounds on `ctx`; the reject corpus pins both. |
+| A test depending on a real clock, a real `Rand`, or a real filesystem | It cannot: those capabilities are injected fakes, and a suite that wanted a real one would have to be handed it. |
+| A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing — `buri build --check-reproducible`, and `builds_are_reproducible` in the toolchain's own suite. This is the check the model rests on. |
+| A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock, checked by building and testing under a perturbed parent environment (`hermeticity.rs`). |
+| A stale cache entry | The key: content, never timestamps, and every input in it. |
+
+The honest summary is one sentence: **hermeticity is enforced by the language and
+verified by reproducibility, and the toolchain applies no operating-system
+confinement.** A build system whose language allowed ambient reads would need
+one; this one would be adding a mechanism to defend a property it already has,
+and paying for it in every action, on every platform, forever.
 
 ## Cache keys
 
@@ -123,7 +170,7 @@ appearing in another target's key.
 ## Reproducibility
 
 Two builds of the same commit in the same configuration produce byte-identical
-artifacts. What that requires, beyond the sandbox:
+artifacts. What that requires, beyond the deterministic spawn above:
 
 - **Deterministic code generation**: iteration over hash maps is by sorted key;
   monomorphization order follows source order; symbol names are derived from
@@ -134,17 +181,63 @@ artifacts. What that requires, beyond the sandbox:
 - **No embedded environment**: no paths, no timestamps, no hostname, no user.
   Debug info records repository-relative paths.
 
-Reproducibility is a property of the compiler rather than of your repository,
-so it is checked in the compiler's own test suite — `builds_are_reproducible`
-builds the same commit in two separate directories and compares the artifacts
-byte for byte. There is no flag for it here, because a flag would suggest it is
-something a repository has to remember to run.
+Reproducibility is a property of the compiler rather than of your repository, so
+it is checked in the compiler's own test suite — `builds_are_reproducible`, and
+`two_checkouts_of_one_tree_build_identical_bytes`, which builds the same commit
+in two separate directories and compares the artifacts byte for byte.
+
+**This is where the weight of the model above sits.** Since the toolchain applies
+no operating-system confinement, a toolchain bug that read something it should
+not — an intrinsic that leaked, a code generator that embedded a path, a
+hostname, or a date — surfaces as two builds of one tree disagreeing, and it
+surfaces nowhere else. A reproducibility check is not a nicety here; it is the
+verification the design chose over a sandbox, and it has to be run.
+
+`buri build --check-reproducible` asks the same question of *your* tree. It
+builds every requested binary twice, from two freshly opened sessions, with the
+cache turned off, into two separate directories, and compares the bytes: silent
+and exit `0` when they agree, exit `1` naming the artifact and the first byte
+that differs when they do not. Three details are what make it a check rather
+than a ritual — a fresh session each time, so nothing memoised carries a
+difference across; the cache off, since a hit would compare an entry with
+itself; and two different directories, so an artifact that embedded the path it
+was written to differs.
+
+It is not part of `buri build`, because a repository should not have to remember
+to run it and a build that did it every time would take twice as long for a
+property the compiler is responsible for. It is the flag you reach for when a
+rebuild surprised you.
+
+## The pinned toolchain
+
+`toolchain.version` and `toolchain.sha256` are the first two fields of every
+cache key, and the first thing every command that opens a repository checks. A
+`REPO.buri` naming a version this is not, or a `sha256` this executable does not
+hash to, is refused with exit `2` before anything is compiled — the difference
+between pinning a version and pinning a compiler
+([`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md#toolchain)).
+
+The hash is of the running executable, which is the artifact a release archive
+would have contained; a `sha256` of nothing but zeros is the sentinel for
+*unpinned*, which is what a repository writes for as long as its toolchain has
+no published release to name. An unpinned pin verifies nothing and still enters
+every cache key, because two toolchains that disagree produce different
+artifacts whether or not anybody wrote the hash down.
 
 ## The cache is local, for now
 
 `.buri/cache/` in the repository root, and it is safe to delete at any time.
 `buri clean` does that; needing it is a bug worth reporting, since a
 content-keyed cache should not be able to hold a wrong answer.
+
+Every command is safe to run concurrently. Reads take no lock — an entry is
+renamed into place, so it is there whole or not at all — and a file lock
+serializes writes, held for the length of one write rather than for a build, so
+two `buri build` processes overlap and meet only at the moment they both have an
+entry to store. A lock left behind by a killed process is stolen after thirty
+seconds, which is safe for the same reason the lock is cheap: the name of an
+entry is the hash of its contents, so two writers of one key are writing the
+same bytes.
 
 Remote caching and remote execution are not specified. The reason they are worth
 naming here anyway is that the design above is what makes them a transport

@@ -1,0 +1,11 @@
+// The positive control for the fake: the test binary does reach it, and the
+// marker is a real string a real program can print.
+
+from "//cmd/app/main" import { banner };
+from "//lib/widget/testing" import { fakeWidget };
+from "core/testing/assert" import * as assert;
+
+test "the fake is reachable from a test source" {
+  assert.eq(fakeWidget(), "WIDGET-TESTING-ONLY-MARKER");
+  assert.eq(banner(), "WIDGET-PRODUCTION-MARKER");
+}

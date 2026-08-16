@@ -1,0 +1,25 @@
+// EXPECT: a lambda may not capture `x`, whose type `T` could be a context
+// `formal/findings/cases/purity_false.buri`, the falsification of SPEC 10.4.
+// `runTwice` has no `ctx` parameter, no effect-carrying `self`, captures
+// nothing and constructs no context — and it used to print twice. The rule
+// that stops it is one function earlier, in `wrap`.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
+  fn() => f(x)
+}
+
+fn runTwice(f: fn() => ()): Int {
+  let _ = f();
+  let _ = f();
+  7
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let sneaky = wrap(ctx, fn(c) => c.println("effect from a pure function"));
+  let n = runTwice(sneaky);
+  let _ = ctx.println("runTwice returned ${n}");
+  .Ok(())
+}

@@ -1,0 +1,33 @@
+// `derive ToJson` and `derive FromJson`, which are one runtime walk over a type
+// descriptor each rather than an encoder and a decoder emitted per type. What
+// this pins is that the *program* holds neither: a descriptor, two calls, and
+// nothing else.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/json" import { DecodeError, ToJson, FromJson };
+from "core/json" import * as json;
+
+struct Point { x: Int, y: Int }
+
+derive Eq, ToJson, FromJson for Point;
+
+enum Shape {
+  Empty,
+  Rect { width: Int, height: Int },
+}
+
+derive Eq, ToJson, FromJson for Shape;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let p = Point { x: 1, y: 2 };
+  let s = Shape.Rect { width: 3, height: 4 };
+
+  let _ = ctx.println(json.stringify(ctx, json.encode(ctx, p)));
+  let _ = ctx.println(json.stringify(ctx, json.encode(ctx, s)));
+  let _ = ctx.println(json.stringify(ctx, json.encode(ctx, Shape.Empty)));
+
+  let back: Result<Point, DecodeError> = json.decode(ctx, json.encode(ctx, p));
+  let _ = ctx.println("${back == .Ok(p)}");
+  .Ok(())
+}

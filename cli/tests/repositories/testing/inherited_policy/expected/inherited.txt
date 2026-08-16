@@ -1,0 +1,9 @@
+error: //lib/store cannot be built for js [platform-violation]
+ --> lib/store/BUILD.buri:1:1
+  |
+1 | # The suite says nothing about tags and nothing about platforms. It does not
+  | ^
+  |
+  = //lib/store is tagged "server", which requires linux, macos
+  = "server": runs on infrastructure we operate
+  = fix: drop the js output, or widen the tag's `requires { platforms }` in REPO.buri

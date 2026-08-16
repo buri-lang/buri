@@ -1,0 +1,3 @@
+library {
+  proto_sources: ["service.proto"]
+}

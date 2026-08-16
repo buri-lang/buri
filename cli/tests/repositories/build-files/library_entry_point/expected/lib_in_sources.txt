@@ -1,0 +1,8 @@
+error: lib.buri is named by the rule, not listed [entry-point-listed]
+ --> lib/listed/BUILD.buri:6:13
+  |
+6 |   sources: ["lib.buri", "b.buri"]
+  |             ^^^^^^^^^^
+  |
+  = an entry point is named by the rule kind — lib.buri for a library, main.buri for a binary, testing/lib.buri for a `testing` block — rather than listed among its inputs
+  = fix: remove "lib.buri" from the list; the rule already names it

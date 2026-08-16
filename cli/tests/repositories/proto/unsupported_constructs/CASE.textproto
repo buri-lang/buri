@@ -1,0 +1,28 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "every proto3 construct the schema reader refuses is refused by name, with the reason and the edit"
+
+run {
+  args: ["lint", "//lib/bad"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+run {
+  args: ["lint", "//lib/bad", "--error-format=json"]
+  exit: 1
+  golden: "refused.json"
+}
+
+# The same file with nothing unsupported left in it checks.
+edit {
+  file: "lib/bad/service.proto"
+  replace: "  map<string, int32> labels = 2;\n  google.protobuf.Any payload = 3;\n  required int32 must = 4;\n  group Inline = 5 { int32 x = 6; }\n}\n\nextend Request {\n  int32 extra = 100;\n}\n\nservice Greeter {\n  rpc Greet (Request) returns (Request);\n}"
+  with: "  int32 must = 4;\n}"
+}
+
+run {
+  args: ["lint", "//lib/bad"]
+  exit: 0
+  golden: "clean.txt"
+}

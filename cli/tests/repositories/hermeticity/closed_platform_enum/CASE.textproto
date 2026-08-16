@@ -1,0 +1,82 @@
+# REPO-CONFIG.md: "`Platform` is a closed enum in the schema — `LINUX`, `MACOS`,
+# `JS` — and `Arch` likewise. Adding one is a compiler change, not a
+# configuration change, so there is nothing to declare here."
+#
+# Closed means an unknown name is rejected rather than ignored. Three places can
+# write one — an output's `platform`, an output's `arch`, and a tag's
+# `requires { platforms }` — and all three are recorded, because a check that
+# fires in two of the three is a check nobody can rely on.
+#
+# Exit 2: an unreadable build file is the thing you asked *with* being wrong.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an unknown Platform or Arch name is rejected in all three places one can be written"
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 0
+}
+
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "platform: JS"
+  with: "platform: WINDOWS"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "unknown_platform.txt"
+}
+
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "platform: WINDOWS"
+  with: "platform: JS"
+}
+
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "{ platform: JS }"
+  with: "{ platform: JS  arch: RISCV }"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "unknown_arch.txt"
+}
+
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "{ platform: JS  arch: RISCV }"
+  with: "{ platform: JS }"
+}
+
+# The third place: a tag's platform whitelist. A near miss gets the "did you
+# mean" that the other two do not, because this is the list a person types by
+# hand rather than one the generator writes.
+edit {
+  file: "REPO.buri"
+  replace: "}\n"
+  with: "}\n\ntag {\n  name: \"server\"\n  requires { platforms: [LINUXX] }\n}\n"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "unknown_tag_platform.txt"
+}
+
+# And the fix each of them named.
+edit {
+  file: "REPO.buri"
+  replace: "platforms: [LINUXX]"
+  with: "platforms: [LINUX]"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 0
+}

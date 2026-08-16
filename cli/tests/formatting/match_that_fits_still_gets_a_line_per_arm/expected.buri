@@ -1,0 +1,8 @@
+export fn rank(self: Suit): Int {
+    match (self) {
+        .Clubs => 0,
+        .Diamonds => 1,
+        .Hearts => 2,
+        .Spades => 3,
+    }
+}

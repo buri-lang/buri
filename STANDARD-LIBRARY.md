@@ -38,9 +38,9 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
 ### Text
 
-`core/str`, `core/char`, `core/bytes`, `core/json`.
+`core/str`, `core/char`, `core/bytes`, `core/json`, `core/proto`.
 
-- **`core/bytes`** — UTF-8, hex, base64. Free functions rather than methods on
+- **`core/bytes`** — UTF-8, hex, base64, varints. Free functions rather than methods on
   `[U8]`: a method may only be declared in its type's defining module, and
   `[T]`'s is `core/list`. Decoding is strict, and validates before it
   allocates: an overlong UTF-8 encoding, a truncated sequence, or a surrogate
@@ -52,9 +52,42 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
   recurses and the recursion is not in tail position — without the cap a deep
   enough document is a crash rather than an error.
 
-  There is **no `derive`-driven mapping to your own types**. Buri has no
-  reflection and no macros, and `derive` takes a fixed list, so that has to be
-  a language feature rather than a library. See the roadmap in `TODO.md`.
+  **`derive ToJson` and `derive FromJson` map it to your own types**, and
+  `encode` and `decode` are the two functions that use them. Both are on
+  `derive`'s fixed list — no reflection and no macro is involved, because the
+  backend already ships a descriptor of every type the structural operations
+  reach and the runtime walks it. The mapping from Buri shapes onto JSON ones
+  is stated in the module's own source; the decisions with something at stake
+  in them are that an enum is externally tagged, that a positional struct is an
+  array whatever its arity, and that `Option<T>` is `T` or `null` — so
+  `Option<Option<T>>` does not round-trip.
+
+  Both traits are **derived and never written by hand**, which the compiler
+  enforces. A derived encoder stands for the type's shape, so a hand-written
+  one would be called where the type is encoded on its own and silently skipped
+  where a type holding it is.
+
+- **`core/proto`** — the protobuf wire format: tags, wire types, the packed
+  readers, and `ProtoError`. Nothing here is written by hand either, but for a
+  different reason: a `.proto` schema in a package *becomes* a module, and this
+  is the part of that generated code which is the same for every schema. See
+  [PROTO.md](./cli/src/docs/build/proto.md) for the mapping and for why those
+  codecs are generated Buri rather than a descriptor walk — a protobuf message
+  is field numbers and wire types, and the descriptor `derive ToJson` walks
+  carries neither.
+
+  Reading a request and writing a reply over a pipe is what `Stdin.readBytes`
+  and `Stdout.writeBytes` are for: `readLine` reads the stream to its end, so a
+  program using it cannot answer before the other side has finished speaking.
+  Text and octets are two questions about one stream, so they are two
+  operations, and a program should ask only one of them.
+
+  The varints live in `core/bytes` rather than here, beside hex and base64, for
+  the same reason those do: a varint is an encoding of a number as bytes, it
+  has exactly one definition, and anything speaking a length-prefixed format
+  needs the same one. They do 64-bit arithmetic on two 32-bit halves, so a
+  negative `int64` writes the ten bytes protoc writes; an `Int` is still a
+  double, so a value past 2^53 survives only to that precision.
 
 ### Collections
 
@@ -149,8 +182,6 @@ this backend:
    attaches conformance; generating a *new type* is a language change, and it
    belongs beside the native backend, which is where the layout would actually
    pay.
-
-**Typed JSON encoding.** See `core/json` above.
 
 **Allocators — `GeneralPurpose`, `Arena`, `FixedBuffer`.** `Alloc` is a
 type-level budget here and nothing more: a function that allocates says so in

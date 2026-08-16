@@ -1,0 +1,11 @@
+# One second, because the point of the declaration is that the runner stops the
+# suite rather than that the number is large.
+
+library {
+  sources: ["spin.buri"]
+
+  test {
+    sources: ["test/spin.buri"]
+    timeout_seconds: 1
+  }
+}

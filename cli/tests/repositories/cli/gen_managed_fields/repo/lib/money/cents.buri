@@ -1,0 +1,13 @@
+from "//lib/util" import { isEmpty };
+
+export struct Cents { export value: Int }
+
+export fn fromCents(n: Int): Cents {
+    Cents { value: n }
+}
+
+/// Here so that this module reaches //lib/util, which is what puts the
+/// dependency in the build file.
+export fn isBlank(memo: Str): Bool {
+    isEmpty(memo)
+}

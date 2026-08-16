@@ -9,4 +9,4 @@ error: render.buri is listed by two rules [duplicate-source]
 5 |   sources: ["render.buri"]
   |             ^^^^^^^^^^^^^ first listed here
   |
-   = fix: list it under one rule only
+  = fix: list it under one rule only

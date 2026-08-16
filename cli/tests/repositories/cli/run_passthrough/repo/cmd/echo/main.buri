@@ -1,0 +1,33 @@
+// A binary that says what it was given and then decides its own exit code.
+//
+// It also reads a file relative to the working directory, which is what makes
+// this a test of `buri run` rather than of the backend: everything before
+// `run` in the pipeline is hermetic, and this program is handed the real
+// filesystem and the real environment.
+
+from "core/cap" import { Alloc, Env, Fs, Proc, Stdout };
+from "core/env" import * as env;
+from "core/fs" import * as fs;
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Env:    host.env,
+    Fs:     host.fs,
+    Proc:   host.proc,
+  };
+  let args = env.args(ctx);
+  let _ = ctx.println("argc ${args.len()}");
+  let _ = ctx.println("argv ${args.join(ctx, " ")}");
+  let note = match (fs.readText(ctx, "note.txt")) {
+    .Ok(text) => text.trim(),
+    .Err(_) => "no note",
+  };
+  let _ = ctx.println("note ${note}");
+
+  // `if` is an expression, so both branches produce the same `()`.
+  let _ = if (args.any(fn(a) => a == "--fail")) { ctx.exitWith(3) } else { () };
+  .Ok(())
+}

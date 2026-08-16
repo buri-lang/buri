@@ -1,0 +1,18 @@
+// EXPECT: a lambda may not capture `x`, whose type `T` could be a context
+// `formal/findings/cases/hide_generic.buri`. Nothing in `hide` mentions an
+// effect, so a taint predicate that reads only the signature says the lambda
+// is fine — and then `hide(ctx)` hands back a closure holding a capability.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn hide<T>(x: T): fn() => T {
+  fn() => x
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let smuggler = hide(ctx);
+  let recovered = smuggler();
+  let _ = recovered.println("laundered");
+  .Ok(())
+}

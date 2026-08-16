@@ -1,0 +1,8 @@
+error: //lib/spin's test suite ran longer than 1s [test-timeout]
+ --> lib/spin/BUILD.buri:7:8
+  |
+7 |   test {
+  |        ^ the timeout this suite declares
+  |
+  = the run was killed, so no test in this suite has a result — a timeout is the suite's, not one test's
+  = fix: raise `timeout_seconds`, or find the test that does not finish; a test that never returns is a loop with no exit, since nothing here blocks on I/O

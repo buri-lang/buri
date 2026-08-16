@@ -1,0 +1,8 @@
+error: //lib/empty has a testing/ directory and no `testing` block [undeclared-testing-surface]
+ --> lib/empty/BUILD.buri:1:1
+  |
+1 | # An empty `testing {}` is accepted: the block says the surface exists, and
+  | ^
+  |
+  = the block is what puts the surface in the build; without it nothing compiles testing/lib.buri and no dependent can name it
+  = fix: add a `testing { }` block to the library rule in lib/empty/BUILD.buri — empty if the entry point is the whole of it — or delete the directory

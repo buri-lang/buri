@@ -1,0 +1,1 @@
+export fn triple(n: I64): I64 { n * 3 }

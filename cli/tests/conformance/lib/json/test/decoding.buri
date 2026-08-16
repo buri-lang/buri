@@ -1,0 +1,306 @@
+// What `derive FromJson` reads: every shape back to the value it came from,
+// and every way a document can fail to be one.
+//
+// A failure names a *path* — `$` for the document, `.name` for a member,
+// `[i]` for an element — and the paths are asserted, because a decode error
+// that says only "wrong type" of a hundred-line document is a decode error
+// nobody can act on.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+from "core/cap" import { Alloc };
+from "core/json" import { Json, DecodeError, FromJson, ToJson };
+from "core/json" import * as json;
+
+from "//lib/json" import {
+  Point, Segment, Meters, Pair, Hollow, Everything, Wrapper,
+  Colour, Shape, Rose, Chain,
+  point, rose, chain, everything,
+};
+
+/// The document `text` describes, or `Json.Null` if it is not one. Every text
+/// here is a literal in this file, so `.Null` is unreachable.
+fn doc<C: Alloc>(ctx: C, text: Str): Json {
+  match (json.parse(ctx, text)) {
+    .Ok(v) => v,
+    .Err(_e) => Json.Null,
+  }
+}
+
+// --- round trips ----------------------------------------------------------------
+//
+// Encode then decode is the identity. Each value is built by a function, so
+// what comes back is a different object and `==` is answering structurally.
+
+test "a struct round-trips" {
+  let ctx = Hermetic();
+  let v = point(1, 2);
+  let back: Result<Point, DecodeError> = json.decode(ctx, json.encode(ctx, v));
+  assert.eq(back, .Ok(v));
+}
+
+test "a nested struct round-trips" {
+  let ctx = Hermetic();
+  let v = Segment { start: point(0, 0), stop: point(3, 4), label: "d", waypoints: [point(1, 1)] };
+  let back: Result<Segment, DecodeError> = json.decode(ctx, json.encode(ctx, v));
+  assert.eq(back, .Ok(v));
+}
+
+test "a positional struct round-trips" {
+  let ctx = Hermetic();
+  let one: Result<Meters, DecodeError> = json.decode(ctx, json.encode(ctx, Meters(5)));
+  let two: Result<Pair, DecodeError> = json.decode(ctx, json.encode(ctx, Pair(1, "a")));
+  assert.eq(one, .Ok(Meters(5)));
+  assert.eq(two, .Ok(Pair(1, "a")));
+}
+
+test "a struct with nothing in it round-trips" {
+  let ctx = Hermetic();
+  let back: Result<Hollow, DecodeError> = json.decode(ctx, json.encode(ctx, Hollow {}));
+  assert.eq(back, .Ok(Hollow {}));
+}
+
+test "a payload-free enum round-trips" {
+  let ctx = Hermetic();
+  let back: Result<Colour, DecodeError> = json.decode(ctx, json.encode(ctx, Colour.Green));
+  assert.eq(back, .Ok(Colour.Green));
+}
+
+test "an enum with payloads round-trips at every variant shape" {
+  let ctx = Hermetic();
+  let empty: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, Shape.Empty));
+  let circle: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, Shape.Circle(2)));
+  let line: Result<Shape, DecodeError> =
+    json.decode(ctx, json.encode(ctx, Shape.Line(point(0, 0), point(1, 1))));
+  let rect: Result<Shape, DecodeError> =
+    json.decode(ctx, json.encode(ctx, Shape.Rect { width: 3, height: 4 }));
+  assert.eq(empty, .Ok(Shape.Empty));
+  assert.eq(circle, .Ok(Shape.Circle(2)));
+  assert.eq(line, .Ok(Shape.Line(point(0, 0), point(1, 1))));
+  assert.eq(rect, .Ok(Shape.Rect { width: 3, height: 4 }));
+}
+
+test "one of everything round-trips" {
+  let ctx = Hermetic();
+  let v = everything();
+  let back: Result<Everything, DecodeError> = json.decode(ctx, json.encode(ctx, v));
+  assert.eq(back, .Ok(v));
+}
+
+test "a recursive type round-trips" {
+  let ctx = Hermetic();
+  let tree = rose(8);
+  let back: Result<Rose, DecodeError> = json.decode(ctx, json.encode(ctx, tree));
+  assert.eq(back, .Ok(tree));
+}
+
+test "recursion through an Option of a list round-trips" {
+  let ctx = Hermetic();
+  let c = chain(5);
+  let back: Result<Chain, DecodeError> = json.decode(ctx, json.encode(ctx, c));
+  assert.eq(back, .Ok(c));
+}
+
+test "a list and a tuple round-trip" {
+  let ctx = Hermetic();
+  let xs: Result<[Point], DecodeError> = json.decode(ctx, json.encode(ctx, [point(1, 2)]));
+  let t: Result<(Int, Str), DecodeError> = json.decode(ctx, json.encode(ctx, (7, "z")));
+  assert.eq(xs, .Ok([point(1, 2)]));
+  assert.eq(t, .Ok((7, "z")));
+}
+
+test "an absent Option comes back absent" {
+  let ctx = Hermetic();
+  let none: Option<Point> = .None;
+  let back: Result<Option<Point>, DecodeError> = json.decode(ctx, json.encode(ctx, none));
+  assert.eq(back, .Ok(none));
+}
+
+test "a generic type round-trips at each instantiation" {
+  let ctx = Hermetic();
+  let p = Wrapper { value: point(1, 2), tag: "p" };
+  let l = Wrapper { value: [1, 2], tag: "l" };
+  let pb: Result<Wrapper<Point>, DecodeError> = json.decode(ctx, json.encode(ctx, p));
+  let lb: Result<Wrapper<[Int]>, DecodeError> = json.decode(ctx, json.encode(ctx, l));
+  assert.eq(pb, .Ok(p));
+  assert.eq(lb, .Ok(l));
+}
+
+/// The bound is discharged at the *call*, so a function generic over `T` gets
+/// its descriptor from wherever it is instantiated rather than from a witness
+/// passed in.
+fn roundTrips<T: ToJson + FromJson + Eq, C: Alloc>(ctx: C, value: T): Bool {
+  let back: Result<T, DecodeError> = json.decode(ctx, json.encode(ctx, value));
+  back == .Ok(value)
+}
+
+test "a function generic over the pair of traits round-trips whatever it is given" {
+  let ctx = Hermetic();
+  assert.isTrue(roundTrips(ctx, point(1, 2)));
+  assert.isTrue(roundTrips(ctx, Shape.Rect { width: 3, height: 4 }));
+  assert.isTrue(roundTrips(ctx, rose(4)));
+  assert.isTrue(roundTrips(ctx, [Colour.Red, Colour.Blue]));
+}
+
+// --- reading text somebody else wrote -------------------------------------------
+
+test "a document written by hand decodes" {
+  let ctx = Hermetic();
+  let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1,\"y\":2}"));
+  assert.eq(back, .Ok(point(1, 2)));
+}
+
+test "an integer field takes a whole number and nothing else" {
+  let ctx = Hermetic();
+  let ok: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1,\"y\":2}"));
+  let no: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1,\"y\":1.5}"));
+  assert.eq(ok, .Ok(point(1, 2)));
+  assert.eq(no, .Err(.WrongType { path: "$.y", wanted: "an integer", found: "a number" }));
+}
+
+test "member order in the document does not matter" {
+  let ctx = Hermetic();
+  let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"y\":2,\"x\":1}"));
+  assert.eq(back, .Ok(point(1, 2)));
+}
+
+// --- failures -------------------------------------------------------------------
+
+test "a missing field names the path it was looked for at" {
+  let ctx = Hermetic();
+  let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1}"));
+  assert.eq(back, .Err(.Missing { path: "$.y" }));
+}
+
+test "a missing field inside a nested struct names the whole path" {
+  let ctx = Hermetic();
+  let text = "{\"start\":{\"x\":0},\"stop\":{\"x\":1,\"y\":1},\"label\":\"d\",\"waypoints\":[]}";
+  let back: Result<Segment, DecodeError> = json.decode(ctx, doc(ctx, text));
+  assert.eq(back, .Err(.Missing { path: "$.start.y" }));
+}
+
+test "a wrong type says what was wanted and what was there" {
+  let ctx = Hermetic();
+  let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1,\"y\":\"two\"}"));
+  assert.eq(back, .Err(.WrongType { path: "$.y", wanted: "an integer", found: "a string" }));
+}
+
+test "a wrong type at the root names the root" {
+  let ctx = Hermetic();
+  let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "[1,2]"));
+  assert.eq(back, .Err(.WrongType { path: "$", wanted: "an object", found: "an array" }));
+}
+
+test "a wrong type inside a list names the index" {
+  let ctx = Hermetic();
+  let text = "{\"start\":{\"x\":0,\"y\":0},\"stop\":{\"x\":1,\"y\":1},\"label\":\"d\",\"waypoints\":[{\"x\":1,\"y\":1},3]}";
+  let back: Result<Segment, DecodeError> = json.decode(ctx, doc(ctx, text));
+  assert.eq(
+    back,
+    .Err(.WrongType { path: "$.waypoints[1]", wanted: "an object", found: "a number" }),
+  );
+}
+
+test "an unknown variant names the tag it did not recognise" {
+  let ctx = Hermetic();
+  let bare: Result<Colour, DecodeError> = json.decode(ctx, doc(ctx, "\"Purple\""));
+  let tagged: Result<Shape, DecodeError> = json.decode(ctx, doc(ctx, "{\"Oval\":[1]}"));
+  assert.eq(bare, .Err(.UnknownVariant { path: "$", tag: "Purple" }));
+  assert.eq(tagged, .Err(.UnknownVariant { path: "$", tag: "Oval" }));
+}
+
+test "a variant with fields written as a bare string is the wrong shape" {
+  let ctx = Hermetic();
+  let back: Result<Shape, DecodeError> = json.decode(ctx, doc(ctx, "\"Circle\""));
+  assert.eq(
+    back,
+    .Err(.WrongType {
+      path: "$",
+      wanted: "an object naming Circle's fields",
+      found: "a string",
+    }),
+  );
+}
+
+test "a variant payload of the wrong arity is the wrong shape" {
+  let ctx = Hermetic();
+  let back: Result<Shape, DecodeError> = json.decode(ctx, doc(ctx, "{\"Line\":[{\"x\":0,\"y\":0}]}"));
+  assert.eq(
+    back,
+    .Err(.WrongType { path: "$.Line", wanted: "an array of length 2", found: "an array" }),
+  );
+}
+
+test "a variant payload names its own path" {
+  let ctx = Hermetic();
+  let back: Result<Shape, DecodeError> = json.decode(ctx, doc(ctx, "{\"Rect\":{\"width\":3}}"));
+  assert.eq(back, .Err(.Missing { path: "$.Rect.height" }));
+}
+
+test "an object naming two variants at once is not one" {
+  let ctx = Hermetic();
+  let back: Result<Shape, DecodeError> =
+    json.decode(ctx, doc(ctx, "{\"Circle\":[1],\"Empty\":[]}"));
+  assert.eq(
+    back,
+    .Err(.WrongType {
+      path: "$",
+      wanted: "an object with one member, naming the variant",
+      found: "an object",
+    }),
+  );
+}
+
+test "a positional struct of the wrong arity is the wrong shape" {
+  let ctx = Hermetic();
+  let back: Result<Pair, DecodeError> = json.decode(ctx, doc(ctx, "[1]"));
+  assert.eq(
+    back,
+    .Err(.WrongType { path: "$", wanted: "an array of length 2", found: "an array" }),
+  );
+}
+
+test "a failure deep inside a recursive value still names its place" {
+  let ctx = Hermetic();
+  let text = "{\"Branch\":[[{\"Leaf\":[1]},{\"Leaf\":[\"x\"]}]]}";
+  let back: Result<Rose, DecodeError> = json.decode(ctx, doc(ctx, text));
+  assert.eq(
+    back,
+    .Err(.WrongType {
+      path: "$.Branch[0][1].Leaf[0]",
+      wanted: "an integer",
+      found: "a string",
+    }),
+  );
+}
+
+test "the scalars each refuse the other shapes" {
+  let ctx = Hermetic();
+  let b: Result<Bool, DecodeError> = json.decode(ctx, doc(ctx, "1"));
+  let s: Result<Str, DecodeError> = json.decode(ctx, doc(ctx, "1"));
+  let f: Result<Float, DecodeError> = json.decode(ctx, doc(ctx, "\"x\""));
+  let u: Result<(), DecodeError> = json.decode(ctx, doc(ctx, "1"));
+  assert.eq(b, .Err(.WrongType { path: "$", wanted: "a boolean", found: "a number" }));
+  assert.eq(s, .Err(.WrongType { path: "$", wanted: "a string", found: "a number" }));
+  assert.eq(f, .Err(.WrongType { path: "$", wanted: "a number", found: "a string" }));
+  assert.eq(u, .Err(.WrongType { path: "$", wanted: "null", found: "a number" }));
+}
+
+test "a Char is one character, not a word" {
+  let ctx = Hermetic();
+  let one: Result<Char, DecodeError> = json.decode(ctx, doc(ctx, "\"q\""));
+  let two: Result<Char, DecodeError> = json.decode(ctx, doc(ctx, "\"qq\""));
+  assert.eq(one, .Ok('q'));
+  assert.eq(
+    two,
+    .Err(.WrongType { path: "$", wanted: "a one-character string", found: "a string" }),
+  );
+}
+
+test "null reads as an absent Option whatever the payload" {
+  let ctx = Hermetic();
+  let none: Result<Option<Point>, DecodeError> = json.decode(ctx, doc(ctx, "null"));
+  let some: Result<Option<Point>, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1,\"y\":2}"));
+  assert.eq(none, .Ok(.None));
+  assert.eq(some, .Ok(.Some(point(1, 2))));
+}

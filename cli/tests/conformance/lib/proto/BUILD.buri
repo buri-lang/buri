@@ -1,0 +1,9 @@
+library {
+  proto_sources: ["address.proto", "demo.proto"]
+
+  visibility: ["//visibility:public"]
+
+  test {
+    sources: ["test/binary.buri", "test/failures.buri", "test/json.buri"]
+  }
+}

@@ -1,0 +1,85 @@
+# "A `BUILD.buri` must already exist, with the rule blocks. `buri gen` never
+# creates a build file and never adds a rule." Both halves, and both are about
+# something the command declines to do — so both are recorded as an absence
+# that survives the run most likely to fill it in, `buri gen //...`.
+#
+# Deciding that a directory is a library is a design decision: it has an API,
+# an owner, a visibility, a tag. Inferring it from the presence of a `lib.buri`
+# is how a repository acquires two hundred libraries nobody chose.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "gen never creates a build file and never adds a rule; the person adds the rule and gen fills it in"
+
+# `lib/orphan` holds two Buri files and no build file, so it is not a package
+# and there is no target to name.
+run {
+  args: ["gen", "//lib/orphan"]
+  exit: 2
+  golden: "no_target.txt"
+}
+
+path {
+  path: "lib/orphan/BUILD.buri"
+  exists: false
+}
+
+# The whole repository, which is the run that would create one if anything did.
+run {
+  args: ["gen", "//..."]
+  exit: 0
+  golden: "gen.txt"
+}
+
+path {
+  path: "lib/orphan/BUILD.buri"
+  exists: false
+}
+
+# //lib/tools has a `main.buri` sitting beside its library and no `binary`
+# rule. `gen` fills in the rule that is there and adds no second one.
+file {
+  path: "lib/tools/BUILD.buri"
+  golden: "tools.buri"
+}
+
+run {
+  args: ["build", "//lib/tools"]
+  exit: 0
+}
+
+# Recorded rather than asserted clean in passing: nothing reports the
+# unreachable `main.buri`, because `check_sources_declared` treats an entry
+# point as declared by the rule kind and there is no rule of that kind here.
+# That is a gap, not a decision — see TODO.md, CLI.md section.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "lint.txt"
+}
+
+# The decision `gen` refused to make, made by a person. One rule block is all
+# it takes, and then `gen` has something to fill in.
+edit {
+  file: "lib/tools/BUILD.buri"
+  replace: "sources: [\"helper.buri\"]\n}"
+  with: "sources: [\"helper.buri\"]\n}\n\nbinary {\n  outputs: [{ platform: JS }]\n}"
+}
+
+run {
+  args: ["gen", "//lib/tools"]
+  exit: 0
+  golden: "gen_binary.txt"
+}
+
+file {
+  path: "lib/tools/BUILD.buri"
+  golden: "tools_with_binary.buri"
+}
+
+run {
+  args: ["build", "//lib/tools"]
+  exit: 0
+  golden: "built.txt"
+}

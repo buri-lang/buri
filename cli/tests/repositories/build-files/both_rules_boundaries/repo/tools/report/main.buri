@@ -1,0 +1,16 @@
+// The binary reaches the co-located library. BUILD-FILES.md:301-305 says it
+// may do so only through `//tools/report` — the library's entry point — and
+// may not name a module inside it, even though those files are one directory
+// listing away. The boundary belongs to the rule, not to the directory.
+
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//tools/report" import { render };
+from "//tools/report/flags" import { label };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${label()}: ${render(0)}");
+  .Ok(())
+}

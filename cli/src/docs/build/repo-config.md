@@ -50,6 +50,23 @@ The `sha256` covers the compiler release archive; the CLI refuses to run if the
 toolchain it resolved does not hash to it, which is the difference between
 pinning a version and pinning a compiler.
 
+Both are checked when a repository is opened, by every command that opens one,
+and a disagreement is exit `2` before anything is compiled. Two details of how:
+
+- **What is hashed is the running executable** — the artifact the release
+  archive would have contained. There is no archive on the machine to hash,
+  because there is no downloader yet to have fetched one, and hashing the
+  executable is the stricter of the two: it also catches an executable replaced
+  after it was unpacked.
+- **A `sha256` of nothing but zeros means unpinned.** `"00"` and sixty-four
+  zeros both say "this repository's toolchain has no published release to name",
+  which is the state a repository is in while its compiler is built from source
+  — including this toolchain's own test fixtures. An unpinned pin verifies
+  nothing, still enters every cache key, and is reported as unpinned by
+  `buri version`. That is the whole escape hatch: there is no flag and no
+  environment variable, because a pin you can turn off from the command line is
+  a pin that gets turned off in the one script that matters.
+
 There is no `flags` field. A repository-wide compiler flag is a dialect, and a
 dialect makes source files mean different things in different repositories — the
 exact property the rest of this design spends its budget avoiding. If some flag

@@ -1,0 +1,4 @@
+export fn f(): Int {
+  // why one
+  1
+}

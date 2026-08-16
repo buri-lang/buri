@@ -192,7 +192,10 @@ fn expand_lengths(p: Pat, limit: usize) -> Pat {
     }
 }
 
-/// Expands or-patterns so each row holds no alternation.
+/// Expands or-patterns so each row holds no alternation *at the top of a
+/// column*. An alternation nested inside a constructor stays where it is; it
+/// surfaces later, when `specialize` peels that constructor off, and the matrix
+/// operations below distribute over it there.
 fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
     let Some(pos) = row.iter().position(|p| matches!(p, Pat::Or(_))) else {
         return vec![row];
@@ -205,6 +208,38 @@ fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
         out.extend(expand(next));
     }
     out
+}
+
+/// One row per alternative of an or-pattern that sits at the head of a column,
+/// each carrying the rest of the original row along with it.
+fn distribute(alts: &[Pat], rest: &[Pat]) -> Vec<Vec<Pat>> {
+    alts.iter()
+        .map(|a| {
+            let mut row = Vec::with_capacity(rest.len() + 1);
+            row.push(a.clone());
+            row.extend_from_slice(rest);
+            row
+        })
+        .collect()
+}
+
+/// The constructors a row's head can start with. An or-pattern contributes
+/// every constructor any of its alternatives does, so that a column covered by
+/// `true | false` counts as complete.
+fn collect_head_ctors(p: &Pat, out: &mut Vec<Ctor>) {
+    match p {
+        Pat::Wild => {}
+        Pat::Ctor(c, _) => {
+            if !out.contains(c) {
+                out.push(c.clone());
+            }
+        }
+        Pat::Or(alts) => {
+            for a in alts {
+                collect_head_ctors(a, out);
+            }
+        }
+    }
 }
 
 struct Ctx<'a> {
@@ -256,6 +291,15 @@ impl<'a> Ctx<'a> {
                     next.extend_from_slice(rest);
                     out.push(next);
                 }
+                // An alternation `expand` left nested, now exposed by peeling
+                // its constructor off. Distribute: each alternative is a row of
+                // its own, and the coverage of all of them is the row's.
+                // Dropping the row instead would lose that coverage and make a
+                // wildcard look useful — the false rejection of `.Some(true |
+                // false)`.
+                Pat::Or(alts) => {
+                    out.extend(self.specialize(&distribute(alts, rest), ctor, arity));
+                }
                 _ => {}
             }
         }
@@ -264,22 +308,26 @@ impl<'a> Ctx<'a> {
 
     /// Rows whose first pattern is a wildcard, with that column dropped.
     fn default_matrix(&self, matrix: &[Vec<Pat>]) -> Vec<Vec<Pat>> {
-        matrix
-            .iter()
-            .filter_map(|row| {
-                let (head, rest) = row.split_first()?;
-                matches!(head, Pat::Wild).then(|| rest.to_vec())
-            })
-            .collect()
+        let mut out = Vec::new();
+        for row in matrix {
+            let Some((head, rest)) = row.split_first() else { continue };
+            match head {
+                Pat::Wild => out.push(rest.to_vec()),
+                // Distribute, for the same reason `specialize` does. An
+                // alternative that is a wildcard makes the whole row a default
+                // row.
+                Pat::Or(alts) => out.extend(self.default_matrix(&distribute(alts, rest))),
+                Pat::Ctor(..) => {}
+            }
+        }
+        out
     }
 
     fn head_ctors(&self, matrix: &[Vec<Pat>]) -> Vec<Ctor> {
         let mut out: Vec<Ctor> = Vec::new();
         for row in matrix {
-            if let Some(Pat::Ctor(c, _)) = row.first() {
-                if !out.contains(c) {
-                    out.push(c.clone());
-                }
+            if let Some(head) = row.first() {
+                collect_head_ctors(head, &mut out);
             }
         }
         out

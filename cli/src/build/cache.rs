@@ -169,6 +169,12 @@ pub fn hash_bytes(data: &[u8]) -> String {
 /// The kinds of action the build graph has.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
+    /// Turning a `.proto` schema into a module. Keyed on the contents of every
+    /// schema the rule declares, which is the whole of what the generated
+    /// modules depend on — a schema may only import another in the same rule,
+    /// because the modules they become import each other and that import is
+    /// subject to the library boundary like any other.
+    Proto,
     Compile,
     Link,
     Test,
@@ -177,6 +183,7 @@ pub enum Action {
 impl Action {
     pub fn name(self) -> &'static str {
         match self {
+            Action::Proto => "proto",
             Action::Compile => "compile",
             Action::Link => "link",
             Action::Test => "test",
@@ -237,22 +244,13 @@ pub fn explain(on: bool, status: Status, action: Action, label: &str, platform: 
 
 pub struct Cache {
     dir: PathBuf,
-    /// A file lock serializes cache writes; all commands are safe to run
-    /// concurrently.
-    _lock: Option<std::fs::File>,
 }
 
 impl Cache {
     pub fn open(root: &Path) -> Cache {
         let dir = root.join(".buri/cache");
         let _ = std::fs::create_dir_all(&dir);
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(dir.join(".lock"))
-            .ok();
-        Cache { dir, _lock: lock }
+        Cache { dir }
     }
 
     fn path(&self, key: &str) -> PathBuf {
@@ -261,20 +259,95 @@ impl Cache {
         self.dir.join(&key[..2]).join(&key[2..])
     }
 
+    /// Reads without the lock, on purpose.
+    ///
+    /// An entry appears whole or not at all — `put` renames it into place — so
+    /// a reader has nothing to wait for. Taking the lock here would make every
+    /// cache *hit* serialize behind every cache *write*, which is the opposite
+    /// of what a cache is for.
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         std::fs::read(self.path(key)).ok()
     }
 
+    /// "All commands are safe to run concurrently; a file lock serializes cache
+    /// writes" (CLI.md). This is that lock.
     pub fn put(&self, key: &str, data: &[u8]) {
         let p = self.path(key);
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        let _guard = Lock::acquire(&self.dir);
         // Written to a temporary and renamed, so a concurrent reader never
-        // sees half an entry.
-        let tmp = p.with_extension("tmp");
+        // sees half an entry. The temporary is named for this process as well
+        // as for the key, so that two writers of one key never share a file
+        // even in the window where the lock has been abandoned.
+        let tmp = p.with_extension(format!("tmp{}", std::process::id()));
         if std::fs::write(&tmp, data).is_ok() {
             let _ = std::fs::rename(&tmp, &p);
+        }
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// The file lock that serializes cache writes.
+///
+/// `create_new` on a lock file, which is one atomic operation on every
+/// filesystem the toolchain runs on and needs nothing from libc. Held for the
+/// length of one write and no longer, because what has to be serialized is the
+/// write and not the build — two `buri build` processes on one repository
+/// should overlap, and only meet at the moment they both have an entry to
+/// store.
+///
+/// Two ways out other than success, and both of them are deliberate:
+///
+/// - **A lock older than [`STALE`] is stolen.** A process killed mid-write
+///   leaves its lock file behind, and a repository that can be wedged by one
+///   `^C` is a repository nobody trusts. Stealing is safe because the write it
+///   interrupts is a rename of a content-addressed name: the loser's bytes and
+///   the winner's bytes are the same bytes.
+/// - **After [`PATIENCE`] the write proceeds unlocked.** The lock is an
+///   optimisation for the rename, not a correctness requirement — a build that
+///   hangs waiting for one would be a worse failure than a build that writes an
+///   entry two processes agree about.
+pub struct Lock {
+    path: PathBuf,
+    held: bool,
+}
+
+/// How long to wait for another process's write.
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+/// After this, a lock file is a crashed process's rather than a live one's.
+const STALE: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl Lock {
+    pub fn acquire(dir: &Path) -> Lock {
+        let path = dir.join(".lock");
+        let deadline = std::time::Instant::now() + PATIENCE;
+        loop {
+            if std::fs::OpenOptions::new().create_new(true).write(true).open(&path).is_ok() {
+                return Lock { path, held: true };
+            }
+            let abandoned = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|m| m.elapsed().ok())
+                .is_some_and(|age| age > STALE);
+            if abandoned {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+            if std::time::Instant::now() >= deadline {
+                return Lock { path, held: false };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+}
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        if self.held {
+            let _ = std::fs::remove_file(&self.path);
         }
     }
 }
@@ -394,5 +467,132 @@ mod tests {
         let debug = KeyBuilder::new(Action::Compile, &tc, false).finish();
         let release = KeyBuilder::new(Action::Compile, &tc, true).finish();
         assert_ne!(debug, release);
+    }
+
+    // -----------------------------------------------------------------------
+    // Key composition
+    // -----------------------------------------------------------------------
+    //
+    // The four properties HERMETICITY-AND-CACHING.md names, each asserted on
+    // the builder rather than through a build, because "the platform is in the
+    // key" is a claim about the key and a build can only show its shadow.
+
+    /// The platform and the arch are the only things a build varies along, and
+    /// both are in the key. The same library built for `linux/x86_64` and for
+    /// `js` is two entries, and nothing is reused between them.
+    #[test]
+    fn the_platform_and_the_arch_are_in_the_key() {
+        let tc = buildfile::Toolchain::default();
+        let key = |p: Platform, a: Option<buildfile::Arch>| {
+            let mut k = KeyBuilder::new(Action::Compile, &tc, false);
+            k.platform(p, a);
+            k.rule_identity("//lib/money", "library", &["cents.buri".into()]);
+            k.finish()
+        };
+        let js = key(Platform::Js, None);
+        let linux = key(Platform::Linux, None);
+        let macos = key(Platform::Macos, None);
+        assert_ne!(js, linux, "js and linux share a key");
+        assert_ne!(linux, macos, "linux and macos share a key");
+
+        let x86 = key(Platform::Linux, Some(buildfile::Arch::X86_64));
+        let arm = key(Platform::Linux, Some(buildfile::Arch::Arm64));
+        assert_ne!(x86, arm, "two architectures share a key");
+        assert_ne!(x86, linux, "naming an arch and leaving it out share a key");
+    }
+
+    /// Rule identity — the label, the rule kind, and the ordered source paths —
+    /// is in the key independently of what the sources contain. Two rules whose
+    /// files hold the same bytes are still two rules.
+    #[test]
+    fn rule_identity_is_in_the_key() {
+        let tc = buildfile::Toolchain::default();
+        let key = |label: &str, kind: &str, sources: &[&str]| {
+            let mut k = KeyBuilder::new(Action::Compile, &tc, false);
+            let sources: Vec<String> = sources.iter().map(|s| (*s).to_string()).collect();
+            k.rule_identity(label, kind, &sources);
+            // The same bytes under every spelling, so nothing below can be
+            // explained by the contents having moved.
+            for s in &sources {
+                k.input(s, b"the same bytes");
+            }
+            k.finish()
+        };
+        let base = key("//lib/money", "library", &["cents.buri"]);
+        assert_ne!(base, key("//lib/ledger", "library", &["cents.buri"]), "the label is not in the key");
+        assert_ne!(base, key("//lib/money", "binary", &["cents.buri"]), "the rule kind is not in the key");
+        assert_ne!(base, key("//lib/money", "library", &["pence.buri"]), "a source's path is not in the key");
+        assert_ne!(
+            base,
+            key("//lib/money", "library", &["cents.buri", "extra.buri"]),
+            "adding a source did not change the key"
+        );
+    }
+
+    /// A dependency enters as its key, never as its contents. What follows is
+    /// the property that makes incrementality work at all: two dependencies
+    /// that hash to one key are one dependency as far as a dependent is
+    /// concerned, whatever they hold.
+    #[test]
+    fn a_dependency_enters_as_its_key_and_not_its_contents() {
+        let tc = buildfile::Toolchain::default();
+        let dependent = |dep_key: &str| {
+            let mut k = KeyBuilder::new(Action::Link, &tc, false);
+            k.rule_identity("//cmd/web", "binary", &["main.buri".into()]);
+            k.input("cmd/web/main.buri", b"the binary's own source");
+            k.dependency(dep_key);
+            k.finish()
+        };
+        // One dependency, two states of its source tree that hash the same
+        // because nothing output-determining moved.
+        assert_eq!(dependent("aaaa"), dependent("aaaa"));
+        assert_ne!(dependent("aaaa"), dependent("bbbb"), "a dependency's key is not in the key");
+
+        // And the negative twin: the builder has no way to fold a dependency's
+        // *contents* in, so there is nowhere for a body edit to enter except
+        // through the key it did or did not change.
+        let mut by_key = KeyBuilder::new(Action::Link, &tc, false);
+        by_key.dependency("aaaa");
+        let mut by_content = KeyBuilder::new(Action::Link, &tc, false);
+        by_content.input("aaaa", b"");
+        assert_ne!(by_key.finish(), by_content.finish());
+    }
+
+    /// The lock is held for a write and released, so a second acquisition in
+    /// the same process is immediate rather than a deadlock.
+    #[test]
+    fn the_write_lock_is_released_when_the_write_finishes() {
+        let dir = std::env::temp_dir().join(format!("buri-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let _held = Lock::acquire(&dir);
+            assert!(dir.join(".lock").exists(), "the lock file was not created");
+        }
+        assert!(!dir.join(".lock").exists(), "the lock outlived the write");
+        let started = std::time::Instant::now();
+        drop(Lock::acquire(&dir));
+        assert!(started.elapsed() < PATIENCE, "a released lock was waited for");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two writers of one key agree, because the key names the bytes.
+    #[test]
+    fn a_second_writer_of_one_key_leaves_the_entry_intact() {
+        let root = std::env::temp_dir().join(format!("buri-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let cache = Cache::open(&root);
+        let key = hash_bytes(b"an entry");
+        cache.put(&key, b"an entry");
+        cache.put(&key, b"an entry");
+        assert_eq!(cache.get(&key).as_deref(), Some(&b"an entry"[..]));
+        // Nothing half-written is left where a reader could find it.
+        let leftovers: Vec<String> = std::fs::read_dir(root.join(".buri/cache").join(&key[..2]))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains("tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temporaries left behind: {leftovers:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

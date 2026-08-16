@@ -1,0 +1,18 @@
+// EXPECT: this `match` does not cover `[false]`
+// The same, one array element deep.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(xs: [Bool]): Int {
+  match (xs) {
+    [] => 0,
+    [true] => 1,
+    [_, _, ..rest] => 2,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${describe([false])}");
+  .Ok(())
+}

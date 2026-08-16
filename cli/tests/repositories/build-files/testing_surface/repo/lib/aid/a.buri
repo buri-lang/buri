@@ -1,0 +1,1 @@
+export fn aid(): I64 { 7 }

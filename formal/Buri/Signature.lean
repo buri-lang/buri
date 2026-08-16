@@ -148,12 +148,6 @@ theorem Signature.isStruct_primOf {S : Signature} {c} (h : S.isStruct c = true) 
   · next heq => simp [heq]
   · simp at h
 
-theorem Signature.isStruct_isEnum {S : Signature} {c} (h : S.isStruct c = true) : S.isEnum c = false := by
-  unfold Signature.isStruct at h; unfold Signature.isEnum
-  split at h
-  · next heq => simp [heq]
-  · simp at h
-
 /-- A primitive has no variants, so `variantCount` is `0` -- which is what
 makes the `variant` typing rule's `i < variantCount c` premise unsatisfiable
 at a primitive type. -/

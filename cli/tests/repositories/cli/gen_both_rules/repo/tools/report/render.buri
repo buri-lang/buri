@@ -1,0 +1,8 @@
+from "core/cap" import { Alloc };
+from "core/str" import * as str;
+
+from "//tools/report/shared" import { heading };
+
+export fn render<C: Alloc>(ctx: C, total: Int): Str {
+  str.format(ctx, "${heading()} ${total}")
+}

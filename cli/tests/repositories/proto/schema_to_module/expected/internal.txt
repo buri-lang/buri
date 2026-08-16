@@ -1,0 +1,29 @@
+error: //lib/wire/point.proto is internal to //lib/wire [internal-import]
+ --> cmd/app/main.buri:4:6
+  |
+4 | from "//lib/wire/point.proto" import { Point, defaultPoint, encodePoint, decodePoint };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = only names re-exported by lib/wire/lib.buri are available
+  = fix: import the library instead: from "//lib/wire" import { ... }
+error: this is not a struct or an enum variant
+ --> cmd/app/main.buri:8:11
+  |
+8 |   let p = Point { ..defaultPoint(), x: 1, y: 300 };
+  |           ^^^^^
+  |
+  = fix: name a struct, or an enum variant that has fields
+error: there is nothing named `encodePoint` in scope [unresolved-name]
+ --> cmd/app/main.buri:9:40
+  |
+9 |   let _ = ctx.println(bytes.toHex(ctx, encodePoint(ctx, p)));
+  |                                        ^^^^^^^^^^^
+  |
+  = fix: declare `encodePoint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `decodePoint` in scope [unresolved-name]
+  --> cmd/app/main.buri:10:26
+   |
+10 |   let _ = ctx.println("${decodePoint(ctx, encodePoint(ctx, p)) == .Ok(p)}");
+   |                          ^^^^^^^^^^^
+   |
+   = fix: declare `decodePoint`, or import it — a name is in scope only from this module's own declarations and its imports

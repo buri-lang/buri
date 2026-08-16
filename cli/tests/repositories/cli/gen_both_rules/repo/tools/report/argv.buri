@@ -1,0 +1,1 @@
+export fn has(args: [Str], name: Str): Bool { args.any(fn(a) => a == name) }

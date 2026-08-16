@@ -1,0 +1,24 @@
+# A package with both a library and a binary. `render.buri` and `flags.buri`
+# are listed, so rule 1 keeps them where they are; `argv.buri`, `shared.buri`
+# and `stray.buri` are on disk and in neither list, which is what the other
+# three rules are about.
+library {
+  sources: ["render.buri"]
+  visibility: ["//visibility:public"]
+
+  test {
+    sources: ["test/render.buri"]
+  }
+}
+
+binary {
+  sources: ["flags.buri"]
+
+  outputs: [
+    { platform: JS },
+  ]
+
+  test {
+    sources: ["test/flags.buri"]
+  }
+}

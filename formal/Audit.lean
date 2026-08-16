@@ -8,8 +8,12 @@ Run with `lake env lean formal/Audit.lean`. Every line must print exactly
 appears anywhere, something in this development is admitted rather than proved
 and every claim resting on it is void.
 
-This is the formal analogue of `conformance.rs:57 conformance_suite_can_fail`:
-a proof development that cannot be caught cheating is not evidence.
+This is the formal analogue of `conformance.rs`'s `conformance_suite_can_fail`:
+a proof development that cannot be caught cheating is not evidence. The Rust
+side of the same idea is `cli/tests/lean_vectors.rs`, which replays this
+development's exhaustiveness verdicts against the real checker.
+
+57 results, in the order the development builds them.
 -/
 
 open Buri
@@ -29,9 +33,10 @@ open Buri
 #print axioms Buri.HasType.array_inversion
 
 -- Termination of the usefulness algorithm
-#print axioms Buri.Matrix.nodeCount_specialize_lt
-#print axioms Buri.Matrix.nodeCount_specialize_le
-#print axioms Buri.Matrix.nodeCount_defaultMatrix_le
+#print axioms Buri.Matrix.weight_specialize_lt
+#print axioms Buri.Matrix.weight_specialize_le
+#print axioms Buri.Matrix.weight_defaultMatrix_le
+#print axioms Buri.Row.weight_specializeRow_lt
 #print axioms Buri.isUseful
 
 -- Well-formedness is preserved by both matrix operations
@@ -62,7 +67,41 @@ open Buri
 -- The headline theorem
 #print axioms Buri.exhaustive_correct_unbounded
 
--- The two matrix operations compute the coverage they should
+-- The two matrix operations compute the coverage they should, in both
+-- directions -- which is what distributing over an or-headed row bought.
 #print axioms Buri.covers_specialize
 #print axioms Buri.covers_defaultMatrix
+#print axioms Buri.specializeRow_matches
+#print axioms Buri.defaultRow_matches
 #print axioms Buri.Pattern.matchesAll_pad
+#print axioms Buri.irrefutable_correct_unbounded
+
+-- Why the converse direction is still open
+#print axioms Buri.useful_not_sound_at_wellFormed
+
+-- The core language: erasure into the pattern algorithm's world
+#print axioms Buri.NodeKind.fieldTys_ctor
+#print axioms Buri.Typing.erase
+#print axioms Buri.Typing.canonical_fn
+#print axioms Buri.Pattern.bind_isSome
+#print axioms Buri.Pattern.bind_typed
+#print axioms Buri.Pattern.binderTypes_length
+
+-- Structural lemmas
+#print axioms Buri.Typing.weaken
+#print axioms Buri.Typing.subst
+
+-- Type safety
+#print axioms Buri.progress
+#print axioms Buri.preservation
+#print axioms Buri.type_safety
+
+-- The checker
+#print axioms Buri.Ty.beq_iff
+#print axioms Buri.Pattern.wellFormedB_sound
+#print axioms Buri.Pattern.uniformBindersB_sound
+#print axioms Buri.armsOk_exhaustive
+#print axioms Buri.armsOk_irrefutable
+#print axioms Buri.infer_sound
+#print axioms Buri.check_sound
+#print axioms Buri.checked_never_stuck

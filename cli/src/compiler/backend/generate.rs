@@ -11,7 +11,7 @@ use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
 use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
 use crate::compiler::transform::monomorphize::{Desc, Program};
 use crate::compiler::transform::tail_calls;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct Options {
     pub pretty: bool,
@@ -155,6 +155,19 @@ pub fn generate(program: &Program, tables: &Tables, opts: &Options) -> Output {
         )));
     }
 
+    // One equality per type, in place of the runtime walker.
+    //
+    // `$eq` is generic: it asks `typeof`/`Array.isArray` of every element it
+    // reaches, and because every type in the program shares that one call site
+    // it is the only megamorphic code in an artifact. Compiled at the type,
+    // a two-field struct is `a[0]===b[0]&&a[1]===b[1]` — no dispatch left at
+    // all. `eliminate_dead` drops the ones nothing reaches.
+    for i in 0..program.descriptors.len() {
+        if let Some(decl) = g.eq_decl(i) {
+            stmts.push(decl);
+        }
+    }
+
     for gi in 0..g.plan.groups.len() {
         let merged = g.merged_group(gi);
         stmts.push(merged);
@@ -190,10 +203,14 @@ pub fn generate(program: &Program, tables: &Tables, opts: &Options) -> Output {
             g.mode = TailMode::SelfLoop { self_index: i, params: params.clone() };
         }
 
+        let mut params = params;
         let body = match (&f.body, &f.intrinsic) {
             (Some(e), _) => {
                 let mut out = Vec::new();
                 g.tail(e, &mut out);
+                if g.plan.self_loop.contains(&i) {
+                    params = snapshot_captures(&mut out, &params);
+                }
                 g.wrap_loop(out)
             }
             (None, Some(key)) => {
@@ -276,6 +293,24 @@ fn group_name(i: usize) -> String {
 
 fn desc_name(i: usize) -> String {
     format!("$D{i}")
+}
+
+fn eq_name(i: usize) -> String {
+    format!("$eqD{i}")
+}
+
+/// How a value of a described type is compared.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EqKind {
+    /// `a === b` says it: a number, a string, a boolean, `()`, or an enum
+    /// whose every variant is payload-free and so is a bare number.
+    Identity,
+    /// An aggregate whose shape is known, compiled into its own function.
+    Compiled,
+    /// `Option` — whose nesting the runtime boxes — and anything with no
+    /// structural description. Both stay with the generic walker, which is
+    /// already exactly right for them.
+    Generic,
 }
 
 /// The descriptor a generated call passes to a runtime function.
@@ -496,6 +531,358 @@ fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Closures created inside a tail loop
+// ---------------------------------------------------------------------------
+//
+// A tail loop rebinds its parameters in place, which is exact for everything
+// that reads them within the iteration that wrote them. A closure is the one
+// thing that does not: it holds the *slot*, and by the time it runs the loop
+// has moved on, so it reads the value the loop stopped at rather than the one
+// its iteration had.
+//
+// Elm generates the same shape and has had precisely this silent miscompile
+// open since 2016 (elm/compiler#2268). ReScript and Gleam avoid it by giving
+// every iteration its own binding for the parameters: the parameter itself
+// becomes a write-only carrier, and the loop body opens with `const p = $pN;`,
+// re-executed on each `continue`. Reads then see the iteration's value and a
+// closure captures a binding no later iteration can reach.
+//
+// Buri does that for the slots that need it and no others, so a loop with no
+// closure in it keeps the tighter output `rebind` already produces.
+
+/// The names any closure in these statements reads.
+fn closure_reads(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        stmt_exprs(s, &mut |e| closure_reads_expr(e, false, out));
+        match s {
+            Stmt::If { then, else_, .. } => {
+                closure_reads(then, out);
+                closure_reads(else_, out);
+            }
+            Stmt::While { body, .. } => closure_reads(body, out),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    closure_reads(b, out);
+                }
+            }
+            Stmt::Block(b) | Stmt::Func { body: b, .. } => closure_reads(b, out),
+            _ => {}
+        }
+    }
+}
+
+/// Collects every name read once inside a closure. Deliberately exhaustive:
+/// a form this forgot to descend into would be a name we failed to snapshot,
+/// which is the bug itself.
+fn closure_reads_expr(e: &Expr, inside: bool, out: &mut HashSet<String>) {
+    match e {
+        Expr::Ident(n) => {
+            if inside {
+                out.insert(n.clone());
+            }
+        }
+        Expr::Array(xs) | Expr::Seq(xs) => {
+            xs.iter().for_each(|x| closure_reads_expr(x, inside, out));
+        }
+        Expr::Object(fs) => fs.iter().for_each(|(_, v)| closure_reads_expr(v, inside, out)),
+        Expr::Member { obj, .. } => closure_reads_expr(obj, inside, out),
+        Expr::Index { obj, index } => {
+            closure_reads_expr(obj, inside, out);
+            closure_reads_expr(index, inside, out);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            closure_reads_expr(callee, inside, out);
+            args.iter().for_each(|a| closure_reads_expr(a, inside, out));
+        }
+        Expr::Unary { operand, .. } => closure_reads_expr(operand, inside, out),
+        Expr::Binary { lhs, rhs, .. } => {
+            closure_reads_expr(lhs, inside, out);
+            closure_reads_expr(rhs, inside, out);
+        }
+        Expr::Cond { test, cons, alt } => {
+            closure_reads_expr(test, inside, out);
+            closure_reads_expr(cons, inside, out);
+            closure_reads_expr(alt, inside, out);
+        }
+        Expr::Assign { target, value } => {
+            closure_reads_expr(target, inside, out);
+            closure_reads_expr(value, inside, out);
+        }
+        // From here down every name is captured, however the closure got here.
+        Expr::Arrow { body, .. } => closure_reads_expr(body, true, out),
+        Expr::ArrowBlock { body, .. } => inside_closure(body, out),
+        Expr::Spread(x) => closure_reads_expr(x, inside, out),
+        Expr::Num(_)
+        | Expr::BigInt(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Undefined => {}
+    }
+}
+
+/// Every name these statements read, for statements already known to sit
+/// inside a closure.
+fn inside_closure(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        stmt_exprs(s, &mut |e| closure_reads_expr(e, true, out));
+        match s {
+            Stmt::If { then, else_, .. } => {
+                inside_closure(then, out);
+                inside_closure(else_, out);
+            }
+            Stmt::While { body, .. } => inside_closure(body, out),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    inside_closure(b, out);
+                }
+            }
+            Stmt::Block(b) | Stmt::Func { body: b, .. } => inside_closure(b, out),
+            _ => {}
+        }
+    }
+}
+
+/// Applies `f` to the expressions a statement holds directly, without
+/// descending into the statements nested in it.
+fn stmt_exprs(s: &Stmt, f: &mut impl FnMut(&Expr)) {
+    match s {
+        Stmt::Var { init, .. } => {
+            if let Some(e) = init {
+                f(e);
+            }
+        }
+        Stmt::Return(Some(e)) | Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => f(e),
+        Stmt::If { cond, .. } => f(cond),
+        Stmt::While { cond, .. } => f(cond),
+        Stmt::Switch { disc, cases } => {
+            f(disc);
+            for (label, _) in cases {
+                if let Some(l) = label {
+                    f(l);
+                }
+            }
+        }
+        Stmt::Return(None)
+        | Stmt::Func { .. }
+        | Stmt::Break
+        | Stmt::Continue
+        | Stmt::Block(_)
+        | Stmt::Raw(_)
+        | Stmt::RawDecl { .. } => {}
+    }
+}
+
+/// Retargets the loop's own assignments — `p = v` becomes `$pN = v` — leaving
+/// every *read* of `p` alone, so reads keep seeing the per-iteration binding.
+///
+/// A nested function or closure never assigns an enclosing loop's parameter,
+/// because a Buri binding is immutable and only `rebind` writes these slots,
+/// so this does not descend into one.
+fn retarget_assigns(body: &mut [Stmt], renames: &HashMap<String, String>) {
+    for s in body {
+        match s {
+            Stmt::Expr(Expr::Assign { target, .. }) => {
+                if let Expr::Ident(n) = &**target {
+                    if let Some(to) = renames.get(n) {
+                        *target = Box::new(Expr::ident(to.clone()));
+                    }
+                }
+            }
+            Stmt::If { then, else_, .. } => {
+                retarget_assigns(then, renames);
+                retarget_assigns(else_, renames);
+            }
+            Stmt::While { body, .. } => retarget_assigns(body, renames),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    retarget_assigns(b, renames);
+                }
+            }
+            Stmt::Block(b) => retarget_assigns(b, renames),
+            _ => {}
+        }
+    }
+}
+
+/// Gives each iteration its own binding for every slot a closure in the body
+/// captures, and answers with the parameter list the function must now take.
+///
+/// `body` is the body of the `while (true)`, and `slots` the names the loop
+/// rebinds. A slot no closure reads is left exactly as it was.
+fn snapshot_captures(body: &mut Vec<Stmt>, slots: &[String]) -> Vec<String> {
+    let mut captured = HashSet::new();
+    closure_reads(body, &mut captured);
+    let mut assigned = HashSet::new();
+    assigned_names(body, &mut assigned);
+
+    let mut renames = HashMap::new();
+    let mut outer = Vec::new();
+    for (i, slot) in slots.iter().enumerate() {
+        // A slot the loop never rewrites cannot be stale, so it needs no copy.
+        if captured.contains(slot) && assigned.contains(slot) {
+            let carrier = format!("$p{i}");
+            renames.insert(slot.clone(), carrier.clone());
+            outer.push(carrier);
+        } else {
+            outer.push(slot.clone());
+        }
+    }
+    if renames.is_empty() {
+        return outer;
+    }
+
+    retarget_assigns(body, &renames);
+    // Re-executed on every `continue`, which is what makes the binding a
+    // closure captures belong to that iteration alone.
+    let mut prologue: Vec<Stmt> = Vec::new();
+    for slot in slots {
+        if let Some(carrier) = renames.get(slot) {
+            prologue.push(Stmt::Var {
+                kind: VarKind::Const,
+                name: slot.clone(),
+                init: Some(Expr::ident(carrier.clone())),
+            });
+        }
+    }
+    prologue.append(body);
+    *body = prologue;
+    outer
+}
+
+/// The names assigned anywhere in these statements.
+fn assigned_names(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        stmt_exprs(s, &mut |e| assigned_in_expr(e, out));
+        match s {
+            Stmt::If { then, else_, .. } => {
+                assigned_names(then, out);
+                assigned_names(else_, out);
+            }
+            Stmt::While { body, .. } => assigned_names(body, out),
+            Stmt::Switch { cases, .. } => {
+                for (_, b) in cases {
+                    assigned_names(b, out);
+                }
+            }
+            Stmt::Block(b) | Stmt::Func { body: b, .. } => assigned_names(b, out),
+            _ => {}
+        }
+    }
+}
+
+fn assigned_in_expr(e: &Expr, out: &mut HashSet<String>) {
+    if let Expr::Assign { target, value } = e {
+        if let Expr::Ident(n) = &**target {
+            out.insert(n.clone());
+        }
+        assigned_in_expr(value, out);
+        return;
+    }
+    let mut sink = |x: &Expr| assigned_in_expr(x, out);
+    match e {
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(sink),
+        Expr::Object(fs) => fs.iter().for_each(|(_, v)| sink(v)),
+        Expr::Member { obj, .. } => sink(obj),
+        Expr::Index { obj, index } => {
+            assigned_in_expr(obj, out);
+            assigned_in_expr(index, out);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            assigned_in_expr(callee, out);
+            args.iter().for_each(|a| assigned_in_expr(a, out));
+        }
+        Expr::Unary { operand, .. } => sink(operand),
+        Expr::Binary { lhs, rhs, .. } => {
+            assigned_in_expr(lhs, out);
+            assigned_in_expr(rhs, out);
+        }
+        Expr::Cond { test, cons, alt } => {
+            assigned_in_expr(test, out);
+            assigned_in_expr(cons, out);
+            assigned_in_expr(alt, out);
+        }
+        Expr::Arrow { body, .. } => sink(body),
+        Expr::ArrowBlock { body, .. } => assigned_names(body, out),
+        Expr::Spread(x) => sink(x),
+        _ => {}
+    }
+}
+
+/// The bitwise operators at a known integer width, where the answer follows
+/// from the operands alone.
+///
+/// Two literals fold outright; and `x | 0`, `x ^ 0`, `x & 0`, `x & x`, `x | x`
+/// and `x ^ x` are answers without an operation. Dropping an operand is only
+/// legal when it is pure, because the drop would take its effect with it —
+/// `x | 0` needs no such condition, since it keeps `x` and evaluates it once.
+fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
+    let narrow = |v: i128| -> Option<Expr> {
+        let bits = p.bits();
+        // A double holds every integer below 2^53 exactly, and no further, so
+        // anything wider stays as an operation rather than becoming a literal
+        // that cannot be written down.
+        if bits == 0 || bits > 64 {
+            return None;
+        }
+        let masked = if bits == 128 { v } else { v & ((1i128 << bits) - 1) };
+        let signed = if p.is_signed() && bits < 128 && masked >= (1i128 << (bits - 1)) {
+            masked - (1i128 << bits)
+        } else {
+            masked
+        };
+        let f = signed as f64;
+        if f as i128 != signed {
+            return None;
+        }
+        Some(Expr::Num(f))
+    };
+    let lit = |e: &Expr| -> Option<i128> {
+        let Expr::Num(n) = e else { return None };
+        if n.fract() != 0.0 || !n.is_finite() {
+            return None;
+        }
+        Some(*n as i128)
+    };
+
+    if op == PrimOp::BitNot {
+        return narrow(!lit(args.first()?)?);
+    }
+    if !matches!(op, PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor) {
+        return None;
+    }
+    let [a, b] = args else { return None };
+    if let (Some(x), Some(y)) = (lit(a), lit(b)) {
+        return narrow(match op {
+            PrimOp::BitAnd => x & y,
+            PrimOp::BitOr => x | y,
+            _ => x ^ y,
+        });
+    }
+    // A zero on either side. `&` answers zero and needs the other operand
+    // gone, so it has to be pure; `|` and `^` answer the other operand and
+    // keep it exactly where it was.
+    for (zero, other) in [(&*a, &*b), (&*b, &*a)] {
+        if lit(zero) != Some(0) {
+            continue;
+        }
+        return match op {
+            PrimOp::BitAnd if other.is_pure() => Some(Expr::Num(0.0)),
+            PrimOp::BitOr | PrimOp::BitXor => Some(other.clone()),
+            _ => None,
+        };
+    }
+    // Both sides the same value, read twice — so folding drops one read.
+    if a.same_as(b) && a.is_pure() {
+        return match op {
+            PrimOp::BitAnd | PrimOp::BitOr => Some(a.clone()),
+            _ => Some(Expr::Num(0.0)),
+        };
+    }
+    None
+}
+
 /// Whether an expression reads `name`.
 fn reads_ident(e: &Expr, name: &str) -> bool {
     match e {
@@ -580,11 +967,82 @@ impl<'a> Gen<'a> {
                 let values = self.exprs(args, out);
                 self.rebind(func.index(), values, out);
             }
+            // `a && f(x)` *is* `f(x)` when `a` holds, so a tail call there is
+            // a tail call, and one that has to be eliminated or the recursion
+            // runs on the JavaScript stack (SPEC 8.3.1). Splitting the
+            // operator into a branch is what puts the call in a position
+            // `rebind` can rewrite.
+            //
+            // Only worth doing when the right operand really holds a call
+            // this function can eliminate: otherwise the one-expression form
+            // below is shorter and says the same thing.
+            ExprKind::And { lhs, rhs } if self.has_eliminable_tail(rhs) => {
+                let c = self.expr(lhs, out);
+                let mut then = Vec::new();
+                self.tail(rhs, &mut then);
+                out.push(Stmt::If {
+                    cond: c,
+                    then,
+                    else_: vec![Stmt::Return(Some(Expr::Bool(false)))],
+                });
+            }
+            ExprKind::Or { lhs, rhs } if self.has_eliminable_tail(rhs) => {
+                let c = self.expr(lhs, out);
+                let mut else_ = Vec::new();
+                self.tail(rhs, &mut else_);
+                out.push(Stmt::If {
+                    cond: c,
+                    then: vec![Stmt::Return(Some(Expr::Bool(true)))],
+                    else_,
+                });
+            }
+            ExprKind::Coalesce { lhs, rhs, .. } if self.has_eliminable_tail(rhs) => {
+                // The same test and held value `expr` computes, off the same
+                // temporary, so the left operand is reached exactly once.
+                let (ok, held) = self.coalesce_split(lhs, out);
+                let mut else_ = Vec::new();
+                self.tail(rhs, &mut else_);
+                out.push(Stmt::If { cond: ok, then: vec![Stmt::Return(Some(held))], else_ });
+            }
             _ => {
                 let v = self.expr(e, out);
                 out.push(Stmt::Return(Some(v)));
             }
         }
+    }
+
+    /// The `??` test and the value the left operand holds, both reading one
+    /// temporary. Shared by the value and the tail forms so the two cannot
+    /// drift apart over what `option_nesting` means.
+    fn coalesce_split(&mut self, lhs: &typed::Expr, out: &mut Vec<Stmt>) -> (Expr, Expr) {
+        let l = self.expr(lhs, out);
+        let name = self.fresh();
+        out.push(Stmt::Var { kind: VarKind::Const, name: name.clone(), init: Some(l) });
+        let option = self.option_nesting(&lhs.ty);
+        let ok = match option {
+            Some(_) => Expr::bin(BinOp::StrictNe, Expr::ident(name.clone()), Expr::Undefined),
+            None => Expr::bin(
+                BinOp::StrictEq,
+                Expr::index(Expr::ident(name.clone()), Expr::Num(0.0)),
+                Expr::Num(0.0),
+            ),
+        };
+        let held = match option {
+            Some(nested) => self.option_value(Expr::ident(name.clone()), nested),
+            None => Expr::index(Expr::ident(name), Expr::Num(1.0)),
+        };
+        (ok, held)
+    }
+
+    /// Whether this expression's own tail position holds a call this function
+    /// is going to turn into a jump.
+    fn has_eliminable_tail(&self, e: &typed::Expr) -> bool {
+        if matches!(self.mode, TailMode::Return) {
+            return false;
+        }
+        let mut callees = Vec::new();
+        tail_calls::tail_callees(e, &mut callees);
+        callees.iter().any(|f| self.is_eliminable(*f))
     }
 
     fn is_eliminable(&self, callee: usize) -> bool {
@@ -709,14 +1167,17 @@ impl<'a> Gen<'a> {
         }
         self.mode = TailMode::Return;
 
-        let mut params = vec![which.clone()];
-        params.extend(slots.iter().cloned());
         // The slots are reassigned on every bounce, so they cannot be `const`.
-        let switch = Stmt::Switch { disc: Expr::ident(which), cases };
+        let switch = Stmt::Switch { disc: Expr::ident(which.clone()), cases };
+        let mut loop_body = vec![switch];
+        let carried = snapshot_captures(&mut loop_body, &slots);
+
+        let mut params = vec![which];
+        params.extend(carried);
         Stmt::Func {
             name: group_name(group),
             params,
-            body: vec![Stmt::While { cond: Expr::Bool(true), body: vec![switch] }],
+            body: vec![Stmt::While { cond: Expr::Bool(true), body: loop_body }],
         }
     }
 
@@ -1413,30 +1874,7 @@ impl<'a> Gen<'a> {
             ExprKind::Coalesce { lhs, rhs, kind } => {
                 // The right operand is evaluated only when the left is
                 // `None`/`Err`.
-                let l = self.expr(lhs, out);
-                let name = self.fresh();
-                out.push(Stmt::Var {
-                    kind: VarKind::Const,
-                    name: name.clone(),
-                    init: Some(l),
-                });
-                let option = self.option_nesting(&lhs.ty);
-                let ok = match option {
-                    Some(_) => Expr::bin(
-                        BinOp::StrictNe,
-                        Expr::ident(name.clone()),
-                        Expr::Undefined,
-                    ),
-                    None => Expr::bin(
-                        BinOp::StrictEq,
-                        Expr::index(Expr::ident(name.clone()), Expr::Num(0.0)),
-                        Expr::Num(0.0),
-                    ),
-                };
-                let held = match option {
-                    Some(nested) => self.option_value(Expr::ident(name.clone()), nested),
-                    None => Expr::index(Expr::ident(name.clone()), Expr::Num(1.0)),
-                };
+                let (ok, held) = self.coalesce_split(lhs, out);
                 let _ = kind;
                 let mut r_stmts = Vec::new();
                 let r = self.expr(rhs, &mut r_stmts);
@@ -1498,8 +1936,22 @@ impl<'a> Gen<'a> {
                 self.prim_op(*op, *prim, a)
             }
             ExprKind::StructuralEq { negate, args } => {
-                let a = self.exprs(args, out);
-                let call = Expr::call(Expr::ident("$eq"), a);
+                // Compiled at the type where the shape is known — which for a
+                // primitive is `===` and no call at all. `desc_index` misses
+                // only if nothing built a descriptor for this type, and then
+                // the generic walker is still exactly right.
+                let desc = args
+                    .first()
+                    .and_then(|a| self.program.desc_index.get(&a.ty).copied());
+                let mut a = self.exprs(args, out);
+                let call = match desc {
+                    Some(d) if a.len() == 2 => {
+                        let rhs = a.pop().unwrap();
+                        let lhs = a.pop().unwrap();
+                        self.eq_call(d, lhs, rhs)
+                    }
+                    _ => Expr::call(Expr::ident("$eq"), a),
+                };
                 if *negate {
                     Expr::un(UnOp::Not, call)
                 } else {
@@ -1561,9 +2013,18 @@ impl<'a> Gen<'a> {
                 let a = self.exprs(args, out);
                 match name.as_str() {
                     "structuralEq" => {
+                        // The last argument is the type descriptor, which the
+                        // generic walker would have to interpret at run time
+                        // and which `eq_call` reads here instead.
                         let mut a = a;
-                        a.pop();
-                        Expr::call(Expr::ident("$eq"), a)
+                        match (a.pop(), a.len()) {
+                            (Some(Expr::Num(d)), 2) => {
+                                let rhs = a.pop().unwrap();
+                                let lhs = a.pop().unwrap();
+                                self.eq_call(d as usize, lhs, rhs)
+                            }
+                            _ => Expr::call(Expr::ident("$eq"), a),
+                        }
                     }
                     "structuralCompare" => {
                         let mut a = a;
@@ -1582,6 +2043,13 @@ impl<'a> Gen<'a> {
                             other => other,
                         };
                         Expr::call(Expr::ident("$show"), vec![a[0].clone(), d])
+                    }
+                    "structuralToJson" => {
+                        let d = match a[1].clone() {
+                            Expr::Num(n) => Expr::ident(desc_name(n as usize)),
+                            other => other,
+                        };
+                        Expr::call(Expr::ident("$json_of"), vec![a[0].clone(), d])
                     }
                     other => {
                         self.missing.push(other.to_string());
@@ -1673,6 +2141,18 @@ impl<'a> Gen<'a> {
             let a = args.pop().unwrap();
             Expr::bin(op, a, b)
         };
+        // The bitwise operators, where the answer is already in hand.
+        //
+        // This belongs here and not in `javascript::simplify_bin`, because the
+        // rewrites depend on the *width*: `x | 0` is the identity at 64 bits
+        // and a truncation to 32 in JavaScript, so a folder that cannot see
+        // the Buri type would be folding the wrong operator. Above 32 bits
+        // each of these otherwise costs a call into the runtime.
+        if p.is_integer() {
+            if let Some(v) = fold_bitwise(op, p, &mut args) {
+                return v;
+            }
+        }
         match op {
             PrimOp::Not => Expr::un(UnOp::Not, args.pop().unwrap()),
             PrimOp::Eq => two(BinOp::StrictEq, &mut args),
@@ -1836,6 +2316,136 @@ impl<'a> Gen<'a> {
             }
             Desc::Opaque(_) => Expr::Array(vec![Expr::Num(6.0)]),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Structural equality, compiled at the type
+    // -----------------------------------------------------------------------
+
+    /// How values of the type descriptor `i` describes are compared.
+    fn eq_kind(&self, i: usize) -> EqKind {
+        match self.program.descriptors.get(i) {
+            Some(Desc::Prim(_) | Desc::Unit) => EqKind::Identity,
+            Some(Desc::Enum { payloadless: true, .. }) => EqKind::Identity,
+            Some(Desc::Struct { .. } | Desc::Enum { .. } | Desc::Array(_) | Desc::Tuple(_)) => {
+                EqKind::Compiled
+            }
+            // `Option`'s nesting is carried by a `{$n}` box that only the
+            // runtime knows how to read, and an opaque type has no shape to
+            // compile. Both answer correctly through `$eq` already.
+            _ => EqKind::Generic,
+        }
+    }
+
+    /// The expression that compares two values of the described type.
+    fn eq_call(&self, i: usize, a: Expr, b: Expr) -> Expr {
+        match self.eq_kind(i) {
+            EqKind::Identity => Expr::bin(BinOp::StrictEq, a, b),
+            EqKind::Compiled => Expr::call(Expr::ident(eq_name(i)), vec![a, b]),
+            EqKind::Generic => Expr::call(Expr::ident("$eq"), vec![a, b]),
+        }
+    }
+
+    /// The comparison for descriptor `i`, as its own function — or `None` for
+    /// the types that need none, because `===` or `$eq` already says it.
+    ///
+    /// Every one of these begins `if (a === b) return true;`, which is not an
+    /// optimisation: it is what `$eq` does, and it is observable. A struct
+    /// holding `NaN` is equal to *itself* — the same object — and not to a
+    /// separately built copy, and that is the answer the language already
+    /// gives.
+    fn eq_decl(&self, i: usize) -> Option<Stmt> {
+        if self.eq_kind(i) != EqKind::Compiled {
+            return None;
+        }
+        let a = || Expr::ident("a");
+        let b = || Expr::ident("b");
+        let at = |e: Expr, k: usize| Expr::index(e, Expr::Num(k as f64));
+        let mut body = vec![Stmt::If {
+            cond: Expr::bin(BinOp::StrictEq, a(), b()),
+            then: vec![Stmt::Return(Some(Expr::Bool(true)))],
+            else_: Vec::new(),
+        }];
+
+        // The conjunction comparing a run of components held at `offset..`.
+        let fields = |types: &[usize], offset: usize| -> Expr {
+            let mut it = types.iter().enumerate().map(|(k, t)| {
+                self.eq_call(*t, at(a(), k + offset), at(b(), k + offset))
+            });
+            match it.next() {
+                None => Expr::Bool(true),
+                Some(first) => it.fold(first, |acc, x| Expr::bin(BinOp::And, acc, x)),
+            }
+        };
+
+        match self.program.descriptors.get(i)? {
+            Desc::Struct { types, .. } => {
+                body.push(Stmt::Return(Some(fields(types, 0))));
+            }
+            Desc::Tuple(types) => {
+                body.push(Stmt::Return(Some(fields(types, 0))));
+            }
+            Desc::Array(inner) => {
+                let len = |e: Expr| Expr::member(e, "length");
+                let idx = || Expr::ident("$i");
+                body.push(Stmt::If {
+                    cond: Expr::bin(BinOp::StrictNe, len(a()), len(b())),
+                    then: vec![Stmt::Return(Some(Expr::Bool(false)))],
+                    else_: Vec::new(),
+                });
+                // An indexed loop, so nothing allocates an iterator per call.
+                body.push(Stmt::Var {
+                    kind: VarKind::Let,
+                    name: "$i".into(),
+                    init: Some(Expr::Num(0.0)),
+                });
+                let step = self.eq_call(
+                    *inner,
+                    Expr::index(a(), idx()),
+                    Expr::index(b(), idx()),
+                );
+                body.push(Stmt::While {
+                    cond: Expr::bin(BinOp::Lt, idx(), len(a())),
+                    body: vec![
+                        Stmt::If {
+                            cond: Expr::un(UnOp::Not, step),
+                            then: vec![Stmt::Return(Some(Expr::Bool(false)))],
+                            else_: Vec::new(),
+                        },
+                        Stmt::Expr(Expr::Assign {
+                            target: Box::new(idx()),
+                            value: Box::new(Expr::bin(BinOp::Add, idx(), Expr::Num(1.0))),
+                        }),
+                    ],
+                });
+                body.push(Stmt::Return(Some(Expr::Bool(true))));
+            }
+            Desc::Enum { variants, .. } => {
+                // The tag first: two different variants are never equal, and
+                // once the tag agrees the payload is known.
+                body.push(Stmt::If {
+                    cond: Expr::bin(BinOp::StrictNe, at(a(), 0), at(b(), 0)),
+                    then: vec![Stmt::Return(Some(Expr::Bool(false)))],
+                    else_: Vec::new(),
+                });
+                let cases: Vec<(Option<Expr>, Vec<Stmt>)> = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(k, v)| {
+                        // Payloads start at 1: slot 0 is the tag.
+                        (Some(Expr::Num(k as f64)), vec![Stmt::Return(Some(fields(&v.types, 1)))])
+                    })
+                    .chain(std::iter::once((None, vec![Stmt::Return(Some(Expr::Bool(false)))])))
+                    .collect();
+                body.push(Stmt::Switch { disc: at(a(), 0), cases });
+            }
+            _ => return None,
+        }
+        Some(Stmt::Func {
+            name: eq_name(i),
+            params: vec!["a".into(), "b".into()],
+            body,
+        })
     }
 
     fn test_harness(&mut self) -> Stmt {

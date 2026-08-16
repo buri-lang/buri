@@ -1,0 +1,8 @@
+error: `fromCents` is imported and never used [unused-import]
+ --> cmd/app/main.buri:7:29
+  |
+7 | from "//lib/money" import { fromCents };
+  |                             ^^^^^^^^^
+  |
+  = an import that names something the module does not use makes the dependency graph describe something other than the code
+  = fix: remove `fromCents` from the import

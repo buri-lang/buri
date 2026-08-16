@@ -1,0 +1,7 @@
+updated lib/money/BUILD.buri
+  + sources: cents.buri, parse.buri
+  + dependencies: //lib/util
+  + test.sources: test/cents.buri
+  + test.dependencies: //lib/util/testing
+  + testing.sources: testing/fixtures.buri
+  + testing.dependencies: //lib/fixtures

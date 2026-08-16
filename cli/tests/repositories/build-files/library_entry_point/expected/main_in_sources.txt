@@ -1,0 +1,8 @@
+error: main.buri is named by the rule, not listed [entry-point-listed]
+ --> cmd/app/BUILD.buri:5:13
+  |
+5 |   sources: ["main.buri", "flags.buri"]
+  |             ^^^^^^^^^^^
+  |
+  = an entry point is named by the rule kind — lib.buri for a library, main.buri for a binary, testing/lib.buri for a `testing` block — rather than listed among its inputs
+  = fix: remove "main.buri" from the list; the rule already names it

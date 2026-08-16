@@ -1,0 +1,8 @@
+error: //lib/subject depends on //lib/helper, which is not visible to it [visibility-violation]
+  --> lib/subject/BUILD.buri:10:20
+   |
+10 |     dependencies: ["//lib/helper"]
+   |                    ^^^^^^^^^^^^^^ not visible
+   |
+   = //lib/helper is visible to: //visibility:private (nothing, outside its own package)
+   = fix: add "//lib/subject" to visibility in lib/helper/BUILD.buri

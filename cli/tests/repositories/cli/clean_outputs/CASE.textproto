@@ -1,0 +1,99 @@
+# `buri clean` drops `.buri/cache` and `.buri/out`; `buri clean --outputs`
+# drops `.buri/out` only. The difference between the two is invisible in what
+# they print and invisible in an exit code, so it is read twice: off the
+# directories themselves, and off the next build — which reports `cached` when
+# the cache survived and does not when it did not.
+#
+# `clean` is rarely needed and reaching for it to fix a build is worth
+# reporting, which is the reason to be exact about what it removes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "clean --outputs drops .buri/out and keeps the cache; clean drops both"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "built.txt"
+}
+
+path {
+  path: ".buri/out"
+  exists: true
+}
+
+path {
+  path: ".buri/cache"
+  exists: true
+}
+
+run {
+  args: ["clean", "--outputs"]
+  exit: 0
+  golden: "clean_outputs.txt"
+}
+
+path {
+  path: ".buri/out"
+  exists: false
+}
+
+# The cache is what `--outputs` is for.
+path {
+  path: ".buri/cache"
+  exists: true
+}
+
+# The convenience symlink points into `.buri/out`, so it goes with it rather
+# than being left dangling.
+path {
+  path: "out"
+  exists: false
+}
+
+# And the cache it kept is a cache that still answers: the artifact comes back
+# without the compiler running.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "rebuilt_from_cache.txt"
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "clean_all.txt"
+}
+
+path {
+  path: ".buri/out"
+  exists: false
+}
+
+path {
+  path: ".buri/cache"
+  exists: false
+}
+
+# The negative twin: with the cache gone the same build reports no `cached`.
+# Without this line the run above would pass for a `clean --outputs` that
+# deleted everything and a build that recompiled.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "rebuilt_from_scratch.txt"
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "clean_all.txt"
+}
+
+# Nothing left to remove, and it says so rather than reporting a removal.
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "nothing_to_clean.txt"
+}

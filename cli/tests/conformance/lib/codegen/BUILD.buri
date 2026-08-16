@@ -1,0 +1,12 @@
+library {
+  sources: ["shapes.buri"]
+
+  test {
+    sources: [
+      "test/tail_calls.buri",
+      "test/bitwise.buri",
+      "test/strings.buri",
+      "test/equality.buri",
+    ]
+  }
+}

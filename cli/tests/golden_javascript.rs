@@ -66,6 +66,28 @@ fn program_only(artifact: &str) -> String {
     out
 }
 
+/// V8 refuses to optimize a function above 61,440 bytecodes: past that it runs
+/// in the interpreter forever, however hot it gets. Bytes of minified source
+/// are not bytecodes, but they move together, and a whole-program compiler has
+/// three ways to grow one function without anyone noticing — the inliner's
+/// per-caller growth ceiling compounds over its rounds, a merged tail-call
+/// group fuses a whole mutually recursive component into one function, and
+/// `main` accumulates every single-use body inlined into it.
+///
+/// So the largest function is recorded, and a number that would put the limit
+/// within reach fails rather than being blessed. The corpus is small; the point
+/// is that the *trend* is visible in a diff.
+const LARGEST_FUNCTION_LIMIT: usize = 32768;
+
+/// The largest single declaration in an artifact, and what it is called.
+fn largest_function(artifact: &str) -> (String, usize) {
+    buri::compiler::backend::javascript::split_declarations(artifact)
+        .into_iter()
+        .map(|(name, src)| (name, src.len()))
+        .max_by_key(|(_, n)| *n)
+        .unwrap_or_else(|| (String::from("none"), 0))
+}
+
 /// Records what a program prints if nothing has been recorded yet, and
 /// otherwise compares — whether or not this run is blessing.
 ///
@@ -95,6 +117,7 @@ fn generated_javascript_matches_its_record() {
     let mut g = Golden::new();
     let mut sizes = String::new();
     let (mut total_release, mut total_generated) = (0usize, 0usize);
+    let mut biggest = (String::new(), 0usize);
 
     for case in &cases {
         let name = case.file_name().unwrap().to_string_lossy().to_string();
@@ -164,10 +187,28 @@ fn generated_javascript_matches_its_record() {
         ));
         total_release += release.len();
         total_generated += generated.len();
+
+        let (fname, fsize) = largest_function(&release);
+        if fsize > biggest.1 {
+            biggest = (format!("{name}/{fname}"), fsize);
+        }
+        if fsize > LARGEST_FUNCTION_LIMIT {
+            g.fail(format!(
+                "{name}: `{fname}` is {fsize} bytes of minified source, which puts it \
+                 within reach of V8's 61,440-bytecode ceiling — past that a function is \
+                 never optimized, however hot it gets. Look at what grew it: the \
+                 inliner's per-caller ceiling compounds over its rounds, a merged \
+                 tail-call group fuses a whole component, and `main` collects every \
+                 single-use body inlined into it."
+            ));
+        }
     }
     sizes.push_str(&format!(
         "\ntotal: {total_release} bytes artifact, {total_generated} generated\n"
     ));
+    // One number for the whole corpus, because what matters is the trend: a
+    // pass that starts fusing functions together shows up here first.
+    sizes.push_str(&format!("largest function: {} bytes, {}\n", biggest.1, biggest.0));
 
     g.check(&dir.join("sizes.txt"), "golden_javascript/sizes.txt", &sizes);
     g.finish("golden-js", cases.len());

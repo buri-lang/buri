@@ -1,0 +1,12 @@
+// A test source's items are its `test` declarations and its private helpers.
+// `twice` is the second kind: not exported, because there is nowhere for an
+// export to go.
+
+from "//lib/money" import { fromCents, format };
+from "core/testing/assert" import * as assert;
+
+fn twice(n: I64): I64 { n + n }
+
+test "pads the cents place" {
+  assert.eq(format(fromCents(twice(950))), "some");
+}

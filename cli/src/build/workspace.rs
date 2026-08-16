@@ -192,6 +192,10 @@ pub enum ModuleKind {
     BinaryEntry,
     /// `//pkg/inner` — one module inside a library.
     Internal,
+    /// `//pkg/schema.proto` — a module generated from a `.proto` schema. It is
+    /// `Internal` in every way that matters, and the separate kind exists so
+    /// the loader knows to *generate* it rather than read it.
+    Proto,
 }
 
 #[derive(Clone, Debug)]
@@ -385,6 +389,42 @@ impl Workspace {
         out
     }
 
+    /// The edges a target's *test* code adds: `test.dependencies` on either
+    /// rule, and `testing.dependencies` on a library.
+    ///
+    /// These are deliberately not part of [`Self::dep_edges`]. A test
+    /// dependency is not a dependency of the thing being shipped, so it must
+    /// not enter [`Self::closure`] — it would otherwise drag its tags into the
+    /// production tag closure, count against `unused-dep`, and make a cycle
+    /// out of a suite that merely borrows a helper. What it *is* subject to is
+    /// visibility: BUILD-FILES.md:359-360 exempts only a suite reaching the
+    /// target under test, and says everything else "including a test suite
+    /// reaching a library named in `test.dependencies`, is checked normally".
+    pub fn test_dep_edges(&self, t: TargetId) -> Vec<(TargetId, Option<Span>)> {
+        let p = self.pkg(t.pkg);
+        let mut declared: Vec<&Sp<String>> = Vec::new();
+        match t.kind {
+            RuleKind::Library => {
+                if let Some(l) = &p.build.library {
+                    declared.extend(l.test.dependencies.iter());
+                    declared.extend(l.testing.dependencies.iter());
+                }
+            }
+            RuleKind::Binary => {
+                if let Some(b) = &p.build.binary {
+                    declared.extend(b.test.dependencies.iter());
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for dep in declared {
+            if let Some(id) = self.dep_target(&dep.value) {
+                out.push((id, Some(dep.span)));
+            }
+        }
+        out
+    }
+
     /// A label in a `dependencies` list always means the library of that
     /// package, because a library is the only thing that can be depended on.
     /// `//lib/ledger/testing` names the testing surface, which lives in the
@@ -406,6 +446,49 @@ impl Workspace {
             .as_ref()
             .filter(|l| l.testing.present)
             .map(|_| TargetId { pkg: id, kind: RuleKind::Library })
+    }
+
+    /// Which rule a file in a package belongs to, by its package-relative
+    /// path.
+    ///
+    /// Every file belongs to exactly one rule — the `sources` sets are
+    /// disjoint (BUILD-FILES.md:299) — and in a package holding both rules
+    /// that is what the library boundary is drawn around. The boundary is a
+    /// property of the *rule*, not of the directory, so "is the importer
+    /// inside the package" is the wrong question and this is the right one.
+    ///
+    /// The entry points answer first, because they are named by the rule kind
+    /// rather than listed. A file no rule reaches is `None`, which is
+    /// `undeclared-source`'s business rather than this function's.
+    pub fn rule_of_file(&self, pkg: PkgId, rel: &str) -> Option<RuleKind> {
+        let p = self.pkg(pkg);
+        match rel {
+            "lib.buri" | "testing/lib.buri" if p.has_library() => return Some(RuleKind::Library),
+            "main.buri" if p.has_binary() => return Some(RuleKind::Binary),
+            _ => {}
+        }
+        if let Some(l) = &p.build.library {
+            let listed = l
+                .sources
+                .iter()
+                .chain(l.proto_sources.iter())
+                .chain(l.test.sources.iter())
+                .chain(l.testing.sources.iter());
+            if listed.into_iter().any(|s| s.value == rel) {
+                return Some(RuleKind::Library);
+            }
+        }
+        if let Some(b) = &p.build.binary {
+            if b.sources
+                .iter()
+                .chain(b.proto_sources.iter())
+                .chain(b.test.sources.iter())
+                .any(|s| s.value == rel)
+            {
+                return Some(RuleKind::Binary);
+            }
+        }
+        None
     }
 
     /// Everything reachable from `t` through `dependencies`, including `t`.
@@ -506,6 +589,12 @@ impl Workspace {
                 "" => (ModuleKind::LibrarySurface, pkg.dir.join("lib.buri")),
                 "testing" => (ModuleKind::TestingSurface, pkg.dir.join("testing/lib.buri")),
                 "main" => (ModuleKind::BinaryEntry, pkg.dir.join("main.buri")),
+                // A `.proto` path names the schema itself, extension and all.
+                // `build.proto`'s own header writes the import that way —
+                // `from "//proto/foo.proto" import ...` — so the module path
+                // and the file on disk are the same string, and there is no
+                // second spelling to learn.
+                r if r.ends_with(".proto") => (ModuleKind::Proto, pkg.dir.join(r)),
                 r => (ModuleKind::Internal, pkg.dir.join(format!("{r}.buri"))),
             };
             if !file.is_file() {

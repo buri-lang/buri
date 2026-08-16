@@ -1,0 +1,9 @@
+// A fixture built out of the real thing: this is inside //lib/money, so it
+// imports the library's internals directly.
+from "//lib/fixtures" import { sampleAmount };
+from "//lib/money/cents" import { Cents, fromCents };
+
+/// A well-formed amount, for anyone testing against one.
+export fn sample(): Cents {
+    fromCents(sampleAmount())
+}

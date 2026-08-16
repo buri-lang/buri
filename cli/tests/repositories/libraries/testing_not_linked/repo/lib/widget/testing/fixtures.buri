@@ -1,0 +1,5 @@
+// A fake, for somebody else's test. The marker is defined here and nowhere
+// else in the repository, so finding it in a production artifact would mean
+// this file had been linked into one.
+
+export fn fakeWidget(): Str { "WIDGET-TESTING-ONLY-MARKER" }

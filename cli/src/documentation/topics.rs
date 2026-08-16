@@ -212,6 +212,14 @@ pub const TOPICS: &[Topic] = &[
         &[],
     ),
     tagged(
+        "build/proto",
+        "Importing a `.proto` schema",
+        Kind::Build,
+        include_str!("../docs/build/proto.md"),
+        &["proto", "protobuf", "schema", "wire format", "varint", "oneof", "serialization", "json"],
+        &["build/build-files"],
+    ),
+    tagged(
         "build/hermeticity",
         "Hermeticity, actions, and the cache",
         Kind::Build,
@@ -238,6 +246,7 @@ pub const TOPICS: &[Topic] = &[
     t("guide/errors", "Errors are not ignorable", Kind::Guide, include_str!("../docs/guide/errors.md")),
     t("guide/imports", "Imports name the module first", Kind::Guide, include_str!("../docs/guide/imports.md")),
     t("guide/whats-in", "What's in v0.2", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
+    t("guide/installing", "Installing", Kind::Guide, include_str!("../docs/guide/installing.md")),
     t("guide/status", "Status and open questions", Kind::Guide, include_str!("../docs/guide/status.md")),
     t("guide/naming", "Naming", Kind::Guide, include_str!("../docs/guide/naming.md")),
 ];
@@ -247,9 +256,13 @@ pub const TOPICS: &[Topic] = &[
 pub const LANG_FRONT: &str = include_str!("../docs/lang/_front.md");
 pub const GUIDE_FRONT: &str = include_str!("../docs/guide/_front.md");
 
-/// The normative grammar. Hand-written and not derivable from the parser, so
-/// it ships as an artifact rather than being generated — but
-/// `every_grammar_keyword_is_a_keyword` holds it against `lexer::Kw`.
+/// The normative grammar, and the source the tree-sitter grammar is generated
+/// from (`documentation::grammar`). It is hand-written because it is the
+/// declaration and `parsing/parser.rs` is the implementation, but it is not
+/// inert: `every_grammar_keyword_is_a_keyword` holds it against `lexer::Kw`,
+/// `corpus.rs::the_tree_sitter_grammar_is_generated_from_the_ebnf` regenerates
+/// the editor grammar from it, and `editors/tree-sitter-buri/check.sh` holds
+/// the result to what the parser accepts and rejects.
 pub const GRAMMAR: &str = include_str!("../docs/grammar.ebnf");
 
 /// The build-file schemas, likewise normative and hand-written.

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package bad.v1;
+
+message Request {
+  string body = 1;
+  map<string, int32> labels = 2;
+  google.protobuf.Any payload = 3;
+  required int32 must = 4;
+  group Inline = 5 { int32 x = 6; }
+}
+
+extend Request {
+  int32 extra = 100;
+}
+
+service Greeter {
+  rpc Greet (Request) returns (Request);
+}

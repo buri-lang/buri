@@ -1,0 +1,170 @@
+// The function shapes the backend's tail-call elimination rewrites.
+//
+// Each of these is written so that eliminating its tail call *incorrectly*
+// changes the answer rather than merely the speed, which is what makes the
+// assertions in `test/` worth making.
+
+from "core/cap" import { Alloc };
+from "core/list" import * as list;
+
+// -----------------------------------------------------------------------------
+// Closures built inside a tail loop
+// -----------------------------------------------------------------------------
+//
+// A tail loop rebinds its parameters in place. A closure made in the body
+// therefore has to capture the *value* its iteration held, not the slot: by the
+// time it is called the loop has finished and the slot holds whatever the loop
+// stopped at. Compilers that rebind the parameter itself and never give the
+// iteration its own binding return the final value from every closure — Elm has
+// had exactly that miscompile open since 2016 (elm/compiler#2268).
+//
+// `adders(ctx, 0, [])` must hold `+0`, `+1`, `+2` and `+3`, in that order.
+
+export fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 4) { acc } else { adders(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
+}
+
+/// The same, in a mutually recursive pair, which the backend merges into one
+/// dispatch loop over shared slots — so the slots have the same hazard.
+///
+/// The two members build different closures, so the answers say which member
+/// ran as well as which value it captured.
+export fn addersEven<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 4) { acc } else { addersOdd(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
+}
+
+export fn addersOdd<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 4) { acc } else { addersEven(ctx, i + 1, acc.push(ctx, fn(x) => x * i)) }
+}
+
+/// A closure over a parameter the loop *never* rebinds. Nothing can go stale
+/// here, so this is the case a fix must leave alone.
+export fn scalers<C: Alloc>(ctx: C, k: Int, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 3) { acc } else { scalers(ctx, k, i + 1, acc.push(ctx, fn(x) => x * k)) }
+}
+
+/// Two closures per iteration over the same parameter, so a fix that gave the
+/// iteration one binding too few would show up as the two disagreeing.
+export fn pairs<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+  if (i >= 3) {
+    acc
+  } else {
+    pairs(ctx, i + 1, acc.push(ctx, fn(x) => x + i).push(ctx, fn(x) => x - i))
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Tail position under the short-circuiting operators
+// -----------------------------------------------------------------------------
+//
+// `a && f(x)` is `f(x)` whenever `a` holds, so `f(x)` is in tail position and
+// must run in constant stack (SPEC 8.3). The same goes for `a || f(x)` and for
+// `opt ?? f(x)`. These are the shapes of `all`, `any` and a linear search, so
+// they are exactly the functions an immutable language recurses through.
+//
+// The depths below are past what a JavaScript engine gives a recursive
+// function, so a compiler that leaves the call on the stack crashes here rather
+// than returning a wrong answer.
+
+/// `&&`: recurses while the guard holds, and the answer says how it left.
+export fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
+  if (i >= xs.len()) {
+    true
+  } else {
+    (xs.get(i) ?? 0) < limit && allBelow(xs, limit, i + 1)
+  }
+}
+
+/// `&&` with nothing but the counter, so the depth is the parameter.
+export fn countDownAnd(i: Int): Bool {
+  if (i <= 0) { true } else { i > -1 && countDownAnd(i - 1) }
+}
+
+/// `||`: the mirror image — recursion is what happens when the test fails.
+export fn countDownOr(i: Int): Bool {
+  if (i <= 0) { true } else { i < 0 || countDownOr(i - 1) }
+}
+
+/// `??`: the shape of a linear search, where the recursion is the fallback.
+export fn firstOr(xs: [Int], i: Int): Int {
+  if (i >= xs.len()) { -1 } else { xs.get(i) ?? firstOr(xs, i + 1) }
+}
+
+/// `??` that actually recurses: `none` never holds a value, so every step
+/// falls through to the tail call.
+export fn countDownCoalesce(i: Int): Int {
+  if (i <= 0) { 0 } else { noneAt(i) ?? countDownCoalesce(i - 1) }
+}
+
+/// Always empty, but not visibly so — a literal `.None` would let the compiler
+/// fold the `??` away and there would be nothing left to test.
+export fn noneAt(i: Int): Option<Int> {
+  if (i < 0) { .Some(i) } else { .None }
+}
+
+/// `&&` under a mutually recursive pair, so the merged dispatch loop is
+/// covered too.
+export fn evenAnd(i: Int): Bool {
+  if (i <= 0) { true } else { i > -1 && oddAnd(i - 1) }
+}
+
+export fn oddAnd(i: Int): Bool {
+  if (i <= 0) { true } else { i > -1 && evenAnd(i - 1) }
+}
+
+// -----------------------------------------------------------------------------
+// Derived structural equality
+// -----------------------------------------------------------------------------
+//
+// `derive Eq` can be answered two ways: by a runtime walker that rediscovers
+// the shape of the value as it goes, or by code compiled at the type. The two
+// have to agree on every value, and the interesting cases are the ones where
+// "structural" and "identical" come apart — `NaN`, `-0.0`, an `Option` whose
+// nesting is boxed, and an enum whose variants carry different numbers of
+// fields.
+//
+// The constructors are functions so that two equal values are two *objects*:
+// written as literals the compiler is free to share one, and then every
+// comparison would be answered by identity and prove nothing.
+
+export struct Pair { a: Int, b: Str }
+derive Eq, Show for Pair;
+
+export struct Floaty { x: Float }
+derive Eq for Floaty;
+
+export struct Nest { p: Pair, q: Floaty }
+derive Eq for Nest;
+
+export struct Holder { o: Option<Int> }
+derive Eq for Holder;
+
+export struct Deep { o: Option<Option<Int>> }
+derive Eq for Deep;
+
+export struct Listy { xs: [Int] }
+derive Eq for Listy;
+
+export struct Hollow {}
+derive Eq for Hollow;
+
+export enum Flat { export A, export B, export C }
+derive Eq for Flat;
+
+/// Three variants with three different arities, so a comparison that assumed
+/// one shape per enum would be caught.
+export enum Wide { export None0, export One(Int), export Two(Int, Str) }
+derive Eq for Wide;
+
+export fn mkPair(a: Int, b: Str): Pair { Pair { a: a, b: b } }
+export fn mkFloaty(x: Float): Floaty { Floaty { x: x } }
+export fn mkNest(p: Pair, q: Floaty): Nest { Nest { p: p, q: q } }
+export fn mkHolder(o: Option<Int>): Holder { Holder { o: o } }
+export fn mkDeep(o: Option<Option<Int>>): Deep { Deep { o: o } }
+export fn mkListy(xs: [Int]): Listy { Listy { xs: xs } }
+export fn mkHollow(): Hollow { Hollow {} }
+
+/// `0.0 / 0.0`, because there is no NaN literal and a folded constant would
+/// not be one either.
+export fn notANumber(): Float { zeroF() / zeroF() }
+fn zeroF(): Float { 0.0 }

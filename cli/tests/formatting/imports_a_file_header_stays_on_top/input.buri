@@ -1,0 +1,4 @@
+// What this module is for, said once, at the top.
+
+from "//lib/z" import { Zed };
+from "core/str" import * as str;

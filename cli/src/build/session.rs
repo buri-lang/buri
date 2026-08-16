@@ -32,6 +32,11 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
     let ws = Workspace::load(&root, &mut map, &mut diags).map_err(|e| e.to_string())?;
+    // Before anything is built: a repository pinned to a compiler this is not
+    // gets a refusal rather than an artifact. Every command that needs a
+    // repository comes through here, so the pin is checked once and cannot be
+    // the one thing a new command forgets.
+    crate::build::toolchain::verify(&ws.repo.toolchain)?;
     // JSON carries its own rendering, and escapes would corrupt it.
     let color = flags.error_format == ErrorFormat::Human
         && flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err());

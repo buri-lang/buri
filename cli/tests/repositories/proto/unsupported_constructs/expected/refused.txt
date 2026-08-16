@@ -1,0 +1,48 @@
+error: `map<>` is not supported [proto-unsupported]
+ --> lib/bad/service.proto:7:3
+  |
+7 |   map<string, int32> labels = 2;
+  |   ^^^
+  |
+  = a map field is sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be
+  = fix: declare `repeated Entry entries = N;` with an explicit `message Entry { ... }`
+error: `google.protobuf.Any` is not supported [proto-unsupported]
+ --> lib/bad/service.proto:8:3
+  |
+8 |   google.protobuf.Any payload = 3;
+  |   ^^^^^^^^^^^^^^^^^^^
+  |
+  = an `Any` holds a message whose type is known only at runtime, and a generated Buri type has to know its fields at compile time
+  = fix: declare a `oneof` over the message types the field can actually hold
+error: `required` is not supported [proto-unsupported]
+ --> lib/bad/service.proto:9:3
+  |
+9 |   required int32 must = 4;
+  |   ^^^^^^^^
+  |
+  = proto3 has no required fields; a field that must be there is a promise the format cannot keep across versions
+  = fix: drop `required`, or write `optional` if presence has to be visible
+error: `group` is not supported [proto-unsupported]
+  --> lib/bad/service.proto:10:3
+   |
+10 |   group Inline = 5 { int32 x = 6; }
+   |   ^^^^^
+   |
+   = groups are proto2's inline nesting, and their wire encoding was removed from proto3
+   = fix: declare a nested `message` and a field of that type
+error: `extend` is not supported [proto-unsupported]
+  --> lib/bad/service.proto:13:1
+   |
+13 | extend Request {
+   | ^^^^^^
+   |
+   = an extension adds fields to a message from outside it, so the generated type would not be the whole of the message
+   = fix: put the fields in the message itself
+error: `service` is not supported [proto-unsupported]
+  --> lib/bad/service.proto:17:1
+   |
+17 | service Greeter {
+   | ^^^^^^^
+   |
+   = this reader turns a schema into data types; it has no RPC transport to generate a stub against
+   = fix: delete the `service` block, or keep it in a schema this repository does not import

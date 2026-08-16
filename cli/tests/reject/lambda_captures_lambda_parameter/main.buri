@@ -1,0 +1,21 @@
+// EXPECT: a lambda may not capture `c`, which carries an effect
+// The context a `*Ctx` combinator passes in is a binding like any other, so a
+// lambda *inside* that lambda may not close over it either (SPEC 10.6).
+from "core/cap" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+from "core/list" import * as list;
+
+fn checkAll<C: Alloc + Fs>(ctx: C, paths: [Str]): [Bool] {
+  paths.mapCtx(ctx, fn(c, p) => {
+    let inner = fn() => fs.exists(c, p);
+    inner()
+  })
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let found = checkAll(ctx, ["a"]).len();
+  let _ = ctx.println("${found}");
+  .Ok(())
+}

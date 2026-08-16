@@ -1,0 +1,40 @@
+# TESTING.md:113. A test source may not `export`. Its items are its `test`
+# declarations and its private helpers, and the reason is the one above it in
+# the list: nothing can import a test source, so an `export` on one is a
+# promise to nobody.
+#
+# Recorded in both forms, which is also where the four-part contract is
+# enforced — the JSON recording fails the case if the diagnostic carries no
+# `fix`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test source may not export, and the diagnostic says where a shared helper goes instead"
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 0
+  golden: "clean.txt"
+  stream: OUT
+}
+
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "fn twice(n: I64): I64 { n + n }"
+  with: "export fn twice(n: I64): I64 { n + n }"
+}
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 1
+  golden: "export.txt"
+  stream: ERR
+}
+
+run {
+  args: ["test", "//lib/money", "--force", "--error-format=json"]
+  exit: 1
+  golden: "export.json"
+  stream: ERR
+}

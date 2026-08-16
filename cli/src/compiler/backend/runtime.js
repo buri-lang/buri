@@ -134,25 +134,67 @@ function $cmp(a, b) {
 
 // FNV-1a over 32 bits, which a double holds exactly. `Hash` returns a `U64`,
 // and the top bits are simply always zero.
+//
+// The accumulator is threaded through as an argument rather than captured,
+// because a closure over a mutable local has to be allocated on every call and
+// every hashed container calls this on every lookup. Same numbers, nothing
+// allocated. The array arm is an indexed loop for the same reason: `for..of`
+// allocates an iterator.
+function $mix(h, x) {
+  h = (h ^ (x >>> 0)) >>> 0;
+  return Math.imul(h, 0x01000193) >>> 0;
+}
+
+function $hashInto(h, x) {
+  if (Array.isArray(x)) {
+    h = $mix(h, x.length);
+    for (let i = 0; i < x.length; i++) h = $hashInto(h, x[i]);
+    return h;
+  }
+  if (x === undefined) return $mix(h, 0);
+  if (x !== null && typeof x === "object" && x.$n !== undefined) return $mix(h, x.$n + 1);
+  if (typeof x === "string") {
+    for (let i = 0; i < x.length; i++) h = $mix(h, x.charCodeAt(i));
+    return h;
+  }
+  if (typeof x === "boolean") return $mix(h, x ? 1 : 0);
+  return $mix(h, Math.trunc(x) || 0);
+}
+
 function $hash(v) {
-  let h = 0x811c9dc5;
-  const mix = (x) => {
-    h = (h ^ (x >>> 0)) >>> 0;
-    h = Math.imul(h, 0x01000193) >>> 0;
-  };
-  const go = (x) => {
-    if (Array.isArray(x)) {
-      mix(x.length);
-      for (const y of x) go(y);
-    } else if (x === undefined) mix(0);
-    else if (x !== null && typeof x === "object" && x.$n !== undefined) mix(x.$n + 1);
-    else if (typeof x === "string") {
-      for (let i = 0; i < x.length; i++) mix(x.charCodeAt(i));
-    } else if (typeof x === "boolean") mix(x ? 1 : 0);
-    else mix(Math.trunc(x) || 0);
-  };
-  go(v);
-  return h;
+  return $hashInto(0x811c9dc5, v);
+}
+
+// The joins `$show` needs, as loops. Each of these was a `.map(…).join(", ")`,
+// which allocates a fresh arrow *and* an intermediate array on every call —
+// and `$show` runs at least once per assertion in every test suite, so it is
+// worth not doing.
+function $showFields(fields, types, xs) {
+  let out = "";
+  for (let i = 0; i < fields.length; i++) {
+    if (i) out += ", ";
+    out += fields[i] + ": " + $show(xs[i], types[i]);
+  }
+  return out;
+}
+
+function $showArgs(xs, types) {
+  let out = "";
+  for (let i = 0; i < xs.length; i++) {
+    if (i) out += ", ";
+    out += $show(xs[i], types[i]);
+  }
+  return out;
+}
+
+// One shared element type, which is what a list has.
+function $showEach(xs, t) {
+  let out = "";
+  for (let i = 0; i < xs.length; i++) {
+    if (i) out += ", ";
+    out += $show(xs[i], t);
+  }
+  return out;
 }
 
 function $show(v, d) {
@@ -173,14 +215,9 @@ function $show(v, d) {
     const [, name, record, fields, types] = d;
     if (!fields.length) return name;
     if (record) {
-      return (
-        name +
-        " { " +
-        fields.map((f, i) => f + ": " + $show(v[i], types[i])).join(", ") +
-        " }"
-      );
+      return name + " { " + $showFields(fields, types, v) + " }";
     }
-    return name + "(" + v.map((x, i) => $show(x, types[i])).join(", ") + ")";
+    return name + "(" + $showArgs(v, types) + ")";
   }
   if (k === 3) {
     // [3, name, variants, payloadless]
@@ -190,23 +227,254 @@ function $show(v, d) {
     if (!fields.length) return "." + vname;
     const args = flat ? [] : v.slice(1);
     if (record) {
-      return (
-        "." +
-        vname +
-        " { " +
-        fields.map((f, i) => f + ": " + $show(args[i], types[i])).join(", ") +
-        " }"
-      );
+      return "." + vname + " { " + $showFields(fields, types, args) + " }";
     }
-    return "." + vname + "(" + args.map((x, i) => $show(x, types[i])).join(", ") + ")";
+    return "." + vname + "(" + $showArgs(args, types) + ")";
   }
   // [7, payload] -- an `Option`, which has no tag to read.
   if (k === 7) {
     return v === undefined ? ".None" : ".Some(" + $show($val(v), d[1]) + ")";
   }
-  if (k === 4) return "[" + v.map((x) => $show(x, d[1])).join(", ") + "]";
-  if (k === 5) return "(" + v.map((x, i) => $show(x, d[1][i])).join(", ") + ")";
+  if (k === 4) return "[" + $showEach(v, d[1]) + "]";
+  if (k === 5) return "(" + $showArgs(v, d[1]) + ")";
   return $str(v);
+}
+
+// --- core/json ----------------------------------------------------------------
+//
+// `derive ToJson` and `derive FromJson` are one walk over a type descriptor
+// each, in place of an encoder and a decoder generated per type. What the walk
+// means — which Buri shape becomes which JSON shape — is written down in
+// `core/json`'s own source, and this is the half that runs.
+//
+// A `Json` is the enum `core/json` declares, so its variant tags are that
+// declaration's order and nothing else: 0 Null, 1 Bool, 2 Num, 3 Str, 4 Array,
+// 5 Object. A runtime walker is the one place that builds a value of a library
+// type without the library's help, so those five numbers are the seam. The
+// conformance suite asserts `json.encode(ctx, 1) == Json.Num(1.0)` and its four
+// siblings, which is what keeps the two ends in step.
+
+function $json_bool(b) {
+  return [1, b];
+}
+
+function $json_num(x) {
+  return [2, x];
+}
+
+function $json_str(s) {
+  return [3, s];
+}
+
+// The three loops the encoding walk needs. Each was a `.map(…)` once, which
+// allocates an arrow per call, and encoding is a per-element operation.
+function $jsonFields(fields, types, xs) {
+  const out = new Array(fields.length);
+  for (let i = 0; i < fields.length; i++) out[i] = [fields[i], $json_of(xs[i], types[i])];
+  return out;
+}
+
+function $jsonArgs(xs, types) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = $json_of(xs[i], types[i]);
+  return out;
+}
+
+// One shared element type, which is what a list has.
+function $jsonEach(xs, t) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = $json_of(xs[i], t);
+  return out;
+}
+
+function $json_of(v, d) {
+  const k = d[0];
+  if (k === 0) {
+    const p = d[1];
+    if (p === "b") return [1, v];
+    // A `Char` is a one-scalar string, so it is a JSON string like `Str`.
+    if (p === "s" || p === "c") return [3, v];
+    return [2, v];
+  }
+  if (k === 1) return [0];
+  if (k === 2) {
+    // [2, name, record, fields, types]
+    const [, , record, fields, types] = d;
+    if (record) return [5, $jsonFields(fields, types, v)];
+    return [4, $jsonArgs(v, types)];
+  }
+  if (k === 3) {
+    // [3, name, variants, payloadless] — externally tagged: a variant with no
+    // fields is its own name, and one with fields is a single-member object.
+    const [, , variants, flat] = d;
+    const tag = flat ? v : v[0];
+    const [vname, record, fields, types] = variants[tag];
+    if (!fields.length) return [3, vname];
+    const args = flat ? [] : v.slice(1);
+    const payload = record
+      ? [5, $jsonFields(fields, types, args)]
+      : [4, $jsonArgs(args, types)];
+    return [5, [[vname, payload]]];
+  }
+  // [7, payload] — an `Option`, which is its payload or `null`.
+  if (k === 7) return v === undefined ? [0] : $json_of($val(v), d[1]);
+  if (k === 4) return [4, $jsonEach(v, d[1])];
+  if (k === 5) return [4, $jsonArgs(v, d[1])];
+  return [0];
+}
+
+// What the document actually held, for the message. Never the value itself: a
+// decode error names a place and a shape, and a document is not something to
+// paste into a terminal.
+function $jsonFound(j) {
+  const k = j[0];
+  if (k === 0) return "null";
+  if (k === 1) return "a boolean";
+  if (k === 2) return "a number";
+  if (k === 3) return "a string";
+  if (k === 4) return "an array";
+  return "an object";
+}
+
+// A failure is thrown rather than returned, so the walk carries no result
+// wrapper down every level and the succeeding path allocates only what it
+// keeps. `$json_decode` is the one place that catches it, and the one place
+// the error crosses back into Buri.
+function $jsonThrow(e) {
+  const err = new Error("json decode failed");
+  err.$json = e;
+  throw err;
+}
+
+function $jsonWrong(p, wanted, j) {
+  $jsonThrow([1, p, wanted, $jsonFound(j)]);
+}
+
+function $jsonMember(entries, key, p) {
+  for (let i = 0; i < entries.length; i++) if (entries[i][0] === key) return entries[i][1];
+  $jsonThrow([0, p + "." + key]);
+}
+
+function $jsonVariant(variants, name, p) {
+  for (let i = 0; i < variants.length; i++) if (variants[i][0] === name) return i;
+  $jsonThrow([2, p, name]);
+}
+
+function $jsonVariantInto(j, d, p) {
+  const variants = d[2];
+  const flat = d[3];
+  // A variant with no fields is written as its name, and nothing else is.
+  if (j[0] === 3) {
+    const t = $jsonVariant(variants, j[1], p);
+    if (variants[t][2].length) $jsonWrong(p, "an object naming " + j[1] + "'s fields", j);
+    return flat ? t : [t];
+  }
+  if (j[0] !== 5) $jsonWrong(p, "a string or an object", j);
+  const entries = j[1];
+  if (entries.length !== 1) $jsonWrong(p, "an object with one member, naming the variant", j);
+  const name = entries[0][0];
+  const t = $jsonVariant(variants, name, p);
+  const record = variants[t][1];
+  const fields = variants[t][2];
+  const types = variants[t][3];
+  if (!fields.length) $jsonWrong(p, "the string " + name, j);
+  const inner = entries[0][1];
+  const q = p + "." + name;
+  const out = new Array(fields.length + 1);
+  out[0] = t;
+  if (record) {
+    if (inner[0] !== 5) $jsonWrong(q, "an object", inner);
+    for (let i = 0; i < fields.length; i++) {
+      out[i + 1] = $json_into($jsonMember(inner[1], fields[i], q), types[i], q + "." + fields[i]);
+    }
+    return out;
+  }
+  if (inner[0] !== 4) $jsonWrong(q, "an array", inner);
+  if (inner[1].length !== fields.length) $jsonWrong(q, "an array of length " + fields.length, inner);
+  for (let i = 0; i < fields.length; i++) {
+    out[i + 1] = $json_into(inner[1][i], types[i], q + "[" + i + "]");
+  }
+  return out;
+}
+
+function $json_into(j, d, p) {
+  const k = d[0];
+  if (k === 0) {
+    const t = d[1];
+    if (t === "b") {
+      if (j[0] !== 1) $jsonWrong(p, "a boolean", j);
+      return j[1];
+    }
+    if (t === "s") {
+      if (j[0] !== 3) $jsonWrong(p, "a string", j);
+      return j[1];
+    }
+    if (t === "c") {
+      // A `Char` is one Unicode scalar value, which is one iteration step of a
+      // string rather than one UTF-16 unit of it.
+      if (j[0] !== 3 || Array.from(j[1]).length !== 1) {
+        $jsonWrong(p, "a one-character string", j);
+      }
+      return j[1];
+    }
+    if (j[0] !== 2) $jsonWrong(p, t === "f" ? "a number" : "an integer", j);
+    // JSON has one number type, so an integer field is a number that happens
+    // to be whole — and a document that says `1.5` is not one.
+    if (t !== "f" && !Number.isInteger(j[1])) $jsonWrong(p, "an integer", j);
+    return j[1];
+  }
+  if (k === 1) {
+    if (j[0] !== 0) $jsonWrong(p, "null", j);
+    return 0;
+  }
+  if (k === 2) {
+    const [, , record, fields, types] = d;
+    const out = new Array(fields.length);
+    if (record) {
+      if (j[0] !== 5) $jsonWrong(p, "an object", j);
+      for (let i = 0; i < fields.length; i++) {
+        out[i] = $json_into($jsonMember(j[1], fields[i], p), types[i], p + "." + fields[i]);
+      }
+      return out;
+    }
+    if (j[0] !== 4) $jsonWrong(p, "an array", j);
+    if (j[1].length !== fields.length) $jsonWrong(p, "an array of length " + fields.length, j);
+    for (let i = 0; i < fields.length; i++) {
+      out[i] = $json_into(j[1][i], types[i], p + "[" + i + "]");
+    }
+    return out;
+  }
+  if (k === 3) return $jsonVariantInto(j, d, p);
+  if (k === 7) return j[0] === 0 ? undefined : $some($json_into(j, d[1], p));
+  if (k === 4) {
+    if (j[0] !== 4) $jsonWrong(p, "an array", j);
+    const xs = j[1];
+    const out = new Array(xs.length);
+    for (let i = 0; i < xs.length; i++) out[i] = $json_into(xs[i], d[1], p + "[" + i + "]");
+    return out;
+  }
+  if (k === 5) {
+    if (j[0] !== 4) $jsonWrong(p, "an array", j);
+    const types = d[1];
+    if (j[1].length !== types.length) $jsonWrong(p, "an array of length " + types.length, j);
+    const out = new Array(types.length);
+    for (let i = 0; i < types.length; i++) {
+      out[i] = $json_into(j[1][i], types[i], p + "[" + i + "]");
+    }
+    return out;
+  }
+  $jsonWrong(p, "a type with a shape", j);
+}
+
+// `$` is the document, and the path grows from there, so an error names a
+// place a reader can find in the text in front of them.
+function $json_decode(j, d) {
+  try {
+    return [0, $json_into(j, d, "$")];
+  } catch (e) {
+    if (e !== null && typeof e === "object" && e.$json !== undefined) return [1, e.$json];
+    throw e;
+  }
 }
 
 // --- core/list ----------------------------------------------------------------
@@ -404,20 +672,44 @@ function $chars(s) {
   return Array.from(s);
 }
 
+// A JavaScript string is a sequence of UTF-16 code units, and a code unit is a
+// whole scalar value *unless* it is a surrogate — the astral scalars, and only
+// those, are written as a surrogate pair. So a string containing no surrogate
+// has exactly one scalar per code unit, its `length` is the scalar count, and
+// `s[i]` is the scalar at index `i`.
+//
+// That is worth testing for, because `$chars` allocates an array as long as the
+// string: without this, `len` was O(n) *with an allocation*, and the ordinary
+// `for i in 0..s.len() { s.charAt(i) }` scan was O(n²) with n allocations. The
+// scan is still quadratic here — the fix for that is to iterate `chars()`
+// rather than to index — but the constant is about a hundred times smaller.
+//
+// A lone unpaired surrogate takes the slow path, where `Array.from` yields it
+// as one element, which is the same answer as before.
+const $surrogate = /[\uD800-\uDFFF]/;
+
+function $wide(s) {
+  return $surrogate.test(s);
+}
+
 function $str_len(s) {
-  return $chars(s).length;
+  return $wide(s) ? $chars(s).length : s.length;
 }
 
 function $str_charAt(s, i) {
-  const cs = $chars(s);
   const n = Number(i);
+  if (!$wide(s)) return n >= 0 && n < s.length ? $some(s[n]) : undefined;
+  const cs = $chars(s);
   return n >= 0 && n < cs.length ? $some(cs[n]) : undefined;
 }
 
 function $str_slice(s, a, b) {
-  return $chars(s)
-    .slice(Math.max(0, Number(a)), Math.max(0, Number(b)))
-    .join("");
+  const lo = Math.max(0, Number(a));
+  const hi = Math.max(0, Number(b));
+  // `String.prototype.slice` clamps past the end and answers "" when the end
+  // is at or before the start, which is what the array path does too.
+  if (!$wide(s)) return s.slice(lo, hi);
+  return $chars(s).slice(lo, hi).join("");
 }
 
 function $str_trim(s) {
@@ -446,7 +738,11 @@ function $str_contains(s, n) {
 
 function $str_indexOf(s, n) {
   const i = s.indexOf(n);
-  return i < 0 ? undefined : $some($chars(s.slice(0, i)).length);
+  if (i < 0) return undefined;
+  // The answer is a scalar index, and `indexOf` gives a code-unit index, so
+  // what has to be counted is the prefix — and only when it holds a surrogate.
+  const prefix = s.slice(0, i);
+  return $some($wide(prefix) ? $chars(prefix).length : i);
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
@@ -541,12 +837,12 @@ function $str_fromFloat(c, x) {
 }
 
 function $str_padStart(s, c, w, fill) {
-  const n = Number(w) - $chars(s).length;
+  const n = Number(w) - $str_len(s);
   return n > 0 ? fill.repeat(n) + s : s;
 }
 
 function $str_padEnd(s, c, w, fill) {
-  const n = Number(w) - $chars(s).length;
+  const n = Number(w) - $str_len(s);
   return n > 0 ? s + fill.repeat(n) : s;
 }
 
@@ -644,16 +940,28 @@ function $big(x) {
 // Only the 64-bit types route through here. At 32 bits and below the native
 // operators are exact, and staying on them keeps ordinary integer code as fast
 // as ordinary JavaScript.
+//
+// A BigInt is a heap object in every engine — no small-integer form — so each
+// of these otherwise allocates two of them and pays a `Number(bigint)`
+// conversion on the way out, which alone costs about twenty-five times an
+// ordinary addition. Almost every operand is small, and where both already fit
+// in a signed 32-bit integer JavaScript's own operator is *exact*: AND, OR, XOR
+// and NOT distribute over sign extension, so the 32-bit answer sign-extends to
+// the 64-bit one. The BigInt is built only when that is not true.
 function $and64(a, b) {
+  if ((a | 0) === a && (b | 0) === b) return a & b;
   return Number(BigInt.asIntN(64, $big(a) & $big(b)));
 }
 function $or64(a, b) {
+  if ((a | 0) === a && (b | 0) === b) return a | b;
   return Number(BigInt.asIntN(64, $big(a) | $big(b)));
 }
 function $xor64(a, b) {
+  if ((a | 0) === a && (b | 0) === b) return a ^ b;
   return Number(BigInt.asIntN(64, $big(a) ^ $big(b)));
 }
 function $not64(a) {
+  if ((a | 0) === a) return ~a;
   return Number(BigInt.asIntN(64, ~$big(a)));
 }
 
@@ -668,13 +976,23 @@ function $umask(v, bits) {
 
 // The unsigned forms differ only in how the result is narrowed, which is the
 // difference between `~0` being `-1` and being `2^64 - 1`.
+//
+// That difference is also what makes their fast path narrower than the signed
+// one: it holds only where the two narrowings agree, which is both operands
+// non-negative and below 2^31, where the result is non-negative too. `$notU64`
+// has no fast path at all — `~a` for a non-negative `a` is negative, and
+// `asUintN` maps it above 2^53, so there is nothing a 32-bit operator could
+// answer.
 function $andU64(a, b) {
+  if (a >= 0 && b >= 0 && (a | 0) === a && (b | 0) === b) return a & b;
   return Number(BigInt.asUintN(64, $big(a) & $big(b)));
 }
 function $orU64(a, b) {
+  if (a >= 0 && b >= 0 && (a | 0) === a && (b | 0) === b) return a | b;
   return Number(BigInt.asUintN(64, $big(a) | $big(b)));
 }
 function $xorU64(a, b) {
+  if (a >= 0 && b >= 0 && (a | 0) === a && (b | 0) === b) return a ^ b;
   return Number(BigInt.asUintN(64, $big(a) ^ $big(b)));
 }
 function $notU64(a) {
@@ -834,6 +1152,39 @@ function $bytes_fromUtf8(_c, b) {
   return $ok(out);
 }
 
+// The IEEE 754 byte patterns, little-endian. Intrinsics for the same reason
+// the UTF-8 pair above are: the bit pattern of a double belongs to the
+// platform, and reconstructing it from arithmetic would be a second definition
+// of the same thing. `Option<T>` is the value or `undefined`, so a short input
+// simply returns nothing.
+const $f64buf = new DataView(new ArrayBuffer(8));
+
+function $bytes_f64ToBytes(_c, x) {
+  $f64buf.setFloat64(0, x, true);
+  const out = [];
+  for (let i = 0; i < 8; i++) out.push($f64buf.getUint8(i));
+  return out;
+}
+
+function $bytes_f64FromBytes(b, at) {
+  if (at < 0 || at + 8 > b.length) return undefined;
+  for (let i = 0; i < 8; i++) $f64buf.setUint8(i, b[at + i] & 0xff);
+  return $f64buf.getFloat64(0, true);
+}
+
+function $bytes_f32ToBytes(_c, x) {
+  $f64buf.setFloat32(0, x, true);
+  const out = [];
+  for (let i = 0; i < 4; i++) out.push($f64buf.getUint8(i));
+  return out;
+}
+
+function $bytes_f32FromBytes(b, at) {
+  if (at < 0 || at + 4 > b.length) return undefined;
+  for (let i = 0; i < 4; i++) $f64buf.setUint8(i, b[at + i] & 0xff);
+  return $f64buf.getFloat32(0, true);
+}
+
 // A RangeError is a struct { value: Str, target: Str }.
 // The message quotes the value as it was written, so the rendering follows the
 // source type rather than the runtime one: every number is a `number` here.
@@ -911,6 +1262,28 @@ function $host_HostStdout_println(self, t) {
   return 0;
 }
 
+// Octets, written through unchanged. The buffered text stream is flushed
+// first, so the two orderings a program can see are the one it wrote.
+function $host_HostStdout_writeBytes(self, b) {
+  $host.flush();
+  $writeRaw(1, b);
+  return 0;
+}
+
+function $writeRaw(fd, bytes) {
+  const buf = typeof Buffer !== "undefined" ? Buffer.from(bytes) : Uint8Array.from(bytes);
+  if (typeof Bun !== "undefined") {
+    // Bun's stdout writer is async; `writeSync` on the file descriptor is not,
+    // and a protocol that answers a request has to have answered before it
+    // reads the next one.
+    $fs().writeSync(fd, buf);
+  } else if (typeof process !== "undefined") {
+    $fs().writeSync(fd, buf);
+  } else {
+    throw new Error("no way to write bytes on this platform");
+  }
+}
+
 function $host_HostStderr_eprint(self, t) {
   $host.err.push(t);
   return 0;
@@ -936,6 +1309,29 @@ function $host_HostStdin_readLine(self) {
     if ($stdinLines.length && $stdinLines[$stdinLines.length - 1] === "") $stdinLines.pop();
   }
   return $stdinAt < $stdinLines.length ? $some($stdinLines[$stdinAt++]) : undefined;
+}
+
+// Exactly `n` octets, blocking until they arrive. `read` on a pipe returns
+// what is available rather than what was asked for, so this loops — and a
+// short read at end of input yields what it got, or nothing at all.
+function $host_HostStdin_readBytes(self, n) {
+  if (n <= 0) return [];
+  const buf = Buffer.alloc(n);
+  let got = 0;
+  while (got < n) {
+    let r;
+    try {
+      r = $fs().readSync(0, buf, got, n - got, null);
+    } catch (e) {
+      if (e && e.code === "EAGAIN") continue;
+      if (e && e.code === "EOF") break;
+      throw e;
+    }
+    if (r === 0) break;
+    got += r;
+  }
+  if (got === 0) return undefined;
+  return Array.from(buf.subarray(0, got));
 }
 
 // `IoError` has a variant with a payload (`Other(Str)`), so every value of it
@@ -1112,7 +1508,29 @@ function $testing_context_stdin(lines) {
 
 function $testing_context_TestStdin_readLine(self) {
   const s = $slot(self);
+  if (s.bytes) return undefined;
   return s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined;
+}
+
+function $testing_context_stdinBytes(b) {
+  return $handle({ lines: [], at: 0, bytes: b.slice() });
+}
+
+function $testing_context_TestStdin_readBytes(self, n) {
+  const s = $slot(self);
+  const src = s.bytes || [];
+  if (s.at >= src.length || n <= 0) return undefined;
+  const out = src.slice(s.at, s.at + n);
+  s.at += out.length;
+  return out;
+}
+
+// The captured stream is text, so octets are captured as the text they spell:
+// `captured` answers one question rather than two.
+function $testing_context_CaptureOut_writeBytes(self, b) {
+  const r = $bytes_fromUtf8(null, b);
+  $slot(self).text += r[0] === 0 ? r[1] : String.fromCharCode.apply(null, b);
+  return 0;
 }
 
 // In-memory, rooted at the package directory, containing exactly test.data.

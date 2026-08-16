@@ -12,9 +12,9 @@
 //! is registered.
 //!
 //! When a block legitimately cannot be compiled, tag it `ignore why="..."`.
-//! Those are listed by file and line in `documentation_example_ignores.txt`, and
-//! `the_ignore_list_only_shrinks` fails when a new one appears without being
-//! recorded — so an untested example is a reviewable line in a diff rather
+//! The reason is required — a fence without one does not extract — and
+//! `untested_examples_say_why_and_do_not_multiply` puts a ceiling on how many
+//! there may be, so an untested example is a reviewable line in a diff rather
 //! than a silence.
 
 use buri::documentation::{examples, topics};
@@ -78,43 +78,59 @@ fn cli_reference_examples() {
     assert!(failures.is_empty(), "\n{}", examples::report(&failures));
 }
 
-/// The untested examples, by file and line, with the reason each gives.
+/// How many examples may go untested. It may be lowered and not raised.
 ///
-/// This may shrink and may not grow. `BURI_BLESS=1` rewrites it, which is the
-/// escape hatch for a deliberate addition — the point is that adding one shows
-/// up in review, not that it is forbidden.
+/// This used to be a checked-in list of every ignored fence by file and line,
+/// which was a readout of what the suite had just found rather than anything
+/// to compare against — it said nothing the documents do not already say, and
+/// it went stale on every edit. What it was really buying was the ratchet, and
+/// a ratchet is one number.
+///
+/// The other half of what it bought is already a property of the documents:
+/// `ignore` without `why=` is an extraction failure
+/// (`documentation::examples::parse_block`), so the reason for every one of
+/// these is written where a reader of the diff can weigh it, in the `.md`.
+const MAX_IGNORED_EXAMPLES: usize = 62;
+
+/// An untested example is a claim nobody checks, so there is a ceiling on how
+/// many of them there may be and each one says why in the document itself.
+///
+/// Converting one is a smaller number here. Adding one is a bigger number
+/// here, in the same diff as the fence — which is the point: it should be
+/// visible, not forbidden.
 #[test]
-fn the_ignore_list_only_shrinks() {
-    let mut lines = Vec::new();
+fn untested_examples_say_why_and_do_not_multiply() {
+    let mut ignored = Vec::new();
+    let mut silent = Vec::new();
     for t in topics::TOPICS {
         for block in examples::extract(&topic_path(t.id), t.text).blocks {
             if block.mode != examples::Mode::Ignore {
                 continue;
             }
-            lines.push(format!(
-                "{}:{}  {}",
-                block.origin.file,
-                block.origin.line,
-                block.why.as_deref().unwrap_or("(no reason)")
-            ));
+            let at = format!("{}:{}", block.origin.file, block.origin.line);
+            match block.why.as_deref() {
+                Some(why) if !why.trim().is_empty() => ignored.push(at),
+                // Belt and braces: extraction already refuses this, and it is
+                // cheap to say so here too rather than to trust that the
+                // suite above is the only reader of these fences.
+                _ => silent.push(at),
+            }
         }
     }
-    lines.sort();
-    let actual = lines.join("\n");
-
-    let path = repo_root().join("cli/tests/documentation_example_ignores.txt");
-    if std::env::var_os("BURI_BLESS").is_some() {
-        std::fs::write(&path, format!("{actual}\n")).expect("writing the ignore list");
-        return;
-    }
-    let expected = std::fs::read_to_string(&path).unwrap_or_default();
-    assert_eq!(
-        actual.trim(),
-        expected.trim(),
-        "the list of untested examples changed.\n\
-         If that is deliberate, re-bless it:\n  \
-         BURI_BLESS=1 cargo test -p buri --test documentation_examples the_ignore_list"
+    assert!(
+        silent.is_empty(),
+        "an `ignore` block must say why, and these do not:\n  {}",
+        silent.join("\n  ")
     );
+    assert!(
+        ignored.len() <= MAX_IGNORED_EXAMPLES,
+        "{} examples are untested, and the ceiling is {MAX_IGNORED_EXAMPLES}.\n\
+         Compile the new one, or raise `MAX_IGNORED_EXAMPLES` in the same diff \
+         as the fence so that the addition is what gets reviewed:\n  {}",
+        ignored.len(),
+        ignored.join("\n  ")
+    );
+    eprintln!("{} untested example(s), ceiling {MAX_IGNORED_EXAMPLES}", ignored.len());
 }
 
 /// A census, so that a harness regression shows up as a changed count rather

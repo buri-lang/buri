@@ -1,0 +1,24 @@
+// The codegen package: language guarantees that only a *compiled* program can
+// break.
+//
+// Everything under `test/` here asserts on an answer that is right by the
+// language definition and that a backend transformation could silently make
+// wrong — tail-call elimination above all (SPEC 8.3). A pass that eliminates a
+// tail call has to preserve both the answer and the constant stack space, and
+// the two failures look nothing alike: one is a wrong number, the other is a
+// crash at depth. Both are asserted here.
+//
+// The shapes live in `shapes.buri` rather than in the test files because a
+// transformation only fires on a whole function, so what is under test has to
+// be a function the compiler saw as one.
+
+from "//lib/codegen/shapes" export {
+  // closures built inside a tail loop
+  adders, addersEven, addersOdd, scalers, pairs,
+  // tail position under the short-circuiting operators
+  allBelow, countDownAnd, countDownOr, firstOr, countDownCoalesce, noneAt,
+  evenAnd, oddAnd,
+  // derived structural equality
+  Pair, Floaty, Nest, Holder, Deep, Listy, Hollow, Flat, Wide,
+  mkPair, mkFloaty, mkNest, mkHolder, mkDeep, mkListy, mkHollow, notANumber,
+};

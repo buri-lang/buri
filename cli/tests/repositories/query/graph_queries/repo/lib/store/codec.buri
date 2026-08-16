@@ -1,0 +1,1 @@
+export fn encode(memo: Str): Str { memo }

@@ -1,0 +1,8 @@
+error: //tools/report/detail is internal to the library //tools/report [internal-import]
+  --> tools/report/main.buri:10:6
+   |
+10 | from "//tools/report/detail" import { verbose };
+   |      ^^^^^^^^^^^^^^^^^^^^^^^ the binary reaches the library only through its entry point
+   |
+   = only names re-exported by tools/report/lib.buri are available, and tools/report/main.buri belongs to the binary rule rather than the library's
+   = fix: import the library instead: from "//tools/report" import { ... }

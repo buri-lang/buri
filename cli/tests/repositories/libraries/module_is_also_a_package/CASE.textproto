@@ -1,0 +1,46 @@
+# LIBRARIES.md, rule 3 of the module-path rules: a module path may not also be
+# a package path. `lib/money/cents.buri` is a module of //lib/money and its
+# path is "//lib/money/cents"; a package at `lib/money/cents/` claims the same
+# spelling, so one of the two has to be renamed and the toolchain says which
+# two they are.
+#
+# The pair is rejected **by name**, before anything imports either of them.
+# That is the whole point: a repository where a path means two things is
+# refused as a repository, rather than resolving one way today and the other
+# way after somebody reorders a list.
+#
+# //lib/money/rounding is the near miss, in the same repository, so that the
+# rule cannot quietly become "a subpackage is an error": //lib/money has no
+# rounding.buri beside it, and nothing is said about it.
+#
+# The refusal is exit 2 rather than 1. It is not a finding about the code — it
+# is the repository being unreadable, the same answer an unparseable build file
+# gets (repos/cli/exit_codes).
+#
+# There is deliberately no closing edit that makes it clean: the fix is to
+# rename a file or delete a directory, and a case step edits text inside one.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a module path that is also a package path is rejected by name, and a subpackage with no module of the same name is not"
+
+run {
+  args: ["lint", "//..."]
+  exit: 2
+  golden: "collision.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 2
+  golden: "collision.json"
+}
+
+# Every command comes through the same load, so none of them can be the one
+# that misses it.
+run {
+  args: ["build", "//lib/money"]
+  exit: 2
+  golden: "collision.txt"
+}

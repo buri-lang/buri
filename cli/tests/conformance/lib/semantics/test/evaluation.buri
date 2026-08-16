@@ -18,6 +18,7 @@ from "//lib/semantics" import {
   noteIf, noteMatch, noteLets, threeInts, fourStrs,
   Level, Meters,
   applyTwice, makeAdder, makeScaler, compose, pipeline, callWith,
+  Report, occursIn, composeThrice,
   sumFirstTwo, parseSum, lambdaTry, lambdaTryResult, tryThenCoalesce, defaulted, defaultedResult,
   hypotenuse, shadowed, nestedShadow,
 };
@@ -524,6 +525,38 @@ test "a lambda returning a lambda" {
   let adder = fn(n: Int): fn(Int) => Int => fn(x) => x + n;
   let addThree = adder(3);
   assert.eq(addThree(4), 7);
+}
+
+// -----------------------------------------------------------------------------
+// 7a. What a lambda may capture (SPEC 10.6)
+// -----------------------------------------------------------------------------
+//
+// The capture rule is scoped to values that carry an effect. These are the
+// three shapes at its edge that must stay legal, each of which the checker has
+// at some point refused: a non-effect-carrying `self`, a value whose type is a
+// bounded type parameter, and a closure.
+
+test "a lambda may capture a `self` that carries no effect" {
+  let ctx = Hermetic();
+  assert.eq(Report { n: 2 }.above(ctx, [1, 2, 3, 4]), [3, 4]);
+  assert.eq(Report { n: 9 }.above(ctx, [1, 2, 3, 4]), list.empty::<Int>());
+}
+
+test "a lambda that captures `self` may outlive the call" {
+  let over = Report { n: 5 }.threshold();
+  assert.isTrue(over(6));
+  assert.isFalse(over(5));
+}
+
+test "a lambda may capture a value of a bounded type-parameter type" {
+  assert.isTrue(occursIn([1, 2, 3], 2));
+  assert.isFalse(occursIn([1, 2, 3], 9));
+  assert.isTrue(occursIn(["a", "b"], "b"));
+}
+
+test "a lambda may capture a closure whatever its type parameters are" {
+  let thrice = composeThrice(makeAdder(2));
+  assert.eq(thrice(1), 7);
 }
 
 // -----------------------------------------------------------------------------

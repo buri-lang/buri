@@ -39,27 +39,91 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
     let has_library = doc.get("library").is_some();
     let has_binary = doc.get("binary").is_some();
 
-    // Every `.buri` file in the package, by category.
+    // Every `.buri` and `.proto` file in the package, by category.
     let mut files = Vec::new();
-    collect(&dir, &dir, &mut files);
+    let mut schemas = Vec::new();
+    collect(&dir, &dir, &mut files, &mut schemas);
     files.sort();
+    schemas.sort();
 
+    let mut lib_protos = Vec::new();
+    let mut bin_protos = Vec::new();
     let mut lib_sources = Vec::new();
     let mut bin_sources = Vec::new();
-    let mut test_sources = Vec::new();
+    let mut lib_tests = Vec::new();
+    let mut bin_tests = Vec::new();
     let mut testing_sources = Vec::new();
-    let mut unplaceable = Vec::new();
+    // The file, and whether both entry points reached it — the two halves of
+    // rule 4, which read differently to whoever has to place the file.
+    let mut unplaceable: Vec<(String, bool)> = Vec::new();
 
     // A file already listed in a rule's `sources` stays there.
     let existing_lib = listed(&doc, "library", "sources");
     let existing_bin = listed(&doc, "binary", "sources");
+    let existing_lib_protos = listed(&doc, "library", "proto_sources");
+    let existing_bin_protos = listed(&doc, "binary", "proto_sources");
+    let existing_lib_tests = listed_at(&doc, "library", &["test", "sources"]);
+    let existing_bin_tests = listed_at(&doc, "binary", &["test", "sources"]);
+
+    // In a package with both rules, `gen` needs to know which rule a new file
+    // belongs to, and the answer is which entry point reaches it. Computed
+    // once, and only where the question can arise: a package with one rule has
+    // one answer, and asking would be work with nothing to decide.
+    let main_module = format!("//{pkg_path}/main");
+    let (from_main, from_lib) = if has_library && has_binary {
+        (reachable(&dir, &pkg_path, "main.buri"), reachable(&dir, &pkg_path, "lib.buri"))
+    } else {
+        (BTreeSet::new(), BTreeSet::new())
+    };
+
+    // A `.proto` is placed by the same question a `.buri` is — which entry
+    // point reaches it — because the module it becomes belongs to a rule just
+    // as a hand-written one does.
+    for f in &schemas {
+        if existing_lib_protos.contains(f) {
+            lib_protos.push(f.clone());
+            continue;
+        }
+        if existing_bin_protos.contains(f) {
+            bin_protos.push(f.clone());
+            continue;
+        }
+        match (has_library, has_binary) {
+            (true, false) => lib_protos.push(f.clone()),
+            (false, true) => bin_protos.push(f.clone()),
+            (true, true) => match (from_main.contains(f), from_lib.contains(f)) {
+                (true, false) => bin_protos.push(f.clone()),
+                (false, true) => lib_protos.push(f.clone()),
+                (both, _) => unplaceable.push((f.clone(), both)),
+            },
+            (false, false) => {}
+        }
+    }
 
     for f in &files {
         if f == "lib.buri" || f == "main.buri" || f == "testing/lib.buri" {
             continue;
         }
         if f.starts_with("test/") {
-            test_sources.push(f.clone());
+            // A suite names its target in an import: `//pkg/main` is the
+            // binary's and anything else is the library's. The same question
+            // as for sources — which entry point is this about — asked from
+            // the other end, because nothing imports a test source. Rule 1
+            // holds here too: a suite a rule already lists stays where it is.
+            let tests_the_binary = if existing_bin_tests.contains(f) {
+                true
+            } else if existing_lib_tests.contains(f) {
+                false
+            } else {
+                imports_of(&dir, f).iter().any(|p| *p == main_module)
+            };
+            // A package with one rule has one suite, whichever the import
+            // named, so the rule that exists takes it.
+            if has_binary && (tests_the_binary || !has_library) {
+                bin_tests.push(f.clone());
+            } else if has_library {
+                lib_tests.push(f.clone());
+            }
             continue;
         }
         if f.starts_with("testing/") {
@@ -77,38 +141,84 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
         match (has_library, has_binary) {
             (true, false) => lib_sources.push(f.clone()),
             (false, true) => bin_sources.push(f.clone()),
-            // A file reachable from neither, or from both, is an error that
-            // names the file and asks you to place it. Guessing here would
-            // silently move code across a boundary that exists to be explicit.
-            (true, true) => unplaceable.push(f.clone()),
+            (true, true) => match (from_main.contains(f), from_lib.contains(f)) {
+                // A file reachable by imports from `main.buri` and not from
+                // `lib.buri` goes to the binary.
+                (true, false) => bin_sources.push(f.clone()),
+                // A file reachable from `lib.buri` goes to the library.
+                (false, true) => lib_sources.push(f.clone()),
+                // A file reachable from neither, or from both, is an error
+                // that names the file and asks you to place it. Guessing here
+                // would silently move code across a boundary that exists to be
+                // explicit.
+                (both, _) => unplaceable.push((f.clone(), both)),
+            },
             (false, false) => {}
         }
     }
 
-    if !unplaceable.is_empty() {
+    if let Some((file, both)) = unplaceable.first() {
+        let reached = if *both {
+            "both `lib.buri` and `main.buri`"
+        } else {
+            "neither `lib.buri` nor `main.buri`"
+        };
         return Err(Diagnostic::error(
             Span::point(file_id, 0),
-            format!(
-                "{} is in a package with both a library and a binary, and belongs to neither yet",
-                unplaceable[0]
-            ),
+            format!("{file} is reachable from {reached}, so `gen` cannot say which rule it belongs to"),
         )
-        .with_fix("add it to one rule's `sources`")
+        .with_fix(format!(
+            "add `{file}` to one rule's `{}`",
+            if file.ends_with(".proto") { "proto_sources" } else { "sources" }
+        ))
         .with_note("guessing would move code across a boundary that exists to be explicit"));
     }
 
-    let deps = derive_dependencies(s, pkg);
+    let deps = derive_dependencies(s, pkg, &dir, &lib_tests, &bin_tests);
     let p = s.ws.pkg(pkg);
     let mut summary = Vec::new();
 
+    // In a package with both rules, `+ sources: ...` twice is two claims a
+    // reader cannot tell apart, so the field is named by the rule that holds
+    // it. In a package with one rule there is nothing to disambiguate, and
+    // CLI.md's worked example prints the short form.
+    let name = |rule: &str, field: &str| -> String {
+        if has_library && has_binary {
+            format!("{rule}.{field}")
+        } else {
+            field.to_string()
+        }
+    };
+
     if has_library {
-        set_list(&mut doc, "library", &["sources"], &lib_sources, &mut summary, "sources");
+        set_list(&mut doc, "library", &["sources"], &lib_sources, &mut summary, &name("library", "sources"));
+        set_list(
+            &mut doc,
+            "library",
+            &["proto_sources"],
+            &lib_protos,
+            &mut summary,
+            &name("library", "proto_sources"),
+        );
         if let Some(d) = &deps {
-            set_list(&mut doc, "library", &["dependencies"], &d.library, &mut summary, "dependencies");
+            set_list(&mut doc, "library", &["dependencies"], &d.library, &mut summary, &name("library", "dependencies"));
         }
-        if !test_sources.is_empty() || has_block(&doc, "library", "test") {
-            set_list(&mut doc, "library", &["test", "sources"], &test_sources, &mut summary, "test.sources");
+        if !lib_tests.is_empty() || has_block(&doc, "library", "test") {
+            set_list(&mut doc, "library", &["test", "sources"], &lib_tests, &mut summary, &name("library", "test.sources"));
+            if let Some(d) = &deps {
+                set_list(
+                    &mut doc,
+                    "library",
+                    &["test", "dependencies"],
+                    &d.library_test,
+                    &mut summary,
+                    &name("library", "test.dependencies"),
+                );
+            }
         }
+        // A `testing/` directory is a surface only because a rule says so, so
+        // this is the one managed field that waits to be asked for: `gen`
+        // fills the block in and never decides the package has one.
         if p.build.library.as_ref().is_some_and(|l| l.testing.present) {
             set_list(
                 &mut doc,
@@ -116,40 +226,84 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
                 &["testing", "sources"],
                 &testing_sources,
                 &mut summary,
-                "testing.sources",
+                &name("library", "testing.sources"),
             );
+            if let Some(d) = &deps {
+                set_list(
+                    &mut doc,
+                    "library",
+                    &["testing", "dependencies"],
+                    &d.testing,
+                    &mut summary,
+                    &name("library", "testing.dependencies"),
+                );
+            }
         }
     }
     if has_binary {
-        set_list(&mut doc, "binary", &["sources"], &bin_sources, &mut summary, "sources");
+        set_list(&mut doc, "binary", &["sources"], &bin_sources, &mut summary, &name("binary", "sources"));
+        set_list(
+            &mut doc,
+            "binary",
+            &["proto_sources"],
+            &bin_protos,
+            &mut summary,
+            &name("binary", "proto_sources"),
+        );
         if let Some(d) = &deps {
-            set_list(&mut doc, "binary", &["dependencies"], &d.binary, &mut summary, "dependencies");
+            set_list(&mut doc, "binary", &["dependencies"], &d.binary, &mut summary, &name("binary", "dependencies"));
         }
-        if has_block(&doc, "binary", "test") {
-            set_list(&mut doc, "binary", &["test", "sources"], &test_sources, &mut summary, "test.sources");
+        if !bin_tests.is_empty() || has_block(&doc, "binary", "test") {
+            set_list(&mut doc, "binary", &["test", "sources"], &bin_tests, &mut summary, &name("binary", "test.sources"));
+            if let Some(d) = &deps {
+                set_list(
+                    &mut doc,
+                    "binary",
+                    &["test", "dependencies"],
+                    &d.binary_test,
+                    &mut summary,
+                    &name("binary", "test.dependencies"),
+                );
+            }
         }
     }
 
     // What `gen` may change everywhere is formatting: it leaves the file
     // exactly as `buri format` would, so the two never fight over a file.
     let text = crate::build::textproto::print(&doc);
-    let _ = pkg_path;
     if text == original {
         return Ok(None);
     }
     Ok(Some(Update { text, summary }))
 }
 
+#[derive(Default)]
 struct Derived {
     library: Vec<String>,
+    library_test: Vec<String>,
+    testing: Vec<String>,
     binary: Vec<String>,
+    binary_test: Vec<String>,
 }
 
 /// Every library the sources use: the `//` imports, plus the libraries reached
 /// by method resolution, which the tool can compute because resolution is a
 /// single lookup.
-fn derive_dependencies(s: &mut Session, pkg: PkgId) -> Option<Derived> {
-    let mut out = Derived { library: Vec::new(), binary: Vec::new() };
+///
+/// Four answers rather than one, because the four `dependencies` fields are
+/// four different questions. A module's *role* is what separates them — a file
+/// is a test source because a rule lists it in `test.sources`, and that is the
+/// only thing that makes one — so the analysis is run with the tests loaded
+/// and the answers are split by role afterwards.
+fn derive_dependencies(
+    s: &mut Session,
+    pkg: PkgId,
+    dir: &Path,
+    lib_tests: &[String],
+    bin_tests: &[String],
+) -> Option<Derived> {
+    use crate::compiler::modules::Role;
+    let mut out = Derived::default();
     for kind in [RuleKind::Library, RuleKind::Binary] {
         let has = match kind {
             RuleKind::Library => s.ws.pkg(pkg).has_library(),
@@ -162,7 +316,7 @@ fn derive_dependencies(s: &mut Session, pkg: PkgId) -> Option<Derived> {
         let unit = crate::compiler::modules::Unit {
             target: Some(target),
             platform: crate::build::buildfile::Platform::Js,
-            with_tests: false,
+            with_tests: true,
         };
         let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
         if analysis.diags.has_errors() {
@@ -170,12 +324,24 @@ fn derive_dependencies(s: &mut Session, pkg: PkgId) -> Option<Derived> {
             // so the imports alone would be an incomplete answer.
             return None;
         }
-        let mut labels: BTreeSet<String> =
-            crate::commands::lint::reached_by_resolution_pub(s, &analysis, pkg);
+        let mut production = BTreeSet::new();
+        let mut test = BTreeSet::new();
+        let mut testing = BTreeSet::new();
+        // An import is not the only way to use a library: a method resolves
+        // through its receiver's type rather than through scope, so a call
+        // that lands in another library counts even though no import names it.
+        // The role of the module the call sits in decides which field it
+        // belongs to, exactly as the import loop below does.
+        resolved_by_role(s, &analysis, pkg, &mut production, &mut test, &mut testing);
         for m in &analysis.loaded.modules {
             if m.pkg != Some(pkg) {
                 continue;
             }
+            let into = match m.role {
+                Role::TestSource => &mut test,
+                Role::TestOnly => &mut testing,
+                _ => &mut production,
+            };
             for item in &m.ast.items {
                 let path = match item {
                     crate::parsing::tree::Item::Import(i) => i.path.clone(),
@@ -191,23 +357,185 @@ fn derive_dependencies(s: &mut Session, pkg: PkgId) -> Option<Derived> {
                     continue;
                 }
                 let label = s.ws.pkg(other).label();
-                labels.insert(if crate::build::workspace::is_test_only_path(&path) {
+                into.insert(if crate::build::workspace::is_test_only_path(&path) {
                     format!("{label}/testing")
                 } else {
                     label
                 });
             }
         }
-        let list: Vec<String> = labels.into_iter().collect();
+        // A test source is loaded because a rule lists it, so on the run that
+        // *writes* `test.sources` the analysis has not seen one. Their imports
+        // are read off disk for that reason, and the two answers are merged:
+        // otherwise `gen` would need two passes to reach a fixed point, and a
+        // command whose second run differs from its first is a command whose
+        // `--check` lies.
+        let on_disk = match kind {
+            RuleKind::Library => lib_tests,
+            RuleKind::Binary => bin_tests,
+        };
+        test.extend(imported_labels(s, pkg, dir, on_disk));
+        // `test.dependencies` is what the suite adds: the target under test is
+        // this package and is already excluded, and its `dependencies` reach
+        // the suite through it, so naming them again would be two claims about
+        // one edge and `unused-dep` on the second.
+        let test: Vec<String> =
+            test.into_iter().filter(|l| !production.contains(l)).collect();
+        let testing: Vec<String> = testing.into_iter().collect();
+        let production: Vec<String> = production.into_iter().collect();
         match kind {
-            RuleKind::Library => out.library = list,
-            RuleKind::Binary => out.binary = list,
+            RuleKind::Library => {
+                out.library = production;
+                out.library_test = test;
+                out.testing = testing;
+            }
+            RuleKind::Binary => {
+                out.binary = production;
+                out.binary_test = test;
+            }
         }
     }
     Some(out)
 }
 
-fn collect(root: &Path, dir: &Path, out: &mut Vec<String>) {
+/// The libraries a package's own code reaches through a resolved call, sorted
+/// into the three fields that can hold one by the role of the module the call
+/// is written in.
+///
+/// `commands::lint` asks the same question of a package as a whole, because
+/// `missing-dep` is satisfied by a declaration in any of the three. `gen` has
+/// to write one of them, so it needs the finer answer.
+fn resolved_by_role(
+    s: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    own: PkgId,
+    production: &mut BTreeSet<String>,
+    test: &mut BTreeSet<String>,
+    testing: &mut BTreeSet<String>,
+) {
+    use crate::compiler::modules::Role;
+    use crate::compiler::semantics::typed;
+    for (fid, body) in &analysis.checked.bodies {
+        let info = analysis.checked.tables.fun(*fid);
+        let Some(from) = analysis.loaded.modules.get(info.module.index()) else { continue };
+        if from.pkg != Some(own) {
+            continue;
+        }
+        let role = from.role;
+        let mut reached: Vec<String> = Vec::new();
+        typed::walk(&body.expr, &mut |e| {
+            let called = match &e.kind {
+                typed::ExprKind::CallFn { func, .. } => Some(*func),
+                typed::ExprKind::FnRef(f, _) => Some(*f),
+                _ => None,
+            };
+            let Some(f) = called else { return };
+            let callee = analysis.checked.tables.fun(f);
+            let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
+            let Some(pkg) = m.pkg else { return };
+            if pkg == own {
+                return;
+            }
+            let label = s.ws.pkg(pkg).label();
+            reached.push(if crate::build::workspace::is_test_only_path(&m.path) {
+                format!("{label}/testing")
+            } else {
+                label
+            });
+        });
+        let into = match role {
+            Role::TestSource => &mut *test,
+            Role::TestOnly => &mut *testing,
+            _ => &mut *production,
+        };
+        into.extend(reached);
+    }
+}
+
+/// The files one entry point reaches by imports, transitively.
+///
+/// Only modules inside this package count: `//pkg/x` names one, and every
+/// other path is another target's business. Read off the syntax rather than
+/// off a checked analysis, because the file being placed is a file no rule
+/// lists yet — the loader would not have it, so there is nothing to ask.
+fn reachable(dir: &Path, pkg_path: &str, entry: &str) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut queue = vec![entry.to_string()];
+    while let Some(f) = queue.pop() {
+        for path in imports_of(dir, &f) {
+            let Some(rest) = path.strip_prefix("//") else { continue };
+            let Some(rel) = rest.strip_prefix(pkg_path).and_then(|r| r.strip_prefix('/')) else {
+                continue;
+            };
+            let file =
+                if rel.ends_with(".proto") { rel.to_string() } else { format!("{rel}.buri") };
+            if dir.join(&file).is_file() && seen.insert(file.clone()) {
+                queue.push(file);
+            }
+        }
+    }
+    seen
+}
+
+/// The libraries a set of the package's files import, read off disk.
+///
+/// The syntactic half of the same question `derive_dependencies` asks of the
+/// analysis, for the files the analysis has not been told about yet.
+fn imported_labels(s: &Session, pkg: PkgId, dir: &Path, files: &[String]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for f in files {
+        for path in imports_of(dir, f) {
+            if !path.starts_with("//") {
+                continue;
+            }
+            let Ok(loc) = s.ws.resolve_module(&path) else { continue };
+            let Some(other) = loc.pkg else { continue };
+            if other == pkg {
+                continue;
+            }
+            let label = s.ws.pkg(other).label();
+            out.insert(if crate::build::workspace::is_test_only_path(&path) {
+                format!("{label}/testing")
+            } else {
+                label
+            });
+        }
+    }
+    out
+}
+
+/// The module paths one file imports or re-exports, in source order.
+///
+/// Parsed rather than scanned, and the parse errors are dropped: a file that
+/// does not compile still says where it thinks its imports come from, and that
+/// is the whole of what is being asked.
+fn imports_of(dir: &Path, file: &str) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(dir.join(file)) else { return Vec::new() };
+    // A schema says where its types come from in its own dialect, and those
+    // imports are module paths once `//` is in front of them.
+    if file.ends_with(".proto") {
+        let parsed = crate::build::protoschema::parse(&text, crate::diagnostics::FileId(0));
+        return parsed
+            .schema
+            .imports
+            .iter()
+            .map(|i| crate::build::protogen::import_module_path(&i.path))
+            .collect();
+    }
+    let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
+    parsed
+        .module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            crate::parsing::tree::Item::Import(i) => Some(i.path.clone()),
+            crate::parsing::tree::Item::ReExport(r) => Some(r.path.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut items: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();
@@ -216,13 +544,17 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<String>) {
         if name.starts_with('.') {
             continue;
         }
+        let rel =
+            || p.strip_prefix(root).unwrap().display().to_string().replace('\\', "/");
         if p.is_dir() {
             if p.join("BUILD.buri").is_file() {
                 continue;
             }
-            collect(root, &p, out);
+            collect(root, &p, out, schemas);
         } else if p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri" {
-            out.push(p.strip_prefix(root).unwrap().display().to_string().replace('\\', "/"));
+            out.push(rel());
+        } else if p.extension().is_some_and(|x| x == "proto") {
+            schemas.push(rel());
         }
     }
 }
@@ -239,6 +571,20 @@ fn listed(doc: &Doc, rule: &str, field: &str) -> BTreeSet<String> {
         }
     }
     out
+}
+
+/// The same, for a field inside a block: `test.sources`.
+fn listed_at(doc: &Doc, rule: &str, path: &[&str]) -> BTreeSet<String> {
+    let Some(Value::Msg(mut m, _)) = doc.get(rule).map(|f| f.value.clone()) else {
+        return BTreeSet::new();
+    };
+    for seg in &path[..path.len() - 1] {
+        match m.get(seg).map(|f| f.value.clone()) {
+            Some(Value::Msg(inner, _)) => m = inner,
+            _ => return BTreeSet::new(),
+        }
+    }
+    listed_from(&m, path[path.len() - 1])
 }
 
 fn has_block(doc: &Doc, rule: &str, block: &str) -> bool {
@@ -259,7 +605,28 @@ fn set_list(
     let Value::Msg(msg, span) = &mut rule_field.value else { return };
     let mut target: &mut Msg = msg;
     for seg in &path[..path.len() - 1] {
-        let Some(i) = target.fields.iter().position(|f| f.name == *seg) else { return };
+        let i = match target.fields.iter().position(|f| f.name == *seg) {
+            Some(i) => i,
+            None => {
+                // CLI.md's worked example starts from `library {}` and comes
+                // back with a `test.sources`, so the block a managed field
+                // lives in is created when there is something to put in it —
+                // and only then, because an empty `test {}` nobody wrote is a
+                // claim the package has a suite.
+                if values.is_empty() {
+                    return;
+                }
+                target.fields.push(Field {
+                    name: (*seg).to_string(),
+                    name_span: Span::NONE,
+                    value: Value::Msg(Msg::default(), Span::NONE),
+                    comments: Vec::new(),
+                    blank_before: true,
+                    span: Span::NONE,
+                });
+                target.fields.len() - 1
+            }
+        };
         match &mut target.fields[i].value {
             Value::Msg(inner, _) => target = inner,
             _ => return,

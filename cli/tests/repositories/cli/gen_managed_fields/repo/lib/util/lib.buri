@@ -1,0 +1,1 @@
+from "//lib/util/text" export { isEmpty };

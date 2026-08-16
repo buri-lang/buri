@@ -1,0 +1,12 @@
+# The suite says nothing about tags and nothing about platforms. It does not
+# have to: it is compiled into the target it tests, so it is server code, and
+# it is checked as server code.
+
+library {
+  sources: ["file_store.buri"]
+  tags: ["server"]
+
+  test {
+    sources: ["test/store.buri"]
+  }
+}

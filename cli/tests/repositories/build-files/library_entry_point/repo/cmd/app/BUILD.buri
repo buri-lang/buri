@@ -1,0 +1,9 @@
+# A binary and nothing else. The package has main.buri and no lib.buri, which
+# is exactly right until a `library` rule is added to this file.
+
+binary {
+  sources: ["flags.buri"]
+  outputs: [
+    { platform: JS },
+  ]
+}

@@ -11,7 +11,8 @@
 // line number rather than a silent no-op.
 //
 // `buri gen` rewrites only the fields it can derive from the sources —
-// `sources`, `dependencies`, and their `test`/`testing` counterparts. It may
+// `sources`, `proto_sources`, `dependencies`, and their `test`/`testing`
+// counterparts. It may
 // reformat the file as `buri format` would, but the *contents* of the
 // hand-authored fields survive: `tags`, `platforms`, and `timeout_seconds`
 // above all, and `visibility` and `outputs` with them. See CLI.md.
@@ -51,6 +52,16 @@ message Library {
   // subdirectories. No globs: a file that exists on disk but appears in no rule
   // is a build error, not a silently ignored file.
   repeated string sources = 1;
+
+  // Every .proto file in this package that belongs to this library. Each one
+  // becomes a module named by its own path — `//lib/money/rates.proto` — holding
+  // the types the schema declares and their four codecs. The module is internal
+  // to the rule exactly as a .buri source is, so `lib.buri` decides which of the
+  // generated names leave the library. See PROTO.md.
+  //
+  // Package-relative, may descend into subdirectories, no globs. `buri gen`
+  // manages this field the way it manages `sources`.
+  repeated string proto_sources = 8;
 
   // Labels of libraries this one may use. `core/*` ships with the toolchain and
   // is never listed. Cycles are an error. A library is *used* by importing it
@@ -108,6 +119,9 @@ message Binary {
   // Every .buri file in this package that belongs to the binary rather than to
   // a co-located library, excluding `main.buri` and the test sources.
   repeated string sources = 1;
+
+  // Exactly the same meaning as on a library.
+  repeated string proto_sources = 6;
 
   repeated string dependencies = 2;
 

@@ -1,0 +1,22 @@
+// The `.proto` conformance package: what a schema becomes, and what its four
+// codecs write and read.
+//
+// The schemas are the source. Nothing here is hand-written except the tests —
+// `demo.proto` and `address.proto` become modules, and this file re-exports the
+// part of them the suite names. That re-export is the whole of the library
+// boundary as it applies to a generated module: a schema exports everything it
+// declares, and `lib.buri` decides what leaves the library.
+
+from "//lib/proto/demo.proto" export {
+  Everything, Everything_Note, Everything_Contact, Empty, Shade,
+  defaultEverything, encodeEverything, decodeEverything,
+  encodeEverythingJson, decodeEverythingJson,
+  defaultEmpty, encodeEmpty, decodeEmpty, encodeEmptyJson, decodeEmptyJson,
+  encodeShade, decodeShade, encodeShadeJson, decodeShadeJson,
+};
+
+from "//lib/proto/address.proto" export {
+  Address, Country,
+  defaultAddress, encodeAddress, decodeAddress, encodeAddressJson, decodeAddressJson,
+  encodeCountry, decodeCountry,
+};

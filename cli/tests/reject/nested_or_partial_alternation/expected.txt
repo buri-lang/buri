@@ -1,0 +1,8 @@
+error: this `match` does not cover `.Some(false)` [match-not-exhaustive]
+ --> cmd/nested_or_partial_alternation/main.buri:8:3
+  |
+8 |   match (x) {
+  |   ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Some(false)`, or a `_` arm for everything left

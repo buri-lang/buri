@@ -175,7 +175,7 @@ unreachable.
 
 ```buri repo=cli/tests/example pkg=//lib/ledger role=test
 // lib/ledger/testing/lib.buri — the surface of //lib/ledger/testing.
-from "//lib/ledger/testing/fixtures" export { sample, entryOf };
+from "//lib/ledger/testing/fixtures" export { sample, oneOff };
 ```
 
 Four properties come from it being *in the package* rather than beside it:
@@ -220,7 +220,7 @@ moment you try.
 ```buri repo=cli/tests/example pkg=//lib/money
 from "//lib/money/cents" export { Cents, fromCents };
 from "//lib/money/cents" export { add as addMoney };   // renaming is allowed
-from "//lib/money/cents" export *;                     // NOT derivable
+from "//lib/money/cents" export *;                     // ERROR: expected `{`, found `*`
 ```
 
 There is no `export *` for the same reason there is no bare `import *`: every

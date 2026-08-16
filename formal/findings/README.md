@@ -12,14 +12,81 @@ cmd/<case>/BUILD.buri   binary { outputs: [{ platform: JS }] }
 cmd/<case>/main.buri    the case
 ```
 
-| # | Case | Predicted | Observed | Verdict |
-|---|---|---|---|---|
-| 1 | `pure_abort` | pure call not eliminable | aborts, never prints | **spec bug** |
-| 2 | — | determinism false across UB | not run (see below) | spec bug, by inspection |
-| 3 | `self_in_lambda` | false rejection | rejected | **checker bug** |
-| 4 | `hide_generic` → `launder` → `purity_false` | taint predicate not inductive | **purity theorem falsified** | **design hole** |
-| 5 | `principality` | defaulting may precede bound check | accepted; no counterexample constructible today | latent, see below |
-| 6 | `nested_or` | (found while formalising) | exhaustive match rejected | **checker bug** |
+| # | Case | Predicted | Observed | Verdict | Status |
+|---|---|---|---|---|---|
+| 1 | `pure_abort` | pure call not eliminable | aborts, never prints | **spec bug** | **fixed in SPEC** — §10.4 now conditions the elimination clause on terminating without aborting (`cli/src/docs/lang/effects.md`) |
+| 2 | — | determinism false across UB | not run (see below) | spec bug, by inspection | **fixed in SPEC** — §10.4 now quantifies over *identical* values and excludes undefined behaviour |
+| 3 | `self_in_lambda` | false rejection | rejected | **checker bug** | **fixed** — `inference.rs::check_fn` gates the `SelfParam` arm on `is_effect_carrying`, as the `Normal` arm does |
+| 4 | `hide_generic` → `launder` → `purity_false` | taint predicate not inductive | **purity theorem falsified** | **design hole** | **resolved by decision** — see "The rule chosen" below; all three cases are now rejected |
+| 5 | `principality` | defaulting may precede bound check | accepted; no counterexample constructible today | latent, see below | **pinned** — `builtins.rs::assert_i64_is_trait_maximal` fails the build if any integer type gains a trait `I64` lacks |
+| 6 | `nested_or` | (found while formalising) | exhaustive match rejected | **checker bug** | **fixed** — `exhaustiveness.rs`: `specialize`, `default_matrix` and `head_ctors` distribute over an `Or` head |
+
+Regression tests: `cli/tests/conformance/lib/data/test/patterns.buri` ("a nested
+or-pattern …", eight tests) and `.../lib/semantics/test/evaluation.buri`
+("what a lambda may capture", four tests) for the false rejections;
+`cli/tests/reject/{nested_or_*,lambda_captures_*,lambda_launders_a_context,pure_function_performs_io,effect_carrying_type_fails_a_trait_bound}`
+for the rejections, each with its diagnostic recorded to the byte.
+
+---
+
+## The rule chosen for finding 4
+
+Of the four candidates below, the second — *forbid a lambda from capturing a
+type-parameter-typed value* — is what the checker now implements, sharpened in
+two places so that it costs the corpus almost nothing:
+
+> **A lambda may not capture a value whose type could be a context at some
+> instantiation.** The predicate is `is_effect_carrying` with the type-parameter
+> case inverted: `Ty::Param(i)` counts as effect-carrying unless it carries an
+> **ordinary trait bound**. Function types are exempt outright.
+
+The two sharpenings, and why each is sound:
+
+- **A parameter with an ordinary trait bound escapes.** A type is either part of
+  the world or part of your data (SPEC §10.1), so a `T: Eq` can never be
+  instantiated at a context type — *provided* that holds for composites too.
+  It did not: `struct Holder<C>` with a hand-written `impl<C> Eq for Holder<C>`
+  put `Holder<Ctx>` through a `T: Eq` bound. So `satisfies` now answers `false`
+  whenever the trait is not an effect and the type is effect-carrying
+  (`inference.rs::satisfies_seen`), which is checked at each call site — where
+  bounds are already checked, so §13.5 and §13.6 are untouched. Without this the
+  escape would have been exactly the hole finding 4 describes, one level up.
+- **Function types escape outright.** `is_effect_carrying` taints `fn() => C`
+  because of what the *type says*; the capture rule asks what the *value holds*,
+  and a closure holds exactly what it captured — which is what this rule checks.
+  The argument is inductive rather than structural, and it is what keeps
+  `compose` legal.
+
+Two further holes turned up while implementing it, both closed:
+
+- **A lambda's own parameters were never registered as capturable.** So
+  `paths.mapCtx(ctx, fn(c, p) => { let g = fn() => fs.exists(c, p); g() })`
+  compiled and did I/O from a `fn() => Bool`. This is the *monomorphic* route
+  the capture rule was supposed to have closed already. Every binding form now
+  funnels through `Infer::note_capture_risk`.
+- **Locals bound inside a lambda body counted as captures.** `fn(best, x) =>
+  match (best) { .Some(b) => ... }` reported `b` as captured. Harmless while the
+  rule only looked at effects; a mass of false rejections once it looked at type
+  parameters. Captures are now the referenced locals bound *before* the lambda.
+
+**Measured cost.** The whole corpus — 29 standard-library modules, the
+conformance repository (1188 assertions), the worked monorepo, and every
+documentation example — needed changes in **one file**: three lambdas in
+`core/map`, all three flagged because `Map<K, V>`'s `V` is unbounded and
+`[[(K, V)]]` would carry an effect at `V := C`. `insert` and `remove` now splice
+with `take`/`push`/`concat` through a new `replaceAt` helper instead of
+rebuilding by index (also the cheaper spine copy), and `grow` folds the entries
+into their new buckets instead of filtering all entries once per bucket, which
+makes every value the inner lambda needs a *parameter*. No conformance program
+and no other standard-library module changed.
+
+The other three candidates were rejected as the finding predicts: tainting `fn`
+types by their parameters kills the `fn(C, A) => B` combinator shape §10.6
+mandates and takes the standard library with it; checking taint at instantiation
+needs the body re-checked per call site (§13.5) or an effect summary in the
+signature (§13.6); and an explicit "may hold a capability" bound is a new
+language feature — a marker trait, spec section, and a bound on every generic
+container — for a corpus that turned out to need three lines changed.
 
 ---
 
@@ -67,6 +134,12 @@ safety -- the same shape as finding 3. It cannot let a bad program through.
 and `default_matrix` an `Or` case that distributes over the alternatives. The
 second is more local and matches how `useful` already treats an `Or` in the
 pattern *vector*.
+
+**Status: fixed** (`cli/src/compiler/semantics/exhaustiveness.rs`), by the
+second route — with one addition the finding missed. `head_ctors` had to look
+through an `Or` head too: distributing in `specialize` alone leaves the column
+looking incomplete, so `useful` takes the `default_matrix` branch, and the
+alternatives never get specialized against. All three now distribute.
 
 **A related correction.** An earlier draft of `formal/README.md` claimed the
 `Pat::Or` arm of `Ctx::useful` was dead code, on the grounds that `expand` runs
@@ -156,6 +229,13 @@ the Stage 0 Alloy model (plan item 5) considerably more valuable than budgeted �
 it would have found this in an afternoon, and it is the right tool for checking
 whether a proposed fix closes the whole family rather than this one instance.
 
+**Status: resolved by decision.** The second candidate, sharpened by an
+ordinary-trait-bound escape and a function-type exemption — see "The rule chosen
+for finding 4" at the top of this file for the rule, the soundness argument for
+each escape, the two further holes it turned up, and the measured cost. The
+diagnostic is `lambda-captures-generic`
+(`cli/src/docs/errors/lambda-captures-generic.md`).
+
 ---
 
 ## 1. Pure calls are not eliminable — `cases/pure_abort.buri`
@@ -174,6 +254,12 @@ non-zero exit). Divergence has the same shape.
 termination-without-abort, as `purity_replaceable`'s `hterm` hypothesis in the
 plan does.
 
+**Status: fixed in SPEC.** §10.4 (`cli/src/docs/lang/effects.md`, assembled into
+`SPEC.md`) now reads "…that terminate without aborting… and a call that
+terminates without aborting may be freely cached, reordered, or eliminated",
+with a paragraph naming this case. The program still compiles and still aborts,
+which is now what the specification says it does.
+
 ## 2. Determinism is false across undefined behaviour
 
 Not run — it follows by inspection. Integer overflow is UB (SPEC §6.2), and
@@ -186,6 +272,9 @@ behaviour."
 A third correction in the same sentence: *"equal arguments"* has no referent at
 function types, because `satisfies` returns `false` for `Ty::Fn(..)` — there is
 no `Eq` on closures. The statement must quantify over **identical** values.
+
+**Status: fixed in SPEC.** Both corrections are in §10.4, each with a bullet
+saying which sentence it rescues.
 
 ## 3. The capture rule fires on a pure `self` — `cases/self_in_lambda.buri`
 
@@ -226,6 +315,15 @@ the conformance corpus, not `reject/`.
 Unlike findings 1 and 4 this is a false *rejection*, so it costs expressiveness
 rather than safety. It is also the cheapest to fix.
 
+**Status: fixed** (`cli/src/compiler/semantics/inference.rs::check_fn`). `ctx`
+is still marked unconditionally — the `ctx` rule admits nothing else there —
+and every other parameter, `self` included, now goes through
+`Infer::note_capture_risk`, which gates on the type. Conformance: "a lambda may
+capture a `self` that carries no effect" and "a lambda that captures `self` may
+outlive the call" in `lib/semantics/test/evaluation.buri`. Reject:
+`cli/tests/reject/lambda_captures_effect_self`, where the receiver really does
+carry one.
+
 ## 5. Principality holds today, but by accident — `cases/principality.buri`
 
 `satisfies` returns `true` for `Ty::Var(_)` (`infer.rs`), so obligations are
@@ -242,3 +340,12 @@ primitive outside its defining module, so the set cannot be extended.
 So principality rests on `I64` being **trait-maximal among integer types** —
 which nothing states, nothing tests, and any future `core/num` trait could
 break. Worth an assertion in `builtins.rs` rather than a proof.
+
+**Status: pinned.** `Checker::assert_i64_is_trait_maximal`
+(`cli/src/compiler/semantics/builtins.rs`) runs at the end of
+`register_primitive_methods` — so on every compilation, which is every
+conformance, reject, documentation and standard-library test. It reads the real
+`impls` table rather than a list, so it cannot drift from what was registered,
+and it fails with the reason: defaulting commits a literal to `I64` before any
+bound on it is checked, so a trait `U64` has and `I64` lacks would be a
+principality counterexample.

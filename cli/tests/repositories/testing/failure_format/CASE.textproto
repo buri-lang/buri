@@ -1,0 +1,38 @@
+# TESTING.md:380-389. What a failing test prints: the target, the file, the
+# test's name, the assertion that failed, both values, and a source location —
+# and then the summary line, with the count of tests a `--filter` left out.
+#
+# The canary in `conformance.rs` asserts only that the output contains `FAIL`,
+# which is a check that the runner noticed rather than a check on what it said.
+# This records every character of it, so a reworded failure turns up as a diff
+# and gets looked at.
+#
+# The location is the `test` declaration's, not the failing assertion's. The
+# runner learns where a test is from the compiler and where it failed from a
+# JavaScript exception, and only the first of those is a Buri span.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the recorded failure report: target, file, test name, actual, expected, and the source location"
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}
+
+# The negative twin: the same suite, one character of the library different.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "\"19.5\""
+  with: "\"19.05\""
+}
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 0
+  golden: "pass.txt"
+  stream: OUT
+}

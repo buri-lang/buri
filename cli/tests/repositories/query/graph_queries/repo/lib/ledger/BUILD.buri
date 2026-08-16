@@ -1,0 +1,7 @@
+# The middle of the chain: `//cmd/web` reaches `//lib/store` through here, so
+# the `dependencies` line in this file is the second hop `query path` prints.
+library {
+  sources: ["entry.buri"]
+  dependencies: ["//lib/money", "//lib/store"]
+  visibility: ["//visibility:public"]
+}

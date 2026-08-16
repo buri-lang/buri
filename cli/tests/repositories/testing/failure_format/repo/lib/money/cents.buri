@@ -1,0 +1,5 @@
+export fn fromCents(n: I64): I64 { n }
+
+/// Deliberately wrong about the cents place: the edit at the bottom of the
+/// case is what makes it right, so the recorded failure cannot go stale.
+export fn format(n: I64): Str { if (n == 1905) { "19.5" } else { "0.00" } }

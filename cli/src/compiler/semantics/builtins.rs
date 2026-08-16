@@ -26,6 +26,172 @@ impl<'a> Checker<'a> {
         }
         self.char_methods();
         self.comparison_impls();
+        self.json_impls();
+        self.assert_i64_is_trait_maximal();
+    }
+
+    /// `ToJson` and `FromJson` where the fold bottoms out.
+    ///
+    /// `derive ToJson for Point` asks whether `Int` satisfies `ToJson`, and
+    /// the answer has to be in the impl table — so the primitives get theirs
+    /// here, the way they get `Show`'s. `Option` gets one too, marked derived,
+    /// because `Option<T>` encodes when `T` does and the descriptor already
+    /// carries the payload's shape.
+    ///
+    /// All of it is conditional on `core/json` being loaded, which it is
+    /// exactly when a program could have named either trait: the module loads
+    /// on import, and there is no way to write `ToJson` without importing it.
+    fn json_impls(&mut self) {
+        if !self.known_traits.contains_key("ToJson") {
+            return;
+        }
+        let Some(&json) = self.known_types.get("Json") else { return };
+        let json_ty = Ty::Con(json, Vec::new());
+        let decoded = |me: &Self, p: Prim| -> Ty {
+            let (Some(&result), Some(&err)) =
+                (me.known_types.get("Result"), me.known_types.get("DecodeError"))
+            else {
+                return Ty::Error;
+            };
+            Ty::Con(result, vec![me.tables.prim(p), Ty::Con(err, Vec::new())])
+        };
+
+        let mut prims: Vec<Prim> = Prim::all()
+            .iter()
+            .copied()
+            .filter(|p| p.is_integer() || p.is_float())
+            .collect();
+        prims.extend([Prim::Char, Prim::Str, Prim::Bool]);
+        for p in prims {
+            let con = self.tables.prim_id(p);
+            let to = self.to_json_method(p, json_ty.clone());
+            let ret = decoded(self, p);
+            let from = self.from_json_method(p, json_ty.clone(), ret);
+            self.add_impl("ToJson", con, vec![to]);
+            self.add_impl("FromJson", con, vec![from]);
+        }
+
+        // `Option` is `derive`d rather than given methods: `.None` is `null`
+        // and `.Some(x)` is whatever `x` is, which is a fold over the payload
+        // and so exactly what a derived implementation means.
+        if let Some(&option) = self.known_types.get("Option") {
+            self.add_derived_impl("ToJson", option);
+            self.add_derived_impl("FromJson", option);
+        }
+    }
+
+    /// `fn toJson<C: Alloc>(self: Self, ctx: C): Json` — `Show.show`'s shape,
+    /// because encoding allocates for the same reason rendering does.
+    fn to_json_method(&mut self, p: Prim, json_ty: Ty) -> FnId {
+        let con = self.tables.prim_id(p);
+        let module = self.prim_module_of(p);
+        let alloc = self.known_traits.get("Alloc").copied();
+        let generics = vec![GenericInfo {
+            name: "C".into(),
+            bounds: alloc.into_iter().collect(),
+            span: Span::NONE,
+        }];
+        let fid = self.tables.add_fn(FnInfo {
+            name: "toJson".into(),
+            module,
+            generics,
+            params: vec![
+                ParamInfo {
+                    name: "self".into(),
+                    ty: Ty::Con(con, Vec::new()),
+                    role: ParamRole::SelfParam,
+                    span: Span::NONE,
+                },
+                ParamInfo {
+                    name: "ctx".into(),
+                    ty: Ty::Param(0),
+                    role: ParamRole::Ctx,
+                    span: Span::NONE,
+                },
+            ],
+            ret: json_ty,
+            exported: true,
+            span: Span::NONE,
+            self_ty: Some(con),
+            impl_of: None,
+            ast: AstRef::NONE,
+            intrinsic: true,
+        });
+        self.tables.methods.entry((con, "toJson".into())).or_insert(fid);
+        fid
+    }
+
+    /// `fn fromJson(value: Json): Result<Self, DecodeError>`.
+    ///
+    /// It takes no `self` — there is no value yet — so like `Bounded`'s
+    /// methods it gets no entry in the method table. `json.decode` reaches it
+    /// through the type it is asked for.
+    fn from_json_method(&mut self, p: Prim, json_ty: Ty, ret: Ty) -> FnId {
+        let con = self.tables.prim_id(p);
+        let module = self.prim_module_of(p);
+        self.tables.add_fn(FnInfo {
+            name: "fromJson".into(),
+            module,
+            generics: Vec::new(),
+            params: vec![ParamInfo {
+                name: "value".into(),
+                ty: json_ty,
+                role: ParamRole::Normal,
+                span: Span::NONE,
+            }],
+            ret,
+            exported: true,
+            span: Span::NONE,
+            self_ty: Some(con),
+            impl_of: None,
+            ast: AstRef::NONE,
+            intrinsic: true,
+        })
+    }
+
+    /// **Principality rests on this.** `satisfies` answers `true` for an
+    /// unresolved type variable, so a bound on a numeric literal is discharged
+    /// only *after* `default_numerics` has committed that literal to `I64`.
+    /// The algorithm therefore commits to a type before it checks the bound,
+    /// and the only thing that keeps that from being a principality
+    /// counterexample is that there is no bound `I64` fails and another
+    /// integer type satisfies.
+    ///
+    /// That is true today and nothing states it: `I64` gets `Neg`, which the
+    /// unsigned types lack, and every other trait a primitive gets is given to
+    /// all of them alike. SPEC 14 rule 22 keeps a user from adding to another
+    /// type's set from outside its defining module, so the set cannot be
+    /// widened later — but a new trait added *here*, given to `U64` and not to
+    /// `I64`, would silently break defaulting. This fails the build instead.
+    ///
+    /// The check reads the real impl table rather than a list, so it cannot
+    /// drift from what was registered.
+    fn assert_i64_is_trait_maximal(&self) {
+        let traits_of = |p: Prim| -> std::collections::BTreeSet<String> {
+            let con = self.tables.prim_id(p);
+            self.tables
+                .impls
+                .keys()
+                .filter(|(_, c)| *c == con)
+                .map(|(t, _)| self.tables.trait_(*t).name.clone())
+                .collect()
+        };
+        let i64_traits = traits_of(Prim::I64);
+        for &p in Prim::all() {
+            if !p.is_integer() || p == Prim::I64 {
+                continue;
+            }
+            let missing: Vec<String> =
+                traits_of(p).difference(&i64_traits).cloned().collect();
+            assert!(
+                missing.is_empty(),
+                "principality depends on `I64` being trait-maximal among the integer types, \
+                 because defaulting commits a literal to `I64` before any bound on it is \
+                 checked — but `{}` implements {missing:?}, which `I64` does not. Either give \
+                 `I64` the trait too, or make bound checking precede defaulting.",
+                p.name(),
+            );
+        }
     }
 
     fn prim_module_of(&self, p: Prim) -> ModuleId {
@@ -310,6 +476,20 @@ impl<'a> Checker<'a> {
             methods,
             span: Span::NONE,
             derived: false,
+        });
+    }
+
+    /// The same, marked `derived`: the implementation is the fold over the
+    /// type's components rather than a body, so it has no methods and
+    /// `satisfies` recurses into the payload before answering.
+    fn add_derived_impl(&mut self, trait_name: &str, con: TyConId) {
+        let Some(&trait_id) = self.known_traits.get(trait_name) else { return };
+        self.tables.impls.entry((trait_id, con)).or_insert(ImplInfo {
+            trait_id,
+            self_con: con,
+            methods: Vec::new(),
+            span: Span::NONE,
+            derived: true,
         });
     }
 }

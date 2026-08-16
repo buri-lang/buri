@@ -1,0 +1,19 @@
+// The entry point, and this binary's surface for its own tests: the suite sees
+// what this file exports and nothing more.
+
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+// Re-exported so the suite can reach it. Everything else in routes.buri stays
+// inside the binary.
+from "//cmd/tool/routes" export { route };
+
+from "//cmd/tool/routes" import { route };
+
+export fn banner(): Str { "tool" }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${banner()}: ${route("/health")}");
+  .Ok(())
+}

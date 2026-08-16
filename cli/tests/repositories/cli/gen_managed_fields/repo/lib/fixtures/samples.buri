@@ -1,0 +1,3 @@
+export fn sampleAmount(): Int {
+    1905
+}

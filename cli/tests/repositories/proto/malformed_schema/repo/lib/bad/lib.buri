@@ -1,0 +1,1 @@
+from "//lib/bad/broken.proto" export { Thing };

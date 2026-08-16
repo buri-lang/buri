@@ -9,4 +9,4 @@ error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show
 9 | impl Stdout for SilentOut {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the other one
   |
-   = fix: split it in two: a type is either part of the world or part of your data
+  = fix: split it in two: a type is either part of the world or part of your data

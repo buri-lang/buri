@@ -41,6 +41,10 @@ Every `match` must cover its scrutinee's type. The checker reasons about enum
 variants, `Bool`, tuples, structs, and array lengths. It does not attempt
 exhaustiveness over integer or string ranges; those need a `_` arm.
 
+An alternation counts toward coverage wherever it appears, not only at the top
+of a pattern: `.Some(true | false)` covers `.Some` completely, exactly as
+`.Some(true) | .Some(false)` does.
+
 Unreachable arms are a compile error, not a warning.
 
 ---

@@ -1,0 +1,1 @@
+error: `buri run` takes exactly one binary, and this matched 2

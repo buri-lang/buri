@@ -1,0 +1,12 @@
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/bytes" import * as bytes;
+from "//lib/wire" import { Point, defaultPoint, encodePoint, decodePoint };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let p = Point { ..defaultPoint(), x: 1, y: 300 };
+  let _ = ctx.println(bytes.toHex(ctx, encodePoint(ctx, p)));
+  let _ = ctx.println("${decodePoint(ctx, encodePoint(ctx, p)) == .Ok(p)}");
+  .Ok(())
+}

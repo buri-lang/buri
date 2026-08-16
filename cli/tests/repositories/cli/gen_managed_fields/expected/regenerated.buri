@@ -1,0 +1,28 @@
+# //lib/money — everything in this file that is not a list of files is
+# hand-written, and `buri gen` has to hand it all back.
+#
+# The rule starts empty, which CLI.md says is enough to start: `gen` fills in
+# the six fields that restate the sources and creates the blocks they live in.
+library {
+  # A tag decides what this may be linked with. No import graph says that, so
+  # `gen` cannot derive it and must not drop it.
+  tags: ["money"]
+  platforms: [JS, LINUX]
+  visibility: ["//visibility:public"]
+  sources: ["cents.buri", "parse.buri"]
+  dependencies: ["//lib/util"]
+
+  testing {
+    sources: ["testing/fixtures.buri"]
+    dependencies: ["//lib/fixtures"]
+  }
+
+  test {
+    # The golden this suite reads. `data` is not managed.
+    data: ["test/golden/statement.txt"]
+    platforms: [JS]
+    timeout_seconds: 30
+    sources: ["test/cents.buri"]
+    dependencies: ["//lib/util/testing"]
+  }
+}

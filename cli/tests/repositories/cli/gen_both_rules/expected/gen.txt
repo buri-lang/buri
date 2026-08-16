@@ -1,0 +1,3 @@
+updated tools/report/BUILD.buri
+  + library.sources: shared.buri, stray.buri
+  + binary.sources: argv.buri

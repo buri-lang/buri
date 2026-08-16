@@ -1,0 +1,60 @@
+# TESTING.md:392-395. Tests are ordinary build actions: a suite whose sources,
+# target, dependencies and toolchain are unchanged is not re-run, and reports
+# as cached. `--force` is the way past that, so the cache is an optimisation
+# rather than something a user cannot get out from under.
+#
+# The count is in the summary rather than in a transcript, because it is the
+# thing a person reads. `incrementality.rs` reads the same fact off `--explain`
+# and asks the sharper question — which key moved, and which did not.
+#
+# Every step is a whole-summary recording, so a suite that stopped running at
+# all would not be able to hide behind the word `cached`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite whose inputs are unchanged reports as cached, --force re-runs it, and an edit to a test source uncaches it"
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "first.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "cached.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 0
+  golden: "forced.txt"
+  stream: OUT
+}
+
+# The cached entry is still there afterwards: `--force` goes around the cache,
+# not through it with a bulldozer.
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "cached.txt"
+  stream: OUT
+}
+
+# And the negative twin: the suite's own source is one of its inputs.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "test \"zero formats as zero\""
+  with: "test \"zero formats as the word\""
+}
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "after_edit.txt"
+  stream: OUT
+}

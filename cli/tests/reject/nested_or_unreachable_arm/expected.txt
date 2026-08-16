@@ -1,0 +1,8 @@
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/nested_or_unreachable_arm/main.buri:10:5
+   |
+10 |     .Some(true) => 2,
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it

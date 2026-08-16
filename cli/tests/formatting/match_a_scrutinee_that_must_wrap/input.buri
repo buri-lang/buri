@@ -1,0 +1,6 @@
+export fn f(cs: [Char], n: Int): Result<Int, E> {
+  match (firstNonBase64Character(cs, 0, cs.len(), n, "with a reason attached", another)) {
+    .Some(i) => .Err(DecodeError(i)),
+    .None => .Ok(n),
+  }
+}

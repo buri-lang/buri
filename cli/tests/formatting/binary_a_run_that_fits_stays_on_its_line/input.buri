@@ -1,0 +1,1 @@
+export fn f(a: Int, b: Int): Bool { a > 0 && b > 0 }

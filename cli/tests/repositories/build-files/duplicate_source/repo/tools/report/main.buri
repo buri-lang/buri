@@ -1,7 +1,10 @@
 from "core/cap" import { Alloc, Stdout };
 from "core/host" import * as host;
 
-from "//tools/report/render" import { render };
+// Through the library's entry point, which is the only way the binary may
+// reach it (BUILD-FILES.md:301-305). What this case is about is one file
+// listed twice, so nothing else here is allowed to fire.
+from "//tools/report" import { render };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

@@ -1,0 +1,65 @@
+# TAGS.md:266-291. A suite that must run in more than one place lists them, one
+# run per platform — and a platform listed there must be one the target admits.
+# Asking for a run the target's tags rule out is an error, not a skip, which is
+# the whole difference between a policy and a preference: a skip would let a
+# suite quietly stop covering the platform it was written for.
+#
+# The last step is the honest boundary. Only the JavaScript backend exists, so
+# a suite that names a platform this toolchain cannot execute is told so rather
+# than run through the backend that does exist and reported as if it had run
+# natively. When there is a native backend, that step is the one that changes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "test { platforms: [...] } runs the suite once per platform; a platform the target does not admit is an error rather than a skip"
+
+run {
+  args: ["test", "//lib/codec", "--force"]
+  exit: 0
+  golden: "js.txt"
+  stream: OUT
+}
+
+# LINUX is not in `browser`'s whitelist, so it is not the suite's to ask for.
+# The diagnostic is the target's, because the restriction is the target's.
+edit {
+  file: "lib/codec/BUILD.buri"
+  replace: "platforms: [JS]"
+  with: "platforms: [JS, LINUX]"
+}
+
+run {
+  args: ["test", "//lib/codec", "--force"]
+  exit: 1
+  golden: "not_admitted.txt"
+  stream: ERR
+}
+
+run {
+  args: ["test", "//lib/codec", "--force", "--error-format=json"]
+  exit: 1
+  golden: "not_admitted.json"
+  stream: ERR
+}
+
+# Now the tag admits it and the toolchain does not, which is a different
+# sentence and a different fix.
+edit {
+  file: "lib/codec/BUILD.buri"
+  replace: "  tags: [\"browser\"]\n"
+  with: ""
+}
+
+edit {
+  file: "lib/codec/BUILD.buri"
+  replace: "platforms: [JS, LINUX]"
+  with: "platforms: [LINUX]"
+}
+
+run {
+  args: ["test", "//lib/codec", "--force"]
+  exit: 1
+  golden: "not_implemented.txt"
+  stream: ERR
+}

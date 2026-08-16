@@ -1,0 +1,7 @@
+error: lib/wire/point.proto is not declared by any rule [undeclared-source]
+ --> lib/wire/BUILD.buri:1:1
+  |
+1 | library {
+  | ^
+  |
+  = fix: add it to a rule's `proto_sources`, or delete it — `buri gen //lib/wire` does this automatically

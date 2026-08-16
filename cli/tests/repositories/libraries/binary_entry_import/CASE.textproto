@@ -1,0 +1,80 @@
+# LIBRARIES.md and TESTING.md, "Testing a binary": `//pkg/main` is importable
+# from that binary's own test sources and from nowhere else. Three positions in
+# one repository, because the rule is only interesting as a boundary:
+#
+#   - the binary's own suite imports it, and the suite passes
+#   - another package's library imports it, and is refused
+#   - one of the binary's own production sources imports it, and is refused —
+#     being in the package is not what earns the import
+#
+# The first step is also what the loader's `role_for` had to be fixed for: a
+# module imported here is loaded in the role its own path implies, and
+# `//cmd/tool/main` used to come back `Role::Source`. A real build never
+# noticed, because a binary's own unit pre-loads its entry point as
+# `Role::Entry` before anything can import it — but a compilation that reaches
+# main.buri through an import first got an entry point whose `core/host` import
+# and whose `context` were both rejected. See TODO.md.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "//pkg/main is importable from that binary's own test sources and from nowhere else"
+
+run {
+  args: ["test", "//cmd/tool"]
+  exit: 0
+  golden: "suite.txt"
+}
+
+# From another package. The label is not in `dependencies` either, but the
+# import never gets that far: what is wrong with it is the path.
+edit {
+  file: "lib/other/lib.buri"
+  replace: "from \"//lib/other/thing\" export { thing };\n"
+  with: "from \"//lib/other/thing\" export { thing };\nfrom \"//cmd/tool/main\" import { banner };\n"
+}
+
+run {
+  args: ["lint", "//lib/other"]
+  exit: 1
+  golden: "from_another_package.txt"
+}
+
+run {
+  args: ["lint", "//lib/other", "--error-format=json"]
+  exit: 1
+  golden: "from_another_package.json"
+}
+
+edit {
+  file: "lib/other/lib.buri"
+  replace: "\nfrom \"//cmd/tool/main\" import { banner };"
+  with: ""
+}
+
+# From inside the package, and still refused: routes.buri is a production
+# source of the same binary. What earns the import is being a test source, not
+# being next door.
+edit {
+  file: "cmd/tool/routes.buri"
+  replace: "export fn route"
+  with: "from \"//cmd/tool/main\" import { banner };\n\nexport fn route"
+}
+
+run {
+  args: ["lint", "//cmd/tool"]
+  exit: 1
+  golden: "from_its_own_source.txt"
+}
+
+edit {
+  file: "cmd/tool/routes.buri"
+  replace: "from \"//cmd/tool/main\" import { banner };\n\nexport fn route"
+  with: "export fn route"
+}
+
+run {
+  args: ["lint", "//cmd/tool"]
+  exit: 0
+  golden: "clean.txt"
+}

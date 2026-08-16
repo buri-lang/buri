@@ -1,4 +1,4 @@
-import Buri.Patterns.Exhaustive
+import Buri.Patterns.Complete
 
 /-!
 # Long arrays have short representatives
@@ -330,11 +330,7 @@ theorem Pattern.matches_truncate (bound : Nat) :
         first
           | omega
           | (simp only [decide_eq_decide, List.length_take, Value.truncateList_length]; omega)
-      | variant c i vs => rfl
-      | single vs => rfl
-      | bool b => rfl
-      | lit s => rfl
-      | opaqueValue => rfl
+      | _ => rfl
     | array k =>
       have hk : k < bound := Pattern.array_lt_of_lengthLimit hlen
       cases v with
@@ -355,35 +351,13 @@ theorem Pattern.matches_truncate (bound : Nat) :
         · -- Lengths differ on both sides, so both conjunctions are false.
           have hne : min bound vs.length ≠ k := by omega
           simp [hne, hvk]
-      | variant c i vs =>
+      | _ =>
         exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-      | single vs =>
-        exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-      | bool b =>
-        exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-      | lit s =>
-        exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-      | opaqueValue =>
-        exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-    | variant c i =>
+    | _ =>
       cases v with
       | array vs =>
         exact matches_truncate_of_head_not_array (by intro n; simp) (by intro n; simp)
-      | _ => exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-    | single =>
-      cases v with
-      | array vs =>
-        exact matches_truncate_of_head_not_array (by intro n; simp) (by intro n; simp)
-      | _ => exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-    | bool b =>
-      cases v with
-      | array vs =>
-        exact matches_truncate_of_head_not_array (by intro n; simp) (by intro n; simp)
-      | _ => exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
-    | lit str =>
-      cases v with
-      | array vs =>
-        exact matches_truncate_of_head_not_array (by intro n; simp) (by intro n; simp)
-      | _ => exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
+      | _ =>
+        exact matches_truncate_of_value_not_array (by intro n; simp) (by intro ws; simp) hsubs
 
 end Buri

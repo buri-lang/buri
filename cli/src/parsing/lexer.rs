@@ -264,17 +264,39 @@ impl fmt::Display for Tok {
     }
 }
 
+/// One ordinary comment: a `//` line, or a whole `/* */` block.
+///
+/// The blank line above it is part of it. A run of comment lines above one
+/// declaration is not necessarily one paragraph — a section heading and the
+/// sentence about the declaration under it are two — and a formatter that
+/// keeps only the lines glues them together.
+#[derive(Clone, Debug)]
+pub struct Comment {
+    pub text: String,
+    /// Whether a blank line sat immediately above this comment.
+    pub blank_before: bool,
+    /// The column its first character was written at, so a formatter can move
+    /// the whole of a `/* … */` and keep the shape inside it.
+    pub column: u32,
+}
+
 #[derive(Clone, Debug)]
 pub struct Token {
     pub tok: Tok,
     pub span: Span,
     /// Doc comment lines (`///`) immediately preceding this token.
     pub docs: Vec<String>,
+    /// Whether a blank line sat above the doc-comment run. It matters only
+    /// when ordinary comments came first: a section heading, a blank line, and
+    /// then the declaration's own documentation are three things, not one.
+    pub docs_blank: bool,
     /// Ordinary comments immediately preceding, kept so the formatter can put
     /// them back where they were.
-    pub comments: Vec<String>,
-    /// Whether a blank line separated this token from the previous one. The
-    /// formatter preserves paragraph breaks between declarations.
+    pub comments: Vec<Comment>,
+    /// Whether a blank line separated this token's trivia — its comments and
+    /// doc lines, or the token itself when it has none — from whatever was
+    /// written before. The formatter preserves paragraph breaks between
+    /// declarations; the breaks *inside* a comment run are on the comments.
     pub blank_before: bool,
 }
 
@@ -289,7 +311,8 @@ pub struct Lexer<'a> {
     interp: Vec<u32>,
     brace_depth: u32,
     pending_docs: Vec<String>,
-    pending_comments: Vec<String>,
+    pending_docs_blank: bool,
+    pending_comments: Vec<Comment>,
     module_docs: Vec<(String, Span)>,
     blank_before: bool,
 }
@@ -313,6 +336,7 @@ pub fn lex(text: &str, file: FileId) -> Lexed {
         interp: Vec::new(),
         brace_depth: 0,
         pending_docs: Vec::new(),
+        pending_docs_blank: false,
         pending_comments: Vec::new(),
         module_docs: Vec::new(),
         blank_before: false,
@@ -357,9 +381,10 @@ impl<'a> Lexer<'a> {
     fn push(&mut self, tok: Tok, start: usize) {
         let span = self.span(start);
         let docs = std::mem::take(&mut self.pending_docs);
+        let docs_blank = std::mem::take(&mut self.pending_docs_blank);
         let comments = std::mem::take(&mut self.pending_comments);
         let blank = std::mem::take(&mut self.blank_before);
-        self.tokens.push(Token { tok, span, docs, comments, blank_before: blank });
+        self.tokens.push(Token { tok, span, docs, docs_blank, comments, blank_before: blank });
     }
 
     fn run(&mut self) {
@@ -382,6 +407,18 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// The column `at` sits at, counting from zero.
+    fn column(&self, at: usize) -> u32 {
+        let line = self.text[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        self.text[line..at].chars().count() as u32
+    }
+
+    /// Whether nothing of this token's trivia has been read yet, so a blank
+    /// line here is the one above the whole run rather than one inside it.
+    fn run_empty(&self) -> bool {
+        self.pending_comments.is_empty() && self.pending_docs.is_empty()
+    }
+
     fn skip_trivia(&mut self) {
         let mut newlines = 0;
         loop {
@@ -391,10 +428,6 @@ impl<'a> Lexer<'a> {
                 }
                 b'\n' => {
                     newlines += 1;
-                    // Two newlines with nothing between them is a blank line.
-                    if newlines >= 2 {
-                        self.blank_before = true;
-                    }
                     self.pos += 1;
                 }
                 b'/' if self.peek_at(1) == b'/' => {
@@ -410,13 +443,28 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                     }
                     let raw = &self.text[start..self.pos];
+                    // Two newlines with nothing between them is a blank line.
+                    // Above the first thing in the run it is the token's; above
+                    // a later comment it is that comment's own paragraph break.
+                    let blank = newlines >= 2;
                     if is_module_doc {
                         let span = self.span(start);
                         self.module_docs.push((doc_body(&raw[3..]), span));
                     } else if is_doc {
+                        if self.run_empty() {
+                            self.blank_before = blank;
+                        }
+                        if self.pending_docs.is_empty() {
+                            self.pending_docs_blank = blank;
+                        }
                         self.pending_docs.push(doc_body(&raw[3..]));
                     } else {
-                        self.pending_comments.push(raw.trim_end().to_string());
+                        if self.run_empty() {
+                            self.blank_before = blank;
+                        }
+                        let text = raw.trim_end().to_string();
+                        let column = self.column(start);
+                        self.pending_comments.push(Comment { text, blank_before: blank, column });
                     }
                     newlines = 0;
                 }
@@ -440,11 +488,21 @@ impl<'a> Lexer<'a> {
                         let span = self.span(start);
                         self.err(span, "unterminated block comment", "close it with `*/`; block comments nest, so each `/*` needs one").code("unterminated-comment");
                     }
-                    let raw = self.text[start..self.pos].to_string();
-                    self.pending_comments.push(raw);
+                    let blank = newlines >= 2;
+                    if self.run_empty() {
+                        self.blank_before = blank;
+                    }
+                    let text = self.text[start..self.pos].to_string();
+                    let column = self.column(start);
+                    self.pending_comments.push(Comment { text, blank_before: blank, column });
                     newlines = 0;
                 }
-                _ => return,
+                _ => {
+                    if self.run_empty() {
+                        self.blank_before = newlines >= 2;
+                    }
+                    return;
+                }
             }
         }
     }

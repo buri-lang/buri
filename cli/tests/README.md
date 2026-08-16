@@ -13,8 +13,10 @@ wrong *answer* fails, not merely a program that fails to run.
 | Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
 | Repositories | `cli/tests/repositories/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 | Incrementality | `cli/tests/incrementality.rs` | What the cache may and may not do, read off the `--explain` transcript. |
+| Hermeticity | `cli/tests/hermeticity.rs` | That an action's spawn is deterministic and a perturbed parent environment changes neither an artifact's bytes nor a suite's verdict; what the toolchain pin refuses; what two builds of one tree have to agree about; and that four concurrent builds leave the cache intact. |
 | Emitted JavaScript | `cli/tests/golden_javascript/` | What the backend *compiles to*, one construct per case: the generated code, what it prints, and the release size of the whole corpus. |
 | Golden | `WEB_STDOUT` in `conformance.rs` | The exact stdout of the worked monorepo's JS binary. |
+| Protobuf conformance | `cli/tests/proto/` | Protobuf's own conformance suite against the codecs generated from a `.proto` schema — the one test here whose ground truth comes from another project. Driven by a C++ runner, so it lives outside `cargo test`; `cli/tests/proto_vectors.rs` replays recorded exchanges without it. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
 what a user runs.
@@ -52,6 +54,27 @@ runs the program and checks the diagnostic.
 Overflow used to live in the abort corpus. It is undefined behaviour now
 (SPEC 6.2), so there is nothing to assert: those files were deleted rather than
 weakened into tests of whatever the backend happens to do.
+
+**The formatting corpus** is a directory per decision the formatter makes,
+holding an `input.buri` somebody might have typed and the one `expected.buri`
+it is allowed to produce. There is no third file, because there is nothing to
+configure: a formatter with options has no single right answer, and this suite
+exists to say that this one does. `formatting.rs` also holds every output to
+being a fixed point, to keeping the comments and tokens it was given, and to
+fitting the margin — the last except in the `width_*` cases, which are named
+for the atoms that cannot break. That every output is a fixed point is also
+the claim that well-formatted source is left alone, made over the whole corpus
+rather than over a handful of files chosen to say it. A `NOTES.md` beside a
+case marks a shape that is pinned rather than endorsed; there are none today.
+
+```
+BURI_BLESS=1 cargo test -p buri --test formatting
+```
+
+It is deliberately outside the repository-wide walkers: an `input.buri` is
+misformatted on purpose, and a suite asking whether every source in the
+repository is already formatted would be asking these files a question they
+exist to answer no to.
 
 Each file carries its expectation on its first line:
 
@@ -112,9 +135,20 @@ toolchain never reads should not wear the extension that says it does.
 ```
 doc:  "one line saying what the case is about"
 run  { args: ["lint", "//cmd/app"]  exit: 1  golden: "lint.txt" }
+run  { args: ["build"]  exit: 0  cwd: "lib/money" }
 edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
+path { path: ".buri/out"  exists: false }
+path { path: "out"  symlink: ".buri/out/js" }
 ```
+
+`cwd` runs the command from a directory inside the repository, which is the
+only way to ask what a command with no target operates on. `path` is for the
+commands whose contract is about what they leave on disk rather than what they
+print — `clean --outputs` and the `out/` symlink say almost nothing, and an
+exit code cannot tell a cache that survived from one that was deleted and
+rebuilt. Exactly one expectation per `path` step, spelled out: like `exit`, an
+assertion here is never inferred.
 
 `exit` is hand-written and required; only prose is blessed. Blessing can
 rewrite what a diagnostic *says* and can never quietly turn a rejection into an

@@ -56,8 +56,17 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         let local = inf.new_local(&p.name, p.ty.clone(), p.span);
         inf.bind(&p.name, local);
         inf.params.push(local);
-        if p.role == ParamRole::Ctx || p.role == ParamRole::SelfParam {
+        // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
+        // SPEC 14 rule 8). `ctx` is one by construction — the `ctx` rule
+        // admits nothing else there — but `self` is whatever the receiver
+        // type is, and an ordinary struct's methods must still be able to
+        // write `fn(x) => x > self.n`. So `self` is gated on its type, exactly
+        // as a normal parameter is in `check_ctx_rule`.
+        if p.role == ParamRole::Ctx {
             inf.effect_locals.insert(local);
+        } else {
+            let ty = p.ty.clone();
+            inf.note_capture_risk(local, &ty);
         }
     }
     let expected = info.ret.clone();
@@ -187,6 +196,12 @@ pub struct Infer<'a, 'b> {
     /// Locals holding an effect-carrying value, which a lambda may not
     /// capture (SPEC 10.6).
     pub(crate) effect_locals: std::collections::HashSet<LocalId>,
+    /// Locals whose type mentions a type parameter in a position that would
+    /// hold an effect if the parameter were instantiated at a context type.
+    /// A lambda may not capture one of these either: the body is checked once,
+    /// polymorphically (SPEC 13.5), so this is the last point at which the
+    /// question can be asked at all. See `Tables::may_carry_effect`.
+    pub(crate) poly_locals: std::collections::HashSet<LocalId>,
     pub(crate) lambda_depth: u32,
     pub(crate) obligations: Vec<(Ty, TraitId, Span)>,
     pub(crate) lit_checks: Vec<LitCheck>,
@@ -219,6 +234,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             params: Vec::new(),
             self_con: None,
             effect_locals: std::collections::HashSet::new(),
+            poly_locals: std::collections::HashSet::new(),
             lambda_depth: 0,
             obligations: Vec::new(),
             lit_checks: Vec::new(),
@@ -228,6 +244,24 @@ impl<'a, 'b> Infer<'a, 'b> {
             or_bindings: None,
             or_first: None,
             pattern_names: Vec::new(),
+        }
+    }
+
+    /// Records what the capture rule needs to know about a newly bound local:
+    /// whether it holds an effect, and — the part `is_effect_carrying` cannot
+    /// see — whether it *would* hold one at some instantiation of the enclosing
+    /// signature's generics (SPEC 10.6).
+    ///
+    /// Every binding form funnels through here, so the rule has no holes: a
+    /// parameter, a `let`, a pattern binding, and a lambda's own parameters are
+    /// all bindings an inner lambda could close over.
+    pub(crate) fn note_capture_risk(&mut self, local: LocalId, ty: &Ty) {
+        let generics = self.generics.clone();
+        let resolved = self.resolve(ty);
+        if self.c.tables.is_effect_carrying(&resolved, &generics) {
+            self.effect_locals.insert(local);
+        } else if self.c.tables.may_carry_effect(&resolved, &generics) {
+            self.poly_locals.insert(local);
         }
     }
 
@@ -520,6 +554,29 @@ impl<'a, 'b> Infer<'a, 'b> {
             let shown = self.show_ty(&ty);
             let mut note = None;
             let mut fix = None;
+            // The one failure that is about the *kind* of type rather than a
+            // missing implementation. Saying "add `derive Eq`" here would be
+            // advice that cannot be taken.
+            let generics = self.generics.clone();
+            if !self.c.tables.trait_(tr).is_effect
+                && self.c.tables.is_effect_carrying(&ty, &generics)
+            {
+                let d = self.err(
+                    span,
+                    format!("`{shown}` carries an effect, so it does not satisfy `{trait_name}`"),
+                );
+                d.code("missing-conformance");
+                d.fix(format!(
+                    "pass a type that holds no capability, or drop the `{trait_name}` bound"
+                ));
+                d.notes.push(
+                    "a type is either part of the world or part of your data (SPEC 10.1), and \
+                     that is what lets a lambda capture a `T: Ord` without laundering a context \
+                     (SPEC 10.6)"
+                        .into(),
+                );
+                continue;
+            }
             if let Some(con) = ty.head() {
                 let derived = self
                     .c
@@ -558,9 +615,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                             crate::diagnostics::names(&has.into_iter().collect::<Vec<_>>())
                         ));
                     }
-                    fix = Some(format!(
-                        "add `derive {trait_name} for {shown};` in that type's own module, or \
-                         write `impl {trait_name} for {shown} {{ ... }}` there"
+                    fix = Some(crate::compiler::semantics::types::conformance_fix(
+                        &trait_name,
+                        &shown,
                     ));
                 }
             }
@@ -595,6 +652,23 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// constructor — so a type that recursed through *any* container hung the
     /// compiler until it ran out of stack.
     fn satisfies_seen(&self, ty: &Ty, tr: TraitId, seen: &mut Vec<TyConId>) -> bool {
+        // A type is either part of the world or part of your data, and the
+        // boundary is checked rather than assumed (SPEC 10.1). The nominal
+        // half of that — no type implements both an effect and a trait — is
+        // checked at the `impl`. This is the composite half: a type that
+        // merely *mentions* an effect satisfies no ordinary bound either.
+        //
+        // It is what lets the capture rule exempt a bounded type parameter.
+        // Without it, `struct Holder<C> { inner: C }` with a hand-written
+        // `impl<C> Eq for Holder<C>` would let `Holder<Ctx>` through a
+        // `T: Eq` bound, and a lambda in that function could capture the
+        // capability inside it (SPEC 10.6).
+        if !matches!(ty, Ty::Error | Ty::Var(_))
+            && !self.c.tables.trait_(tr).is_effect
+            && self.c.tables.is_effect_carrying(ty, &self.generics)
+        {
+            return false;
+        }
         match ty {
             Ty::Param(i) => self
                 .generics
@@ -660,7 +734,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn structural_trait(&self, tr: TraitId) -> bool {
-        matches!(self.c.tables.trait_(tr).name.as_str(), "Eq" | "Ord" | "Show" | "Hash")
+        matches!(
+            self.c.tables.trait_(tr).name.as_str(),
+            "Eq" | "Ord" | "Show" | "Hash" | "ToJson" | "FromJson"
+        )
     }
 
     fn derived_components_satisfy(

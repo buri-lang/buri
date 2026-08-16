@@ -1,0 +1,50 @@
+# HERMETICITY-AND-CACHING.md: "Two builds of the same commit in the same
+# configuration produce byte-identical artifacts."
+#
+# `--check-reproducible` asks that of one repository rather than of the
+# compiler's own test suite. It builds every requested binary twice, from two
+# freshly opened sessions, with the cache turned off, into two different
+# directories — and says nothing at all when the two agree, because a check that
+# prints on success is a check whose silence nobody notices.
+#
+# The red path is not here. Making a genuinely irreproducible build in a
+# hermetic system is the one thing the system is designed to prevent, so what
+# the flag reports when two artifacts disagree is unit-tested on the comparison
+# itself (`build/actions.rs::two_artifacts_that_disagree_report_where`).
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "buri build --check-reproducible builds twice and is quiet when the bytes agree"
+
+run {
+  args: ["build", "//cmd/ok", "--check-reproducible"]
+  exit: 0
+  golden: "quiet.txt"
+}
+
+# `--verbose` is where the answer becomes visible, so that a run which compared
+# nothing at all is distinguishable from one which compared something and
+# agreed.
+run {
+  args: ["build", "//cmd/ok", "--check-reproducible", "--verbose"]
+  exit: 0
+  golden: "verbose.txt"
+  stream: OUT
+}
+
+# The other build mode is a different artifact and the same claim.
+run {
+  args: ["build", "//cmd/ok", "--check-reproducible", "--release", "--verbose"]
+  exit: 0
+  golden: "release.txt"
+  stream: OUT
+}
+
+# It leaves nothing behind: the two builds write to scratch directories, not to
+# `.buri/out`, so a check does not quietly become a build.
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 0
+  golden: "then_a_real_build.txt"
+  stream: OUT
+}

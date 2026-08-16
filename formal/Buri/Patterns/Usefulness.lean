@@ -3,33 +3,27 @@ import Buri.Patterns.Measure
 /-!
 # The usefulness algorithm
 
-`Ctx::useful` (`exhaust.rs:293`), as a total function. Rust returns
-`Option<Vec<Witness>>` -- the witness is what the diagnostic renders -- but the
-witness is a *presentation* concern: the checker branches only on
-`.is_some()`. So this returns `Bool`, and the existence of a witness is
-recovered as a theorem (`useful_sound`) rather than carried as data.
-
-The four branches are exactly Rust's, in the same order.
+`Ctx::useful` (`exhaustiveness.rs`), as a total function -- no fuel, no
+partiality. `Measure.lean` is the argument that it is one.
 -/
 
 namespace Buri
 
-theorem Pattern.nodeCount_le_nodeCountList {p : Pattern} {ps : List Pattern} (h : p ∈ ps) :
-    Pattern.nodeCount p ≤ Pattern.nodeCountList ps := by
-  induction ps with
-  | nil => exact absurd h List.not_mem_nil
-  | cons x xs ih =>
-    rcases List.mem_cons.mp h with rfl | h'
-    · simp [Pattern.nodeCountList]
-    · have := ih h'
-      simp only [Pattern.nodeCountList]
-      omega
-
+-- `hc` below is referenced only from `decreasing_by`, which the
+-- unused-variable linter does not look at; it is what tells the termination
+-- argument that the constructor being specialised on already heads a row.
+set_option linter.unusedVariables false in
 /-- Is the pattern vector `v` useful against the matrix `P` -- does it match
 some value vector that no row of `P` matches?
 
-`limit` is the array-length bound of `exhaust.rs:450`: one more than the
-longest array length any pattern in the match distinguishes. -/
+`limit` is the array-length bound of `exhaustiveness.rs`: one more than the
+longest array length any pattern in the match distinguishes.
+
+The four branches are exactly Rust's, in the same order. Rust returns
+`Option<Vec<Witness>>` -- the witness is what the diagnostic renders -- but the
+witness is a *presentation* concern: the checker branches only on `.is_some()`.
+So this returns `Bool`, and the existence of a witness is recovered as a
+theorem rather than carried as data. -/
 def isUseful (S : Signature) (limit : Nat) : List Row → Row → List Ty → Bool
   | P, [], _ => P.isEmpty
   | P, .or alternatives :: v, ts =>
@@ -42,7 +36,7 @@ def isUseful (S : Signature) (limit : Nat) : List Row → Row → List Ty → Bo
         (c.fieldTypes S t ++ ts.tail)
   | P, .wildcard :: v, ts =>
       let t := ts.headD .unit
-      match hall : allConstructors S limit t with
+      match allConstructors S limit t with
       | some all =>
           if hc : all.all (fun c => decide (c ∈ headConstructors P)) then
             all.attach.any fun c =>
@@ -52,50 +46,56 @@ def isUseful (S : Signature) (limit : Nat) : List Row → Row → List Ty → Bo
           else
             isUseful S limit (defaultMatrix P) v ts.tail
       | none => isUseful S limit (defaultMatrix P) v ts.tail
-termination_by P v _ => (Matrix.nodeCount P + Row.nodeCount v, v.length)
+termination_by P v _ => (Matrix.weight P + Row.weight v, v.length)
 decreasing_by
-  -- `or`: the alternative is a strict sub-pattern of the alternation.
+  -- `or`: the alternative weighs less than the alternation, and the tail of
+  -- the vector weighs at least one, so the product drops.
   · left
-    have hp : Pattern.nodeCount p.1 ≤ Pattern.nodeCountList alternatives := Pattern.nodeCount_le_nodeCountList p.2
-    simp only [Row.nodeCount_cons, Pattern.nodeCount]
+    have hp : Pattern.weight p.1 ≤ Pattern.weightSum alternatives :=
+      Pattern.weight_le_weightSum p.2
+    have hv := Row.one_le_weight v
+    simp only [Row.weight_cons, Pattern.weight_or, Nat.add_mul, Nat.one_mul]
+    have := Nat.mul_le_mul_right (Row.weight v) hp
     omega
-  -- `constructor`: the head node is consumed.
+  -- `constructor`: the head node is consumed, and the matrix cannot grow.
   · left
-    have hm := Matrix.nodeCount_specialize_le P c (c.arity S (ts.headD .unit))
-    have hr := Row.nodeCount_take_le (c.arity S (ts.headD .unit))
-      (subpatterns ++ List.replicate (c.arity S (ts.headD .unit)) Pattern.wildcard)
-    simp only [Row.nodeCount_append, Row.nodeCount_replicate_wildcard, Nat.add_zero] at hr
-    simp only [Row.nodeCount_cons, Row.nodeCount_append, Pattern.nodeCount_constructor]
+    have hm := Matrix.weight_specialize_le P c (c.arity S (ts.headD .unit))
+    have hv := Row.one_le_weight v
+    have hpad := Nat.mul_le_mul_right (Row.weight v)
+      (Row.weight_pad_le subpatterns (c.arity S (ts.headD .unit)))
+    simp only [Row.weight_cons, Row.weight_append, Pattern.weight_constructor,
+      Nat.add_mul, Nat.one_mul]
     omega
-  -- `wildcard`, complete: the vector's node count is unchanged, so the matrix
-  -- must shrink -- and it does, because completeness put this very
-  -- constructor at the head of some row.
+  -- `wildcard`, complete: the vector's weight is unchanged -- `_` and `arity`
+  -- copies of `_` both weigh one -- so the matrix must shrink. And it does,
+  -- because completeness put this very constructor at the head of some row.
   · left
     have hmem : c.1 ∈ headConstructors P := by
       have := List.all_eq_true.mp hc c.1 c.2
       simpa using this
-    have := Matrix.nodeCount_specialize_lt P c.1 (c.1.arity S (ts.headD .unit)) hmem
-    simp only [Row.nodeCount_cons, Row.nodeCount_append, Row.nodeCount_replicate_wildcard,
-      Pattern.nodeCount_wildcard, Nat.zero_add]
+    have := Matrix.weight_specialize_lt P c.1 (c.1.arity S (ts.headD .unit)) hmem
+    simp only [Row.weight_cons, Row.weight_append, Row.weight_replicate_wildcard,
+      Pattern.weight_wildcard, Nat.one_mul]
     omega
-  -- `wildcard`, incomplete: `defaultMatrix` only drops rows, so the first component
-  -- falls or stays put; when it stays put the vector still loses a column.
-  · have hle := Matrix.nodeCount_defaultMatrix_le P
-    rcases Nat.lt_or_ge (Matrix.nodeCount (defaultMatrix P)) (Matrix.nodeCount P) with hlt | hge
+  -- `wildcard`, incomplete: `defaultMatrix` cannot grow the matrix, so the
+  -- first component falls or stays put; when it stays put the vector still
+  -- loses a column.
+  · have hle := Matrix.weight_defaultMatrix_le P
+    rcases Nat.lt_or_ge (Matrix.weight (defaultMatrix P)) (Matrix.weight P) with hlt | hge
     · left
-      simp only [Row.nodeCount_cons, Pattern.nodeCount_wildcard, Nat.zero_add]
+      simp only [Row.weight_cons, Pattern.weight_wildcard, Nat.one_mul]
       omega
-    · have heq : Matrix.nodeCount (defaultMatrix P) = Matrix.nodeCount P := Nat.le_antisymm hle hge
-      simp only [Row.nodeCount_cons, Pattern.nodeCount_wildcard, Nat.zero_add, heq]
+    · have heq : Matrix.weight (defaultMatrix P) = Matrix.weight P := Nat.le_antisymm hle hge
+      simp only [Row.weight_cons, Pattern.weight_wildcard, Nat.one_mul, heq]
       right
       simp
-  · have hle := Matrix.nodeCount_defaultMatrix_le P
-    rcases Nat.lt_or_ge (Matrix.nodeCount (defaultMatrix P)) (Matrix.nodeCount P) with hlt | hge
+  · have hle := Matrix.weight_defaultMatrix_le P
+    rcases Nat.lt_or_ge (Matrix.weight (defaultMatrix P)) (Matrix.weight P) with hlt | hge
     · left
-      simp only [Row.nodeCount_cons, Pattern.nodeCount_wildcard, Nat.zero_add]
+      simp only [Row.weight_cons, Pattern.weight_wildcard, Nat.one_mul]
       omega
-    · have heq : Matrix.nodeCount (defaultMatrix P) = Matrix.nodeCount P := Nat.le_antisymm hle hge
-      simp only [Row.nodeCount_cons, Pattern.nodeCount_wildcard, Nat.zero_add, heq]
+    · have heq : Matrix.weight (defaultMatrix P) = Matrix.weight P := Nat.le_antisymm hle hge
+      simp only [Row.weight_cons, Pattern.weight_wildcard, Nat.one_mul, heq]
       right
       simp
 
@@ -107,6 +107,11 @@ definitionally. These four lemmas expose one unfolding step per branch, which
 is all any proof about it ever needs. Stating them here keeps the `match hall :
 ...` dependent-match plumbing in one place instead of in every proof.
 -/
+
+/-- The empty pattern vector: useful exactly when the matrix has no rows. -/
+theorem isUseful_nil (signature : Signature) (limit : Nat) (matrix : List Row) (types : List Ty) :
+    isUseful signature limit matrix [] types = matrix.isEmpty :=
+  isUseful.eq_1 signature limit matrix types
 
 /-- The `or` branch. Reachable, despite `expand`: that pass splits only the
 alternations at the top of a column, so a nested one survives into the matrix
@@ -133,8 +138,11 @@ theorem isUseful_constructor (signature : Signature) (limit : Nat) (matrix : Lis
 /-- The `wildcard` branch, when the constructor set is enumerable and the
 matrix mentions every constructor.
 
-`split` normalises `List.headD` to `List.head?.getD` in some branches but not
-others, so each branch tries the hypothesis in both forms. -/
+The three `wildcard` equations share one wrinkle: `split` normalises
+`List.headD` to `List.head?.getD` in some branches but not others, so the
+hypothesis and the branch equation can end up in different forms. `simp_all`
+reconciles them, which is why these are one line each rather than a
+case-by-case rewrite. -/
 theorem isUseful_wildcard_complete (signature : Signature) (limit : Nat) (matrix : List Row)
     (v : List Pattern) (types : List Ty) (all : List Constructor)
     (hall : allConstructors signature limit (types.headD .unit) = some all)
@@ -144,22 +152,7 @@ theorem isUseful_wildcard_complete (signature : Signature) (limit : Nat) (matrix
           (specialize matrix c.1 (c.1.arity signature (types.headD .unit)))
           (List.replicate (c.1.arity signature (types.headD .unit)) Pattern.wildcard ++ v)
           (c.1.fieldTypes signature (types.headD .unit) ++ types.tail)) := by
-  have hall' : allConstructors signature limit (types.head?.getD Ty.unit) = some all := by
-    rwa [List.headD_eq_head?_getD] at hall
-  rw [isUseful.eq_4]
-  split
-  · next all' heq =>
-    first
-      | (rw [hall] at heq)
-      | (rw [hall'] at heq)
-    cases heq
-    rw [dif_pos hcomplete]
-  · next heq =>
-    first
-      | (rw [hall] at heq)
-      | (rw [hall'] at heq)
-      | skip
-    try simp at heq
+  rw [isUseful.eq_4]; split <;> simp_all
 
 /-- The `wildcard` branch, when some constructor is missing from the matrix. -/
 theorem isUseful_wildcard_incomplete (signature : Signature) (limit : Nat) (matrix : List Row)
@@ -168,22 +161,9 @@ theorem isUseful_wildcard_incomplete (signature : Signature) (limit : Nat) (matr
     (hincomplete : ¬ (all.all fun c => decide (c ∈ headConstructors matrix)) = true) :
     isUseful signature limit matrix (.wildcard :: v) types
       = isUseful signature limit (defaultMatrix matrix) v types.tail := by
-  have hall' : allConstructors signature limit (types.head?.getD Ty.unit) = some all := by
-    rwa [List.headD_eq_head?_getD] at hall
-  rw [isUseful.eq_4]
-  split
-  · next all' heq =>
-    first
-      | (rw [hall] at heq)
-      | (rw [hall'] at heq)
-    cases heq
-    rw [dif_neg hincomplete]
-  · next heq =>
-    first
-      | (rw [hall] at heq)
-      | (rw [hall'] at heq)
-      | skip
-    try simp at heq
+  rw [isUseful.eq_4]; split <;> simp_all
+  obtain ⟨c, hmem, hmissing⟩ := hincomplete
+  exact fun hall' => absurd (hall' c hmem) hmissing
 
 /-- The `wildcard` branch at a type whose constructor set is too large to
 enumerate -- an integer, string, char or float, or a function, context, or type
@@ -193,16 +173,43 @@ theorem isUseful_wildcard_unbounded (signature : Signature) (limit : Nat) (matri
     (hall : allConstructors signature limit (types.headD .unit) = none) :
     isUseful signature limit matrix (.wildcard :: v) types
       = isUseful signature limit (defaultMatrix matrix) v types.tail := by
-  have hall' : allConstructors signature limit (types.head?.getD Ty.unit) = none := by
-    rwa [List.headD_eq_head?_getD] at hall
-  rw [isUseful.eq_4]
-  split
-  · next all' heq =>
-    first
-      | (rw [hall] at heq)
-      | (rw [hall'] at heq)
-      | skip
-    try simp at heq
-  · next heq => rfl
+  rw [isUseful.eq_4]; split <;> simp_all
+
+/-!
+## What the algorithm is supposed to compute
+
+`Useful` is the specification; `isUseful` is the implementation, and the
+exhaustiveness theorems are the two directions relating them. The two protect
+different things, and only one is a safety property:
+
+* **`isUseful = true → Useful`** ("no false positives"). The compiler reports a
+  non-exhaustive match only when a value really is uncovered. This is the
+  *expressiveness* direction: without it the checker could reject fine
+  programs. It is `useful_sound`, in `Sound.lean`.
+
+* **`Useful → isUseful = true`** ("no false negatives"). If a value is
+  uncovered, the compiler finds it. This is the *safety* direction, and the one
+  that makes `match` progress: a well-typed `match` the checker accepted always
+  has an arm that fires. It is `isUseful_false_covers`, in `Complete.lean`.
+
+Note the asymmetry with the surface diagnostics: the compiler *reports* when
+`isUseful` is true and *accepts* when it is false, so it is the false-negative
+direction that could let a bad program through.
+-/
+
+/-- `v` is useful against `P` when some well-typed value vector matches `v` and
+no row of `P`. -/
+def Useful (S : Signature) (ts : List Ty) (P : List Row) (v : Row) : Prop :=
+  ∃ vs, Forall₂ (HasType S) vs ts ∧ Row.matches v vs = true ∧ ¬ Matrix.covers P vs
+
+/-- A `match` is exhaustive when a bare wildcard is no longer useful against
+its arms -- `exhaust.rs:478`. -/
+def isExhaustive (S : Signature) (limit : Nat) (t : Ty) (arms : List Row) : Bool :=
+  !isUseful S limit arms [Pattern.wildcard] [t]
+
+/-- A `let` pattern must be irrefutable (SPEC 14 rule 2), which is the same
+question asked of a one-row matrix. -/
+def isIrrefutable (S : Signature) (limit : Nat) (t : Ty) (p : Pattern) : Bool :=
+  isExhaustive S limit t [[p]]
 
 end Buri

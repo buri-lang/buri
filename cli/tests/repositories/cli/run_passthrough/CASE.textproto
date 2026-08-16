@@ -1,0 +1,52 @@
+# `buri run` builds one binary for the host and executes it — outside the
+# sandbox, with the real environment and the real filesystem. That is the point
+# of the command: it is the one that produces a program with authority, and
+# everything before it in the pipeline is hermetic.
+#
+# Three claims, none of which `buri build` can make:
+#
+#   * the program runs, and its stdout is the command's stdout;
+#   * everything after `--` reaches the program rather than the CLI;
+#   * the program's exit code is the command's exit code.
+#
+# The program also reads `note.txt` by a relative path. A sandboxed action
+# cannot see it; this one prints it, which is the readable form of "outside the
+# sandbox, with the real filesystem".
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "run builds for the host and executes outside the sandbox, passing everything after -- to the program and returning its exit code"
+
+run {
+  args: ["run", "//cmd/echo"]
+  exit: 0
+  golden: "no_args.txt"
+}
+
+# Everything after `--` goes to the program. `--fail` is a flag `buri` itself
+# does not have, so it reaching the program at all is the claim; `--force` is
+# one `buri run` *does* have, which is the sharper half — after `--` it is
+# argv, not a flag.
+run {
+  args: ["run", "//cmd/echo", "--", "one", "--force", "two"]
+  exit: 0
+  golden: "passthrough.txt"
+}
+
+# The program's exit code is the command's. 3 is neither 0 nor either of the
+# two failure codes the CLI itself uses, so nothing else could have produced
+# it.
+run {
+  args: ["run", "//cmd/echo", "--", "--fail"]
+  exit: 3
+  golden: "exit_code.txt"
+}
+
+# `run` takes exactly one binary. A pattern that matches none is the thing you
+# asked *with* being wrong.
+run {
+  args: ["run", "//..."]
+  exit: 2
+  golden: "not_one_binary.txt"
+}

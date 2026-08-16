@@ -4,7 +4,7 @@ error: "//lib/money" does not export `rawValue` [no-such-export]
 8 | from "//lib/money" import { fromCents, rawValue };
   |                                        ^^^^^^^^
   |
-  = fix: check the spelling, or add `export` to `rawValue`'s declaration in "//lib/money"
+  = fix: check the spelling, or re-export `rawValue` from "//lib/money"'s `lib.buri`
 error: there is nothing named `rawValue` in scope [unresolved-name]
   --> cmd/app/main.buri:12:26
    |

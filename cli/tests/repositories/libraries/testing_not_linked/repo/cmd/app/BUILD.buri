@@ -1,0 +1,14 @@
+# The production binary. It depends on //lib/widget and on nothing else; the
+# testing surface is a separate label and is not among its dependencies.
+
+binary {
+  dependencies: ["//lib/widget"]
+  outputs: [
+    { platform: JS },
+  ]
+
+  test {
+    sources: ["test/app.buri"]
+    dependencies: ["//lib/widget/testing"]
+  }
+}

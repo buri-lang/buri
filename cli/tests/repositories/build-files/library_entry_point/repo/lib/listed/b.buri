@@ -1,0 +1,1 @@
+export fn b(): I64 { 2 }

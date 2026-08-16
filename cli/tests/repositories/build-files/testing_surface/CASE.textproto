@@ -1,0 +1,101 @@
+# The `testing` block: a library's second, test-only entry point. Four claims,
+# in one repository because they are one rule read from four sides.
+#
+#   - `testing.dependencies` are the *surface's*, not the library's
+#   - an empty `testing {}` is accepted
+#   - `testing/lib.buri` is required when the block is present
+#   - the block is required when the directory exists
+#
+# The last used to hold only by accident. Nothing looked at the directory; what
+# fired was `undeclared-source` on the files inside it, and since
+# `testing/lib.buri` is an entry point it is in the known set unconditionally —
+# so a `testing/` directory holding nothing but its own entry point passed with
+# no block at all, and the surface was invisible to the build. The loader asks
+# about the directory now, which is why the last two steps here read the way
+# they do.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library's `testing` surface: its dependencies are its own, an empty block is accepted, testing/lib.buri is what the block names, and the block is required when the directory is there"
+
+# Everything above is well-formed, including the empty `testing {}`.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The point of the block having its own `dependencies`: //lib/aid is reached by
+# the testing surface and by nothing else, so it is not in the library's
+# closure. //lib/core, declared under `dependencies`, is.
+run {
+  args: ["query", "deps(//lib/widget)"]
+  exit: 0
+  golden: "deps.txt"
+}
+
+# A `testing` block whose `testing/lib.buri` is not there. //lib/plain has no
+# testing directory at all, so declaring the block is the whole of the edit.
+edit {
+  file: "lib/plain/BUILD.buri"
+  replace: "  visibility: [\"//visibility:public\"]\n"
+  with: "  visibility: [\"//visibility:public\"]\n\n  testing {\n    sources: [\"testing/helpers.buri\"]\n  }\n"
+}
+
+run {
+  args: ["lint", "//lib/plain"]
+  exit: 1
+  golden: "block_without_directory.txt"
+}
+
+# The other way round: a `testing/` directory whose block has been dropped.
+# Two things fire, and they are different claims — `undeclared-source` is about
+# the file the block used to declare, and the other is about the surface
+# itself, which no target compiles now.
+edit {
+  file: "lib/widget/BUILD.buri"
+  replace: "\n  testing {\n    sources: [\"testing/fixtures.buri\"]\n    dependencies: [\"//lib/aid\"]\n  }\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//lib/widget"]
+  exit: 1
+  golden: "directory_without_block.txt"
+}
+
+# And the case the file-by-file check could never reach: //lib/empty's testing
+# directory holds nothing but lib.buri, so there is no undeclared file to find
+# and the only thing that can notice is a question about the directory.
+edit {
+  file: "lib/empty/BUILD.buri"
+  replace: "\n  testing {}\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//lib/empty"]
+  exit: 1
+  golden: "directory_without_block_alone.txt"
+}
+
+run {
+  args: ["lint", "//lib/empty", "--error-format=json"]
+  exit: 1
+  golden: "directory_without_block_alone.json"
+}
+
+# The fix the diagnostic printed, which is also the third claim above: an empty
+# block is the whole of what this surface needs.
+edit {
+  file: "lib/empty/BUILD.buri"
+  replace: "  visibility: [\"//visibility:public\"]\n"
+  with: "  visibility: [\"//visibility:public\"]\n\n  testing {}\n"
+}
+
+run {
+  args: ["lint", "//lib/empty"]
+  exit: 0
+  golden: "empty_block_accepted.txt"
+}

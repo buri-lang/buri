@@ -140,9 +140,20 @@ from "core/testing/context" import { Hermetic };
 test "pads the cents place" {
   let ctx = Hermetic();
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
-  // The test reaches the library the same way every other dependent does, so
-  // a name `lib.buri` withholds is withheld from the test too.
-  assert.eq(fromCents(1905).toCents(), 1905);   // ERROR: has no method `toCents`
+}
+```
+
+A suite is compiled with its own package, so it reaches its library's internals
+the way any other file in the package does. The boundary is what a *dependent*
+sees, and it is the compiler's rule rather than a convention — a name `lib.buri`
+withholds is not callable from another package, as a free function or as a
+method. `tools/report/test/render.buri`:
+
+```buri repo=cli/tests/example role=test pkg=//tools/report
+# from "//lib/money" import { fromCents };
+# from "core/testing/assert" import * as assert;
+test "the surface is the whole of what a dependent can call" {
+  assert.eq(fromCents(1905).toCents(), 1905);   // ERROR: `toCents` is not on //lib/money's surface
 }
 ```
 
@@ -201,7 +212,7 @@ they meet are the ones worth reviewing hardest:
 | Mandatory top-level signatures | A library's *interface* hash is derivable without compiling its bodies. Editing a private function does not invalidate a single dependent's typecheck. |
 | Modules check independently | Compile actions within a package parallelize with no ordering constraints beyond the dep graph. |
 | No macros, no reflection, no conditional compilation | A source file's meaning does not depend on how the build was configured, so a cache key is (sources, deps, platform, build mode) and nothing else — tags never enter it. |
-| Effects arrive as bounds on `ctx` | Hermeticity is not only a sandbox property. A test whose calls never passed a `Net`-bounded context cannot reach the network even if the sandbox leaks. |
+| Effects arrive as bounds on `ctx` | Hermeticity is a type-system property rather than a sandbox one. A test whose calls never passed a `Net`-bounded context cannot reach the network, so there is nothing for an operating-system confinement to confine — and the toolchain applies none. |
 | `Result` is must-use | A `Result` a test forgets to check does not compile, so a test cannot silently pass. |
 | No relative module paths | A file's imports do not change when it moves, so `buri gen` can rewrite a build file without rewriting source. |
 | No mutation, no global state | Test order is not observable; the runner may shard and reorder freely. |

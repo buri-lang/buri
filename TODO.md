@@ -67,30 +67,67 @@ larger than the language's own tests need.
       ever used to *suppress* `unused-dep`; a library reached solely through a
       method call was never reported. Now implemented (`commands/lint.rs`, after the
       import loop) and covered by `repos/build-files/missing_dep_by_method`.
-- [ ] **A cycle is reported once per end.** `repos/build-files/dep_cycle`
-      records `//lib/a and //lib/b` and then `//lib/b and //lib/a` for one
+- [x] **A cycle is reported once per end.** `repos/build-files/dep_cycle`
+      recorded `//lib/a and //lib/b` and then `//lib/b and //lib/a` for one
       cycle. BUILD-FILES.md:389-390 describes one diagnostic per cycle.
-- [ ] **`tag-violation` prints `reached by:` for only one of the two tags** —
-      whichever sorts second. `repos/tags/forbids_symmetric` shows `"client" is
-      carried by //lib/widget` with no path, while `tag_violation` shows the
-      path for `server`. The introducing edge is what TAGS.md:191-203 says
-      makes the diagnostic useful, and half of it is missing.
-- [ ] **`duplicate-source` renders its `= fix:` line misaligned.** The two
-      spans have different gutter widths (line 10 and line 5), and the trailing
-      `= ...` block is indented for the first while sitting under the second.
-      This is the same class of defect the recorded goldens caught before.
-- [ ] **`query platforms` on an unsatisfiable target prints nothing and exits
-      0.** `repos/tags/unsatisfiable_target/expected/platforms.txt` is empty,
-      which is indistinguishable from a command that did nothing.
-- [ ] **`test.dependencies` edges are not visibility-checked.** `dep_edges`
-      (`build/workspace.rs:375-388`) walks only rule-level `declared_deps`
-      (`build/workspace.rs:355-361`), so a test suite reaching a library named in
-      `test.dependencies` escapes the check — contradicting BUILD-FILES.md:359-360
-      ("including a test suite reaching a library named in `test.dependencies`,
-      is checked normally"). Not yet covered by a case; triage first.
-- [ ] **`name_not_reexported`'s fix is misleading.** It says "add `export` to
-      `rawValue`'s declaration", but the declaration is already exported — what
-      is missing is the re-export in `lib.buri`.
+
+      Fixed in `check_cycles` (`commands/lint.rs`). A cycle has no first end,
+      so neither edge could be preferred on its own terms; what deduplicates is
+      the cycle's *membership* — every target mutually reachable with the
+      edge's tail — which is the same set whichever edge is walked first. The
+      first edge to reach a set not yet reported is the one the diagnostic
+      points at. Two goldens lost their second copy, and
+      `linting/fix_refuses_a_judgement_call` lost one too, which is how it
+      turned out that case was pinning the duplicate as well.
+- [x] **`tag-violation` prints `reached by:` for only one of the two tags** —
+      whichever sorts second. Both notes are now built by one closure
+      (`build/actions.rs`), so the introducing edge is printed for whichever of
+      the two the target does not carry itself, and for both when it carries
+      neither. `tags/forbids_symmetric` gained the path for `client`;
+      `tags/tag_union_not_path` gained one too, and reads as the case's name
+      promises now — the two tags arrive down two different paths, and the
+      diagnostic shows both.
+- [x] **`duplicate-source` renders its `= fix:` line misaligned.** The cause
+      was `gutter_width` taking the *widest* line number over all of a
+      diagnostic's spans, while `render_snippet` gives each snippet a gutter
+      sized to its own. The `= ...` block belongs to the snippet directly above
+      it, so it is that one's width it has to match; it now uses the last
+      sub-span's, or the primary span's when there is none.
+      `diagnostics.rs::the_trailer_lines_up_with_the_snippet_above_it` pins it
+      at the unit level. One reject golden moved with it —
+      `type_implements_effect_and_trait`, spans on lines 14 and 9 — which is
+      the only other case in the repository whose spans straddle ten.
+- [x] **`query platforms` on an unsatisfiable target prints nothing and exits
+      0.** It now says so, and says why: the target, then one line per distinct
+      constraint that ruled a platform out. On stdout and still exit 0, beside
+      `path`'s "no path" — it is the answer to the question rather than a
+      complaint about the invocation.
+      `repos/tags/unsatisfiable_target/expected/platforms.txt` is no longer an
+      empty file, which was the whole complaint.
+- [x] **`test.dependencies` edges are not visibility-checked.** Implemented:
+      `Workspace::test_dep_edges` (`build/workspace.rs`) collects the
+      `test.dependencies` of either rule and a library's
+      `testing.dependencies`, and `check_visibility` walks it beside
+      `dep_edges`.
+
+      Deliberately *not* folded into `dep_edges`: a test dependency is not part
+      of what a target ships, so putting it in `closure()` would drag its tags
+      into the production tag closure, count against `unused-dep`, and make a
+      cycle out of a suite that merely borrows a helper. For the same reason
+      the test edges are checked on the target itself rather than across its
+      closure — a consumer neither links a library's suite nor could fix it —
+      and `//...` reaches every target's own suite anyway.
+      `repos/build-files/test_dep_visibility` covers it from both `lint` and
+      `test`, ending with the fix the diagnostic printed.
+- [x] **`name_not_reexported`'s fix was misleading.** It said "add `export` to
+      `rawValue`'s declaration", but the declaration is already exported —
+      being exported is exactly why the import got as far as this diagnostic.
+      What is missing is the re-export in `lib.buri`, and that is what it says
+      now: "re-export `rawValue` from \"//lib/money\"'s `lib.buri`", branching
+      on whether the module the name was asked of is a `lib.buri`
+      (`compiler/semantics/resolve.rs`). `repos/libraries/name_not_reexported`
+      re-recorded, both forms. The sibling diagnostic about a re-export naming
+      an unexported name was correct as it stood and did not move.
 
 ---
 
@@ -115,16 +152,81 @@ larger than the language's own tests need.
 - [x] `//visibility:private` as the default — the same case: its library
       declares no `visibility`, and the violation prints
       `//visibility:private (nothing, outside its own package)`.
-- [ ] Package with both rules — the negative half of BUILD-FILES.md:299-308:
-      overlapping `sources` sets, `main.buri` importing `//tools/report/render`
-      instead of `//tools/report`, `lib.buri` importing `//tools/report/main`.
-      *(untested; the positive path is `tools/report`)*
-- [ ] `lib.buri` missing from a `library`, or listed in `sources`. *(untested)*
-- [ ] `testing/lib.buri` required when the block is present; the block required
-      when the directory exists; empty `testing {}` accepted. *(untested)*
-- [ ] `testing.dependencies` — a `testing/` block with deps of its own, which
-      do not become the library's. *(untested; the example's `testing` block
-      declares only `sources`)*
+- [x] Package with both rules — the negative half of BUILD-FILES.md:299-308.
+      The overlapping `sources` half is `duplicate_source`; the two import
+      directions are `repos/build-files/both_rules_boundaries`.
+
+      Recording them turned up a third defect, now fixed: **`main.buri`
+      importing a module inside the library beside it was accepted.**
+      BUILD-FILES.md:301-305 says the binary reaches the library only through
+      `//tools/report`, but the `ModuleKind::Internal` arm in
+      `compiler/modules.rs` asked only whether the importer was in the same
+      *package* — and in a both-rules package every file is, which is precisely
+      the case the rule is about.
+
+      The question it asks now is which *rule* the importing file belongs to
+      (`Workspace::rule_of_file`), because that is what the boundary is drawn
+      around. Two directions fall out of one comparison, and the case records
+      both: a binary source reaching a library-internal module gets
+      `internal-import` naming the surface to go through, and a library source
+      reaching a binary source gets `internal-import` saying the binary depends
+      on the library rather than the other way round. The entry points needed
+      no special case — `lib.buri` importing `//tools/report/main` is still
+      `binary-entry-import`, and `main.buri` is just another file of the binary
+      rule.
+
+      `duplicate_source`'s `main.buri` moved to the surface import with it: it
+      had been reaching past the boundary too, and that case is about one file
+      listed twice.
+- [x] `lib.buri` missing from a `library`, or listed in `sources` —
+      `repos/build-files/library_entry_point`.
+
+      Missing is caught: the rule kind names `lib.buri`, so a `library` in a
+      package without one gets `module-not-found` naming the file. **Listed in
+      `sources` used to be accepted**, because `check_sources_declared` puts
+      the three entry points into `known` unconditionally, so a listing of one
+      matched itself and nothing asked whether the rule had already named it —
+      the redundancy was invisible to the only check that walks the list.
+
+      It is `entry-point-listed` now, raised in the loader
+      (`compiler/modules.rs::load_package_source`), which is the one funnel
+      every declared source goes through and therefore the one place all three
+      names are covered by one check. Being in the loader also means `build`
+      and `test` say it and not only `lint`: BUILD-FILES.md:140-144 states it
+      as a property of the rule rather than as a hygiene preference. The case
+      records `lib.buri`, then the fix, then `main.buri` in a binary — one
+      clause, and it reads the same whichever rule kind names the file.
+      `buri gen` already agreed: `regenerate.rs` skips the three names when it
+      writes a `sources` list, so nothing it generates now fails.
+- [x] `testing/lib.buri` required when the block is present; the block required
+      when the directory exists; empty `testing {}` accepted —
+      `repos/build-files/testing_surface`, all three.
+
+      The block present with no `testing/lib.buri` is caught twice over
+      (`module-not-found`, and the missing source). An empty `testing {}` is
+      accepted. And **the block required when the directory exists** used to
+      hold only by accident: nothing looked at the directory, and what fired
+      was `undeclared-source` on the files inside it — so a `testing/`
+      directory holding nothing but its own entry point passed with no block at
+      all, because `known` always contains `testing/lib.buri`. The surface was
+      then invisible: no target compiled it, and `//pkg/testing` resolved to a
+      file the build had never heard of.
+
+      `undeclared-testing-surface` asks about the directory now
+      (`compiler/modules.rs::check_testing_surface_declared`), which is the
+      only thing a file-by-file check could never reach. It is asked once per
+      package — by the library rule, or by the binary rule when there is no
+      library, so a package with both is not told twice — and it steps over a
+      `testing/` that carries its own `BUILD.buri`, since that is a package and
+      its files are its own business. The case now ends with the fix: `testing
+      {}` put back, and clean.
+- [x] `testing.dependencies` — a `testing/` block with deps of its own, which
+      do not become the library's. Same case: `//lib/widget` declares
+      `//lib/core` under `dependencies` and `//lib/aid` under
+      `testing.dependencies`, and `query deps(//lib/widget)` prints `//lib/core`
+      and nothing else. Recorded as a golden with a name in it rather than as
+      an empty file, so the assertion is that the *right* dep is there and the
+      other is not — an empty golden would have passed for the wrong reason.
 - [ ] `artifact_name` on an output. *(untested; native artifacts are
       unimplemented — see below)*
 
@@ -140,14 +242,59 @@ larger than the language's own tests need.
       resolves again once `lib.buri` re-exports it.
 - [x] `//lib/money/lib` rejected as a path —
       `repos/libraries/lib_path_spelling`.
-- [ ] `//pkg/main` imported from outside that binary's own test sources.
-      *(untested)*
-- [ ] A module path that is also a package path (`lib/money/cents.buri`
-      alongside a `lib/money/cents/` package), rejected by name. *(untested)*
+- [x] `//pkg/main` imported from outside that binary's own test sources —
+      `repos/libraries/binary_entry_import`, all three positions: the binary's
+      own suite imports it and passes, another package's library is refused,
+      and one of the binary's own production sources is refused too. Being in
+      the package is not what earns the import; being a test source is.
+
+      **Writing it turned up a defect in `Loader::role_for`, now fixed.** What
+      a module is imported *as* is a property of the module, and `role_for`
+      returned `Role::Source` for every non-`core`, non-`testing` path — so a
+      binary's entry point reached through an import was compiled as ordinary
+      source, and its `core/host` import and its `context` were both rejected.
+      It consults the workspace now and answers `Role::Entry` for a
+      `ModuleKind::BinaryEntry`.
+
+      A real build never noticed, because `load_unit` pre-loads a binary's
+      entry point as `Role::Entry` before anything can import it — the bug
+      needed a compilation that reaches `main.buri` through an import first.
+      The documentation harness is exactly that, which is why the evidence is
+      a document: testing.md's own example of a binary's suite had been marked
+      `ignore` with this bug written out as the reason, and it compiles now.
+      That is one off the untested-example ceiling.
+- [x] A module path that is also a package path (`lib/money/cents.buri`
+      alongside a `lib/money/cents/` package), rejected by name —
+      `repos/libraries/module_is_also_a_package`. Implemented already
+      (`Workspace::check_package_module_collisions`); what was missing was
+      anything that ran it. The case carries the near miss in the same
+      repository — a subpackage with no module of that name beside it — so the
+      rule cannot quietly become "a subpackage is an error".
+
+      It is exit 2, not 1: a repository where one path means two things is
+      unreadable rather than badly written, which is the answer an unparseable
+      build file already gets. There is deliberately no closing edit, because
+      the fix is to rename a file and a case step edits text inside one.
 - [x] `//lib/x/testing` imported from a production source —
       `repos/libraries/testing_import_in_production`, with the dependency
       declared under `dependencies` so that only the language can object.
-- [ ] `testing/` code never linked into a production artifact. *(untested)*
+- [x] `testing/` code never linked into a production artifact —
+      `repos/libraries/testing_not_linked`. Every other test of the `testing`
+      surface is about what the toolchain *says*; this one is about what it
+      *emits*, which is where the claim actually lives.
+
+      A marker string defined in one file — the fake under `testing/` — read
+      back out of the binary's own `.mjs`, in debug and again in `--release`.
+      On its own an absence passes for the wrong reason (a mistyped path, an
+      artifact never written), so the same step also requires the *production*
+      marker to be there, and a suite above it asserts on the fake, so the
+      string is known to exist and to be reachable from somewhere.
+
+      The case harness grew `file { contains }` and `file { absent }` for it.
+      A whole-file golden is the right record of something a person reads; an
+      artifact is mostly runtime, so recording one would move on every
+      unrelated backend change and bury the one line that is the point. Like
+      `exit`, neither is ever blessed.
 
 ## TAGS.md
 
@@ -175,32 +322,101 @@ larger than the language's own tests need.
 - [ ] Maturity policy — `experimental` and `stable` are declared in the
       example's `REPO.buri` and carried by no target, so that whole path is
       unexercised. *(untested)*
-- [ ] A test suite inheriting its target's tags and platform restrictions.
-      *(untested)*
-- [ ] `test { platforms: [...] }` — one run per platform, and a platform the
-      target does not admit being an error rather than a skip. *(unimplemented
-      — `commands/test.rs` pins every suite to `Platform::Js`)*
+- [x] A test suite inheriting its target's tags and platform restrictions —
+      `repos/testing/inherited_policy`. Inheritance is invisible when it agrees
+      with you, so the case ends with the edit that makes it disagree: the
+      suite asks for a JS run and is refused by a rule in `REPO.buri` about a
+      tag the `test` block never mentions.
+- [x] `test { platforms: [...] }` — `repos/testing/suite_platforms`.
+      `commands/test.rs` no longer pins the suite to `Platform::Js`: it checks
+      policy against every platform the suite will run on and then runs one per
+      declared platform. A platform the target does not admit is
+      `platform-violation`, an error and not a skip, which is the whole
+      difference between a policy and a preference.
+
+      A suite that declares nothing is still checked against the host and
+      executed as JavaScript, which is what `buri test` has always done and
+      what the `server` tag in the example repository depends on.
+
+      The honest boundary is the last step of that case: only the JavaScript
+      backend exists, so a suite that *names* a platform this toolchain cannot
+      execute gets `platform-not-implemented` rather than being run through the
+      backend that does exist and reported as if it had run natively. When
+      there is a native backend, that step is the one that changes.
+      *(a non-JS run is unimplemented, and says so)*
 
 ## TESTING.md
 
-- [ ] A test source importing a library-internal module (TESTING.md:115-123).
-      The spec calls this "the whole design in one message"; nothing checks it.
-      *(untested)*
-- [ ] A test source importing another test source. *(untested)*
-- [ ] A test source that `export`s, or that something imports. *(untested)*
-- [ ] `buri test --accept` — updates only files declared in `test.data`, never
-      creates one, prints a diff, leaves the rest of the run unchanged.
-      *(flag parses at `commands/arguments.rs`; behaviour untested)*
-- [ ] `--filter=<substring>` on test names. *(untested)*
-- [ ] `--shuffle` on by default with the seed printed, and `--shuffle=off`.
-      *(untested)*
-- [ ] `timeout_seconds` on a suite. *(untested; no example declares one)*
-- [ ] Test caching — a suite whose inputs are unchanged reports as cached, and
-      `--force` re-runs it. Every test in `conformance.rs` passes `--force` and
-      none asserts a cached count. *(untested)*
-- [ ] The failure format at TESTING.md:366-372 — target, file, test name,
-      actual/expected, source location. The canary asserts only that the output
-      contains `FAIL`. *(untested)*
+The whole document now has a corpus of its own: `repos/testing`, run by
+`repositories.rs::test_suites`.
+
+- [x] A test source importing a library-internal module —
+      `repos/testing/internal_import`. It was **not an error**: the internal
+      rule in `compiler/modules.rs` only ever fired across packages, so a suite
+      reaching into the library it sits beside compiled and passed. It fires
+      now, with the spec's message and a fix naming the surface to import and
+      the symbols to re-export.
+
+      A module is a test source because a rule lists it in `test.sources` —
+      that is the only thing that makes one — so that is what the new check
+      asks, rather than asking for the `TestSource` role. A documentation
+      snippet is named by its origin rather than by a `//...` path, so it is
+      never one, and testing.md's own example of a `testing/` fixture reaching
+      its library's internals still compiles.
+- [x] A test source importing another test source —
+      `repos/testing/test_source_is_not_a_module`. Also not an error before:
+      the second suite was loaded as an ordinary module and the failure came
+      out as an unrelated pile about exports. Now `test-source-import`, at the
+      import line, and the case records both directions — a sibling suite, and
+      the library's own source.
+- [x] A test source that `export`s — `repos/testing/test_source_exports`, both
+      forms recorded. The checker already errored; the case pins the words.
+      The diagnostic still carries **no code**, so it is the one recorded
+      diagnostic in the corpus with an empty `[...]` slot.
+      *(`semantics/resolve.rs` was another agent's at the time)*
+- [x] `buri test --accept` — `repos/testing/accept_golden`. Implemented in
+      `commands/test.rs`: it runs outside the cache in both directions, writes
+      the actual value into the declared `data` file whose contents a failing
+      `assert.eq` expected, and prints a diff. Each of the three bounds is
+      checked by something that fails loudly if crossed — a golden that exists
+      and is not declared, a golden that is declared and does not exist, and a
+      final ordinary run whose recorded output is what says neither moved.
+
+      The verdict is deliberately unchanged: `--accept` exits 1 on a suite it
+      just accepted, because what it changes is the source tree and not whether
+      the tests passed.
+- [x] `--filter=<substring>` on test names — `repos/testing/filter`. It worked;
+      what it did not do was say so. The summary now carries a `skipped` count,
+      as TESTING.md:389 shows it, so a filter that matches nothing reads
+      differently from a suite that holds nothing.
+- [x] `--shuffle` — **there is no such flag, and there must not be.**
+      TESTING.md:396-398 is explicit that the runner may run a suite's tests in
+      any order and that there is no knob to turn that off. This entry used to
+      ask for one; it was wrong. `repos/testing/filter` ends by pinning that
+      `--shuffle` and `--shuffle=off` are both exit 2, which the `commands`
+      table already guarantees — a flag nothing reads cannot be listed.
+- [x] `timeout_seconds` on a suite — `repos/testing/timeout`. Implemented: the
+      runner spawns the test binary and kills it at the deadline. The bound is
+      the suite's, so the diagnostic is the suite's and no test in it gets a
+      result. The case's negative twin gives the spinning function a base case
+      and the same declaration lets it through.
+- [x] Test caching — `repos/testing/caching` for the count a person reads, and
+      `incrementality.rs::a_test_suite_is_cached_and_force_re_runs_it` for the
+      `--explain` transcript, which is the sharper question. A second test
+      pins that `--filter` and `--accept` are never served from the cache and
+      that a filtered run does not leave a partial result behind for the next
+      whole one to find.
+- [x] The failure format — `repos/testing/failure_format`, and again inside
+      `accept_golden` where three failures are recorded at once. Target, file,
+      test name, both values, source location, and the summary beneath a blank
+      line.
+
+      The location is the `test` declaration's, not the failing assertion's.
+      The runner learns where a test is from the compiler and where it failed
+      from a JavaScript exception, and only the first of those is a Buri span;
+      TESTING.md:387 shows the assertion's line. *(the assertion's own span is
+      unimplemented — it needs the span to travel into `core/testing/assert`,
+      which is a change to the standard library's signatures)*
 
 Well covered already, for contrast: the runner-context table (TESTING.md:262-272)
 — `captureOut`, `captureErr`, `stdin`, `files`, `readOnly`, `noNet`, `clockAt`,
@@ -209,21 +425,108 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 
 ## CLI.md
 
-- [ ] **`buri gen` has no test at all.** Every clause of CLI.md:144-219 is
-      unverified: rewriting the six managed fields; preserving `tags`,
-      `platforms`, `timeout_seconds`, `visibility`, `outputs`, `test.data`,
-      `test.platforms` and comments; leaving the file as `buri format` would;
-      refusing to create a build file or invent a rule; `gen --check`; the
-      four-step rule assignment in a both-rules package, including the error
-      when a file is reachable from neither rule or from both. *(untested;
-      implemented in `build/regenerate.rs` + `commands/lint.rs`)*
-- [ ] **`buri run` has no test.** Building for the host and executing outside
-      the sandbox, `--` argument passthrough. *(untested; `main.rs:174`)*
-- [ ] `buri query deps(...)`, `rdeps(...)`, `path(...)`, `sources(...)`.
-      `tags(...)` and `platforms(...)` now have recorded goldens
-      (`repos/tags/tags_query`) rather than the `.contains()` assertions they
-      had. `path` is the one CLI.md says earns its place. *(untested)*
-- [ ] `buri query --output=proto`. *(untested)*
+- [x] **`buri gen` — three cases in `repositories/cli/`, and four clauses of
+      CLI.md:144-219 that turned out to be unimplemented rather than untested.**
+
+      `gen_managed_fields` is the whole contract in one file: a `library` rule
+      that starts with nothing but its policy, and comes back with all six
+      managed fields derived and `tags`, `platforms`, `visibility`,
+      `test.data`, `test.platforms`, `timeout_seconds` and every comment
+      saying exactly what they said. It then runs `format --check` (gen leaves
+      the file as the formatter would), `gen` again (nothing to do, and it
+      prints nothing), `lint //...` and `test` (the derived file is not merely
+      stable, it is right), and finally takes `sources` away again so that
+      `--check` can report it, exit 1, and write nothing — checked by
+      recording the file's own bytes, which is the half the exit code cannot
+      show. The last step regenerates and compares against the *same* golden
+      as the first.
+
+      `gen_never_creates` is the two refusals, both recorded as an absence
+      that survives `buri gen //...`: a directory of `.buri` files with no
+      build file stays without one, and a package whose `library {}` sits
+      beside a `main.buri` gains no `binary` rule. It ends with the decision
+      `gen` refused to make, made by a person, and `gen` filling in the rule
+      that appeared.
+
+      `gen_both_rules` is the four-rule assignment, walked backwards because
+      rule 4 fires first: the file reachable from both entry points, then the
+      file reachable from neither, then the run that places the rest by rules
+      2 and 3 while rule 1 holds the two already-listed files still. It ends
+      with `lint` and `test`, because a source under the wrong rule is an
+      `internal-import` the moment anything uses it.
+
+      Four things were wrong rather than untested, all fixed in
+      `build/regenerate.rs`:
+
+      - **Rules 2 and 3 did not exist.** A file in a both-rules package that
+        no rule listed was *always* the rule-4 error; reachability from
+        `main.buri` and from `lib.buri` was never computed. It is now, off the
+        syntax (`reachable`/`imports_of`) rather than off a checked analysis,
+        because the file being placed is a file no rule lists yet and the
+        loader would not have it. The diagnostic now also says which half of
+        rule 4 fired — "reachable from both" and "reachable from neither" are
+        different problems with different answers.
+      - **`test.dependencies` and `testing.dependencies` were never written.**
+        Two of the six fields CLI.md lists as managed. `derive_dependencies`
+        now splits its answer by the *role* of the module the import or the
+        resolved call sits in, which is what tells a test source from a
+        production one, and subtracts the production list from the test one —
+        the target under test reaches the suite through itself, so naming its
+        dependencies again would be `unused-dep` on the second claim.
+      - **A managed field could not create the block it lives in.** CLI.md's
+        worked example starts from `library {}` and comes back with a
+        `test.sources`; `set_list` walked to the block and gave up when it was
+        not there, so that example did not work. It creates the block now, and
+        only when there is something to put in it — an empty `test {}` nobody
+        wrote is a claim the package has a suite.
+      - **`gen` was not a fixed point in one pass.** A test source is loaded
+        because a rule lists it, so on the run that *writes* `test.sources`
+        the analysis had not seen one and `test.dependencies` came out empty —
+        appearing on the second run. A command whose second run differs from
+        its first is a command whose `--check` lies. The test files' imports
+        are now read off disk and merged with what the analysis found.
+
+      One consequence outside the command: `cli/tests/example`'s
+      `lib/ledger` gained the `testing.dependencies: ["//lib/money"]` it had
+      always needed and nothing had ever written.
+
+      Two smaller things, deliberate: in a package with both rules the summary
+      names the rule (`+ library.sources: …`), because `+ sources:` twice is
+      two claims a reader cannot tell apart; and in a both-rules package a
+      `test/` file goes to the binary's suite when it imports `//pkg/main` and
+      to the library's otherwise, which is the same reachability question read
+      from the other end. `buri gen //...` over `cli/tests/example` and over
+      the conformance repository changes nothing but formatting and sorting.
+- [x] **`buri run` — `repositories/cli/run_passthrough`.** The three claims
+      `buri build` cannot make: the program runs and its stdout is the
+      command's, everything after `--` reaches the program rather than the
+      CLI, and the program's exit code is the command's. The exit code is `3`,
+      which is neither success nor either of the two failure codes the CLI
+      itself uses, so nothing else could have produced it; the passthrough
+      argument list includes `--force`, a flag `buri run` really does take, so
+      what is pinned is that after `--` it is argv and not a flag. The program
+      also reads a file by a relative path and prints it, which is the
+      readable form of "outside the sandbox, with the real filesystem".
+
+      The harness moved for it: `run_in` used to append `--color=never`, which
+      after a `--` landed in the program's own argv. It goes before the `--`
+      now, so a golden records the product rather than the harness.
+- [x] `buri query deps(...)`, `rdeps(...)`, `path(...)`, `sources(...)` —
+      `repositories/query/graph_queries`, a new corpus with its own test
+      (`repositories.rs::graph_queries`) because a query that has stopped
+      working prints a plausible wrong answer rather than failing. The
+      repository is CLI.md's own shape: `//cmd/web` reaches `//lib/store` only
+      through `//lib/ledger`, and a second binary is there so that the
+      *absence* of a path is recorded beside the presence of one. `rdeps` is
+      recorded twice, wide and narrow, so it is visibly not `deps` reversed;
+      the empty answer for a leaf is recorded next to a three-line one rather
+      than alone, because an empty file passes for a broken command too.
+- [x] `buri query --output=proto` — **there is no such flag, and the entry was
+      stale.** It was documented once and rejected by the parser; the flag
+      table in `commands/mod.rs` ended that disagreement in the other
+      direction, by deleting it from the documentation, since a flag nothing
+      reads cannot be listed. `graph_queries` records the refusal so that a
+      reader who finds the old claim finds the answer with it.
 - [x] `buri lint --fix` — `repos/linting/fix_applies` and
       `fix_refuses_a_judgement_call`. The flag had been removed entirely; it is
       back, and the two kinds of answer are applied differently: a build file
@@ -240,10 +543,23 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       parses and writes nothing else. `fix_applies` pins this: its `main.buri`
       carries a body comment and a hand-written single-line `context`, and the
       golden is byte-identical apart from the removed name.
-- [ ] `buri clean --outputs` dropping `.buri/out` only. *(untested — `clean` is
-      called for setup in several tests, never asserted)*
-- [ ] `buri version` printing the toolchain version and the `REPO.buri` pin.
-      *(untested)*
+- [x] `buri clean --outputs` dropping `.buri/out` only —
+      `repositories/cli/clean_outputs`. The difference between `clean` and
+      `clean --outputs` is invisible in what they print and invisible in an
+      exit code, so it is read twice: off the directories themselves, through
+      the case harness's new `path` step, and off the *next build* — which
+      reports `cached` when the cache survived and does not when it did not.
+      The second reading is the one that matters, because a `--outputs` that
+      deleted everything would pass the first.
+- [x] `buri version` printing the toolchain version and the `REPO.buri` pin —
+      `repositories/cli/version_pin`, plus
+      `conformance.rs::version_works_outside_a_repository` for the clause that
+      cannot be a repository case, since a case *is* a repository. The pinned
+      output names a version and so moves when the toolchain's does; that is
+      deliberate and costs nothing, because every `REPO.buri` in this corpus
+      already pins `0.3.0` and a release moves them together. The case ends by
+      pinning that a mismatched pin stops `buri build` too, rather than
+      `version` being the only command that looks.
 - [x] `buri lsp` — implemented, and recorded as three sessions in
       `repos/lsp/`. `diagnostics`, `hover`, `definition`, `documentSymbol`,
       `formatting`, and completion in the two places that need no type
@@ -285,52 +601,220 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 - [x] **Editor integration exists**: `editors/tree-sitter-buri` (grammar plus a
       C external scanner for string interpolation and nestable block comments)
       and `editors/zed` (the extension, which starts `buri lsp` from `PATH`).
-      `editors/tree-sitter-buri/check.sh` parses every `.buri` source in the
-      repository with zero `ERROR` and zero `MISSING` nodes, and compiles every
-      highlight query. It is not a `cargo test` — it needs the tree-sitter CLI,
-      and the toolchain may not depend on an external tool — so
-      `corpus.rs::the_editor_integration_is_whole` checks the files are all
+      `editors/tree-sitter-buri/check.sh` holds the syntax tree to the
+      compiler's own parser over every `.buri` source in the repository, and
+      compiles every highlight query. It is not a `cargo test` — it needs the
+      tree-sitter CLI, and the toolchain may not depend on an external tool —
+      so `corpus.rs::the_editor_integration_is_whole` checks the files are all
       still there and that the queries have exactly one copy.
 
-      **`grammar.ebnf` is stale, found by transliterating it.** Two productions
-      describe a language the compiler does not accept:
+      **`grammar.ebnf` was stale, found by transliterating it.** Two
+      productions described a language the compiler does not accept. Both are
+      corrected; the grammar is normative, so the defect was in it and not in
+      the parser.
 
-      - `ImplDecl ::= "impl" ... "{" FnDecl* "}"` — but a method of the type's
-        own may be exported, and every `impl` in the standard library and in
-        `cli/tests/example` writes `export fn`. `parsing/parser.rs:750` reads it.
-      - `FnDecl ::= ... Block` — but a declaration may have no body. That is how
-        the standard library declares the primitives the runtime supplies
-        (`export fn len(self: Str): Int;`, `std/str.buri:18`) and how a trait
-        states a method. The EBNF splits the second case out as `MethodSig` and
-        does not admit the first at all.
+      - `ImplDecl ::= "impl" ... "{" FnDecl* "}"` — a method of the type's own
+        may be exported, and every `impl` in the standard library and in
+        `cli/tests/example` writes `export fn`. The two forms are now written
+        out separately, because the `export` is admitted in exactly one of
+        them: an inherent `impl` takes `("export"? FnDecl)*`, a trait `impl`
+        takes `FnDecl*`. `parsing/parser.rs` reads it that way — `export` in an
+        `impl ... for ...` is `impl-method-export`, since conformance is a
+        property of the type and is visible wherever the type is.
+      - `FnDecl ::= ... Block` — a declaration may have no body, so it is now
+        `... (Block | ";")`. That is how the standard library declares the
+        primitives the runtime supplies (`export fn len(self: Str): Int;`,
+        `std/str.buri:18`). The `;` form is *syntax*; where it is allowed is a
+        separate rule and not a syntactic one — outside a trait, an effect, or
+        a bundled standard-library module it parses and is then rejected
+        (`parser.rs`, `allow_bodyless`), which is what lets the diagnostic say
+        the body is missing rather than that the `;` was unexpected.
+        `MethodSig` stays, now documented as the same production under a name,
+        because inside a trait or an effect the `;` is required rather than
+        merely admitted.
 
-      The tree-sitter grammar accepts what the compiler accepts. The EBNF
-      should be corrected to match. *(the grammar is normative, so this is a
-      real defect in it, not in the parser)*
+- [x] **`cli/src/docs/grammar.ebnf` and the tree-sitter grammar could drift,
+      and they cannot now: `grammar.js` is generated from the EBNF.** There
+      were three descriptions of Buri's syntax and no two of them were held
+      together by anything but reading. There are two, and the second is the
+      implementation.
 
-- [ ] **`cli/src/docs/grammar.ebnf` and the tree-sitter grammar can drift.**
-      `check.sh` proves the tree-sitter grammar accepts the corpus; nothing
-      proves the EBNF does, because nothing executes the EBNF. The two are kept
-      in step by reading. *(unimplemented, and possibly not worth implementing)*
+      `cli/src/documentation/grammar.rs` reads the EBNF and writes
+      `editors/tree-sitter-buri/grammar.js`;
+      `corpus.rs::the_tree_sitter_grammar_is_generated_from_the_ebnf`
+      regenerates it and compares byte for byte, with `BURI_BLESS=1` to record.
+      The file stays checked in because an editor installs the grammar without
+      the toolchain.
+
+      **The EBNF had to grow, and the constraint was that it must not stop
+      being documentation.** `buri docs grammar` serves it verbatim inside a
+      fenced block, so everything a generated parser needs beyond a
+      context-free grammar is either an ordinary EBNF comment whose first
+      character is `@`, or a label: `name=X` on the right-hand side is what a
+      syntax tree calls its capture of `X`, which is a fact about the language
+      and reads as one. Nothing the productions already state is stated twice —
+      a node's name is derived from the production's name, an operator's
+      precedence number from its position in the cascade, and its
+      associativity from the shape of the production, so `AddExpr ::= AddExpr
+      ("+" | "-") MulExpr | MulExpr` *is* "left-associative, level 8" and there
+      is nowhere for those to disagree. Token patterns are compiled out of the
+      lexical productions, so `[0-9][0-9_]*` is not written anywhere.
+
+      **Two escape hatches, both small and both named.** `@regex` supplies a
+      pattern where the lexical grammar states its token in prose — five
+      tokens: `IDENT` (whose "minus Keyword" is not a regular expression), the
+      character class inside `CHAR`, and the three comment forms, whose
+      disambiguation the EBNF states as longest-match and a generated lexer
+      needs written out. `@raw` would take a rule in tree-sitter's own terms
+      and is used nowhere; it exists so that a future corner has somewhere to
+      go other than into the EBNF.
+
+- [x] **Nothing executed the EBNF, and the corpus now does — in both
+      directions.** `check.sh` used to parse every source that compiles and
+      assert no `ERROR` node. That is the half a corpus of working programs can
+      see. The other half is whether the grammar accepts something the language
+      does not, and the arbiter for it is the parser itself. `check.sh` pipes
+      every Buri source in the repository — 474 of them — through
+      `cargo run -p buri --example parse_verdicts`, which answers `parses` or
+      `rejects` per file, and then requires an error node in the syntax tree
+      exactly where the parser produced a diagnostic.
+
+      **The verdict is asked for, not recorded.** It was a checked-in file for
+      about an hour, which was a readout of what the compiler does rather than
+      something to compare it against: it went stale on every new test case,
+      and it went stale silently in the one direction that matters, which is
+      when the compiler's answer changes. The example binary is the seam
+      because `buri parse` would be a subcommand nobody outside this
+      repository needs; if it ever earns one, that is its name.
+
+      The distinction that makes it work is the *stage*. A case in
+      `tests/reject/` that fails type checking is well-formed Buri and its
+      syntax tree must be clean; only a parse-stage rejection is a claim about
+      syntax. `expected/` under `tests/repositories` is left out, because a
+      recorded `buri gen` output is a `BUILD.buri` under a name ending in
+      `.buri` and is textproto.
+
+      **It found one, immediately.** The hand-written grammar wrapped every
+      method in an `impl` in `impl_method`, so `export fn` inside an
+      `impl ... for ...` parsed — which is `impl-method-export`, a diagnostic
+      the parser raises. The generated grammar follows the EBNF, where the two
+      `impl` forms are written out separately, and rejects it.
+
+      Five files are where the two are *meant* to disagree, listed in
+      `check.sh` with a reason each and reported if one of them starts
+      agreeing. All five are the same argument: reserved words (`while` is a
+      word the lexer refuses, not a keyword), a keyword where a name belongs
+      (`fn test(...)`, which tree-sitter's keyword extraction reads as an
+      identifier — the mechanism its error recovery is built on), and chained
+      comparison (`a < b < c` is not derivable, but a red squiggle is worse
+      than the `chained-comparison` message).
+
+- [x] **`Block ::= "{" Stmt+ "}" | "{" Stmt* Expr "}"` was stale**, found by
+      generating from it. The parser accepts `{ }` and `{ let x = 1; }`: a
+      block with no result expression parses, and having no value is reported
+      by the checker, which can say what the block was expected to produce.
+      The production is now `"{" Stmt* Expr? "}"`, which is the same shape the
+      grammar already uses for `ExprStmt` — the syntax admits it and a rule
+      objects, so the diagnostic is about the program rather than about the
+      punctuation.
 
 - [ ] **`editors/zed/extension.toml` pins a placeholder commit.** The grammar
       has to be published as its own git repository before the extension can be
       installed as anything other than a dev extension. *(unimplemented)*
 
-- [ ] No-argument invocation operating on the package containing the working
-      directory. *(untested)*
-- [ ] No-argument invocation operating on the package containing the working
-      directory. *(untested)*
-- [ ] "All commands are safe to run concurrently; a file lock serializes cache
-      writes" (CLI.md:25). *(untested)*
-- [ ] The `out/` convenience symlink pointing at the most recent build.
-      *(untested)*
-- [ ] `--output=linux/x86_64` selecting one of several outputs. *(untested;
-      see the native-backend gap below)*
+- [x] No-argument invocation operating on the package containing the working
+      directory — `repositories/cli/cwd_package`. (This was listed twice; it
+      is one item.) The case harness grew a `run { cwd: "lib/money" }` knob for
+      it, because there is no way to ask the question from the root.
+
+      A scoped command that does nothing proves nothing, so both halves are
+      arranged to be visible: `cmd/app` carries an `unused-import`, and every
+      no-argument run inside `lib/money` has to stay silent about it while the
+      run from the root reports it; and `lib/money`'s build file is missing
+      its `sources`, so the no-argument `gen` has something to write and says
+      so. `build`, `test`, `lint` and `gen` are all covered, and a run from a
+      directory that is not a package records the message that names the fix.
+- [x] "All commands are safe to run concurrently; a file lock serializes cache
+      writes" (CLI.md:25). **The lock was a claim rather than a lock.**
+      `Cache::open` held an open file handle called `_lock` and never took one;
+      nothing was serialized, and two writers of one key shared a `.tmp` name.
+      There is a lock now (`cache.rs::Lock`), and it is deliberately *narrow*:
+      `create_new` on a lock file, held for the length of one `put` and not for
+      a build, with reads taking nothing at all because an entry is renamed
+      into place and is therefore whole or absent. A lock left by a killed
+      process is stolen after thirty seconds — safe for the same reason the
+      lock is cheap, since the name of an entry is the hash of its contents and
+      two writers of one key are writing the same bytes.
+      `hermeticity::two_concurrent_builds_leave_the_cache_intact` runs four
+      builds of one repository at once from cold and then asks the cache for
+      the answer, because "both processes exited 0" is the half of this that
+      was never in doubt.
+- [x] The `out/` convenience symlink pointing at the most recent build —
+      `repositories/cli/out_symlink`. What is pinned is everything that can
+      be: the link exists, it is a link rather than a directory, it names
+      `.buri/out/js` relatively, both targets' artifacts are reachable
+      through it, `clean` takes it with the directory it points into, and a
+      later build puts it back.
+
+      **The boundary, and it is the native-backend one again.** The link
+      points at a *platform* directory, and this toolchain emits JavaScript
+      and nothing else, so every build produces `.buri/out/js` and "most
+      recent" has one possible answer. Two builds of two targets cannot tell a
+      correct implementation from one that hard-codes the string. When a
+      second backend exists, the step that tells them apart is a build for one
+      platform followed by a build for the other, and it belongs in this case.
+- [x] `--output=linux/x86_64` selecting one of several outputs —
+      `repositories/cli/output_selection`, and **selecting nothing used to
+      exit 0**. `selected_outputs` filters the declared outputs by the
+      selector and `cmd_build` looped over the result, so
+      `buri build //cmd/app --output=linux/x86_64` on a target that declares
+      only JS built nothing and reported success — a build system reporting
+      success for work it did not do. It now exits 2 naming the outputs the
+      target does declare (`commands/build.rs`, before the build loop): the
+      selector is the thing you asked *with*.
+
+      The rest is pinned as far as it goes. A target declaring both JS and
+      `LINUX/X86_64` builds the first and is refused at the backend for the
+      second, in both the `linux/x86_64` and the `linux-x86_64` spelling, and
+      with no selector at all it does both — one artifact and one refusal.
+      What a native artifact *is* remains untestable here; see the
+      native-backend gap below.
+- [ ] **A `main.buri` in a package with no `binary` rule is invisible.**
+      Found writing `repositories/cli/gen_never_creates`, and pinned there as
+      a clean `lint` run rather than fixed. `gen` is right to leave it alone —
+      it never adds a rule — but nothing else mentions it either:
+      `check_sources_declared` (`commands/lint.rs`) puts `main.buri` in the
+      `known` set unconditionally, by the rule *kind* that names it, and in a
+      library-only package there is no rule of that kind. So the file is
+      compiled by nothing, shipped by nothing, and reported by nothing.
+
+      The fix is one condition — an entry point is declared by the rule that
+      names it only when that rule exists — and a new row in the build-graph
+      table, next to `undeclared-source`, saying that a `main.buri` with no
+      `binary` rule (or a `lib.buri` with no `library` rule) is a file the
+      build cannot see. *(untested elsewhere; the case records today's
+      silence, so the fix will show up as a diff there)*
+
+- [ ] **`buri format` does not put `library` before `binary`.** CLI.md:100
+      lists the ordering among the things the formatter fixes, and
+      `textproto::print` emits fields in the order it read them — a build file
+      written binary-first stays binary-first and `format --check` passes.
+      Not fixed here because `print` is shared with `REPO.buri`, where
+      reordering `toolchain` and `tag` blocks is a separate decision that
+      nothing has argued for; the ordering wanted is a build-file rule and
+      belongs where the two callers differ. *(unimplemented)*
+
 - [x] **The lint catalogue is complete.** Build-graph rules:
-      `undeclared-source`, `duplicate-source`, `missing-dep`, `unused-dep`,
+      `undeclared-source`, `duplicate-source`, `entry-point-listed`,
+      `undeclared-testing-surface`, `missing-dep`, `unused-dep`,
       `dep-cycle`, `platform-violation`, `visibility-violation`,
-      `tag-violation`, `unknown-tag`. Style and hygiene rules — new, each with
+      `tag-violation`, `unknown-tag`. The two new ones are the build file
+      disagreeing with the package's own files in the two ways the rest of the
+      table could not express — a rule naming its entry point twice, and a
+      surface on disk that no rule declares — and both have rows in
+      `docs/build/cli.md`, where `internal-import`'s row also stopped saying
+      "another package" now that the boundary it enforces is the rule's.
+      Style and hygiene rules — new, each with
       a case in `repos/linting/` recording both the finding and the edit that
       ends it — `unreachable-export`, `unused-import`, `discarded-result`,
       `empty-test-suite`, `test-without-assertion`.
@@ -366,37 +850,193 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       declaration stays put, because moving it across the declaration could
       change what the module means).
 
-- [ ] **`buri format` never wraps a long import clause.** `WIDTH = 88` exists
-      (`formatting.rs:13`) and is applied to other constructs, but `Item::Import`
-      prints `from "…" import { … };` on one line whatever its length. A
+- [x] **`buri format` wraps a long import clause.** Over `WIDTH`, the clause
+      breaks onto its own lines, filled and comma-terminated — the shape the
       35-name import in `conformance/lib/semantics/test/generics.buri` was
-      hand-wrapped across six lines; formatting it collapses it to a
-      292-column line. Found by running `lint --fix` over the suite and
-      checking whether the result was the formatter's own output — it was, so
-      this is the formatter's gap rather than the fixer's. *(unimplemented)*
+      hand-wrapped into before the formatter flattened it to 292 columns. A
+      re-export wraps the same way, because it is the same line with a
+      different keyword. `a_long_import_clause_wraps` checks the shape, that
+      no line exceeds the width, and that wrapping is a fixed point.
 
-- [ ] **`buri format` silently deletes comments inside function bodies.**
+- [x] **`buri format` keeps comments inside function bodies.** Trivia is no
+      longer keyed by a declaration's offset and read once: `Comments` holds
+      every comment in the file with the offset of the token it was written
+      above, each printer *claims* the ones it is responsible for, and every
+      construct sweeps its own span before it closes. So a comment comes back
+      above the statement, match arm, field, variant, method, or context
+      binding it was written above, above the `}` when it was written last in
+      a block, and at the end of the file when it was written below everything.
+      A body that would fit on one line stops collapsing when there is a
+      comment in it, because a single line has nowhere to put one.
 
-      ```
-      export fn f(): Int {
-        // this line does not survive
-        let x = 1;
-        x
-      }
-      ```
+      `source` now refuses its own output when the comments do not survive it,
+      the way it already refused output that did not parse — a construct
+      nobody thought of leaves the file alone rather than damaging it.
 
-      `leading_comments` (`formatting.rs:46`) keys trivia by the byte offset of a
-      *declaration*, and `emit_trivia` is called only from `module` and the
-      declaration printers — nothing puts a comment back inside a block. This
-      is why no `.buri` file in the repository is actually formatted: running
-      `buri format` over the corpus destroys it. Found by running it.
+      Three properties, none of which a fixed point can express:
+      `formatting::no_comment_is_ever_dropped` over every place a comment can
+      be written; `corpus::formatting_keeps_every_comment`, which is
+      `token_shape` extended to comment trivia (`Shape::Comment`, `Doc`,
+      `ModuleDoc`) and run over the whole corpus; and
+      `corpus::formatting_the_corpus_preserves_what_it_means`.
 
-      `corpus.rs`'s `formatting_is_a_fixed_point` cannot catch this, because it
-      checks `format(format(x)) == format(x)` and both sides have already lost
-      the comments. The property that would catch it is the one `token_shape`
-      (`formatting.rs`) was built for, extended to comment trivia — or, more
-      simply: that the checked-in corpus is formatted. Neither holds today.
-      *(unimplemented)*
+      One thing found on the way and fixed with it: a comment block at the top
+      of a file, with a blank line under it, is the *file's* and no longer
+      travels down with whichever import happened to sit beneath it when the
+      run was sorted (`a_file_header_stays_above_the_sorted_imports`).
+
+- [x] **`buri format` wraps expressions.** The formatter used to wrap
+      declarations and import clauses and nothing else, so a hand-wrapped call,
+      match arm, array literal, or operator chain collapsed onto one line and
+      the corpus came out at 161 columns with 85 lines over `WIDTH`.
+
+      Layout is no longer decided while printing. The tree is converted to a
+      `Doc` — Wadler's *A prettier printer*, in the form Prettier generalized
+      it — and a second pass lays that out: `text`/`<>`/`line`/`nest`/`group`
+      from the paper, plus `SoftLine` and `HardLine`, and `best`/`fits` as the
+      paper writes them, one pass and one line of lookahead. Nothing measures
+      by rendering a string and looking at it, and nothing writes output it may
+      have to take back.
+
+      Four extensions, all of them Prettier's, because the shapes below cannot
+      be written in the core algebra: `Fill` (a list that reads *across*, which
+      is an import clause and a table of constants), `IfBreak` (the trailing
+      comma a broken list gets and a flat one must not have), `BreakParent` (a
+      comment, so that whatever encloses it cannot be flat), and `Alt`
+      — Prettier's `conditionalGroup` — for the two shapes that want one part
+      of a construct to break *while a part enclosing it stays flat*: the
+      trailing-argument hug and the method chain broken at the dots. Neither is
+      a flatter or more broken version of the other, so `group` cannot choose
+      between them. `Alt` measures its first candidate strictly (a forced break
+      anywhere inside rules it out) and every later one by its first line, then
+      lays the winner out normally so the groups inside it still answer for
+      themselves.
+
+      Two things fall out of the algebra that used to be code. A group is
+      measured together with whatever the printer already has stacked behind
+      it, so the `;` or `,` that trails an expression is counted without any
+      printer being told about it. And a comment carries a `BreakParent`, so
+      "a construct with a comment in it does not collapse onto one line" stops
+      being a question each construct asks itself.
+
+      The shapes, unchanged, each now one document rather than one branch:
+
+      - a call goes **one argument per line** with a trailing comma, unless its
+        last argument is a lambda, a block, an array or a struct literal, in
+        which case the head stays on its line and that argument **hugs** (an
+        `Alt` candidate whose last argument is a group forced to break) —
+        `b.mapCtx(ctx, fn(c, x) => {` … `}).join(ctx, "")`. The hug need not be
+        the last link of the chain, which is what carries the `.join` out onto
+        the closing line the way the repository already wrote it by hand;
+      - a chain of two or more method calls breaks **at the dots**, the first
+        call staying with what it is called on so that `list.range(…)` does not
+        come apart;
+      - a run of one operator breaks together, **operator first**, so a long
+        condition reads as the list of things it asks;
+      - an array of plain values **fills**; an array of expressions, and every
+        struct literal, goes one to a line. The line between them is the one the
+        corpus drew by hand: a table of constants reads across, a list of
+        computations reads down;
+      - a `match` puts each arm on its own line and a scrutinee too wide for the
+        keyword under it, and an arm body that will not fit beside the `=>`
+        takes the line below;
+      - once an `if` has to break, **every** branch is on lines of its own —
+        keeping `{ a }` beside the condition gives a shape that depends on which
+        branch happened to be longest. The whole `if` / `else if` / `else` chain
+        is one `group`, which is all that rule is;
+      - a signature is a list of parameters and wraps like one, which the widest
+        function in the suite was already written as. A body that would fit on
+        the line is written as an `IfBreak` on the signature's own group, so a
+        signature broken over five lines never has `{ value }` hung off the end
+        of it — while a body full of statements still says nothing about
+        whether the parameters fit.
+
+      A value with nothing inside it to break — a long name, a string — moves to
+      the line below when that is enough, and stays over the margin when it is
+      not: there is no shape a formatter can give a 90-column string literal.
+
+- [x] **Blank-line fidelity in comments.** The lexer kept a comment run as a
+      list of lines and forgot the gaps, so a section heading and the sentence
+      under it came back as one paragraph, and a heading with a blank line under
+      it got glued to the declaration it introduces. A comment now carries the
+      blank line above it (`lexer::Comment`), a doc run carries the one above
+      *it* (`Token::docs_blank`), and `Token::blank_before` narrowed from "a
+      blank line somewhere in the trivia" to "the blank line above the run".
+      One blank line and never two, which is how the formatter already treated
+      the gaps between declarations.
+
+- [x] **A paired-file corpus for the formatter** — `cli/tests/formatting/`, one
+      directory per decision the formatter makes, each holding an `input.buri`
+      somebody might have typed and the one `expected.buri` it is allowed to
+      produce. Prettier's format tests, with the input and the output as two
+      files and no third one: a formatter with options has no single right
+      answer, and this suite exists to say that this one does.
+      `BURI_BLESS=1 cargo test -p buri --test formatting` records, and rewrites
+      `expected.buri` only — the question a case asks is fixed and only the
+      answer is recorded.
+
+      Six claims, each its own test so a failure names which broke: the output
+      matches; **every** output is a fixed point (reported as instability
+      rather than as a wrong answer); every comment survives as a set and every
+      token as a multiset, modulo the redundant parenthesis, the optional
+      trailing comma and the sorted import run; every line is inside the margin
+      except in the `width_*` cases, which are named for the atoms that cannot
+      break; the `clean_*` cases come out byte-identical to their inputs; and a
+      case is two files and no more.
+
+      The shapes it pins were then reviewed as a set, and seventeen of them
+      changed — the corpus is what made that review possible, and re-blessing
+      it is what made the change safe. Blank lines inside a body collapse to
+      one rather than vanishing; a list is on one line or one item to a line,
+      with no filling except in an import clause and a `derive`; a function
+      body is never on one line and an empty one is `{}`; a lambda body and a
+      match arm body that will not fit beside their `=>` are wrapped in braces
+      rather than hung under it; a chain breaks at *every* dot or none of
+      them, a field access counting as a dot and a turbofish not interrupting
+      one; the two import groups run together and the names inside a clause
+      sort; a comment beside a parameter stays beside it; nothing is
+      column-aligned; and a `derive` moves onto the type it is about when that
+      type is declared in the same file.
+
+      The indent unit is `INDENT`, one constant that everything derives from,
+      and it is four spaces. Nothing else in the file knows a number of spaces.
+
+      Writing it found three bugs, all now fixed.
+      - **A block comment grew by two columns every time the file was
+        formatted**, and then, once it stopped, stayed behind when everything
+        around it was re-indented. Its continuation lines carried the
+        indentation they were written with, and the printer added its own on
+        top; not adding it left them at columns that no longer meant anything.
+        A comment is now moved as a *unit*: the first line goes where the
+        printer says and each of the rest keeps the distance from it that it
+        was written with, which is the only thing stable under both a reformat
+        and a change of indent unit. `lexer::Comment` records the column it was
+        written at, and that is the whole of what makes it work.
+      - **The one-line collapse had stopped working, and every trailing lambda
+        hugged.** `fits`'s `must_be_flat` leaked past the candidate being
+        measured into the printer's own stack, where the next thing is nearly
+        always a hard line — so the "all of it on one line" candidate of every
+        `Alt` was rejected out of hand. It is a question about the candidate,
+        not about the line it is being fitted into.
+
+      One shape changed with them: a function whose signature fits but whose
+      one-expression body does not no longer breaks the parameter list. The
+      body was inside an `IfBreak` on the signature's group, so the signature
+      was being measured *with its whole body on the line*; it is two `Alt`
+      candidates now.
+
+- [x] **Ready for the corpus reformat; the reformat itself is still to do.**
+      Run in memory over the corpus, formatting now takes the widest line from
+      **309 columns to 180** and the lines over `WIDTH` from **73 to 15**.
+      Every one of the fifteen is an atom the formatter must not rewrite:
+      twelve are the text of a hand-written section-heading comment and three
+      are a single JSON string literal. Every file re-parses, every file is a
+      fixed point, and not one comment is lost.
+      `corpus::formatting_the_corpus_preserves_what_it_means` formats the whole
+      conformance repository into a scratch copy and gets the same assertions.
+
+      What is left is the coordinated pass that writes it to the checked-in
+      files. *(unimplemented)*
 
 - [x] **Every emitted code is documented, and a test says so.**
       `documentation/errors.rs` had named this test since it was written and it did not
@@ -418,11 +1058,71 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 
 ## HERMETICITY-AND-CACHING.md
 
-- [ ] **The sandbox is neither implemented nor tested.** Nothing in `cli/src`
-      isolates an action: the empty environment, the read-only input-only
-      filesystem, the unavailable network, the fixed `1970-01-01T00:00:00Z`
-      timestamps, and actions being unable to observe each other are all
-      unenforced. The largest single gap in this list. *(unimplemented)*
+- [x] **The OS-level sandbox was built and then deliberately removed**, and
+      that is the item rather than a step towards one. HERMETICITY-AND-CACHING.md
+      now states the decided model: hermeticity is enforced by the language,
+      verified by reproducibility, and the toolchain applies no operating-system
+      confinement at all.
+
+      The full version existed — a fresh directory per action holding read-only
+      copies of its declared inputs, and a `sandbox-exec` profile denying the
+      network and confining writes — and building it is what made the trade
+      legible. Three facts about this language, together, take the ground out
+      from under it:
+
+      - **Every ambient read is a `$host_*` intrinsic**, and `core/host` is
+        importable only from the module exporting `main`. A library, an inner
+        module and a test source that reach for one are rejected at compile time
+        (`host-import`). Nothing that participates in an action has a *name* for
+        the environment, the clock, the filesystem, or the network — found the
+        hard way, by writing a test that reads an environment variable and being
+        told so by the compiler.
+      - **A test's capabilities are fakes the runner injects.** There is no real
+        capability to withhold from a suite.
+      - **The action set is closed.** Four kinds, all of them this toolchain's
+        own code, with no way for a repository to define a fifth. There is no
+        user-supplied program in the graph to distrust.
+
+      So confinement was never going to catch anything about repository code. It
+      would only ever have been a second opinion about *toolchain* bugs — an
+      intrinsic that leaked, a code generator that embedded a path — and it was
+      a poor one: macOS only, writes and network only, and never reads, because
+      a profile tight enough to deny reads also denies the JavaScript runtime
+      its own binary and the runtime aborts before the action starts. Linux
+      would have wanted user namespaces or `seccomp`, which is privileges or a
+      dependency or both. A partial second opinion on one platform is not worth
+      a mechanism that has to be maintained, probed, and explained in every
+      document that mentions it.
+
+      What catches that class of bug instead is `--check-reproducible` and
+      `builds_are_reproducible`: a leaked intrinsic or an embedded path shows up
+      as two builds of one tree disagreeing. The verification is the design, not
+      the consolation prize.
+
+      **What was kept, because it is determinism rather than confinement**
+      (`build/spawn.rs`, renamed from `sandbox.rs` — a module called `sandbox`
+      that sandboxes nothing is the same defect as a `_lock` field that never
+      locked):
+
+      - `env_clear` and then exactly two constants, `TZ=UTC` and
+        `SOURCE_DATE_EPOCH=0`. Not to hide the parent's environment from a
+        program that could read it — nothing in an action can — but so that a
+        machine set to another time zone does not produce different bytes.
+      - The clock frozen at `1970-01-01T00:00:00Z`: `Date.now`, `Math.random`,
+        and the host clock intrinsics replaced in the action's own script
+        (`spawn::FIXED_CLOCK_JS`), guarded with `typeof` because the minifier
+        drops what a suite does not reach. Belt and braces against a runtime
+        regression, and what makes a suite's *record* the same bytes twice.
+      - **The runtime is resolved to an absolute path before the environment is
+        cleared.** A child with no `PATH` cannot find `bun`, and a child with a
+        `PATH` does not have an explicit environment. Resolving in the parent is
+        the only way to have both.
+
+      `hermeticity::a_perturbed_parent_environment_changes_neither_the_bytes_nor_the_verdict`
+      is the test that carries the load now: the same tree built and tested with
+      a time zone twelve hours away, a Turkish locale, a junk variable, and a
+      hostile `SOURCE_DATE_EPOCH` in the parent, compared against a clean run on
+      both the artifact's bytes and the suite's verdict.
 - [x] Most of the incrementality table at HERMETICITY:107-118, via the new
       `--explain` transcript (`cli/tests/incrementality.rs`): a body edit moves
       its own target's key and the `link` above it and leaves a sibling and a
@@ -442,21 +1142,80 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 - [x] Content-keying, not timestamps: rewriting a file with the bytes it
       already held rebuilds nothing
       (`incrementality::rewriting_a_file_with_its_own_bytes_rebuilds_nothing`).
-- [ ] Cache-key composition beyond the unit tests and the above: platform and
-      arch, rule identity, and dependencies entering **as keys rather than
-      contents**. *(untested)*
-- [ ] `buri build --check-reproducible` — builds twice in separate sandboxes
-      and diffs. *(unimplemented; `commands/arguments.rs` rejects the flag)*
-- [ ] Toolchain `sha256` mismatch refusing to run, exit 2. Every scratch
-      repository in the test suite writes `sha256: "00"` and nothing verifies
-      it. *(untested)*
+- [x] Cache-key composition: platform and arch, rule identity, and dependencies
+      entering **as keys rather than contents**. Both altitudes, because they
+      are different claims — `build/cache.rs` asserts them on the `KeyBuilder`,
+      where "the platform is in the key" is a statement about the key, and four
+      new `incrementality.rs` cases assert them through the CLI, where it is a
+      statement about a repository. A builder that composed correctly while
+      `action_key` forgot to call it would satisfy only the first.
+
+      The arch is the half that can be moved without a second backend: a JS
+      output ignores `arch` when it names the artifact's directory, so adding
+      one moves every key and nothing else, which is the shape of the bug this
+      rules out. Rule identity is watched by renaming a source to bytes it
+      already held. "Dependencies as keys" is watched from outside as the one
+      thing it implies — a dependency's key and its dependent's `link` move
+      together while every dependent's own `compile` contribution stays exactly
+      where it was, which is only possible if what entered was the key.
+- [x] `buri build --check-reproducible` — builds twice in separate directories
+      and diffs. Two freshly opened sessions, the cache off, two different
+      directories; silent and exit 0 on agreement, exit 1 naming the artifact
+      and the first differing byte otherwise. All three of those are load
+      bearing and the doc says why: a shared session could carry a difference
+      across in something memoised, a cache hit would compare an entry with
+      itself, and one directory would hide the failure mode this is most likely
+      to catch. `repos/hermeticity/reproducible_build` records the green path
+      and that a check leaves no artifact behind.
+
+      The red path is unit-tested on the comparison
+      (`actions::two_artifacts_that_disagree_report_where`) rather than staged,
+      because arranging a genuinely irreproducible build is arranging for the
+      system to stop working as designed.
+- [x] Toolchain `sha256` mismatch refusing to run, exit 2 — and the version
+      half with it, in one place (`build/toolchain.rs`, called from
+      `session::open`, so every command that opens a repository checks it and
+      none of them has to remember to).
+
+      Two decisions the spec left open, both now written down in REPO-CONFIG.md:
+      **what is hashed** is the running executable, which is the artifact the
+      release archive would have contained and is the stricter of the two — it
+      also catches an executable replaced after it was unpacked. And **a
+      `sha256` of nothing but zeros is the sentinel for unpinned**, which is the
+      state a repository is in while its compiler is built from source. That is
+      the whole escape hatch: no flag and no environment variable, because a pin
+      you can turn off from the command line is a pin that gets turned off in
+      the one script that matters.
+
+      The scratch repositories' `sha256: "00"` turned out to be exactly right
+      and `cli/tests/example/REPO.buri`'s plausible-looking fake exactly wrong —
+      the harness comment already worried that "a plausible hash would invite
+      someone to believe it was checked", and now something checks. It is zeros.
+
+      One test had to change and the reason is worth keeping:
+      `changing_the_toolchain_pin_changes_every_key` moved the `version` field,
+      which now refuses to run before a key is computed. It moves the `sha256`
+      sentinel instead — zeros stay a sentinel while their bytes change — so the
+      row is still observable in a live repository.
 
 ## REPO-CONFIG.md
 
-- [ ] A `REPO.buri` whose `toolchain.version` or `sha256` does not match the
-      running toolchain. *(untested)*
-- [ ] The closed platform enum rejecting an unknown `Platform` or `Arch` name.
-      *(untested)*
+- [x] A `REPO.buri` whose `toolchain.version` or `sha256` does not match the
+      running toolchain — exit 2, before anything is compiled.
+      `repos/hermeticity/toolchain_pin` records the version refusal from two
+      different commands, because a check that `build` remembers and `lint`
+      forgets is not a check on the repository. The sha256 half cannot be
+      recorded — its message names the hash of whichever `buri` the suite just
+      compiled — so `hermeticity::a_pin_on_this_executable_is_satisfied_and_a_pin_on_another_is_refused`
+      computes it, asserts the refusal names *both* hashes, and asserts the
+      positive half that no checked-in file can express: this executable
+      satisfies a pin on its own hash.
+- [x] The closed platform enum rejecting an unknown `Platform` or `Arch` name.
+      `repos/hermeticity/closed_platform_enum` records all three places one can
+      be written — an output's `platform`, an output's `arch`, and a tag's
+      `requires { platforms }` — because a check that fires in two of three is
+      a check nobody can rely on. Only the third offers "did you mean", which
+      is right: it is the list a person types rather than one `buri gen` writes.
 
 Adequately covered: a missing `REPO.buri`
 (`conformance::outside_a_repository_is_a_bad_invocation` — it cannot be a
@@ -483,11 +1242,17 @@ the number. `format --check` reporting without rewriting is
       context is checked against each output's platform — a `main` binding
       `Fs: host.fs` under `platform: JS` must be an unresolved name at the
       entry point (BUILD-FILES.md:236-239). *(untested)*
-- [ ] `cli/tests/corpus.rs:111` refers to `tests/format_builds.rs`, which does
-      not exist. Either the file was dropped or the comment is stale; the
-      property it names — that formatting preserves meaning across the whole
-      corpus — is untested either way. (`repos/cli/format_check` now covers it
-      for one file: format, then build.)
+- [x] **Formatting preserves meaning across the whole corpus.** The comment at
+      `corpus.rs:111` named `tests/format_builds.rs`, which never existed; the
+      property it named is now `formatting_the_corpus_preserves_what_it_means`,
+      which formats every source in a copy of the conformance repository and
+      runs `buri test //...` in both copies. It compares the two runs rather
+      than asserting success, so a suite failing for a reason of its own fails
+      identically on both sides and the question stays "did formatting change
+      the answer" — with a floor under the assertion count so that a corpus
+      which compiled to nothing cannot pass. The `golden_javascript` programs
+      joined the corpus at the same time; nothing held them to parsing or to
+      the formatting fixed point before.
 - [ ] `cli/tests/repositories/**` is not walked by `corpus.rs`, so the fixture sources
       there are not held to "every source in the repository parses" or to the
       formatting fixed point. That is deliberate — `repos/cli/format_check`
@@ -544,18 +1309,70 @@ silently. The suite went from 150 assertions to 1172.
 
       *(deferred to the native backend, not merely unimplemented)*
 
-- [ ] **`core/json` has no typed encoding**, and cannot have one as a library:
-      no reflection, no macros, and `derive` takes a fixed list.
+- [x] **`core/json` has a typed encoding.** `derive ToJson for Point;` and
+      `derive FromJson for Point;` are on the derivable list, and they needed no
+      new language machinery: the backend already ships **descriptors** —
+      `[kind, ...]` with `2 struct` carrying field names and `3 enum` carrying
+      variant shapes — so `$json_of(v, d)` and `$json_into(j, d)` in
+      `runtime.js` are `$show`'s walk with a different destination. One walker
+      for the whole program, not one encoder per type. It is also the substrate
+      the `.proto` roadmap below wants.
 
-      There is a clean way to get one, and it needs no new language machinery.
-      The backend already ships **descriptors** — `[kind, ...]` with `2 struct`
-      carrying field names and `3 enum` carrying variant shapes — and
-      `$show(v, d)` already walks them to render a value. So `derive ToJson for
-      Point;` is implementable exactly as `derive Show` is: add `ToJson` and
-      `FromJson` to the derivable list in `compiler/semantics/resolve.rs`, register the conformance,
-      and write `$json_of(v, d)` / `$json_into(j, d)` in `runtime.js` mirroring
-      `$show`. It is also the substrate the `.proto` roadmap below wants.
-      *(unimplemented)*
+      **The mapping is a decision, so it is written down** — in `core/json`'s
+      own source, where a reader of the module meets it, rather than only here.
+      Numbers, booleans and strings are the obvious thing; `Char` is a
+      one-character string; `()` is `null`; a list *and a tuple* are arrays,
+      because a tuple is positional data. The three that had a real choice in
+      them:
+
+      - **`Option<T>` is `T`'s encoding, or `null`.** The cost is that
+        `Option<Option<T>>` does not round-trip: JSON has one null, so
+        `.Some(.None)` and `.None` both write it and both read back `.None`.
+        The alternative is a wrapper object around every optional field, which
+        is a worse document to make every reader of it pay for.
+      - **A positional struct is an array, a one-field one included.**
+        Transparency for a newtype was tempting and is wrong: it would make the
+        wire format depend on how many fields the type happens to have today,
+        so adding a second field would silently change every document already
+        written.
+      - **An enum is externally tagged** — a variant with no fields is its own
+        name as a string, one with named fields is `{"Name": {...}}`, one with
+        positional fields is `{"Name": [...]}`. `{"tag": "Name", ...}` reserves
+        a key, and a struct variant with a field called `tag` then collides
+        with it silently. Externally tagged reserves nothing.
+
+      **Both traits are derived and never written by hand**, which is enforced
+      rather than documented. What a derived implementation stands for is the
+      type's *shape*, which is what the descriptor carries — so a hand-written
+      `impl ToJson for Date` would be called where a `Date` is encoded on its
+      own and silently skipped where a `Point` holding one is. An `impl` of
+      either is rejected at the `impl`, and no diagnostic anywhere offers
+      writing one as the fix.
+
+      Two smaller things worth knowing:
+
+      - **The fold bottoms out in `semantics::builtins`.** `derive ToJson for
+        Point` asks whether `Int` satisfies `ToJson`, so the primitives need
+        their implementations in the table — and `core/json` loads on import,
+        so they are registered exactly when a program could have named either
+        trait, and not at all otherwise. `Option` gets one too, marked
+        *derived*, so `satisfies` recurses into the payload rather than waving
+        it through.
+      - **Recursion terminates for the same reason `derive Eq` does.** The
+        Rose-shape guard in `infer::satisfies` — a constructor already on the
+        walk answers `true` rather than asking again — is what makes
+        `derive ToJson for Rose` a fold rather than a hang, and the conformance
+        suite recurses through a list *and* through an `Option` of a list to
+        say so.
+
+      `json.encode(ctx, x)` is an ordinary Buri function — `value.toJson(ctx)`
+      — so it dispatches like any other trait call. `json.decode(ctx, doc)`
+      cannot: its trait method takes no `self`, so it is reached through the
+      type asked for, the way `num.maxValue::<U8>()` reaches `Bounded`. That
+      also means **`decode` takes its type from the annotation**: it is generic
+      in the type and in the context, a turbofish must name every argument, and
+      a context type has no name to write (SPEC 11.3), so there is nothing to
+      put in the second slot.
 
 - [x] **Examples in `///` and `//!` comments are compiled and run.** The
       doctest engine already handled prose pages; the missing half was source
@@ -635,10 +1452,112 @@ silently. The suite went from 150 assertions to 1172.
 
 ---
 
-## Roadmap: the two features not started
+## The JavaScript backend
 
-Design notes. Neither is begun, and the sequencing matters more than the
-detail — both have a prerequisite that is cheap now and expensive later.
+A pass over `backend/` and `transform/` informed by reading how ReScript,
+js_of_ocaml, Gleam, PureScript and Elm compile the same constructs. Most of what
+those compilers do, Buri already did — currying it never had, whole-program
+inlining and constant sharing it does better, and mutual tail recursion it
+handles where ReScript does not. What the comparison was actually worth was two
+miscompiles, both found by writing the program the other compilers' bug trackers
+describe and running it.
+
+- [x] **A closure built inside a tail loop captured the slot, not the value.**
+      The loop rebinds its parameters in place, which is exact for every read
+      inside the iteration that wrote them — and wrong for a closure, which
+      outlives the iteration and reads whatever the loop stopped at. A
+      four-iteration loop collecting `fn(x) => x + i` returned four copies of
+      `+4`. This is Elm's [#2268](https://github.com/elm/compiler/issues/2268),
+      which has been open since 2016 and shares Buri's design; ReScript and
+      Gleam avoid it by giving each iteration its own binding. `generate::
+      snapshot_captures` now does the same, for the slots a closure actually
+      captures and no others — a loop with no closure in it keeps the tighter
+      output `rebind` already produced, and `tail_self`/`tail_mutual` did not
+      move. The failure mode is what makes it worth the note: it appears and
+      disappears on edits that have nothing to do with it, because anything
+      that defeats the tail-call elimination also fixes the answer. A golden
+      file records the right output until someone makes an unrelated change.
+- [x] **A tail call under `&&`, `||` or `??` ran on the JavaScript stack.**
+      `a && f(x)` *is* `f(x)` when `a` holds, so the right operand of a
+      short-circuiting operator is in tail position — which is to say `all`,
+      `any` and a linear search, the recursions an immutable language writes
+      most often. `&&` and `||` were invisible to the analysis; `??` was
+      counted by the analysis and not handled by the emitter, so it got a
+      `while (true)` nothing ever continued, which looks like elimination and
+      is not. All three overflowed at two million deep. The reason this
+      survived is worth keeping: `buri test` runs on Bun, and JavaScriptCore is
+      the one engine that implements proper tail calls, so every one of these
+      passed. `tail_calls_run_in_constant_stack_on_v8` runs the same artifact
+      under node and now covers all three operators.
+- [x] **The runtime stopped paying for shapes it does not have.** `&`, `|`, `^`
+      and `~` at `Int` built two BigInts and converted back on every call, when
+      almost every operand fits in a signed 32-bit integer where JavaScript's
+      own operator is exact — 5× on the operation, and the fast path measures
+      identical to a native `&`. `str.len()` materialised an array of every
+      scalar in the string, when a string with no surrogate in it has one
+      scalar per code unit — 95×, and the `charAt` scan that was quadratic with
+      an allocation per step is now quadratic with a hundredth of the constant.
+      `$hash` and `$show` allocated arrow functions per call to close over an
+      accumulator, which is now threaded as an argument. None of this changed a
+      single byte of generated code.
+- [x] **`derive Eq` compiles at the type instead of walking a descriptor.** A
+      two-field struct is `a[0]===b[0]&&a[1]===b[1]`, where it used to be a
+      runtime walker asking `typeof` of every element it reached — the only
+      megamorphic call site in an artifact. 2.6× on a struct, 3.5× on an enum.
+      `Option`'s nesting is carried by a box only the runtime knows how to
+      read, so an `Option` keeps the walker; so does an opaque type. The
+      identity shortcut is kept deliberately rather than optimized away,
+      because it is observable: a struct holding `NaN` is equal to *itself* and
+      not to a copy, and both of those are the right answer to different
+      questions.
+- [x] **Four smaller things.** Local cleanup now descends into lambda bodies,
+      so an inlined callee's aliases stop surviving inside every closure. A
+      local array literal whose every use is a constant-index read is read
+      through to those uses, which removes the intermediate array a functional
+      update leaves behind — `structs` lost 43% of its generated code. A
+      guarded match whose arms all `return` no longer carries a `while (true)`
+      no `continue` can reach. And `x | 0`, `x & x`, `x ^ x` and their
+      relatives fold where the width is known, which is where they have to
+      fold: `x | 0` is the identity at 64 bits and a truncation in JavaScript.
+- [ ] **A decision tree for nested patterns.** `arm_chain` emits one `if` per
+      arm carrying the arm's whole test, so a match on a nested pattern
+      re-tests the outer tag on every arm and `to_switch` cannot rescue it —
+      it needs every test in the chain to be a bare `disc === lit`. Measured
+      1.75× on a match with eight outer constructors by four inner, and a size
+      win that grows with the arity. Left undone deliberately: it reorders
+      tests, and Buri's match is first-match-wins, so it is the one item on
+      this list where a mistake is a miscompile rather than a slower program.
+      It wants to land on its own, against `release_and_debug_agree` and the
+      whole conformance corpus, and the sound version is a real column-based
+      decision tree in `generate.rs` rather than a regrouping of already-
+      emitted JavaScript.
+- [ ] **Nothing measures how large one emitted function gets.** V8 never
+      optimizes a function past 61,440 bytecodes, and a whole-program compiler
+      has three ways to grow one quietly: the inliner's per-caller ceiling
+      compounds over its rounds, a merged tail-call group fuses an entire
+      mutually recursive component, and `main` accumulates every single-use
+      body inlined into it. `sizes.txt` now records the largest function in the
+      corpus — 843 bytes, which is nowhere near — and the harness fails past
+      32,768. That is a tripwire, not a measurement of a real program; what is
+      missing is the same number for the worked monorepo, where the inliner has
+      something to work with.
+
+Three things the comparison suggested and measurement rejected, recorded so
+they are not tried again: `$str` of a `Bool` through `String` (no difference —
+V8 inlines the existing short-circuit), splitting `Int` into a hi/lo `Int32`
+pair (0.97 ns/op against 0.48 for a plain `Number` add, and only reachable with
+a scalar-replacement pass Buri does not have), and `[]` with `push` instead of
+`new Array(n)` with an index fill in `$list_map` (13.8 ms against 23.5 — the
+antipattern the general advice warns about is `new Array(n).fill(0)`, which is
+not what this does).
+
+---
+
+## Roadmap: the one feature not started
+
+A design note. The `.proto` half of what used to be two items landed — it is
+recorded below the line, decisions and all — so what is left is the native
+backend, which has a prerequisite that is cheap now and expensive later.
 
 ### Native macOS and Linux executables
 
@@ -675,31 +1594,147 @@ HERMETICITY above. `driver::analyze` is whole-closure, and a native build is
 slow enough that whole-closure recompiles become the thing everyone complains
 about first.
 
-### `.proto` import, with binary and JSON serialization
+---
 
-`cli/src/docs/schema/build.proto` already writes the intended surface in its
-own header: `from "//proto/foo.proto" import …`. So the syntax is settled and
-the work is everything behind it.
+## The `.proto` import, landed
 
-1. **A `.proto` *schema* parser**, distinct from `build/textproto.rs`, which reads
-   *values*. proto3 only: messages, enums, fields, `repeated`, `optional`,
-   `oneof`, nested types, `import`. No services, no extensions, no `Any`.
-2. **A module that is generated rather than read.** `Loader::resolve_module`
-   maps a path to a file; a `.proto` path has to map to a synthesized AST. That
-   machinery now exists — `Loader::load_source` is what the documentation
-   harness compiles fences with — so this is reuse rather than invention.
-3. **The mapping has to be decided, not discovered.** `message` → `struct` with
-   `Option<T>` for `optional` and `[T]` for `repeated`; `oneof` → `enum`.
-   Proto's implicit field presence and its defaults do not survive into a
-   language where `Option` is explicit, and that mismatch is a decision to
-   write down before any code depends on either answer.
-4. **Codecs, both directions of both formats.** If `derive ToJson` lands above,
-   the JSON half is largely done — proto's JSON mapping is a variation on it.
-   The binary half needs varints and zigzag, which is `core/bytes` work and
-   sits naturally beside the hex and base64 already there.
-5. **Build integration.** A `.proto` in a package is a source no rule lists,
-   which today is `undeclared-source`. It needs a `proto_sources` field in
-   `build.proto`, `build/regenerate.rs` support, and an `Action::Proto` cache entry.
+Written down here rather than only in the code, because most of it was a
+decision and a decision that lives in one function is a decision nobody can
+find.
 
-Land it after `core/json` and `core/bytes` — both now exist — and after
-`derive ToJson`. Doing it earlier means building the same machinery twice.
+`cli/src/docs/schema/build.proto` wrote the intended surface in its own header,
+and that is the surface: `from "//proto/foo.proto" import ...`, the module path
+being the schema's own path with its extension on it. One spelling, it is the
+file's name, and nothing lands in the source tree — no `_pb.buri` to check in
+and no step to forget to run. The mapping and the reasons are
+`cli/src/docs/build/proto.md` (`buri docs build/proto`); what follows is the
+short form, and the decisions that were decisions rather than transcriptions.
+
+1. **`build/protoschema.rs`** reads schemas, as `build/textproto.rs` reads
+   values. proto3 only. `service`, `extend`, `extensions`, `group`, `map<>`,
+   `Any`, `required`, `import public` and proto2 are refused **by name**, each
+   with the reason and the edit, under `proto-unsupported` — "unsupported"
+   without a noun is a message nobody can act on. `option` and `reserved` are
+   skipped rather than refused: neither says anything about the shape of a
+   message.
+2. **`build/protogen.rs`** turns one schema into one module, and
+   `Loader::load_proto` puts it through `load_source_in` — the same seam the
+   documentation harness compiles a fenced block through. So the real parser
+   and the real checker see the generated text, and a mistake in the generator
+   is a loud compile error rather than a quiet wrong program.
+3. **The mapping, decided.** `optional T` -> `Option<T>`, `repeated T` ->
+   `[T]`, `oneof` -> an enum held as an `Option`, nesting flattened with an
+   underscore (`Everything_Note`) because Buri has no nested type namespace and
+   a bare `Note` would hide where it came from.
+
+   The one the roadmap flagged: **a proto3 singular scalar is `T`, not
+   `Option<T>`.** The wire format cannot tell "absent" from "set to zero" — a
+   writer omits the default and a reader substitutes it — so an `Option` would
+   invent a distinction the bytes do not carry, and `.None` and `.Some(0)`
+   would encode identically with one of them not surviving the round trip. A
+   singular *message* field is `Option<T>` regardless, which is proto3's own
+   exception: there is no default message for an absent one to mean.
+
+   An unrecognised enum number decodes to the zero value rather than failing.
+   That is a real loss — proto3 asks a reader to keep the number, and a Buri
+   enum has nowhere to keep it — but the alternative makes adding an enum value
+   break every reader built before it, which is the thing the rule exists to
+   prevent.
+4. **Codecs: generated Buri, not a descriptor walk.** The walk `$json_of` does
+   was the obvious thing to reuse and it does not fit — the descriptor carries
+   field names and variant shapes, and a protobuf message is field *numbers*
+   and wire *types*. A runtime walk would have needed a second descriptor
+   emitted beside the first, at which point generating Buri is strictly better:
+   the codec is checked by the real checker, optimised by the real optimiser,
+   and needs no new intrinsic. What is common lives in `core/proto`; the
+   varints and zigzag live in `core/bytes` beside hex and base64, doing 64-bit
+   arithmetic on two 32-bit halves so a negative `int64` writes the ten bytes
+   protoc writes. Four new intrinsics carry the IEEE 754 byte patterns, for the
+   same reason `toUtf8` is one.
+
+   JSON is proto3's mapping, not `derive ToJson`'s, and the four differences
+   are why it had to be generated too: a 64-bit integer is a string, `bytes` is
+   base64, an enum is its value's name, and a `oneof`'s case is an ordinary
+   member of the object. One deviation, recorded rather than hidden: members go
+   out in schema order with a oneof's case last rather than in field-number
+   order, which no conforming reader can notice.
+5. **Build integration.** `proto_sources` on both rules, `buri gen` placing a
+   schema by the same question it places a source, `undeclared-source` naming
+   `proto_sources` in its fix, an `Action::Proto` keyed on the schema's
+   contents and reported by `--explain`, and the generated module belonging to
+   the declaring rule — so it is internal to it, and `lib.buri` decides which
+   of its names leave the library. `unused-import` and `unreachable-export`
+   step around a generated module, because both ask a person to make an edit
+   and there is no file here to edit. There is deliberately no
+   `unused-proto-source`: `gen` writes the field from what is on disk, so a
+   lint asking you to remove an entry would be a lint fighting the tool that
+   put it there.
+
+Pinned by `conformance/lib/proto` — every field kind, nesting, a oneof, two
+schemas importing each other, the wire bytes as hex goldens checked by hand
+against the encoding rules, the JSON as document text, unknown-field skip,
+and every way a message can fail to be one — and by `repositories/proto`,
+which is the build-file half and the two refusal corpora.
+
+Not supported, and not by accident: services, extensions, groups, maps, `Any`,
+`required`, public imports, proto2. A `uint64` past 2^53 survives only to the
+precision an `Int` has, which is the caveat every double-backed implementation
+carries.
+
+### And then measured against protobuf's own conformance suite
+
+Which is the part worth having. `cli/tests/proto/` vendors `conformance.proto`
+and a pruned `test_messages_proto3.proto` from protobuf v35.1, builds a testee
+that is a Buri binary speaking the runner's length-prefixed protocol, and hands
+it to the real C++ `conformance_test_runner`:
+
+```text
+CONFORMANCE SUITE PASSED: 988 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
+```
+
+`./run.sh` drives it and prints the recipe for building a runner when one is not
+on PATH — nixpkgs does not package it, so `flake.nix` carries the tools to build
+one instead. It is deliberately outside `cargo test`, the way
+`editors/tree-sitter-buri/check.sh` is; `cli/tests/proto_vectors.rs` replays 163
+recorded exchanges through the same testee under cargo, so the pipeline is
+covered hermetically even where the runner is not available.
+
+The pruning is the honest part and is stated in three places — the vendored
+file's own banner, `cli/tests/proto/README.md`, and every affected test in
+`failure_list.txt`. `map<>` and the well-known types were deleted from the copy
+rather than skipped by the reader, because a reader that silently drops a
+construct is a schema that means something other than what it says. 382 of the
+456 expected failures are that pruning; 34 are the `Int`-is-a-double ceiling; the
+remaining six are unknown-field retention, unrecognised enum numbers, and two
+`core/json` strictness gaps, each named in the list.
+
+**Six real defects, which is what the exercise was for.** Every one is fixed:
+
+1. **A 32-bit field did not truncate.** A `uint32` can arrive carrying 2^33 and
+   protobuf reads the low 32 bits; Buri kept the whole number and disagreed with
+   every implementation there is. `bytes.readVarint32` reads the low half *as
+   such*, because a 64-bit varint has already rounded by the time an `Int` could
+   be masked.
+2. **A tag was read as 32 bits.** A five-byte varint carries more than 32, and
+   the low half of one naming field 2147483649 names field 1 — so a message
+   decoded as a *different message* instead of being refused.
+3. **NaN and the infinities were written as bare words**, which is not JSON.
+4. **A singular message field arriving twice replaced rather than merged**,
+   which is what makes a message splittable across two encodings of itself.
+5. **`core/json` had no `\uXXXX`** — surrogate pairs included — wrote control
+   characters raw into strings, and was missing `\b` and `\f`.
+6. **JSON numbers went unchecked**: out-of-range values, leading spaces and
+   trailing ones were all accepted, where proto3 JSON rejects a value the field
+   cannot hold rather than truncating it.
+
+Two more came out of writing the testee rather than running it: `[packed=false]`
+was ignored, and a field's own schema name was not accepted as a JSON key beside
+its camelCase one.
+
+The testee also needed something the language did not have: **binary standard
+input and output**. `Stdin.readLine` reads the stream to its end, so nothing
+written with it can answer a request before the other side stops speaking.
+`Stdin.readBytes` and `Stdout.writeBytes` are the addition — two effect methods,
+two intrinsics, and an in-memory pair in `core/testing/context` — and they are a
+capability the language wanted anyway; a conformance harness is only what asked
+for it first.

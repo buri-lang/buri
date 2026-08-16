@@ -1,0 +1,8 @@
+error: shared.buri is reachable from both `lib.buri` and `main.buri`, so `gen` cannot say which rule it belongs to
+ --> tools/report/BUILD.buri:1:1
+  |
+1 | # A package with both a library and a binary. `render.buri` and `flags.buri`
+  | ^
+  |
+  = guessing would move code across a boundary that exists to be explicit
+  = fix: add `shared.buri` to one rule's `sources`

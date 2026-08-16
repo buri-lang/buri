@@ -1,0 +1,8 @@
+export fn f(o: Option<Int>): Str {
+    match (o) {
+        .Some(n) => {
+            aVeryLongNameForSomethingThatCannotBreak.anotherLongField.aThirdOneHereNow
+        },
+        .None => "",
+    }
+}
