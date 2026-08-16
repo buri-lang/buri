@@ -19,6 +19,60 @@ cmd/<case>/main.buri    the case
 | 3 | `self_in_lambda` | false rejection | rejected | **checker bug** |
 | 4 | `hide_generic` → `launder` → `purity_false` | taint predicate not inductive | **purity theorem falsified** | **design hole** |
 | 5 | `principality` | defaulting may precede bound check | accepted; no counterexample constructible today | latent, see below |
+| 6 | `nested_or` | (found while formalising) | exhaustive match rejected | **checker bug** |
+
+---
+
+## 6. A nested or-pattern breaks exhaustiveness -- `cases/nested_or.buri`
+
+Found by mechanising the algorithm, not by reading it: the Lean model needed a
+well-formedness invariant, and the question "does `expand` actually establish
+this?" turned out to have the answer *no*.
+
+```buri
+fn describe(x: Option<Bool>): Int {
+  match (x) {
+    .Some(true | false) => 1,
+    .None => 0,
+  }
+}
+```
+
+```
+error: this `match` does not cover `.Some(false)` [match-not-exhaustive]
+```
+
+`.Some(false)` plainly matches the first arm. Writing the same match with the
+alternation at the top -- `.Some(true) | .Some(false)` -- compiles.
+
+**Root cause.** `expand` (`exhaustiveness.rs`) splits only the alternations it
+finds at the *top* of a column:
+
+```rust
+let Some(pos) = row.iter().position(|p| matches!(p, Pat::Or(_))) else {
+    return vec![row];
+};
+```
+
+A nested alternation is not at the top of a column, so the row passes through
+untouched. `specialize` then peels the constructor off and exposes the `Or` as
+the new head -- and both `specialize` and `default_matrix` silently drop
+or-headed rows, because neither has a case for one. The row's coverage
+disappears, and the wildcard is judged useful.
+
+**Severity.** A false *rejection*, so it costs expressiveness rather than
+safety -- the same shape as finding 3. It cannot let a bad program through.
+
+**Fix.** Either make `expand` recurse into sub-patterns, or give `specialize`
+and `default_matrix` an `Or` case that distributes over the alternatives. The
+second is more local and matches how `useful` already treats an `Or` in the
+pattern *vector*.
+
+**A related correction.** An earlier draft of `formal/README.md` claimed the
+`Pat::Or` arm of `Ctx::useful` was dead code, on the grounds that `expand` runs
+first. That was wrong, and this is the counterexample: the arm is reachable
+exactly when a nested alternation is exposed by `specialize`. The Lean
+development now models alternations throughout rather than assuming them away.
 
 ---
 

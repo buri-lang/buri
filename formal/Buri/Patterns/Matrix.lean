@@ -1,9 +1,9 @@
-import Buri.Patterns.Pat
+import Buri.Patterns.Pattern
 
 /-!
 # The pattern matrix operations
 
-`specialize`, `default`, `headCtors` and `allCtors`, transcribed from
+`specialize`, `default`, `headConstructors` and `allConstructors`, transcribed from
 `exhaust.rs:236-262`, together with the arity and field-type functions of
 `exhaust.rs:36-83`.
 
@@ -13,12 +13,12 @@ import Buri.Patterns.Pat
 `expand(vec![expand_lengths(low, limit)])`. Both rewrites run *first*, so by
 the time a pattern reaches `useful`:
 
-* it contains no `Pat::Or` -- `expand` (`exhaust.rs:194`) has split every
+* it contains no `Pattern::Or` -- `expand` (`exhaust.rs:194`) has split every
   alternation into separate rows; and
-* it contains no `Ctor::ArrayRest` -- `expand_lengths` (`exhaust.rs:163`) has
+* it contains no `Constructor::ArrayRest` -- `expand_lengths` (`exhaust.rs:163`) has
   rewritten each into a disjunction of fixed lengths.
 
-That is worth stating precisely, because it is load-bearing. `allCtors` reports
+That is worth stating precisely, because it is load-bearing. `allConstructors` reports
 the constructor set of an array type as `array 0 .. array limit` and *nothing
 else*, so a surviving `arrayRest` row would be silently dropped by every
 `specialize` -- the matrix would lose coverage it actually had, and the checker
@@ -31,27 +31,27 @@ namespace Buri
 
 /-- No `arrayRest` anywhere. Established by `expandLengths`, assumed by the
 usefulness theorems. -/
-def Pat.RestFree : Pat → Prop
-  | .wild => True
-  | .ctor (.arrayRest _) _ => False
-  | .ctor _ subs => ∀ p ∈ subs, Pat.RestFree p
-  | .or alts => ∀ p ∈ alts, Pat.RestFree p
+def Pattern.RestFree : Pattern → Prop
+  | .wildcard => True
+  | .constructor (.arrayRest _) _ => False
+  | .constructor _ subpatterns => ∀ p ∈ subpatterns, Pattern.RestFree p
+  | .or alternatives => ∀ p ∈ alternatives, Pattern.RestFree p
 
 /-- No `or` anywhere. Established by `expand`. -/
-def Pat.OrFree : Pat → Prop
-  | .wild => True
-  | .ctor _ subs => ∀ p ∈ subs, Pat.OrFree p
+def Pattern.OrFree : Pattern → Prop
+  | .wildcard => True
+  | .constructor _ subpatterns => ∀ p ∈ subpatterns, Pattern.OrFree p
   | .or _ => False
 
 /-!
 ## Arity and field types
 
-`Ctor::arity` (`exhaust.rs:38`) and `Ctor::field_types` (`exhaust.rs:53`).
+`Constructor::arity` (`exhaust.rs:38`) and `Constructor::field_types` (`exhaust.rs:53`).
 Arity is a property of the declaration; field types additionally depend on the
 instantiation, via `substitute`.
 -/
 
-def Ctor.arity (S : Sig) : Ctor → Ty → Nat
+def Constructor.arity (S : Signature) : Constructor → Ty → Nat
   | .variant c i, _ => S.variantArity c i
   | .single, .tuple ts => ts.length
   | .single, .con c _ => S.structArity c
@@ -63,7 +63,7 @@ def Ctor.arity (S : Sig) : Ctor → Ty → Nat
 
 /-- The generic arguments a type applies, or none. `exhaust.rs:56` spells this
 inline as `match ty { Ty::Con(_, a) => a.clone(), _ => Vec::new() }`. -/
-def Ty.argsOf : Ty → List Ty
+def Ty.typeArguments : Ty → List Ty
   | .con _ args => args
   | _ => []
 
@@ -72,27 +72,27 @@ input, where an `array`/`arrayRest` constructor only ever meets an array type;
 Rust fills it with `Ty::Error` (`exhaust.rs:76`), which this development does
 not have, so it fills it with `unit`. Nothing depends on the choice: every
 theorem below carries a typing hypothesis that rules the case out. -/
-def Ty.elemOf : Ty → Ty
+def Ty.elementType : Ty → Ty
   | .array e => e
   | _ => .unit
 
-def Ctor.fieldTys (S : Sig) : Ctor → Ty → List Ty
-  | .variant c i, t => S.variantFieldTys c i t.argsOf
+def Constructor.fieldTypes (S : Signature) : Constructor → Ty → List Ty
+  | .variant c i, t => S.variantFieldTypes c i t.typeArguments
   | .single, .tuple ts => ts
-  | .single, .con c args => S.structFieldTys c args
+  | .single, .con c args => S.structFieldTypes c args
   | .single, _ => []
   | .bool _, _ => []
   | .lit _, _ => []
-  | .array n, t => List.replicate n t.elemOf
-  | .arrayRest n, t => List.replicate n t.elemOf
+  | .array n, t => List.replicate n t.elementType
+  | .arrayRest n, t => List.replicate n t.elementType
 
 /-- Arity and field types agree in length, unconditionally. Every
 `specialize` step relies on this: it is what lets a row's head be replaced by
 exactly `arity` sub-patterns at exactly `arity` types. -/
-theorem Ctor.fieldTys_length (S : Sig) (c : Ctor) (t : Ty) :
-    (c.fieldTys S t).length = c.arity S t := by
+theorem Constructor.fieldTypes_length (S : Signature) (c : Constructor) (t : Ty) :
+    (c.fieldTypes S t).length = c.arity S t := by
   cases c <;> cases t <;>
-    simp [Ctor.fieldTys, Ctor.arity, Sig.variantFieldTys_length, Sig.structFieldTys_length]
+    simp [Constructor.fieldTypes, Constructor.arity, Signature.variantFieldTys_length, Signature.structFieldTys_length]
 
 /-!
 ## The complete constructor set
@@ -106,17 +106,17 @@ Arrays are finite *here* only because rest patterns were already expanded into
 fixed lengths and nothing in the match distinguishes anything longer than
 `limit`. See `Expand.lean` for why that is sound.
 -/
-def allCtors (S : Sig) (limit : Nat) : Ty → Option (List Ctor)
+def allConstructors (S : Signature) (limit : Nat) : Ty → Option (List Constructor)
   | .con c _ =>
-      match S.tycon c with
-      | some ⟨.enum vs, _⟩ => some ((List.range vs.length).map (Ctor.variant c))
+      match S.typeConstructor c with
+      | some ⟨.enum vs, _⟩ => some ((List.range vs.length).map (Constructor.variant c))
       | some ⟨.struct _, _⟩ => some [.single]
       | some ⟨.prim .bool, _⟩ => some [.bool false, .bool true]
       | some ⟨.prim _, _⟩ => none
       | none => none
   | .tuple _ => some [.single]
   | .unit => some [.single]
-  | .array _ => some ((List.range (limit + 1)).map Ctor.array)
+  | .array _ => some ((List.range (limit + 1)).map Constructor.array)
   | .fn _ _ => none
   | .ctx _ => none
   | .param _ => none
@@ -126,42 +126,42 @@ def allCtors (S : Sig) (limit : Nat) : Ty → Option (List Ctor)
 -/
 
 /-- `Ctx::specialize` (`exhaust.rs:236`): the rows whose first pattern is
-`ctor`, with that pattern's sub-patterns spliced in. A wildcard head matches
+`constructor`, with that pattern's sub-patterns spliced in. A wildcard head matches
 every constructor and expands to `arity` wildcards; sub-patterns are padded and
-truncated to `arity`, which is what makes the short `subs` vectors that
+truncated to `arity`, which is what makes the short `subpatterns` vectors that
 `exhaust.rs:114` produces for record patterns work. -/
-def specializeRow (ct : Ctor) (arity : Nat) : Row → Option Row
+def specializeRow (target : Constructor) (arity : Nat) : Row → Option Row
   | [] => none
-  | .wild :: rest => some (List.replicate arity Pat.wild ++ rest)
-  | .ctor c subs :: rest =>
-      if c = ct then
-        some ((subs ++ List.replicate arity Pat.wild).take arity ++ rest)
+  | .wildcard :: rest => some (List.replicate arity Pattern.wildcard ++ rest)
+  | .constructor c subpatterns :: rest =>
+      if c = target then
+        some ((subpatterns ++ List.replicate arity Pattern.wildcard).take arity ++ rest)
       else none
   | .or _ :: _ => none
 
-def specialize (P : List Row) (ct : Ctor) (arity : Nat) : List Row :=
-  P.filterMap (specializeRow ct arity)
+def specialize (P : List Row) (target : Constructor) (arity : Nat) : List Row :=
+  P.filterMap (specializeRow target arity)
 
 /-- `Ctx::default_matrix` (`exhaust.rs:252`): rows whose first pattern is a
 wildcard, with that column dropped. -/
 def defaultRow : Row → Option Row
-  | .wild :: rest => some rest
+  | .wildcard :: rest => some rest
   | _ => none
 
-def defaultMat (P : List Row) : List Row :=
+def defaultMatrix (P : List Row) : List Row :=
   P.filterMap defaultRow
 
 /-- `Ctx::head_ctors` (`exhaust.rs:260`). -/
-def headCtors (P : List Row) : List Ctor :=
+def headConstructors (P : List Row) : List Constructor :=
   P.filterMap fun r =>
     match r with
-    | .ctor c _ :: _ => some c
+    | .constructor c _ :: _ => some c
     | _ => none
 
 /-- The guard `exhaust.rs:328` tests before splitting on constructors. -/
-def isComplete (S : Sig) (limit : Nat) (t : Ty) (P : List Row) : Bool :=
-  match allCtors S limit t with
-  | some all => all.all fun c => headCtors P |>.contains c
+def isComplete (S : Signature) (limit : Nat) (t : Ty) (P : List Row) : Bool :=
+  match allConstructors S limit t with
+  | some all => all.all fun c => headConstructors P |>.contains c
   | none => false
 
 end Buri

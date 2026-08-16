@@ -11,22 +11,22 @@ part that needs an argument.
 
 The measure is lexicographic:
 
-    (matrix nodes + vector nodes,  vector length)
+    (matrix nodeCount + vector nodeCount,  vector length)
 
 where a "node" is a constructor node -- wildcards count zero. Then:
 
-* **`ctor` head.** The head node is consumed and replaced by its
+* **`constructor` head.** The head node is consumed and replaced by its
   sub-patterns, so the first component drops by at least one.
-* **`wild` head, constructor set incomplete.** `defaultMat` only drops rows and
+* **`wildcard` head, constructor set incomplete.** `defaultMatrix` only drops rows and
   columns, so the first component cannot rise; the vector loses a column, so
   the second drops.
-* **`wild` head, constructor set complete.** The vector's node count is
+* **`wildcard` head, constructor set complete.** The vector's node count is
   unchanged -- `_` and `arity` copies of `_` both count zero -- and the vector
   *length* may rise. What saves it is that completeness forces some row of the
   matrix to be headed by the very constructor being specialised on, and
   `specialize` peels that row's head off. So the first component drops.
 
-That last bullet is the whole content of `Mat.nodes_specialize_lt`, and it is
+That last bullet is the whole content of `Matrix.nodeCount_specialize_lt`, and it is
 why `isComplete` has to be a hypothesis rather than a convenience: the
 algorithm terminates *because* it only expands wildcards when the matrix
 already accounts for every constructor.
@@ -36,51 +36,51 @@ namespace Buri
 
 mutual
 
-def Pat.nodes : Pat → Nat
-  | .wild => 0
-  | .ctor _ subs => 1 + Pat.nodesList subs
-  | .or alts => 1 + Pat.nodesList alts
+def Pattern.nodeCount : Pattern → Nat
+  | .wildcard => 0
+  | .constructor _ subpatterns => 1 + Pattern.nodeCountList subpatterns
+  | .or alternatives => 1 + Pattern.nodeCountList alternatives
 
-def Pat.nodesList : List Pat → Nat
+def Pattern.nodeCountList : List Pattern → Nat
   | [] => 0
-  | p :: ps => Pat.nodes p + Pat.nodesList ps
+  | p :: ps => Pattern.nodeCount p + Pattern.nodeCountList ps
 
 end
 
-/-- A row's node count. Definitionally `Pat.nodesList`, so the two share every
+/-- A row's node count. Definitionally `Pattern.nodeCountList`, so the two share every
 lemma. -/
-def Row.nodes (r : Row) : Nat := Pat.nodesList r
+def Row.nodeCount (r : Row) : Nat := Pattern.nodeCountList r
 
-def Mat.nodes : List Row → Nat
+def Matrix.nodeCount : List Row → Nat
   | [] => 0
-  | r :: P => Row.nodes r + Mat.nodes P
+  | r :: P => Row.nodeCount r + Matrix.nodeCount P
 
-@[simp] theorem Row.nodes_nil : Row.nodes [] = 0 := rfl
+@[simp] theorem Row.nodeCount_nil : Row.nodeCount [] = 0 := rfl
 
-@[simp] theorem Row.nodes_cons (p : Pat) (r : Row) :
-    Row.nodes (p :: r) = p.nodes + Row.nodes r := rfl
+@[simp] theorem Row.nodeCount_cons (p : Pattern) (r : Row) :
+    Row.nodeCount (p :: r) = p.nodeCount + Row.nodeCount r := rfl
 
-@[simp] theorem Pat.nodes_wild : Pat.nodes .wild = 0 := rfl
+@[simp] theorem Pattern.nodeCount_wildcard : Pattern.nodeCount .wildcard = 0 := rfl
 
-/-- The head node of a `ctor` pattern, made explicit: specialising a row
-headed by `ctor c subs` yields at most the sub-patterns' nodes, which is one
+/-- The head node of a `constructor` pattern, made explicit: specialising a row
+headed by `constructor c subpatterns` yields at most the sub-patterns' nodeCount, which is one
 fewer than the head cost. -/
-@[simp] theorem Pat.nodes_ctor (c : Ctor) (subs : List Pat) :
-    Pat.nodes (.ctor c subs) = 1 + Row.nodes subs := rfl
+@[simp] theorem Pattern.nodeCount_constructor (c : Constructor) (subpatterns : List Pattern) :
+    Pattern.nodeCount (.constructor c subpatterns) = 1 + Row.nodeCount subpatterns := rfl
 
-@[simp] theorem Row.nodes_append (a b : Row) :
-    Row.nodes (a ++ b) = Row.nodes a + Row.nodes b := by
+@[simp] theorem Row.nodeCount_append (a b : Row) :
+    Row.nodeCount (a ++ b) = Row.nodeCount a + Row.nodeCount b := by
   induction a with
   | nil => simp
   | cons x xs ih => simp [ih, Nat.add_assoc]
 
-@[simp] theorem Row.nodes_replicate_wild (n : Nat) :
-    Row.nodes (List.replicate n Pat.wild) = 0 := by
+@[simp] theorem Row.nodeCount_replicate_wildcard (n : Nat) :
+    Row.nodeCount (List.replicate n Pattern.wildcard) = 0 := by
   induction n with
   | zero => simp
   | succ k ih => simp [List.replicate, ih]
 
-theorem Row.nodes_take_le (n : Nat) (r : Row) : Row.nodes (r.take n) ≤ Row.nodes r := by
+theorem Row.nodeCount_take_le (n : Nat) (r : Row) : Row.nodeCount (r.take n) ≤ Row.nodeCount r := by
   induction r generalizing n with
   | nil => simp
   | cons x xs ih =>
@@ -88,35 +88,35 @@ theorem Row.nodes_take_le (n : Nat) (r : Row) : Row.nodes (r.take n) ≤ Row.nod
     | zero => simp
     | succ k =>
       have := ih k
-      simp only [List.take_succ_cons, Row.nodes_cons]
+      simp only [List.take_succ_cons, Row.nodeCount_cons]
       omega
 
-@[simp] theorem Mat.nodes_nil : Mat.nodes [] = 0 := rfl
+@[simp] theorem Matrix.nodeCount_nil : Matrix.nodeCount [] = 0 := rfl
 
-@[simp] theorem Mat.nodes_cons (r : Row) (P : List Row) :
-    Mat.nodes (r :: P) = Row.nodes r + Mat.nodes P := rfl
+@[simp] theorem Matrix.nodeCount_cons (r : Row) (P : List Row) :
+    Matrix.nodeCount (r :: P) = Row.nodeCount r + Matrix.nodeCount P := rfl
 
 /-! ## Lifting a per-row bound to the matrix -/
 
-@[simp] theorem Mat.nodes_append (A B : List Row) :
-    Mat.nodes (A ++ B) = Mat.nodes A + Mat.nodes B := by
+@[simp] theorem Matrix.nodeCount_append (A B : List Row) :
+    Matrix.nodeCount (A ++ B) = Matrix.nodeCount A + Matrix.nodeCount B := by
   induction A with
   | nil => simp
   | cons r A ih => simp [ih, Nat.add_assoc]
 
-theorem Mat.nodes_filterMap_le {f : Row → Option Row} (P : List Row)
-    (h : ∀ r r', r ∈ P → f r = some r' → Row.nodes r' ≤ Row.nodes r) :
-    Mat.nodes (P.filterMap f) ≤ Mat.nodes P := by
+theorem Matrix.nodeCount_filterMap_le {f : Row → Option Row} (P : List Row)
+    (h : ∀ r r', r ∈ P → f r = some r' → Row.nodeCount r' ≤ Row.nodeCount r) :
+    Matrix.nodeCount (P.filterMap f) ≤ Matrix.nodeCount P := by
   induction P with
   | nil => simp
   | cons r P ih =>
     have ih' := ih fun a b ha hb => h a b (by simp [ha]) hb
     rw [List.filterMap_cons]
     cases hf : f r with
-    | none => simp only [Mat.nodes_cons]; omega
+    | none => simp only [Matrix.nodeCount_cons]; omega
     | some r' =>
       have := h r r' (by simp) hf
-      simp only [Mat.nodes_cons]; omega
+      simp only [Matrix.nodeCount_cons]; omega
 
 /-- The strict version, and the one the `complete` branch needs. If some row of
 `P` is headed by a constructor and survives, the total node count drops.
@@ -124,111 +124,111 @@ theorem Mat.nodes_filterMap_le {f : Row → Option Row} (P : List Row)
 Proved by splitting `P` at the witness row rather than by induction: the
 induction version has to keep re-deriving the bound for the untouched prefix,
 and the split makes the arithmetic a single `omega`. -/
-theorem Mat.nodes_filterMap_lt {f : Row → Option Row} (P : List Row) (r₀ : Row)
+theorem Matrix.nodeCount_filterMap_lt {f : Row → Option Row} (P : List Row) (r₀ : Row)
     (hmem : r₀ ∈ P)
-    (hle : ∀ r r', f r = some r' → Row.nodes r' ≤ Row.nodes r)
-    (hlt : ∀ r', f r₀ = some r' → Row.nodes r' < Row.nodes r₀)
-    (hnone : f r₀ = none → 0 < Row.nodes r₀) :
-    Mat.nodes (P.filterMap f) < Mat.nodes P := by
+    (hle : ∀ r r', f r = some r' → Row.nodeCount r' ≤ Row.nodeCount r)
+    (hlt : ∀ r', f r₀ = some r' → Row.nodeCount r' < Row.nodeCount r₀)
+    (hnone : f r₀ = none → 0 < Row.nodeCount r₀) :
+    Matrix.nodeCount (P.filterMap f) < Matrix.nodeCount P := by
   obtain ⟨A, B, rfl⟩ := List.append_of_mem hmem
-  have hA : Mat.nodes (A.filterMap f) ≤ Mat.nodes A :=
-    Mat.nodes_filterMap_le A fun a b _ hb => hle a b hb
-  have hB : Mat.nodes (B.filterMap f) ≤ Mat.nodes B :=
-    Mat.nodes_filterMap_le B fun a b _ hb => hle a b hb
+  have hA : Matrix.nodeCount (A.filterMap f) ≤ Matrix.nodeCount A :=
+    Matrix.nodeCount_filterMap_le A fun a b _ hb => hle a b hb
+  have hB : Matrix.nodeCount (B.filterMap f) ≤ Matrix.nodeCount B :=
+    Matrix.nodeCount_filterMap_le B fun a b _ hb => hle a b hb
   rw [List.filterMap_append, List.filterMap_cons]
   cases hf : f r₀ with
   | none =>
     have := hnone hf
-    simp only [Mat.nodes_append, Mat.nodes_cons]
+    simp only [Matrix.nodeCount_append, Matrix.nodeCount_cons]
     omega
   | some r' =>
     have := hlt r' hf
-    simp only [Mat.nodes_append, Mat.nodes_cons]
+    simp only [Matrix.nodeCount_append, Matrix.nodeCount_cons]
     omega
 
-/-! ## `specialize` and `defaultMat` never grow the matrix -/
+/-! ## `specialize` and `defaultMatrix` never grow the matrix -/
 
-theorem specializeRow_nodes_le {ct : Ctor} {a : Nat} {r r' : Row}
-    (h : specializeRow ct a r = some r') : Row.nodes r' ≤ Row.nodes r := by
+theorem specializeRow_nodes_le {target : Constructor} {a : Nat} {r r' : Row}
+    (h : specializeRow target a r = some r') : Row.nodeCount r' ≤ Row.nodeCount r := by
   match r with
   | [] => simp [specializeRow] at h
-  | .wild :: rest => cases h; simp
-  | .ctor c subs :: rest =>
+  | .wildcard :: rest => cases h; simp
+  | .constructor c subpatterns :: rest =>
     simp only [specializeRow] at h
     split at h
     · cases h
-      have := Row.nodes_take_le a (subs ++ List.replicate a Pat.wild)
-      simp only [Row.nodes_append, Row.nodes_replicate_wild, Nat.add_zero] at this
-      simp [Pat.nodes_ctor]
+      have := Row.nodeCount_take_le a (subpatterns ++ List.replicate a Pattern.wildcard)
+      simp only [Row.nodeCount_append, Row.nodeCount_replicate_wildcard, Nat.add_zero] at this
+      simp [Pattern.nodeCount_constructor]
       omega
     · simp at h
   | .or _ :: _ => simp [specializeRow] at h
 
-theorem specializeRow_nodes_lt {ct : Ctor} {a : Nat} {c : Ctor} {subs : List Pat}
-    {rest r' : Row} (h : specializeRow ct a (.ctor c subs :: rest) = some r') :
-    Row.nodes r' < Row.nodes (.ctor c subs :: rest) := by
+theorem specializeRow_nodes_lt {target : Constructor} {a : Nat} {c : Constructor} {subpatterns : List Pattern}
+    {rest r' : Row} (h : specializeRow target a (.constructor c subpatterns :: rest) = some r') :
+    Row.nodeCount r' < Row.nodeCount (.constructor c subpatterns :: rest) := by
   simp only [specializeRow] at h
   split at h
   · cases h
-    have := Row.nodes_take_le a (subs ++ List.replicate a Pat.wild)
-    simp only [Row.nodes_append, Row.nodes_replicate_wild, Nat.add_zero] at this
-    simp [Pat.nodes_ctor]
+    have := Row.nodeCount_take_le a (subpatterns ++ List.replicate a Pattern.wildcard)
+    simp only [Row.nodeCount_append, Row.nodeCount_replicate_wildcard, Nat.add_zero] at this
+    simp [Pattern.nodeCount_constructor]
     omega
   · simp at h
 
-theorem Mat.nodes_specialize_le (P : List Row) (ct : Ctor) (a : Nat) :
-    Mat.nodes (specialize P ct a) ≤ Mat.nodes P :=
-  Mat.nodes_filterMap_le P fun _ _ _ hb => specializeRow_nodes_le hb
+theorem Matrix.nodeCount_specialize_le (P : List Row) (target : Constructor) (a : Nat) :
+    Matrix.nodeCount (specialize P target a) ≤ Matrix.nodeCount P :=
+  Matrix.nodeCount_filterMap_le P fun _ _ _ hb => specializeRow_nodes_le hb
 
-theorem Mat.nodes_defaultMat_le (P : List Row) :
-    Mat.nodes (defaultMat P) ≤ Mat.nodes P := by
-  refine Mat.nodes_filterMap_le P fun r r' _ hb => ?_
+theorem Matrix.nodeCount_defaultMatrix_le (P : List Row) :
+    Matrix.nodeCount (defaultMatrix P) ≤ Matrix.nodeCount P := by
+  refine Matrix.nodeCount_filterMap_le P fun r r' _ hb => ?_
   match r with
-  | .wild :: rest => cases hb; simp
+  | .wildcard :: rest => cases hb; simp
   | [] => simp [defaultRow] at hb
-  | .ctor _ _ :: _ => simp [defaultRow] at hb
+  | .constructor _ _ :: _ => simp [defaultRow] at hb
   | .or _ :: _ => simp [defaultRow] at hb
 
-/-- Membership in `headCtors` is exactly "some row is headed by this
+/-- Membership in `headConstructors` is exactly "some row is headed by this
 constructor". -/
-theorem mem_headCtors {P : List Row} {c : Ctor} (h : c ∈ headCtors P) :
-    ∃ subs rest, (Pat.ctor c subs :: rest) ∈ P := by
+theorem mem_headCtors {P : List Row} {c : Constructor} (h : c ∈ headConstructors P) :
+    ∃ subpatterns rest, (Pattern.constructor c subpatterns :: rest) ∈ P := by
   induction P with
-  | nil => simp [headCtors] at h
+  | nil => simp [headConstructors] at h
   | cons r P ih =>
     match hr : r with
-    | .ctor c' subs :: rest =>
-      simp only [headCtors, List.filterMap_cons] at h
+    | .constructor c' subpatterns :: rest =>
+      simp only [headConstructors, List.filterMap_cons] at h
       rcases List.mem_cons.mp h with rfl | h'
-      · exact ⟨subs, rest, by simp⟩
+      · exact ⟨subpatterns, rest, by simp⟩
       · obtain ⟨s, t, ht⟩ := ih h'
         exact ⟨s, t, by simp [ht]⟩
     | [] =>
-      simp only [headCtors, List.filterMap_cons] at h
+      simp only [headConstructors, List.filterMap_cons] at h
       obtain ⟨s, t, ht⟩ := ih h
       exact ⟨s, t, by simp [ht]⟩
-    | .wild :: rest =>
-      simp only [headCtors, List.filterMap_cons] at h
+    | .wildcard :: rest =>
+      simp only [headConstructors, List.filterMap_cons] at h
       obtain ⟨s, t, ht⟩ := ih h
       exact ⟨s, t, by simp [ht]⟩
     | .or _ :: rest =>
-      simp only [headCtors, List.filterMap_cons] at h
+      simp only [headConstructors, List.filterMap_cons] at h
       obtain ⟨s, t, ht⟩ := ih h
       exact ⟨s, t, by simp [ht]⟩
 
-/-- **The termination lemma.** When the matrix already accounts for `ct`,
-specialising on `ct` strictly shrinks it. -/
-theorem Mat.nodes_specialize_lt (P : List Row) (ct : Ctor) (a : Nat)
-    (h : ct ∈ headCtors P) :
-    Mat.nodes (specialize P ct a) < Mat.nodes P := by
-  obtain ⟨subs, rest, hmem⟩ := mem_headCtors h
-  refine Mat.nodes_filterMap_lt P _ hmem
+/-- **The termination lemma.** When the matrix already accounts for `target`,
+specialising on `target` strictly shrinks it. -/
+theorem Matrix.nodeCount_specialize_lt (P : List Row) (target : Constructor) (a : Nat)
+    (h : target ∈ headConstructors P) :
+    Matrix.nodeCount (specialize P target a) < Matrix.nodeCount P := by
+  obtain ⟨subpatterns, rest, hmem⟩ := mem_headCtors h
+  refine Matrix.nodeCount_filterMap_lt P _ hmem
     (fun _ _ hb => specializeRow_nodes_le hb)
     (fun r' hb => specializeRow_nodes_lt hb)
     (fun _ => ?_)
   -- A constructor-headed row always has at least one node, so even if it were
   -- dropped outright the count would fall.
-  simp only [Row.nodes_cons, Pat.nodes_ctor]
+  simp only [Row.nodeCount_cons, Pattern.nodeCount_constructor]
   omega
 
 end Buri

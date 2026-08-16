@@ -75,11 +75,11 @@ theorem of_replicate {as : List α} {b : β} :
   | cons x xs ih =>
     simp only [List.length_cons, List.replicate] at h
     cases h with
-    | cons hxb hrest =>
+    | cons hxb restFree =>
       intro a ha
       rcases List.mem_cons.mp ha with rfl | h'
       · exact hxb
-      · exact ih hrest a h'
+      · exact ih restFree a h'
 
 theorem to_replicate {as : List α} {b : β} :
     (∀ a ∈ as, R a b) → Forall₂ R as (List.replicate as.length b) := by

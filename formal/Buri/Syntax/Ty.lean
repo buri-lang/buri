@@ -16,22 +16,22 @@ here; each difference is deliberate:
   `types::substitute(&ty, &args, self_ty)` already does with its third argument.
 * `Ty::Var` is algorithmic and belongs to `Buri/Infer/`, not to the declarative
   system. That split is the whole content of the inference theorems.
-* Primitives are not a separate constructor: in Rust a primitive *is* a `TyCon`
-  (`tables.prim_id`), reached as `Ty::Con(id, [])` with `TyDef::Prim(..)`.
-  Keeping that shape is what lets `allCtors` match the Rust `all_ctors` case
+* Primitives are not a separate constructor: in Rust a primitive *is* a `TypeConstructor`
+  (`tables.prim_id`), reached as `Ty::Con(id, [])` with `TypeDefinition::Primitive(..)`.
+  Keeping that shape is what lets `allConstructors` match the Rust `all_ctors` case
   for case.
 -/
 
 namespace Buri
 
-abbrev TyConId := Nat
-abbrev CtxTypeId := Nat
+abbrev TypeConstructorId := Nat
+abbrev ContextTypeId := Nat
 
 /-- `types.rs:44`. Only `bool` is load-bearing for exhaustiveness: it is the one
 primitive whose constructor set is small enough to enumerate. The rest are
-present so `TyDef.prim` can name them, and so "needs a `_` arm" becomes a
+present so `TypeDefinition.prim` can name them, and so "needs a `_` arm" becomes a
 statement about a specific type rather than a catch-all. -/
-inductive Prim where
+inductive Primitive where
   | bool
   | i8 | i16 | i32 | i64 | i128
   | u8 | u16 | u32 | u64 | u128
@@ -42,13 +42,13 @@ inductive Prim where
 /-- `types.rs:188`. -/
 inductive Ty where
   /-- A nominal type: a primitive, a struct, or an enum. -/
-  | con : TyConId → List Ty → Ty
+  | con : TypeConstructorId → List Ty → Ty
   | array : Ty → Ty
   | tuple : List Ty → Ty
   | fn : List Ty → Ty → Ty
   | unit : Ty
   /-- The generated type of a `context { ... }` value (SPEC 11.3). -/
-  | ctx : CtxTypeId → Ty
+  | ctx : ContextTypeId → Ty
   /-- A rigid generic parameter, by index into the item's generic list. -/
   | param : Nat → Ty
   deriving Repr
@@ -63,7 +63,7 @@ and instantiating that second motive at `fun ts => ∀ t ∈ ts, motive t` gives
 the eliminator every later proof actually wants.
 
 Writing this once, before anything needs it, is what keeps every subsequent
-proof from re-deriving it by hand. The same shape is needed again for `Pat`,
+proof from re-deriving it by hand. The same shape is needed again for `Pattern`,
 and in Stage 3 for `Term`.
 
 The motive lands in `Prop`, not `Sort _`. That is forced rather than chosen:

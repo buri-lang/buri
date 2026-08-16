@@ -2,8 +2,16 @@
 
 A Lean 4 formalisation of Buri's type system, aimed at four theorems: type
 safety, the purity/capability theorem, exhaustiveness correctness, and
-inference soundness. This directory is **Stage 1 and part of Stage 2** of that
-plan.
+inference soundness.
+
+**Exhaustiveness is done.** The headline result is
+`exhaustive_correct_unbounded`: if the checker accepts a `match`, then for
+every well-typed value of the scrutinee's type -- no restriction -- some arm
+the programmer wrote fires. That is what makes `match` progress, and it holds
+for the algorithm as written, including the array-length reasoning the plan
+flagged as the likeliest place for a bug.
+
+Type safety, purity, and inference remain unstarted.
 
 **Nothing here is on the path to building a `buri` binary.** `formal/` is not a
 Cargo workspace member and the toolchain never invokes Lake.
@@ -35,98 +43,92 @@ rule (SPEC §14 rule 33), and `List` + `Nodup` is what the Rust
 
 Everything below is machine-checked and depends on nothing but Lean's three
 standard axioms (`propext`, `Quot.sound`, `Classical.choice`). `Audit.lean`
-checks that, and is the formal analogue of `conformance.rs:57`'s canary: a
-proof development that cannot be caught cheating is not evidence.
+checks that for 33 results, and is the formal analogue of `conformance.rs`'s
+canary: a proof development that cannot be caught cheating is not evidence.
+
+### The headline
+
+```lean
+theorem exhaustive_correct_unbounded (signature limit t) (arms : List Pattern)
+    (hlowered : ∀ p ∈ arms, Pattern.LoweredArrays p)
+    (hlen : ∀ p ∈ arms, p.lengthLimit < limit)
+    (hwf : ∀ q ∈ compileArms limit arms, Pattern.WellFormed signature t q)
+    (hexhaustive : isExhaustive signature limit t (armRows (compileArms limit arms)) = true) :
+    ∀ v, (signature ⊢ᵥ v : t) → ∃ p ∈ arms, Pattern.matches p v = true
+```
+
+The hypotheses are exactly what the compiler establishes before calling the
+algorithm: `lower` sizes an array constructor by its sub-pattern count, `limit`
+is `max(length_limit) + 1`, and the compiled arms are rest-free and respect
+constructor arities.
+
+### The pieces
 
 | Result | Where | What it says |
 |---|---|---|
-| `Ty.ind'`, `Value.ind'`, `Pat.ind'` | `Syntax/`, `Dynamics/`, `Patterns/` | Usable induction for the nested inductives |
-| `Sig.isEnum_isStruct` &co. | `Sig/Sig.lean` | A type constructor is a struct, an enum, or a primitive -- never two |
-| `Ctor.fieldTys_length` | `Patterns/Matrix.lean` | Arity and field types always agree in length |
-| `HasType.*_inv` | `Dynamics/Value.lean` | Canonical forms, one per type former |
-| **`usefulDec` terminates** | `Patterns/{Measure,Usefulness}.lean` | The usefulness algorithm is a total function -- no fuel, no partiality |
-| `Mat.nodes_specialize_lt` | `Patterns/Measure.lean` | The load-bearing termination step (see below) |
-| **`covers_specialize`** | `Patterns/Correct.lean` | `specialize` computes the coverage it should |
-| **`covers_defaultMat`** | `Patterns/Correct.lean` | `defaultMat` computes the coverage it should |
+| **`isUseful` terminates** | `Measure.lean`, `Usefulness.lean` | The algorithm is a total function -- no fuel, no partiality |
+| `Matrix.nodeCount_specialize_lt` | `Measure.lean` | The load-bearing termination step |
+| `covers_specialize`, `covers_of_defaultMatrix` | `Correct.lean` | The matrix operations compute the coverage they should |
+| `Matrix.WellFormed.specialize`, `.defaultMatrix` | `WellFormed.lean` | The invariant survives both steps |
+| **`isUseful_false_covers`** | `Complete.lean` | Completeness: a `false` answer means the matrix really covers everything |
+| `exhaustive_correct`, `unreachable_correct`, `irrefutable_correct` | `Exhaustive.lean` | The three claims the compiler makes |
+| `expandLengths_sound`, `topDisjuncts_sound` | `Expand.lean` | The two pre-passes only narrow what a pattern matches |
+| **`Pattern.matches_truncate`** | `Truncate.lean` | No arm can tell a long array from its truncation |
+| `Constructor.fieldTypes_length`, `HasType.*_inversion` | `Matrix.lean`, `Value.lean` | Arities agree; canonical forms |
 
-### The termination argument
+### Three arguments worth reading
 
-`Ctx::useful` (`exhaust.rs:293`) is not structurally recursive: the
+**Termination.** `Ctx::useful` is not structurally recursive: the
 wildcard-with-complete-constructor-set branch replaces one `_` by `arity` fresh
 `_`s, so the pattern vector *grows*. The measure is lexicographic --
 `(matrix nodes + vector nodes, vector length)`, counting constructor nodes only
 -- and the interesting case is that one: the vector's node count is unchanged,
 so the matrix must shrink instead. It does, because completeness forces some
-row to be headed by the very constructor being specialised on, and `specialize`
-peels that head off.
+row to be headed by the very constructor being specialised on. **The algorithm
+terminates precisely because it only expands a wildcard when the matrix has
+already paid for the expansion.**
 
-That is `Mat.nodes_specialize_lt`, and the shape of it is worth noticing: **the
-algorithm terminates precisely because it only expands a wildcard when the
-matrix has already paid for the expansion.**
+**Arrays.** `allConstructors` reports an array type's constructors as
+`array 0 .. array limit` and nothing longer, so the algorithm reasons in a
+universe where arrays are bounded. That is sound because `limit` is one more
+than the longest length any arm mentions, so no arm can distinguish an array of
+length `limit` from a longer one -- `Pattern.matches_truncate`. The `+ 1` is
+doing real work: without it, a match on `[]`, `[_]`, `[_, _]` would have
+`limit = 2`, all three constructors would be present, the set would look
+complete, and length-3 arrays would slip through.
 
-### Two side conditions that are not bookkeeping
-
-`covers_specialize` carries hypotheses that record real facts about the Rust
-code rather than artefacts of the encoding:
-
-* **`subs.length ≤ arity`.** `specializeRow` pads *and truncates* to the
-  constructor's arity (`exhaust.rs:246-250`). Padding is harmless; truncation
-  is not. A pattern carrying *more* sub-patterns than the constructor has
-  fields would be rejected by `matchPad` but accepted after truncation -- the
-  matrix would gain coverage it never had, and a non-exhaustive match could be
-  accepted. `exhaust.rs:114` never builds one, because it sizes `subs` by the
-  largest field *index*. The hypothesis is what records that this is
-  load-bearing.
-
-* **rest-freeness.** `specializeRow` drops any row headed by `arrayRest`, since
-  `arrayRest n` never equals `array k`. A surviving rest pattern would lose the
-  coverage it provided. `expand_lengths` removes them before the algorithm
-  runs, which is why this is a hypothesis rather than a case.
-
-A related structural observation, from reading `exhaust.rs:445 check`: because
-`expand` and `expand_lengths` both run *before* `useful`, **the `Pat::Or` arm
-of `Ctx::useful` (`exhaust.rs:294-306`) is dead code**, and `Ctor::ArrayRest`
-never reaches the algorithm at all.
+**Two side conditions that are not bookkeeping.** `covers_specialize` carries
+`subpatterns.length ≤ arity` and rest-freeness. `specializeRow` pads *and
+truncates*; padding is harmless, truncation is not. A pattern carrying more
+sub-patterns than its constructor has fields would be rejected by `matchesAll`
+but accepted after truncation -- the matrix would gain coverage it never had.
+`lower` never builds one, and the hypothesis records that this is load-bearing
+rather than incidental.
 
 ## What is not proved
 
-Stated precisely, so the gap is not mistaken for a detail. See
-`Patterns/Spec.lean` for the Lean-level statements.
+**`useful_sound`**, the converse direction ("no false positives"): that the
+compiler reports a non-exhaustive match only when a value really is uncovered.
+It needs *inhabitation* -- exhibiting a witness at a missing constructor means
+building values at its field types, which is where SPEC §14 rule 14 (recursive
+types must be productive) becomes load-bearing rather than stylistic.
 
-1. **`useful_complete`** (`Useful → usefulDec = true`) and its corollary
-   `exhaustive_correct`. This is the *safety* direction -- it is what makes a
-   `match` the checker accepted always have an arm that fires. The two
-   `covers_*` lemmas are its inductive steps; what remains is the induction
-   (via the generated `usefulDec.induct`) plus showing the `MatrixWF` invariant
-   is preserved at each step.
-2. **`useful_sound`** (the converse, "no false positives"). Additionally needs
-   *inhabitation*: exhibiting a witness at a missing constructor means building
-   values at its field types, which is where SPEC §14 rule 14 (recursive types
-   must be productive) becomes load-bearing rather than stylistic.
-3. **The array case.** `allCtors` reports an array type's constructors as
-   `array 0 .. array limit` and nothing longer, so the algorithm reasons in a
-   universe where arrays are bounded. That is sound only because of an
-   invariant the algorithm never states:
+This is the expressiveness direction, not the safety one, and it is **false as
+the checker stands**: `findings/README.md` §6 records a nested alternation that
+makes it reject an exhaustive match. Proving it would first require fixing that.
 
-   > `limit` is one more than the longest array length any pattern mentions
-   > (`exhaust.rs:450`), so fixed-length patterns only ever produce heads
-   > `array k` with `k < limit`. Therefore `array limit ∈ headCtors P` can only
-   > have come from an expanded *rest* pattern -- which covers every length at
-   > or above its minimum. Whenever the algorithm believes the array
-   > constructors are complete, some rest pattern really does cover the tail.
-
-   The plan flagged array-rest as the likeliest place for a real bug. Reading
-   the algorithm did not turn one up: the `+ 1` at `exhaust.rs:450` is doing
-   exactly the work it needs to. But "did not turn one up" is not a proof, and
-   this is the obligation that would settle it.
+**The other three theorems** -- type safety, purity, inference -- have no Lean
+written for them. Purity in particular should not be started before the
+capability hole in `findings/README.md` §4 is resolved, since the theorem as
+stated is false.
 
 ## Modelling decisions
 
-Three constructors of Rust's `Ty` (`types.rs:188`) are deliberately absent:
+Three constructors of Rust's `Ty` (`semantics/types.rs`) are deliberately absent:
 
 * **`Ty::Error` is excluded.** `unify` returns `Ok` for `(Error, _)`
-  (`types.rs:693`), `satisfies` returns `true` (`infer.rs:585`), `implements`
-  returns `true` (`types.rs:588`) -- a declarative system holding such a type
+  (`semantics/types.rs`), `satisfies` returns `true` (`semantics/inference.rs`), `implements`
+  returns `true` (`semantics/types.rs`) -- a declarative system holding such a type
   derives *everything* at it. It is an error-recovery artefact whose contract
   ("a diagnostic was already reported here") is not a typing property. What
   licenses the exclusion is not an argument but a Rust-side invariant that
@@ -140,7 +142,7 @@ Three constructors of Rust's `Ty` (`types.rs:188`) are deliberately absent:
 
 Primitives are *not* a separate constructor, because in Rust a primitive is a
 `TyCon` reached as `Ty::Con(id, [])`. Keeping that shape is what lets
-`allCtors` match Rust's `all_ctors` case for case.
+`allConstructors` match Rust's `all_ctors` case for case.
 
 Buri has **no type-variable binders** -- generics are instantiated positionally
 against `Ty.param n` -- so type substitution is a plain fold with no
@@ -159,13 +161,13 @@ What this exercise will not catch, whatever else gets proved:
   rules that live entirely in that gap**; only about 15 are core-typing rules a
   model like this one can adjudicate. That ratio is the most important honest
   number here.
-* **`mono.rs`.** A type error reintroduced during monomorphisation is invisible
+* **`transform/monomorphize.rs`.** A type error reintroduced during monomorphisation is invisible
   to a pre-monomorphisation proof.
-* **`codegen.rs` / `js.rs`.** The largest unproved surface, with a known gap:
+* **`backend/generate.rs` / `backend/javascript.rs`.** The largest unproved surface, with a known gap:
   `Prim::is_bigint()` is `false` for every type and `EXACT_INTEGER_LIMIT` is
   `2^53 - 1`, so `I64`/`I128` arithmetic is inexact above `2^53`. A proof about
   `I128` arithmetic describes a language the JS backend does not implement.
-* **Intrinsics.** `builtins.rs` is axioms in any model of this kind.
+* **Intrinsics.** `semantics/builtins.rs` is axioms in any model of this kind.
 * **Diagnostics.** These theorems say an error occurs, never *which* one. The
   reject corpus's exact-output goldens are the right tool, and already exist.
 

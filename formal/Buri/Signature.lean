@@ -9,7 +9,7 @@ field names are kept identical on purpose: it is what makes the Stage 4 JSON
 bridge a transcription rather than a translation, and what lets a reviewer hold
 both files open side by side.
 
-Every judgement in this development is parameterised by a `Sig`. Nothing is
+Every judgement in this development is parameterised by a `Signature`. Nothing is
 ever inferred from a declaration's *shape* -- conformance is nominal
 (SPEC 5.12.1), so a lookup here is a lookup, never a search.
 -/
@@ -28,28 +28,28 @@ structure VariantInfo where
   deriving Repr
 
 /-- `types.rs:259`. -/
-inductive TyDef where
-  | «struct» : List FieldInfo → TyDef
-  | «enum» : List VariantInfo → TyDef
-  | prim : Prim → TyDef
+inductive TypeDefinition where
+  | «struct» : List FieldInfo → TypeDefinition
+  | «enum» : List VariantInfo → TypeDefinition
+  | prim : Primitive → TypeDefinition
   deriving Repr
 
 /-- `types.rs:267`. -/
-structure TyCon where
-  «def» : TyDef
+structure TypeConstructor where
+  «def» : TypeDefinition
   /-- How many generic parameters the declaration takes. -/
   arity : Nat
   deriving Repr
 
 /-- `types.rs:453`, restricted to what the pattern theorems need. Traits,
 impls, context types and function signatures join it in Stage 3. -/
-structure Sig where
-  tycons : List TyCon
+structure Signature where
+  typeConstructors : List TypeConstructor
   deriving Repr
 
 /-- A lookup, never a search (SPEC 5.12.1). -/
-def Sig.tycon (S : Sig) (c : TyConId) : Option TyCon :=
-  S.tycons[c]?
+def Signature.typeConstructor (S : Signature) (c : TypeConstructorId) : Option TypeConstructor :=
+  S.typeConstructors[c]?
 
 /-!
 ## Generic instantiation
@@ -74,9 +74,9 @@ def substitute (args : List Ty) : Ty → Ty
   | .ctx k => .ctx k
 
 /-- The field types of variant `i` of enum `c`, instantiated at `args`.
-Mirrors the `Ctor::Variant` arm of `exhaust.rs:53 field_types`. -/
-def Sig.variantFieldTys (S : Sig) (c : TyConId) (i : Nat) (args : List Ty) : List Ty :=
-  match S.tycon c with
+Mirrors the `Constructor::Variant` arm of `exhaust.rs:53 field_types`. -/
+def Signature.variantFieldTypes (S : Signature) (c : TypeConstructorId) (i : Nat) (args : List Ty) : List Ty :=
+  match S.typeConstructor c with
   | some ⟨.enum vs, _⟩ =>
       match vs[i]? with
       | some v => v.fields.map fun f => substitute args f.ty
@@ -84,45 +84,45 @@ def Sig.variantFieldTys (S : Sig) (c : TyConId) (i : Nat) (args : List Ty) : Lis
   | _ => []
 
 /-- The field types of struct `c`, instantiated at `args`. Mirrors the
-`Ctor::Single` arm of `exhaust.rs:53 field_types`. -/
-def Sig.structFieldTys (S : Sig) (c : TyConId) (args : List Ty) : List Ty :=
-  match S.tycon c with
+`Constructor::Single` arm of `exhaust.rs:53 field_types`. -/
+def Signature.structFieldTypes (S : Signature) (c : TypeConstructorId) (args : List Ty) : List Ty :=
+  match S.typeConstructor c with
   | some ⟨.struct fs, _⟩ => fs.map fun f => substitute args f.ty
   | _ => []
 
 /-- How many variants enum `c` has; `0` for anything else. -/
-def Sig.variantCount (S : Sig) (c : TyConId) : Nat :=
-  match S.tycon c with
+def Signature.variantCount (S : Signature) (c : TypeConstructorId) : Nat :=
+  match S.typeConstructor c with
   | some ⟨.enum vs, _⟩ => vs.length
   | _ => 0
 
-/-- How many fields variant `i` of enum `c` has. This is `Ctor::arity`'s
-`Ctor::Variant` arm (`exhaust.rs:38`), and it is deliberately independent of
+/-- How many fields variant `i` of enum `c` has. This is `Constructor::arity`'s
+`Constructor::Variant` arm (`exhaust.rs:38`), and it is deliberately independent of
 the instantiation: arity is a property of the declaration. -/
-def Sig.variantArity (S : Sig) (c : TyConId) (i : Nat) : Nat :=
-  match S.tycon c with
+def Signature.variantArity (S : Signature) (c : TypeConstructorId) (i : Nat) : Nat :=
+  match S.typeConstructor c with
   | some ⟨.enum vs, _⟩ => (vs[i]?).elim 0 (·.fields.length)
   | _ => 0
 
-/-- How many fields struct `c` has; `Ctor::arity`'s `Ctor::Single` arm. -/
-def Sig.structArity (S : Sig) (c : TyConId) : Nat :=
-  match S.tycon c with
+/-- How many fields struct `c` has; `Constructor::arity`'s `Constructor::Single` arm. -/
+def Signature.structArity (S : Signature) (c : TypeConstructorId) : Nat :=
+  match S.typeConstructor c with
   | some ⟨.struct fs, _⟩ => fs.length
   | _ => 0
 
-def Sig.isStruct (S : Sig) (c : TyConId) : Bool :=
-  match S.tycon c with
+def Signature.isStruct (S : Signature) (c : TypeConstructorId) : Bool :=
+  match S.typeConstructor c with
   | some ⟨.struct _, _⟩ => true
   | _ => false
 
-def Sig.isEnum (S : Sig) (c : TyConId) : Bool :=
-  match S.tycon c with
+def Signature.isEnum (S : Signature) (c : TypeConstructorId) : Bool :=
+  match S.typeConstructor c with
   | some ⟨.enum _, _⟩ => true
   | _ => false
 
 /-- The primitive a type constructor names, if it names one. -/
-def Sig.primOf (S : Sig) (c : TyConId) : Option Prim :=
-  match S.tycon c with
+def Signature.primitiveOf (S : Signature) (c : TypeConstructorId) : Option Primitive :=
+  match S.typeConstructor c with
   | some ⟨.prim p, _⟩ => some p
   | _ => none
 
@@ -130,26 +130,26 @@ def Sig.primOf (S : Sig) (c : TyConId) : Option Prim :=
 them. These three lemmas are what make the canonical-forms inversions in
 `Dynamics/Value.lean` one line each instead of a case explosion. -/
 
-theorem Sig.isEnum_isStruct {S : Sig} {c} (h : S.isEnum c = true) : S.isStruct c = false := by
-  unfold Sig.isEnum at h; unfold Sig.isStruct
+theorem Signature.isEnum_isStruct {S : Signature} {c} (h : S.isEnum c = true) : S.isStruct c = false := by
+  unfold Signature.isEnum at h; unfold Signature.isStruct
   split at h
   · next heq => simp [heq]
   · simp at h
 
-theorem Sig.isEnum_primOf {S : Sig} {c} (h : S.isEnum c = true) : S.primOf c = none := by
-  unfold Sig.isEnum at h; unfold Sig.primOf
+theorem Signature.isEnum_primOf {S : Signature} {c} (h : S.isEnum c = true) : S.primitiveOf c = none := by
+  unfold Signature.isEnum at h; unfold Signature.primitiveOf
   split at h
   · next heq => simp [heq]
   · simp at h
 
-theorem Sig.isStruct_primOf {S : Sig} {c} (h : S.isStruct c = true) : S.primOf c = none := by
-  unfold Sig.isStruct at h; unfold Sig.primOf
+theorem Signature.isStruct_primOf {S : Signature} {c} (h : S.isStruct c = true) : S.primitiveOf c = none := by
+  unfold Signature.isStruct at h; unfold Signature.primitiveOf
   split at h
   · next heq => simp [heq]
   · simp at h
 
-theorem Sig.isStruct_isEnum {S : Sig} {c} (h : S.isStruct c = true) : S.isEnum c = false := by
-  unfold Sig.isStruct at h; unfold Sig.isEnum
+theorem Signature.isStruct_isEnum {S : Signature} {c} (h : S.isStruct c = true) : S.isEnum c = false := by
+  unfold Signature.isStruct at h; unfold Signature.isEnum
   split at h
   · next heq => simp [heq]
   · simp at h
@@ -157,24 +157,24 @@ theorem Sig.isStruct_isEnum {S : Sig} {c} (h : S.isStruct c = true) : S.isEnum c
 /-- A primitive has no variants, so `variantCount` is `0` -- which is what
 makes the `variant` typing rule's `i < variantCount c` premise unsatisfiable
 at a primitive type. -/
-theorem Sig.primOf_variantCount {S : Sig} {c p} (h : S.primOf c = some p) :
+theorem Signature.primOf_variantCount {S : Signature} {c p} (h : S.primitiveOf c = some p) :
     S.variantCount c = 0 := by
-  unfold Sig.primOf at h; unfold Sig.variantCount
+  unfold Signature.primitiveOf at h; unfold Signature.variantCount
   split at h
   · next heq => simp [heq]
   · simp at h
 
-theorem Sig.isStruct_variantCount {S : Sig} {c} (h : S.isStruct c = true) :
+theorem Signature.isStruct_variantCount {S : Signature} {c} (h : S.isStruct c = true) :
     S.variantCount c = 0 := by
-  unfold Sig.isStruct at h; unfold Sig.variantCount
+  unfold Signature.isStruct at h; unfold Signature.variantCount
   split at h
   · next heq => simp [heq]
   · simp at h
 
-theorem Sig.variantFieldTys_length (S : Sig) (c : TyConId) (i : Nat) (args : List Ty) :
-    (S.variantFieldTys c i args).length = S.variantArity c i := by
-  unfold Sig.variantFieldTys Sig.variantArity
-  cases h : S.tycon c with
+theorem Signature.variantFieldTys_length (S : Signature) (c : TypeConstructorId) (i : Nat) (args : List Ty) :
+    (S.variantFieldTypes c i args).length = S.variantArity c i := by
+  unfold Signature.variantFieldTypes Signature.variantArity
+  cases h : S.typeConstructor c with
   | none => simp
   | some tc =>
     cases tc with
@@ -184,10 +184,10 @@ theorem Sig.variantFieldTys_length (S : Sig) (c : TyConId) (i : Nat) (args : Lis
       | «struct» _ => simp
       | prim _ => simp
 
-theorem Sig.structFieldTys_length (S : Sig) (c : TyConId) (args : List Ty) :
-    (S.structFieldTys c args).length = S.structArity c := by
-  unfold Sig.structFieldTys Sig.structArity
-  cases h : S.tycon c with
+theorem Signature.structFieldTys_length (S : Signature) (c : TypeConstructorId) (args : List Ty) :
+    (S.structFieldTypes c args).length = S.structArity c := by
+  unfold Signature.structFieldTypes Signature.structArity
+  cases h : S.typeConstructor c with
   | none => simp
   | some tc =>
     cases tc with

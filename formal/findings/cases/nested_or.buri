@@ -1,0 +1,20 @@
+// `expand` (exhaustiveness.rs) only splits or-patterns it finds at the TOP of a
+// column. A nested one survives, is exposed by `specialize`, and is then
+// dropped -- `specializeRow` and `defaultRow` both ignore an or-headed row.
+// Prediction: this exhaustive match is rejected.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn describe(x: Option<Bool>): Int {
+  match (x) {
+    .Some(true | false) => 1,
+    .None => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let n = describe(.Some(true));
+  let _ = ctx.println("${n}");
+  .Ok(())
+}
