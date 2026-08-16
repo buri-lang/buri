@@ -122,6 +122,17 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "fix",
+        value: Value::None,
+        choices: &[],
+        blurb: "apply the findings that have one mechanical answer",
+        global: false,
+        set: |f, _| {
+            f.fix = true;
+            Ok(())
+        },
+    },
+    Flag {
         name: "force",
         value: Value::None,
         choices: &[],
@@ -335,7 +346,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "static checks beyond type checking",
         doc: include_str!("docs/cli/lint.md"),
-        flags: &[],
+        flags: &["fix"],
         targets: Targets::Any,
         needs_repo: true,
         run: crate::tools::cmd_lint,
@@ -382,12 +393,8 @@ pub const COMMANDS: &[Command] = &[
         flags: &[],
         targets: Targets::None,
         needs_repo: true,
-        run: |_| {
-            eprintln!("error: `buri lsp` is not implemented in this toolchain");
-            eprintln!("  = the analysis it would serve is the same one `buri build` runs");
-            2
-        },
-        hidden: true,
+        run: crate::lsp::cmd_lsp,
+        hidden: false,
     },
     Command {
         name: "clean",

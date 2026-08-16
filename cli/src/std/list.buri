@@ -50,6 +50,19 @@ impl<T> [T] {
     init: B,
   ): Result<B, E>;
 
+  /// The same, with the context passed in rather than captured.
+  ///
+  /// `foldResult`'s function takes no context, and a lambda may not capture
+  /// one (SPEC 10.6) — so a fallible fold that has to *allocate* as it goes
+  /// could not be written at all. This is the `*Ctx` form every other
+  /// combinator here already has, for the same reason.
+  export fn foldResultCtx<B, E, C: Alloc>(
+    self: [T],
+    ctx: C,
+    f: fn(C, B, T) => Result<B, E>,
+    init: B,
+  ): Result<B, E>;
+
   export fn any(self: [T], pred: fn(T) => Bool): Bool;
 
   export fn all(self: [T], pred: fn(T) => Bool): Bool;

@@ -1,0 +1,8 @@
+error: `toDollars` is exported and reaches nobody [unreachable-export]
+  --> lib/money/cents.buri:10:11
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / 100 }
+   |           ^^^^^^^^^
+   |
+   = inside a library `export` means visible to the rest of the library, and `lib.buri` decides what leaves it
+   = fix: re-export it from lib/money/lib.buri to put it on the library's surface, or drop the `export`

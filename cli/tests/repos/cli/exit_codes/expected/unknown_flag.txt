@@ -10,6 +10,7 @@ buri — the toolchain for the Buri language
   buri gen      [targets]           regenerate sources/deps in existing BUILD.buri files
   buri query    <expr>              ask about the build graph
   buri docs     [topic]             the language, the build system, and this CLI
+  buri lsp                          language server, over stdio
   buri clean                        drop the local cache
   buri version                      toolchain version and the REPO.buri pin
 

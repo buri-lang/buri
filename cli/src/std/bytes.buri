@@ -1,0 +1,212 @@
+//! core/bytes — sequences of octets.
+//!
+//! A byte string is a `[U8]`, which is an ordinary list: `len`, `get`, `slice`
+//! and the rest come from `core/list` and are not repeated here. What this
+//! module adds is the two things a list of numbers cannot do for itself —
+//! turning text into bytes and back, and the encodings that get bytes through
+//! something that only carries text.
+//!
+//! **These are free functions, not methods on `[U8]`.** A method may only be
+//! declared in its type's defining module (SPEC 6.7.3), and `[T]`'s is
+//! `core/list`. An `impl [U8]` here would declare a method the compiler cannot
+//! find.
+//!
+//! **Decoding is strict.** An overlong UTF-8 encoding, a truncated sequence, or
+//! a surrogate is an error rather than a replacement character: bytes that are
+//! not text should say so, not turn into `?` and be discovered three layers
+//! later. Each decoder is a `foldResultCtx` — accumulate, and stop at the first
+//! byte that is not what it claims — so the index a failure reports is the one
+//! it stopped at rather than one recomputed afterwards.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/bytes" import * as bytes;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let raw = bytes.toUtf8(ctx, "hi €");
+//!   // Four characters, six bytes: the euro sign is three of them.
+//!   let _ = ctx.println("${raw.len()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 6 bytes, 686920e282ac, aGkg4oKs
+//! ```
+
+from "core/cap" import { Alloc };
+from "core/char" import * as char;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+/// Where a byte sequence stopped being UTF-8: the index of the first byte that
+/// could not be part of a valid encoding.
+export struct Utf8Error(export Int);
+
+derive Eq, Show for Utf8Error;
+
+/// Where a decoding stopped making sense.
+export struct DecodeError(export Int);
+
+derive Eq, Show for DecodeError;
+
+/// The UTF-8 encoding of a string.
+///
+/// An intrinsic rather than Buri: a string is UTF-16 on this backend, and the
+/// encoding is the platform's business rather than something to rebuild on top
+/// of `charAt`.
+export fn toUtf8<C: Alloc>(ctx: C, s: Str): [U8];
+
+/// The string those bytes encode, or where they stopped being one.
+export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
+
+// --- Hexadecimal ---------------------------------------------------------------
+
+const HEX: Str = "0123456789abcdef";
+
+/// Lowercase, two characters per byte, no separator.
+export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
+  b.mapCtx(ctx, fn(c, x) => {
+    let n = x.toI64();
+    str.fromChars(c, [
+      HEX.charAt(n / 16).withDefault('0'),
+      HEX.charAt(n % 16).withDefault('0'),
+    ])
+  }).join(ctx, "")
+}
+
+/// Reads either case. An odd number of digits, or a character that is not one,
+/// is an error at the offending index.
+export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+  let cs = text.chars(ctx);
+  if (cs.len() % 2 != 0) {
+    .Err(DecodeError(cs.len()))
+  } else {
+    list.range(ctx, 0, cs.len() / 2).foldResultCtx(
+      ctx,
+      fn(c, acc: [U8], i) => {
+        let hi = cs.get(i * 2).andThen(fn(ch) => ch.toDigit(16));
+        let lo = cs.get(i * 2 + 1).andThen(fn(ch) => ch.toDigit(16));
+        match ((hi, lo)) {
+          (.Some(h), .Some(l)) => .Ok(acc.push(c, (h * 16 + l).wrapToU8())),
+          // The index of the pair that failed, not of the whole string: a
+          // decoder that only says "somewhere" is one you debug by bisection.
+          (.None, _) => .Err(DecodeError(i * 2)),
+          _ => .Err(DecodeError(i * 2 + 1)),
+        }
+      },
+      list.empty::<U8>(),
+    )
+  }
+}
+
+// --- Base64 ---------------------------------------------------------------------
+//
+// The standard alphabet, always padded. No URL-safe variant and no unpadded
+// form: two spellings of one encoding is two things to get wrong, and a caller
+// who needs one can replace two characters.
+
+const B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
+  let n = b.len();
+  list.range(ctx, 0, (n + 2) / 3).mapCtx(ctx, fn(c, g) => {
+    let i = g * 3;
+    let b0 = b.get(i).withDefault(0).toI64();
+    let b1 = b.get(i + 1).withDefault(0).toI64();
+    let b2 = b.get(i + 2).withDefault(0).toI64();
+    let left = n - i;
+    str.fromChars(c, [
+      B64.charAt(b0 / 4).withDefault('A'),
+      B64.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A'),
+      if (left > 1) { B64.charAt(b1 % 16 * 4 + b2 / 64).withDefault('A') } else { '=' },
+      if (left > 2) { B64.charAt(b2 % 64).withDefault('A') } else { '=' },
+    ])
+  }).join(ctx, "")
+}
+
+export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+  let cs = text.chars(ctx);
+  if (cs.len() % 4 != 0 || cs.len() == 0) {
+    if (cs.len() == 0) {
+      .Ok(list.empty::<U8>())
+    } else {
+      .Err(DecodeError(cs.len()))
+    }
+  } else {
+    match (firstNonBase64(cs, 0, cs.len())) {
+      .Some(i) => .Err(DecodeError(i)),
+      .None => {
+        let groups = cs.len() / 4;
+        let pad = padding(cs);
+        let bytes = list.range(ctx, 0, groups).map(ctx, fn(g) => {
+          let i = g * 4;
+          let a = sextet(cs.get(i));
+          let b = sextet(cs.get(i + 1));
+          let c = sextet(cs.get(i + 2));
+          let d = sextet(cs.get(i + 3));
+          [
+            (a * 4 + b / 16).wrapToU8(),
+            (b % 16 * 16 + c / 4).wrapToU8(),
+            (c % 4 * 64 + d).wrapToU8(),
+          ]
+        }).flatten(ctx);
+        .Ok(bytes.take(ctx, bytes.len() - pad))
+      },
+    }
+  }
+}
+
+/// How many of the trailing bytes the padding says are not there.
+fn padding(cs: [Char]): Int {
+  let n = cs.len();
+  let last = cs.get(n - 1).withDefault('A');
+  let before = cs.get(n - 2).withDefault('A');
+  if (last == '=' && before == '=') {
+    2
+  } else if (last == '=') {
+    1
+  } else {
+    0
+  }
+}
+
+/// The alphabet position of a character, or 0 — the caller has already checked
+/// that every character is in the alphabet.
+fn sextet(c: Option<Char>): Int {
+  match (c) {
+    .None => 0,
+    .Some(ch) => if (ch == '=') { 0 } else { alphabetIndex(ch, 0) },
+  }
+}
+
+fn alphabetIndex(ch: Char, i: Int): Int {
+  match (B64.charAt(i)) {
+    .None => 0,
+    .Some(b) => if (b == ch) { i } else { alphabetIndex(ch, i + 1) },
+  }
+}
+
+/// Pure validation: every character is in the alphabet, and `=` appears only in
+/// the last one or two positions.
+fn firstNonBase64(cs: [Char], i: Int, n: Int): Option<Int> {
+  match (cs.get(i)) {
+    .None => .None,
+    .Some(c) => if (c == '=') {
+      if (i >= n - 2) { firstNonBase64(cs, i + 1, n) } else { .Some(i) }
+    } else if (inAlphabet(c, 0)) {
+      firstNonBase64(cs, i + 1, n)
+    } else {
+      .Some(i)
+    },
+  }
+}
+
+fn inAlphabet(ch: Char, i: Int): Bool {
+  match (B64.charAt(i)) {
+    .None => false,
+    .Some(b) => b == ch || inAlphabet(ch, i + 1),
+  }
+}

@@ -1,0 +1,21 @@
+# Deliberately outside the cargo workspace.
+#
+# `buri` itself has no dependencies at all — the toolchain is pinned by hash,
+# and a dependency tree is a second thing to pin. A Zed extension has no choice
+# about depending on `zed_extension_api`, so this crate is excluded from the
+# workspace in the root `Cargo.toml` rather than added to its members. If it
+# ever becomes a member, `cargo test -p buri` starts resolving crates.io and
+# the toolchain's central claim quietly stops being true.
+
+[package]
+name = "zed-buri"
+version = "0.3.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Pinned. Zed's extension API is versioned and moves; tested against Zed 0.18x.
+zed_extension_api = "=0.1.0"

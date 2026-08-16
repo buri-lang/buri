@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test block that declares no sources: empty-test-suite, at the block rather than at the rule"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# Dropping the block is the second of the two fixes. The first — listing
+# sources — is what `test_without_assertion` does instead.
+edit {
+  file: "lib/money/BUILD.buri"
+  replace: "\n  # Written, and backed by nothing. Every tool that walks the graph reads this\n  # as \"this library has tests\".\n  test {\n  }\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

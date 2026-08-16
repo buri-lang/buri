@@ -59,6 +59,41 @@ struct Fmt {
     comments: Vec<(u32, Vec<String>, Vec<String>, bool)>,
 }
 
+/// Which half of the run an import belongs to. The standard library comes
+/// first because it is the part every module can assume; the repository's own
+/// libraries are what distinguish this module from any other.
+fn import_group(path: &str) -> u8 {
+    if path.starts_with("//") {
+        1
+    } else {
+        0
+    }
+}
+
+/// Total order over the leading import run: group, then path, then the clause.
+///
+/// The clause breaks the tie between two imports of the same module — which is
+/// legal, and is how a module takes both a namespace and a name from one path.
+/// `*` sorts before `{`, so the namespace form leads.
+fn import_key(item: &&Item) -> (u8, String, String) {
+    let Item::Import(i) = item else { unreachable!("callers pass imports") };
+    let clause = match &i.clause {
+        ImportClause::Namespace(n) => format!("* as {}", n.name),
+        ImportClause::Named(specs) => {
+            let inner = specs
+                .iter()
+                .map(|s| match &s.alias {
+                    Some(a) => format!("{} as {}", s.name.name, a.name),
+                    None => s.name.name.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{{ {inner} }}")
+        }
+    };
+    (import_group(&i.path), i.path.clone(), clause)
+}
+
 impl Fmt {
     fn pad(&mut self) {
         for _ in 0..self.depth {
@@ -85,9 +120,67 @@ impl Fmt {
         if !m.docs.is_empty() {
             self.out.push('\n');
         }
-        for (i, item) in m.items.iter().enumerate() {
+        // The leading import run is sorted rather than preserved. Import order
+        // carries no meaning — a module's imports are a set — so leaving it to
+        // the author makes every diff that adds one a choice somebody has to
+        // make and somebody else has to review. Sorting here rather than
+        // reporting it as a lint is the same argument the rest of this file
+        // makes: a canonical layout is not a finding.
+        let run = m.items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
+        let mut head: Vec<&Item> = m.items[..run].iter().collect();
+        head.sort_by_key(|i| import_key(i));
+
+        let mut prev: Option<u8> = None;
+        for (i, item) in head.iter().enumerate() {
+            let Item::Import(imp) = item else { unreachable!("the run is imports") };
+            let group = import_group(&imp.path);
+            let first = i == 0 && m.docs.is_empty();
+            // One blank line between the standard library and the repository,
+            // and none inside either — so the shape of the run is a function of
+            // what it imports rather than of how it was typed.
+            if prev.is_some_and(|p| p != group) {
+                self.blank_line();
+            }
+            self.emit_import_trivia(item.span().start, first);
+            self.item(item);
+            prev = Some(group);
+        }
+
+        for (i, item) in m.items.iter().enumerate().skip(run) {
             self.emit_trivia(item.span().start, i == 0 && m.docs.is_empty());
             self.item(item);
+        }
+    }
+
+    /// An import's own comments, without the blank line `emit_trivia` would put
+    /// back — inside a sorted run the blanks belong to the grouping, not to
+    /// where the line used to sit.
+    fn emit_import_trivia(&mut self, at: u32, first: bool) {
+        let Some((_, comments, docs, _)) =
+            self.comments.iter().find(|(o, _, _, _)| *o == at).cloned()
+        else {
+            return;
+        };
+        if (!comments.is_empty() || !docs.is_empty()) && !first {
+            self.blank_line();
+        }
+        for c in &comments {
+            for l in c.lines() {
+                self.line(l.trim_end());
+            }
+        }
+        for d in &docs {
+            let d = d.clone();
+            self.line(&format!("/// {d}").trim_end().to_string());
+        }
+    }
+
+    /// One blank line, and never two. The grouping rule and a comment above an
+    /// import both want a blank before them, and when they coincide they want
+    /// the same one.
+    fn blank_line(&mut self) {
+        if !self.out.is_empty() && !self.out.ends_with("\n\n") {
+            self.out.push('\n');
         }
     }
 
@@ -823,4 +916,82 @@ fn write_operand(out: &mut String, e: &Expr, indent: usize) {
 /// anything meaningful.
 pub fn token_shape(text: &str) -> Vec<Tok> {
     lex(text, FileId(0)).tokens.into_iter().map(|t| t.tok).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The order is total, so the same set of imports formats the same way
+    /// whatever order it was typed in. That is the whole point: an import run
+    /// is a set, and a diff that adds one should not also move the others.
+    #[test]
+    fn the_leading_import_run_is_sorted() {
+        let out = source_unchecked(
+            "from \"//lib/z\" import { Zed };\n\
+             from \"core/str\" import * as str;\n\
+             from \"//lib/a\" import { Ay };\n\
+             from \"core/cap\" import { Alloc };\n\
+             from \"core/cap\" import * as cap;\n\
+             \n\
+             export fn f(): Int { 1 }\n",
+        );
+        assert_eq!(
+            out,
+            "from \"core/cap\" import * as cap;\n\
+             from \"core/cap\" import { Alloc };\n\
+             from \"core/str\" import * as str;\n\
+             \n\
+             from \"//lib/a\" import { Ay };\n\
+             from \"//lib/z\" import { Zed };\n\
+             \n\
+             export fn f(): Int { 1 }\n"
+        );
+    }
+
+    /// Sorting has to be idempotent or it is not a formatting rule.
+    #[test]
+    fn sorting_imports_is_a_fixed_point() {
+        let once = source_unchecked(
+            "from \"//lib/z\" import { Zed };\nfrom \"core/str\" import * as str;\n",
+        );
+        assert_eq!(source_unchecked(&once), once);
+    }
+
+    /// A comment belongs to the import it was written above, and travels with
+    /// it. The blank line between the groups is the grouping's, not the
+    /// comment's, so the two never stack up into two blank lines.
+    #[test]
+    fn a_comment_follows_its_import() {
+        let out = source_unchecked(
+            "// the repository\n\
+             from \"//lib/z\" import { Zed };\n\
+             // the standard library\n\
+             from \"core/str\" import * as str;\n",
+        );
+        assert_eq!(
+            out,
+            "// the standard library\n\
+             from \"core/str\" import * as str;\n\
+             \n\
+             // the repository\n\
+             from \"//lib/z\" import { Zed };\n"
+        );
+    }
+
+    /// Only the *leading* run is sorted. An import written after a declaration
+    /// is not part of the run, and moving it across that declaration could
+    /// change what the module means.
+    #[test]
+    fn only_the_leading_run_is_sorted() {
+        let out = source_unchecked(
+            "from \"//lib/z\" import { Zed };\n\
+             \n\
+             export fn f(): Int { 1 }\n\
+             \n\
+             from \"core/str\" import * as str;\n",
+        );
+        assert!(out.starts_with("from \"//lib/z\""), "the run of one stays put:\n{out}");
+        assert!(out.trim_end().ends_with("from \"core/str\" import * as str;"), "{out}");
+    }
 }

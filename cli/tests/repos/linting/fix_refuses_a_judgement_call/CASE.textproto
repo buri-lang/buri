@@ -1,0 +1,23 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "lint --fix refuses a dep-cycle and changes nothing: which edge to cut is a design decision, and a tool that picks one deletes the policy"
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 1
+  golden: "fix.txt"
+}
+
+# The build files are recorded after the refused fix, so a future `--fix` that
+# decides to be clever about cycles fails here rather than quietly rewriting
+# somebody's dependency graph.
+file {
+  path: "lib/a/BUILD.buri"
+  golden: "a.BUILD.buri"
+}
+
+file {
+  path: "lib/b/BUILD.buri"
+  golden: "b.BUILD.buri"
+}

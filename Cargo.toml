@@ -1,5 +1,12 @@
 [workspace]
 members = ["cli"]
+# `editors/zed` is a Zed extension, and a Zed extension must depend on
+# `zed_extension_api` and compile to WASM. `buri` itself has no dependencies at
+# all — the toolchain is pinned by hash, and a dependency tree is a second thing
+# to pin — so the extension is excluded rather than made a member. Adding it to
+# `members` would make `cargo test -p buri` resolve crates.io, and the
+# toolchain's central claim would quietly stop being true.
+exclude = ["editors/zed"]
 resolver = "2"
 
 [profile.release]

@@ -49,9 +49,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("method-not-a-value", "A method is not a value"),
     e!("missing-conformance", "Conformance is declared, never inferred"),
     e!("missing-field-pattern", "A struct pattern mentions every field"),
+    e!("module-doc-not-first", "`//!` documents the module, so it comes first"),
     e!("module-not-found", "A module path names exactly one file"),
     e!("no-such-export", "A module exports what it says it exports"),
     e!("no-such-method", "A method is looked up in its type's defining module"),
+    e!("no-such-module", "A module path names a module that exists"),
     e!("not-a-trait", "A bound names a trait or an effect"),
     e!("not-an-effect", "A context binds effects"),
     e!("or-pattern-bindings", "Or-pattern alternatives bind the same names"),
@@ -74,6 +76,8 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unnamed-namespace-import", "A namespace import must be named"),
     e!("unreachable-arm", "Every arm must be reachable"),
     e!("unresolved-name", "Every name resolves to a declaration"),
+    e!("unresolved-type", "Every type name resolves to a declaration"),
+    e!("unterminated-comment", "A block comment is closed"),
 ];
 
 pub fn find(code: &str) -> Option<&'static ErrorDoc> {

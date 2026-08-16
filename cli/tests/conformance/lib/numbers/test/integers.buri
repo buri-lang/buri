@@ -11,7 +11,7 @@
 // and inside the exact-integer range of a double, on purpose.
 
 from "core/testing/assert" import * as assert;
-from "core/num" import { Add, Bounded, Checked, Mul, Saturating, Wrapping };
+from "core/num" import { Add, Bounded, Wrapping };
 from "core/num" import * as num;
 from "core/order" import { Order };
 

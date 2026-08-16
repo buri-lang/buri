@@ -1,0 +1,7 @@
+library {
+  sources: []
+
+  test {
+    sources: ["test/json.buri", "test/bytes.buri"]
+  }
+}

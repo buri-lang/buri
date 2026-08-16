@@ -1,0 +1,189 @@
+//! core/bitset — a set of small non-negative integers, packed into words.
+//!
+//! Thirty-two bits to a word, held in an `[Int]`. Thirty-two rather than
+//! sixty-four on purpose: `Int` is `I64` and signed, and a bit set in position
+//! 63 would make the word negative, which turns every shift and every
+//! `popCount` into a question about sign extension. At 32 bits every word is a
+//! non-negative number smaller than 2^32 and none of that arises.
+//!
+//! **What this costs.** A `BitSet` is a value, like everything else, so `set`
+//! copies the word array — O(n/32), not O(1). That is what a persistent bit
+//! set costs, and it is worth saying plainly rather than implying the O(1) a
+//! mutable one would have. What it buys over `[Bool]` is a factor of 32 in
+//! space and whole-word `union`/`intersect`/`difference`.
+//!
+//! **Why the work is in free functions and the methods delegate.** A lambda
+//! may not capture `self` (SPEC 10.6), and every operation here is a `map` or
+//! a `filter` over the words. Binding the fields first and passing them to a
+//! plain function is what lets the lambda close over an `[Int]` rather than
+//! over a receiver.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/bitset" import * as bitset;
+//! from "core/str" import * as str;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let evens = bitset.of(ctx, 64, [2, 4, 6, 40]);
+//!   let small = bitset.of(ctx, 64, [2, 4]);
+//!   let rest = evens.difference(ctx, small).toList(ctx);
+//!   let shown = rest.mapCtx(ctx, fn(c, i) => str.fromInt(c, i)).join(ctx, " ");
+//!   let _ = ctx.println("${evens.count()} set, leaving ${shown}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 4 set, leaving 6 40
+//! ```
+
+from "core/bits" import * as bits;
+from "core/cap" import { Alloc };
+from "core/list" import * as list;
+
+/// The number of bits one word holds. Not exported: it is the layout, and a
+/// caller who depended on it would be depending on the wrong thing.
+const WORD: Int = 32;
+
+/// The words, low bits first, and how many bits the set was created to hold.
+///
+/// `capacity` is not derivable from `words.len()` — a set of 33 bits and a set
+/// of 64 both need two words — and membership beyond it is defined to be
+/// false, so it has to be carried.
+export struct BitSet {
+  words: [Int],
+  export capacity: Int,
+}
+
+/// How many words hold `capacity` bits.
+fn wordsFor(capacity: Int): Int {
+  if (capacity <= 0) { 0 } else { (capacity + WORD - 1) / WORD }
+}
+
+/// A set holding no bits, with room for `capacity` of them.
+export fn empty<C: Alloc>(ctx: C, capacity: Int): BitSet {
+  let n = if (capacity < 0) { 0 } else { capacity };
+  BitSet { words: list.repeat(ctx, 0, wordsFor(n)), capacity: n }
+}
+
+/// A set holding exactly the given indices. Anything out of range is dropped,
+/// the same as `set` does with one.
+export fn of<C: Alloc>(ctx: C, capacity: Int, indices: [Int]): BitSet {
+  indices.foldCtx(ctx, fn(c, acc, i) => acc.set(c, i), empty(ctx, capacity))
+}
+
+/// Membership, against the fields rather than the receiver — see the module
+/// comment on why the work lives out here.
+fn hasIn(words: [Int], capacity: Int, index: Int): Bool {
+  if (index < 0 || index >= capacity) {
+    false
+  } else {
+    bits.shr(words.get(index / WORD).withDefault(0), index % WORD) & 1 == 1
+  }
+}
+
+impl BitSet {
+  /// Whether bit `index` is set. Out of range is false rather than an error:
+  /// a set is a question about membership, and nothing outside it is a member.
+  export fn has(self: BitSet, index: Int): Bool {
+    hasIn(self.words, self.capacity, index)
+  }
+
+  export fn set<C: Alloc>(self: BitSet, ctx: C, index: Int): BitSet {
+    let words = self.words;
+    let capacity = self.capacity;
+    if (index < 0 || index >= capacity) {
+      self
+    } else {
+      let target = index / WORD;
+      let mask = bits.shl(1, index % WORD);
+      let next = list.range(ctx, 0, words.len()).map(ctx, fn(j) => {
+        let w = words.get(j).withDefault(0);
+        if (j == target) { w | mask } else { w }
+      });
+      BitSet { words: next, capacity: capacity }
+    }
+  }
+
+  export fn clear<C: Alloc>(self: BitSet, ctx: C, index: Int): BitSet {
+    let words = self.words;
+    let capacity = self.capacity;
+    if (index < 0 || index >= capacity) {
+      self
+    } else {
+      let target = index / WORD;
+      let mask = bits.shl(1, index % WORD);
+      let next = list.range(ctx, 0, words.len()).map(ctx, fn(j) => {
+        let w = words.get(j).withDefault(0);
+        if (j == target) { w & ~mask } else { w }
+      });
+      BitSet { words: next, capacity: capacity }
+    }
+  }
+
+  /// How many bits are set.
+  export fn count(self: BitSet): Int {
+    self.words.fold(fn(acc, w) => acc + bits.popCount(w), 0)
+  }
+
+  export fn isEmpty(self: BitSet): Bool {
+    self.count() == 0
+  }
+
+  /// The indices that are set, ascending. The one way to look at the whole
+  /// set, and what a rendering would be defined in terms of.
+  export fn toList<C: Alloc>(self: BitSet, ctx: C): [Int] {
+    let words = self.words;
+    let capacity = self.capacity;
+    list.range(ctx, 0, capacity).filterCtx(ctx, fn(_c, i) => hasIn(words, capacity, i))
+  }
+
+  export fn union<C: Alloc>(self: BitSet, ctx: C, other: BitSet): BitSet {
+    combine(ctx, self.words, self.capacity, other, fn(a, b) => a | b)
+  }
+
+  export fn intersect<C: Alloc>(self: BitSet, ctx: C, other: BitSet): BitSet {
+    combine(ctx, self.words, self.capacity, other, fn(a, b) => a & b)
+  }
+
+  /// The bits in `self` that are not in `other`.
+  export fn difference<C: Alloc>(self: BitSet, ctx: C, other: BitSet): BitSet {
+    combine(ctx, self.words, self.capacity, other, fn(a, b) => a ^ (a & b))
+  }
+
+  /// The bits in exactly one of the two.
+  export fn symmetricDifference<C: Alloc>(self: BitSet, ctx: C, other: BitSet): BitSet {
+    combine(ctx, self.words, self.capacity, other, fn(a, b) => a ^ b)
+  }
+
+  /// Whether every bit of `self` is also in `other`.
+  export fn isSubsetOf<C: Alloc>(self: BitSet, ctx: C, other: BitSet): Bool {
+    self.difference(ctx, other).isEmpty()
+  }
+
+  /// Same members, whatever capacity each was built with.
+  export fn equals<C: Alloc>(self: BitSet, ctx: C, other: BitSet): Bool {
+    self.toList(ctx) == other.toList(ctx)
+  }
+}
+
+/// Word-at-a-time, which is the whole reason to pack bits at all.
+///
+/// The result's capacity is the larger of the two, and a word only one of them
+/// has is combined with zero — so `union` grows and `intersect` does not,
+/// without either needing to say so.
+fn combine<C: Alloc>(
+  ctx: C,
+  words: [Int],
+  capacity: Int,
+  other: BitSet,
+  f: fn(Int, Int) => Int,
+): BitSet {
+  let theirs = other.words;
+  let size = if (capacity > other.capacity) { capacity } else { other.capacity };
+  let next = list.range(ctx, 0, wordsFor(size)).map(ctx, fn(j) =>
+    f(words.get(j).withDefault(0), theirs.get(j).withDefault(0)));
+  BitSet { words: next, capacity: size }
+}

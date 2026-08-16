@@ -727,3 +727,54 @@ test "lists of tuples compare structurally" {
   assert.eq([(1, "a"), (2, "b")], [(1, "a"), (2, "b")]);
   assert.notEq([(1, "a")], [(1, "b")]);
 }
+
+// --- foldResultCtx ---------------------------------------------------------------
+//
+// `foldResult`'s function takes no context and a lambda may not capture one, so
+// a fallible fold that allocates as it goes needs the `*Ctx` form. `core/bytes`
+// is what wanted it: decode, accumulating, and stop at the first bad input.
+
+test "foldResultCtx accumulates while every step succeeds" {
+  let ctx = Hermetic();
+  let out = [1, 2, 3].foldResultCtx(
+    ctx,
+    fn(c, acc: [Int], x) => .Ok(acc.push(c, x * 10)),
+    list.empty::<Int>(),
+  );
+  assert.eq(assert.ok(out), [10, 20, 30]);
+}
+
+test "foldResultCtx stops at the first failure" {
+  let ctx = Hermetic();
+  let out = [1, 0, 3].foldResultCtx(
+    ctx,
+    fn(c, acc: [Int], x) =>
+      if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) },
+    list.empty::<Int>(),
+  );
+  assert.eq(assert.err(out), "zero");
+}
+
+test "foldResultCtx over the empty list is the seed" {
+  let ctx = Hermetic();
+  let out = list.empty::<Int>().foldResultCtx(
+    ctx,
+    fn(c, acc: [Int], x) => .Ok(acc.push(c, x)),
+    [7],
+  );
+  assert.eq(assert.ok(out), [7]);
+}
+
+// The step after the failing one must not run, or an error would be a
+// suggestion rather than a stop.
+test "foldResultCtx does not run the step after a failure" {
+  let ctx = Hermetic();
+  let out = [1, 2, 3].foldResultCtx(
+    ctx,
+    fn(c, acc: [Int], x) =>
+      if (x >= 2) { .Err(acc.len()) } else { .Ok(acc.push(c, x)) },
+    list.empty::<Int>(),
+  );
+  // One element accumulated before the failure, and nothing after it.
+  assert.eq(assert.err(out), 1);
+}

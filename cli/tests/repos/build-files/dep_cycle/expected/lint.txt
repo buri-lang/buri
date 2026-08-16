@@ -6,9 +6,9 @@ error: //lib/a and //lib/b depend on each other [dep-cycle]
   |
   = fix: break the cycle: move what both need into a third target
 error: //lib/b and //lib/a depend on each other [dep-cycle]
- --> lib/b/BUILD.buri:6:18
+ --> lib/b/BUILD.buri:7:18
   |
-6 |   dependencies: ["//lib/a"]
+7 |   dependencies: ["//lib/a"]
   |                  ^^^^^^^^^
   |
   = fix: break the cycle: move what both need into a third target

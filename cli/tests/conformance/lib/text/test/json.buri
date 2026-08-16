@@ -1,0 +1,203 @@
+// core/json — parsing and rendering.
+//
+// The property most of these are about is the round trip: `parse` of
+// `stringify` of a value is that value, and `stringify` of `parse` of a
+// document is that document. Both directions, because each catches what the
+// other cannot.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+
+from "core/json" import { Json, JsonError };
+from "core/json" import * as json;
+
+fn parsed(text: Str): Json {
+  let ctx = Hermetic();
+  assert.ok(json.parse(ctx, text))
+}
+
+// --- scalars ------------------------------------------------------------------
+
+test "null parses" {
+  assert.eq(parsed("null"), Json.Null);
+  assert.isTrue(parsed("null").isNull());
+}
+
+test "booleans parse" {
+  assert.eq(parsed("true"), Json.Bool(true));
+  assert.eq(parsed("false"), Json.Bool(false));
+  assert.eq(assert.some(parsed("true").asBool()), true);
+}
+
+test "numbers parse" {
+  assert.eq(parsed("0"), Json.Num(0.0));
+  assert.eq(parsed("42"), Json.Num(42.0));
+  assert.eq(parsed("-7"), Json.Num(-7.0));
+  assert.eq(parsed("1.5"), Json.Num(1.5));
+  assert.eq(parsed("1e3"), Json.Num(1000.0));
+  assert.eq(parsed("1.5e-2"), Json.Num(0.015));
+  assert.eq(parsed("-2.5E+2"), Json.Num(-250.0));
+}
+
+test "strings parse" {
+  assert.eq(parsed("\"\""), Json.Str(""));
+  assert.eq(parsed("\"hello\""), Json.Str("hello"));
+  assert.eq(assert.some(parsed("\"hi\"").asStr()), "hi");
+}
+
+test "the escapes this module reads" {
+  assert.eq(parsed("\"a\\\"b\""), Json.Str("a\"b"));
+  assert.eq(parsed("\"a\\\\b\""), Json.Str("a\\b"));
+  assert.eq(parsed("\"a\\nb\""), Json.Str("a\nb"));
+  assert.eq(parsed("\"a\\tb\""), Json.Str("a\tb"));
+  assert.eq(parsed("\"a\\/b\""), Json.Str("a/b"));
+}
+
+// --- containers ---------------------------------------------------------------
+
+test "the empty array and the empty object" {
+  let ctx = Hermetic();
+  assert.eq(parsed("[]"), Json.Array([]));
+  assert.eq(json.stringify(ctx, parsed("[]")), "[]");
+  assert.eq(json.stringify(ctx, parsed("{}")), "{}");
+}
+
+test "arrays parse and index" {
+  let a = parsed("[1, 2, 3]");
+  assert.eq(assert.some(a.at(0)), Json.Num(1.0));
+  assert.eq(assert.some(a.at(2)), Json.Num(3.0));
+  assert.isTrue(a.at(3).isNone());
+  assert.eq(assert.some(a.asArray()).len(), 3);
+}
+
+test "objects parse and look up" {
+  let o = parsed("{\"a\": 1, \"b\": \"two\"}");
+  assert.eq(assert.some(o.get("a")), Json.Num(1.0));
+  assert.eq(assert.some(o.get("b")), Json.Str("two"));
+  assert.isTrue(o.get("c").isNone());
+}
+
+test "nesting works in both directions" {
+  let o = parsed("{\"xs\": [1, {\"y\": null}]}");
+  let xs = assert.some(o.get("xs"));
+  assert.eq(assert.some(xs.at(0)), Json.Num(1.0));
+  assert.isTrue(assert.some(assert.some(xs.at(1)).get("y")).isNull());
+}
+
+test "whitespace between every token is ignored" {
+  assert.eq(parsed(" \n\t{ \"a\" : [ 1 , 2 ] }\r\n"), parsed("{\"a\":[1,2]}"));
+}
+
+// --- rendering ----------------------------------------------------------------
+
+test "stringify is compact" {
+  let ctx = Hermetic();
+  assert.eq(json.stringify(ctx, parsed("{\"a\": [1, 2]}")), "{\"a\":[1,2]}");
+}
+
+test "stringify escapes what parse unescapes" {
+  let ctx = Hermetic();
+  assert.eq(json.stringify(ctx, Json.Str("a\"b\\c\nd")), "\"a\\\"b\\\\c\\nd\"");
+}
+
+test "quote is the string rendering on its own" {
+  let ctx = Hermetic();
+  assert.eq(json.quote(ctx, "hi"), "\"hi\"");
+}
+
+// The property the whole module is for: text in, text out, unchanged.
+test "a document round trips through parse and stringify" {
+  let ctx = Hermetic();
+  let doc = "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"],\"n\":3,\"ok\":true,\"none\":null}";
+  assert.eq(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
+}
+
+test "object key order survives the round trip" {
+  let ctx = Hermetic();
+  // A map would lose this. The association list is why it does not.
+  let doc = "{\"z\":1,\"a\":2,\"m\":3}";
+  assert.eq(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
+}
+
+test "a value round trips through stringify and parse" {
+  let ctx = Hermetic();
+  let v = Json.Object([("k", Json.Array([Json.Num(1.0), Json.Bool(false), Json.Null]))]);
+  assert.eq(assert.ok(json.parse(ctx, json.stringify(ctx, v))), v);
+}
+
+// --- what must be rejected ------------------------------------------------------
+
+fn failure(text: Str): JsonError {
+  let ctx = Hermetic();
+  assert.err(json.parse(ctx, text))
+}
+
+test "an empty document is unterminated" {
+  assert.eq(failure(""), JsonError.Unterminated);
+  assert.eq(failure("   "), JsonError.Unterminated);
+}
+
+test "a value followed by more text is trailing data" {
+  assert.eq(failure("1 2"), JsonError.Trailing(2));
+  assert.eq(failure("{} junk"), JsonError.Trailing(3));
+}
+
+test "an unclosed container is unterminated" {
+  assert.eq(failure("[1, 2"), JsonError.Unterminated);
+  assert.eq(failure("{\"a\": 1"), JsonError.Unterminated);
+  assert.eq(failure("\"unclosed"), JsonError.Unterminated);
+}
+
+test "a bare word is not a value" {
+  assert.eq(failure("nul"), JsonError.Unexpected(0));
+  assert.eq(failure("tru"), JsonError.Unexpected(0));
+  assert.eq(failure("undefined"), JsonError.Unexpected(0));
+}
+
+test "an object key must be a string" {
+  assert.eq(failure("{a: 1}"), JsonError.Unexpected(1));
+}
+
+test "a missing colon is unexpected" {
+  assert.eq(failure("{\"a\" 1}"), JsonError.Unexpected(5));
+}
+
+test "a missing comma is unexpected" {
+  assert.eq(failure("[1 2]"), JsonError.Unexpected(3));
+}
+
+// `\u` is the one escape this module does not read, and it says so rather than
+// producing the wrong text.
+test "an unsupported escape is reported rather than guessed at" {
+  assert.eq(failure("\"a\\u0041\""), JsonError.BadEscape(3));
+  assert.eq(failure("\"a\\qb\""), JsonError.BadEscape(3));
+}
+
+// Parsing recurses and the recursion is not in tail position, so the limit is
+// what stands between a deep document and a crash.
+test "nesting past the limit is an error rather than a crash" {
+  let ctx = Hermetic();
+  let deep = "[".repeat(ctx, 600).concat(ctx, "]".repeat(ctx, 600));
+  match (json.parse(ctx, deep)) {
+    .Err(.TooDeep(_)) => assert.isTrue(true),
+    _ => assert.fail("a 600-deep document should not parse"),
+  }
+}
+
+test "nesting inside the limit is fine" {
+  let ctx = Hermetic();
+  let ok = "[".repeat(ctx, 100).concat(ctx, "]".repeat(ctx, 100));
+  assert.isTrue(json.parse(ctx, ok).isOk());
+}
+
+// --- the accessors are total ----------------------------------------------------
+
+test "an accessor for the wrong shape is None rather than an error" {
+  let n = parsed("1");
+  assert.isTrue(n.asStr().isNone());
+  assert.isTrue(n.asBool().isNone());
+  assert.isTrue(n.asArray().isNone());
+  assert.isTrue(n.get("a").isNone());
+  assert.isTrue(n.at(0).isNone());
+  assert.eq(assert.some(n.asNum()), 1.0);
+}

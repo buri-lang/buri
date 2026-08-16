@@ -814,23 +814,37 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
 
     let mut failures = Vec::new();
     let mut blocks = 0usize;
+    let mut checked = 0usize;
     for file in &files {
-        let Ok(text) = std::fs::read_to_string(file) else { continue };
+        let Ok(raw) = std::fs::read_to_string(file) else { continue };
         let rel = file.strip_prefix(&root).unwrap_or(file).display().to_string();
-        blocks += crate::doctest::extract(&rel, &text)
+        // A source file is read through its documentation comments, which come
+        // back as a document with the source's own line numbers — so a failure
+        // points at the `.buri` line the example is written on.
+        let source = rel.ends_with(".buri");
+        if source && !crate::doctest::has_examples(&raw) {
+            continue;
+        }
+        let text = if source { crate::doctest::doc_comments(&raw) } else { raw };
+        let found = crate::doctest::extract(&rel, &text)
             .blocks
             .iter()
             .filter(|b| b.mode != crate::doctest::Mode::Ignore)
             .count();
+        if source && found == 0 {
+            continue;
+        }
+        checked += 1;
+        blocks += found;
         failures.extend(crate::doctest::run_file_in_repo(&root, &rel, &text));
     }
+    let files_checked = checked;
 
     if failures.is_empty() {
         let (dim, reset) = if ctx.color { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
         cli::out(&format!(
-            "{blocks} example(s) in {} document(s) compile{dim} — and the ones that print \
-             something were run{reset}\n",
-            files.len()
+            "{blocks} example(s) in {files_checked} document(s) compile{dim} — and the ones \
+             that print something were run{reset}\n"
         ));
         return 0;
     }
@@ -852,7 +866,14 @@ fn markdown_under(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<s
         }
         if p.is_dir() {
             markdown_under(root, &p, out);
-        } else if p.extension().is_some_and(|x| x == "md") {
+        } else if p.extension().is_some_and(|x| x == "md" || x == "buri") {
+            // `.buri` too: a documentation comment is documentation, and an
+            // example in one has the same claim on being true as an example in
+            // a prose page. `BUILD.buri` and `REPO.buri` wear the extension but
+            // are textproto, and have no doc comments to find.
+            if p.file_name().is_some_and(|n| n == "BUILD.buri" || n == "REPO.buri") {
+                continue;
+            }
             out.push(p);
         }
     }

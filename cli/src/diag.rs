@@ -134,6 +134,20 @@ pub struct Diagnostic {
     pub subs: Vec<SubSpan>,
     /// Lint name, for `buri lint` output.
     pub code: Option<String>,
+    /// The `fix` as bytes, when it has exactly one mechanical form. Empty for
+    /// almost every diagnostic: `fix` is prose a reader acts on, and a rule
+    /// whose answer needs a judgement call must not pretend otherwise.
+    pub edits: Vec<Edit>,
+}
+
+/// A replacement of one byte range. Ranges within a file never overlap; the
+/// applier refuses rather than guessing when they do.
+#[derive(Clone, Debug)]
+pub struct Edit {
+    pub file: FileId,
+    pub start: u32,
+    pub end: u32,
+    pub replacement: String,
 }
 
 impl Diagnostic {
@@ -149,6 +163,7 @@ impl Diagnostic {
             fix: None,
             subs: Vec::new(),
             code: None,
+            edits: Vec::new(),
         }
     }
 
@@ -178,6 +193,13 @@ impl Diagnostic {
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Diagnostic {
         self.fix = Some(fix.into());
+        self
+    }
+
+    /// Attaches the byte form of the fix. Only for a rule whose answer is
+    /// mechanical — `--fix` applies these without asking.
+    pub fn with_edit(mut self, file: FileId, start: u32, end: u32, replacement: &str) -> Diagnostic {
+        self.edits.push(Edit { file, start, end, replacement: replacement.to_string() });
         self
     }
 

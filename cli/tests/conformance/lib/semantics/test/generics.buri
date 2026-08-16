@@ -5,13 +5,7 @@ from "core/testing/context" import { Hermetic };
 from "core/list" import * as list;
 from "core/num" import * as num;
 
-from "//lib/semantics" import {
-  identity, constant, swap, triple, twice, largest, smallest, between,
-  showAll, sortedShow,
-  Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt,
-  Tree, insert, treeOf, size, depth, has, inOrder, mapTree,
-  Version, version, Level, Meters, Count, Backwards, Brick, Feather, totalGrams,
-};
+from "//lib/semantics" import { identity, constant, swap, triple, twice, largest, smallest, between, showAll, sortedShow, Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt, Tree, insert, treeOf, size, depth, has, inOrder, mapTree, version, Level, Meters, Count, Backwards, Brick, Feather, totalGrams };
 
 // -----------------------------------------------------------------------------
 // One type parameter

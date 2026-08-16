@@ -7,6 +7,7 @@ from "core/list" import * as list;
 from "core/order" import { Order };
 
 from "//lib/semantics" import {
+  Rose, roseSum,
   Version, version, Level, Shape, area,
   Meters, Count, Delta,
   Backwards, Suit, rank, declIndex, Loose, Percent,
@@ -367,4 +368,30 @@ test "area matches on all three payload shapes" {
   assert.eq(Shape.Rect { width: 2.0, height: 3.0 }.area(), 6.0);
   assert.eq(Shape.Empty.area(), 0.0);
   assert.isTrue(Shape.Circle(1.0).area() > 3.14);
+}
+
+// --- a derived trait on a type that recurses through a container --------------------
+//
+// Deciding whether a derived implementation holds is a walk over the type's
+// components, and for a recursive type that walk reaches the type again. The
+// direct case (`Tree`) was guarded; reaching itself through `[Rose]` was not,
+// and comparing two `Rose` values hung the compiler until it ran out of stack.
+
+test "a type that recurses through a list can be compared" {
+  assert.eq(Rose.Leaf(1), Rose.Leaf(1));
+  assert.notEq(Rose.Leaf(1), Rose.Leaf(2));
+  assert.eq(Rose.Branch([Rose.Leaf(1)]), Rose.Branch([Rose.Leaf(1)]));
+  assert.notEq(Rose.Branch([Rose.Leaf(1)]), Rose.Branch([Rose.Leaf(2)]));
+  assert.notEq(Rose.Branch([]), Rose.Leaf(0));
+}
+
+test "a type that recurses through a list can be rendered" {
+  let ctx = Hermetic();
+  assert.isTrue(Rose.Branch([Rose.Leaf(1)]).show(ctx).contains("Leaf"));
+}
+
+test "nesting through the container is followed to the bottom" {
+  let deep = Rose.Branch([Rose.Branch([Rose.Leaf(2), Rose.Leaf(3)]), Rose.Leaf(4)]);
+  assert.eq(roseSum(deep), 9);
+  assert.eq(deep, Rose.Branch([Rose.Branch([Rose.Leaf(2), Rose.Leaf(3)]), Rose.Leaf(4)]));
 }

@@ -26,6 +26,11 @@ a test asserts that each one really can be.
 
 Every fenced example in every page is compiled by the test suite against the
 real standard library; the ones that print something are executed and their
-output compared. `SPEC.md` and `README.md` are generated from these same
-topics, and a test fails if the checked-in files drift from what the topics
-produce.
+output compared. **That includes examples written in `///` and `//!` comments
+in `.buri` sources**, not only the ones in prose pages — a documentation
+comment is documentation, and an example in one has the same claim on being
+true. `buri docs test` reads a source file through its comments, and a failure
+names the `.buri` line the example is written on.
+
+`SPEC.md` and `README.md` are generated from these same topics, and a test
+fails if the checked-in files drift from what the topics produce.

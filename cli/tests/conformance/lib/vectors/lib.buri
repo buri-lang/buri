@@ -1,0 +1,2 @@
+// The vector conformance package: core/simd, whose whole surface is pure, so
+// every case is a value in and a value out.

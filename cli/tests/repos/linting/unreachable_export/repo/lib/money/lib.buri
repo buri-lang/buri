@@ -1,0 +1,4 @@
+// The surface. `toNearestDollar` is on it and `Cents` is imported by a
+// sibling, so neither is a finding — `toDollars` is deliberately neither.
+from "//lib/money/cents" export { Cents, fromCents };
+from "//lib/money/round" export { toNearestDollar };

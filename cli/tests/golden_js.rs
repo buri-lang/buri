@@ -172,3 +172,70 @@ fn generated_javascript_matches_its_record() {
     g.check(&dir.join("sizes.txt"), "golden_js/sizes.txt", &sizes);
     g.finish("golden-js", cases.len());
 }
+
+/// Two generics instantiated over different contexts get different symbols.
+///
+/// This is the invariant that decides how `mono::name_of` may name things, and
+/// it was worth a test the moment it nearly went the other way. The symbol's
+/// hash is taken over the `Debug` form of the type arguments, which carries
+/// type-table indices — so it moves if the compiler changes what it loads,
+/// which is untidy. Hashing a *rendering* instead is the obvious repair and is
+/// wrong: `types::show` prints every context type as `a context`, because a
+/// context type is generated and has no name. The two instantiations below
+/// would collide, one body would silently replace the other, and the program
+/// would call the wrong implementation.
+///
+/// The two contexts here bind the same effect to different implementations —
+/// exactly the case a name-based hash cannot tell apart.
+#[test]
+fn generics_over_different_contexts_do_not_share_a_symbol() {
+    let program = "\
+from \"core/cap\" import { Alloc, Stdout };
+from \"core/host\" import * as host;
+
+struct Loud(Str);
+impl Stdout for Loud {
+  fn print(self: Loud, text: Template): () { }
+  fn println(self: Loud, text: Template): () { }
+}
+
+// Recursive, so the optimiser cannot inline it away — an inlined function
+// leaves no symbol to compare.
+fn shout<C: Stdout>(ctx: C, what: Str, n: Int): Int {
+  if (n <= 0) {
+    0
+  } else {
+    let _ = ctx.println(\"${what}\");
+    shout(ctx, what, n - 1)
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let real = context { Alloc: host.alloc, Stdout: host.stdout };
+  let mine = context { Alloc: host.alloc, Stdout: Loud(\"x\") };
+  let _ = shout(real, \"a\", 2);
+  let _ = shout(mine, \"b\", 2);
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("symbol-context-identity");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let generated =
+        program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
+
+    let mut symbols: Vec<String> = generated
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .filter(|p| p.contains("$shout$"))
+        .map(String::from)
+        .collect();
+    symbols.sort();
+    symbols.dedup();
+
+    assert_eq!(
+        symbols.len(),
+        2,
+        "expected one symbol per context, found {}: {symbols:?}\n\n{generated}",
+        symbols.len()
+    );
+}

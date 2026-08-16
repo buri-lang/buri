@@ -22,6 +22,7 @@ const DOCUMENTS: &[&str] = &[
     "SPEC.md",
     "TODO.md",
     "ECOSYSTEM-FEATURES.md",
+    "STANDARD-LIBRARY.md",
     "cli/src/docs/build/overview.md",
     "cli/src/docs/build/build-files.md",
     "cli/src/docs/build/libraries.md",
@@ -535,4 +536,90 @@ fn a_repository_can_test_its_own_documentation() {
         err.contains("prints something else"),
         "expected the transcript mismatch to be named:\n{err}"
     );
+}
+
+/// Every diagnostic code the compiler can emit is documented somewhere.
+///
+/// `doc_errors.rs` has said this test exists since it was written; it did not.
+/// The loop it closes is the one that matters — `every_error_page_is_provoked_by_its_own_example`
+/// checks that each page describes a real error, and this checks the other
+/// direction: that no error goes undescribed.
+///
+/// Two catalogues, because there are two kinds of diagnostic. A compile error
+/// can be provoked by one program, so it earns a page with that program on it.
+/// A build-graph finding cannot — `dep-cycle` needs two packages — so those
+/// live in the CLI reference's tables, next to the command that reports them.
+#[test]
+fn every_emitted_code_is_documented() {
+    let root = repo_root();
+    let mut sources = Vec::new();
+    rust_sources(&root.join("cli/src"), &mut sources);
+    assert!(sources.len() > 20, "only {} Rust sources found", sources.len());
+
+    let catalogue = read("cli/src/docs/build/cli.md");
+    let mut undocumented: Vec<String> = Vec::new();
+    let mut found = 0;
+
+    for path in &sources {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        for code in codes_in(&text) {
+            found += 1;
+            let has_page = buri::doc_errors::find(&code).is_some();
+            let in_catalogue = catalogue.contains(&format!("`{code}`"));
+            if !has_page && !in_catalogue {
+                undocumented.push(format!(
+                    "{}: `{code}` is emitted and appears in neither catalogue",
+                    path.strip_prefix(&root).unwrap_or(path).display()
+                ));
+            }
+        }
+    }
+    undocumented.sort();
+    undocumented.dedup();
+
+    assert!(
+        undocumented.is_empty(),
+        "{} code(s) are emitted and documented nowhere:\n  {}\n\nAdd a page under \
+         cli/src/docs/errors/ (and register it in doc_errors.rs) for a diagnostic one \
+         program can provoke, or a row in the cli/src/docs/build/cli.md tables for one \
+         about the build graph.",
+        undocumented.len(),
+        undocumented.join("\n  ")
+    );
+    // A scan that finds nothing passes vacuously.
+    assert!(found > 50, "only {found} code sites found; the scan is not working");
+}
+
+fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by_key(|e| e.path());
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            rust_sources(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            out.push(p);
+        }
+    }
+}
+
+/// The codes a Rust source attaches, read from `with_code` and `.code`.
+/// Textual on purpose: the alternative is a registry every call site has to
+/// remember to use, which is the thing that drifts.
+fn codes_in(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for marker in ["with_code(\"", ".code(\""] {
+        let mut rest = text;
+        while let Some(i) = rest.find(marker) {
+            rest = &rest[i + marker.len()..];
+            if let Some(end) = rest.find('"') {
+                let code = &rest[..end];
+                if !code.is_empty() && code.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+                    out.push(code.to_string());
+                }
+            }
+        }
+    }
+    out
 }

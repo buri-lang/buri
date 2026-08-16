@@ -25,7 +25,7 @@
 //!
 //! ```text
 //! doc:  "one line saying what the case is about"
-//! run  { args: [...]  exit: 1  golden: "lint.txt"  stream: ALL }
+//! run  { args: [...]  exit: 1  golden: "lint.txt"  stream: ALL  stdin: "session.jsonl" }
 //! edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 //! ```
@@ -61,6 +61,10 @@ pub enum Step {
         exit: i32,
         golden: Option<String>,
         stream: Stream,
+        /// A file in the case directory holding one JSON-RPC request per line.
+        /// The harness adds the `Content-Length` framing, so the fixture stays
+        /// something a person can read and diff.
+        stdin: Option<String>,
     },
     Edit {
         file: String,
@@ -111,6 +115,7 @@ pub fn load_case(dir: &Path) -> Case {
                     args: str_list(&name, "run.args", &m),
                     exit: req_int(&name, "run", "exit", &m),
                     golden: opt_str(&name, "run.golden", &m),
+                    stdin: opt_str(&name, "run.stdin", &m),
                     stream: match opt_ident(&name, "run.stream", &m).as_deref() {
                         None | Some("ALL") => Stream::All,
                         Some("OUT") => Stream::Out,
@@ -218,9 +223,29 @@ pub fn run_case(case: &Case, g: &mut Golden) {
     let scratch = Scratch::copy_of(&case.name, &case.dir.join("repo"));
     for (i, step) in case.steps.iter().enumerate() {
         match step {
-            Step::Run { args, exit, golden, stream } => {
+            Step::Run { args, exit, golden, stream, stdin } => {
                 let argv: Vec<&str> = args.iter().map(String::as_str).collect();
-                let run = scratch.run(&argv);
+                let mut run = match stdin {
+                    None => scratch.run(&argv),
+                    Some(file) => {
+                        let path = case.dir.join(file);
+                        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                            panic!("{}: cannot read {}: {e}", case.name, path.display())
+                        });
+                        // `<scratch>` in a request becomes the real path, and
+                        // `normalised` turns it back for the golden — so a
+                        // fixture can name a URI without knowing where the
+                        // scratch tree landed.
+                        let text = text.replace("<scratch>", &scratch.root.display().to_string());
+                        let mut run = scratch.run_with_stdin(&argv, &frame_requests(&text));
+                        // The protocol's framing is a byte count, which changes
+                        // whenever a message does. Recording the decoded bodies
+                        // instead keeps the golden about what was said.
+                        run.stdout = unframe_responses(&run.stdout);
+                        run
+                    }
+                };
+                let _ = &mut run;
                 if run.code != *exit {
                     g.fail(format!(
                         "{}: step {} `buri {}` exited {} rather than {exit}\n  {}\n  printed:\n{}",
@@ -283,4 +308,57 @@ pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
         run_case(&load_case(dir), &mut g);
     }
     g.finish(what, cases.len());
+}
+
+// ---------------------------------------------------------------------------
+// Language-server framing
+// ---------------------------------------------------------------------------
+
+/// One JSON request per line -> the `Content-Length` framing the protocol uses.
+///
+/// The fixture stays one message per line because that is what a person can
+/// read and a diff can show; the framing is arithmetic, and arithmetic checked
+/// into a fixture is arithmetic that goes stale the first time a message is
+/// edited.
+fn frame_requests(text: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        out.extend_from_slice(format!("Content-Length: {}\r\n\r\n", line.len()).as_bytes());
+        out.extend_from_slice(line.as_bytes());
+    }
+    out
+}
+
+/// The reverse, for the golden: each response body on its own line.
+fn unframe_responses(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out = String::new();
+    let mut i = 0;
+    while let Some(rel) = text[i..].find("\r\n\r\n") {
+        let header = &text[i..i + rel];
+        let Some(len) = header
+            .rsplit("Content-Length:")
+            .next()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+        else {
+            break;
+        };
+        let start = i + rel + 4;
+        let end = (start + len).min(b.len());
+        out.push_str(&text[start..end]);
+        out.push('\n');
+        i = end;
+    }
+    // Anything that was not framed is the server misbehaving, and hiding it
+    // would hide exactly the bug this records.
+    if i < text.len() && !text[i..].trim().is_empty() {
+        out.push_str("<<unframed output>> ");
+        out.push_str(text[i..].trim());
+        out.push('\n');
+    }
+    out
 }

@@ -1,0 +1,18 @@
+// Two findings with one mechanical answer each: `Stdout` is imported and never
+// used, and //lib/money is used and never declared.
+
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/money" import { fromCents };
+
+export fn main(): Result<(), Str> {
+  // This comment, and the single-line `context` below it, are the test that
+  // `--fix` edits rather than reformats. It writes the bytes the findings name
+  // and checks the result still parses; running the whole file through the
+  // formatter would answer that too, and would also rewrite everything the fix
+  // did not touch.
+  let ctx = context { Alloc: host.alloc };
+  let _ = fromCents(150);
+  .Ok(())
+}

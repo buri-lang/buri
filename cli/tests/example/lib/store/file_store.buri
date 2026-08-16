@@ -1,7 +1,6 @@
 from "core/cap" import { Alloc, Fs };
 from "core/fs" import * as fs;
 from "core/fs" import { IoError };
-from "core/str" import * as str;
 
 from "//lib/ledger" import { Entry };
 from "//lib/store/codec" import { encode };

@@ -577,6 +577,24 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn satisfies(&self, ty: &Ty, tr: TraitId) -> bool {
+        self.satisfies_seen(ty, tr, &mut Vec::new())
+    }
+
+    /// `seen` is the type constructors whose components are already being
+    /// checked further up this walk.
+    ///
+    /// A derived implementation is a fold over the type's components, so
+    /// deciding whether one satisfies a trait means asking the same question
+    /// of its fields — and a recursive type asks it of itself. Reaching a
+    /// constructor that is already on the stack means the answer depends on
+    /// itself, and the honest answer to that is yes: the recursion is what
+    /// makes it satisfiable, not what makes it fail.
+    ///
+    /// This was a `head() == Some(con)` test on the immediate component, which
+    /// caught `Cons(L)` and missed `Cons([L])` — an array's head is not a
+    /// constructor — so a type that recursed through *any* container hung the
+    /// compiler until it ran out of stack.
+    fn satisfies_seen(&self, ty: &Ty, tr: TraitId, seen: &mut Vec<TyConId>) -> bool {
         match ty {
             Ty::Param(i) => self
                 .generics
@@ -587,9 +605,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             Ty::SelfTy => true,
             // `[T]`, tuples and function types satisfy the structural traits
             // when their components do (SPEC 5.11).
-            Ty::Array(e) => self.structural_trait(tr) && self.satisfies(e, tr),
+            Ty::Array(e) => self.structural_trait(tr) && self.satisfies_seen(e, tr, seen),
             Ty::Tuple(es) => {
-                self.structural_trait(tr) && es.iter().all(|e| self.satisfies(e, tr))
+                self.structural_trait(tr)
+                    && es.iter().all(|e| self.satisfies_seen(e, tr, seen))
             }
             Ty::Unit => self.structural_trait(tr),
             Ty::Con(id, args) => {
@@ -598,7 +617,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // trait too.
                     let derived = self.c.tables.impls[&(tr, *id)].derived;
                     if derived {
-                        return self.derived_components_satisfy(*id, args, tr);
+                        if seen.contains(id) {
+                            return true;
+                        }
+                        seen.push(*id);
+                        let ok = self.derived_components_satisfy(*id, args, tr, seen);
+                        seen.pop();
+                        return ok;
                     }
                     return true;
                 }
@@ -638,7 +663,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         matches!(self.c.tables.trait_(tr).name.as_str(), "Eq" | "Ord" | "Show" | "Hash")
     }
 
-    fn derived_components_satisfy(&self, con: TyConId, args: &[Ty], tr: TraitId) -> bool {
+    fn derived_components_satisfy(
+        &self,
+        con: TyConId,
+        args: &[Ty],
+        tr: TraitId,
+        seen: &mut Vec<TyConId>,
+    ) -> bool {
         let tycon = self.c.tables.tycon(con);
         let field_types: Vec<Ty> = match &tycon.def {
             TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
@@ -648,14 +679,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
+        // `con` is already on `seen`, so a component that reaches back to it —
+        // directly, or through an array, a tuple, or another type that holds
+        // one — stops there rather than asking the question again.
         field_types.iter().all(|t| {
             let t = substitute(t, args, None);
-            // A recursive type would loop; a type is allowed to satisfy a
-            // trait through itself.
-            if t.head() == Some(con) {
-                return true;
-            }
-            self.satisfies(&t, tr)
+            self.satisfies_seen(&t, tr, seen)
         })
     }
 

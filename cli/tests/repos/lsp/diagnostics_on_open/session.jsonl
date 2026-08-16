@@ -1,0 +1,7 @@
+# One JSON-RPC request per line. The harness adds the Content-Length framing,
+# and turns `<scratch>` into wherever the copy of repo/ landed.
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file://<scratch>"}}
+{"jsonrpc":"2.0","method":"initialized","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/lib/money/cents.buri","languageId":"buri","version":1,"text":"export struct Cents(export I64);\n\nderive Eq, Show for Cents;\n\nexport fn fromCents(c: I64): Cents { Cents(c) }\n\n// The type error the server must report on `didOpen`.\nexport fn double(c: Cents): Cents { \"not a Cents\" }\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

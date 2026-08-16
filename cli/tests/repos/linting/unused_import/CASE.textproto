@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an imported name that appears nowhere else in the module: unused-import, and the bound that must not be mistaken for one"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# Dropping the import is the whole fix. `Alloc` stays, and its import stays
+# clean — a name used only as a bound is used.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

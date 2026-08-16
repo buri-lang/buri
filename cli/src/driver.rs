@@ -41,6 +41,28 @@ pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
     Analysis { loaded, checked, diags }
 }
 
+/// Loads and checks one standard library module the way a *program* would
+/// reach it: on top of the built-in types and whatever it imports for itself,
+/// and nothing else.
+///
+/// `analyze_stdlib` loads every module together, so it cannot notice one that
+/// only checks because something else happened to be present. Since the
+/// standard library loads lazily, that is exactly the mistake worth catching:
+/// a module is first seen in a compilation holding the eager set and its own
+/// imports.
+pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
+    let mut diags = Diagnostics::new();
+    let loaded = {
+        let mut loader = Loader::new(None, map, &mut diags);
+        loader.load_builtin_modules();
+        loader.load_std_module(path);
+        loader.finish()
+    };
+    let checked = Checker::new(&loaded, None, &mut diags).run();
+    diags.sort(map);
+    Analysis { loaded, checked, diags }
+}
+
 /// Loads and checks one module given as text, on top of the whole standard
 /// library and with no repository.
 ///

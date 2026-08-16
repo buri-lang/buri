@@ -1,0 +1,31 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test from which nothing reachable calls assert: test-without-assertion, and the test asserting through a helper that must not fire"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# The negative half of the rule, made to move: give the quiet test an
+# assertion and the corpus is clean. If the rule were syntactic rather than
+# transitive, `roundTrips` would still be reported here.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "  let c = fromCents(150);\n"
+  with: "  assert.eq(fromCents(150), Cents(150))\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

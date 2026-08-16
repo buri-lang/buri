@@ -17,10 +17,18 @@ pub fn source(path: &str) -> Option<&'static str> {
         "core/order" => include_str!("std/order.buri"),
         "core/num" => include_str!("std/num.buri"),
         "core/list" => include_str!("std/list.buri"),
+        "core/queue" => include_str!("std/queue.buri"),
+        "core/bitset" => include_str!("std/bitset.buri"),
+        "core/json" => include_str!("std/json.buri"),
+        "core/map" => include_str!("std/map.buri"),
+        "core/set" => include_str!("std/set.buri"),
         "core/str" => include_str!("std/str.buri"),
+        "core/bytes" => include_str!("std/bytes.buri"),
+        "core/crypto" => include_str!("std/crypto.buri"),
         "core/char" => include_str!("std/char.buri"),
         "core/bool" => include_str!("std/bool.buri"),
         "core/math" => include_str!("std/math.buri"),
+        "core/simd" => include_str!("std/simd.buri"),
         "core/bits" => include_str!("std/bits.buri"),
         "core/cap" => include_str!("std/cap.buri"),
         "core/host" => include_str!("std/host.buri"),
@@ -28,6 +36,7 @@ pub fn source(path: &str) -> Option<&'static str> {
         "core/fs" => include_str!("std/fs.buri"),
         "core/env" => include_str!("std/env.buri"),
         "core/time" => include_str!("std/time.buri"),
+        "core/date" => include_str!("std/date.buri"),
         "core/random" => include_str!("std/random.buri"),
         "core/net/http" => include_str!("std/http.buri"),
         "core/testing/assert" => include_str!("std/assert.buri"),
@@ -44,10 +53,18 @@ pub const MODULES: &[&str] = &[
     "core/order",
     "core/num",
     "core/list",
+    "core/queue",
+    "core/bitset",
+    "core/json",
+    "core/map",
+    "core/set",
     "core/str",
+    "core/bytes",
+    "core/crypto",
     "core/char",
     "core/bool",
     "core/math",
+    "core/simd",
     "core/bits",
     "core/cap",
     "core/host",
@@ -55,6 +72,7 @@ pub const MODULES: &[&str] = &[
     "core/fs",
     "core/env",
     "core/time",
+    "core/date",
     "core/random",
     "core/net/http",
     "core/testing/assert",
@@ -67,6 +85,32 @@ pub const MODULES: &[&str] = &[
 pub fn is_platform_module(path: &str) -> bool {
     matches!(path, "core/cap" | "core/host" | "core/testing/assert" | "core/testing/context")
 }
+
+/// The standard library modules every compilation loads whether or not
+/// anything imports them.
+///
+/// Not an optimisation boundary — a correctness one. A method needs no import
+/// (SPEC 6.7.3): `xs.map(...)` resolves in `[T]`'s defining module, which is
+/// `core/list`, and `s.trim()` in `core/str`. Those modules have to be present
+/// for a program that never names them, so they load eagerly. Everything else
+/// declares methods only on its *own* types, which cannot exist in a program
+/// that did not import the module that declares them — so it loads on import,
+/// and a repository does not pay to parse `core/crypto` to compile a program
+/// that has never heard of it.
+///
+/// Adding a module here is safe. *Removing* one is not, unless nothing in it
+/// declares a method on a built-in type — which `check.rs` enforces rather
+/// than leaving to review.
+pub const EAGER_MODULES: &[&str] = &[
+    "core/option",
+    "core/result",
+    "core/order",
+    "core/num",
+    "core/list",
+    "core/str",
+    "core/char",
+    "core/bool",
+];
 
 /// The modules whose names are in scope in every module without an import.
 /// `Option`, `Result` and `Order` are the prelude of SPEC 5.7; the operator

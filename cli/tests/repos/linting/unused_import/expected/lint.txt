@@ -1,0 +1,8 @@
+error: `str` is imported and never used [unused-import]
+ --> lib/money/cents.buri:9:29
+  |
+9 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = an import that names something the module does not use makes the dependency graph describe something other than the code
+  = fix: remove `str` from the import

@@ -1,0 +1,350 @@
+//! core/date — the calendar.
+//!
+//! `core/time` is the clock: reading it is an effect, because the answer
+//! depends on when you ask. This module is the arithmetic, and none of it is:
+//! what day of the week 2026-08-15 falls on does not depend on anything, so
+//! every function here is pure except the ones that build a string.
+//!
+//! **There is no timezone database, and there will not be one.** tzdata is
+//! megabytes that change several times a year, and this toolchain has no
+//! dependencies and ships no data files. What is here instead is `Zoned`: a
+//! civil date-time and a fixed offset in minutes. That covers UTC, a stored
+//! offset, and arithmetic within one offset. It does not cover
+//! "America/New_York", and it does not pretend to — a library that answered
+//! that question from a stale table would be worse than one that says no.
+//!
+//! The conversion between a date and a day number is Howard Hinnant's
+//! `days_from_civil`, which is exact for the proleptic Gregorian calendar over
+//! the whole range of `Int` and uses nothing but integer arithmetic.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/date" import * as date;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   // `date` is the only way to build one, so no `Date` is ever a day the
+//!   // calendar does not have — and the check is at construction, once.
+//!   let leapDay = date.date(2024, 2, 29).withDefault(date.fromDays(0));
+//!   let day = date.weekday(leapDay).show(ctx);
+//!   // Adding a year to the 29th clamps to the 28th: the other answer would be
+//!   // the 1st of March, which is a different day.
+//!   let next = date.formatDate(ctx, leapDay.addYears(1));
+//!   let _ = ctx.println("${date.formatDate(ctx, leapDay)} is ${day}, +1y is ${next}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 2024-02-29 is .Thursday, +1y is 2025-02-28
+//! ```
+
+from "core/cap" import { Alloc };
+from "core/str" import * as str;
+from "core/time" import { Instant };
+
+/// A civil date. Any year, including negative ones: the calendar is proleptic
+/// Gregorian, so it extends backwards past its own adoption.
+export struct Date {
+  export year: Int,
+  /// 1 to 12.
+  export month: Int,
+  /// 1 to 31, and no more than the month holds.
+  export day: Int,
+}
+
+derive Eq, Ord, Show, Hash for Date;
+
+/// A time of day, to the millisecond.
+export struct Time {
+  export hour: Int,
+  export minute: Int,
+  export second: Int,
+  export milli: Int,
+}
+
+derive Eq, Ord, Show, Hash for Time;
+
+export struct DateTime {
+  export date: Date,
+  export time: Time,
+}
+
+derive Eq, Ord, Show, Hash for DateTime;
+
+/// A civil date-time and the fixed offset it is expressed in.
+export struct Zoned {
+  export at: DateTime,
+  /// Minutes east of UTC. `-300` is UTC-05:00.
+  export offsetMinutes: Int,
+}
+
+derive Eq, Show for Zoned;
+
+export enum Weekday {
+  export Monday,
+  export Tuesday,
+  export Wednesday,
+  export Thursday,
+  export Friday,
+  export Saturday,
+  export Sunday,
+}
+
+derive Eq, Show, Hash for Weekday;
+
+/// A length of time, in milliseconds. Distinct from `Instant`, which is a
+/// point: subtracting two points gives a length, and adding a length to a
+/// point gives a point. Mixing them up is the bug this type exists to prevent.
+export struct Duration(export I64);
+
+derive Eq, Ord, Show, Hash for Duration;
+
+export const MILLIS_PER_SECOND: Int = 1000;
+export const MILLIS_PER_MINUTE: Int = 60000;
+export const MILLIS_PER_HOUR: Int = 3600000;
+export const MILLIS_PER_DAY: Int = 86400000;
+
+// -----------------------------------------------------------------------------
+// The calendar
+// -----------------------------------------------------------------------------
+
+export fn isLeapYear(year: Int): Bool {
+  (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+/// How many days the month has. Out of range gives zero rather than an error:
+/// the caller is asking about a month that does not exist.
+export fn daysInMonth(year: Int, month: Int): Int {
+  if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
+    31
+  } else if (month == 4 || month == 6 || month == 9 || month == 11) {
+    30
+  } else if (month == 2) {
+    if (isLeapYear(year)) { 29 } else { 28 }
+  } else {
+    0
+  }
+}
+
+/// A date, if the parts name one. This is the only way to build a `Date`, so
+/// no `Date` value is ever a day the calendar does not have.
+export fn date(year: Int, month: Int, day: Int): Option<Date> {
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+    .None
+  } else {
+    .Some(Date { year: year, month: month, day: day })
+  }
+}
+
+export fn time(hour: Int, minute: Int, second: Int, milli: Int): Option<Time> {
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59
+      || milli < 0 || milli > 999) {
+    .None
+  } else {
+    .Some(Time { hour: hour, minute: minute, second: second, milli: milli })
+  }
+}
+
+/// Midnight, which every date has.
+export fn midnight(d: Date): DateTime {
+  DateTime { date: d, time: Time { hour: 0, minute: 0, second: 0, milli: 0 } }
+}
+
+// --- days since the epoch -------------------------------------------------------
+//
+// Hinnant's algorithm: shift the year so that March is the first month, which
+// puts the leap day at the end where it does not disturb the arithmetic, then
+// count era by era. Exact, and integer-only.
+
+/// Days from 1970-01-01 to this date. Negative before it.
+export fn toDays(d: Date): Int {
+  let y = if (d.month <= 2) { d.year - 1 } else { d.year };
+  let era = if (y >= 0) { y } else { y - 399 } / 400;
+  let yoe = y - era * 400;
+  let mp = (d.month + 9) % 12;
+  let doy = (153 * mp + 2) / 5 + d.day - 1;
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  era * 146097 + doe - 719468
+}
+
+/// The inverse.
+export fn fromDays(days: Int): Date {
+  let z = days + 719468;
+  let era = if (z >= 0) { z } else { z - 146096 } / 146097;
+  let doe = z - era * 146097;
+  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  let y = yoe + era * 400;
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  let mp = (5 * doy + 2) / 153;
+  let day = doy - (153 * mp + 2) / 5 + 1;
+  let month = if (mp < 10) { mp + 3 } else { mp - 9 };
+  Date { year: if (month <= 2) { y + 1 } else { y }, month: month, day: day }
+}
+
+/// 1970-01-01 was a Thursday, which is what anchors this.
+export fn weekday(d: Date): Weekday {
+  let n = ((toDays(d) + 3) % 7 + 7) % 7;
+  if (n == 0) {
+    .Monday
+  } else if (n == 1) {
+    .Tuesday
+  } else if (n == 2) {
+    .Wednesday
+  } else if (n == 3) {
+    .Thursday
+  } else if (n == 4) {
+    .Friday
+  } else if (n == 5) {
+    .Saturday
+  } else {
+    .Sunday
+  }
+}
+
+/// 1 on the first of January.
+export fn dayOfYear(d: Date): Int {
+  toDays(d) - toDays(Date { year: d.year, month: 1, day: 1 }) + 1
+}
+
+impl Date {
+  export fn addDays(self: Date, n: Int): Date {
+    fromDays(toDays(self) + n)
+  }
+
+  /// How many days from `self` to `other`, negative if `other` is earlier.
+  export fn daysUntil(self: Date, other: Date): Int {
+    toDays(other) - toDays(self)
+  }
+
+  /// Adds months, clamping the day to what the resulting month holds — so
+  /// January 31st plus one month is the 28th or the 29th, not the 3rd of
+  /// March. Clamping is a choice, and the other one is worse.
+  export fn addMonths(self: Date, n: Int): Date {
+    let total = self.year * 12 + (self.month - 1) + n;
+    let year = if (total >= 0) { total / 12 } else { (total - 11) / 12 };
+    let month = total - year * 12 + 1;
+    let last = daysInMonth(year, month);
+    Date { year: year, month: month, day: if (self.day > last) { last } else { self.day } }
+  }
+
+  export fn addYears(self: Date, n: Int): Date {
+    self.addMonths(n * 12)
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Instants
+// -----------------------------------------------------------------------------
+
+/// The UTC date-time an instant names.
+export fn fromInstant(i: Instant): DateTime {
+  let millis = i.0;
+  // Floor division, so an instant before the epoch lands on the right day
+  // rather than one too late.
+  let days = if (millis >= 0) { millis / MILLIS_PER_DAY } else { (millis - (MILLIS_PER_DAY - 1)) / MILLIS_PER_DAY };
+  let rest = millis - days * MILLIS_PER_DAY;
+  DateTime {
+    date: fromDays(days),
+    time: Time {
+      hour: rest / MILLIS_PER_HOUR,
+      minute: rest % MILLIS_PER_HOUR / MILLIS_PER_MINUTE,
+      second: rest % MILLIS_PER_MINUTE / MILLIS_PER_SECOND,
+      milli: rest % MILLIS_PER_SECOND,
+    },
+  }
+}
+
+/// The inverse, reading the date-time as UTC.
+export fn toInstant(dt: DateTime): Instant {
+  Instant(
+    toDays(dt.date) * MILLIS_PER_DAY
+      + dt.time.hour * MILLIS_PER_HOUR
+      + dt.time.minute * MILLIS_PER_MINUTE
+      + dt.time.second * MILLIS_PER_SECOND
+      + dt.time.milli,
+  )
+}
+
+impl Duration {
+  export fn millis(self: Duration): Int {
+    self.0
+  }
+
+  export fn seconds(self: Duration): Int {
+    self.0 / MILLIS_PER_SECOND
+  }
+
+  export fn minutes(self: Duration): Int {
+    self.0 / MILLIS_PER_MINUTE
+  }
+
+  export fn hours(self: Duration): Int {
+    self.0 / MILLIS_PER_HOUR
+  }
+
+  export fn days(self: Duration): Int {
+    self.0 / MILLIS_PER_DAY
+  }
+}
+
+/// The length of time between two instants.
+export fn between(a: Instant, b: Instant): Duration {
+  Duration(b.0 - a.0)
+}
+
+/// A point, moved by a length.
+export fn plus(i: Instant, d: Duration): Instant {
+  Instant(i.0 + d.0)
+}
+
+// -----------------------------------------------------------------------------
+// ISO 8601
+// -----------------------------------------------------------------------------
+
+/// `2026-08-15`. Allocating, because it builds a string.
+export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
+  let y = pad(ctx, d.year, 4);
+  let m = pad(ctx, d.month, 2);
+  let day = pad(ctx, d.day, 2);
+  str.format(ctx, "${y}-${m}-${day}")
+}
+
+/// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds, so the
+/// output has one shape and a reader never has to ask which.
+export fn formatDateTime<C: Alloc>(ctx: C, dt: DateTime): Str {
+  let d = formatDate(ctx, dt.date);
+  let h = pad(ctx, dt.time.hour, 2);
+  let mi = pad(ctx, dt.time.minute, 2);
+  let s = pad(ctx, dt.time.second, 2);
+  let ms = pad(ctx, dt.time.milli, 3);
+  str.format(ctx, "${d}T${h}:${mi}:${s}.${ms}Z")
+}
+
+fn pad<C: Alloc>(ctx: C, n: Int, width: Int): Str {
+  let negative = n < 0;
+  let digits = str.fromInt(ctx, if (negative) { -n } else { n }).padStart(ctx, width, '0');
+  if (negative) {
+    str.format(ctx, "-${digits}")
+  } else {
+    digits
+  }
+}
+
+/// Reads `YYYY-MM-DD`. Strict: exactly that shape, and a date the calendar
+/// has. Anything else is `None` rather than a guess.
+export fn parseDate<C: Alloc>(ctx: C, text: Str): Option<Date> {
+  let parts = text.split(ctx, "-");
+  if (parts.len() != 3) {
+    .None
+  } else {
+    let y = parts.get(0).andThen(fn(p) => p.toInt());
+    let m = parts.get(1).andThen(fn(p) => p.toInt());
+    let d = parts.get(2).andThen(fn(p) => p.toInt());
+    match ((y, m, d)) {
+      (.Some(yy), .Some(mm), .Some(dd)) => date(yy, mm, dd),
+      _ => .None,
+    }
+  }
+}

@@ -1,0 +1,15 @@
+error: `Stdout` is imported and never used [unused-import]
+ --> cmd/app/main.buri:4:33
+  |
+4 | from "core/cap" import { Alloc, Stdout };
+  |                                 ^^^^^^
+  |
+  = an import that names something the module does not use makes the dependency graph describe something other than the code
+  = fix: remove `Stdout` from the import
+error: cmd/app/main.buri imports //lib/money, which is not in dependencies [missing-dep]
+ --> cmd/app/main.buri:7:6
+  |
+7 | from "//lib/money" import { fromCents };
+  |      ^^^^^^^^^^^^^
+  |
+  = fix: add "//lib/money" to dependencies in cmd/app/BUILD.buri — `buri gen //cmd/app` does this automatically

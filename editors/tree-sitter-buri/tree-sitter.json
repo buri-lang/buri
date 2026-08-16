@@ -1,0 +1,20 @@
+{
+  "grammars": [
+    {
+      "name": "buri",
+      "camelcase": "Buri",
+      "scope": "source.buri",
+      "path": ".",
+      "file-types": [
+        "buri"
+      ],
+      "highlights": "../zed/languages/buri/highlights.scm",
+      "injection-regex": "^buri$"
+    }
+  ],
+  "metadata": {
+    "version": "0.3.0",
+    "license": "MIT",
+    "description": "Buri grammar for tree-sitter"
+  }
+}

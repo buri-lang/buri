@@ -1,0 +1,458 @@
+//! core/json — JSON, as a value.
+//!
+//! `Json` is a tree, and `parse` and `stringify` turn text into one and back.
+//! There is no `derive`-driven mapping to your own types here: Buri has no
+//! reflection and no macros, and `derive` takes a fixed list (SPEC 6.7.5), so
+//! anything of that shape has to be a language feature rather than a library.
+//! What this module is, is the value layer that such a feature would be built
+//! on, and the layer you write by hand today.
+//!
+//! **An object is an ordered association list, not a map.** Three reasons, in
+//! order of weight: it round-trips — parse then stringify gives the key order
+//! back, which a hash map cannot promise; it needs no `Hash` bound, so a `Json`
+//! is comparable and renderable with nothing but `derive`; and JSON objects are
+//! small in practice. The cost is that `get` is O(n), which is stated here
+//! rather than discovered.
+//!
+//! **Every number is a `Float`.** That is what JSON says a number is. A
+//! document holding an integer larger than 2^53 does not survive the round
+//! trip, and neither does one in any other JSON implementation backed by a
+//! double.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/json" import { Json };
+//! from "core/json" import * as json;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let doc = match (json.parse(ctx, "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"]}")) {
+//!     .Ok(v) => v,
+//!     .Err(_e) => Json.Null,
+//!   };
+//!   let name = doc.get("name").andThen(fn(v) => v.asStr()).withDefault("?");
+//!   // Key order is preserved, which is why an object is an association list
+//!   // here rather than a map.
+//!   let _ = ctx.println("${name}: ${json.stringify(ctx, doc)}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! buri: {"name":"buri","tags":["a","b"]}
+//! ```
+
+from "core/cap" import { Alloc };
+from "core/char" import * as char;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+/// A JSON value.
+export enum Json {
+  export Null,
+  export Bool(Bool),
+  export Num(Float),
+  export Str(Str),
+  export Array([Json]),
+  /// Key and value, in the order they were written.
+  export Object([(Str, Json)]),
+}
+
+derive Eq, Show for Json;
+
+/// What went wrong, and where. The position is an index into the characters of
+/// the input, so it is the same number whatever the encoding of the source.
+export enum JsonError {
+  /// A character that cannot begin, continue, or end what was being read.
+  export Unexpected(Int),
+  /// The input ran out mid-value.
+  export Unterminated,
+  /// A complete value, and then more text.
+  export Trailing(Int),
+  /// A number the grammar admits but the runtime cannot represent.
+  export BadNumber(Int),
+  /// A `\` followed by something that is not an escape.
+  export BadEscape(Int),
+  /// Nesting past `MAX_DEPTH`. Parsing is recursive and recursion here is not
+  /// in tail position, so without this a deep enough document is a crash
+  /// rather than an error.
+  export TooDeep(Int),
+}
+
+derive Eq, Show for JsonError;
+
+/// How deeply arrays and objects may nest.
+///
+/// A limit is not a nicety: `value` calls itself for each element, and those
+/// calls are not tail calls, so nothing eliminates the frames. 512 is far past
+/// any document a person writes and far short of any stack.
+export const MAX_DEPTH: Int = 512;
+
+// -----------------------------------------------------------------------------
+// Reading
+// -----------------------------------------------------------------------------
+
+/// Parses one complete document.
+///
+/// Trailing text is an error rather than a stopping point: a caller who asked
+/// for one value and got one value and a half should hear about it.
+export fn parse<C: Alloc>(ctx: C, text: Str): Result<Json, JsonError> {
+  let cs = text.chars(ctx);
+  let start = skipSpace(cs, 0);
+  let (v, next) = value(ctx, cs, start, 0)?;
+  let end = skipSpace(cs, next);
+  if (end < cs.len()) {
+    .Err(.Trailing(end))
+  } else {
+    .Ok(v)
+  }
+}
+
+/// Whitespace, of which JSON admits exactly four characters.
+fn skipSpace(cs: [Char], i: Int): Int {
+  match (cs.get(i)) {
+    .Some(c) => if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      skipSpace(cs, i + 1)
+    } else {
+      i
+    },
+    .None => i,
+  }
+}
+
+/// One value, and the index just past it.
+fn value<C: Alloc>(ctx: C, cs: [Char], i: Int, depth: Int): Result<(Json, Int), JsonError> {
+  if (depth > MAX_DEPTH) {
+    .Err(.TooDeep(i))
+  } else {
+    match (cs.get(i)) {
+      .None => .Err(.Unterminated),
+      .Some(c) => if (c == 'n') {
+        keyword(cs, i, "null", Json.Null)
+      } else if (c == 't') {
+        keyword(cs, i, "true", Json.Bool(true))
+      } else if (c == 'f') {
+        keyword(cs, i, "false", Json.Bool(false))
+      } else if (c == '"') {
+        match (string(ctx, cs, i)) {
+          .Ok((s, next)) => .Ok((Json.Str(s), next)),
+          .Err(e) => .Err(e),
+        }
+      } else if (c == '[') {
+        array(ctx, cs, skipSpace(cs, i + 1), depth, list.empty::<Json>())
+      } else if (c == '{') {
+        object(ctx, cs, skipSpace(cs, i + 1), depth, list.empty::<(Str, Json)>())
+      } else if (c == '-' || c.isDigit()) {
+        number(ctx, cs, i)
+      } else {
+        .Err(.Unexpected(i))
+      },
+    }
+  }
+}
+
+/// `null`, `true`, `false` — each is its own spelling and nothing else.
+fn keyword(cs: [Char], i: Int, word: Str, v: Json): Result<(Json, Int), JsonError> {
+  let n = word.len();
+  if (matches(cs, i, word, 0, n)) {
+    .Ok((v, i + n))
+  } else {
+    .Err(.Unexpected(i))
+  }
+}
+
+fn matches(cs: [Char], i: Int, word: Str, k: Int, n: Int): Bool {
+  if (k >= n) {
+    true
+  } else {
+    match ((cs.get(i + k), word.charAt(k))) {
+      (.Some(a), .Some(b)) => if (a == b) { matches(cs, i, word, k + 1, n) } else { false },
+      _ => false,
+    }
+  }
+}
+
+// --- Arrays and objects -------------------------------------------------------
+//
+// Both are written as an accumulator plus a recursive step rather than a loop,
+// because there are no loops (SPEC 15.1). The recursion is in tail position,
+// so it costs no stack — unlike the call into `value`, which is why `depth`
+// exists.
+
+fn array<C: Alloc>(
+  ctx: C,
+  cs: [Char],
+  i: Int,
+  depth: Int,
+  acc: [Json],
+): Result<(Json, Int), JsonError> {
+  match (cs.get(i)) {
+    .None => .Err(.Unterminated),
+    .Some(c) => if (c == ']' && acc.len() == 0) {
+      .Ok((Json.Array(acc), i + 1))
+    } else {
+      let (v, after) = value(ctx, cs, i, depth + 1)?;
+      let next = skipSpace(cs, after);
+      let items = acc.push(ctx, v);
+      match (cs.get(next)) {
+        .Some(',') => array(ctx, cs, skipSpace(cs, next + 1), depth, items),
+        .Some(']') => .Ok((Json.Array(items), next + 1)),
+        .Some(_) => .Err(.Unexpected(next)),
+        .None => .Err(.Unterminated),
+      }
+    },
+  }
+}
+
+fn object<C: Alloc>(
+  ctx: C,
+  cs: [Char],
+  i: Int,
+  depth: Int,
+  acc: [(Str, Json)],
+): Result<(Json, Int), JsonError> {
+  match (cs.get(i)) {
+    .None => .Err(.Unterminated),
+    .Some(c) => if (c == '}' && acc.len() == 0) {
+      .Ok((Json.Object(acc), i + 1))
+    } else if (c != '"') {
+      // A key is a string. JSON does not admit a bare word, and accepting one
+      // would mean writing a document this module could read and nothing else
+      // could.
+      .Err(.Unexpected(i))
+    } else {
+      let (k, afterKey) = string(ctx, cs, i)?;
+      let colon = skipSpace(cs, afterKey);
+      match (cs.get(colon)) {
+        .Some(':') => {
+          let (v, after) = value(ctx, cs, skipSpace(cs, colon + 1), depth + 1)?;
+          let next = skipSpace(cs, after);
+          let entries = acc.push(ctx, (k, v));
+          match (cs.get(next)) {
+            .Some(',') => object(ctx, cs, skipSpace(cs, next + 1), depth, entries),
+            .Some('}') => .Ok((Json.Object(entries), next + 1)),
+            .Some(_) => .Err(.Unexpected(next)),
+            .None => .Err(.Unterminated),
+          }
+        },
+        .Some(_) => .Err(.Unexpected(colon)),
+        .None => .Err(.Unterminated),
+      }
+    },
+  }
+}
+
+// --- Strings ------------------------------------------------------------------
+
+/// A quoted string, and the index just past its closing quote.
+fn string<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Str, Int), JsonError> {
+  stringBody(ctx, cs, i + 1, list.empty::<Char>())
+}
+
+fn stringBody<C: Alloc>(
+  ctx: C,
+  cs: [Char],
+  i: Int,
+  acc: [Char],
+): Result<(Str, Int), JsonError> {
+  match (cs.get(i)) {
+    .None => .Err(.Unterminated),
+    .Some('"') => .Ok((str.fromChars(ctx, acc), i + 1)),
+    .Some('\\') => match (cs.get(i + 1)) {
+      .None => .Err(.Unterminated),
+      .Some(e) => match (unescape(e)) {
+        .Some(c) => stringBody(ctx, cs, i + 2, acc.push(ctx, c)),
+        // `\u` is the one escape that is not a single character rewrite, and
+        // the one this module does not read. A document using it parses as an
+        // error rather than as the wrong text.
+        .None => .Err(.BadEscape(i + 1)),
+      },
+    },
+    .Some(c) => stringBody(ctx, cs, i + 1, acc.push(ctx, c)),
+  }
+}
+
+fn unescape(e: Char): Option<Char> {
+  if (e == '"') {
+    .Some('"')
+  } else if (e == '\\') {
+    .Some('\\')
+  } else if (e == '/') {
+    .Some('/')
+  } else if (e == 'n') {
+    .Some('\n')
+  } else if (e == 'r') {
+    .Some('\r')
+  } else if (e == 't') {
+    .Some('\t')
+  } else {
+    .None
+  }
+}
+
+// --- Numbers ------------------------------------------------------------------
+
+fn number<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonError> {
+  let end = numberEnd(cs, i, i);
+  let text = str.fromChars(ctx, cs.slice(ctx, i, end));
+  match (text.toFloat()) {
+    .Some(x) => .Ok((Json.Num(x), end)),
+    .None => .Err(.BadNumber(i)),
+  }
+}
+
+/// The extent of a number token. Deliberately generous — it takes every
+/// character a number could contain and lets `toFloat` be the judge, so there
+/// is one definition of what a number is rather than two that can disagree.
+fn numberEnd(cs: [Char], start: Int, i: Int): Int {
+  match (cs.get(i)) {
+    .None => i,
+    .Some(c) => if (
+      c.isDigit()
+        || c == '.'
+        || c == 'e'
+        || c == 'E'
+        || ((c == '-' || c == '+') && (i == start || isExponent(cs, i - 1)))
+    ) {
+      numberEnd(cs, start, i + 1)
+    } else {
+      i
+    },
+  }
+}
+
+fn isExponent(cs: [Char], i: Int): Bool {
+  match (cs.get(i)) {
+    .Some(c) => c == 'e' || c == 'E',
+    .None => false,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Writing
+// -----------------------------------------------------------------------------
+
+/// The compact rendering: no spaces, no newlines, keys in the order they are
+/// held. `parse` of this is the value it came from.
+export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
+  match (v) {
+    .Null => "null",
+    .Bool(b) => if (b) { "true" } else { "false" },
+    .Num(x) => numberText(ctx, x),
+    .Str(s) => quote(ctx, s),
+    .Array(items) => {
+      let parts = items.mapCtx(ctx, fn(c, item) => stringify(c, item));
+      str.format(ctx, "[${parts.join(ctx, ",")}]")
+    },
+    .Object(entries) => {
+      let parts = entries.mapCtx(ctx, fn(c, e) => {
+        let (k, item) = e;
+        str.format(c, "${quote(c, k)}:${stringify(c, item)}")
+      });
+      str.format(ctx, "{${parts.join(ctx, ",")}}")
+    },
+  }
+}
+
+/// A number, the way JSON writes one.
+///
+/// `str.fromFloat` renders a whole number as `3.0`, because in Buri that is
+/// what distinguishes a `Float` from an `Int`. JSON has one number type and
+/// writes it `3`, so the trailing `.0` comes off — a string test rather than a
+/// conversion to `Int`, which would be fallible and would misrender everything
+/// past 2^53 rather than leaving it alone.
+fn numberText<C: Alloc>(ctx: C, x: Float): Str {
+  let s = str.fromFloat(ctx, x);
+  if (s.endsWith(".0")) {
+    s.slice(0, s.len() - 2)
+  } else {
+    s
+  }
+}
+
+/// A quoted, escaped string literal.
+export fn quote<C: Alloc>(ctx: C, s: Str): Str {
+  let inner = s.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
+  str.format(ctx, "\"${inner}\"")
+}
+
+fn escape<C: Alloc>(ctx: C, c: Char): Str {
+  if (c == '"') {
+    "\\\""
+  } else if (c == '\\') {
+    "\\\\"
+  } else if (c == '\n') {
+    "\\n"
+  } else if (c == '\r') {
+    "\\r"
+  } else if (c == '\t') {
+    "\\t"
+  } else {
+    str.fromChars(ctx, [c])
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Looking inside one
+// -----------------------------------------------------------------------------
+
+impl Json {
+  /// The value at `key`, if this is an object that has one. O(n) in the number
+  /// of entries — see the module comment.
+  export fn get(self: Json, key: Str): Option<Json> {
+    match (self) {
+      .Object(entries) => entries.find(fn(e) => {
+        let (k, _v) = e;
+        k == key
+      }).map(fn(e) => {
+        let (_k, v) = e;
+        v
+      }),
+      _ => .None,
+    }
+  }
+
+  /// The element at `index`, if this is an array that has one.
+  export fn at(self: Json, index: Int): Option<Json> {
+    match (self) {
+      .Array(items) => items.get(index),
+      _ => .None,
+    }
+  }
+
+  export fn asBool(self: Json): Option<Bool> {
+    match (self) {
+      .Bool(b) => .Some(b),
+      _ => .None,
+    }
+  }
+
+  export fn asNum(self: Json): Option<Float> {
+    match (self) {
+      .Num(x) => .Some(x),
+      _ => .None,
+    }
+  }
+
+  export fn asStr(self: Json): Option<Str> {
+    match (self) {
+      .Str(s) => .Some(s),
+      _ => .None,
+    }
+  }
+
+  export fn asArray(self: Json): Option<[Json]> {
+    match (self) {
+      .Array(items) => .Some(items),
+      _ => .None,
+    }
+  }
+
+  export fn isNull(self: Json): Bool {
+    match (self) {
+      .Null => true,
+      _ => false,
+    }
+  }
+}

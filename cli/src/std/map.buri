@@ -1,0 +1,211 @@
+//! core/map — a hash map.
+//!
+//! A list of buckets, each an association list, indexed by the key's `Hash`.
+//! Lookup is O(1) expected; insert copies the bucket spine, which is O(b) in
+//! the number of buckets rather than O(n) in the number of entries. That
+//! copying is what a value type costs, and it is the honest number rather than
+//! the O(1) a mutable table would have.
+//!
+//! **Why buckets and not a trie.** A hash array mapped trie has the better
+//! insert, and it is the right answer for a map that is written to as often as
+//! it is read. This is the simpler structure, its cost is easy to state, and
+//! it is a real hash map: `K: Hash + Eq`, expected-constant lookup, and
+//! growth when the load factor says so.
+//!
+//! **Iteration order is unspecified and will change.** It follows the bucket
+//! layout, which follows the hashes, which follow the values. Anything that
+//! needs a stable order should sort `entries` — or use an association list,
+//! which is what `core/json` does for exactly this reason.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/map" import * as map;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let counts = map.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 9);
+//!   // Inserting an existing key replaces its value and leaves the size alone.
+//!   let a = counts.get("a").withDefault(0);
+//!   let _ = ctx.println("a=${a}, ${counts.len()} entries");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! a=9, 2 entries
+//! ```
+
+from "core/bits" import * as bits;
+from "core/cap" import { Alloc };
+from "core/list" import * as list;
+
+/// The buckets, and how many entries are spread across them.
+///
+/// `size` is carried rather than recomputed: `len` is asked far more often
+/// than the map is built, and summing the buckets would make it O(b).
+export struct Map<K, V> {
+  buckets: [[(K, V)]],
+  export size: Int,
+}
+
+/// How many buckets a new map has. Small, because most maps are.
+const INITIAL: Int = 8;
+
+/// Entries per bucket, averaged, before the map grows. Above this the
+/// association lists stop being short and lookup stops being constant.
+const LOAD: Int = 4;
+
+/// A bucket index for a hash.
+///
+/// The top bit is shifted out first: `wrapToI64` on a `U64` above `I64`'s
+/// maximum produces a negative number, and a negative index is not a bucket.
+fn bucketOf(h: U64, count: Int): Int {
+  if (count <= 0) {
+    0
+  } else {
+    bits.shrU64(h, 1).wrapToI64() % count
+  }
+}
+
+/// The empty map.
+///
+/// Pure, and with no buckets at all: the first `insert` allocates them. That
+/// is not an optimisation, it is what makes the function callable — a context
+/// type is generated and has no name (SPEC 11.3), so `empty::<Str, Int, C>()`
+/// could not be written, and a turbofish is all-or-nothing.
+export fn empty<K, V>(): Map<K, V> {
+  Map { buckets: list.empty::<[(K, V)]>(), size: 0 }
+}
+
+impl<K: Hash + Eq, V> Map<K, V> {
+  export fn len(self: Map<K, V>): Int {
+    self.size
+  }
+
+  export fn isEmpty(self: Map<K, V>): Bool {
+    self.size == 0
+  }
+
+  /// The value stored under `key`, if there is one.
+  export fn get(self: Map<K, V>, key: K): Option<V> {
+    let buckets = self.buckets;
+    let b = buckets.get(bucketOf(key.hash(), buckets.len())).withDefault(list.empty::<(K, V)>());
+    b.find(fn(e) => {
+      let (k, _v) = e;
+      k == key
+    }).map(fn(e) => {
+      let (_k, v) = e;
+      v
+    })
+  }
+
+  export fn has(self: Map<K, V>, key: K): Bool {
+    self.get(key).isSome()
+  }
+
+  /// Stores `value` under `key`, replacing whatever was there.
+  export fn insert<C: Alloc>(self: Map<K, V>, ctx: C, key: K, value: V): Map<K, V> {
+    let grown = if (self.size + 1 > self.buckets.len() * LOAD) {
+      self.grow(ctx)
+    } else {
+      self
+    };
+    let buckets = grown.buckets;
+    let target = bucketOf(key.hash(), buckets.len());
+    let existing = buckets.get(target).withDefault(list.empty::<(K, V)>());
+    let replaced = existing.any(fn(e) => {
+      let (k, _v) = e;
+      k == key
+    });
+    let kept = existing.filterCtx(ctx, fn(_c, e) => {
+      let (k, _v) = e;
+      k != key
+    });
+    let bucket = kept.push(ctx, (key, value));
+    let next = list.range(ctx, 0, buckets.len()).map(ctx, fn(j) =>
+      if (j == target) { bucket } else { buckets.get(j).withDefault(list.empty::<(K, V)>()) });
+    Map { buckets: next, size: if (replaced) { grown.size } else { grown.size + 1 } }
+  }
+
+  /// Removes `key`, if it is there. Removing what is absent is not an error:
+  /// the question a map answers is about membership, and the answer after this
+  /// call is the same either way.
+  export fn remove<C: Alloc>(self: Map<K, V>, ctx: C, key: K): Map<K, V> {
+    let buckets = self.buckets;
+    let target = bucketOf(key.hash(), buckets.len());
+    let existing = buckets.get(target).withDefault(list.empty::<(K, V)>());
+    let kept = existing.filterCtx(ctx, fn(_c, e) => {
+      let (k, _v) = e;
+      k != key
+    });
+    if (kept.len() == existing.len()) {
+      self
+    } else {
+      let next = list.range(ctx, 0, buckets.len()).map(ctx, fn(j) =>
+        if (j == target) { kept } else { buckets.get(j).withDefault(list.empty::<(K, V)>()) });
+      Map { buckets: next, size: self.size - 1 }
+    }
+  }
+
+  /// Every entry, in no particular order — see the module comment.
+  export fn entries<C: Alloc>(self: Map<K, V>, ctx: C): [(K, V)] {
+    self.buckets.flatten(ctx)
+  }
+
+  export fn keys<C: Alloc>(self: Map<K, V>, ctx: C): [K] {
+    self.entries(ctx).map(ctx, fn(e) => {
+      let (k, _v) = e;
+      k
+    })
+  }
+
+  export fn values<C: Alloc>(self: Map<K, V>, ctx: C): [V] {
+    self.entries(ctx).map(ctx, fn(e) => {
+      let (_k, v) = e;
+      v
+    })
+  }
+
+  /// Twice the buckets, everything rehashed. Called from `insert` when the
+  /// load factor is exceeded, so the association lists stay short and lookup
+  /// stays expected-constant.
+  fn grow<C: Alloc>(self: Map<K, V>, ctx: C): Map<K, V> {
+    // From nothing, the initial size; otherwise twice what there was.
+    let count = if (self.buckets.len() == 0) { INITIAL } else { self.buckets.len() * 2 };
+    let all = self.buckets.flatten(ctx);
+    // `mapCtx`, not `map`: the inner `filter` needs a context, and a lambda
+    // may not capture one (SPEC 10.6). The combinator passes it in instead.
+    let next = list.range(ctx, 0, count).mapCtx(ctx, fn(c, j) =>
+      all.filter(c, fn(e) => {
+        let (k, _v) = e;
+        bucketOf(k.hash(), count) == j
+      }));
+    Map { buckets: next, size: self.size }
+  }
+}
+
+/// A map holding the given entries, later ones winning.
+export fn of<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
+  entries.foldCtx(ctx, fn(c, acc, e) => {
+    let (k, v) = e;
+    acc.insert(c, k, v)
+  }, empty::<K, V>())
+}
+
+impl<K: Hash + Eq, V: Eq> Map<K, V> {
+  /// Same entries, whatever bucket layout each arrived at. `derive Eq` would
+  /// compare the layout, which two equal maps built in different orders need
+  /// not share.
+  export fn equals<C: Alloc>(self: Map<K, V>, ctx: C, other: Map<K, V>): Bool {
+    if (self.size != other.size) {
+      false
+    } else {
+      let theirs = other;
+      self.entries(ctx).all(fn(e) => {
+        let (k, v) = e;
+        theirs.get(k) == .Some(v)
+      })
+    }
+  }
+}

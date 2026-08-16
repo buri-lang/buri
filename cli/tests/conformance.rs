@@ -44,8 +44,8 @@ fn conformance_suite_passes() {
     // the count is checked too.
     let passed = run.tests_passed();
     assert!(
-        passed >= 150,
-        "expected the conformance suite to hold at least 150 assertions, found {passed}:\n{}",
+        passed >= 1000,
+        "expected the conformance suite to hold at least 1000 assertions, found {passed}:\n{}",
         indent(&run.all())
     );
     eprintln!("conformance: {passed} tests passed");

@@ -412,9 +412,9 @@ impl<'a> Lexer<'a> {
                     let raw = &self.text[start..self.pos];
                     if is_module_doc {
                         let span = self.span(start);
-                        self.module_docs.push((raw[3..].trim().to_string(), span));
+                        self.module_docs.push((doc_body(&raw[3..]), span));
                     } else if is_doc {
-                        self.pending_docs.push(raw[3..].trim().to_string());
+                        self.pending_docs.push(doc_body(&raw[3..]));
                     } else {
                         self.pending_comments.push(raw.trim_end().to_string());
                     }
@@ -963,4 +963,16 @@ mod tests {
             ]
         );
     }
+}
+
+/// The text of a `///` or `//!` line, after the marker.
+///
+/// One leading space is the separator between the marker and the prose and
+/// comes off; everything after that is content. Trimming further would be
+/// wrong: a fenced code block inside a doc comment is indented relative to the
+/// fence, and `trim()` — which this used to do — flattened it, so an example
+/// with a nested block came out unparseable.
+pub fn doc_body(after_marker: &str) -> String {
+    let s = after_marker.strip_prefix(' ').unwrap_or(after_marker);
+    s.trim_end().to_string()
 }

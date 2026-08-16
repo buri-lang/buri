@@ -1,5 +1,6 @@
-# Declares //lib/a and does not import it, so the only finding on this
-# repository is the cycle itself.
+# Declares //lib/a and does not import it, which is what closes the cycle in
+# the graph. The recorded goldens show both findings that follow: the cycle,
+# from each end, and the `unused-dep` on this line.
 
 library {
   sources: ["b.buri"]

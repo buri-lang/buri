@@ -135,3 +135,55 @@ fn most_examples_are_actually_compiled() {
     eprintln!("{compiled} compiled, {ignored} ignored");
     assert!(compiled > 40, "only {compiled} examples are compiled; is the harness running?");
 }
+
+/// Every example written in a `///` or `//!` comment in the standard library.
+///
+/// The prose pages were already compiled by the tests above; this closes the
+/// other half, because a documentation comment is documentation and an example
+/// in one has the same claim on being true. `doc_comments` turns a source file
+/// into a document with the source's own line numbers, so a failure points at
+/// the `.buri` line the example is written on rather than at an offset into
+/// something synthetic.
+#[test]
+fn standard_library_doc_comments() {
+    let root = repo_root();
+    let mut failures = Vec::new();
+    let mut blocks = 0;
+    let mut modules = 0;
+
+    for path in buri::stdlib::MODULES {
+        let Some(source) = buri::stdlib::source(path) else {
+            panic!("`{path}` is listed in MODULES and has no source");
+        };
+        if !doctest::has_examples(source) {
+            continue;
+        }
+        // The name a failure reports: where the module actually lives, so the
+        // line number is one an editor can open.
+        let rel = format!("cli/src/std/{}.buri", path.trim_start_matches("core/"));
+        let text = doctest::doc_comments(source);
+        let found = doctest::extract(&rel, &text)
+            .blocks
+            .iter()
+            .filter(|b| b.mode != doctest::Mode::Ignore)
+            .count();
+        if found == 0 {
+            continue;
+        }
+        modules += 1;
+        blocks += found;
+        failures.extend(doctest::run_file_at(&root, &rel, &text));
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{} example(s) in standard library documentation comments do not do what they say:\n\n{}",
+        failures.len(),
+        doctest::report(&failures)
+    );
+    // A corpus that discovers nothing passes every assertion.
+    assert!(
+        blocks >= 8 && modules >= 4,
+        "only {blocks} example(s) across {modules} module(s); the extractor is missing them"
+    );
+}

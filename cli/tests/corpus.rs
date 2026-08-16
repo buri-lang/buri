@@ -140,3 +140,65 @@ fn formatting_is_a_fixed_point() {
         assert_eq!(once, twice, "formatting {} is not stable", path.display());
     }
 }
+
+/// The toolchain has no dependencies, and that is a claim a test should hold
+/// rather than a comment.
+///
+/// It became load-bearing when `editors/zed` arrived: a Zed extension has no
+/// choice about depending on `zed_extension_api`, so it lives outside the
+/// workspace. Adding it to `members` is a one-line change that would make
+/// `cargo test -p buri` resolve crates.io, and nothing else would notice.
+#[test]
+fn the_toolchain_still_has_no_dependencies() {
+    let cli = std::fs::read_to_string(repo_root().join("cli/Cargo.toml")).expect("cli/Cargo.toml");
+    // Everything after a `[dependencies]`-ish header, up to the next section.
+    let mut in_deps = false;
+    for line in cli.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_deps = line.contains("dependencies");
+            continue;
+        }
+        if in_deps && !line.is_empty() && !line.starts_with('#') {
+            panic!(
+                "cli/Cargo.toml declares a dependency: `{line}`\n\
+                 The toolchain is pinned by hash, and a dependency tree is a second thing to pin."
+            );
+        }
+    }
+
+    let root = std::fs::read_to_string(repo_root().join("Cargo.toml")).expect("Cargo.toml");
+    assert!(
+        root.contains("exclude = [\"editors/zed\"]"),
+        "the root Cargo.toml no longer excludes editors/zed, so the Zed extension's \
+         dependencies are about to become the toolchain's"
+    );
+}
+
+/// The editor integration is one directory, and its pieces refer to each other
+/// by path. A rename that misses one presents as an extension that installs and
+/// then does nothing, which is the hardest kind of breakage to notice.
+#[test]
+fn the_editor_integration_is_whole() {
+    for rel in [
+        "editors/tree-sitter-buri/grammar.js",
+        "editors/tree-sitter-buri/src/scanner.c",
+        "editors/tree-sitter-buri/check.sh",
+        "editors/zed/extension.toml",
+        "editors/zed/src/lib.rs",
+        "editors/zed/languages/buri/config.toml",
+        "editors/zed/languages/buri/highlights.scm",
+        "editors/zed/languages/buri/indents.scm",
+        "editors/zed/languages/buri/outline.scm",
+    ] {
+        assert!(repo_root().join(rel).is_file(), "{rel} is missing");
+    }
+
+    // The queries live once. `check.sh` compiles them from the Zed directory,
+    // so a second copy under the grammar would be a second thing to keep in
+    // step and nothing would report the drift.
+    assert!(
+        !repo_root().join("editors/tree-sitter-buri/queries").exists(),
+        "there are two copies of the highlight queries; there must be one"
+    );
+}

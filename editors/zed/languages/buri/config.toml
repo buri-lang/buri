@@ -1,0 +1,35 @@
+name = "Buri"
+grammar = "buri"
+path_suffixes = ["buri"]
+line_comments = ["// ", "/// "]
+block_comment = ["/* ", " */"]
+autoclose_before = ";:.,=}])>"
+tab_size = 2
+hard_tabs = false
+
+# `buri format` produces one canonical layout with no options, so formatting on
+# save is the same as formatting at any other time.
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = true
+
+[[brackets]]
+start = "("
+end = ")"
+close = true
+newline = false
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = false
+
+[[brackets]]
+start = "\""
+end = "\""
+close = true
+newline = false
+not_in = ["string", "comment"]

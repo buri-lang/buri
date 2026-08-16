@@ -1,0 +1,22 @@
+// Two tests, and the rule must tell them apart.
+//
+// The second asserts through a helper, which is how most tests worth writing
+// assert. Read syntactically — "the body contains no `assert`" — the rule would
+// fire on it, so it is transitive instead: reachability from the test's body.
+
+from "core/testing/assert" import * as assert;
+
+from "//lib/money" import { Cents, fromCents };
+
+// The helper. Nothing in `roundTrips` mentions `assert`; this does.
+fn isSame(a: Cents, b: Cents): () {
+  assert.eq(a, b)
+}
+
+test "constructing a Cents does nothing observable" {
+  let c = fromCents(150);
+}
+
+test "roundTrips through the helper" {
+  isSame(fromCents(150), Cents(150))
+}

@@ -1,0 +1,225 @@
+// core/date — the calendar.
+//
+// Every assertion here is against a date whose answer is known independently:
+// leap years the rules disagree about, the epoch, a day either side of it, and
+// the month-end clamping that date arithmetic has to choose an answer for.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+
+from "core/date" import { Date, DateTime, Duration, Weekday };
+from "core/date" import * as date;
+from "core/time" import { Instant };
+
+fn d(y: Int, m: Int, day: Int): Date {
+  assert.some(date.date(y, m, day))
+}
+
+// --- leap years -----------------------------------------------------------------
+
+test "the three leap year rules" {
+  // Divisible by four is a leap year...
+  assert.isTrue(date.isLeapYear(2024));
+  assert.isFalse(date.isLeapYear(2023));
+  // ...unless by a hundred...
+  assert.isFalse(date.isLeapYear(1900));
+  assert.isFalse(date.isLeapYear(2100));
+  // ...unless by four hundred.
+  assert.isTrue(date.isLeapYear(2000));
+  assert.isTrue(date.isLeapYear(1600));
+}
+
+test "February is the month that changes length" {
+  assert.eq(date.daysInMonth(2024, 2), 29);
+  assert.eq(date.daysInMonth(2023, 2), 28);
+  assert.eq(date.daysInMonth(1900, 2), 28);
+  assert.eq(date.daysInMonth(2023, 1), 31);
+  assert.eq(date.daysInMonth(2023, 4), 30);
+  assert.eq(date.daysInMonth(2023, 13), 0);
+}
+
+// --- construction is the validation ----------------------------------------------
+
+test "a date the calendar does not have cannot be built" {
+  assert.isTrue(date.date(2023, 2, 29).isNone());
+  assert.isTrue(date.date(2023, 13, 1).isNone());
+  assert.isTrue(date.date(2023, 0, 1).isNone());
+  assert.isTrue(date.date(2023, 4, 31).isNone());
+  assert.isTrue(date.date(2023, 1, 0).isNone());
+  assert.isTrue(date.date(2024, 2, 29).isSome());
+}
+
+test "a time outside the clock cannot be built" {
+  assert.isTrue(date.time(24, 0, 0, 0).isNone());
+  assert.isTrue(date.time(0, 60, 0, 0).isNone());
+  assert.isTrue(date.time(0, 0, 0, 1000).isNone());
+  assert.isTrue(date.time(23, 59, 59, 999).isSome());
+}
+
+// --- days from civil ---------------------------------------------------------------
+
+test "the epoch is day zero" {
+  assert.eq(date.toDays(d(1970, 1, 1)), 0);
+  assert.eq(date.fromDays(0), d(1970, 1, 1));
+}
+
+test "days either side of the epoch" {
+  assert.eq(date.toDays(d(1969, 12, 31)), -1);
+  assert.eq(date.toDays(d(1970, 1, 2)), 1);
+  assert.eq(date.fromDays(-1), d(1969, 12, 31));
+}
+
+test "known day numbers" {
+  assert.eq(date.toDays(d(2000, 1, 1)), 10957);
+  assert.eq(date.toDays(d(2024, 2, 29)), 19782);
+  assert.eq(date.fromDays(19782), d(2024, 2, 29));
+}
+
+// The property that matters more than any single number: the two directions
+// are inverses, across leap years, century boundaries, and before the epoch.
+test "toDays and fromDays are inverses" {
+  let cases = [
+    d(1600, 2, 29), d(1899, 12, 31), d(1900, 3, 1), d(1969, 7, 20),
+    d(1970, 1, 1), d(2000, 2, 29), d(2024, 12, 31), d(2100, 3, 1),
+  ];
+  assert.isTrue(cases.all(fn(c) => date.fromDays(date.toDays(c)) == c));
+}
+
+// --- weekdays -------------------------------------------------------------------
+
+test "the epoch was a Thursday" {
+  assert.eq(date.weekday(d(1970, 1, 1)), Weekday.Thursday);
+}
+
+test "known weekdays, including before the epoch" {
+  assert.eq(date.weekday(d(2024, 2, 29)), Weekday.Thursday);
+  assert.eq(date.weekday(d(2000, 1, 1)), Weekday.Saturday);
+  assert.eq(date.weekday(d(1969, 7, 20)), Weekday.Sunday);
+  assert.eq(date.weekday(d(1900, 1, 1)), Weekday.Monday);
+}
+
+test "day of the year" {
+  assert.eq(date.dayOfYear(d(2023, 1, 1)), 1);
+  assert.eq(date.dayOfYear(d(2023, 12, 31)), 365);
+  assert.eq(date.dayOfYear(d(2024, 12, 31)), 366);
+  assert.eq(date.dayOfYear(d(2024, 3, 1)), 61);
+}
+
+// --- arithmetic ------------------------------------------------------------------
+
+test "adding days crosses months and years" {
+  assert.eq(d(2023, 1, 31).addDays(1), d(2023, 2, 1));
+  assert.eq(d(2023, 12, 31).addDays(1), d(2024, 1, 1));
+  assert.eq(d(2024, 2, 28).addDays(1), d(2024, 2, 29));
+  assert.eq(d(2023, 2, 28).addDays(1), d(2023, 3, 1));
+  assert.eq(d(2023, 1, 1).addDays(-1), d(2022, 12, 31));
+}
+
+test "daysUntil is signed" {
+  assert.eq(d(2023, 1, 1).daysUntil(d(2023, 1, 31)), 30);
+  assert.eq(d(2023, 1, 31).daysUntil(d(2023, 1, 1)), -30);
+  assert.eq(d(2023, 1, 1).daysUntil(d(2023, 1, 1)), 0);
+}
+
+// The choice this module makes, written down as a test so it cannot drift:
+// adding a month to the 31st clamps rather than overflowing into next month.
+test "adding months clamps the day to the month it lands in" {
+  assert.eq(d(2023, 1, 31).addMonths(1), d(2023, 2, 28));
+  assert.eq(d(2024, 1, 31).addMonths(1), d(2024, 2, 29));
+  assert.eq(d(2023, 3, 31).addMonths(1), d(2023, 4, 30));
+  assert.eq(d(2023, 1, 15).addMonths(1), d(2023, 2, 15));
+}
+
+test "adding months crosses years in both directions" {
+  assert.eq(d(2023, 12, 1).addMonths(1), d(2024, 1, 1));
+  assert.eq(d(2023, 1, 1).addMonths(-1), d(2022, 12, 1));
+  assert.eq(d(2023, 6, 1).addMonths(-18), d(2021, 12, 1));
+  assert.eq(d(2024, 2, 29).addYears(1), d(2025, 2, 28));
+}
+
+// --- instants ---------------------------------------------------------------------
+
+test "the epoch instant is the epoch date at midnight" {
+  assert.eq(date.fromInstant(Instant(0)), date.midnight(d(1970, 1, 1)));
+  assert.eq(date.toInstant(date.midnight(d(1970, 1, 1))), Instant(0));
+}
+
+test "an instant carries the time of day" {
+  let dt = date.fromInstant(Instant(1000 * 60 * 60 * 13 + 1000 * 60 * 45 + 1500));
+  assert.eq(dt.date, d(1970, 1, 1));
+  assert.eq(dt.time.hour, 13);
+  assert.eq(dt.time.minute, 45);
+  assert.eq(dt.time.second, 1);
+  assert.eq(dt.time.milli, 500);
+}
+
+// Before the epoch the division has to floor rather than truncate, or the date
+// comes out a day late.
+test "an instant before the epoch lands on the right day" {
+  assert.eq(date.fromInstant(Instant(-1)).date, d(1969, 12, 31));
+  assert.eq(date.fromInstant(Instant(-1)).time.hour, 23);
+  assert.eq(date.fromInstant(Instant(-1)).time.milli, 999);
+}
+
+test "instants and date-times are inverses" {
+  let dt = DateTime {
+    date: d(2024, 2, 29),
+    time: assert.some(date.time(13, 45, 1, 500)),
+  };
+  assert.eq(date.fromInstant(date.toInstant(dt)), dt);
+}
+
+test "durations are lengths and instants are points" {
+  let a = Instant(1000);
+  let b = Instant(1000 + 90 * 1000);
+  assert.eq(date.between(a, b), Duration(90000));
+  assert.eq(date.between(a, b).seconds(), 90);
+  assert.eq(date.between(a, b).minutes(), 1);
+  assert.eq(date.between(b, a), Duration(-90000));
+  assert.eq(date.plus(a, Duration(90000)), b);
+  assert.eq(Duration(date.MILLIS_PER_DAY).days(), 1);
+  assert.eq(Duration(date.MILLIS_PER_HOUR).hours(), 1);
+}
+
+// --- ISO 8601 ----------------------------------------------------------------------
+
+test "dates format with fixed width" {
+  let ctx = Hermetic();
+  assert.eq(date.formatDate(ctx, d(2024, 2, 29)), "2024-02-29");
+  assert.eq(date.formatDate(ctx, d(999, 1, 2)), "0999-01-02");
+}
+
+test "date-times format as UTC with milliseconds" {
+  let ctx = Hermetic();
+  let dt = DateTime { date: d(2026, 8, 15), time: assert.some(date.time(13, 45, 0, 7)) };
+  assert.eq(date.formatDateTime(ctx, dt), "2026-08-15T13:45:00.007Z");
+}
+
+test "parseDate reads what formatDate writes" {
+  let ctx = Hermetic();
+  let cases = [d(1970, 1, 1), d(2024, 2, 29), d(2100, 12, 31)];
+  // `mapCtx`, then check: a lambda may not capture a context, so the round
+  // trip is done by a combinator that passes one in.
+  let back = cases.mapCtx(ctx, fn(c, one) => date.parseDate(c, date.formatDate(c, one)));
+  assert.eq(back, cases.mapCtx(ctx, fn(_c, one) => .Some(one)));
+}
+
+test "parseDate is strict" {
+  let ctx = Hermetic();
+  assert.isTrue(date.parseDate(ctx, "2024-2-29").isSome());
+  assert.isTrue(date.parseDate(ctx, "2023-02-29").isNone());
+  assert.isTrue(date.parseDate(ctx, "2024-02").isNone());
+  assert.isTrue(date.parseDate(ctx, "not a date").isNone());
+  assert.isTrue(date.parseDate(ctx, "").isNone());
+}
+
+// --- ordering ------------------------------------------------------------------------
+
+test "dates and times order chronologically" {
+  let ctx = Hermetic();
+  assert.isTrue(d(2023, 1, 1) < d(2023, 1, 2));
+  assert.isTrue(d(2023, 1, 31) < d(2023, 2, 1));
+  assert.isTrue(d(2022, 12, 31) < d(2023, 1, 1));
+  assert.eq([d(2024, 1, 1), d(2023, 6, 1), d(2023, 1, 1)].sort(ctx),
+            [d(2023, 1, 1), d(2023, 6, 1), d(2024, 1, 1)]);
+}

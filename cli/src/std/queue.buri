@@ -1,0 +1,169 @@
+//! core/queue — a double-ended queue.
+//!
+//! The banker's queue: two lists, each stored so that the end being worked on
+//! is the end of a list. `front` holds the head of the queue **reversed**, so
+//! its last element is the queue's first; `back` holds the tail in order, so
+//! its last element is the queue's last. Pushing at either end is therefore an
+//! append, and taking from an end whose list is empty reverses the other into
+//! it — O(n) once, then O(1) for the n elements that follow, so amortized O(1)
+//! either way.
+//!
+//! This is the *immutable* deque, and Buri has nothing but immutable values
+//! (SPEC 8.1), so it is the natural shape here rather than a compromise. A
+//! ring buffer would need mutation to be worth anything.
+//!
+//! Everything that grows the queue names `Alloc`, and everything that only
+//! looks at it does not — the split SPEC 10.5 draws, visible in the
+//! signatures.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/queue" import * as queue;
+//! from "core/str" import * as str;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   // Three in at the back, and they come out at the front in the order they
+//!   // arrived — which is the whole claim a queue makes.
+//!   let q = queue.empty::<Str>().push(ctx, "first").push(ctx, "second");
+//!   let message = match (q.pop(ctx)) {
+//!     .Some(taken) => {
+//!       let (head, rest) = taken;
+//!       str.format(ctx, "${head}, then ${rest.len()} left")
+//!     },
+//!     .None => "the queue was empty",
+//!   };
+//!   let _ = ctx.println("${message}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! first, then 1 left
+//! ```
+
+from "core/cap" import { Alloc };
+from "core/list" import * as list;
+
+/// The head reversed, and the tail in order. See the module comment: the
+/// reversal is what makes both ends an append.
+///
+/// The fields are not exported: the two lists are an implementation of a
+/// sequence, not the sequence itself, and two different pairs can represent
+/// the same queue. `derive Eq` would compare the representation rather than
+/// the contents, so `Eq` is `equals` below instead.
+export struct Queue<T> {
+  front: [T],
+  back: [T],
+}
+
+/// The empty queue. Pure: no element exists yet to allocate for.
+export fn empty<T>(): Queue<T> {
+  Queue { front: list.empty::<T>(), back: list.empty::<T>() }
+}
+
+/// A queue holding the elements of a list, front first.
+///
+/// They all go in `back`, in order, which is what `push`ing each of them in
+/// turn would have produced — and costs no reversal to build. Pure: the list
+/// already exists, and this borrows it rather than copying it.
+export fn of<T>(items: [T]): Queue<T> {
+  Queue { front: list.empty::<T>(), back: items }
+}
+
+impl<T> Queue<T> {
+  export fn len(self: Queue<T>): Int {
+    self.front.len() + self.back.len()
+  }
+
+  export fn isEmpty(self: Queue<T>): Bool {
+    self.len() == 0
+  }
+
+  /// Adds to the back.
+  export fn push<C: Alloc>(self: Queue<T>, ctx: C, item: T): Queue<T> {
+    Queue { front: self.front, back: self.back.push(ctx, item) }
+  }
+
+  /// Adds to the front.
+  export fn pushFront<C: Alloc>(self: Queue<T>, ctx: C, item: T): Queue<T> {
+    Queue { front: self.front.push(ctx, item), back: self.back }
+  }
+
+  /// The first element, without removing it.
+  export fn peek(self: Queue<T>): Option<T> {
+    match (self.front.last()) {
+      .Some(v) => .Some(v),
+      .None => self.back.first(),
+    }
+  }
+
+  /// The last element, without removing it.
+  export fn peekBack(self: Queue<T>): Option<T> {
+    match (self.back.last()) {
+      .Some(v) => .Some(v),
+      .None => self.front.first(),
+    }
+  }
+
+  /// Removes the first element, returning it and the rest.
+  ///
+  /// One value rather than two calls, because `peek` and a separate `drop`
+  /// would let the two disagree about which element they meant.
+  export fn pop<C: Alloc>(self: Queue<T>, ctx: C): Option<(T, Queue<T>)> {
+    match (self.front.last()) {
+      .Some(v) => {
+        let rest = self.front.take(ctx, self.front.len() - 1);
+        .Some((v, Queue { front: rest, back: self.back }))
+      },
+      // The front is spent, so the back becomes the front, reversed. This is
+      // the O(n) step, and it pays for the n pops that follow it.
+      .None => match (self.back.first()) {
+        .Some(v) => {
+          let rest = self.back.drop(ctx, 1).reverse(ctx);
+          .Some((v, Queue { front: rest, back: list.empty::<T>() }))
+        },
+        .None => .None,
+      },
+    }
+  }
+
+  /// Removes the last element, returning it and the rest.
+  export fn popBack<C: Alloc>(self: Queue<T>, ctx: C): Option<(T, Queue<T>)> {
+    match (self.back.last()) {
+      .Some(v) => {
+        let rest = self.back.take(ctx, self.back.len() - 1);
+        .Some((v, Queue { front: self.front, back: rest }))
+      },
+      .None => match (self.front.first()) {
+        .Some(v) => {
+          let rest = self.front.drop(ctx, 1).reverse(ctx);
+          .Some((v, Queue { front: list.empty::<T>(), back: rest }))
+        },
+        .None => .None,
+      },
+    }
+  }
+
+  /// The elements, front first. The one way to look at the whole queue, and
+  /// what `Show` and `equals` are defined in terms of.
+  export fn toList<C: Alloc>(self: Queue<T>, ctx: C): [T] {
+    self.front.reverse(ctx).concat(ctx, self.back)
+  }
+}
+
+impl<T: Eq> Queue<T> {
+  /// Two queues are equal when they hold the same elements in the same order,
+  /// whatever split between front and back they happen to have. This is why
+  /// `Queue` does not `derive Eq`: the derived one would compare the split.
+  export fn equals<C: Alloc>(self: Queue<T>, ctx: C, other: Queue<T>): Bool {
+    let a = self.toList(ctx);
+    let b = other.toList(ctx);
+    if (a.len() != b.len()) {
+      false
+    } else {
+      list.range(ctx, 0, a.len()).all(fn(i) => a.get(i) == b.get(i))
+    }
+  }
+}

@@ -1,0 +1,43 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "lint --fix applies the two kinds of mechanical answer: a text edit for unused-import, and buri gen for a build file"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "before.txt"
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "fix.txt"
+}
+
+# What the fix actually wrote. The import keeps the names that were used, and
+# the build file is what `buri gen` would have written — comments and all.
+file {
+  path: "cmd/app/main.buri"
+  golden: "main.buri"
+}
+
+file {
+  path: "cmd/app/BUILD.buri"
+  golden: "BUILD.buri"
+}
+
+# Fixing is a fixed point: the second run has nothing left to do.
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# And the code still builds, which is the property a rewriting tool has to
+# earn — `format --check` passing is not the same as the program surviving.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}

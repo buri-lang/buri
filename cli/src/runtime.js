@@ -266,6 +266,15 @@ function $list_foldResult(xs, f, acc) {
   return cur;
 }
 
+function $list_foldResultCtx(xs, c, f, acc) {
+  let cur = [0, acc];
+  for (let i = 0; i < xs.length; i++) {
+    cur = f(c, cur[1], xs[i]);
+    if (cur[0] !== 0) return cur;
+  }
+  return cur;
+}
+
 function $list_any(xs, p) {
   for (let i = 0; i < xs.length; i++) if (p(xs[i])) return true;
   return false;
@@ -625,6 +634,53 @@ function $big(x) {
   return BigInt(Math.trunc(x));
 }
 
+// --- 64-bit bitwise ------------------------------------------------------------------
+//
+// JavaScript's `&`, `|`, `^` and `~` coerce to *32-bit signed* integers, so
+// `1 << 31` comes back negative and everything above bit 31 is discarded
+// outright. `Int` is `I64`, so using them directly made `a & b` silently wrong
+// for half the range of the type — `(1<<40) & (1<<40)` was `0`.
+//
+// Only the 64-bit types route through here. At 32 bits and below the native
+// operators are exact, and staying on them keeps ordinary integer code as fast
+// as ordinary JavaScript.
+function $and64(a, b) {
+  return Number(BigInt.asIntN(64, $big(a) & $big(b)));
+}
+function $or64(a, b) {
+  return Number(BigInt.asIntN(64, $big(a) | $big(b)));
+}
+function $xor64(a, b) {
+  return Number(BigInt.asIntN(64, $big(a) ^ $big(b)));
+}
+function $not64(a) {
+  return Number(BigInt.asIntN(64, ~$big(a)));
+}
+
+// Unsigned, 32 bits and below. JavaScript's bitwise operators produce a
+// *signed* 32-bit result, so `0x80000000 | 0` came back as `-2147483648` and
+// `~0` on a `U8` came back as `-1` instead of `255`. The operands are in range
+// and the answer is in range; only the representation was wrong, so narrowing
+// the result to the type's own width is the whole fix.
+function $umask(v, bits) {
+  return bits >= 32 ? v >>> 0 : v & ((1 << bits) - 1);
+}
+
+// The unsigned forms differ only in how the result is narrowed, which is the
+// difference between `~0` being `-1` and being `2^64 - 1`.
+function $andU64(a, b) {
+  return Number(BigInt.asUintN(64, $big(a) & $big(b)));
+}
+function $orU64(a, b) {
+  return Number(BigInt.asUintN(64, $big(a) | $big(b)));
+}
+function $xorU64(a, b) {
+  return Number(BigInt.asUintN(64, $big(a) ^ $big(b)));
+}
+function $notU64(a) {
+  return Number(BigInt.asUintN(64, ~$big(a)));
+}
+
 function $bits_shl(x, n) {
   return Number(BigInt.asIntN(64, $big(x) << $shiftCount(n, 64)));
 }
@@ -706,6 +762,76 @@ function $ok(x) {
 
 function $err(x) {
   return [1, x];
+}
+
+// --- Bytes -----------------------------------------------------------------------------
+//
+// A `[U8]` is an ordinary array of numbers, like every other list. These two
+// are intrinsics rather than Buri because the encoding lives in the platform:
+// a JavaScript string is UTF-16, and turning one into UTF-8 bytes is the
+// engine's job, not something to reimplement on top of `charAt`.
+
+function $bytes_toUtf8(_c, s) {
+  const out = [];
+  for (const ch of s) {
+    const cp = ch.codePointAt(0);
+    if (cp < 0x80) {
+      out.push(cp);
+    } else if (cp < 0x800) {
+      out.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    } else if (cp < 0x10000) {
+      out.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    } else {
+      out.push(
+        0xf0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3f),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f),
+      );
+    }
+  }
+  return out;
+}
+
+// Strict: an overlong encoding, a truncated sequence, or a surrogate is an
+// error rather than a replacement character. Bytes that are not text should
+// say so, not decode to `�` and be discovered three layers later.
+function $bytes_fromUtf8(_c, b) {
+  let out = "";
+  let i = 0;
+  while (i < b.length) {
+    const c = b[i] & 0xff;
+    let cp;
+    let n;
+    if (c < 0x80) {
+      cp = c;
+      n = 0;
+    } else if ((c & 0xe0) === 0xc0) {
+      cp = c & 0x1f;
+      n = 1;
+    } else if ((c & 0xf0) === 0xe0) {
+      cp = c & 0x0f;
+      n = 2;
+    } else if ((c & 0xf8) === 0xf0) {
+      cp = c & 0x07;
+      n = 3;
+    } else {
+      return $err([i]);
+    }
+    // The continuation bytes have to be there. A tuple struct is an array
+    // of its fields, so a `Utf8Error(i)` is `[i]`.
+    if (n > 0 && i + n >= b.length) return $err([i]);
+    for (let k = 1; k <= n; k++) {
+      const cc = b[i + k] & 0xff;
+      if ((cc & 0xc0) !== 0x80) return $err([i]);
+      cp = (cp << 6) | (cc & 0x3f);
+    }
+    const min = n === 0 ? 0 : n === 1 ? 0x80 : n === 2 ? 0x800 : 0x10000;
+    if (cp < min || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return $err([i]);
+    out += String.fromCodePoint(cp);
+    i += n + 1;
+  }
+  return $ok(out);
 }
 
 // A RangeError is a struct { value: Str, target: Str }.

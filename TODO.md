@@ -18,6 +18,48 @@ shape that was missing: whole repositories, one per rule, each with a
 produces. See `cli/tests/README.md` for the format and
 `cli/tests/harness/case.rs` for the reader.
 
+**Two compiler bugs, found and fixed while writing the collection modules.**
+Both had been unreachable because no program in the repository did the thing
+that provokes them — which is the argument for a standard library that is
+larger than the language's own tests need.
+
+- [x] **A type that recursed through a container hung the compiler.**
+      `infer::satisfies` decides whether a derived implementation holds by
+      walking the type's components, and for a recursive type that walk reaches
+      the type again. The guard was `t.head() == Some(con)` on the immediate
+      component — which catches `Node(Tree<T>, ...)` and misses
+      `Branch([Rose])`, because an array's head is not a constructor. So
+      `a == b` on any type that reached itself through a list, a tuple, or
+      another type holding one recursed until the stack ran out. `core/json` is
+      exactly that shape, which is how it turned up.
+
+      The guard is now a set of the constructors already on the walk, so
+      recursion through *any* container terminates. Pinned by `Rose` in
+      `conformance/lib/semantics/{shapes.buri,test/traits.buri}` — deliberately
+      non-generic, because a type parameter is undecidable at the declaration
+      and takes the other path through the checker.
+
+
+
+- [x] **`&`, `|`, `^` and `~` were 32-bit.** They were emitted as the native
+      JavaScript operators, which coerce to *32-bit signed* — so on `Int`,
+      which is `I64`, everything above bit 31 was silently discarded and the
+      result came back negative. `(1 << 40) & (1 << 40)` was `0`;
+      `0 | (1 << 31)` was `-2147483648`. Meanwhile `bits.shl` and
+      `bits.popCount` were correct 64-bit BigInt, so the two halves of the
+      module disagreed with each other.
+
+      Fixed in `codegen.rs::prim_op`: above 32 bits the operation goes through
+      `$and64`/`$or64`/`$xor64`/`$not64` (and the unsigned forms) in
+      `runtime.js`; at 32 bits and below the native operator is exact and
+      stays, so ordinary integer code is unchanged. Pinned by
+      `conformance/lib/numbers/test/bits.buri`, "the bitwise operators are
+      64-bit".
+
+      No golden moved when this landed, which is the part worth noting: not one
+      program in the repository used a bitwise operator above bit 31, so
+      nothing could have caught it. `core/bitset` is what walked into it.
+
 **Found while building it** — none of these are test gaps:
 
 - [ ] `missing-dep` by method resolution was **unimplemented**, not untested.
@@ -182,13 +224,101 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       (`repos/tags/tags_query`) rather than the `.contains()` assertions they
       had. `path` is the one CLI.md says earns its place. *(untested)*
 - [ ] `buri query --output=proto`. *(untested)*
-- [ ] `buri lint --fix`. *(untested)*
+- [x] `buri lint --fix` — `repos/linting/fix_applies` and
+      `fix_refuses_a_judgement_call`. The flag had been removed entirely; it is
+      back, and the two kinds of answer are applied differently: a build file
+      that disagrees with the code goes through `gen::regenerate`, an unused
+      import is a byte edit. `dep-cycle` and `tag-violation` are refused, and
+      the refusing case records both `BUILD.buri` files so a later `--fix` that
+      decides to be clever about cycles fails rather than rewriting somebody's
+      graph.
+
+      **`--fix` must not run the formatter.** The first version guarded its
+      output with `format::source`, which parses *and* reprints — and reprinting
+      deletes every comment inside a function body (see the formatter bug
+      below), so `--fix` silently destroyed them. It now checks the result
+      parses and writes nothing else. `fix_applies` pins this: its `main.buri`
+      carries a body comment and a hand-written single-line `context`, and the
+      golden is byte-identical apart from the removed name.
 - [ ] `buri clean --outputs` dropping `.buri/out` only. *(untested — `clean` is
       called for setup in several tests, never asserted)*
 - [ ] `buri version` printing the toolchain version and the `REPO.buri` pin.
       *(untested)*
-- [ ] `buri lsp` — completion inside `from "//`, hover on a label, the
-      "add to `dependencies`" code action. *(unimplemented; `main.rs:40`)*
+- [x] `buri lsp` — implemented, and recorded as three sessions in
+      `repos/lsp/`. `diagnostics`, `hover`, `definition`, `documentSymbol`,
+      `formatting`, and completion in the two places that need no type
+      information: inside a module path, and inside an import's `{ … }`.
+      The case harness grew a `run { stdin: "session.jsonl" }` step for it —
+      one JSON request per line, the harness frames them and records the
+      decoded responses, so the golden is about what was said rather than how
+      many bytes it took.
+
+      Two notes on how it was built rather than what it does:
+
+      - **The overlay for unsaved buffers needed no change to `compile.rs`.**
+        `SourceMap::load` already reuses an entry whose name is present, so
+        seeding the map with the editor's copy under the name the loader will
+        ask for means the loader never reaches the disk.
+      - **Scheduling is in the doc, not tuned in the code.** `didChange`
+        re-parses one buffer; open and save run the whole front end. Analysing
+        per keystroke would mean re-checking the standard library per
+        keystroke, because `driver::analyze` is whole-closure.
+
+- [x] **The language server reports the build-graph findings and fixes them.**
+      `publishDiagnostics` carries what `buri lint` reports as well as what the
+      front end says — an editor showing only type errors was showing the half
+      that is easier to notice at a terminal anyway. `codeAction` offers the
+      same two kinds of answer `lint --fix` applies, the same way: a finding
+      carrying `Diagnostic::edits` becomes a text edit, and one about a build
+      file is handed to `buri gen`, which returns the whole file. A finding with
+      no mechanical answer offers nothing.
+      `repos/lsp/missing_dep_code_action` records both halves.
+
+      The cost, stated in `docs/cli/lsp.md` rather than hidden: the lint checks
+      build their own analysis, so a save now costs two. That is the other
+      reason none of this happens on a keystroke.
+
+- [ ] **Nothing tests the LSP against a real editor.** The recorded sessions
+      prove the server answers; they do not prove a client can drive it.
+      *(untested)*
+
+- [x] **Editor integration exists**: `editors/tree-sitter-buri` (grammar plus a
+      C external scanner for string interpolation and nestable block comments)
+      and `editors/zed` (the extension, which starts `buri lsp` from `PATH`).
+      `editors/tree-sitter-buri/check.sh` parses every `.buri` source in the
+      repository with zero `ERROR` and zero `MISSING` nodes, and compiles every
+      highlight query. It is not a `cargo test` — it needs the tree-sitter CLI,
+      and the toolchain may not depend on an external tool — so
+      `corpus.rs::the_editor_integration_is_whole` checks the files are all
+      still there and that the queries have exactly one copy.
+
+      **`grammar.ebnf` is stale, found by transliterating it.** Two productions
+      describe a language the compiler does not accept:
+
+      - `ImplDecl ::= "impl" ... "{" FnDecl* "}"` — but a method of the type's
+        own may be exported, and every `impl` in the standard library and in
+        `cli/tests/example` writes `export fn`. `parse.rs:750` reads it.
+      - `FnDecl ::= ... Block` — but a declaration may have no body. That is how
+        the standard library declares the primitives the runtime supplies
+        (`export fn len(self: Str): Int;`, `std/str.buri:18`) and how a trait
+        states a method. The EBNF splits the second case out as `MethodSig` and
+        does not admit the first at all.
+
+      The tree-sitter grammar accepts what the compiler accepts. The EBNF
+      should be corrected to match. *(the grammar is normative, so this is a
+      real defect in it, not in the parser)*
+
+- [ ] **`cli/src/docs/grammar.ebnf` and the tree-sitter grammar can drift.**
+      `check.sh` proves the tree-sitter grammar accepts the corpus; nothing
+      proves the EBNF does, because nothing executes the EBNF. The two are kept
+      in step by reading. *(unimplemented, and possibly not worth implementing)*
+
+- [ ] **`editors/zed/extension.toml` pins a placeholder commit.** The grammar
+      has to be published as its own git repository before the extension can be
+      installed as anything other than a dev extension. *(unimplemented)*
+
+- [ ] No-argument invocation operating on the package containing the working
+      directory. *(untested)*
 - [ ] No-argument invocation operating on the package containing the working
       directory. *(untested)*
 - [ ] "All commands are safe to run concurrently; a file lock serializes cache
@@ -197,15 +327,92 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       *(untested)*
 - [ ] `--output=linux/x86_64` selecting one of several outputs. *(untested;
       see the native-backend gap below)*
-- [ ] **Eight of the seventeen lint codes do not exist.** Present:
+- [x] **The lint catalogue is complete.** Build-graph rules:
       `undeclared-source`, `duplicate-source`, `missing-dep`, `unused-dep`,
-      `dep-cycle`, `platform-violation`, and — newly attached, each with a case
-      in `repos/` recording it — `visibility-violation`, `tag-violation`,
-      `unknown-tag`. Absent: `boundary-violation`, `testonly-in-production`
-      (both checks run as compile errors and emit no code), plus the whole
-      style table — `unreachable-export`, `unused-import`, `unsorted-imports`,
-      `discarded-result`, `empty-test-suite`, `test-without-assertion`.
-      *(partly unimplemented)*
+      `dep-cycle`, `platform-violation`, `visibility-violation`,
+      `tag-violation`, `unknown-tag`. Style and hygiene rules — new, each with
+      a case in `repos/linting/` recording both the finding and the edit that
+      ends it — `unreachable-export`, `unused-import`, `discarded-result`,
+      `empty-test-suite`, `test-without-assertion`.
+
+      Three findings from writing them, none of them test gaps:
+
+      - **`boundary-violation` and `testonly-in-production` never existed as
+        codes.** The checks did, as compile errors in
+        `compile::check_import_legality`, carrying `internal-import`,
+        `binary-entry-import`, and `test-only-import`. Inventing the CLI.md
+        names as second codes for the same checks would have given one rule two
+        names; the catalogue in `docs/build/cli.md` now names the real ones.
+      - **`discarded-result` could not fire as specified.** CLI.md described a
+        warning on `let _ = <Result>`, which `infer_expr.rs` already makes a
+        hard error (`result-discarded`) and the reject corpus records. It is
+        now a warning on `core/result.ignore` — the escape hatch the row's own
+        text pointed at.
+      - **`unsorted-imports` is not a lint.** Import order is layout, and
+        layout is `buri format`'s job. An unsorted import run is a file that has
+        not been formatted, not a finding to report. *(the formatter does not
+        sort yet — see below)*
+
+      Two true positives in our own fixtures, both fixed: `//lib/store`
+      imported `core/str` and never used it (`concat` is a method, and a method
+      resolves through its receiver's defining module, not through the
+      namespace binding), and `encodeLine`'s `export` reached nobody.
+
+- [x] **`buri format` sorts the leading import run** — `core/*` before `//*`,
+      then by path, then by clause, with one blank line between the two groups
+      and none inside either. Unit-tested in `format.rs`: the order is total,
+      it is a fixed point, a comment travels with the import it was written
+      above, and only the *leading* run moves (an import written after a
+      declaration stays put, because moving it across the declaration could
+      change what the module means).
+
+- [ ] **`buri format` never wraps a long import clause.** `WIDTH = 88` exists
+      (`format.rs:13`) and is applied to other constructs, but `Item::Import`
+      prints `from "…" import { … };` on one line whatever its length. A
+      35-name import in `conformance/lib/semantics/test/generics.buri` was
+      hand-wrapped across six lines; formatting it collapses it to a
+      292-column line. Found by running `lint --fix` over the suite and
+      checking whether the result was the formatter's own output — it was, so
+      this is the formatter's gap rather than the fixer's. *(unimplemented)*
+
+- [ ] **`buri format` silently deletes comments inside function bodies.**
+
+      ```
+      export fn f(): Int {
+        // this line does not survive
+        let x = 1;
+        x
+      }
+      ```
+
+      `leading_comments` (`format.rs:46`) keys trivia by the byte offset of a
+      *declaration*, and `emit_trivia` is called only from `module` and the
+      declaration printers — nothing puts a comment back inside a block. This
+      is why no `.buri` file in the repository is actually formatted: running
+      `buri format` over the corpus destroys it. Found by running it.
+
+      `corpus.rs`'s `formatting_is_a_fixed_point` cannot catch this, because it
+      checks `format(format(x)) == format(x)` and both sides have already lost
+      the comments. The property that would catch it is the one `token_shape`
+      (`format.rs`) was built for, extended to comment trivia — or, more
+      simply: that the checked-in corpus is formatted. Neither holds today.
+      *(unimplemented)*
+
+- [x] **Every emitted code is documented, and a test says so.**
+      `doc_errors.rs` had named this test since it was written and it did not
+      exist; twenty-three codes had no page. It is
+      `docs::every_emitted_code_is_documented`, and it accepts **either**
+      catalogue, because there are two kinds of diagnostic: a compile error one
+      program can provoke earns a page with that program on it, and a
+      build-graph finding — `dep-cycle` needs two packages — belongs in the CLI
+      reference's tables next to the command that reports it.
+
+      Four new pages (`unresolved-type`, `no-such-module`,
+      `module-doc-not-first`, `unterminated-comment`), each with a program that
+      provokes it and is compiled by the suite. Four rows added to the
+      build-graph table for the module-boundary rules that need a repository:
+      `circular-import`, `no-such-module`, `module-outside-repository`,
+      `host-import`.
 - [x] `buri build`/`buri test --explain` — one line per action, its key, and
       whether the cache served it. New; `cli/tests/incrementality.rs` reads it.
 
@@ -287,3 +494,212 @@ the number. `format --check` reporting without rewriting is
       checks in a deliberately misformatted file, and future cases will check
       in ones that must not compile — but it means a typo in a fixture is
       caught only by the case that runs it.
+
+---
+
+## The standard library
+
+Nine modules were added: `core/queue`, `core/bitset`, `core/json`, `core/map`,
+`core/set`, `core/date`, `core/simd`, `core/bytes`, `core/crypto`. What they
+are and why they are shaped that way is [STANDARD-LIBRARY.md](./STANDARD-LIBRARY.md);
+what remains is here.
+
+Each has a conformance package under `cli/tests/conformance/lib/` that *calls*
+every exported name, because `cli/tests/stdlib.rs` stops after type checking —
+a body-less declaration with no runtime function behind it passes that suite
+silently. The suite went from 150 assertions to 1172.
+
+- [ ] **Allocators (`GeneralPurpose`, `Arena`, `FixedBuffer`) wait for the
+      native backend, deliberately.** `core/cap` declares
+      `effect Alloc { fn allocate(self, bytes: Int): Region }` and
+      `$host_HostAlloc_allocate` is `return [Number(n)]` — nothing reads the
+      `Region` and nothing counts.
+
+      Accounting was designed and then **not built**, which is the right call
+      on this backend: JavaScript has a garbage collector, so an `Arena` would
+      reclaim nothing and a `GeneralPurpose` would report a synthetic number
+      rather than a measurement. The three types earn their keep when there is
+      real memory under them, and that is the native backend's problem.
+
+      What survives for whoever does build it, because it is the non-obvious
+      part: **the hook already exists.** Every allocating intrinsic is already
+      handed the context and discards it — `$list_map(xs, c, f)`,
+      `$str_split(s, c, sep)`, `$list_range(c, a, b)`. Routing it needs no
+      change to any signature.
+
+      Two things that were settled while looking at it:
+
+      - **A byte-exact cost model has to be *defined*, not measured**, or the
+        numbers are not reproducible across backends and every test that
+        asserts one is flaky. Something like: a list of *n* charges `16 + 8n`,
+        a string of *n* UTF-8 bytes charges `16 + n`. That makes the model
+        observable behaviour and a change to it a breaking change — a
+        commitment to state explicitly rather than discover.
+      - **No reserved context slot is needed.** The plan called for slot 0 of
+        every context to hold the `Alloc` implementation, which changes the
+        layout of every context in every program. It is cheaper to find the
+        allocator by scanning the context once and caching the answer on the
+        array, which changes no generated output at all. A native backend
+        knows the layout statically and does neither.
+
+      *(deferred to the native backend, not merely unimplemented)*
+
+- [ ] **`core/json` has no typed encoding**, and cannot have one as a library:
+      no reflection, no macros, and `derive` takes a fixed list.
+
+      There is a clean way to get one, and it needs no new language machinery.
+      The backend already ships **descriptors** — `[kind, ...]` with `2 struct`
+      carrying field names and `3 enum` carrying variant shapes — and
+      `$show(v, d)` already walks them to render a value. So `derive ToJson for
+      Point;` is implementable exactly as `derive Show` is: add `ToJson` and
+      `FromJson` to the derivable list in `check.rs`, register the conformance,
+      and write `$json_of(v, d)` / `$json_into(j, d)` in `runtime.js` mirroring
+      `$show`. It is also the substrate the `.proto` roadmap below wants.
+      *(unimplemented)*
+
+- [x] **Examples in `///` and `//!` comments are compiled and run.** The
+      doctest engine already handled prose pages; the missing half was source
+      files. `doctest::doc_comments` turns a `.buri` file into a markdown
+      document **with the source's own line numbers** — each doc line at its
+      own line, everything else blank — so a block's origin is already the
+      `.buri` line and there is no map to build, carry, or get wrong. The blank
+      lines between doc runs are also what separates one comment's prose from
+      the next's, which is what markdown wants anyway.
+
+      Two consequences worth knowing:
+
+      - **`lex.rs` was flattening them.** A doc line was `raw[3..].trim()`,
+        which strips the indentation a fenced block inside a comment depends
+        on. It now strips one leading space and trims the end, which is the
+        separator coming off rather than the content.
+      - **`buri docs test` walks `.buri` files too**, skipping `BUILD.buri` and
+        `REPO.buri` (textproto) and any source with no fence at all, which is a
+        byte scan.
+
+      Nine executable examples now live in standard library doc comments —
+      `queue`, `json`, `map`, `set`, `bitset`, `date`, `simd`, `bytes`,
+      `crypto` — each compiled, run, and its output compared, by
+      `doctest::standard_library_doc_comments`.
+
+- [x] **The standard library loads lazily.** `load_unit` used to load all
+      twenty-nine `core` modules on every command. It now loads
+      `stdlib::EAGER_MODULES` — the prelude plus the defining module of every
+      built-in type — and everything else arrives on import. `buri lint //...`
+      over the example repository went from 0.25s to 0.18s, and the saving
+      grows with the library rather than with the program.
+
+      The rule that makes it safe, enforced rather than reviewed: **a lazily
+      loaded module may not declare a method on a built-in type.** A method
+      needs no import, so `impl [U8]` in `core/bytes` would simply not resolve
+      in a program that never imported `core/bytes` — and the error would name
+      the call site rather than the cause.
+      `stdlib::a_lazily_loaded_module_declares_no_method_on_a_built_in_type`
+      fails on it, and `every_module_checks_on_its_own` checks each module the
+      way a program reaches it: on top of the eager set and its own imports,
+      rather than alongside all twenty-eight others.
+
+- [x] **A monomorphized symbol's hash cannot be name-based, and now says so.**
+      Lazy loading moved a symbol in `golden_js` for a program whose source had
+      not changed, which is untidy: `mono::name_of` hashes
+      `format!("{targs:?}")`, and a `Ty` carries `TyConId`s — indices into a
+      table whose contents depend on what the compilation loaded.
+
+      The obvious repair is to hash `types::show` instead — names, not indices.
+      **It is wrong, and it miscompiles.** `types.rs` renders *every* context
+      type as the literal `a context`, because a context type is generated and
+      has no name (SPEC 11.3). Two generics instantiated over different contexts
+      collide onto one symbol and one body silently replaces the other; the
+      conformance suite caught it as a program calling the wrong `Fs`
+      implementation. Rendering a context by the effects it binds does not help
+      either: two contexts binding the same effects to different implementations
+      are still different types, which is exactly what `Ty::Ctx(x) == Ty::Ctx(y)`
+      means. The index *is* the identity.
+
+      So the code is unchanged and the comment above `short_hash` — which
+      claimed symbols were "derived from labels and module paths rather than
+      from compilation order" — now says what is true and why it has to be.
+      `golden_js::generics_over_different_contexts_do_not_share_a_symbol` pins
+      the invariant, and fails if anyone tries the tidy version again.
+
+      A symbol moving when the toolchain changes what it loads is a real
+      wrinkle, and the honest answer is that `golden_js` re-records. Anything
+      better needs a name for a context type, which is a language change.
+
+- [x] **`core/list` has `foldResultCtx`.** `foldResult`'s function takes no
+      context and a lambda may not capture one, so a fallible fold that
+      allocates as it goes could not be written. `core/bytes::fromHex` is the
+      one that wanted it and now uses it, which also let its error carry the
+      index of the pair that failed rather than of the whole string.
+
+
+
+---
+
+## Roadmap: the two features not started
+
+Design notes. Neither is begun, and the sequencing matters more than the
+detail — both have a prerequisite that is cheap now and expensive later.
+
+### Native macOS and Linux executables
+
+`build.rs` errors on any non-JS platform; `driver::host_platform()` returns
+`Js` unconditionally; the example repository declares `LINUX`/`MACOS` outputs
+that nothing builds. `LLVM-tips.md` records the intended direction.
+
+1. **Make the backend an interface before writing a second one.** `codegen.rs`
+   and `js.rs` are entangled with `mono::Program`. Extract
+   `trait Backend { fn emit(&Program, &Tables, &Options) -> Result<Vec<u8>, Diagnostics> }`
+   and make JS the first implementor. Nothing else is safe until this exists,
+   and it gets harder every time either file grows.
+2. **The value model changes, and it is language-visible.** `runtime.js`
+   documents the current one: every integer is a double, a struct is an array,
+   an enum is a tag or `[tag, …]`. Native needs sized integers, tagged unions,
+   and a struct layout. This is where `I64` stops being a double and where
+   `SPEC.md` §6.2's "overflow is undefined" starts meaning something different
+   — `num.buri` says so explicitly, and it needs a SPEC amendment rather than a
+   quiet divergence.
+3. **Memory.** The language has no mutation and no destructors, so native
+   either ships a GC or does escape analysis with an arena per `Alloc` scope.
+   The allocator work above stops being decorative here — `Region` becomes
+   load-bearing — which is an argument for doing it properly first.
+4. **`core/host` per platform**, and `check_intrinsics` generalized so
+   "missing intrinsic" is a question asked per backend.
+5. **A real `link` action per `Output`**, the
+   `.buri/out/<platform>/<package>/<artifact>` layout (specified and
+   unexercised), `artifact_name`, and `--output=linux/x86_64` selection.
+6. **A cross-compilation story, or an explicit refusal.** Refusing is fine.
+   Saying nothing is not.
+
+Prerequisite: the interface-level incremental caching gap described under
+HERMETICITY above. `driver::analyze` is whole-closure, and a native build is
+slow enough that whole-closure recompiles become the thing everyone complains
+about first.
+
+### `.proto` import, with binary and JSON serialization
+
+`cli/src/docs/schema/build.proto` already writes the intended surface in its
+own header: `from "//proto/foo.proto" import …`. So the syntax is settled and
+the work is everything behind it.
+
+1. **A `.proto` *schema* parser**, distinct from `textproto.rs`, which reads
+   *values*. proto3 only: messages, enums, fields, `repeated`, `optional`,
+   `oneof`, nested types, `import`. No services, no extensions, no `Any`.
+2. **A module that is generated rather than read.** `Loader::resolve_module`
+   maps a path to a file; a `.proto` path has to map to a synthesized AST. That
+   machinery now exists — `Loader::load_source` is what the documentation
+   harness compiles fences with — so this is reuse rather than invention.
+3. **The mapping has to be decided, not discovered.** `message` → `struct` with
+   `Option<T>` for `optional` and `[T]` for `repeated`; `oneof` → `enum`.
+   Proto's implicit field presence and its defaults do not survive into a
+   language where `Option` is explicit, and that mismatch is a decision to
+   write down before any code depends on either answer.
+4. **Codecs, both directions of both formats.** If `derive ToJson` lands above,
+   the JSON half is largely done — proto's JSON mapping is a variation on it.
+   The binary half needs varints and zigzag, which is `core/bytes` work and
+   sits naturally beside the hex and base64 already there.
+5. **Build integration.** A `.proto` in a package is a source no rule lists,
+   which today is `undeclared-source`. It needs a `proto_sources` field in
+   `build.proto`, `gen.rs` support, and an `Action::Proto` cache entry.
+
+Land it after `core/json` and `core/bytes` — both now exist — and after
+`derive ToJson`. Doing it earlier means building the same machinery twice.

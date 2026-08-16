@@ -1,0 +1,157 @@
+// core/crypto — SHA-256 and HMAC-SHA-256, in Buri.
+//
+// The three vectors here are the ones `cache.rs` uses for the Rust
+// implementation the toolchain hashes files with. Computing them again in the
+// language is the strongest end-to-end test either has: U32 wrapping
+// arithmetic, rotation, sixty-four rounds of tail recursion, message padding,
+// and multi-block handling all have to be right at once, and a single wrong
+// bit changes the whole digest.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "core/list" import * as list;
+
+fn hex(text: Str): Str {
+  let ctx = Hermetic();
+  crypto.sha256Text(ctx, text).toHex(ctx)
+}
+
+// --- the NIST vectors ------------------------------------------------------------
+
+test "the empty message" {
+  assert.eq(hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
+test "abc" {
+  assert.eq(hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+}
+
+// 56 bytes: one byte short of needing a second block, which is where the
+// padding rule earns its keep.
+test "the 56-byte vector, which forces a second block" {
+  assert.eq(
+    hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+    "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+  );
+}
+
+// --- block boundaries ---------------------------------------------------------------
+
+test "messages either side of a block boundary" {
+  let ctx = Hermetic();
+  // 55 bytes fits with its padding; 56 does not; 64 is exactly a block.
+  assert.eq(
+    hex("a".repeat(ctx, 55)),
+    "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318",
+  );
+  assert.eq(
+    hex("a".repeat(ctx, 56)),
+    "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a",
+  );
+  assert.eq(
+    hex("a".repeat(ctx, 64)),
+    "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb",
+  );
+}
+
+test "a long message spanning many blocks" {
+  let ctx = Hermetic();
+  assert.eq(
+    hex("a".repeat(ctx, 1000)),
+    "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3",
+  );
+}
+
+// --- the digest itself ----------------------------------------------------------------
+
+test "a digest is thirty-two bytes" {
+  let ctx = Hermetic();
+  assert.eq(crypto.sha256Text(ctx, "abc").0.len(), 32);
+  assert.eq(crypto.sha256Text(ctx, "abc").toHex(ctx).len(), 64);
+}
+
+test "hashing bytes and hashing their text agree" {
+  let ctx = Hermetic();
+  assert.eq(crypto.sha256(ctx, bytes.toUtf8(ctx, "hello")), crypto.sha256Text(ctx, "hello"));
+}
+
+test "different messages have different digests" {
+  assert.notEq(hex("a"), hex("b"));
+  assert.notEq(hex(""), hex(" "));
+}
+
+// A digest depends on the bytes, so text that encodes to more bytes than it has
+// characters must not be treated as one byte per character.
+test "non-ASCII text hashes its UTF-8 bytes" {
+  let ctx = Hermetic();
+  assert.eq(crypto.sha256Text(ctx, "é"), crypto.sha256(ctx, [195, 169]));
+  assert.notEq(hex("é"), hex("e"));
+}
+
+// --- HMAC ------------------------------------------------------------------------------
+
+// RFC 4231 test case 2, which uses a key shorter than the block.
+test "the RFC 4231 short-key vector" {
+  let ctx = Hermetic();
+  let key = bytes.toUtf8(ctx, "Jefe");
+  let message = bytes.toUtf8(ctx, "what do ya want for nothing?");
+  assert.eq(
+    crypto.hmacSha256(ctx, key, message).toHex(ctx),
+    "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+  );
+}
+
+// RFC 4231 test case 1: a 20-byte key of 0x0b.
+test "the RFC 4231 twenty-byte-key vector" {
+  let ctx = Hermetic();
+  let key = list.repeat(ctx, 11, 20);
+  let message = bytes.toUtf8(ctx, "Hi There");
+  assert.eq(
+    crypto.hmacSha256(ctx, key, message).toHex(ctx),
+    "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+  );
+}
+
+// A key longer than the block is hashed first, which is the clause that keeps
+// two long keys from colliding by accident of length.
+test "the RFC 4231 long-key vector" {
+  let ctx = Hermetic();
+  let key = list.repeat(ctx, 170, 131);
+  let message = bytes.toUtf8(ctx, "Test Using Larger Than Block-Size Key - Hash Key First");
+  assert.eq(
+    crypto.hmacSha256(ctx, key, message).toHex(ctx),
+    "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
+  );
+}
+
+test "hmac depends on the key" {
+  let ctx = Hermetic();
+  let m = bytes.toUtf8(ctx, "message");
+  let a = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k1"), m);
+  let b = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k2"), m);
+  assert.notEq(a, b);
+}
+
+// --- constant-time comparison --------------------------------------------------------
+
+test "equalsConstantTime agrees with equality" {
+  let ctx = Hermetic();
+  let a = crypto.sha256Text(ctx, "x").0;
+  let b = crypto.sha256Text(ctx, "x").0;
+  let c = crypto.sha256Text(ctx, "y").0;
+  assert.isTrue(crypto.equalsConstantTime(a, b));
+  assert.isFalse(crypto.equalsConstantTime(a, c));
+  assert.isTrue(crypto.equalsConstantTime(list.empty::<U8>(), list.empty::<U8>()));
+  assert.isFalse(crypto.equalsConstantTime(a, [1, 2]));
+}
+
+// The first byte differing and the last byte differing must both come back
+// false — an implementation that stopped early would still pass the first.
+test "equalsConstantTime does not stop at the first difference" {
+  assert.isFalse(crypto.equalsConstantTime([1, 2, 3], [9, 2, 3]));
+  assert.isFalse(crypto.equalsConstantTime([1, 2, 3], [1, 2, 9]));
+  assert.isTrue(crypto.equalsConstantTime([1, 2, 3], [1, 2, 3]));
+}

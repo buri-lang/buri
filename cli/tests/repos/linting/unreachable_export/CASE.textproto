@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an export that lib.buri does not re-export and no sibling imports: unreachable-export, with the two exports that are reached staying quiet"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# Putting it on the surface is one of the two fixes the diagnostic offers. The
+# other is dropping the `export`, and both end the finding.
+edit {
+  file: "lib/money/lib.buri"
+  replace: "export { Cents, fromCents };"
+  with: "export { Cents, fromCents, toDollars };"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

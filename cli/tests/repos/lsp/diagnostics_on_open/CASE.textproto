@@ -1,0 +1,15 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a type error is published on didOpen, with the fix carried as relatedInformation"
+
+# `stdin` names a file of one JSON-RPC request per line; the harness adds the
+# Content-Length framing and records the decoded responses, so the golden is
+# about what was said rather than about how many bytes it took.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

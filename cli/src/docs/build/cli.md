@@ -104,11 +104,19 @@ is a repository decision.
 ```
 buri lint //...
 buri lint //lib/money
+buri lint //... --fix      apply the findings that have one mechanical answer
 ```
 
 Checks that type checking does not cover. Every finding names the edit that
-resolves it; none are applied automatically, because a lint that rewrites
-source is a lint whose output nobody reads.
+resolves it, and by default none are applied — a report you have to read is
+the point.
+
+`--fix` applies the subset whose answer is mechanical, and only that subset:
+a build file that disagrees with the code is handed to `buri gen`, an unused
+import is deleted, and everything else is reported. A finding that needs a
+judgement call — which edge of a `dep-cycle` to cut, which of two tags a target
+should not have — is never guessed at, because a tool that picks one is not
+fixing the finding, it is deleting the policy that raised it.
 
 Build-graph rules — always errors, not configurable:
 
@@ -119,8 +127,13 @@ Build-graph rules — always errors, not configurable:
 | `missing-dep` | Use of a library that is not in `dependencies` — by import, or by a method call resolving into it. |
 | `unused-dep` | A `dependencies` entry no source uses. |
 | `dep-cycle` | A cycle between packages. |
-| `boundary-violation` | An import of a module internal to another package, or across a rule boundary within one. |
-| `testonly-in-production` | A non-test source importing a path with a `testing` segment. |
+| `circular-import` | A cycle between *modules*, which is the same rule one level down. The message names the whole cycle, because any one edge of it looks fine alone. |
+| `no-such-module` | A path that names no module. There are two kinds and no others: `core/...` and `//...`. |
+| `module-outside-repository` | A `//...` path used where there is no repository to be relative to. |
+| `host-import` | An import of `core/host` from a module other than the one exporting `main`. The context `main` builds is the program's whole effect budget; a second module able to import `core/host` would be a second place authority enters. |
+| `internal-import` | An import of a module internal to another package. |
+| `binary-entry-import` | An import of a binary's entry point from outside that binary's own test sources. |
+| `test-only-import` | A non-test source importing a path with a `testing` segment. |
 | `visibility-violation` | A dependency the target is not visible to. |
 | `tag-violation` | Two tags that forbid each other in one dependency closure. |
 | `platform-violation` | A target in the closure that does not admit the platform being built. |
@@ -131,11 +144,31 @@ Style and hygiene rules:
 | | Severity |
 |---|---|
 | `unreachable-export` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export |
-| `unused-import` | error |
-| `unsorted-imports` | warn |
-| `discarded-result` | warn — `let _ =` on a `Result`, the greppable escape hatch of [`SPEC.md` §6.8](./SPEC.md) |
+| `unused-import` | error — an imported name that appears nowhere else in the module |
+| `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](./SPEC.md) |
 | `empty-test-suite` | warn — a `test` block with no `sources` |
-| `test-without-assertion` | warn — a `test` declaration whose body contains no `assert` |
+| `test-without-assertion` | warn — a `test` from which nothing reachable calls `core/testing/assert` |
+
+Three of these read differently than you might expect, and the reasons are the
+same reason in three shapes — a rule that fires on the wrong thing is worse
+than no rule:
+
+- `unused-import` is **syntactic**. A name counts as used if it appears as an
+  identifier token anywhere outside the import statements. That
+  over-approximates use, which is the safe direction at error severity: a
+  shadowed binding with the same spelling silences the finding rather than
+  producing a wrong one.
+- `discarded-result` cannot be about `let _ = <Result>`, because that is
+  already a hard type error — `result-discarded`, in the error catalog. The only
+  way a `Result` is dropped on purpose is `ignore`, so that is what the rule
+  reports — it is the grep, run for you.
+- `test-without-assertion` is **transitive**. Read as "the body contains no
+  `assert`" it fires on every test that asserts through a helper, which is most
+  of the ones worth writing. A test passes the rule if anything reachable from
+  it calls into `core/testing/assert`.
+
+Import order is not a lint. `buri format` sorts imports, so an unsorted import
+run is not a finding to report — it is a file that has not been formatted.
 
 **None of this is configurable.** There is no `lint` block in `REPO.buri`, no
 per-file suppression comment, and no way to promote or silence a check for one

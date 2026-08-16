@@ -32,6 +32,8 @@ pub struct Flags {
     pub release: bool,
     pub debug: bool,
     pub check: bool,
+    /// Apply the findings that have one mechanical answer. `buri lint` only.
+    pub fix: bool,
     pub force: bool,
     pub accept: bool,
     pub outputs_only: bool,

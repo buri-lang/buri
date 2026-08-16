@@ -1,0 +1,16 @@
+id = "buri"
+name = "Buri"
+description = "Buri language support: syntax, and the toolchain's own language server"
+version = "0.3.0"
+schema_version = 1
+authors = ["The Buri authors"]
+
+[grammars.buri]
+repository = "https://github.com/buri-lang/tree-sitter-buri"
+# Pinned by commit, the same way REPO.buri pins the toolchain: an extension
+# that tracks a moving grammar is an extension that breaks without a change.
+commit = "0000000000000000000000000000000000000000"
+
+[language_servers.buri]
+name = "Buri"
+languages = ["Buri"]

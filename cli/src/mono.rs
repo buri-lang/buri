@@ -840,8 +840,25 @@ fn sanitize(s: &str) -> String {
 }
 
 /// A short, deterministic tag distinguishing two instantiations of one
-/// function. Symbol names are derived from labels and module paths rather than
-/// from compilation order, so two builds agree.
+/// function.
+///
+/// It is taken over the `Debug` form of the type arguments, which contains
+/// `TyConId`s — indices into this compilation's type table. Two builds of the
+/// same sources agree, because the table is built the same way both times; two
+/// builds under *different toolchains* need not, and `golden_js` re-records
+/// when that happens.
+///
+/// Hashing a rendering instead would be tidier, and does not work: a context
+/// type is generated and has no name (SPEC 11.3), so `types::show` prints every
+/// one of them as `a context`. Two generics instantiated over different
+/// contexts would land on the same symbol and one body would silently replace
+/// the other — a miscompile, and a worse thing than a symbol that moves. Nor
+/// would rendering a context by the effects it binds help: two contexts binding
+/// the same effects to different implementations are still different types,
+/// which is what `Ty::Ctx(x) == Ty::Ctx(y)` means. The index is the identity.
+///
+/// `golden_js::generics_over_different_contexts_do_not_share_a_symbol` is the
+/// test that says so.
 fn short_hash(s: &str) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.bytes() {

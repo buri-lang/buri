@@ -11,7 +11,6 @@
 
 from "core/testing/assert" import * as assert;
 from "core/bits" import * as bits;
-from "core/num" import { Bounded };
 from "core/num" import * as num;
 
 // --- shl ---------------------------------------------------------------------------
@@ -222,4 +221,64 @@ test "shifting by zero changes nothing at any width" {
   assert.eq(bits.shlU8(200, 0), 200);
   assert.eq(bits.shrU32(4294967295, 0), 4294967295);
   assert.eq(bits.shlU64(9007199254740991, 0), 9007199254740991);
+}
+
+// --- the bitwise operators are 64-bit ------------------------------------------------
+//
+// `Int` is `I64`, and JavaScript's `&`, `|`, `^` and `~` coerce to 32-bit
+// signed — so on the only backend these had to stop being the native operators
+// somewhere above bit 31. They did not, and every one of these was wrong until
+// `core/bitset` walked into it.
+
+test "or keeps bits above 31" {
+  assert.eq(0 | bits.shl(1, 31), 2147483648);
+  assert.eq(0 | bits.shl(1, 40), 1099511627776);
+}
+
+test "and keeps bits above 31" {
+  assert.eq(bits.shl(1, 40) & bits.shl(1, 40), bits.shl(1, 40));
+  assert.eq(bits.shl(1, 31) & bits.shl(1, 31), 2147483648);
+}
+
+test "xor keeps bits above 31" {
+  assert.eq(bits.shl(1, 40) ^ 0, 1099511627776);
+  assert.eq(bits.shl(1, 40) ^ bits.shl(1, 40), 0);
+}
+
+test "not is the 64-bit complement" {
+  // The literals are bound first: `~` needs a type, and a bare literal has
+  // not been pinned to one yet.
+  let zero: Int = 0;
+  let minusOne: Int = -1;
+  assert.eq(~zero, -1);
+  assert.eq(~minusOne, 0);
+  // Two's complement: ~x == -x - 1, which only holds if the width is right.
+  assert.eq(~bits.shl(1, 40), -bits.shl(1, 40) - 1);
+}
+
+// The same defect one width down: the native operators return a *signed*
+// 32-bit result, so an unsigned type whose value has the top bit set came back
+// negative, and `~` on a narrow unsigned type flipped bits the type does not
+// have.
+test "unsigned bitwise results stay unsigned" {
+  let hi: U32 = 2147483648;
+  let zeroU32: U32 = 0;
+  assert.eq(hi | zeroU32, 2147483648);
+  assert.eq(hi & hi, 2147483648);
+  assert.eq(hi ^ zeroU32, 2147483648);
+  assert.eq(~zeroU32, 4294967295);
+}
+
+test "a narrow unsigned complement stays inside its width" {
+  let zeroU8: U8 = 0;
+  let zeroU16: U16 = 0;
+  assert.eq(~zeroU8, 255);
+  assert.eq(~zeroU16, 65535);
+}
+
+test "the operators agree with popCount about how many bits there are" {
+  assert.eq(bits.popCount(0 | bits.shl(1, 31)), 1);
+  assert.eq(bits.popCount(bits.shl(1, 40) | bits.shl(1, 20)), 2);
+  let zero: Int = 0;
+  assert.eq(bits.popCount(~zero), 64);
 }

@@ -45,3 +45,20 @@ fn tag_policy() {
 fn cli_contract() {
     run_corpus(&tests_dir().join("repos/cli"), "cli", 2);
 }
+
+/// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
+/// code rather than about the graph. Each case ends with the edit that makes
+/// the finding go away, because a rule nothing can turn off is a rule nobody
+/// can check the fix for.
+#[test]
+fn lint_catalogue() {
+    run_corpus(&tests_dir().join("repos/linting"), "linting", 7);
+}
+
+/// The language server. Each case is a recorded session: requests in, decoded
+/// responses out, so a change to what the server says shows up as a diff
+/// rather than as an editor behaving differently.
+#[test]
+fn language_server() {
+    run_corpus(&tests_dir().join("repos/lsp"), "lsp", 4);
+}

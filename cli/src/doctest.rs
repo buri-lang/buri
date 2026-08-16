@@ -1095,3 +1095,45 @@ mod tests {
         assert!(rendered(body).contains("str.trim"));
     }
 }
+
+// -----------------------------------------------------------------------------
+// Documentation comments
+// -----------------------------------------------------------------------------
+
+/// The `///` and `//!` comments of a source file, as a markdown document.
+///
+/// The trick that makes this cheap: the result has **the same number of lines
+/// as the source**, with each doc line at its own line number and everything
+/// else blank. So a block's `origin.line` is already the line in the `.buri`
+/// file, and there is no map to build, keep, or get wrong. The blank lines
+/// between doc runs are also what separates one comment's prose from the
+/// next's, which is what markdown wants anyway.
+///
+/// This is deliberately textual rather than a walk over the AST: a file whose
+/// examples are worth checking may be one that does not currently compile, and
+/// the fences in it are still worth extracting.
+pub fn doc_comments(source: &str) -> String {
+    let mut out = String::new();
+    for line in source.lines() {
+        let t = line.trim_start();
+        // `////` is not a doc comment — the lexer says so, and so does this.
+        let body = if let Some(rest) = t.strip_prefix("//!") {
+            Some(crate::lex::doc_body(rest))
+        } else if t.starts_with("///") && !t.starts_with("////") {
+            Some(crate::lex::doc_body(&t[3..]))
+        } else {
+            None
+        };
+        if let Some(b) = body {
+            out.push_str(&b);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Whether a source file has anything for the doctest harness to do. A byte
+/// scan, so a repository full of files with no examples costs nothing.
+pub fn has_examples(source: &str) -> bool {
+    source.contains("```")
+}

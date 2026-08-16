@@ -64,6 +64,10 @@ pub struct Checked {
     /// `main`, when this compilation has one.
     pub entry: Option<FnId>,
     pub tests: Vec<TestCase>,
+    /// Per package, the set of names its `lib.buri` puts on the surface. The
+    /// checker needs it to filter method resolution; `unreachable-export` needs
+    /// it to ask the opposite question — what is exported and reaches nobody.
+    pub surfaces: HashMap<PkgId, HashSet<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -147,6 +151,7 @@ impl<'a> Checker<'a> {
             consts: self.const_values,
             entry: self.entry,
             tests: self.tests,
+            surfaces: self.surfaces,
         }
     }
 

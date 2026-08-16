@@ -1,0 +1,7 @@
+# `dependencies` is missing //lib/money, which main.buri imports. `buri gen`
+# writes this field, so `--fix` calls it rather than editing the text.
+binary {
+  outputs: [
+    { platform: JS },
+  ]
+}

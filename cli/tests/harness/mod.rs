@@ -188,12 +188,34 @@ fn replace_between(s: &str, open: &str, close: &str, with: &str) -> String {
 }
 
 pub fn run_in(dir: &Path, args: &[&str]) -> Run {
-    let out = Command::new(buri())
-        .args(args)
-        .arg("--color=never")
-        .current_dir(dir)
-        .output()
-        .expect("the buri binary runs");
+    run_in_with_stdin(dir, args, None)
+}
+
+/// The same, with bytes on standard input.
+///
+/// `buri lsp` is the only command that reads stdin, and it reads until the
+/// stream closes — so the input has to be handed over whole and the pipe shut,
+/// which `Command::output` does not do on its own.
+pub fn run_in_with_stdin(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Run {
+    let mut cmd = Command::new(buri());
+    cmd.args(args).arg("--color=never").current_dir(dir);
+    let out = match stdin {
+        None => cmd.output().expect("the buri binary runs"),
+        Some(bytes) => {
+            use std::io::Write;
+            use std::process::Stdio;
+            let mut child = cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("the buri binary runs");
+            // Dropped at the end of the block, which closes the pipe and is
+            // what tells the server the session is over.
+            child.stdin.take().expect("stdin is piped").write_all(bytes).expect("writing stdin");
+            child.wait_with_output().expect("the buri binary finishes")
+        }
+    };
     Run {
         code: out.status.code().unwrap_or(-1),
         stdout: strip_ansi(&String::from_utf8_lossy(&out.stdout)),
@@ -299,6 +321,10 @@ impl Scratch {
 
     pub fn run(&self, args: &[&str]) -> Run {
         run_in(&self.root, args)
+    }
+
+    pub fn run_with_stdin(&self, args: &[&str], stdin: &[u8]) -> Run {
+        run_in_with_stdin(&self.root, args, Some(stdin))
     }
 
     /// The artifact `//<pkg_path>` builds to, under the JS runtime.

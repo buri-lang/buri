@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a call to core/result.ignore: discarded-result, a warning that leaves the exit code at 0"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# Handling the failure ends the finding. `?` is the other answer the diagnostic
+# names, and either one removes the `ignore`.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "  let _ = record().ignore();\n"
+  with: "  let _ = record()?;\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -1,0 +1,135 @@
+// core/simd — fixed-width vectors.
+//
+// Scalar underneath on this backend, so what these check is the *semantics*:
+// that every operation is lane-wise, that a mask is 1 and 0 rather than a
+// boolean, and that a horizontal reduction reduces across all four.
+
+from "core/testing/assert" import * as assert;
+
+from "core/simd" import * as simd;
+
+// --- construction ----------------------------------------------------------------
+
+test "splat puts the same value in every lane" {
+  let v = simd.splatF(2.5);
+  assert.eq(v, simd.f32x4(2.5, 2.5, 2.5, 2.5));
+  assert.eq(simd.splatI(3), simd.i32x4(3, 3, 3, 3));
+}
+
+test "zero is zero in every lane" {
+  assert.eq(simd.ZERO_F, simd.splatF(0.0));
+  assert.eq(simd.ZERO_I, simd.splatI(0));
+}
+
+test "lane reads each of the four" {
+  let v = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+  assert.eq(v.lane(0), 1.0);
+  assert.eq(v.lane(1), 2.0);
+  assert.eq(v.lane(2), 3.0);
+  assert.eq(v.lane(3), 4.0);
+  // Out of range is lane 0 — a vector has exactly four.
+  assert.eq(v.lane(9), 1.0);
+  assert.eq(v.lane(-1), 1.0);
+}
+
+test "withLane replaces one and leaves the rest" {
+  let v = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+  assert.eq(v.withLane(2, 9.0), simd.f32x4(1.0, 2.0, 9.0, 4.0));
+  assert.eq(v.withLane(0, 9.0), simd.f32x4(9.0, 2.0, 3.0, 4.0));
+  assert.eq(simd.i32x4(1, 2, 3, 4).withLane(3, 9), simd.i32x4(1, 2, 3, 9));
+}
+
+// --- arithmetic is lane-wise -------------------------------------------------------
+
+test "float arithmetic is lane-wise" {
+  let a = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+  let b = simd.f32x4(10.0, 20.0, 30.0, 40.0);
+  assert.eq(a.add(b), simd.f32x4(11.0, 22.0, 33.0, 44.0));
+  assert.eq(b.sub(a), simd.f32x4(9.0, 18.0, 27.0, 36.0));
+  assert.eq(a.mul(b), simd.f32x4(10.0, 40.0, 90.0, 160.0));
+  assert.eq(b.div(a), simd.f32x4(10.0, 10.0, 10.0, 10.0));
+  assert.eq(a.scale(2.0), simd.f32x4(2.0, 4.0, 6.0, 8.0));
+  assert.eq(a.neg(), simd.f32x4(-1.0, -2.0, -3.0, -4.0));
+}
+
+test "integer arithmetic is lane-wise" {
+  let a = simd.i32x4(1, 2, 3, 4);
+  let b = simd.i32x4(10, 20, 30, 40);
+  assert.eq(a.add(b), simd.i32x4(11, 22, 33, 44));
+  assert.eq(b.sub(a), simd.i32x4(9, 18, 27, 36));
+  assert.eq(a.mul(b), simd.i32x4(10, 40, 90, 160));
+}
+
+test "min and max choose per lane rather than per vector" {
+  let a = simd.f32x4(1.0, 9.0, 3.0, 9.0);
+  let b = simd.f32x4(9.0, 2.0, 9.0, 4.0);
+  assert.eq(a.min(b), simd.f32x4(1.0, 2.0, 3.0, 4.0));
+  assert.eq(a.max(b), simd.f32x4(9.0, 9.0, 9.0, 9.0));
+  assert.eq(simd.i32x4(1, 9, 3, 9).min(simd.i32x4(9, 2, 9, 4)), simd.i32x4(1, 2, 3, 4));
+  assert.eq(simd.i32x4(1, 9, 3, 9).max(simd.i32x4(9, 2, 9, 4)), simd.i32x4(9, 9, 9, 9));
+}
+
+test "abs and sqrt are lane-wise" {
+  assert.eq(simd.f32x4(-1.0, 2.0, -3.0, 4.0).abs(), simd.f32x4(1.0, 2.0, 3.0, 4.0));
+  assert.eq(simd.f32x4(1.0, 4.0, 9.0, 16.0).sqrt(), simd.f32x4(1.0, 2.0, 3.0, 4.0));
+}
+
+// --- horizontal reductions -----------------------------------------------------------
+
+test "sum reduces across the lanes" {
+  assert.eq(simd.f32x4(1.0, 2.0, 3.0, 4.0).sum(), 10.0);
+  assert.eq(simd.i32x4(1, 2, 3, 4).sum(), 10);
+  assert.eq(simd.ZERO_F.sum(), 0.0);
+}
+
+test "dot is the sum of the lane-wise product" {
+  let a = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+  let b = simd.f32x4(5.0, 6.0, 7.0, 8.0);
+  assert.eq(a.dot(b), 70.0);
+  assert.eq(simd.i32x4(1, 2, 3, 4).dot(simd.i32x4(5, 6, 7, 8)), 70);
+  assert.eq(a.dot(simd.ZERO_F), 0.0);
+}
+
+// --- masks -----------------------------------------------------------------------------
+
+test "a comparison produces a mask of 1 and 0, not booleans" {
+  let a = simd.f32x4(1.0, 5.0, 3.0, 7.0);
+  let b = simd.f32x4(2.0, 2.0, 3.0, 8.0);
+  assert.eq(a.lessThan(b), simd.i32x4(1, 0, 0, 1));
+  assert.eq(a.equalTo(b), simd.i32x4(0, 0, 1, 0));
+}
+
+test "select takes each lane from the side its mask names" {
+  let mask = simd.i32x4(1, 0, 1, 0);
+  let a = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+  let b = simd.f32x4(10.0, 20.0, 30.0, 40.0);
+  assert.eq(simd.selectF(mask, a, b), simd.f32x4(1.0, 20.0, 3.0, 40.0));
+}
+
+test "allTrue and anyTrue read a mask" {
+  assert.isTrue(simd.i32x4(1, 1, 1, 1).allTrue());
+  assert.isFalse(simd.i32x4(1, 1, 0, 1).allTrue());
+  assert.isTrue(simd.i32x4(0, 0, 1, 0).anyTrue());
+  assert.isFalse(simd.ZERO_I.anyTrue());
+}
+
+test "bitwise operations are lane-wise" {
+  let a = simd.i32x4(12, 10, 255, 0);
+  let b = simd.i32x4(10, 12, 15, 7);
+  assert.eq(a.and(b), simd.i32x4(8, 8, 15, 0));
+  assert.eq(a.or(b), simd.i32x4(14, 14, 255, 7));
+  assert.eq(a.xor(b), simd.i32x4(6, 6, 240, 7));
+}
+
+test "an integer vector converts to a float one" {
+  assert.eq(simd.i32x4(1, 2, 3, 4).toFloat(), simd.f32x4(1.0, 2.0, 3.0, 4.0));
+}
+
+// The shape a vector kernel takes: no loop, no ordering, one expression.
+test "a small kernel reads the way a vector kernel should" {
+  let position = simd.f32x4(1.0, 2.0, 3.0, 0.0);
+  let velocity = simd.f32x4(0.5, -0.5, 1.0, 0.0);
+  let stepped = position.add(velocity.scale(2.0));
+  assert.eq(stepped, simd.f32x4(2.0, 1.0, 5.0, 0.0));
+  assert.eq(stepped.dot(stepped), 4.0 + 1.0 + 25.0);
+}

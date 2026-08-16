@@ -130,12 +130,15 @@ impl<'a> Loader<'a> {
     /// Loads every module of a unit: the target's entry point, its declared
     /// sources, and everything they import.
     pub fn load_unit(&mut self, unit: &Unit) {
-        // Every `core` module, not just the prelude: methods need no import
-        // (SPEC 6.7.3), so a type's defining module has to be present for
-        // `xs.map(...)` to resolve whether or not anything named `core/list`.
-        // They are leaves in the dependency graph and dead code elimination
-        // removes whatever a program does not reach.
-        self.load_all_std();
+        // The modules that define the built-in types, and no others. A method
+        // needs no import (SPEC 6.7.3), so `[T]`'s and `Str`'s defining modules
+        // have to be present for `xs.map(...)` and `s.trim()` to resolve in a
+        // program that never names them. The rest of the standard library
+        // declares methods only on its own types, which a program cannot have
+        // without importing the module that declares them — so it loads on
+        // import, and nothing pays to parse `core/crypto` to compile a program
+        // that has never heard of it.
+        self.load_builtin_modules();
         let (Some(ws), Some(target)) = (self.ws, unit.target) else { return };
         let pkg = ws.pkg(target.pkg);
 
@@ -188,6 +191,20 @@ impl<'a> Loader<'a> {
         for path in stdlib::PRELUDE_MODULES {
             self.load_std(path, Span::NONE);
         }
+    }
+
+    /// The modules a compilation always needs: the prelude, and the defining
+    /// module of every built-in type. See `stdlib::EAGER_MODULES`.
+    pub fn load_builtin_modules(&mut self) {
+        self.load_prelude();
+        for path in stdlib::EAGER_MODULES {
+            self.load_std(path, Span::NONE);
+        }
+    }
+
+    /// One standard library module by path, with its imports.
+    pub fn load_std_module(&mut self, path: &str) {
+        self.load_std(path, Span::NONE);
     }
 
     /// Every standard library module, for the toolchain's own self-check.

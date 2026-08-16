@@ -1,0 +1,9 @@
+library {
+  sources: ["cents.buri"]
+  visibility: ["//visibility:public"]
+
+  # Written, and backed by nothing. Every tool that walks the graph reads this
+  # as "this library has tests".
+  test {
+  }
+}

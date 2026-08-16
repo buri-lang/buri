@@ -1,0 +1,4 @@
+// The collections conformance package. Its `test/` directory calls every
+// exported name of the collection modules — which the `stdlib` suite cannot,
+// because it stops after type checking and a body-less declaration with no
+// runtime function behind it passes that silently.

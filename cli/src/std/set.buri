@@ -1,0 +1,106 @@
+//! core/set — a hash set.
+//!
+//! A `Map<T, ()>`, which is what a set is. Everything true of `core/map` is
+//! true here: expected-constant membership, an insert that copies the bucket
+//! spine, and an iteration order that follows the hashes and is not to be
+//! relied on.
+//!
+//! It is a wrapper rather than an alias so that `insert` takes one argument
+//! instead of two and `union` can exist — a set has operations a map does not.
+//!
+//! ```buri run
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/list" import * as list;
+//! from "core/set" import * as set;
+//! from "core/str" import * as str;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let a = set.of(ctx, [1, 2, 2, 3]);
+//!   let b = set.of(ctx, [3, 4]);
+//!   // Sorted for printing: the iteration order follows the hashes, and is
+//!   // deliberately not something to rely on.
+//!   let all = a.union(ctx, b).toList(ctx).sort(ctx);
+//!   let shown = all.mapCtx(ctx, fn(c, i) => str.fromInt(c, i)).join(ctx, " ");
+//!   let _ = ctx.println("${a.len()} unique, union ${shown}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 3 unique, union 1 2 3 4
+//! ```
+
+from "core/cap" import { Alloc };
+from "core/list" import * as list;
+from "core/map" import { Map };
+from "core/map" import * as map;
+
+export struct Set<T> {
+  entries: Map<T, ()>,
+}
+
+/// The empty set. Pure, for the same reason `map.empty` is.
+export fn empty<T>(): Set<T> {
+  Set { entries: map.empty::<T, ()>() }
+}
+
+/// A set holding the given items. Duplicates collapse, which is the point.
+export fn of<T: Hash + Eq, C: Alloc>(ctx: C, items: [T]): Set<T> {
+  items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty::<T>())
+}
+
+impl<T: Hash + Eq> Set<T> {
+  export fn len(self: Set<T>): Int {
+    self.entries.len()
+  }
+
+  export fn isEmpty(self: Set<T>): Bool {
+    self.entries.isEmpty()
+  }
+
+  export fn has(self: Set<T>, item: T): Bool {
+    self.entries.has(item)
+  }
+
+  export fn insert<C: Alloc>(self: Set<T>, ctx: C, item: T): Set<T> {
+    Set { entries: self.entries.insert(ctx, item, ()) }
+  }
+
+  export fn remove<C: Alloc>(self: Set<T>, ctx: C, item: T): Set<T> {
+    Set { entries: self.entries.remove(ctx, item) }
+  }
+
+  /// Every member, in no particular order.
+  export fn toList<C: Alloc>(self: Set<T>, ctx: C): [T] {
+    self.entries.keys(ctx)
+  }
+
+  export fn union<C: Alloc>(self: Set<T>, ctx: C, other: Set<T>): Set<T> {
+    other.toList(ctx).foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), self)
+  }
+
+  export fn intersect<C: Alloc>(self: Set<T>, ctx: C, other: Set<T>): Set<T> {
+    let theirs = other;
+    let kept = self.toList(ctx).filterCtx(ctx, fn(_c, x) => theirs.has(x));
+    of(ctx, kept)
+  }
+
+  /// The members of `self` that are not in `other`.
+  export fn difference<C: Alloc>(self: Set<T>, ctx: C, other: Set<T>): Set<T> {
+    let theirs = other;
+    let kept = self.toList(ctx).filterCtx(ctx, fn(_c, x) => !theirs.has(x));
+    of(ctx, kept)
+  }
+
+  export fn isSubsetOf<C: Alloc>(self: Set<T>, ctx: C, other: Set<T>): Bool {
+    let theirs = other;
+    self.toList(ctx).all(fn(x) => theirs.has(x))
+  }
+
+  /// Same members, whatever order either was built in.
+  export fn equals<C: Alloc>(self: Set<T>, ctx: C, other: Set<T>): Bool {
+    self.len() == other.len() && self.isSubsetOf(ctx, other)
+  }
+}

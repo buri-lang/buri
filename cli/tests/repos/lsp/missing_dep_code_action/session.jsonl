@@ -1,0 +1,12 @@
+# A finding the language server reports, and the fix it offers for it.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The build-graph findings are published too, not only the type errors.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// Imports //lib/money, which `cmd/app/BUILD.buri` does not name in\n// `dependencies`. The module resolves \u2014 the loader searches the workspace \u2014\n// so this builds, and the graph is a description of something other than the\n// code until `buri lint` says so.\n\nfrom \"core/cap\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nfrom \"//lib/money\" import { fromCents };\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"cents: ${fromCents(450).show(ctx)}\");\n  .Ok(())\n}\n"}}}
+# The fix is the whole BUILD.buri `buri gen` would write — never a byte edit
+# of a build file, so `--fix`, `gen`, and this cannot disagree.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "imports //lib/money, which is not in dependencies", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+# A finding with no mechanical answer offers nothing.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "dep-cycle", "message": "x", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

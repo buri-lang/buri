@@ -404,6 +404,29 @@ export enum Tree<T> {
 
 derive Eq, Show for Tree;
 
+// A type that reaches itself *through a container* rather than directly.
+//
+// `Node(Tree<T>, T, Tree<T>)` above recurses immediately; this recurses through
+// `[Rose]`, and deciding whether a derived `Eq` holds means asking the same
+// question of the element type — which is this type again. That walk had a
+// guard for the direct case and none for this one, so `a == b` on a `Rose`
+// hung the compiler until it ran out of stack. It is not generic, on purpose:
+// a type parameter is undecidable at the declaration and takes a different
+// path through the checker.
+export enum Rose {
+  export Leaf(Int),
+  export Branch([Rose]),
+}
+
+derive Eq, Show for Rose;
+
+export fn roseSum(r: Rose): Int {
+  match (r) {
+    .Leaf(n) => n,
+    .Branch(kids) => kids.fold(fn(acc, k) => acc + roseSum(k), 0),
+  }
+}
+
 impl<T: Ord> Tree<T> {
   export fn insert(self: Tree<T>, value: T): Tree<T> {
     match (self) {
