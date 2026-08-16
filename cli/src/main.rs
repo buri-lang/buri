@@ -10,16 +10,16 @@
 //! the help text and `buri docs cli` are generated from the same table that
 //! dispatches.
 
-use buri::{cli, commands};
+use buri::commands::{self, arguments};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let args = match cli::parse(&argv) {
+    let args = match arguments::parse(&argv) {
         Ok(a) => a,
         Err(msg) => {
             if msg.is_empty() {
-                cli::out(&commands::usage());
+                arguments::out(&commands::usage());
                 return ExitCode::from(if argv.is_empty() { 2 } else { 0 });
             }
             eprintln!("error: {msg}");
@@ -30,14 +30,14 @@ fn main() -> ExitCode {
     };
 
     if matches!(args.command.as_str(), "help" | "--help" | "-h") {
-        cli::out(&commands::usage());
+        arguments::out(&commands::usage());
         return ExitCode::from(0);
     }
 
     let Some(command) = commands::find(&args.command) else {
         eprintln!("error: there is no command `{}`", args.command);
         let names: Vec<&str> = commands::COMMANDS.iter().map(|c| c.name).collect();
-        if let Some(near) = buri::buildfile::nearest(&args.command, &names) {
+        if let Some(near) = buri::build::buildfile::nearest(&args.command, &names) {
             eprintln!("  = did you mean `buri {near}`?");
         }
         eprintln!();

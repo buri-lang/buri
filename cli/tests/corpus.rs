@@ -54,9 +54,9 @@ fn every_source_in_the_repository_parses() {
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
         let rel = path.strip_prefix(&root).unwrap().display().to_string();
-        let mut map = buri::diag::SourceMap::new();
+        let mut map = buri::diagnostics::SourceMap::new();
         let id = map.add(rel.clone(), path.clone(), text.clone());
-        let parsed = buri::parse::parse(&text, id);
+        let parsed = buri::parsing::parser::parse(&text, id);
         for e in &parsed.errors {
             failures.push_str(&map.render(e, false));
         }
@@ -92,12 +92,12 @@ fn every_build_file_reads() {
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
         let rel = path.strip_prefix(&root).unwrap().display().to_string();
-        let mut map = buri::diag::SourceMap::new();
+        let mut map = buri::diagnostics::SourceMap::new();
         let id = map.add(rel.clone(), path.clone(), text.clone());
         let errors = if path.file_name().unwrap() == "REPO.buri" {
-            buri::buildfile::read_repo_config(&text, id).errors
+            buri::build::buildfile::read_repo_config(&text, id).errors
         } else {
-            buri::buildfile::read_build_file(&text, id).errors
+            buri::build::buildfile::read_build_file(&text, id).errors
         };
         for e in &errors {
             failures.push_str(&map.render(e, false));
@@ -115,8 +115,8 @@ fn formatting_build_files_is_a_fixed_point() {
     proto_files(&root.join("cli/tests/example"), &mut files);
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
-        let once = buri::textproto::print(&buri::textproto::parse(&text, buri::diag::FileId(0)).doc);
-        let twice = buri::textproto::print(&buri::textproto::parse(&once, buri::diag::FileId(0)).doc);
+        let once = buri::build::textproto::print(&buri::build::textproto::parse(&text, buri::diagnostics::FileId(0)).doc);
+        let twice = buri::build::textproto::print(&buri::build::textproto::parse(&once, buri::diagnostics::FileId(0)).doc);
         assert_eq!(once, twice, "formatting {} is not stable", path.display());
     }
 }
@@ -133,10 +133,10 @@ fn formatting_is_a_fixed_point() {
 
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
-        let Some(once) = buri::format::source(&text) else {
+        let Some(once) = buri::formatting::source(&text) else {
             panic!("{} does not format", path.display());
         };
-        let twice = buri::format::source(&once).expect("formatted output re-formats");
+        let twice = buri::formatting::source(&once).expect("formatted output re-formats");
         assert_eq!(once, twice, "formatting {} is not stable", path.display());
     }
 }

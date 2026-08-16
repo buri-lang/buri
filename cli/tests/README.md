@@ -7,13 +7,13 @@ wrong *answer* fails, not merely a program that fails to run.
 |---|---|---|
 | Unit tests | `cli/src/**` (`#[cfg(test)]`) | The lexer, parser, textproto reader, type unifier, JS printer, minifier, SHA-256, and SCC finder do what they claim in isolation. |
 | Corpus | `cli/tests/corpus.rs` | Every `.buri` file in the repository that is meant to compile parses; every build file reads; formatting is a fixed point. |
-| Standard library | `cli/tests/stdlib.rs` | `core/*` typechecks against itself — the first program the compiler ever sees. |
+| Standard library | `cli/tests/standard_library.rs` | `core/*` typechecks against itself — the first program the compiler ever sees. |
 | Conformance | `cli/tests/conformance/` | A Buri repository whose `test/` directories assert on language semantics, run through the real `buri test`. |
 | Rejection | `cli/tests/reject/` | Programs that must **not** compile, one directory each, holding the diagnostics exactly as the terminal and `--error-format=json` print them. |
 | Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
-| Repositories | `cli/tests/repos/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
+| Repositories | `cli/tests/repositories/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 | Incrementality | `cli/tests/incrementality.rs` | What the cache may and may not do, read off the `--explain` transcript. |
-| Emitted JavaScript | `cli/tests/golden_js/` | What the backend *compiles to*, one construct per case: the generated code, what it prints, and the release size of the whole corpus. |
+| Emitted JavaScript | `cli/tests/golden_javascript/` | What the backend *compiles to*, one construct per case: the generated code, what it prints, and the release size of the whole corpus. |
 | Golden | `WEB_STDOUT` in `conformance.rs` | The exact stdout of the worked monorepo's JS binary. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -24,7 +24,7 @@ what a user runs.
 ```
 cargo test -p buri                       # everything
 cargo test -p buri --test conformance    # the language suites
-cargo test -p buri --test repos          # the build-system suites
+cargo test -p buri --test repositories          # the build-system suites
 ```
 
 Every suite works on a copy under `CARGO_TARGET_TMPDIR`. Nothing writes into a
@@ -98,7 +98,7 @@ no dependencies, so nothing in it can express `missing-dep`, `dep-cycle`,
 system checks. A case there is a repository instead:
 
 ```
-cli/tests/repos/build-files/missing_dep/
+cli/tests/repositories/build-files/missing_dep/
   CASE.textproto      the manifest
   repo/               the repository, copied into a scratch tree and run in
   expected/lint.txt   what the CLI printed, recorded
@@ -155,11 +155,11 @@ pass lands unseen and regresses unnoticed. Each case is one small program
 exercising one construct:
 
 ```
-cli/tests/golden_js/enum_match/
+cli/tests/golden_javascript/enum_match/
   main.buri       the program
   expected.mjs    the generated code, with the runtime removed
   expected.out    what it prints
-cli/tests/golden_js/sizes.txt   release artifact sizes, whole corpus, one file
+cli/tests/golden_javascript/sizes.txt   release artifact sizes, whole corpus, one file
 ```
 
 The runtime is removed because it is the same thousand lines in every case and
@@ -182,7 +182,7 @@ this corpus was the only thing that saw it — and had `expected.out` been
 blessable, blessing would have recorded the wrong answer and moved on.
 
 ```
-BURI_BLESS=1 cargo test -p buri --test golden_js
+BURI_BLESS=1 cargo test -p buri --test golden_javascript
 ```
 
 Blessing without reading the diff is the one way this suite proves nothing.

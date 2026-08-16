@@ -1,6 +1,6 @@
 // The crypto conformance package.
 //
-// The same three NIST vectors `cli/src/cache.rs` checks its Rust SHA-256
+// The same three NIST vectors `cli/src/build/cache.rs` checks its Rust SHA-256
 // against, computed a second time in Buri. Two implementations, two languages,
 // one set of answers: an agreement that neither could have reached by copying
 // the other, because neither could compile the other.

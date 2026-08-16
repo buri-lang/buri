@@ -1,6 +1,6 @@
 // core/crypto — SHA-256 and HMAC-SHA-256, in Buri.
 //
-// The three vectors here are the ones `cache.rs` uses for the Rust
+// The three vectors here are the ones `build/cache.rs` uses for the Rust
 // implementation the toolchain hashes files with. Computing them again in the
 // language is the strongest end-to-end test either has: U32 wrapping
 // arithmetic, rotation, sixty-four rounds of tail recursion, message padding,

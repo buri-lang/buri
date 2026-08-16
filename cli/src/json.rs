@@ -4,7 +4,7 @@
 //! toolchain is pinned by hash, and a dependency tree is a second thing to
 //! pin. What the language server needs is a reader — the protocol arrives as
 //! JSON and has to be understood, not just produced — and a writer that agrees
-//! with `diag::json_str`, which was already escaping strings for
+//! with `diagnostics::json_str`, which was already escaping strings for
 //! `--error-format=json` before this file existed.
 //!
 //! Deliberately not implemented: numbers are `f64` and nothing else, so there
@@ -13,7 +13,7 @@
 //! protocol this reads is machine-written, so being strict costs nothing and
 //! turns a malformed message into a message rather than a guess.
 
-use crate::diag::json_str;
+use crate::diagnostics::json_str;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 

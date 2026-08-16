@@ -1,53 +1,30 @@
 //! The Buri toolchain, as a library so that the integration tests can drive
 //! the same code paths the `buri` binary does.
+//!
+//! The directories say who owns what:
+//!
+//!   * `parsing` — source text to a syntax tree. It is not inside `compiler`
+//!     because the formatter, the linter, and the language server read the
+//!     same tree, and none of them wants the rest of the compiler.
+//!   * `compiler` — one directory per stage after parsing: `semantics`,
+//!     `transform`, `backend`, with `driver` running the front of the pipeline.
+//!   * `build` — what a repository declares and what the toolchain does with
+//!     it: the graph, the build files, the action cache.
+//!   * `commands` — one file per `buri` subcommand, plus the table that
+//!     dispatches them and the argument parser.
+//!   * `documentation` — the prose the binary ships and the machinery that
+//!     serves, assembles, and compiles the examples in it.
+//!   * `language_server` — the protocol, over the analysis `build` already runs.
+//!
+//! `diagnostics`, `formatting`, and `json` are at the top level because more
+//! than one of the above depends on them and none of them owns them.
 
-pub mod ast;
 pub mod build;
-pub mod buildfile;
-pub mod builtins;
-pub mod check;
-pub mod cli;
-pub mod codegen;
-pub mod codegen_intrinsic;
 pub mod commands;
-pub mod compile;
-pub mod diag;
-pub mod doc;
-pub mod doc_api;
-pub mod doc_assemble;
-pub mod doc_errors;
-pub mod doc_harness;
-pub mod doc_md;
-pub mod doc_topics;
-pub mod doctest;
-pub mod driver;
-pub mod exhaust;
-pub mod format;
-pub mod gen;
-pub mod hir;
-pub mod infer;
-pub mod infer_expr;
-pub mod infer_pat;
-pub mod js;
+pub mod compiler;
+pub mod diagnostics;
+pub mod documentation;
+pub mod formatting;
 pub mod json;
-pub mod lex;
-pub mod lsp;
-pub mod mono;
-pub mod opt;
-pub mod parse;
-pub mod run;
-pub mod stdlib;
-pub mod tco;
-pub mod testrun;
-pub mod textproto;
-pub mod tools;
-pub mod types;
-pub mod workspace;
-
-/// The hand-written half of the JavaScript backend. Every global in it is
-/// `$`-prefixed so the minifier can rename it and drop what a program does not
-/// reach.
-pub fn runtime_source() -> &'static str {
-    include_str!("runtime.js")
-}
-pub mod cache;
+pub mod language_server;
+pub mod parsing;

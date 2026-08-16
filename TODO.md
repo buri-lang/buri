@@ -2,7 +2,7 @@
 
 What `cli/src/docs/*.md` specifies that no test currently pins. Compiled by
 reading the seven spec documents against `cli/tests/` (`conformance.rs`,
-`corpus.rs`, `example_repo.rs`, `stdlib.rs`), the `reject/` and `crash/`
+`corpus.rs`, `example_repository.rs`, `standard_library.rs`), the `reject/` and `crash/`
 corpora, and the `#[cfg(test)]` modules in `cli/src/`.
 
 **Legend.** Every item is untested. The tag says why:
@@ -49,7 +49,7 @@ larger than the language's own tests need.
       `bits.popCount` were correct 64-bit BigInt, so the two halves of the
       module disagreed with each other.
 
-      Fixed in `codegen.rs::prim_op`: above 32 bits the operation goes through
+      Fixed in `compiler/backend/generate.rs::prim_op`: above 32 bits the operation goes through
       `$and64`/`$or64`/`$xor64`/`$not64` (and the unsigned forms) in
       `runtime.js`; at 32 bits and below the native operator is exact and
       stays, so ordinary integer code is unchanged. Pinned by
@@ -63,9 +63,9 @@ larger than the language's own tests need.
 **Found while building it** — none of these are test gaps:
 
 - [ ] `missing-dep` by method resolution was **unimplemented**, not untested.
-      `reached_by_resolution` (`tools.rs:368`) computed the set and it was only
+      `reached_by_resolution` (`commands/lint.rs`) computed the set and it was only
       ever used to *suppress* `unused-dep`; a library reached solely through a
-      method call was never reported. Now implemented (`tools.rs`, after the
+      method call was never reported. Now implemented (`commands/lint.rs`, after the
       import loop) and covered by `repos/build-files/missing_dep_by_method`.
 - [ ] **A cycle is reported once per end.** `repos/build-files/dep_cycle`
       records `//lib/a and //lib/b` and then `//lib/b and //lib/a` for one
@@ -83,8 +83,8 @@ larger than the language's own tests need.
       0.** `repos/tags/unsatisfiable_target/expected/platforms.txt` is empty,
       which is indistinguishable from a command that did nothing.
 - [ ] **`test.dependencies` edges are not visibility-checked.** `dep_edges`
-      (`workspace.rs:375-388`) walks only rule-level `declared_deps`
-      (`workspace.rs:355-361`), so a test suite reaching a library named in
+      (`build/workspace.rs:375-388`) walks only rule-level `declared_deps`
+      (`build/workspace.rs:355-361`), so a test suite reaching a library named in
       `test.dependencies` escapes the check — contradicting BUILD-FILES.md:359-360
       ("including a test suite reaching a library named in `test.dependencies`,
       is checked normally"). Not yet covered by a case; triage first.
@@ -179,7 +179,7 @@ larger than the language's own tests need.
       *(untested)*
 - [ ] `test { platforms: [...] }` — one run per platform, and a platform the
       target does not admit being an error rather than a skip. *(unimplemented
-      — `testrun.rs:165` pins every suite to `Platform::Js`)*
+      — `commands/test.rs` pins every suite to `Platform::Js`)*
 
 ## TESTING.md
 
@@ -190,7 +190,7 @@ larger than the language's own tests need.
 - [ ] A test source that `export`s, or that something imports. *(untested)*
 - [ ] `buri test --accept` — updates only files declared in `test.data`, never
       creates one, prints a diff, leaves the rest of the run unchanged.
-      *(flag parses at `cli.rs:89`; behaviour untested)*
+      *(flag parses at `commands/arguments.rs`; behaviour untested)*
 - [ ] `--filter=<substring>` on test names. *(untested)*
 - [ ] `--shuffle` on by default with the seed printed, and `--shuffle=off`.
       *(untested)*
@@ -216,7 +216,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       refusing to create a build file or invent a rule; `gen --check`; the
       four-step rule assignment in a both-rules package, including the error
       when a file is reachable from neither rule or from both. *(untested;
-      implemented in `gen.rs` + `tools.rs:443`)*
+      implemented in `build/regenerate.rs` + `commands/lint.rs`)*
 - [ ] **`buri run` has no test.** Building for the host and executing outside
       the sandbox, `--` argument passthrough. *(untested; `main.rs:174`)*
 - [ ] `buri query deps(...)`, `rdeps(...)`, `path(...)`, `sources(...)`.
@@ -255,7 +255,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 
       Two notes on how it was built rather than what it does:
 
-      - **The overlay for unsaved buffers needed no change to `compile.rs`.**
+      - **The overlay for unsaved buffers needed no change to `compiler/modules.rs`.**
         `SourceMap::load` already reuses an entry whose name is present, so
         seeding the map with the editor's copy under the name the loader will
         ask for means the loader never reaches the disk.
@@ -297,7 +297,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 
       - `ImplDecl ::= "impl" ... "{" FnDecl* "}"` — but a method of the type's
         own may be exported, and every `impl` in the standard library and in
-        `cli/tests/example` writes `export fn`. `parse.rs:750` reads it.
+        `cli/tests/example` writes `export fn`. `parsing/parser.rs:750` reads it.
       - `FnDecl ::= ... Block` — but a declaration may have no body. That is how
         the standard library declares the primitives the runtime supplies
         (`export fn len(self: Str): Int;`, `std/str.buri:18`) and how a trait
@@ -344,7 +344,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
         names as second codes for the same checks would have given one rule two
         names; the catalogue in `docs/build/cli.md` now names the real ones.
       - **`discarded-result` could not fire as specified.** CLI.md described a
-        warning on `let _ = <Result>`, which `infer_expr.rs` already makes a
+        warning on `let _ = <Result>`, which `compiler/semantics/expressions.rs` already makes a
         hard error (`result-discarded`) and the reject corpus records. It is
         now a warning on `core/result.ignore` — the escape hatch the row's own
         text pointed at.
@@ -360,14 +360,14 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 
 - [x] **`buri format` sorts the leading import run** — `core/*` before `//*`,
       then by path, then by clause, with one blank line between the two groups
-      and none inside either. Unit-tested in `format.rs`: the order is total,
+      and none inside either. Unit-tested in `formatting.rs`: the order is total,
       it is a fixed point, a comment travels with the import it was written
       above, and only the *leading* run moves (an import written after a
       declaration stays put, because moving it across the declaration could
       change what the module means).
 
 - [ ] **`buri format` never wraps a long import clause.** `WIDTH = 88` exists
-      (`format.rs:13`) and is applied to other constructs, but `Item::Import`
+      (`formatting.rs:13`) and is applied to other constructs, but `Item::Import`
       prints `from "…" import { … };` on one line whatever its length. A
       35-name import in `conformance/lib/semantics/test/generics.buri` was
       hand-wrapped across six lines; formatting it collapses it to a
@@ -385,7 +385,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       }
       ```
 
-      `leading_comments` (`format.rs:46`) keys trivia by the byte offset of a
+      `leading_comments` (`formatting.rs:46`) keys trivia by the byte offset of a
       *declaration*, and `emit_trivia` is called only from `module` and the
       declaration printers — nothing puts a comment back inside a block. This
       is why no `.buri` file in the repository is actually formatted: running
@@ -394,12 +394,12 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       `corpus.rs`'s `formatting_is_a_fixed_point` cannot catch this, because it
       checks `format(format(x)) == format(x)` and both sides have already lost
       the comments. The property that would catch it is the one `token_shape`
-      (`format.rs`) was built for, extended to comment trivia — or, more
+      (`formatting.rs`) was built for, extended to comment trivia — or, more
       simply: that the checked-in corpus is formatted. Neither holds today.
       *(unimplemented)*
 
 - [x] **Every emitted code is documented, and a test says so.**
-      `doc_errors.rs` had named this test since it was written and it did not
+      `documentation/errors.rs` had named this test since it was written and it did not
       exist; twenty-three codes had no page. It is
       `docs::every_emitted_code_is_documented`, and it accepts **either**
       catalogue, because there are two kinds of diagnostic: a compile error one
@@ -437,7 +437,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       interface while leaving `lib.buri` byte-identical, and a key that said
       "unchanged" there would serve a stale answer. A sound version needs
       per-target analysis; `driver::analyze` is whole-closure
-      (`build.rs:71-76`). `--explain` is in place to test it when it lands.
+      (`build/actions.rs:71-76`). `--explain` is in place to test it when it lands.
       *(unimplemented)*
 - [x] Content-keying, not timestamps: rewriting a file with the bytes it
       already held rebuilds nothing
@@ -446,7 +446,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       arch, rule identity, and dependencies entering **as keys rather than
       contents**. *(untested)*
 - [ ] `buri build --check-reproducible` — builds twice in separate sandboxes
-      and diffs. *(unimplemented; `cli.rs:78-99` rejects the flag)*
+      and diffs. *(unimplemented; `commands/arguments.rs` rejects the flag)*
 - [ ] Toolchain `sha256` mismatch refusing to run, exit 2. Every scratch
       repository in the test suite writes `sha256: "00"` and nothing verifies
       it. *(untested)*
@@ -462,7 +462,7 @@ Adequately covered: a missing `REPO.buri`
 (`conformance::outside_a_repository_is_a_bad_invocation` — it cannot be a
 repository case, because the point is that there is no repository), an
 unparseable build file exiting 2 (`repos/cli/exit_codes`), an unknown field
-with a suggestion and a duplicate `tag` name (`buildfile.rs` unit tests).
+with a suggestion and a duplicate `tag` name (`build/buildfile.rs` unit tests).
 
 The exit-code contract itself is now `repos/cli/exit_codes`, which records the
 *message* each of the seven invocations prints — the old assertion checked only
@@ -473,7 +473,7 @@ the number. `format --check` reporting without rewriting is
 
 ## Cross-cutting
 
-- [ ] **Only the JS backend exists** (`build.rs:43-47`). The example declares
+- [ ] **Only the JS backend exists** (`build/actions.rs:43-47`). The example declares
       `LINUX`/`MACOS` outputs and `conformance.rs:725` runs only `lint` and
       `test` against it, never `build`. So the `link` action, the
       `.buri/out/<platform>/<package>/<artifact>` layout, `artifact_name`, and
@@ -488,7 +488,7 @@ the number. `format --check` reporting without rewriting is
       property it names — that formatting preserves meaning across the whole
       corpus — is untested either way. (`repos/cli/format_check` now covers it
       for one file: format, then build.)
-- [ ] `cli/tests/repos/**` is not walked by `corpus.rs`, so the fixture sources
+- [ ] `cli/tests/repositories/**` is not walked by `corpus.rs`, so the fixture sources
       there are not held to "every source in the repository parses" or to the
       formatting fixed point. That is deliberate — `repos/cli/format_check`
       checks in a deliberately misformatted file, and future cases will check
@@ -505,7 +505,7 @@ are and why they are shaped that way is [STANDARD-LIBRARY.md](./STANDARD-LIBRARY
 what remains is here.
 
 Each has a conformance package under `cli/tests/conformance/lib/` that *calls*
-every exported name, because `cli/tests/stdlib.rs` stops after type checking —
+every exported name, because `cli/tests/standard_library.rs` stops after type checking —
 a body-less declaration with no runtime function behind it passes that suite
 silently. The suite went from 150 assertions to 1172.
 
@@ -552,7 +552,7 @@ silently. The suite went from 150 assertions to 1172.
       carrying field names and `3 enum` carrying variant shapes — and
       `$show(v, d)` already walks them to render a value. So `derive ToJson for
       Point;` is implementable exactly as `derive Show` is: add `ToJson` and
-      `FromJson` to the derivable list in `check.rs`, register the conformance,
+      `FromJson` to the derivable list in `compiler/semantics/resolve.rs`, register the conformance,
       and write `$json_of(v, d)` / `$json_into(j, d)` in `runtime.js` mirroring
       `$show`. It is also the substrate the `.proto` roadmap below wants.
       *(unimplemented)*
@@ -568,7 +568,7 @@ silently. The suite went from 150 assertions to 1172.
 
       Two consequences worth knowing:
 
-      - **`lex.rs` was flattening them.** A doc line was `raw[3..].trim()`,
+      - **`parsing/lexer.rs` was flattening them.** A doc line was `raw[3..].trim()`,
         which strips the indentation a fenced block inside a comment depends
         on. It now strips one leading space and trims the end, which is the
         separator coming off rather than the content.
@@ -605,7 +605,7 @@ silently. The suite went from 150 assertions to 1172.
       table whose contents depend on what the compilation loaded.
 
       The obvious repair is to hash `types::show` instead — names, not indices.
-      **It is wrong, and it miscompiles.** `types.rs` renders *every* context
+      **It is wrong, and it miscompiles.** `compiler/semantics/types.rs` renders *every* context
       type as the literal `a context`, because a context type is generated and
       has no name (SPEC 11.3). Two generics instantiated over different contexts
       collide onto one symbol and one body silently replaces the other; the
@@ -642,12 +642,12 @@ detail — both have a prerequisite that is cheap now and expensive later.
 
 ### Native macOS and Linux executables
 
-`build.rs` errors on any non-JS platform; `driver::host_platform()` returns
+`build/actions.rs` errors on any non-JS platform; `driver::host_platform()` returns
 `Js` unconditionally; the example repository declares `LINUX`/`MACOS` outputs
 that nothing builds. `LLVM-tips.md` records the intended direction.
 
-1. **Make the backend an interface before writing a second one.** `codegen.rs`
-   and `js.rs` are entangled with `mono::Program`. Extract
+1. **Make the backend an interface before writing a second one.** `compiler/backend/generate.rs`
+   and `compiler/backend/javascript.rs` are entangled with `monomorphize::Program`. Extract
    `trait Backend { fn emit(&Program, &Tables, &Options) -> Result<Vec<u8>, Diagnostics> }`
    and make JS the first implementor. Nothing else is safe until this exists,
    and it gets harder every time either file grows.
@@ -681,7 +681,7 @@ about first.
 own header: `from "//proto/foo.proto" import …`. So the syntax is settled and
 the work is everything behind it.
 
-1. **A `.proto` *schema* parser**, distinct from `textproto.rs`, which reads
+1. **A `.proto` *schema* parser**, distinct from `build/textproto.rs`, which reads
    *values*. proto3 only: messages, enums, fields, `repeated`, `optional`,
    `oneof`, nested types, `import`. No services, no extensions, no `Any`.
 2. **A module that is generated rather than read.** `Loader::resolve_module`
@@ -699,7 +699,7 @@ the work is everything behind it.
    sits naturally beside the hex and base64 already there.
 5. **Build integration.** A `.proto` in a package is a source no rule lists,
    which today is `undeclared-source`. It needs a `proto_sources` field in
-   `build.proto`, `gen.rs` support, and an `Action::Proto` cache entry.
+   `build.proto`, `build/regenerate.rs` support, and an `Action::Proto` cache entry.
 
 Land it after `core/json` and `core/bytes` — both now exist — and after
 `derive ToJson`. Doing it earlier means building the same machinery twice.

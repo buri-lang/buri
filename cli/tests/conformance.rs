@@ -383,7 +383,7 @@ fn the_example_monorepo_is_clean() {
 // The CLI contract
 // ---------------------------------------------------------------------------
 
-/// The rest of the exit-code contract is in `repos/cli/exit_codes`, as a case.
+/// The rest of the exit-code contract is in `repositories/cli/exit_codes`, as a case.
 /// This one cannot be: a repository case is a repository, and the thing being
 /// checked here is what happens where there is not one.
 #[test]

@@ -165,7 +165,7 @@ fn an_edit_reaches_its_own_target_and_the_link_above_it() {
 }
 
 /// Tags are policy, not input. Adding one changes what may be built, never
-/// what is built, so nothing recompiles. `cache.rs::tags_are_not_in_the_key`
+/// what is built, so nothing recompiles. `build/cache.rs::tags_are_not_in_the_key`
 /// asserts this from the inside; this asserts it through the CLI.
 #[test]
 fn adding_a_tag_recompiles_nothing() {

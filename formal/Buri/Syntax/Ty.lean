@@ -1,7 +1,7 @@
 /-!
 # Types
 
-A transcription of `cli/src/types.rs:188`. Ten Rust constructors become seven
+A transcription of `cli/src/compiler/semantics/types.rs:188`. Ten Rust constructors become seven
 here; each difference is deliberate:
 
 * `Ty::Error` is excluded. `unify` returns `Ok` for `(Error, _)`

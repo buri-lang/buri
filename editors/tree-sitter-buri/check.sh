@@ -39,9 +39,9 @@ tree-sitter generate >/dev/null
 # second thing to keep in step, and the failure mode of a stale highlight query
 # is silent — an editor just stops colouring.
 for q in ../zed/languages/buri/*.scm; do
-  if ! tree-sitter query "$q" "$root/cli/src/std/option.buri" >/dev/null 2>&1; then
+  if ! tree-sitter query "$q" "$root/cli/src/compiler/standard_library/sources/option.buri" >/dev/null 2>&1; then
     echo "FAIL  $q does not compile against the grammar" >&2
-    tree-sitter query "$q" "$root/cli/src/std/option.buri" >&2 || true
+    tree-sitter query "$q" "$root/cli/src/compiler/standard_library/sources/option.buri" >&2 || true
     exit 1
   fi
 done
@@ -49,7 +49,7 @@ done
 failures=0
 count=0
 for f in $(find \
-    "$root/cli/src/std" \
+    "$root/cli/src/compiler/standard_library/sources" \
     "$root/cli/src/docs/harness" \
     "$root/cli/tests/example" \
     "$root/cli/tests/conformance" \

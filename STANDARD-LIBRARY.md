@@ -106,7 +106,7 @@ It does not cover `America/New_York`, and it does not pretend to.
 `core/crypto` — SHA-256, HMAC-SHA-256, and a constant-time comparison.
 
 Written in Buri rather than handed to the platform, for the same reason
-`cli/src/cache.rs` hand-writes SHA-256 in Rust: the toolchain is pinned by hash
+`cli/src/build/cache.rs` hand-writes SHA-256 in Rust: the toolchain is pinned by hash
 and a dependency tree is a second thing to pin. The two implementations are
 checked against the same NIST vectors, in two languages, neither of which can
 compile the other.

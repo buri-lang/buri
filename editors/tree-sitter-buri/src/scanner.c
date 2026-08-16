@@ -2,7 +2,7 @@
 //
 // **Templates.** `"a ${b} c"` needs the lexer to know whether a `}` closes a
 // hole or resumes string text. The compiler's own lexer keeps a stack of open
-// interpolations for this (`cli/src/lex.rs`). This scanner needs no stack: the
+// interpolations for this (`cli/src/parsing/lexer.rs`). This scanner needs no stack: the
 // parser tells it which tokens are valid at this point, and "a template span
 // is valid here" is exactly the state a stack would be tracking. So the whole
 // mode question is answered by `valid_symbols`, and there is nothing to

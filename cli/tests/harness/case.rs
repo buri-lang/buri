@@ -8,7 +8,7 @@
 //! against it and the exit code each must produce.
 //!
 //! ```text
-//! cli/tests/repos/build-files/missing_dep/
+//! cli/tests/repositories/build-files/missing_dep/
 //!   CASE.textproto      the manifest
 //!   repo/               the repository, copied into scratch verbatim
 //!     REPO.buri
@@ -45,8 +45,8 @@ use std::path::{Path, PathBuf};
 
 use super::{indent, Golden, Scratch};
 
-use buri::diag::FileId;
-use buri::textproto::{self, Msg, Value};
+use buri::build::textproto::{self, Msg, Value};
+use buri::diagnostics::FileId;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Stream {

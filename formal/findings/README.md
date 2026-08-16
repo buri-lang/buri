@@ -164,7 +164,7 @@ rule to **effect-carrying** values.
 **Fix:** gate the `SelfParam` arm on
 `tables.is_effect_carrying(&p.ty, &info.generics)`, as the `Normal` arm does.
 
-**Why it survived:** across all 43 `.buri` files in `cli/src/std` and
+**Why it survived:** across all 43 `.buri` files in `cli/src/compiler/standard_library/sources` and
 `cli/tests/conformance`, `self` never appears inside a lambda body — only as a
 receiver outside one (`list.buri:64,98,136,142`). A regression test belongs in
 the conformance corpus, not `reject/`.
