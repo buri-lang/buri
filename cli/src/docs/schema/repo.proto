@@ -4,11 +4,10 @@
 // `BUILD.buri` it is data: no expression language, no glob, no macro, no
 // import. Its presence is what makes a directory a repository root.
 //
-// It is deliberately small. Two things belong here — which compiler builds this
-// repository, and the tag vocabulary every build file draws from — and
-// everything else that might want to live in a repository-wide config file is
-// either a flag on the command or a field on a rule. See REPO-CONFIG.md for
-// what is absent and why.
+// It is deliberately small. One thing belongs here — the tag vocabulary every
+// build file draws from — and everything else that might want to live in a
+// repository-wide config file is either a flag on the command or a field on a
+// rule. See REPO-CONFIG.md for what is absent and why.
 
 syntax = "proto3";
 
@@ -18,20 +17,15 @@ package buri.build.v1;
 import "build.proto";
 
 message RepoConfig {
-  Toolchain toolchain = 1;
+  // Field 1 was `toolchain`, an exact compiler version and the SHA-256 of the
+  // compiler that had to build this repository. It was removed: a pin only
+  // means something where a toolchain is fetched, and nothing fetches one.
+  // Reserved rather than reused, so that an old `REPO.buri` cannot be read as
+  // something else.
+  reserved 1;
 
   // The whole tag vocabulary, and the whole of build policy. See TAGS.md.
   repeated Tag tag = 2;
-}
-
-message Toolchain {
-  // Exact compiler version. A range is not accepted: two checkouts of the same
-  // commit must not build with two different compilers.
-  string version = 1;
-
-  // Hex SHA-256 of the compiler release archive. The CLI refuses to run if the
-  // resolved toolchain does not hash to this.
-  string sha256 = 2;
 }
 
 // A label a target may carry, and the policy attached to carrying it. Tags form

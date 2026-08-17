@@ -4,7 +4,7 @@ The grammar accepts a superset of well-formed programs. These are checked
 afterward:
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
-   with a turbofish, or the inferred-type dot form `.Variant` — not an arbitrary
+   with type arguments, or the inferred-type dot form `.Variant` — not an arbitrary
    expression. The grammar permits `f(x) { a: 1 }`; the checker does not.
 2. `let` patterns must be irrefutable.
 3. `match` must be exhaustive, and no arm may be unreachable.

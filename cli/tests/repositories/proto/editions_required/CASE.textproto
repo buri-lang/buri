@@ -1,0 +1,56 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the reader requires Protobuf Editions: a proto3 file is refused with the migration, and so is proto2, and so is an edition that is not the required one"
+
+run {
+  args: ["lint", "//lib/legacy"]
+  exit: 1
+  golden: "proto3.txt"
+}
+
+# proto2 is refused the same way, and by the same code.
+edit {
+  file: "lib/legacy/shape.proto"
+  replace: "syntax = \"proto3\";"
+  with: "syntax = \"proto2\";"
+}
+
+run {
+  args: ["lint", "//lib/legacy", "--error-format=json"]
+  exit: 1
+  golden: "proto2.json"
+}
+
+# So is an older edition — the reader implements one, not a range.
+edit {
+  file: "lib/legacy/shape.proto"
+  replace: "syntax = \"proto2\";"
+  with: "edition = \"2023\";"
+}
+
+run {
+  args: ["lint", "//lib/legacy"]
+  exit: 1
+  golden: "edition_2023.txt"
+}
+
+# And the migration the diagnostics describe is the one that works: the
+# declaration changes, and the label comes off because presence is the default
+# now.
+edit {
+  file: "lib/legacy/shape.proto"
+  replace: "edition = \"2023\";"
+  with: "edition = \"2026\";"
+}
+
+edit {
+  file: "lib/legacy/shape.proto"
+  replace: "  optional int32 sides = 2;"
+  with: "  int32 sides = 2;"
+}
+
+run {
+  args: ["lint", "//lib/legacy"]
+  exit: 0
+  golden: "migrated.txt"
+}

@@ -317,9 +317,9 @@ What this exercise will not catch, whatever else gets proved:
   rules that live entirely in that gap**; only about 15 are core-typing rules a
   model like this one can adjudicate, and those 15 are what `Core/` is aimed
   at. That ratio is the most important honest number here.
-* **`transform/monomorphize.rs`.** A type error reintroduced during
+* **`middle/monomorphize.rs`.** A type error reintroduced during
   monomorphisation is invisible to a pre-monomorphisation proof.
-* **`backend/generate.rs` / `backend/javascript.rs`.** The largest unproved
+* **`backend/js/generate.rs` / `backend/js/javascript.rs`.** The largest unproved
   surface, with a known gap: `Prim::is_bigint()` is `false` for every type and
   `EXACT_INTEGER_LIMIT` is `2^53 - 1`, so `I64`/`I128` arithmetic is inexact
   above `2^53`. A proof about `I128` arithmetic describes a language the JS

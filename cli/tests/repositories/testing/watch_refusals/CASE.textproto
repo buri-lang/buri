@@ -1,0 +1,59 @@
+# BUILD-AND-WATCH.md §4.3. `--watch` refuses three combinations, and all three
+# are refused at argument parsing with exit 2 — the thing you asked *with* is
+# wrong, and no repository had to be opened to know it.
+#
+# This is also where the non-terminal refusal is *provable*: every harness in
+# this repository pipes stdout, so a case here is a watch loop asked for in
+# exactly the situation the check exists to catch. The loop itself is driven in
+# `cli/tests/watch.rs`, headlessly, with the terminal flag injected.
+#
+# The order the checks are written in is part of the contract: a flag
+# combination is a mistake a person can fix by reading, so it is reported ahead
+# of the terminal check rather than behind it. Without that, every one of these
+# would say "needs a terminal" and the two real mistakes would be invisible.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "--watch refuses --force, --accept, and a stdout that is not a terminal, and belongs to `test` alone"
+
+# The suite passes without `--watch`, so every refusal below is about the flag
+# rather than about the repository.
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+}
+
+# `--force` turns every cache hit into a run, and the cache is the whole of what
+# makes the loop cheap.
+run {
+  args: ["test", "//lib/money", "--watch", "--force"]
+  exit: 2
+  golden: "force.txt"
+  stream: ERR
+}
+
+# `--accept` is the one mode that writes to the source tree.
+run {
+  args: ["test", "//lib/money", "--watch", "--accept"]
+  exit: 2
+  golden: "accept.txt"
+  stream: ERR
+}
+
+# And the one this case can only make in a harness: stdout is a pipe.
+run {
+  args: ["test", "//lib/money", "--watch"]
+  exit: 2
+  golden: "not_a_terminal.txt"
+  stream: ERR
+}
+
+# `--watch` belongs to `buri test` and to nothing else, and the command table is
+# what enforces that: no code in `build` had to know the flag exists.
+run {
+  args: ["build", "//lib/money", "--watch"]
+  exit: 2
+  golden: "wrong_command.txt"
+  stream: ERR
+}

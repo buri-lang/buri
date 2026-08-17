@@ -37,7 +37,14 @@
 //! left, `X ::= Y op X | Y` is right, `X ::= Y op Y | Y` is neither); and a
 //! token's pattern is compiled out of the lexical grammar's own productions.
 //! Nothing that the EBNF already says is said twice.
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "every operand is an index into the token vector, a precedence level, or an \
+              indentation column, all bounded by the size of the EBNF that ships inside the \
+              binary; the subtractions are saturating"
+)]
 
+use crate::diagnostics::Invariant as _;
 use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
@@ -62,30 +69,114 @@ pub enum Node {
     Field(String, Box<Node>),
 }
 
+/// Where the emitted rule's body comes from.
+///
+/// One production has exactly one of these, and `take_directives` refuses a
+/// second. They used to be four independent flags and options resolved by a
+/// priority ordering — raw over regex over token — written into `rule_body`
+/// and nowhere else, so `@token @regex` compiled the regex and said nothing.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum RuleBody {
+    /// The production's own right-hand side, read as grammar. The default.
+    #[default]
+    Ebnf,
+    /// `@token` — one lexical token, its right-hand side compiled to a single
+    /// pattern.
+    Token,
+    /// `@regex` — one lexical token, whose pattern the lexical grammar states
+    /// in prose rather than in productions.
+    Regex(String),
+    /// `@raw` — the escape hatch: this rule's body, in tree-sitter's own DSL.
+    Raw(String),
+    /// `@external` — the terminal comes from `src/scanner.c`.
+    External,
+}
+
+impl RuleBody {
+    fn directive(&self) -> &'static str {
+        match self {
+            RuleBody::Ebnf => "the right-hand side",
+            RuleBody::Token => "@token",
+            RuleBody::Regex(_) => "@regex",
+            RuleBody::Raw(_) => "@raw",
+            RuleBody::External => "@external",
+        }
+    }
+}
+
+/// How, and whether, the rule appears in the syntax tree.
+///
+/// The second axis, and also exactly one per production. `@inline @hidden`
+/// used to be representable, and inline silently won.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum Shape {
+    /// A rule with a node of its own. The default.
+    #[default]
+    Named,
+    /// `@hidden` — the node is inlined into its parent and never appears.
+    Hidden,
+    /// `@inline` — no rule at all; the body is substituted at each use.
+    Inline,
+    /// `@as` — represented in the syntax tree by another production's rule.
+    SameAs(String),
+}
+
+impl Shape {
+    fn directive(&self) -> &'static str {
+        match self {
+            Shape::Named => "a node of its own",
+            Shape::Hidden => "@hidden",
+            Shape::Inline => "@inline",
+            Shape::SameAs(_) => "@as",
+        }
+    }
+}
+
 /// How the generator is told to treat a production. Everything here is
 /// information a context-free grammar cannot carry; see the EBNF's header.
+///
+/// The two enums are the two independent axes — where a rule's body comes from
+/// and how it shows up in the tree — which is why `@token @inline` is a legal
+/// pair and `@token @regex` is not.
 #[derive(Debug, Default, Clone)]
 pub struct Annotations {
     /// `@node` — the tree-sitter node name, when the derived one is wrong.
+    /// Never set alongside `@as`, which takes its node from its target.
     pub node: Option<String>,
-    /// `@hidden` — the node is inlined into its parent and never appears.
-    pub hidden: bool,
-    /// `@inline` — no rule at all; the body is substituted at each use.
-    pub inline: bool,
-    /// `@external` — the terminal comes from `src/scanner.c`.
-    pub external: bool,
-    /// `@token` — one lexical token, compiled to a single pattern.
-    pub token: bool,
-    /// `@regex` — the pattern, where the lexical grammar states it in prose.
-    pub regex: Option<String>,
-    /// `@prose` — the body is documentation and is not read as grammar.
-    pub prose: bool,
-    /// `@as` — represented in the syntax tree by another production's rule.
-    pub same_as: Option<String>,
     /// `@prec` — a disambiguation tree-sitter needs and LR(1) does not.
     pub prec: Option<Prec>,
-    /// `@raw` — the escape hatch: this rule's body, in tree-sitter's own DSL.
-    pub raw: Option<String>,
+    pub body: RuleBody,
+    pub shape: Shape,
+    /// `@prose` — the right-hand side is documentation and is not read as
+    /// grammar. Orthogonal to both axes: `@external @prose` is a terminal the
+    /// scanner produces whose EBNF is written for a human. `@regex` and `@raw`
+    /// imply it, since they replace the right-hand side outright.
+    pub prose: bool,
+}
+
+impl Annotations {
+    pub fn is_inline(&self) -> bool {
+        self.shape == Shape::Inline
+    }
+
+    pub fn same_as(&self) -> Option<&str> {
+        match &self.shape {
+            Shape::SameAs(other) => Some(other),
+            _ => None,
+        }
+    }
+
+    /// Whether the right-hand side is grammar to be read at all.
+    fn body_is_prose(&self) -> bool {
+        self.prose || matches!(self.body, RuleBody::Regex(_) | RuleBody::Raw(_))
+    }
+
+    /// Whether the reachability walk stops here: the production stands for a
+    /// terminal, so its right-hand side names nothing that needs a rule.
+    fn is_leaf(&self) -> bool {
+        self.prose
+            || matches!(self.body, RuleBody::Token | RuleBody::Regex(_) | RuleBody::External)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +184,12 @@ pub enum Prec {
     None(i32),
     Left(Option<i32>),
     Right(Option<i32>),
+    /// A *dynamic* precedence: not a rule about which production to reduce,
+    /// but about which of two complete parses to keep once both have been
+    /// explored. It is the only kind that has to displace the number the
+    /// cascade would otherwise hand a production, because a static number is
+    /// what stops the second parse from being explored at all.
+    Dynamic(i32),
 }
 
 #[derive(Debug, Clone)]
@@ -179,8 +276,7 @@ fn lex(src: &str) -> Result<Lexed, String> {
     let mut line = 1;
     let mut toks = Vec::new();
     let mut lines = Vec::new();
-    while i < b.len() {
-        let c = b[i];
+    while let Some(&c) = b.get(i) {
         if c == '\n' {
             line += 1;
             i += 1;
@@ -192,21 +288,21 @@ fn lex(src: &str) -> Result<Lexed, String> {
         }
         let at = line;
         // A comment, nestable so that a directive may quote one.
-        if c == '(' && i + 1 < b.len() && b[i + 1] == '*' {
-            let mut depth = 0;
+        if c == '(' && b.get(i + 1) == Some(&'*') {
+            let mut depth = 0usize;
             let start = i;
-            while i < b.len() {
-                if b[i] == '(' && i + 1 < b.len() && b[i + 1] == '*' {
+            while let Some(&here) = b.get(i) {
+                if here == '(' && b.get(i + 1) == Some(&'*') {
                     depth += 1;
                     i += 2;
-                } else if b[i] == '*' && i + 1 < b.len() && b[i + 1] == ')' {
-                    depth -= 1;
+                } else if here == '*' && b.get(i + 1) == Some(&')') {
+                    depth = depth.saturating_sub(1);
                     i += 2;
                     if depth == 0 {
                         break;
                     }
                 } else {
-                    if b[i] == '\n' {
+                    if here == '\n' {
                         line += 1;
                     }
                     i += 1;
@@ -215,7 +311,11 @@ fn lex(src: &str) -> Result<Lexed, String> {
             if depth != 0 {
                 return Err(format!("line {at}: a comment is never closed"));
             }
-            let text: String = b[start + 2..i.saturating_sub(2)].iter().collect();
+            // The `(*` and the `*)` are not part of the comment's text. The
+            // loop above only leaves `depth` at zero by consuming a `*)`, so
+            // there are at least four characters between `start` and `i`.
+            let text: String =
+                b.get(start + 2..i.saturating_sub(2)).unwrap_or_default().iter().collect();
             toks.push(Tok::Comment(text));
             lines.push(at);
             continue;
@@ -258,10 +358,10 @@ fn lex(src: &str) -> Result<Lexed, String> {
             Tok::Str(s)
         } else if c.is_alphanumeric() || c == '_' {
             let start = i;
-            while i < b.len() && (b[i].is_alphanumeric() || b[i] == '_') {
+            while b.get(i).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
                 i += 1;
             }
-            Tok::Ident(b[start..i].iter().collect())
+            Tok::Ident(b.get(start..i).unwrap_or_default().iter().collect())
         } else {
             i += 1;
             match c {
@@ -320,8 +420,8 @@ fn directives(comment: &str) -> Vec<(String, String)> {
         let mut found: Vec<(String, String)> = Vec::new();
         let mut rest = line;
         while let Some(after) = rest.strip_prefix('@') {
-            let (name, tail) = match after.find(char::is_whitespace) {
-                Some(k) => (&after[..k], after[k..].trim_start()),
+            let (name, tail) = match after.split_once(char::is_whitespace) {
+                Some((name, tail)) => (name, tail.trim_start()),
                 None => (after, ""),
             };
             // A pattern is taken whole: it is one word to a reader, and
@@ -338,12 +438,12 @@ fn directives(comment: &str) -> Vec<(String, String)> {
                     cursor = word;
                     break;
                 }
-                let k = word.find(char::is_whitespace).unwrap_or(word.len());
+                let (head, rest) = word.split_once(char::is_whitespace).unwrap_or((word, ""));
                 if !value.is_empty() {
                     value.push(' ');
                 }
-                value.push_str(&word[..k]);
-                cursor = &word[k..];
+                value.push_str(head);
+                cursor = rest;
             }
             found.push((name.to_string(), value));
             rest = cursor;
@@ -363,22 +463,28 @@ fn directives(comment: &str) -> Vec<(String, String)> {
 
 pub fn parse(src: &str) -> Result<Ebnf, String> {
     let Lexed { toks, lines } = lex(src)?;
+    // `lex` pushes a line number with every token it pushes, so the two vectors
+    // are the same length and this is a lookup, not a question.
+    let line_of = |k: usize| {
+        lines.get(k).copied().or_ice("`lex` pushes one line number per token")
+    };
     let mut out = Ebnf { grammar_name: String::new(), ..Default::default() };
     let mut pending = Annotations::default();
     let mut i = 0;
-    while i < toks.len() {
-        match &toks[i] {
+    while let Some(tok) = toks.get(i) {
+        match tok {
             Tok::Comment(text) => {
-                take_directives(text, &mut out, &mut pending, lines[i])?;
+                take_directives(text, &mut out, &mut pending, line_of(i))?;
                 i += 1;
             }
             Tok::Ident(name) if toks.get(i + 1) == Some(&Tok::Define) => {
-                let line = lines[i];
+                let line = line_of(i);
                 let name = name.clone();
                 let start = i + 2;
                 let mut end = start;
                 while end < toks.len() {
-                    if matches!(&toks[end], Tok::Ident(_)) && toks.get(end + 1) == Some(&Tok::Define)
+                    if matches!(toks.get(end), Some(Tok::Ident(_)))
+                        && toks.get(end + 1) == Some(&Tok::Define)
                     {
                         break;
                     }
@@ -388,13 +494,13 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                 // A comment inside the body belongs to whatever comes next.
                 let mut body_toks = Vec::new();
                 let mut trailing = Vec::new();
-                for k in start..end {
-                    match &toks[k] {
-                        Tok::Comment(text) => trailing.push((text.clone(), lines[k])),
+                for (k, t) in toks.iter().enumerate().take(end).skip(start) {
+                    match t {
+                        Tok::Comment(text) => trailing.push((text.clone(), line_of(k))),
                         t => body_toks.push(t.clone()),
                     }
                 }
-                let body = if ann.prose || ann.regex.is_some() || ann.raw.is_some() {
+                let body = if ann.body_is_prose() {
                     // The body is documentation: `any character except "\n"`
                     // is prose, and reading it as grammar would invent three
                     // non-terminals that do not exist.
@@ -414,7 +520,7 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                 i = end;
             }
             other => {
-                return Err(format!("line {}: expected a production, found {other:?}", lines[i]))
+                return Err(format!("line {}: expected a production, found {other:?}", line_of(i)))
             }
         }
     }
@@ -447,19 +553,64 @@ fn take_directives(
                 }
             }
             "cascade" => out.cascade = Some(parse_cascade(&value, line)?),
-            "node" => pending.node = Some(value.trim().to_string()),
-            "hidden" => pending.hidden = true,
-            "inline" => pending.inline = true,
-            "external" => pending.external = true,
-            "token" => pending.token = true,
+            "node" => {
+                if let Shape::SameAs(other) = &pending.shape {
+                    return Err(format!(
+                        "line {line}: this production is `@as {other}`, so its node is \
+                         `{other}`'s; `@node` here would be ignored"
+                    ));
+                }
+                pending.node = Some(value.trim().to_string());
+            }
+            "hidden" => set_shape(pending, Shape::Hidden, line)?,
+            "inline" => set_shape(pending, Shape::Inline, line)?,
+            "as" => {
+                if let Some(node) = &pending.node {
+                    return Err(format!(
+                        "line {line}: this production is already `@node {node}`, so `@as` \
+                         would silently replace it"
+                    ));
+                }
+                set_shape(pending, Shape::SameAs(value.trim().to_string()), line)?;
+            }
+            "external" => set_body(pending, RuleBody::External, line)?,
+            "token" => set_body(pending, RuleBody::Token, line)?,
+            "regex" => set_body(pending, RuleBody::Regex(value.trim().to_string()), line)?,
+            "raw" => set_body(pending, RuleBody::Raw(value.trim().to_string()), line)?,
             "prose" => pending.prose = true,
-            "regex" => pending.regex = Some(value.trim().to_string()),
-            "as" => pending.same_as = Some(value.trim().to_string()),
-            "raw" => pending.raw = Some(value.trim().to_string()),
             "prec" => pending.prec = Some(parse_prec(&value, line)?),
             other => return Err(format!("line {line}: `@{other}` is not a directive")),
         }
     }
+    Ok(())
+}
+
+/// A production has one body and one shape. A second directive on either axis
+/// is a mistake, and it is one the generator used to resolve by an undocumented
+/// priority ordering rather than report.
+fn set_body(pending: &mut Annotations, want: RuleBody, line: usize) -> Result<(), String> {
+    if pending.body != RuleBody::Ebnf {
+        return Err(format!(
+            "line {line}: `{}` and `{}` both say where this rule's body comes from; \
+             a production takes one",
+            pending.body.directive(),
+            want.directive()
+        ));
+    }
+    pending.body = want;
+    Ok(())
+}
+
+fn set_shape(pending: &mut Annotations, want: Shape, line: usize) -> Result<(), String> {
+    if pending.shape != Shape::Named {
+        return Err(format!(
+            "line {line}: `{}` and `{}` both say how this production appears in the \
+             syntax tree; a production takes one",
+            pending.shape.directive(),
+            want.directive()
+        ));
+    }
+    pending.shape = want;
     Ok(())
 }
 
@@ -471,6 +622,7 @@ fn parse_prec(value: &str, line: usize) -> Result<Prec, String> {
         ["right"] => Ok(Prec::Right(None)),
         ["left", n] => Ok(Prec::Left(Some(number(n)?))),
         ["right", n] => Ok(Prec::Right(Some(number(n)?))),
+        ["dynamic", n] => Ok(Prec::Dynamic(number(n)?)),
         [n] => Ok(Prec::None(number(n)?)),
         _ => Err(format!("line {line}: `@prec {value}` is not a precedence")),
     }
@@ -527,12 +679,18 @@ impl Body<'_> {
     }
 
     fn alternation(&mut self) -> Result<Node, String> {
-        let mut alts = vec![self.sequence()?];
+        let first = self.sequence()?;
+        // One alternative is not a choice, so it does not become a `Choice`
+        // node that every consumer would then have to see through.
+        if self.peek() != Some(&Tok::Bar) {
+            return Ok(first);
+        }
+        let mut alts = vec![first];
         while self.peek() == Some(&Tok::Bar) {
             self.i += 1;
             alts.push(self.sequence()?);
         }
-        Ok(if alts.len() == 1 { alts.pop().unwrap() } else { Node::Choice(alts) })
+        Ok(Node::Choice(alts))
     }
 
     fn sequence(&mut self) -> Result<Node, String> {
@@ -540,10 +698,10 @@ impl Body<'_> {
         while matches!(self.peek(), Some(Tok::Ident(_) | Tok::Str(_) | Tok::LParen)) {
             items.push(self.labelled()?);
         }
-        if items.is_empty() {
-            return Err(format!("line {}: an alternative is empty", self.line));
+        if items.len() > 1 {
+            return Ok(Node::Seq(items));
         }
-        Ok(if items.len() == 1 { items.pop().unwrap() } else { Node::Seq(items) })
+        items.pop().ok_or_else(|| format!("line {}: an alternative is empty", self.line))
     }
 
     fn labelled(&mut self) -> Result<Node, String> {
@@ -679,7 +837,9 @@ impl Re {
             Re::Class(_) => true,
             Re::Raw(s) => {
                 s.chars().count() == 1
-                    || (s.starts_with('[') && s.ends_with(']') && !s[1..s.len() - 1].contains(']'))
+                    || s.strip_prefix('[')
+                        .and_then(|inner| inner.strip_suffix(']'))
+                        .is_some_and(|inner| !inner.contains(']'))
             }
             _ => false,
         }
@@ -688,7 +848,7 @@ impl Re {
     /// The single character this matches, if it matches exactly one.
     fn single(&self) -> Option<String> {
         match self {
-            Re::Lit(s) if s.chars().count() == 1 => Some(escape_in_class(s.chars().next().unwrap())),
+            Re::Lit(s) => one_char(s).map(escape_in_class),
             Re::Class(c) => Some(c.clone()),
             _ => None,
         }
@@ -764,11 +924,16 @@ enum Js {
 impl Js {
     fn render(&self, indent: usize, out: &mut String) {
         let flat = self.flat();
-        if indent + flat.len() <= 92 || matches!(self, Js::Atom(_)) {
+        // An atom has nothing to break across lines, and anything that fits is
+        // written on one line whatever it is.
+        let Js::Call(name, args) = self else {
+            out.push_str(&flat);
+            return;
+        };
+        if indent + flat.len() <= 92 {
             out.push_str(&flat);
             return;
         }
-        let Js::Call(name, args) = self else { unreachable!() };
         out.push_str(name);
         out.push_str("(\n");
         for (k, arg) in args.iter().enumerate() {
@@ -791,6 +956,20 @@ impl Js {
                 format!("{name}({inner})")
             }
         }
+    }
+}
+
+/// `seq(x)` and `choice(x)` are `x`, and the generated grammar is read by
+/// people. Written once because all three places that build a list of children
+/// want it, and one of them forgetting would be a diff nobody could explain.
+fn one_or(call: &str, mut args: Vec<Js>) -> Js {
+    match args.pop() {
+        Some(only) if args.is_empty() => only,
+        Some(last) => {
+            args.push(last);
+            Js::Call(call.to_string(), args)
+        }
+        None => Js::Call(call.to_string(), args),
     }
 }
 
@@ -850,7 +1029,7 @@ pub fn dangling_references(ebnf: &Ebnf) -> Vec<String> {
         for r in refs {
             note(&p.name, &r, &mut out);
         }
-        if let Some(other) = &p.ann.same_as {
+        if let Some(other) = p.ann.same_as() {
             note(&p.name, other, &mut out);
         }
     }
@@ -863,6 +1042,16 @@ pub fn dangling_references(ebnf: &Ebnf) -> Vec<String> {
     if let Some(c) = &ebnf.cascade {
         for level in &c.levels {
             note("@cascade", &level.production, &mut out);
+        }
+    }
+    for group in &ebnf.conflicts {
+        for name in group {
+            // The cascade's operand rule is named by `@cascade` rather than
+            // declared as a production, and a conflict may name it.
+            if ebnf.cascade.as_ref().is_some_and(|c| c.operand == *name) {
+                continue;
+            }
+            note("@conflicts", name, &mut out);
         }
     }
     out
@@ -885,17 +1074,17 @@ fn emit(ebnf: &Ebnf) -> Result<String, String> {
 
     let mut names = HashMap::new();
     for p in &ebnf.productions {
-        let name = match (&p.ann.node, &p.ann.same_as) {
+        let name = match (&p.ann.node, p.ann.same_as()) {
             (Some(n), _) => n.clone(),
             (None, Some(_)) => continue,
-            (None, None) => node_name(&p.name, &ebnf.words, p.ann.hidden),
+            (None, None) => node_name(&p.name, &ebnf.words, p.ann.shape == Shape::Hidden),
         };
         names.insert(p.name.clone(), name);
     }
     // `@as` is resolved after every other name is known, so that it may point
     // at a production declared later.
     for p in &ebnf.productions {
-        if let Some(other) = &p.ann.same_as {
+        if let Some(other) = p.ann.same_as() {
             let target = names
                 .get(other)
                 .ok_or_else(|| format!("`{}` is `@as {other}`, which has no node", p.name))?
@@ -940,11 +1129,25 @@ fn emit(ebnf: &Ebnf) -> Result<String, String> {
 
 impl Gen<'_> {
     fn prod(&self, name: &str) -> &Production {
-        self.ebnf.find(name).expect("checked by dangling_references")
+        self.ebnf
+            .find(name)
+            .or_ice("`emit` rejects the grammar before generating if any reference dangles")
+    }
+
+    /// What a `@conflicts` group's member refers to. The cascade's operand
+    /// rule is written under the name `@cascade` gives it and is not a
+    /// production, so it is spelled through rather than looked up.
+    fn conflict_target(&self, name: &str) -> String {
+        if name == self.cascade.operand {
+            return name.to_string();
+        }
+        self.node_of(name).to_string()
     }
 
     fn node_of(&self, name: &str) -> &str {
-        &self.names[name]
+        self.names
+            .get(name)
+            .or_ice("`emit` gives every production a node name before building this table")
     }
 
     // -- the operator cascade ----------------------------------------------
@@ -968,8 +1171,8 @@ impl Gen<'_> {
         let Node::Seq(items) = alt else {
             return Err(format!("`{level}` has an alternative that is not an operator"));
         };
-        let head = match &items[0] {
-            Node::Ref(n) => Some(n.as_str()),
+        let head = match items.first() {
+            Some(Node::Ref(n)) => Some(n.as_str()),
             _ => None,
         };
         let tail = match items.last() {
@@ -1021,7 +1224,7 @@ impl Gen<'_> {
                         // A bare reference is the fall-through to the level
                         // below, and the operand rule already covers it.
                         if let Node::Ref(name) = alt {
-                            if Some(name.as_str()) != next && self.levels.get(name).is_none() {
+                            if Some(name.as_str()) != next && !self.levels.contains_key(name) {
                                 let target = self.node_of(name).to_string();
                                 if !operand.contains(&target) {
                                     operand.push(target);
@@ -1035,6 +1238,16 @@ impl Gen<'_> {
                             Prec::Left(_) => "prec.left",
                             Prec::Right(_) => "prec.right",
                             Prec::None(_) => "prec",
+                            // `assoc_of` reads the shape of a production, and
+                            // no shape spells a dynamic precedence: that one
+                            // is written, never inferred.
+                            Prec::Dynamic(_) => {
+                                return Err(format!(
+                                    "`{}` is a cascade level, which cannot take a dynamic \
+                                     precedence",
+                                    level.production
+                                ))
+                            }
                         };
                         let wrapped =
                             Js::Call(call.into(), vec![Js::Atom(number.to_string()), body]);
@@ -1076,12 +1289,7 @@ impl Gen<'_> {
             ),
         ));
         for (name, alts) in folds {
-            let body = if alts.len() == 1 {
-                alts.into_iter().next().unwrap()
-            } else {
-                Js::Call("choice".into(), alts)
-            };
-            out.push((name, body));
+            out.push((name, one_or("choice", alts)));
         }
         out.extend(own);
         Ok(out)
@@ -1098,7 +1306,7 @@ impl Gen<'_> {
                     return Ok(Js::Atom(format!("$.{target}")));
                 }
                 let p = self.prod(name);
-                if p.ann.inline {
+                if p.ann.is_inline() {
                     return self.rule_body(p);
                 }
                 Js::Atom(format!("$.{}", self.node_of(name)))
@@ -1108,22 +1316,14 @@ impl Gen<'_> {
                 for it in items {
                     js.push(self.js(it)?);
                 }
-                if js.len() == 1 {
-                    js.pop().unwrap()
-                } else {
-                    Js::Call("seq".into(), js)
-                }
+                one_or("seq", js)
             }
             Node::Choice(items) => {
                 let mut js = Vec::new();
                 for it in items {
                     js.push(self.js(it)?);
                 }
-                if js.len() == 1 {
-                    js.pop().unwrap()
-                } else {
-                    Js::Call("choice".into(), js)
-                }
+                one_or("choice", js)
             }
             Node::Opt(n) => Js::Call("optional".into(), vec![self.js(n)?]),
             Node::Star(n) => Js::Call("repeat".into(), vec![self.js(n)?]),
@@ -1135,18 +1335,22 @@ impl Gen<'_> {
     }
 
     fn rule_body(&self, p: &Production) -> Result<Js, String> {
-        if let Some(raw) = &p.ann.raw {
-            return Ok(Js::Atom(raw.clone()));
-        }
-        if let Some(re) = &p.ann.regex {
-            return Ok(Js::Atom(format!("/{re}/")));
-        }
-        if p.ann.token {
-            return Ok(Js::Atom(format!("/{}/", self.pattern(&p.body)?.render(false))));
+        match &p.ann.body {
+            RuleBody::Raw(raw) => return Ok(Js::Atom(raw.clone())),
+            RuleBody::Regex(re) => return Ok(Js::Atom(format!("/{re}/"))),
+            RuleBody::Token => {
+                return Ok(Js::Atom(format!("/{}/", self.pattern(&p.body)?.render(false))))
+            }
+            RuleBody::Ebnf | RuleBody::External => {}
         }
         let mut body = self.js(&p.body)?;
         let number = self.member_prec.get(&p.name).copied();
         let prec = match (&p.ann.prec, number) {
+            // A dynamic precedence *replaces* the cascade's number rather than
+            // joining it: a static number resolves the conflict at generation
+            // time, and a rule that needs both readings explored must not have
+            // one. See `GenericExpr` in the EBNF.
+            (Some(Prec::Dynamic(n)), _) => Some(Prec::Dynamic(*n)),
             (Some(_), Some(_)) => {
                 return Err(format!("`{}` is given a precedence twice", p.name));
             }
@@ -1159,6 +1363,7 @@ impl Gen<'_> {
                 Prec::None(n) => ("prec", Some(n)),
                 Prec::Left(n) => ("prec.left", n),
                 Prec::Right(n) => ("prec.right", n),
+                Prec::Dynamic(n) => ("prec.dynamic", Some(n)),
             };
             let mut args = Vec::new();
             if let Some(n) = number {
@@ -1179,12 +1384,12 @@ impl Gen<'_> {
             }
             Node::Ref(name) => {
                 let p = self.prod(name);
-                if let Some(re) = &p.ann.regex {
-                    Re::Raw(re.clone())
-                } else if p.ann.external {
-                    return Err(format!("`{name}` comes from the external scanner"));
-                } else {
-                    self.pattern(&p.body)?
+                match &p.ann.body {
+                    RuleBody::Regex(re) => Re::Raw(re.clone()),
+                    RuleBody::External => {
+                        return Err(format!("`{name}` comes from the external scanner"))
+                    }
+                    _ => self.pattern(&p.body)?,
                 }
             }
             Node::Seq(items) => {
@@ -1218,14 +1423,17 @@ impl Gen<'_> {
                         None => merged.push(Some(re)),
                     }
                 }
-                if let Some(k) = slot {
-                    merged[k] = Some(Re::Class(class));
+                if let Some(held) = slot.and_then(|k| merged.get_mut(k)) {
+                    *held = Some(Re::Class(class));
                 }
                 let mut branches: Vec<Re> = merged.into_iter().flatten().collect();
-                if branches.len() == 1 {
-                    branches.pop().unwrap()
-                } else {
-                    Re::Alt(branches)
+                match branches.pop() {
+                    Some(only) if branches.is_empty() => only,
+                    Some(last) => {
+                        branches.push(last);
+                        Re::Alt(branches)
+                    }
+                    None => Re::Alt(branches),
                 }
             }
             Node::Opt(n) => Re::Rep(Box::new(self.pattern(n)?), '?'),
@@ -1241,10 +1449,12 @@ impl Gen<'_> {
     /// plus the extras. A lexical helper is reached only from inside a token,
     /// where it is compiled into the pattern rather than named.
     fn reachable(&self) -> Vec<String> {
-        let start = &self.ebnf.productions[0].name;
+        // The first production is the start symbol; a grammar with none reaches
+        // nothing, which is the empty rule set it describes.
+        let Some(start) = self.ebnf.productions.first() else { return Vec::new() };
         let mut seen: HashSet<String> = HashSet::new();
         let mut order: Vec<String> = Vec::new();
-        let mut queue: Vec<String> = vec![start.clone()];
+        let mut queue: Vec<String> = vec![start.name.clone()];
         queue.extend(self.ebnf.extras.iter().cloned());
         while let Some(name) = queue.pop() {
             if !seen.insert(name.clone()) {
@@ -1252,11 +1462,11 @@ impl Gen<'_> {
             }
             order.push(name.clone());
             let p = self.prod(&name);
-            if p.ann.token || p.ann.external || p.ann.regex.is_some() || p.ann.prose {
+            if p.ann.is_leaf() {
                 continue;
             }
-            if let Some(other) = &p.ann.same_as {
-                queue.push(other.clone());
+            if let Some(other) = p.ann.same_as() {
+                queue.push(other.to_string());
                 continue;
             }
             let mut refs = Vec::new();
@@ -1288,7 +1498,7 @@ impl Gen<'_> {
             let mut parts = Vec::new();
             for name in &self.ebnf.extras {
                 let p = self.prod(name);
-                if p.ann.inline {
+                if p.ann.is_inline() {
                     parts.push(self.rule_body(p)?.flat());
                 } else {
                     parts.push(format!("$.{}", self.node_of(name)));
@@ -1309,7 +1519,7 @@ impl Gen<'_> {
             out.push_str("  conflicts: $ => [\n");
             for group in &self.ebnf.conflicts {
                 let names: Vec<String> =
-                    group.iter().map(|n| format!("$.{}", self.node_of(n))).collect();
+                    group.iter().map(|n| format!("$.{}", self.conflict_target(n))).collect();
                 out.push_str(&format!("    [{}],\n", names.join(", ")));
             }
             out.push_str("  ],\n\n");
@@ -1320,7 +1530,8 @@ impl Gen<'_> {
         let mut first_level = true;
         for name in &reachable {
             let p = self.prod(name);
-            if p.ann.inline || p.ann.external || p.ann.same_as.is_some() {
+            if p.ann.is_inline() || p.ann.body == RuleBody::External || p.ann.same_as().is_some()
+            {
                 continue;
             }
             if self.levels.contains_key(name) {

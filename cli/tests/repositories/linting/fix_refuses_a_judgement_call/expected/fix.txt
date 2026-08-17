@@ -1,8 +1,8 @@
 nothing to fix
 error: //lib/a and //lib/b depend on each other [dep-cycle]
- --> lib/a/BUILD.buri:3:18
+ --> lib/a/BUILD.buri:3:20
   |
-3 |   dependencies: ["//lib/b"]
-  |                  ^^^^^^^^^
+3 |     dependencies: ["//lib/b"]
+  |                    ^^^^^^^^^
   |
   = fix: break the cycle: move what both need into a third target

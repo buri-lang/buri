@@ -1,8 +1,8 @@
 error: //cmd/web cannot be built for js [platform-violation]
- --> cmd/web/BUILD.buri:4:5
+ --> cmd/web/BUILD.buri:4:9
   |
-4 |     { platform: JS },
-  |     ^^^^^^^^^^^^^^^^
+4 |         { platform: JS },
+  |         ^^^^^^^^^^^^^^^^
   |
   = //lib/store is tagged "server", which requires linux, macos
   = reached by: //cmd/web -> //lib/store

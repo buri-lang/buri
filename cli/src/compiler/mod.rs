@@ -3,8 +3,8 @@
 //! A module's source travels in one direction and never comes back:
 //!
 //! ```text
-//! parsing  ->  semantics  ->  transform  ->  backend
-//!  tree         typed          typed          JavaScript
+//! parsing  ->  semantics  ->  middle  ->  backend
+//!  tree         typed         typed       JavaScript, and later a native object
 //! ```
 //!
 //! `parsing` is a sibling of this module rather than a stage inside it,
@@ -18,7 +18,7 @@
 
 pub mod backend;
 pub mod driver;
+pub mod middle;
 pub mod modules;
 pub mod semantics;
 pub mod standard_library;
-pub mod transform;

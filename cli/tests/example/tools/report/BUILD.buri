@@ -12,37 +12,31 @@
 # Neither rule has a name, and neither needs one: the kind tells them apart, and
 # both are //tools/report. The binary's artifact takes the directory name,
 # `report`; an `artifact_name` on an output would change that.
-
 library {
-  sources: ["render.buri"]
-  dependencies: [
-    "//lib/ledger",
-    "//lib/money",
-  ]
-  visibility: ["//visibility:public"]
+    sources: ["render.buri"]
+    dependencies: ["//lib/ledger", "//lib/money"]
+    visibility: ["//visibility:public"]
 
-  test {
-    sources: ["test/render.buri"]
-    # A test-only library from another package. Declared here, and importable
-    # only because these are test sources.
-    dependencies: ["//lib/ledger/testing"]
-  }
+    test {
+        sources: ["test/render.buri"]
+
+        # A test-only library from another package. Declared here, and importable
+        # only because these are test sources.
+        dependencies: ["//lib/ledger/testing"]
+    }
 }
 
 binary {
-  sources: ["flags.buri"]
-  dependencies: [
-    "//lib/ledger",
-    "//lib/money",
-  ]
-  tags: ["server"]
+    sources: ["flags.buri"]
+    dependencies: ["//lib/ledger", "//lib/money"]
+    tags: ["server"]
 
-  outputs: [
-    { platform: LINUX, arch: X86_64 },
-    { platform: MACOS, arch: ARM64 },
-  ]
+    outputs: [
+        { platform: LINUX, arch: X86_64 },
+        { platform: MACOS, arch: ARM64 },
+    ]
 
-  test {
-    sources: ["test/flags.buri"]
-  }
+    test {
+        sources: ["test/flags.buri"]
+    }
 }

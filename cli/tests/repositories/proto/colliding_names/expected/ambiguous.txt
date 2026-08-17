@@ -1,0 +1,8 @@
+error: `Status` is ambiguous [proto-ambiguous-type]
+  --> lib/two/use.proto:10:3
+   |
+10 |   Status status = 1;
+   |   ^^^^^^^^^^^^^^^^^^
+   |
+   = it could be Status in //lib/two/left.proto, or Status in //lib/two/right.proto
+   = fix: write the fully-qualified name, package and all, so the field says which one it means

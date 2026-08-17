@@ -4,10 +4,28 @@
 # the whole difference between a policy and a preference: a skip would let a
 # suite quietly stop covering the platform it was written for.
 #
-# The last step is the honest boundary. Only the JavaScript backend exists, so
-# a suite that names a platform this toolchain cannot execute is told so rather
-# than run through the backend that does exist and reported as if it had run
-# natively. When there is a native backend, that step is the one that changes.
+# The last step is the honest boundary, and what stands behind it has moved. A
+# suite naming a platform this toolchain cannot produce a binary for is still
+# told so rather than run through the backend that does exist and reported as
+# if it had run natively — but "cannot produce" is now three questions (a
+# backend compiled in, a runtime archive, a linker for this host) rather than
+# "there is only JavaScript".
+#
+# So the platform the suite asks for is not written down here. `{{CROSS_PLATFORM_PROTO}}`
+# is filled in by the harness (cli/tests/harness/case.rs) with a platform that
+# is not this host's: LINUX on a mac, MACOS on Linux. The third of
+# `build/actions.rs::native_ready`'s three questions is
+# `build/link.rs::can_link`, which is `host_platform() == Some(target.platform)`
+# and nothing else — the runtime archive `cli/build.rs` embeds is the host's,
+# and a cross link would need a cross runtime, a cross libc and a sysroot
+# (design/native/ARCHITECTURE.md §9). A platform that is not the host therefore
+# stays refused on every machine, however much native backend is compiled in,
+# which is what this step rests on and why it now holds on the Linux runner
+# too.
+#
+# The middle steps need the same platform for a different reason: `browser`
+# admits only JS, so any native platform is one the target does not admit, and
+# whichever the harness picks is a platform the diagnostic has to name.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -21,12 +39,13 @@ run {
   stream: OUT
 }
 
-# LINUX is not in `browser`'s whitelist, so it is not the suite's to ask for.
-# The diagnostic is the target's, because the restriction is the target's.
+# A native platform is not in `browser`'s whitelist, so it is not the suite's to
+# ask for. The diagnostic is the target's, because the restriction is the
+# target's.
 edit {
   file: "lib/codec/BUILD.buri"
   replace: "platforms: [JS]"
-  with: "platforms: [JS, LINUX]"
+  with: "platforms: [JS, {{CROSS_PLATFORM_PROTO}}]"
 }
 
 run {
@@ -47,14 +66,14 @@ run {
 # sentence and a different fix.
 edit {
   file: "lib/codec/BUILD.buri"
-  replace: "  tags: [\"browser\"]\n"
+  replace: "    tags: [\"browser\"]\n"
   with: ""
 }
 
 edit {
   file: "lib/codec/BUILD.buri"
-  replace: "platforms: [JS, LINUX]"
-  with: "platforms: [LINUX]"
+  replace: "platforms: [JS, {{CROSS_PLATFORM_PROTO}}]"
+  with: "platforms: [{{CROSS_PLATFORM_PROTO}}]"
 }
 
 run {

@@ -73,7 +73,7 @@ fn wrapSum<N: Wrapping>(a: N, b: N): N {
 }
 
 fn ceilingOf<N: Bounded>(): N {
-  num.maxValue::<N>()
+  num.maxValue<N>()
 }
 
 // --- Arithmetic, one width at a time -------------------------------------------
@@ -269,40 +269,40 @@ test "a value that fits every width multiplies the same everywhere" {
 // --- Boundaries -----------------------------------------------------------------
 
 test "maxValue of every signed width" {
-  assert.eq(num.maxValue::<I8>(), 127);
-  assert.eq(num.maxValue::<I16>(), 32767);
-  assert.eq(num.maxValue::<I32>(), 2147483647);
-  assert.eq(num.maxValue::<I64>(), 9223372036854775807);
-  assert.eq(num.maxValue::<I128>(), 170141183460469231731687303715884105727);
+  assert.eq(num.maxValue<I8>(), 127);
+  assert.eq(num.maxValue<I16>(), 32767);
+  assert.eq(num.maxValue<I32>(), 2147483647);
+  assert.eq(num.maxValue<I64>(), 9223372036854775807);
+  assert.eq(num.maxValue<I128>(), 170141183460469231731687303715884105727);
 }
 
 test "minValue of every signed width" {
   // Widened before comparing, so the check does not lean on the literal form
   // of the minimum; the test below covers that separately.
-  assert.eq(num.minValue::<I8>().toI64(), -128);
-  assert.eq(num.minValue::<I16>().toI64(), -32768);
-  assert.eq(num.minValue::<I32>().toI64(), -2147483648);
-  assert.eq(num.minValue::<I64>().toI128(), -9223372036854775808);
-  assert.eq(num.minValue::<I128>() + 1, -170141183460469231731687303715884105727);
+  assert.eq(num.minValue<I8>().toI64(), -128);
+  assert.eq(num.minValue<I16>().toI64(), -32768);
+  assert.eq(num.minValue<I32>().toI64(), -2147483648);
+  assert.eq(num.minValue<I64>().toI128(), -9223372036854775808);
+  assert.eq(num.minValue<I128>() + 1, -170141183460469231731687303715884105727);
 }
 
 test "maxValue of the unsigned widths below 128 bits" {
-  assert.eq(num.maxValue::<U8>(), 255);
-  assert.eq(num.maxValue::<U16>(), 65535);
-  assert.eq(num.maxValue::<U32>(), 4294967295);
-  assert.eq(num.maxValue::<U64>(), 18446744073709551615);
+  assert.eq(num.maxValue<U8>(), 255);
+  assert.eq(num.maxValue<U16>(), 65535);
+  assert.eq(num.maxValue<U32>(), 4294967295);
+  assert.eq(num.maxValue<U64>(), 18446744073709551615);
 }
 
 test "U128's maxValue is two to the 128th minus one" {
-  assert.eq(num.maxValue::<U128>(), 340282366920938463463374607431768211455);
+  assert.eq(num.maxValue<U128>(), 340282366920938463463374607431768211455);
 }
 
 test "minValue of every unsigned width is zero" {
-  assert.eq(num.minValue::<U8>(), 0);
-  assert.eq(num.minValue::<U16>(), 0);
-  assert.eq(num.minValue::<U32>(), 0);
-  assert.eq(num.minValue::<U64>(), 0);
-  assert.eq(num.minValue::<U128>(), 0);
+  assert.eq(num.minValue<U8>(), 0);
+  assert.eq(num.minValue<U16>(), 0);
+  assert.eq(num.minValue<U32>(), 0);
+  assert.eq(num.minValue<U64>(), 0);
+  assert.eq(num.minValue<U128>(), 0);
 }
 
 test "adding one right at the top of each unsigned width" {
@@ -311,10 +311,10 @@ test "adding one right at the top of each unsigned width" {
   let c: U32 = 4294967294;
   let d: U64 = 18446744073709551614;
   let e: U128 = 340282366920938463463374607431768211454;
-  assert.eq(a + 1, num.maxValue::<U8>());
-  assert.eq(b + 1, num.maxValue::<U16>());
-  assert.eq(c + 1, num.maxValue::<U32>());
-  assert.eq(d + 1, num.maxValue::<U64>());
+  assert.eq(a + 1, num.maxValue<U8>());
+  assert.eq(b + 1, num.maxValue<U16>());
+  assert.eq(c + 1, num.maxValue<U32>());
+  assert.eq(d + 1, num.maxValue<U64>());
   assert.eq(e + 1, 340282366920938463463374607431768211455);
 }
 
@@ -324,20 +324,20 @@ test "subtracting one right at the bottom of each signed width" {
   let c: I32 = -2147483647;
   let d: I64 = -9223372036854775807;
   let e: I128 = -170141183460469231731687303715884105727;
-  assert.eq(a - 1, num.minValue::<I8>());
-  assert.eq(b - 1, num.minValue::<I16>());
-  assert.eq(c - 1, num.minValue::<I32>());
-  assert.eq(d - 1, num.minValue::<I64>());
-  assert.eq(e - 1, num.minValue::<I128>());
+  assert.eq(a - 1, num.minValue<I8>());
+  assert.eq(b - 1, num.minValue<I16>());
+  assert.eq(c - 1, num.minValue<I32>());
+  assert.eq(d - 1, num.minValue<I64>());
+  assert.eq(e - 1, num.minValue<I128>());
 }
 
 test "negating maxValue lands one above minValue" {
   let a: I8 = 127;
   let b: I32 = 2147483647;
   let c: I64 = 9223372036854775807;
-  assert.eq(-a, num.minValue::<I8>() + 1);
-  assert.eq(-b, num.minValue::<I32>() + 1);
-  assert.eq(-c, num.minValue::<I64>() + 1);
+  assert.eq(-a, num.minValue<I8>() + 1);
+  assert.eq(-b, num.minValue<I32>() + 1);
+  assert.eq(-c, num.minValue<I64>() + 1);
 }
 
 test "subtracting down to zero from the top of a width" {
@@ -350,10 +350,10 @@ test "subtracting down to zero from the top of a width" {
 }
 
 test "maxValue divided by itself is one at every width" {
-  assert.eq(num.maxValue::<U8>() / num.maxValue::<U8>(), 1);
-  assert.eq(num.maxValue::<I32>() / num.maxValue::<I32>(), 1);
-  assert.eq(num.maxValue::<U64>() / num.maxValue::<U64>(), 1);
-  assert.eq(num.maxValue::<I128>() / num.maxValue::<I128>(), 1);
+  assert.eq(num.maxValue<U8>() / num.maxValue<U8>(), 1);
+  assert.eq(num.maxValue<I32>() / num.maxValue<I32>(), 1);
+  assert.eq(num.maxValue<U64>() / num.maxValue<U64>(), 1);
+  assert.eq(num.maxValue<I128>() / num.maxValue<I128>(), 1);
 }
 
 // --- Division and remainder -----------------------------------------------------
@@ -506,7 +506,7 @@ test "underscores are digit separators and change nothing" {
 
 test "a literal pinned by an annotation gets that type" {
   let a: U8 = 0xFF;
-  assert.eq(a, num.maxValue::<U8>());
+  assert.eq(a, num.maxValue<U8>());
   let b: I16 = 0b1000_0000;
   assert.eq(b, 128);
   let c: U128 = 0o7;
@@ -514,9 +514,9 @@ test "a literal pinned by an annotation gets that type" {
 }
 
 test "a literal pinned by a parameter gets that type" {
-  assert.eq(takesU8(255), num.maxValue::<U8>());
-  assert.eq(takesU32(4294967295), num.maxValue::<U32>());
-  assert.eq(takesI128(170141183460469231731687303715884105727), num.maxValue::<I128>());
+  assert.eq(takesU8(255), num.maxValue<U8>());
+  assert.eq(takesU32(4294967295), num.maxValue<U32>());
+  assert.eq(takesI128(170141183460469231731687303715884105727), num.maxValue<I128>());
 }
 
 test "an unconstrained integer literal defaults to Int" {
@@ -524,12 +524,12 @@ test "an unconstrained integer literal defaults to Int" {
   let b: I64 = 5;
   assert.eq(a, b);
   let wide = 9_223_372_036_854_775_806;
-  assert.eq(wide + 1, num.maxValue::<I64>());
+  assert.eq(wide + 1, num.maxValue<I64>());
 }
 
 test "a literal in an array element position is pinned by the array's type" {
   let xs: [U8] = [1, 2, 255];
-  assert.eq(assert.some(xs[2]), num.maxValue::<U8>());
+  assert.eq(assert.some(xs[2]), num.maxValue<U8>());
   assert.eq(assert.some(xs[0]) + assert.some(xs[1]), 3);
 }
 
@@ -553,7 +553,7 @@ test "checkedAdd at the I8 boundary" {
   assert.eq(assert.some(a.checkedAdd(1)), 127);
   let b: I8 = 127;
   assert.none(b.checkedAdd(1));
-  assert.none(num.minValue::<I8>().checkedAdd(-1));
+  assert.none(num.minValue<I8>().checkedAdd(-1));
 }
 
 test "checkedAdd at the I32 and U32 boundaries" {
@@ -596,10 +596,10 @@ test "checkedAdd at the U128 exact boundary" {
 test "checkedAdd is None everywhere above the exact range" {
   let a: I64 = 9007199254740991;
   assert.none(a.checkedAdd(1));
-  assert.none(num.maxValue::<I64>().checkedAdd(0));
-  assert.none(num.maxValue::<U64>().checkedAdd(0));
-  assert.none(num.maxValue::<I128>().checkedAdd(0));
-  assert.none(num.maxValue::<U128>().checkedAdd(0));
+  assert.none(num.maxValue<I64>().checkedAdd(0));
+  assert.none(num.maxValue<U64>().checkedAdd(0));
+  assert.none(num.maxValue<I128>().checkedAdd(0));
+  assert.none(num.maxValue<U128>().checkedAdd(0));
 }
 
 test "checkedSub is None below zero for an unsigned type" {
@@ -612,10 +612,10 @@ test "checkedSub is None below zero for an unsigned type" {
 }
 
 test "checkedSub at the signed minimum" {
-  assert.none(num.minValue::<I8>().checkedSub(1));
-  assert.none(num.minValue::<I64>().checkedSub(1));
+  assert.none(num.minValue<I8>().checkedSub(1));
+  assert.none(num.minValue<I64>().checkedSub(1));
   let a: I8 = -127;
-  assert.eq(assert.some(a.checkedSub(1)), num.minValue::<I8>());
+  assert.eq(assert.some(a.checkedSub(1)), num.minValue<I8>());
 }
 
 test "checkedMul reports whether the product fits" {
@@ -648,10 +648,10 @@ test "checkedDiv by zero is None rather than a crash" {
 }
 
 test "checkedDiv of minValue by minus one is None" {
-  assert.none(num.minValue::<I8>().checkedDiv(-1));
-  assert.none(num.minValue::<I32>().checkedDiv(-1));
-  assert.none(num.minValue::<I64>().checkedDiv(-1));
-  assert.none(num.minValue::<I128>().checkedDiv(-1));
+  assert.none(num.minValue<I8>().checkedDiv(-1));
+  assert.none(num.minValue<I32>().checkedDiv(-1));
+  assert.none(num.minValue<I64>().checkedDiv(-1));
+  assert.none(num.minValue<I128>().checkedDiv(-1));
 }
 
 test "checkedDiv truncates toward zero like ordinary division" {
@@ -682,9 +682,9 @@ test "wrappingSub wraps below zero for U8" {
 
 test "wrappingAdd wraps at the top of I8" {
   let a: I8 = 127;
-  assert.eq(a.wrappingAdd(1), num.minValue::<I8>());
+  assert.eq(a.wrappingAdd(1), num.minValue<I8>());
   assert.eq(a.wrappingAdd(2), -127);
-  assert.eq(num.minValue::<I8>().wrappingSub(1), 127);
+  assert.eq(num.minValue<I8>().wrappingSub(1), 127);
 }
 
 test "wrappingMul at U8" {
@@ -698,7 +698,7 @@ test "wrappingMul at U8" {
 
 test "wrapping at the I32 and U32 boundaries" {
   let a: I32 = 2147483647;
-  assert.eq(a.wrappingAdd(1), num.minValue::<I32>());
+  assert.eq(a.wrappingAdd(1), num.minValue<I32>());
   let b: U32 = 4294967295;
   assert.eq(b.wrappingAdd(1), 0);
   assert.eq(b.wrappingMul(2), 4294967294);
@@ -708,7 +708,7 @@ test "wrapping at the I32 and U32 boundaries" {
 
 test "wrapping at the I64 and U64 boundaries" {
   let a: I64 = 9223372036854775807;
-  assert.eq(a.wrappingAdd(1), num.minValue::<I64>());
+  assert.eq(a.wrappingAdd(1), num.minValue<I64>());
   let b: U64 = 18446744073709551615;
   assert.eq(b.wrappingAdd(1), 0);
   let c: U64 = 4294967296;
@@ -719,7 +719,7 @@ test "wrapping at the I64 and U64 boundaries" {
 
 test "wrapping at the I128 and U128 boundaries" {
   let a: I128 = 170141183460469231731687303715884105727;
-  assert.eq(a.wrappingAdd(1), num.minValue::<I128>());
+  assert.eq(a.wrappingAdd(1), num.minValue<I128>());
   let b: U128 = 340282366920938463463374607431768211455;
   assert.eq(b.wrappingAdd(1), 0);
   let c: U128 = 0;
@@ -757,7 +757,7 @@ test "saturatingAdd clamps to maxValue" {
 test "saturatingSub clamps to minValue" {
   let a: U8 = 5;
   assert.eq(a.saturatingSub(10), 0);
-  assert.eq(num.minValue::<I8>().saturatingSub(100), num.minValue::<I8>());
+  assert.eq(num.minValue<I8>().saturatingSub(100), num.minValue<I8>());
   let b: U64 = 0;
   assert.eq(b.saturatingSub(1), 0);
 }
@@ -766,7 +766,7 @@ test "saturatingMul clamps at both ends" {
   let a: U8 = 200;
   assert.eq(a.saturatingMul(2), 255);
   let b: I8 = -100;
-  assert.eq(b.saturatingMul(3), num.minValue::<I8>());
+  assert.eq(b.saturatingMul(3), num.minValue<I8>());
   let c: I32 = 100000;
   assert.eq(c.saturatingMul(100000), 2147483647);
 }
@@ -790,9 +790,9 @@ test "saturating arithmetic at the U128 boundary" {
 
 test "saturating on the bigint side clamps to the same bound as maxValue" {
   let a: I64 = 9223372036854775807;
-  assert.eq(a.saturatingAdd(1), num.maxValue::<I64>());
-  assert.eq(a.saturatingMul(2), num.maxValue::<I64>());
-  assert.eq(num.minValue::<I64>().saturatingSub(1), num.minValue::<I64>());
+  assert.eq(a.saturatingAdd(1), num.maxValue<I64>());
+  assert.eq(a.saturatingMul(2), num.maxValue<I64>());
+  assert.eq(num.minValue<I64>().saturatingSub(1), num.minValue<I64>());
 }
 
 // --- min, max, clamp, abs, signum, compare -------------------------------------------
@@ -863,7 +863,7 @@ test "signum reports the sign" {
   assert.eq(c.signum(), 1);
   let d: I128 = -170141183460469231731687303715884105727;
   assert.eq(d.signum(), -1);
-  assert.eq(num.maxValue::<I64>().signum(), 1);
+  assert.eq(num.maxValue<I64>().signum(), 1);
 }
 
 test "compare yields an Order" {
@@ -874,7 +874,7 @@ test "compare yields an Order" {
   assert.eq(a.compare(a), Order.Equal);
   let c: U64 = 18446744073709551615;
   assert.eq(c.compare(0), Order.Greater);
-  assert.eq(num.minValue::<I128>().compare(0), Order.Less);
+  assert.eq(num.minValue<I128>().compare(0), Order.Less);
 }
 
 test "the comparison operators agree with compare" {
@@ -897,7 +897,7 @@ test "the comparison operators work on the bigint widths" {
   assert.isFalse(b < a);
   let c: U128 = 340282366920938463463374607431768211455;
   assert.isTrue(c > 0);
-  assert.isTrue(num.minValue::<I128>() < 0);
+  assert.isTrue(num.minValue<I128>() < 0);
 }
 
 // --- Aliases and generic numeric code --------------------------------------------------
@@ -914,9 +914,9 @@ test "Int and I64 are one type, not two" {
 
 test "Uint is U64 and Byte is U8" {
   let a: Uint = 18446744073709551615;
-  assert.eq(a, num.maxValue::<U64>());
+  assert.eq(a, num.maxValue<U64>());
   let b: Byte = 255;
-  assert.eq(b, num.maxValue::<U8>());
+  assert.eq(b, num.maxValue<U8>());
   assert.eq(b + 0, 255);
 }
 
@@ -957,9 +957,9 @@ test "the minimum of each signed width is writable as a literal" {
   let c: I32 = -2147483648;
   let d: I64 = -9223372036854775808;
   let e: I128 = -170141183460469231731687303715884105728;
-  assert.eq(a, num.minValue::<I8>());
-  assert.eq(b, num.minValue::<I16>());
-  assert.eq(c, num.minValue::<I32>());
-  assert.eq(d, num.minValue::<I64>());
-  assert.eq(e, num.minValue::<I128>());
+  assert.eq(a, num.minValue<I8>());
+  assert.eq(b, num.minValue<I16>());
+  assert.eq(c, num.minValue<I32>());
+  assert.eq(d, num.minValue<I64>());
+  assert.eq(e, num.minValue<I128>());
 }

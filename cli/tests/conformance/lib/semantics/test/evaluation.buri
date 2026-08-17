@@ -513,7 +513,7 @@ test "a list of functions is an ordinary list" {
 }
 
 test "an empty pipeline is the identity" {
-  assert.eq(pipeline(list.empty::<fn(Int) => Int>(), 9), 9);
+  assert.eq(pipeline(list.empty<fn(Int) => Int>(), 9), 9);
 }
 
 test "a function value passed through a generic" {
@@ -539,7 +539,7 @@ test "a lambda returning a lambda" {
 test "a lambda may capture a `self` that carries no effect" {
   let ctx = Hermetic();
   assert.eq(Report { n: 2 }.above(ctx, [1, 2, 3, 4]), [3, 4]);
-  assert.eq(Report { n: 9 }.above(ctx, [1, 2, 3, 4]), list.empty::<Int>());
+  assert.eq(Report { n: 9 }.above(ctx, [1, 2, 3, 4]), list.empty<Int>());
 }
 
 test "a lambda that captures `self` may outlive the call" {

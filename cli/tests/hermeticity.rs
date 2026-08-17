@@ -1,5 +1,5 @@
-//! What makes an action hermetic, what the toolchain pin refuses, and what two
-//! builds of one tree have to agree about.
+//! What makes an action hermetic, and what two builds of one tree have to
+//! agree about.
 //!
 //! Hermeticity here is a property of the type system rather than of a
 //! confinement the toolchain applies: every ambient read is a `$host_*`
@@ -17,7 +17,6 @@
 //! - **A perturbed parent environment.** The same tree built and tested with
 //!   junk variables and a different `TZ` in the parent, producing the same
 //!   artifact bytes and the same suite result.
-//! - **The toolchain pin**, which is what makes "the same commit" mean anything.
 //! - **The cache under contention**, since a cache is only worth having if it
 //!   cannot hold a wrong answer.
 //!
@@ -29,58 +28,32 @@
 //! BURI_BLESS=1 cargo test -p buri --test hermeticity    # record the goldens
 //! ```
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 use harness::*;
 
 use std::path::Path;
 use std::process::Command;
 
-use buri::build::cache::hash_bytes;
-
-/// The corpus: the toolchain pin, the closed platform enum, and
-/// `--check-reproducible`.
+/// The corpus: the closed platform enum, and `--check-reproducible`.
 #[test]
 fn hermeticity_rules() {
-    run_corpus(&tests_dir().join("repositories/hermeticity"), "hermeticity", 3);
-}
-
-// ---------------------------------------------------------------------------
-// The toolchain pin
-// ---------------------------------------------------------------------------
-
-/// What `toolchain.sha256` is checked against, which is the one thing no
-/// checked-in fixture can express: the hash of the executable running the
-/// build, which is the artifact a release archive would have contained.
-///
-/// Both directions, in one repository, so that the negative half cannot be a
-/// repository that was broken for some other reason.
-#[test]
-fn a_pin_on_this_executable_is_satisfied_and_a_pin_on_another_is_refused() {
-    let scratch = Scratch::repo("toolchain-pin");
-    scratch.binary_package("cmd/c", TRIVIAL);
-
-    let sha = hash_bytes(&std::fs::read(buri()).expect("the buri executable is readable"));
-    let pinned = |sha: &str| format!("toolchain {{\n  version: \"0.3.0\"\n  sha256: \"{sha}\"\n}}\n");
-
-    scratch.write("REPO.buri", &pinned(&sha));
-    scratch.run(&["build", "//cmd/c"]).ok();
-
-    // One hex digit away. The message has to name both hashes, because a
-    // refusal that reports only what it wanted leaves the reader to go and
-    // compute what it got.
-    let other = format!("{}{}", if sha.starts_with('a') { 'b' } else { 'a' }, &sha[1..]);
-    scratch.write("REPO.buri", &pinned(&other));
-    scratch.run(&["build", "//cmd/c"]).exits(2).says(&other).says(&sha).says("REPO.buri");
-
-    // And `buri version`, whose whole job is to report the pin, must not be
-    // the command that swallows the refusal.
-    scratch.run(&["version"]).exits(2).says(&other);
-
-    // The sentinel puts it back. Zeros are "this repository has no published
-    // toolchain release to name", not "this repository pinned badly".
-    scratch.write("REPO.buri", &pinned(&"0".repeat(64)));
-    scratch.run(&["build", "//cmd/c"]).ok();
-    scratch.run(&["version"]).ok().says("unpinned");
+    run_corpus(&tests_dir().join("repositories/hermeticity"), "hermeticity", 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,16 +309,3 @@ fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
         }
     }
 }
-
-/// A binary with nothing in it but a `main`, for the cases that are about the
-/// repository rather than about the program.
-const TRIVIAL: &str = r#"
-from "core/cap" import { Alloc, Stdout };
-from "core/host" import * as host;
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("fine");
-  .Ok(())
-}
-"#;

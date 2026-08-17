@@ -4,27 +4,20 @@
 # `testing/` is the reserved one. It is a second entry point of this same
 # package, reachable as //lib/ledger/testing and importable only from a test
 # source — here, and in //tools/report's suite.
-
 library {
-  sources: [
-    "entry.buri",
-    "posting/rules.buri",
-  ]
-  dependencies: ["//lib/money"]
-  visibility: [
-    "//cmd/...",
-    "//lib/store",
-    "//tools/report",
-  ]
-
-  testing {
-    sources: ["testing/fixtures.buri"]
-    # The fixtures build real `Entry` values, so the surface uses //lib/money
-    # the way the library beside it does. `buri gen` writes this field.
+    sources: ["entry.buri", "posting/rules.buri"]
     dependencies: ["//lib/money"]
-  }
+    visibility: ["//cmd/...", "//lib/store", "//tools/report"]
 
-  test {
-    sources: ["test/ledger.buri"]
-  }
+    test {
+        sources: ["test/ledger.buri"]
+    }
+
+    testing {
+        sources: ["testing/fixtures.buri"]
+
+        # The fixtures build real `Entry` values, so the surface uses //lib/money
+        # the way the library beside it does. `buri gen` writes this field.
+        dependencies: ["//lib/money"]
+    }
 }

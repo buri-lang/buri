@@ -2,11 +2,11 @@
 # declares: there is a `main.buri` in this directory and no `binary` rule, and
 # `buri gen` must not decide that is an oversight.
 library {
-  sources: ["helper.buri"]
+    sources: ["helper.buri"]
 }
 
 binary {
-  outputs: [
-    { platform: JS },
-  ]
+    outputs: [
+        { platform: JS },
+    ]
 }

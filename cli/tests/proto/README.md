@@ -26,11 +26,42 @@ From **protobuf v35.1** (released 2026-06-11), the current stable release:
 | Vendored file | Origin in the protobuf tree |
 |---|---|
 | `repo/lib/conformance/conformance.proto` | `conformance/conformance.proto`, verbatim |
-| `repo/lib/conformance/test_messages_proto3.proto` | `src/google/protobuf/test_messages_proto3.proto`, **pruned** |
+| `repo/lib/conformance/test_messages_proto3.proto` | `src/google/protobuf/test_messages_proto3.proto`, **pruned and migrated to edition 2026** |
 | `vendor/LICENSE` | `LICENSE` — protobuf is BSD-3-Clause, and these files carry that licence |
 
-`conformance.proto` is taken verbatim and needed no changes: it is a plain
-proto3 schema, and Buri's reader takes all of it.
+`conformance.proto` needed no change but its declaration: it is a plain schema
+with nothing in it the reader refuses, so migrating it was replacing
+`syntax = "proto3"` with `edition = "2026"`.
+
+## The edition, and what protoc thinks of it
+
+The reader requires `edition = "2026"`. Two facts about that, from v35.1's own
+source:
+
+- **`EDITION_2026 = 1002` is in `descriptor.proto`'s `Edition` enum.** It is a
+  real, reserved edition value.
+- **protoc v35.1 refuses to compile a file that declares it**: *"Edition 2026 is
+  later than the maximum supported edition 2024"*. The maximum it implements is
+  2024.
+
+So the vendored schemas here declare an edition no protobuf toolchain will
+compile yet. That costs nothing: the runner never reads them — it has its own
+descriptors compiled in — and protobuf's own resolution rule ("a feature takes
+the default of the closest edition at or before it") gives 2026 a fully
+determined feature set from `descriptor.proto` alone. Every wire- and
+JSON-affecting feature resolves the same at 2023, 2024 and 2026:
+
+| feature | value at 2026 |
+|---|---|
+| `field_presence` | `EXPLICIT` |
+| `enum_type` | `OPEN` |
+| `repeated_field_encoding` | `PACKED` |
+| `utf8_validation` | `VERIFY` |
+| `message_encoding` | `LENGTH_PREFIXED` |
+| `json_format` | `ALLOW` |
+
+The only defaults that changed after 2023 are `enforce_naming_style` and
+`default_symbol_visibility`, both `RETENTION_SOURCE` — lints, not wire format.
 
 ## What was pruned, and why that is stated rather than hidden
 
@@ -48,8 +79,15 @@ construct protobuf has, including three Buri's schema reader
   message with a wire layout of its own, and `core/map` is not ordered the way a
   decoded one would have to be.
 
-61 lines came out in total, and the file carries a banner saying so. **The
-alternative was worse.** Teaching the schema reader to skip a construct it does
+61 lines came out in total, and the file carries a banner saying so — and saying
+that it was migrated to edition 2026 with the edition's *own* defaults rather
+than by a semantics-preserving migration. A faithful migration would have put
+`features.field_presence = IMPLICIT` on every singular field to keep proto3's
+behaviour; taking the default instead is what makes the suite exercise the
+mapping this toolchain implements. The one test that notices is in the failure
+list under its own heading.
+
+**The pruning alternative was worse.** Teaching the schema reader to skip a construct it does
 not support would mean a schema that silently means something other than what it
 says — the field would vanish and nothing would mention it. Deleting the fields
 in a copy, saying which, and listing every test that the deletion forfeits is
@@ -119,7 +157,7 @@ testee, needing only a Buri toolchain and a JavaScript runtime.
 ## Where it stands
 
 ```text
-CONFORMANCE SUITE PASSED: 988 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
 ```
 
 The 1314 skips are the message types this testee does not implement — proto2 and
@@ -127,16 +165,18 @@ the editions variants — plus the text-format and JSPB categories. The 456
 expected failures are `failure_list.txt`, where each is filed under one of seven
 reasons, and no entry is unexplained.
 
-Sixty-nine of them are worth naming here because they are the only ones that are
-about *this implementation* rather than about the pruned schema:
+Forty of them are worth naming here because they are the only ones that are not
+about the pruned schema:
 
 - **34 are 64-bit precision.** An `Int` is an `I64` and an `I64` is a double, so
   a value past 2^53 survives only to a double's precision and one at ±2^63 does
   not survive at all. Closing this means a real 64-bit integer in the language.
 - **2 are unknown-field retention.** Decoding skips a field the schema does not
   know; it does not keep the bytes, so they do not survive a re-encode.
-- **1 is an unrecognised enum number**, which decodes to the zero value rather
-  than being kept.
+- **1 is explicit presence**, and it is not a gap: the schema under test is
+  edition 2026 and the reference is proto3, so they disagree about whether a
+  field set to its zero value is written. Both are right about their own schema.
+  The same difference is ~18 of the `Recommended` warnings.
 - **2 are `core/json`'s number scanner**, which is deliberately generous and
   accepts a leading zero JSON's own grammar does not.
 - **1 is duplicate keys in a JSON object**, which `core/json` does not reject.

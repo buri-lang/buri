@@ -46,7 +46,7 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
             if e.span.file != file || e.span.start > offset || e.span.end < offset {
                 return;
             }
-            let width = e.span.end - e.span.start;
+            let width = e.span.end.saturating_sub(e.span.start);
             if best.as_ref().is_none_or(|(w, _, _)| width < *w) {
                 let ty = types::show(&a.analysis.checked.tables, None, &[], &e.ty);
                 best = Some((width, ty, e.span));
@@ -111,11 +111,12 @@ pub fn definition(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Optio
                 return;
             }
             let target = match &e.kind {
-                crate::compiler::semantics::typed::ExprKind::CallFn { func, .. } => *func,
-                crate::compiler::semantics::typed::ExprKind::FnRef(f, _) => *f,
+                crate::compiler::semantics::typed::ExprKind::CallFn { func, .. }
+                | crate::compiler::semantics::typed::ExprKind::FnRef(func) => func.decl(),
                 _ => return,
             };
-            let width = e.span.end - e.span.start;
+            let Some(target) = target else { return };
+            let width = e.span.end.saturating_sub(e.span.start);
             if best.as_ref().is_none_or(|(w, _)| width < *w) {
                 best = Some((width, target));
             }
@@ -145,19 +146,25 @@ fn location(a: &Analyzed, span: crate::diagnostics::Span) -> Option<Value> {
 
 /// The outline. Built from the AST alone, so it still works in a file that does
 /// not typecheck — which is when an outline is worth most.
-pub fn document_symbols(text: &str, source: &str) -> Value {
-    let parsed = crate::parsing::parser::parse(source, crate::diagnostics::FileId(0));
+///
+/// One parameter, not two. It took `text` and `source` separately, and the
+/// ranges it returns are byte offsets into the AST parsed out of `source`
+/// resolved against `text` — so the two had to be the same string for any
+/// answer to be right, and nothing said so. The one caller passed the same
+/// string twice.
+pub fn document_symbols(text: &str) -> Value {
+    let parsed = crate::parsing::parser::parse(text, crate::diagnostics::FileId(0));
     let mut out = Vec::new();
     for item in &parsed.module.items {
         // 12 function, 23 struct, 10 enum, 5 class (trait), 14 constant,
         // 26 type parameter (alias) — the protocol's SymbolKind numbers.
         let (name, kind) = match item {
-            Item::Fn(d) => (&d.name, 12.0),
-            Item::Struct(d) => (&d.name, 23.0),
-            Item::Enum(d) => (&d.name, 10.0),
-            Item::Trait(d) => (&d.name, 5.0),
-            Item::Const(d) => (&d.name, 14.0),
-            Item::TypeAlias(d) => (&d.name, 26.0),
+            Item::Fn(d) => (&d.name, 12),
+            Item::Struct(d) => (&d.name, 23),
+            Item::Enum(d) => (&d.name, 10),
+            Item::Trait(d) => (&d.name, 5),
+            Item::Const(d) => (&d.name, 14),
+            Item::TypeAlias(d) => (&d.name, 26),
             _ => continue,
         };
         out.push(Value::obj(vec![
@@ -175,8 +182,12 @@ pub fn document_symbols(text: &str, source: &str) -> Value {
 /// of an import.
 pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value {
     let offset = convert::offset_of(text, pos) as usize;
-    let line_start = text[..offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line = &text[line_start..offset];
+    // `offset_of` clamps into `text` and onto a character boundary, so the only
+    // way this fails is a caller that did not go through it.
+    let Some(before_cursor) = text.get(..offset) else {
+        return Value::Arr(Vec::new());
+    };
+    let line = before_cursor.rsplit('\n').next().unwrap_or(before_cursor);
 
     // An odd number of quotes before the cursor means the cursor is inside
     // one. Counting is what distinguishes `from "core/st|` — still typing the
@@ -184,7 +195,7 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
     // answer is a different one.
     let inside_string = line.bytes().filter(|c| *c == b'"').count() % 2 == 1;
     if inside_string && line.trim_start().starts_with("from") {
-        let prefix = &line[line.rfind('"').map(|i| i + 1).unwrap_or(0)..];
+        let prefix = line.rsplit('"').next().unwrap_or(line);
         return module_paths(a, path, prefix);
     }
 
@@ -202,7 +213,7 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
 /// packages its own target already declares. Offering a label the target does
 /// not depend on would be offering a `missing-dep`.
 fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
-    let mut out: Vec<String> = standard_library::MODULES.iter().map(|m| m.to_string()).collect();
+    let mut out: Vec<String> = standard_library::MODULES.iter().map(|m| m.path.to_string()).collect();
     if let Some(pkg) = a.session.ws.owning_package(path) {
         for t in a.session.ws.targets().into_iter().filter(|t| t.pkg == pkg) {
             for d in a.session.ws.declared_deps(t) {
@@ -220,7 +231,7 @@ fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
                 Value::obj(vec![
                     ("label", Value::str(m)),
                     // 9 module.
-                    ("kind", Value::num(9.0)),
+                    ("kind", Value::num(9)),
                 ])
             })
             .collect(),
@@ -244,7 +255,7 @@ fn exported_names(a: &Analyzed, path: &str) -> Value {
                 Value::obj(vec![
                     ("label", Value::str(n.as_str())),
                     // 6 variable — the protocol has no "exported name".
-                    ("kind", Value::num(6.0)),
+                    ("kind", Value::num(6)),
                 ])
             })
             .collect(),

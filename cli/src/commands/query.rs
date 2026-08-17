@@ -3,11 +3,19 @@
 //! `deps`, `rdeps`, `path`, `tags`, `platforms`, `sources` — questions about
 //! the graph `crate::build::workspace` already loaded, answered without
 //! building anything.
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the answer to the query is this command's output, and a malformed \
+              query is a complaint about the invocation; diagnostics about the \
+              repository still leave through `Session::emit`"
+)]
 
 use crate::build::buildfile::Platform;
 use crate::build::session;
 use crate::build::workspace::TargetId;
 use crate::commands::arguments;
+use crate::diagnostics::Invariant as _;
 
 /// `deps`, `rdeps`, `path`, `tags`, `platforms`, `sources`.
 pub fn cmd_query(args: &arguments::Args) -> i32 {
@@ -33,6 +41,10 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         return 2;
     };
     let arguments: Vec<&str> = inner.split(',').map(|a| a.trim()).collect();
+    // `str::split` yields a field however empty its input, so an operand-less
+    // query — `buri query 'deps()'` — arrives here as one empty label, which
+    // `lookup` refuses like any other string that names no target.
+    let first = arguments.first().copied().unwrap_or_default();
 
     let lookup = |label: &str| -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
@@ -42,8 +54,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
 
     match func.trim() {
         "deps" => {
-            let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target `{}`", arguments[0]);
+            let Some(t) = lookup(first) else {
+                eprintln!("error: no target `{first}`");
                 return 2;
             };
             for m in s.ws.closure(t) {
@@ -53,8 +65,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "rdeps" => {
-            let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target `{}`", arguments[0]);
+            let Some(t) = lookup(first) else {
+                eprintln!("error: no target `{first}`");
                 return 2;
             };
             for other in s.ws.targets() {
@@ -67,18 +79,23 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         // pull in the database layer" is an edge, and printing it is faster
         // than reading build files.
         "path" => {
-            if arguments.len() != 2 {
+            let [from_label, to_label] = arguments.as_slice() else {
                 eprintln!("error: `path` takes two targets");
                 return 2;
-            }
-            let (Some(from), Some(to)) = (lookup(arguments[0]), lookup(arguments[1])) else {
+            };
+            let (Some(from), Some(to)) = (lookup(from_label), lookup(to_label)) else {
                 eprintln!("error: no such target");
                 return 2;
             };
             match s.ws.dep_path(from, to) {
                 Some(path) => {
-                    println!("{}", s.ws.label(path[0].0));
-                    for (node, span) in path.iter().skip(1) {
+                    let mut nodes = path.iter();
+                    // `dep_path` builds its answer starting from `from`, so a
+                    // path it returns always has that first element.
+                    let (start, _) =
+                        nodes.next().or_ice("`dep_path` returns a path that begins at `from`");
+                    println!("{}", s.ws.label(*start));
+                    for (node, span) in nodes {
                         let where_ = match span {
                             Some(sp) if !sp.is_none() => {
                                 let f = s.map.get(sp.file);
@@ -94,8 +111,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "tags" => {
-            let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target `{}`", arguments[0]);
+            let Some(t) = lookup(first) else {
+                eprintln!("error: no target `{first}`");
                 return 2;
             };
             for (tag, by) in s.ws.closure_tags(t) {
@@ -103,8 +120,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "platforms" => {
-            let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target `{}`", arguments[0]);
+            let Some(t) = lookup(first) else {
+                eprintln!("error: no target `{first}`");
                 return 2;
             };
             let allowed = s.ws.platforms(t);
@@ -133,8 +150,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "sources" => {
-            let Some(t) = lookup(arguments[0]) else {
-                eprintln!("error: no target `{}`", arguments[0]);
+            let Some(t) = lookup(first) else {
+                eprintln!("error: no target `{first}`");
                 return 2;
             };
             let p = s.ws.pkg(t.pkg);

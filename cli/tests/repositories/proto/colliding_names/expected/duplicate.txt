@@ -1,0 +1,8 @@
+error: `left.v1.Status` is declared twice [proto-duplicate-type]
+ --> lib/two/right.proto:5:9
+  |
+5 | message Status {
+  |         ^^^^^^
+  |
+  = declared in //lib/two/left.proto and in //lib/two/right.proto
+  = fix: rename one of them, or put them in different packages — a fully-qualified name names one type

@@ -11,7 +11,7 @@
 
 from "core/testing/assert" import * as assert;
 from "core/testing/context" import {
-  Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, files,
+  Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
   data, readOnly, noNet, clockAt, advance, randSeed, envOf,
 };
 from "core/cap" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
@@ -568,6 +568,31 @@ test "each context gets its own stdin cursor" {
   assert.eq(assert.some(io.readLine(a)), "x");
   assert.none(io.readLine(a));
   assert.eq(assert.some(io.readLine(b)), "x");
+}
+
+// --- Octets, which are the other question about the same stream ---------------
+//
+// `readLine` reads the input to its end, so a program using it cannot answer
+// before the other side has finished speaking. `readBytes` is what a
+// request/response protocol over a pipe needs, and the two are not mixed.
+
+test "readBytes takes exactly what it asks for" {
+  let ctx = context { Stdin: stdinBytes([1.wrapToU8(), 2.wrapToU8(), 3.wrapToU8()]) };
+  assert.eq(assert.some(io.readBytes(ctx, 2)), [1.wrapToU8(), 2.wrapToU8()]);
+  assert.eq(assert.some(io.readBytes(ctx, 2)), [3.wrapToU8()]);
+  assert.none(io.readBytes(ctx, 2));
+}
+
+test "an empty byte stdin is immediately at end-of-input" {
+  let ctx = context { Stdin: stdinBytes([]) };
+  assert.none(io.readBytes(ctx, 1));
+}
+
+test "writeBytes writes the octets through, and they are the text they spell" {
+  let out = captureOut();
+  let ctx = context { Stdout: out };
+  let _ = io.writeBytes(ctx, [104.wrapToU8(), 105.wrapToU8()]);
+  assert.eq(out.captured(), "hi");
 }
 
 // -----------------------------------------------------------------------------

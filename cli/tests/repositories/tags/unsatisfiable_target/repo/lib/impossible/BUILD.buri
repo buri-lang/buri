@@ -1,5 +1,5 @@
 library {
-  sources: ["m.buri"]
-  tags: ["server", "browser"]
-  visibility: ["//visibility:public"]
+    sources: ["m.buri"]
+    tags: ["server", "browser"]
+    visibility: ["//visibility:public"]
 }

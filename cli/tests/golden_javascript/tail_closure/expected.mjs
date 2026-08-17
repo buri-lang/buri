@@ -12,14 +12,14 @@ function __cmd_x_main$main(){
   $host_HostStdout_println(ctx_0[1],String($t4!==void 0?$t4:-1)+' '+String($t5!==void 0?$t5:-1));
   return $k0;
 }
-function __cmd_x_main$adders$u3rqgv(ctx_0,$p1,acc_2){
+function __cmd_x_main$adders$u3rqgv(ctx_0,i_loop_4,acc_2){
   while(true){
-    const i_1=$p1;
+    const i_1=i_loop_4;
     if(i_1>=4){
       return acc_2;
     }else{
       acc_2=$list_push(acc_2,ctx_0,x_3=>x_3+i_1);
-      $p1=i_1+1;
+      i_loop_4=i_1+1;
       continue;
     }
   }

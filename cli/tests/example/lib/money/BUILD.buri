@@ -1,17 +1,10 @@
 # //lib/money — a leaf library. No dependencies, no tags, so it links into
 # anything: the server binary, the JS binary, and the report CLI all use it.
-
 library {
-  sources: [
-    "cents.buri",
-    "parse.buri",
-  ]
-  visibility: ["//visibility:public"]
+    sources: ["cents.buri", "parse.buri"]
+    visibility: ["//visibility:public"]
 
-  test {
-    sources: [
-      "test/cents.buri",
-      "test/parse.buri",
-    ]
-  }
+    test {
+        sources: ["test/cents.buri", "test/parse.buri"]
+    }
 }

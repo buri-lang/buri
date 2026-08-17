@@ -1,14 +1,13 @@
 # A binary and its suite. `//cmd/tool/main` is a module inside this package,
 # and the only thing in the repository that may name it is the `test.sources`
 # below.
-
 binary {
-  sources: ["routes.buri"]
-  outputs: [
-    { platform: JS },
-  ]
+    sources: ["routes.buri"]
+    outputs: [
+        { platform: JS },
+    ]
 
-  test {
-    sources: ["test/routes.buri"]
-  }
+    test {
+        sources: ["test/routes.buri"]
+    }
 }

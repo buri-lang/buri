@@ -1,4 +1,4 @@
-syntax = "proto3";
+edition = "2026";
 
 package bad.v1;
 
@@ -7,6 +7,7 @@ message Request {
   map<string, int32> labels = 2;
   google.protobuf.Any payload = 3;
   required int32 must = 4;
+  oneof pick { repeated string many = 7; }
   group Inline = 5 { int32 x = 6; }
 }
 

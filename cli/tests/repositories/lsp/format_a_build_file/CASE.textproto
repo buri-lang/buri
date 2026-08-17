@@ -1,0 +1,18 @@
+# The editor formats a build file with the command's own printer.
+#
+# `buri format` decides which of the two printers a file goes through by its
+# name, and so does the language server — one function, `commands::format::file`,
+# so that saving in an editor and running the command cannot disagree.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the language server formats BUILD.buri through the same printer buri format uses"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

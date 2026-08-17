@@ -1,6 +1,5 @@
 # Reached only by //lib/widget's `testing` surface, never by its library.
-
 library {
-  sources: ["a.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["a.buri"]
+    visibility: ["//visibility:public"]
 }

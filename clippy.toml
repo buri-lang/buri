@@ -1,0 +1,16 @@
+# Clippy's configuration, alongside the lint list in `Cargo.toml`.
+#
+# The governing rule is in `[workspace.lints]`: no input may panic the
+# toolchain. Test code is held to a different standard on purpose — a test that
+# unwraps is a test that fails loudly on the line that broke, which is what a
+# test is for, and threading `?` through an assertion buys nothing.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = false
+allow-print-in-tests = true
+# `const` evaluation happens at compile time: a failure there is a build error
+# on the developer's screen, not a panic in a user's process.
+allow-unwrap-in-consts = true
+allow-expect-in-consts = true

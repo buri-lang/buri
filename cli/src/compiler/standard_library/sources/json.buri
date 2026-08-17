@@ -144,9 +144,9 @@ fn value<C: Alloc>(ctx: C, cs: [Char], i: Int, depth: Int): Result<(Json, Int), 
           .Err(e) => .Err(e),
         }
       } else if (c == '[') {
-        array(ctx, cs, skipSpace(cs, i + 1), depth, list.empty::<Json>())
+        array(ctx, cs, skipSpace(cs, i + 1), depth, list.empty<Json>())
       } else if (c == '{') {
-        object(ctx, cs, skipSpace(cs, i + 1), depth, list.empty::<(Str, Json)>())
+        object(ctx, cs, skipSpace(cs, i + 1), depth, list.empty<(Str, Json)>())
       } else if (c == '-' || c.isDigit()) {
         number(ctx, cs, i)
       } else {
@@ -251,7 +251,7 @@ fn object<C: Alloc>(
 
 /// A quoted string, and the index just past its closing quote.
 fn string<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Str, Int), JsonError> {
-  stringBody(ctx, cs, i + 1, list.empty::<Char>())
+  stringBody(ctx, cs, i + 1, list.empty<Char>())
 }
 
 fn stringBody<C: Alloc>(
@@ -640,7 +640,7 @@ derive Eq, Show for DecodeError;
 ///   let text = json.stringify(ctx, json.encode(ctx, shape));
 ///   let _ = ctx.println(text);
 ///
-///   // The type comes from the annotation, not from a turbofish.
+///   // The type comes from the annotation, not from a type argument.
 ///   let back: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, shape));
 ///   let _ = ctx.println("${back == .Ok(shape)}");
 ///   .Ok(())
@@ -658,9 +658,9 @@ export fn encode<T: ToJson, C: Alloc>(ctx: C, value: T): Json {
 /// Reads a `Json` as a `T`, or says where it stopped.
 ///
 /// **The type comes from the annotation.** `decode` is generic in both the
-/// type being read and the context it allocates in, and a turbofish has to
-/// name every type argument — a context type has no name to write (SPEC 11.3),
-/// so there is nothing to put in the second slot. Write the type on the
+/// type being read and the context it allocates in, and a written type
+/// argument list has to name every argument — a context type has no name to
+/// write (SPEC 11.3), so there is nothing to put in the second slot. Write the type on the
 /// binding instead — `let point: Result<Point, DecodeError> = json.decode(ctx,
 /// doc);` — as the example on `encode` does.
 export fn decode<T: FromJson, C: Alloc>(ctx: C, value: Json): Result<T, DecodeError>;

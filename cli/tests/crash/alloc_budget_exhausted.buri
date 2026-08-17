@@ -1,0 +1,23 @@
+// CRASH: allocation budget exhausted: 40 bytes requested against a budget of 64
+//
+// `FixedBuffer(n)` refuses rather than reports, and it has to: `allocate`
+// answers `Region` and not `Result<Region, _>` (`core/cap`), so there is no
+// value to carry a failure — SPEC 10.5 says `Alloc` can fail and SPEC 6.10
+// says a failure with nothing to return is an abort (MEMORY.md §7.2).
+//
+// The budget arithmetic is the *defined* cost model, so the request that ends
+// this program is the same request on both backends: 32 fits in 64, and 40
+// more does not.
+from "core/alloc" import * as alloc;
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let buffer = alloc.fixedBuffer(64);
+  let ctx = context { Alloc: buffer, Stdout: host.stdout };
+  let _ = ctx.allocate(32);
+  let _ = ctx.println("${buffer.remaining()} bytes left");
+  let _ = ctx.allocate(40);
+  let _ = ctx.println("unreachable");
+  .Ok(())
+}

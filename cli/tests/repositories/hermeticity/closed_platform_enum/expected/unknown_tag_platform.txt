@@ -1,7 +1,7 @@
 error: `LINUXX` is not a platform
- --> REPO.buri:8:26
+ --> REPO.buri:6:26
   |
-8 |   requires { platforms: [LINUXX] }
+6 |   requires { platforms: [LINUXX] }
   |                          ^^^^^^
   |
   = fix: did you mean `LINUX`?

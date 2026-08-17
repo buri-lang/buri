@@ -17,6 +17,22 @@
 //! there may be, so an untested example is a reviewable line in a diff rather
 //! than a silence.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 use buri::documentation::{examples, topics};
 use std::path::{Path, PathBuf};
 
@@ -104,16 +120,17 @@ fn untested_examples_say_why_and_do_not_multiply() {
     let mut silent = Vec::new();
     for t in topics::TOPICS {
         for block in examples::extract(&topic_path(t.id), t.text).blocks {
-            if block.mode != examples::Mode::Ignore {
+            let examples::Claim::Ignore { why } = &block.claim else {
                 continue;
-            }
+            };
             let at = format!("{}:{}", block.origin.file, block.origin.line);
-            match block.why.as_deref() {
-                Some(why) if !why.trim().is_empty() => ignored.push(at),
-                // Belt and braces: extraction already refuses this, and it is
-                // cheap to say so here too rather than to trust that the
-                // suite above is the only reader of these fences.
-                _ => silent.push(at),
+            // Belt and braces: `Claim::Ignore` is only ever built from a
+            // non-empty reason, and it is cheap to say so here too rather than
+            // to trust that the suite above is the only reader of these fences.
+            if why.trim().is_empty() {
+                silent.push(at);
+            } else {
+                ignored.push(at);
             }
         }
     }
@@ -141,7 +158,7 @@ fn most_examples_are_actually_compiled() {
     let mut ignored = 0;
     for t in topics::TOPICS {
         for block in examples::extract(&topic_path(t.id), t.text).blocks {
-            if block.mode == examples::Mode::Ignore {
+            if block.claim.is_ignored() {
                 ignored += 1;
             } else {
                 compiled += 1;
@@ -167,10 +184,10 @@ fn standard_library_doc_comments() {
     let mut blocks = 0;
     let mut modules = 0;
 
-    for path in buri::compiler::standard_library::MODULES {
-        let Some(source) = buri::compiler::standard_library::source(path) else {
-            panic!("`{path}` is listed in MODULES and has no source");
-        };
+    for module in buri::compiler::standard_library::MODULES {
+        // The source is a field of the entry rather than a second table keyed
+        // by path, so a listed module with no source is unrepresentable.
+        let (path, source) = (module.path, module.source);
         if !examples::has_examples(source) {
             continue;
         }
@@ -181,7 +198,7 @@ fn standard_library_doc_comments() {
         let found = examples::extract(&rel, &text)
             .blocks
             .iter()
-            .filter(|b| b.mode != examples::Mode::Ignore)
+            .filter(|b| !b.claim.is_ignored())
             .count();
         if found == 0 {
             continue;

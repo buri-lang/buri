@@ -70,7 +70,7 @@ run {
 # you asked about: there is no program yet to be wrong.
 edit {
   file: "cmd/ok/BUILD.buri"
-  replace: "binary {\n  outputs: [{ platform: JS }]\n}\n"
+  replace: "binary {\n    outputs: [\n        { platform: JS },\n    ]\n}\n"
   with: "binary {\n  sources: [\n"
 }
 

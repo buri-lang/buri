@@ -485,7 +485,7 @@ impl<T> Tree<T> {
   /// In-order traversal, which is what makes the tree's ordering observable.
   export fn inOrder<C: Alloc>(self: Tree<T>, ctx: C): [T] {
     match (self) {
-      .Leaf => list.empty::<T>(),
+      .Leaf => list.empty<T>(),
       .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
     }
   }

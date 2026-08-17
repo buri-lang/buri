@@ -17,17 +17,39 @@
 //! so the round trip is byte-for-byte and the drift test cannot be fooled by a
 //! renderer that happens to normalize.
 
+use crate::diagnostics::Invariant as _;
 use crate::documentation::topics::{self, Topic};
 
 pub struct Section {
-    /// The section number as written in the topic's own heading. Pinned so a
-    /// renumber is a deliberate, reviewable edit.
-    pub number: &'static str,
+    /// The section number as written in the topic's own heading, pinned so a
+    /// renumber is a deliberate, reviewable edit — or `None` for a document
+    /// whose sections are prose and carry no numbers. That used to be an empty
+    /// string, which reads as "section number zero-length" and had to be
+    /// tested for at every use.
+    pub number: Option<&'static str>,
     pub topic: &'static str,
 }
 
+impl Section {
+    /// The topic this section is. `every_section_names_a_topic` is what makes
+    /// the failure unreachable; without it a typo in the table below would fail
+    /// somewhere inside `buri docs assemble` instead of in the test suite.
+    pub fn topic(&self) -> &'static Topic {
+        topics::find(self.topic).or_ice(&format!(
+            "`{}` is named by the `DOCUMENTS` table, which `every_section_names_a_topic` \
+             holds against the topic list",
+            self.topic
+        ))
+    }
+}
+
 const fn sec(number: &'static str, topic: &'static str) -> Section {
-    Section { number, topic }
+    Section { number: Some(number), topic }
+}
+
+/// A section of a document that is prose rather than a numbered specification.
+const fn prose(topic: &'static str) -> Section {
+    Section { number: None, topic }
 }
 
 pub struct Document {
@@ -64,19 +86,19 @@ pub const DOCUMENTS: &[Document] = &[
         path: "README.md",
         front: topics::GUIDE_FRONT,
         // The guide's sections are prose, not a numbered specification, so
-        // there is nothing to pin; the empty number says so.
+        // there is nothing to pin.
         sections: &[
-            sec("", "guide/goals"),
-            sec("", "guide/three-ideas"),
-            sec("", "guide/numbers"),
-            sec("", "guide/methods-and-traits"),
-            sec("", "guide/restricting-effects"),
-            sec("", "guide/errors"),
-            sec("", "guide/imports"),
-            sec("", "guide/whats-in"),
-            sec("", "guide/installing"),
-            sec("", "guide/status"),
-            sec("", "guide/naming"),
+            prose("guide/goals"),
+            prose("guide/three-ideas"),
+            prose("guide/numbers"),
+            prose("guide/methods-and-traits"),
+            prose("guide/restricting-effects"),
+            prose("guide/errors"),
+            prose("guide/imports"),
+            prose("guide/whats-in"),
+            prose("guide/installing"),
+            prose("guide/status"),
+            prose("guide/naming"),
         ],
     },
 ];
@@ -86,10 +108,8 @@ pub fn assemble(doc: &Document) -> String {
     let mut out = String::with_capacity(64 * 1024);
     out.push_str(doc.front);
     for s in doc.sections {
-        let topic = topics::find(s.topic)
-            .unwrap_or_else(|| panic!("`{}` names topic `{}`, which does not exist", doc.path, s.topic));
         out.push('\n');
-        out.push_str(topic.text);
+        out.push_str(s.topic().text);
     }
     out
 }
@@ -135,19 +155,32 @@ mod tests {
     fn every_section_number_is_pinned() {
         for doc in DOCUMENTS {
             for s in doc.sections {
-                if s.number.is_empty() {
-                    continue;
-                }
-                let topic = topics::find(s.topic).unwrap();
-                let headings = markdown::headings(topic.text);
+                let Some(number) = s.number else { continue };
+                let headings = markdown::headings(s.topic().text);
                 let first = headings.first().expect("a topic has a heading");
                 assert!(
-                    first.title.starts_with(&format!("{}. ", s.number)),
-                    "{} pins `{}` at section {}, but its heading reads `{}`",
+                    first.title.starts_with(&format!("{number}. ")),
+                    "{} pins `{}` at section {number}, but its heading reads `{}`",
                     doc.path,
                     s.topic,
-                    s.number,
                     first.title
+                );
+            }
+        }
+    }
+
+    /// What makes `Section::topic` total in practice. Two other tests catch a
+    /// typo indirectly — the real topic goes orphaned — but only this one says
+    /// which entry is wrong.
+    #[test]
+    fn every_section_names_a_topic() {
+        for doc in DOCUMENTS {
+            for s in doc.sections {
+                assert!(
+                    topics::find(s.topic).is_some(),
+                    "{} names `{}`, which is not a topic",
+                    doc.path,
+                    s.topic
                 );
             }
         }

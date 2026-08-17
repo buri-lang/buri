@@ -1,13 +1,12 @@
 # `browser` limits this library to JS, and the suite says nothing about tags at
 # all — it inherits them, which is why the JS run below is the only one it can
 # ask for.
-
 library {
-  sources: ["codec.buri"]
-  tags: ["browser"]
+    sources: ["codec.buri"]
+    tags: ["browser"]
 
-  test {
-    sources: ["test/codec.buri"]
-    platforms: [JS]
-  }
+    test {
+        sources: ["test/codec.buri"]
+        platforms: [JS]
+    }
 }

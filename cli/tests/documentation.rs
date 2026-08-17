@@ -5,6 +5,22 @@
 //! resolves, and — once assembly lands — that the checked-in `SPEC.md` still
 //! matches what `buri docs assemble` produces.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
 
@@ -66,7 +82,7 @@ fn the_fence_census_is_what_we_think_it_is() {
     let mut other = Vec::new();
     for doc in DOCUMENTS {
         for f in markdown::fences(&read(doc)) {
-            match f.info.lang.as_str() {
+            match f.lang {
                 "buri" => buri += 1,
                 "textproto" => textproto += 1,
                 "" => other.push(format!("{doc}:{}: fence with no language", f.line)),
@@ -101,34 +117,40 @@ fn every_link_resolves() {
         };
 
         for link in markdown::links(&text) {
-            if link.target.starts_with("http://") || link.target.starts_with("https://") {
-                continue;
-            }
-            if link.target.is_empty() {
-                if !anchors.contains(&link.anchor) {
-                    broken.push(format!(
-                        "{doc}:{}: `#{}` is not a heading in this document",
-                        link.line, link.anchor
-                    ));
+            match &link.dest {
+                markdown::Dest::External { .. } => {}
+                markdown::Dest::Nowhere => {
+                    broken.push(format!("{doc}:{}: `[{}]()` points nowhere", link.line, link.text));
                 }
-                continue;
-            }
-            let target = dir.join(&link.target);
-            if !target.exists() {
-                broken.push(format!("{doc}:{}: `{}` does not exist", link.line, link.target));
-                continue;
-            }
-            if link.anchor.is_empty() || !link.target.ends_with(".md") {
-                continue;
-            }
-            let other = std::fs::read_to_string(&target).unwrap_or_default();
-            let other_anchors: Vec<String> =
-                markdown::headings(&other).iter().map(|h| markdown::slug(h.title)).collect();
-            if !other_anchors.contains(&link.anchor) {
-                broken.push(format!(
-                    "{doc}:{}: `{}` has no heading `#{}`",
-                    link.line, link.target, link.anchor
-                ));
+                markdown::Dest::SameDoc { anchor } => {
+                    if !anchors.contains(anchor) {
+                        broken.push(format!(
+                            "{doc}:{}: `#{anchor}` is not a heading in this document",
+                            link.line
+                        ));
+                    }
+                }
+                markdown::Dest::File { path, anchor } => {
+                    let target = dir.join(path);
+                    if !target.exists() {
+                        broken.push(format!("{doc}:{}: `{path}` does not exist", link.line));
+                        continue;
+                    }
+                    let Some(anchor) = anchor.as_deref().filter(|_| path.ends_with(".md")) else {
+                        continue;
+                    };
+                    let other = std::fs::read_to_string(&target).unwrap_or_default();
+                    let other_anchors: Vec<String> = markdown::headings(&other)
+                        .iter()
+                        .map(|h| markdown::slug(h.title))
+                        .collect();
+                    if !other_anchors.iter().any(|a| a == anchor) {
+                        broken.push(format!(
+                            "{doc}:{}: `{path}` has no heading `#{anchor}`",
+                            link.line
+                        ));
+                    }
+                }
             }
         }
     }
@@ -174,8 +196,12 @@ fn every_grammar_keyword_is_a_keyword() {
 #[test]
 fn every_topic_is_servable() {
     for source in buri::documentation::sources() {
-        for (id, _, _) in source.entries() {
-            assert!(source.resolve(&id).is_some(), "`{id}` is listed but does not resolve");
+        for entry in source.entries() {
+            assert!(
+                source.resolve(&entry.id).is_some(),
+                "`{}` is listed but does not resolve",
+                entry.id
+            );
         }
     }
 }

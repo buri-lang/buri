@@ -62,30 +62,101 @@ impl ItemKind {
 
 /// A field, a variant, or a trait method — something that belongs to an item
 /// rather than standing on its own.
+#[derive(Clone)]
 pub struct Member {
     pub name: String,
     pub signature: String,
     pub docs: Vec<String>,
 }
 
+/// What an item is, holding whatever only that kind of item has.
+///
+/// This used to be a `kind` beside an `owner`, a `via_trait`, a `members` list
+/// and an `effects` list, with the correlation maintained by one constructor
+/// and by nothing else. A method with no owner rendered as a free function —
+/// which is the exact confusion `methods_name_their_receiver` exists to catch —
+/// a struct could be `T.Foo`, and `members` meant fields, variants, or methods
+/// depending on a field three lines up and had to be empty for the rest.
+#[derive(Clone)]
+pub enum Api {
+    Struct { fields: Vec<Member> },
+    Enum { variants: Vec<Member> },
+    TypeAlias,
+    Trait { methods: Vec<Member> },
+    Effect { methods: Vec<Member> },
+    Const,
+    Context,
+    /// A method: the type it hangs off, and the trait it satisfies if any.
+    Method { owner: String, via_trait: Option<String>, effects: Vec<String> },
+    Function { effects: Vec<String> },
+}
+
+impl Api {
+    pub fn kind(&self) -> ItemKind {
+        match self {
+            Api::Struct { .. } => ItemKind::Struct,
+            Api::Enum { .. } => ItemKind::Enum,
+            Api::TypeAlias => ItemKind::TypeAlias,
+            Api::Trait { .. } => ItemKind::Trait,
+            Api::Effect { .. } => ItemKind::Effect,
+            Api::Const => ItemKind::Const,
+            Api::Context => ItemKind::Context,
+            Api::Method { .. } => ItemKind::Method,
+            Api::Function { .. } => ItemKind::Function,
+        }
+    }
+
+    /// The type a method hangs off. Only a method has one.
+    pub fn owner(&self) -> Option<&str> {
+        match self {
+            Api::Method { owner, .. } => Some(owner),
+            _ => None,
+        }
+    }
+
+    /// The fields, variants, or methods listed under the item. The kinds that
+    /// have none cannot be given any.
+    pub fn members(&self) -> &[Member] {
+        match self {
+            Api::Struct { fields } => fields,
+            Api::Enum { variants } => variants,
+            Api::Trait { methods } | Api::Effect { methods } => methods,
+            _ => &[],
+        }
+    }
+
+    /// The bounds on the `ctx` parameter — what this function may do to the
+    /// world. Empty means it cannot do anything: no context, no effects. Only
+    /// a function or a method has a `ctx` parameter to read them off.
+    pub fn effects(&self) -> &[String] {
+        match self {
+            Api::Method { effects, .. } | Api::Function { effects } => effects,
+            _ => &[],
+        }
+    }
+
+    /// Whether the item is one for which "Pure" is a statement about it.
+    fn is_callable(&self) -> bool {
+        matches!(self, Api::Method { .. } | Api::Function { .. })
+    }
+}
+
+#[derive(Clone)]
 pub struct ApiItem {
-    pub kind: ItemKind,
+    pub api: Api,
     pub name: String,
-    /// The type a method hangs off, and the trait it satisfies if any.
-    pub owner: Option<String>,
-    pub via_trait: Option<String>,
     pub signature: String,
     pub docs: Vec<String>,
-    pub members: Vec<Member>,
-    /// The bounds on the `ctx` parameter — what this function may do to the
-    /// world. Empty means it cannot do anything: no context, no effects.
-    pub effects: Vec<String>,
 }
 
 impl ApiItem {
     /// `core/list.map`, `//lib/money.Cents`.
     pub fn path(&self, module: &str) -> String {
         format!("{module}.{}", self.name)
+    }
+
+    pub fn kind(&self) -> ItemKind {
+        self.api.kind()
     }
 }
 
@@ -124,24 +195,7 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
                 let wanted = spec.name.name.as_str();
                 let shown = spec.alias.as_ref().unwrap_or(&spec.name).name.clone();
                 for found in from.iter().filter(|i| i.name == wanted) {
-                    items.push(ApiItem {
-                        kind: found.kind,
-                        name: shown.clone(),
-                        owner: found.owner.clone(),
-                        via_trait: found.via_trait.clone(),
-                        signature: found.signature.clone(),
-                        docs: found.docs.clone(),
-                        members: found
-                            .members
-                            .iter()
-                            .map(|x| Member {
-                                name: x.name.clone(),
-                                signature: x.signature.clone(),
-                                docs: x.docs.clone(),
-                            })
-                            .collect(),
-                        effects: found.effects.clone(),
-                    });
+                    items.push(ApiItem { name: shown.clone(), ..found.clone() });
                 }
                 // A method is *not* pulled in just because its type was. The
                 // re-export list is the surface, exactly: `toCents` is exported
@@ -150,14 +204,8 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
                 // — and must not appear on the page either.
             }
         }
-        items.sort_by(|a, b| {
-            a.kind
-                .rank()
-                .cmp(&b.kind.rank())
-                .then_with(|| a.owner.cmp(&b.owner))
-                .then_with(|| a.name.cmp(&b.name))
-        });
-        items.dedup_by(|a, b| a.name == b.name && a.owner == b.owner && a.kind == b.kind);
+        items.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+        items.dedup_by(|a, b| sort_key(a) == sort_key(b));
         out.push(ApiModule { path: m.path.clone(), docs: m.ast.docs.clone(), items });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -178,34 +226,22 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
             Item::Enum(d) if d.exported => out.push(enumeration(d)),
             Item::Trait(d) if d.exported => out.push(trait_or_effect(d)),
             Item::TypeAlias(d) if d.exported => out.push(ApiItem {
-                kind: ItemKind::TypeAlias,
+                api: Api::TypeAlias,
                 name: d.name.name.clone(),
-                owner: None,
-                via_trait: None,
                 signature: format!("type {} = {}", d.name.name, formatting::ty(&d.ty)),
                 docs: d.docs.clone(),
-                members: Vec::new(),
-                effects: Vec::new(),
             }),
             Item::Const(d) if d.exported => out.push(ApiItem {
-                kind: ItemKind::Const,
+                api: Api::Const,
                 name: d.name.name.clone(),
-                owner: None,
-                via_trait: None,
                 signature: format!("const {}: {}", d.name.name, formatting::ty(&d.ty)),
                 docs: d.docs.clone(),
-                members: Vec::new(),
-                effects: Vec::new(),
             }),
             Item::Context(d) if d.exported => out.push(ApiItem {
-                kind: ItemKind::Context,
+                api: Api::Context,
                 name: d.name.name.clone(),
-                owner: None,
-                via_trait: None,
                 signature: format!("context {}", d.name.name),
                 docs: d.docs.clone(),
-                members: Vec::new(),
-                effects: Vec::new(),
             }),
             Item::Impl(d) => {
                 let owner = formatting::ty(&d.self_ty);
@@ -222,26 +258,31 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
             _ => {}
         }
     }
-    out.sort_by(|a, b| {
-        a.kind
-            .rank()
-            .cmp(&b.kind.rank())
-            .then_with(|| a.owner.cmp(&b.owner))
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    out.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
     out
 }
 
+/// A reference lists what a type *is* before what it can do, then by receiver,
+/// then by name. Also the identity two re-exports of one item are deduplicated
+/// on, which is why it is one function rather than two orderings to keep in
+/// step.
+fn sort_key(i: &ApiItem) -> (u8, Option<&str>, &str) {
+    (i.kind().rank(), i.api.owner(), &i.name)
+}
+
+/// A free function, or a method on `owner`. There is no third case: the one
+/// thing a method has that a function does not is the type it hangs off, and it
+/// is not optional.
 fn function(d: &tree::FnDecl, owner: Option<String>, via_trait: Option<String>) -> ApiItem {
+    let effects = effects_of(d);
     ApiItem {
-        kind: if d.is_method() || owner.is_some() { ItemKind::Method } else { ItemKind::Function },
+        api: match owner {
+            Some(owner) => Api::Method { owner, via_trait, effects },
+            None => Api::Function { effects },
+        },
         name: d.name.name.clone(),
-        owner,
-        via_trait,
         signature: formatting::signature(d),
         docs: d.docs.clone(),
-        members: Vec::new(),
-        effects: effects_of(d),
     }
 }
 
@@ -272,7 +313,7 @@ fn strip_export(sig: &str) -> String {
 }
 
 fn structure(d: &tree::StructDecl) -> ApiItem {
-    let members = match &d.body {
+    let fields = match &d.body {
         tree::StructBody::Record(fields) => fields
             .iter()
             .filter(|f| f.exported)
@@ -294,45 +335,46 @@ fn structure(d: &tree::StructDecl) -> ApiItem {
             .collect(),
     };
     ApiItem {
-        kind: ItemKind::Struct,
+        api: Api::Struct { fields },
         name: d.name.name.clone(),
-        owner: None,
-        via_trait: None,
         signature: format!("struct {}{}", d.name.name, formatting::generics(&d.generics)),
         docs: d.docs.clone(),
-        members,
-        effects: Vec::new(),
     }
 }
 
 fn enumeration(d: &tree::EnumDecl) -> ApiItem {
     ApiItem {
-        kind: ItemKind::Enum,
+        api: Api::Enum {
+            variants: d
+                .variants
+                .iter()
+                .filter(|v| v.exported)
+                .map(|v| Member {
+                    name: v.name.name.clone(),
+                    signature: strip_export(&formatting::variant(v)),
+                    docs: v.docs.clone(),
+                })
+                .collect(),
+        },
         name: d.name.name.clone(),
-        owner: None,
-        via_trait: None,
         signature: format!("enum {}{}", d.name.name, formatting::generics(&d.generics)),
         docs: d.docs.clone(),
-        members: d
-            .variants
-            .iter()
-            .filter(|v| v.exported)
-            .map(|v| Member {
-                name: v.name.name.clone(),
-                signature: strip_export(&formatting::variant(v)),
-                docs: v.docs.clone(),
-            })
-            .collect(),
-        effects: Vec::new(),
     }
 }
 
 fn trait_or_effect(d: &tree::TraitDecl) -> ApiItem {
+    let methods = d
+        .methods
+        .iter()
+        .map(|m| Member {
+            name: m.name.name.clone(),
+            signature: formatting::signature(m),
+            docs: m.docs.clone(),
+        })
+        .collect();
     ApiItem {
-        kind: if d.is_effect { ItemKind::Effect } else { ItemKind::Trait },
+        api: if d.is_effect { Api::Effect { methods } } else { Api::Trait { methods } },
         name: d.name.name.clone(),
-        owner: None,
-        via_trait: None,
         signature: format!(
             "{} {}{}",
             if d.is_effect { "effect" } else { "trait" },
@@ -340,16 +382,6 @@ fn trait_or_effect(d: &tree::TraitDecl) -> ApiItem {
             formatting::generics(&d.generics)
         ),
         docs: d.docs.clone(),
-        members: d
-            .methods
-            .iter()
-            .map(|m| Member {
-                name: m.name.name.clone(),
-                signature: formatting::signature(m),
-                docs: m.docs.clone(),
-            })
-            .collect(),
-        effects: Vec::new(),
     }
 }
 
@@ -374,9 +406,9 @@ pub fn render(m: &ApiModule) -> String {
 
     let mut last: Option<ItemKind> = None;
     for item in &m.items {
-        if last != Some(item.kind) {
-            let _ = writeln!(out, "## {}\n", heading(item.kind));
-            if matches!(item.kind, ItemKind::Method | ItemKind::Function) {
+        if last != Some(item.kind()) {
+            let _ = writeln!(out, "## {}\n", heading(item.kind()));
+            if item.api.is_callable() {
                 let _ = writeln!(
                     out,
                     "*Pure* means the function takes no context parameter, so it cannot \
@@ -384,7 +416,7 @@ pub fn render(m: &ApiModule) -> String {
                      absence of an argument rather than an annotation.\n"
                 );
             }
-            last = Some(item.kind);
+            last = Some(item.kind());
         }
         write_item(&mut out, item);
     }
@@ -406,10 +438,12 @@ fn heading(kind: ItemKind) -> &'static str {
 }
 
 fn write_item(out: &mut String, item: &ApiItem) {
-    let title = match (&item.owner, &item.via_trait) {
-        (Some(owner), Some(via)) => format!("{owner}.{} — via {via}", item.name),
-        (Some(owner), None) => format!("{owner}.{}", item.name),
-        (None, _) => item.name.clone(),
+    let title = match &item.api {
+        Api::Method { owner, via_trait: Some(via), .. } => {
+            format!("{owner}.{} — via {via}", item.name)
+        }
+        Api::Method { owner, via_trait: None, .. } => format!("{owner}.{}", item.name),
+        _ => item.name.clone(),
     };
     let _ = writeln!(out, "### {title}\n");
     let _ = writeln!(out, "```buri sig\n{}\n```\n", item.signature);
@@ -418,9 +452,10 @@ fn write_item(out: &mut String, item: &ApiItem) {
     // wants to derive from a signature, so it is stated on every function —
     // but tersely, because it appears on all of them. What "Pure" means is
     // explained once, under the section heading.
-    if !item.effects.is_empty() {
-        let _ = writeln!(out, "Effects: `{}`\n", item.effects.join("` · `"));
-    } else if matches!(item.kind, ItemKind::Method | ItemKind::Function) {
+    let effects = item.api.effects();
+    if !effects.is_empty() {
+        let _ = writeln!(out, "Effects: `{}`\n", effects.join("` · `"));
+    } else if item.api.is_callable() {
         let _ = writeln!(out, "Pure.\n");
     }
 
@@ -431,8 +466,8 @@ fn write_item(out: &mut String, item: &ApiItem) {
         out.push('\n');
     }
 
-    if !item.members.is_empty() {
-        for m in &item.members {
+    if !item.api.members().is_empty() {
+        for m in item.api.members() {
             let _ = writeln!(out, "- `{}`{}", m.signature, member_doc(&m.docs));
         }
         out.push('\n');
@@ -504,14 +539,14 @@ mod tests {
         let modules = stdlib();
         let (_, map_fn) = find_item(&modules, "core/list.map").expect("core/list.map");
         assert!(map_fn.signature.contains("map<B, C: Alloc>"), "{}", map_fn.signature);
-        assert_eq!(map_fn.effects, vec!["Alloc"], "map allocates and says so");
+        assert_eq!(map_fn.api.effects(), ["Alloc".to_string()], "map allocates and says so");
 
         let (_, len) = find_item(&modules, "core/list.len").expect("core/list.len");
-        assert!(len.effects.is_empty(), "len is pure");
+        assert!(len.api.effects().is_empty(), "len is pure");
 
         let (_, alloc) = find_item(&modules, "core/cap.Alloc").expect("core/cap.Alloc");
-        assert_eq!(alloc.kind, ItemKind::Effect);
-        assert!(alloc.members.iter().any(|m| m.name == "allocate"));
+        assert_eq!(alloc.kind(), ItemKind::Effect);
+        assert!(alloc.api.members().iter().any(|m| m.name == "allocate"));
     }
 
     /// A method's page names the type it hangs off. Without that, `get` and
@@ -521,6 +556,6 @@ mod tests {
         let modules = stdlib();
         let list = modules.iter().find(|m| m.path == "core/list").unwrap();
         let get = list.items.iter().find(|i| i.name == "get").unwrap();
-        assert_eq!(get.owner.as_deref(), Some("[T]"));
+        assert_eq!(get.api.owner(), Some("[T]"));
     }
 }

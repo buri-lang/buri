@@ -13,20 +13,24 @@
 //! `from "//proto/person.proto" import { Person };` resolves to types and
 //! codecs that no one had to write down twice.
 //!
+//! `link` is the last action in the graph for a native artifact: the C driver
+//! the objects are handed to, the `.buri/link/<key>/` directory they are
+//! written into, and the manifest that says which of them this build produced
+//! and which came out of the cache.
+//!
 //! `session` is the handle every command that needs a repository opens first:
-//! the root, the loaded workspace, the source map, and the diagnostics — and
-//! the point at which `toolchain` refuses an invocation whose `REPO.buri` pins
-//! a compiler this is not. `spawn` is the deterministic environment the one
-//! action that leaves this process is started in.
+//! the root, the loaded workspace, the source map, and the diagnostics.
+//! `spawn` is the deterministic environment the one action that leaves this
+//! process is started in.
 
 pub mod actions;
 pub mod buildfile;
 pub mod cache;
+pub mod link;
 pub mod protogen;
 pub mod protoschema;
 pub mod regenerate;
 pub mod session;
 pub mod spawn;
 pub mod textproto;
-pub mod toolchain;
 pub mod workspace;

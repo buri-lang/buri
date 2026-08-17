@@ -20,6 +20,19 @@
         # forget, and a package that claims 0.3.0 while its binary says 0.4.0
         # is worse than one that claims nothing.
         cargoToml = builtins.fromTOML (builtins.readFile ./cli/Cargo.toml);
+
+        # LLVM 21.1, pinned deliberately rather than taken from the default
+        # `llvmPackages` (design/native/CODEGEN-LLVM.md §8). The flake's
+        # `nixos-25.05` provides 18.1.8, 19.1.7 (the default), 20.1.8 and
+        # 21.1.2 and no 22 -- so pinning 22, which is the newest inkwell
+        # supports, would mean bumping this flake's nixpkgs in service of a
+        # codegen decision.
+        #
+        # `.dev`, not the default output: `.dev` carries `bin/llvm-config` and
+        # the headers, which is what `llvm-sys`'s build script looks for, and
+        # pointing at the default output fails in a way whose error message
+        # does not say so.
+        llvm = pkgs.llvmPackages_21.llvm;
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -30,11 +43,31 @@
           # build` finds is a file that has not been `git add`ed yet.
           src = self;
 
-          # The toolchain has no dependencies on purpose (see the root
-          # `Cargo.toml`), so the lockfile names one package -- this crate --
-          # and vendoring fetches nothing. There is no `cargoHash` to keep in
-          # sync because there is nothing to hash.
+          # The toolchain's dependencies are held to the bar stated in the root
+          # `Cargo.toml`: a code generator or a platform interface, behind a
+          # cargo feature the default build can turn off, whose absence degrades
+          # rather than breaks. Two families have cleared it -- `cranelift-*`
+          # behind `backend-cranelift` and `inkwell` behind `backend-llvm` --
+          # so the lockfile now names their closures and vendoring fetches
+          # them. `cargoLock.lockFile` reads the hashes out of the lockfile, so
+          # there is still no `cargoHash` to keep in sync by hand.
           cargoLock.lockFile = ./Cargo.lock;
+
+          # Default features, which is `backend-cranelift` alone.
+          #
+          # design/native/BUILD-AND-WATCH.md §3.2 wants this built **with**
+          # `backend-llvm`, because a `nix build` produces the release
+          # toolchain and a release toolchain must be able to produce release
+          # artifacts. That flip is three lines -- `buildFeatures = [
+          # "backend-llvm" ]`, `nativeBuildInputs = [ llvm.dev ]`, and
+          # `LLVM_SYS_211_PREFIX` -- and it is deliberately not taken in the
+          # same change as the dependency itself, because it cannot be checked
+          # from a working tree: `src = self` is the *tracked* tree, so a
+          # `nix build` run beside an uncommitted backend builds the previous
+          # one and proves nothing about the new. It lands with the commit that
+          # makes the LLVM backend part of the tracked tree, where `nix build`
+          # is a real test of it rather than a claim.
+          buildNoDefaultFeatures = false;
 
           # `cargo test` compiles and *runs* the examples in `SPEC.md` and
           # `README.md`, which means spawning a JavaScript runtime -- a package
@@ -66,7 +99,16 @@
           meta = { inherit (cargoToml.package) description; };
         };
 
-        devShells.default = pkgs.mkShellNoCC {
+        # `mkShell`, not `mkShellNoCC`. Two things in the native branch need a
+        # C toolchain and neither is optional: `llvm-sys`'s build script wants
+        # a C++ compiler, and the link step drives `cc` because the C driver is
+        # what knows where `crt1.o`, `libc` and `libSystem.tbd` live
+        # (design/native/CODEGEN-CRANELIFT.md §7.3).
+        devShells.default = pkgs.mkShell {
+          # `llvm-sys` refuses to guess. Without this the `backend-llvm` build
+          # fails at its build script rather than at a link.
+          LLVM_SYS_211_PREFIX = "${llvm.dev}";
+
           packages = [
               pkgs.cargo
               pkgs.bun
@@ -89,7 +131,31 @@
               pkgs.abseil-cpp
               pkgs.zlib
               pkgs.pkg-config
-          ];
+              # -- the native backends -------------------------------------
+              #
+              # Nothing here is needed for `backend-cranelift`, which is pure
+              # Rust and is the default: `cargo build` works in a shell with
+              # none of it. These are for `--features backend-llvm` and for
+              # the link step, and they are in the shell rather than in a
+              # `nix-shell -p` incantation because a contributor who cannot
+              # build both backends cannot check that they agree.
+              llvm.dev
+              llvm
+              # `llvm-config --system-libs` asks for these on most
+              # configurations. `zlib` is already above; `zstd` and `ncurses`
+              # are added if a configuration turns out to want them, which
+              # varies.
+              pkgs.libxml2
+              pkgs.libffi
+              # `ld64.lld` on macOS and `ld.lld` on Linux. It follows the
+              # default `llvmPackages` rather than the pinned 21, which is
+              # fine: a linker's version need not match the compiler's.
+              pkgs.lld
+          ]
+          # mold is ELF-only -- it fails with "mold does not support macOS",
+          # and the Mach-O fork was archived in November 2024 with its author
+          # recommending Apple's linker (CODEGEN-CRANELIFT.md §7.3).
+          ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.mold;
         };
       }
     );

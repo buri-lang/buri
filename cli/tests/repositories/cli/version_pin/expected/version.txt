@@ -1,3 +1,0 @@
-buri 0.3.0
-REPO.buri pins 0.3.0
-REPO.buri pins no toolchain sha256 (unpinned)

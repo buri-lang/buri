@@ -5,23 +5,18 @@
 # the `server` tag's whitelist admits linux and macos, so //lib/store is legal
 # in every one of them. The tag check itself runs once: tags do not vary across
 # outputs.
-
 binary {
-  sources: ["routes.buri"]
-  dependencies: [
-    "//lib/ledger",
-    "//lib/money",
-    "//lib/store",
-  ]
-  tags: ["server"]
+    sources: ["routes.buri"]
+    dependencies: ["//lib/ledger", "//lib/money", "//lib/store"]
+    tags: ["server"]
 
-  outputs: [
-    { platform: LINUX, arch: X86_64 },
-    { platform: LINUX, arch: ARM64 },
-    { platform: MACOS, arch: ARM64 },
-  ]
+    outputs: [
+        { platform: LINUX, arch: X86_64 },
+        { platform: LINUX, arch: ARM64 },
+        { platform: MACOS, arch: ARM64 },
+    ]
 
-  test {
-    sources: ["test/routes.buri"]
-  }
+    test {
+        sources: ["test/routes.buri"]
+    }
 }

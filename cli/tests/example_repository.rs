@@ -2,6 +2,22 @@
 //! corpus: every rule shape, the tag policy, the testing surface, and a
 //! package with both a library and a binary.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 use std::path::{Path, PathBuf};
 
 fn example_root() -> PathBuf {
@@ -19,7 +35,8 @@ fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: b
         platform: buri::build::buildfile::Platform::Js,
         with_tests,
     };
-    let analysis = buri::compiler::driver::analyze(Some(&ws), &mut map, &unit);
+    let mut cache = buri::parsing::parser::Cache::new();
+    let analysis = buri::compiler::driver::analyze(Some(&ws), &mut map, &mut cache, &unit);
     let mut out = String::new();
     for d in diags.items.iter().chain(analysis.diags.items.iter()) {
         out.push_str(&map.render(d, false));

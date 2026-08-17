@@ -34,9 +34,9 @@ library {
 }
 ```
 
-`#` starts a comment. `buri format` formats build files as well as source: one
-field per line, `sources` and `dependencies` sorted, trailing commas, two-space
-indent.
+`#` starts a comment. `buri format` formats build files as well as source: the
+schema's field order, one field per line, `sources` and `dependencies` sorted,
+trailing commas, four-space indent. See `cli format` for the whole of it.
 
 ## Packages
 

@@ -14,6 +14,22 @@
 //! BURI_KEEP=1  cargo test -p buri --test repositories    # keep the scratch trees
 //! ```
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 use harness::*;
 
@@ -59,12 +75,13 @@ fn graph_queries() {
 
 /// PROTO.md: a `.proto` schema is a source that becomes a module. One case for
 /// the build-file half — declared, placed by `gen`, keyed on its contents,
-/// internal to the rule that declared it — and one for each half of what the
-/// schema reader refuses: the constructs that are out of scope, and the files
-/// that are not schemas at all.
+/// internal to the rule that declared it — one for the edition the reader
+/// requires and the two syntaxes it refuses, and one for each half of what it
+/// otherwise refuses: the constructs that are out of scope, and the files that
+/// are not schemas at all.
 #[test]
 fn proto_schemas() {
-    run_corpus(&tests_dir().join("repositories/proto"), "proto", 3);
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 5);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
@@ -89,5 +106,5 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 4);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 5);
 }

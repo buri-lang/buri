@@ -1,7 +1,7 @@
 binary {
-  dependencies: ["//lib/widget"]
-  tags: ["server"]
-  outputs: [
-    { platform: LINUX, arch: X86_64 },
-  ]
+    dependencies: ["//lib/widget"]
+    tags: ["server"]
+    outputs: [
+        { platform: LINUX, arch: X86_64 },
+    ]
 }

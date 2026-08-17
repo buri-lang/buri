@@ -1,4 +1,4 @@
 library {
-  sources: ["c.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["c.buri"]
+    visibility: ["//visibility:public"]
 }

@@ -28,30 +28,62 @@
 
 use crate::compiler::driver;
 use crate::compiler::modules::Role;
-use crate::diagnostics::SourceMap;
-use crate::documentation::markdown::{self, Fence};
+use crate::diagnostics::{Invariant as _, SourceMap};
+use crate::documentation::markdown::{self, Fence, Info};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // What a block claims about itself
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Mode {
+/// A `// ERROR: <substring>` line: `(0-based line within `source`, substring)`.
+pub type Annotation = (usize, String);
+
+/// What a block claims about itself, holding the evidence for the claim.
+///
+/// Each mode's required payload lives *in* its variant, so the four rules that
+/// used to be enforced only by `parse_block` are now enforced by the compiler:
+/// a `run` block cannot exist without pinned output (it used to fall back to
+/// `unwrap_or_default()`, so a `run` block that pinned nothing *passed*), an
+/// `ignore` block cannot exist without a reason, a `fail` block cannot carry a
+/// stdout transcript nothing would ever compare, and `run` and `sig` cannot
+/// carry `// ERROR:` annotations they would silently not honour.
+#[derive(Clone, Debug)]
+pub enum Claim {
     /// Must typecheck. The default, and what most blocks are.
-    Check,
+    Check { errors: Vec<Annotation> },
     /// A list of signatures. Parsed as a standard-library module, so a
     /// declaration may have no body.
     Sig,
-    /// Must typecheck, compile, and run. The next ```stdout fence pins what it
-    /// prints.
-    Run,
-    /// Must be rejected. The next ```error fence, or the block's own
-    /// `// ERROR:` annotations, pin the message.
-    Fail,
-    /// Not compiled. Requires `why=`, and is listed in the ratchet file so a
-    /// new one is a reviewable line rather than a silent omission.
-    Ignore,
+    /// Must typecheck, compile, and run, printing exactly this. The text comes
+    /// from the ```stdout fence beneath the block.
+    Run { stdout: String },
+    /// Must be rejected. `code` is the diagnostic code the error catalog
+    /// demands, `messages` the substrings from the ```error fence beneath the
+    /// block, and `errors` the block's own `// ERROR:` annotations. At least
+    /// one of the three is present, or the block says nothing about how it
+    /// fails.
+    Fail { code: Option<String>, messages: Vec<String>, errors: Vec<Annotation> },
+    /// Not compiled, for the stated reason. The reason is required, and the
+    /// count of these is ratcheted, so a new one is a reviewable line rather
+    /// than a silent omission.
+    Ignore { why: String },
+}
+
+impl Claim {
+    /// The `// ERROR:` annotations this claim honours, each compiled on its
+    /// own. `sig` and `run` do not take them and `ignore` compiles nothing, so
+    /// for those there are none to have.
+    pub fn errors(&self) -> &[Annotation] {
+        match self {
+            Claim::Check { errors } | Claim::Fail { errors, .. } => errors,
+            Claim::Sig | Claim::Run { .. } | Claim::Ignore { .. } => &[],
+        }
+    }
+
+    pub fn is_ignored(&self) -> bool {
+        matches!(self, Claim::Ignore { .. })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -85,14 +117,13 @@ impl std::fmt::Display for Origin {
 
 #[derive(Clone, Debug)]
 pub struct Block {
-    pub mode: Mode,
+    /// What the block claims, and what it offers as evidence.
+    pub claim: Claim,
     pub wrap: Wrap,
     /// Named preambles spliced ahead of this block.
     pub uses: Vec<String>,
     /// This block's own name, for a later block to `use=`.
     pub name: Option<String>,
-    /// Why an `ignore` block is ignored. Required for `Mode::Ignore`.
-    pub why: Option<String>,
     /// Effects the synthetic `main` builds a context from.
     pub effects: Vec<String>,
     /// A repository to compile against, relative to the documentation root.
@@ -106,22 +137,12 @@ pub struct Block {
     /// document showing an `effect` declaration is showing a platform module,
     /// and one showing a `test` is showing a test source.
     pub role: Option<Role>,
-    /// For a `fail` block in the error catalog: the code it must produce.
-    pub expect_code: Option<String>,
-    /// Which build-file schema a ```textproto block must satisfy.
-    pub schema: Option<Schema>,
     /// The text to compile: hidden `# ` markers removed, `// ERROR:` lines
     /// blanked (they are compiled separately).
     pub source: String,
     /// The same text with the `// ERROR:` lines still in place, so a variant
     /// can put one of them back.
     pub original: String,
-    /// The `// ERROR:` lines, as `(0-based line within `source`, substring)`.
-    pub errors: Vec<(usize, String)>,
-    /// Pinned stdout, from the ```stdout fence beneath a `run` block.
-    pub expect_stdout: Option<String>,
-    /// Pinned diagnostics, from the ```error fence beneath a `fail` block.
-    pub expect_errors: Vec<String>,
     pub origin: Origin,
 }
 
@@ -175,16 +196,30 @@ pub fn extract(file: &str, text: &str) -> Extracted {
 
     for (i, fence) in fences.iter().enumerate() {
         let origin = Origin { file: file.to_string(), line: fence.body_line };
-        match fence.info.lang.as_str() {
-            "buri" => match parse_block(fence, &origin, fences.get(i + 1)) {
+        // A malformed info string is reported whatever the language claims to
+        // be. It used to be swallowed, and a fence that could not say what it
+        // was got neither compiled nor complained about.
+        let info = match &fence.info {
+            Ok(info) => info,
+            Err(msg) => {
+                out.failures.push(Failure {
+                    origin,
+                    what: msg.clone(),
+                    detail: "the info string is `<lang> [mode] [key=value]...`".into(),
+                });
+                continue;
+            }
+        };
+        match fence.lang {
+            "buri" => match parse_block(fence, info, &origin, fences.get(i.saturating_add(1))) {
                 Ok(b) => out.blocks.push(b),
                 Err(f) => out.failures.push(f),
             },
             "textproto" => {
                 // A fragment of a build file is not a build file; it says so
                 // the same way a Buri fragment does.
-                if fence.info.mode.as_deref() == Some("ignore") {
-                    if fence.info.get("why").is_none() {
+                if info.mode.as_deref() == Some("ignore") {
+                    if info.get("why").is_none() {
                         out.failures.push(Failure {
                             origin,
                             what: "an `ignore` block must say why".into(),
@@ -193,7 +228,7 @@ pub fn extract(file: &str, text: &str) -> Extracted {
                     }
                     continue;
                 }
-                let Some(schema) = schema_of(fence) else {
+                let Some(schema) = schema_of(info) else {
                     out.failures.push(Failure {
                         origin,
                         what: "this textproto block does not say which schema it is".into(),
@@ -217,40 +252,27 @@ pub fn extract(file: &str, text: &str) -> Extracted {
     out
 }
 
-fn schema_of(fence: &Fence) -> Option<Schema> {
-    match fence.info.get("schema") {
+fn schema_of(info: &Info) -> Option<Schema> {
+    match info.get("schema") {
         Some("build") => Some(Schema::Build),
         Some("repo") => Some(Schema::Repo),
         _ => None,
     }
 }
 
-fn parse_block(fence: &Fence, origin: &Origin, next: Option<&Fence>) -> Result<Block, Failure> {
+fn parse_block(
+    fence: &Fence,
+    info: &Info,
+    origin: &Origin,
+    next: Option<&Fence>,
+) -> Result<Block, Failure> {
     let fail = |what: String, detail: &str| Failure {
         origin: origin.clone(),
         what,
         detail: detail.to_string(),
     };
 
-    if let Err(msg) = markdown::parse_info(fence.raw_info) {
-        return Err(fail(msg, "the info string is `buri [mode] [key=value]...`"));
-    }
-
-    let mode = match fence.info.mode.as_deref() {
-        None | Some("check") => Mode::Check,
-        Some("sig") => Mode::Sig,
-        Some("run") => Mode::Run,
-        Some("fail") => Mode::Fail,
-        Some("ignore") => Mode::Ignore,
-        Some(other) => {
-            return Err(fail(
-                format!("`{other}` is not a mode"),
-                "the modes are check, sig, run, fail, ignore",
-            ))
-        }
-    };
-
-    let wrap = match fence.info.get("wrap") {
+    let wrap = match info.get("wrap") {
         None | Some("module") => Wrap::Module,
         Some("body") => Wrap::Body,
         Some("expr") => Wrap::Expr,
@@ -262,7 +284,7 @@ fn parse_block(fence: &Fence, origin: &Origin, next: Option<&Fence>) -> Result<B
         }
     };
 
-    let role = match fence.info.get("role") {
+    let role = match info.get("role") {
         None => None,
         Some("source") => Some(Role::Source),
         Some("entry") => Some(Role::Entry),
@@ -281,20 +303,11 @@ fn parse_block(fence: &Fence, origin: &Origin, next: Option<&Fence>) -> Result<B
         }
     };
 
-    let repo = fence.info.get("repo").map(String::from);
-    let pkg = fence.info.get("pkg").map(String::from);
+    let repo = info.get("repo").map(String::from);
+    let pkg = info.get("pkg").map(String::from);
 
-    let why = fence.info.get("why").map(String::from);
-    if mode == Mode::Ignore && why.is_none() {
-        return Err(fail(
-            "an `ignore` block must say why".into(),
-            "add `why=\"...\"`. An untested example is a claim nobody checks, so the \
-             reason belongs in the document where a reader of the diff can weigh it.",
-        ));
-    }
-
-    let effects = match fence.info.get("ctx") {
-        Some(_) => fence.info.list("ctx"),
+    let effects = match info.get("ctx") {
+        Some(_) => info.list("ctx"),
         // Enough to print and to allocate, which is what a fragment that names
         // `ctx` at all almost always wants.
         None => vec!["alloc".into(), "stdout".into()],
@@ -309,66 +322,110 @@ fn parse_block(fence: &Fence, origin: &Origin, next: Option<&Fence>) -> Result<B
     }
 
     let (source, original, errors) = strip_annotations(&fence.body);
+    let mode = info.mode.as_deref().unwrap_or("check");
 
-    // The expected-output fence directly beneath, if this mode takes one.
-    let mut expect_stdout = None;
-    let mut expect_errors = Vec::new();
-    if let Some(next) = next {
-        match next.info.lang.as_str() {
-            "stdout" if mode == Mode::Run => expect_stdout = Some(next.body.clone()),
-            "error" if mode == Mode::Fail => {
-                expect_errors =
-                    next.body.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
+    // An expected-output fence directly beneath belongs to exactly one mode.
+    // Attaching it anywhere else would drop it on the floor, which is how a
+    // `fail` block used to be able to carry a transcript nobody compared.
+    if let Some(next) = next.filter(|f| matches!(f.lang, "stdout" | "error")) {
+        let wants = if next.lang == "stdout" { "run" } else { "fail" };
+        if mode != wants {
+            return Err(fail(
+                format!(
+                    "a ```{} fence under a `{mode}` block is never compared against anything",
+                    next.lang
+                ),
+                &format!("tag the block `{wants}`, or drop the fence"),
+            ));
+        }
+    }
+    // In `run` and `sig` an annotation would be silently unhonoured, which is
+    // worse than rejecting it. In `ignore` nothing is honoured by definition,
+    // and the ratchet already records that.
+    let no_annotations = |errors: &[Annotation]| {
+        if errors.is_empty() {
+            return Ok(());
+        }
+        Err(fail(
+            format!("`// ERROR:` annotations are not compiled in `{mode}` mode"),
+            "use the default mode, or `fail`",
+        ))
+    };
+    let attached = |lang: &str| next.filter(|f| f.lang == lang);
+
+    let claim = match mode {
+        "check" => Claim::Check { errors },
+        "sig" => {
+            no_annotations(&errors)?;
+            Claim::Sig
+        }
+        "run" => {
+            no_annotations(&errors)?;
+            let Some(out) = attached("stdout") else {
+                return Err(fail(
+                    "a `run` block must be followed by a ```stdout fence".into(),
+                    "add one directly beneath it holding exactly what the program prints; \
+                     `BURI_BLESS=1` fills it in",
+                ));
+            };
+            Claim::Run { stdout: out.body.clone() }
+        }
+        "fail" => {
+            let messages: Vec<String> = attached("error")
+                .map(|f| {
+                    f.body.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
+                })
+                .unwrap_or_default();
+            let code = info.get("code").map(String::from);
+            if messages.is_empty() && errors.is_empty() && code.is_none() {
+                return Err(fail(
+                    "a `fail` block must say what it fails with".into(),
+                    "add a ```error fence beneath it, or annotate the offending line \
+                     `// ERROR: <substring of the message>`",
+                ));
             }
-            _ => {}
+            Claim::Fail { code, messages, errors }
+        }
+        "ignore" => {
+            let why = info.get("why").unwrap_or("").trim();
+            if why.is_empty() {
+                return Err(fail(
+                    "an `ignore` block must say why".into(),
+                    "add `why=\"...\"`. An untested example is a claim nobody checks, so the \
+                     reason belongs in the document where a reader of the diff can weigh it.",
+                ));
+            }
+            Claim::Ignore { why: why.to_string() }
+        }
+        other => {
+            return Err(fail(
+                format!("`{other}` is not a mode"),
+                "the modes are check, sig, run, fail, ignore",
+            ))
+        }
+    };
+    // `code=` and `why=` are read by exactly one mode each. Anywhere else they
+    // are a claim the harness would never check.
+    for (key, only) in [("code", "fail"), ("why", "ignore")] {
+        if info.get(key).is_some() && mode != only {
+            return Err(fail(
+                format!("`{key}=` says nothing in a `{mode}` block"),
+                &format!("it is read only by `{only}`"),
+            ));
         }
     }
 
-    if mode == Mode::Run && expect_stdout.is_none() {
-        return Err(fail(
-            "a `run` block must be followed by a ```stdout fence".into(),
-            "add one directly beneath it holding exactly what the program prints; \
-             `BURI_BLESS=1` fills it in",
-        ));
-    }
-    if mode == Mode::Fail
-        && expect_errors.is_empty()
-        && errors.is_empty()
-        && fence.info.get("code").is_none()
-    {
-        return Err(fail(
-            "a `fail` block must say what it fails with".into(),
-            "add a ```error fence beneath it, or annotate the offending line \
-             `// ERROR: <substring of the message>`",
-        ));
-    }
-    // In `run` and `sig` the annotation would be silently unhonoured, which is
-    // worse than rejecting it. In `ignore` nothing is honoured by definition,
-    // and the ratchet already records that.
-    if matches!(mode, Mode::Run | Mode::Sig) && !errors.is_empty() {
-        return Err(fail(
-            format!("`// ERROR:` annotations are not compiled in `{mode:?}` mode"),
-            "use the default mode, or `fail`",
-        ));
-    }
-
     Ok(Block {
-        mode,
+        claim,
         wrap,
-        uses: fence.info.list("use"),
-        name: fence.info.get("name").map(String::from),
-        why,
+        uses: info.list("use"),
+        name: info.get("name").map(String::from),
         effects,
-        expect_code: fence.info.get("code").map(String::from),
         repo,
         pkg,
         role,
-        schema: None,
         source,
         original,
-        errors,
-        expect_stdout,
-        expect_errors,
         origin: origin.clone(),
     })
 }
@@ -409,8 +466,8 @@ fn strip_annotations(body: &str) -> (String, String, Vec<(usize, String)>) {
 }
 
 fn error_annotation(line: &str) -> Option<String> {
-    let at = line.find("// ERROR:")?;
-    Some(line[at + "// ERROR:".len()..].trim().to_string())
+    let (_, want) = line.split_once("// ERROR:")?;
+    Some(want.trim().to_string())
 }
 
 /// The line as it appears in the rendered document: hidden lines gone, the
@@ -470,7 +527,9 @@ impl Compiland {
         if reported <= self.prefix_lines {
             return origin.line.saturating_sub(1).max(1);
         }
-        origin.line + (reported - self.prefix_lines) - 1
+        // Past the prefix, so the subtraction below is at least one and the
+        // whole expression cannot go under `origin.line`.
+        origin.line.saturating_add(reported.saturating_sub(self.prefix_lines)).saturating_sub(1)
     }
 }
 
@@ -535,12 +594,13 @@ pub fn assemble(
         }
     }
 
-    let role = match (block.role, block.mode) {
+    let sig = matches!(block.claim, Claim::Sig);
+    let role = match (block.role, sig) {
         // An explicit `role=` wins, except that `sig` needs a role whose
         // parser allows a declaration with no body — `Std` and `Platform` are
         // the two, and a block showing an `effect` must be `Platform`.
-        (Some(r @ (Role::Std | Role::Platform)), Mode::Sig) => r,
-        (Some(_), Mode::Sig) | (None, Mode::Sig) => Role::Std,
+        (Some(r @ (Role::Std | Role::Platform)), true) => r,
+        (_, true) => Role::Std,
         (Some(r), _) => r,
         _ if block.wrap != Wrap::Module => Role::Entry,
         // A whole-module block is ordinary source unless it declares `main`,
@@ -559,7 +619,8 @@ pub fn assemble(
             body.push_str("export fn main(): Result<(), Str> {\n");
             body.push_str("  let ctx = context {\n");
             for e in &block.effects {
-                let (trait_name, host_value) = effect_binding(e).expect("checked at parse");
+                let (trait_name, host_value) = effect_binding(e)
+                    .or_ice("`parse_block` refuses a block naming an effect with no binding");
                 body.push_str(&format!("    __cap.{trait_name}: __host.{host_value},\n"));
             }
             body.push_str("  };\n");
@@ -572,7 +633,7 @@ pub fn assemble(
         }
     }
 
-    let prefix_lines = prefix.lines().count() + body.lines().count();
+    let prefix_lines = prefix.lines().count().saturating_add(body.lines().count());
     let mut text = prefix;
     text.push_str(&body);
     text.push_str(&restore_error(&block.source, block, only_error));
@@ -611,7 +672,8 @@ fn declares_main(source: &str) -> bool {
 
 /// Compiles one block and reports every way it did not do what it claimed.
 pub fn run_block(block: &Block, reg: &Registry, map: &mut SourceMap) -> Vec<Failure> {
-    run_block_in(None, block, reg, map)
+    let mut cache = crate::parsing::parser::Cache::new();
+    run_block_in(None, block, reg, map, &mut cache)
 }
 
 /// The same, against a repository the block named with `repo=`.
@@ -620,6 +682,7 @@ pub fn run_block_in(
     block: &Block,
     reg: &Registry,
     map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
 ) -> Vec<Failure> {
     let pkg = match (&block.pkg, ws) {
         (Some(label), Some(ws)) => {
@@ -645,7 +708,7 @@ pub fn run_block_in(
         }
         (None, _) => None,
     };
-    if block.mode == Mode::Ignore {
+    if block.claim.is_ignored() {
         return Vec::new();
     }
     let mut failures = Vec::new();
@@ -659,7 +722,7 @@ pub fn run_block_in(
     };
     let name = format!("{}", block.origin);
     let analysis =
-        driver::analyze_snippet_as(ws, pkg, map, &name, &base.text, base.role);
+        driver::analyze_snippet_as(ws, pkg, map, cache, &name, &base.text, base.role);
     let diags: Vec<String> = analysis
         .diags
         .items
@@ -668,13 +731,13 @@ pub fn run_block_in(
         .map(|d| describe(map, d, &base, &block.origin))
         .collect();
 
-    match block.mode {
-        Mode::Fail => {
+    match &block.claim {
+        Claim::Fail { code, messages, errors } => {
             // `code=` is what makes the error catalog self-verifying: a page
             // claims to explain a rule, and its example must provoke exactly
             // that rule. A page nothing can provoke is a page that describes an
             // error the compiler no longer emits.
-            if let Some(want) = &block.expect_code {
+            if let Some(want) = code {
                 let got: Vec<String> = analysis
                     .diags
                     .items
@@ -697,7 +760,7 @@ pub fn run_block_in(
                     });
                 }
             }
-            if diags.is_empty() && block.errors.is_empty() {
+            if diags.is_empty() && errors.is_empty() {
                 failures.push(Failure {
                     origin: block.origin.clone(),
                     what: "this block is marked `fail` but compiles".into(),
@@ -706,7 +769,7 @@ pub fn run_block_in(
                         .into(),
                 });
             }
-            for want in &block.expect_errors {
+            for want in messages {
                 if !diags.iter().any(|d| d.contains(want.as_str())) {
                     failures.push(Failure {
                         origin: block.origin.clone(),
@@ -732,7 +795,7 @@ pub fn run_block_in(
     }
 
     // Each annotated line, compiled on its own.
-    for (index, want) in &block.errors {
+    for (index, want) in block.claim.errors() {
         let variant = match assemble(block, reg, Some(*index)) {
             Ok(c) => c,
             Err(f) => {
@@ -741,7 +804,7 @@ pub fn run_block_in(
             }
         };
         let a =
-            driver::analyze_snippet_as(ws, pkg, map, &name, &variant.text, variant.role);
+            driver::analyze_snippet_as(ws, pkg, map, cache, &name, &variant.text, variant.role);
         let got: Vec<String> = a
             .diags
             .items
@@ -750,7 +813,10 @@ pub fn run_block_in(
             .map(|d| d.message.clone())
             .collect();
         if !got.iter().any(|m| m.contains(want.as_str())) {
-            let line = variant.document_line(&block.origin, base.prefix_lines + index + 1);
+            let line = variant.document_line(
+                &block.origin,
+                base.prefix_lines.saturating_add(*index).saturating_add(1),
+            );
             failures.push(Failure {
                 origin: Origin { file: block.origin.file.clone(), line },
                 what: format!("this line should not compile: expected `{want}`"),
@@ -763,17 +829,20 @@ pub fn run_block_in(
         }
     }
 
-    if block.mode == Mode::Run && failures.is_empty() {
+    let pinned = match &block.claim {
+        Claim::Run { stdout } if failures.is_empty() => Some(stdout),
+        _ => None,
+    };
+    if let Some(want) = pinned {
         match driver::run_snippet_in(ws, map, &name, &base.text) {
             Ok(stdout) => {
-                let want = block.expect_stdout.clone().unwrap_or_default();
-                if stdout != want {
+                if &stdout != want {
                     failures.push(Failure {
                         origin: block.origin.clone(),
                         what: "this example prints something else".into(),
                         detail: format!(
                             "expected:\n{}\n  actual:\n{}",
-                            indent(&want),
+                            indent(want),
                             indent(&stdout)
                         ),
                     });
@@ -843,6 +912,7 @@ fn run_file_with(
     let mut failures = extracted.failures;
     let mut reg = Registry::new();
     let mut map = SourceMap::new();
+    let mut cache = crate::parsing::parser::Cache::new();
     // One `Workspace` per repository named in this document, not per block:
     // loading a monorepo reads every build file in it.
     let mut repos: HashMap<String, Option<crate::build::workspace::Workspace>> = HashMap::new();
@@ -881,7 +951,7 @@ fn run_file_with(
                 }
             }
         };
-        failures.extend(run_block_in(ws, block, &reg, &mut map));
+        failures.extend(run_block_in(ws, block, &reg, &mut map, &mut cache));
         reg.record(block);
     }
     for proto in &extracted.protos {
@@ -917,6 +987,45 @@ pub fn run_proto(proto: &ProtoBlock) -> Vec<Failure> {
         what: "this build file does not satisfy the schema".into(),
         detail: errors.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"),
     }]
+}
+
+
+// -----------------------------------------------------------------------------
+// Documentation comments
+// -----------------------------------------------------------------------------
+
+/// The `///` and `//!` comments of a source file, as a markdown document.
+///
+/// The trick that makes this cheap: the result has **the same number of lines
+/// as the source**, with each doc line at its own line number and everything
+/// else blank. So a block's `origin.line` is already the line in the `.buri`
+/// file, and there is no map to build, keep, or get wrong. The blank lines
+/// between doc runs are also what separates one comment's prose from the
+/// next's, which is what markdown wants anyway.
+///
+/// This is deliberately textual rather than a walk over the AST: a file whose
+/// examples are worth checking may be one that does not currently compile, and
+/// the fences in it are still worth extracting.
+pub fn doc_comments(source: &str) -> String {
+    let mut out = String::new();
+    for line in source.lines() {
+        let t = line.trim_start();
+        // `////` is not a doc comment — the lexer says so, and so does this.
+        let marker = t
+            .strip_prefix("//!")
+            .or_else(|| t.strip_prefix("///").filter(|rest| !rest.starts_with('/')));
+        if let Some(rest) = marker {
+            out.push_str(&crate::parsing::lexer::doc_body(rest));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Whether a source file has anything for the doctest harness to do. A byte
+/// scan, so a repository full of files with no examples costs nothing.
+pub fn has_examples(source: &str) -> bool {
+    source.contains("```")
 }
 
 #[cfg(test)]
@@ -1060,6 +1169,23 @@ mod tests {
         assert_eq!(check(doc), "");
     }
 
+    /// A fence whose info string does not parse used to be silently downgraded
+    /// to "a fence in no language", which meant it was neither compiled nor
+    /// reported — the worst of both. It is now a failure whatever it claims to
+    /// be.
+    #[test]
+    fn a_malformed_info_string_is_reported_rather_than_swallowed() {
+        let doc = "```buri ignore why=\"unterminated\nwhatever\n```\n";
+        assert!(check(doc).contains("unterminated"), "{}", check(doc));
+
+        // Not only for `buri`: nothing else can be trusted to notice.
+        let doc = "```textproto schema=build schema=repo\nx: 1\n```\n";
+        assert!(check(doc).contains("given twice"), "{}", check(doc));
+
+        // And a well-formed fence in a language nobody compiles stays silent.
+        assert_eq!(check("```text\nfree prose\n```\n"), "");
+    }
+
     #[test]
     fn a_run_block_must_pin_its_output() {
         let doc = "```buri run wrap=body\nlet _ = ctx.println(\"hi\");\n```\n";
@@ -1100,46 +1226,4 @@ mod tests {
         assert!(!rendered(body).contains("core/str"));
         assert!(rendered(body).contains("str.trim"));
     }
-}
-
-// -----------------------------------------------------------------------------
-// Documentation comments
-// -----------------------------------------------------------------------------
-
-/// The `///` and `//!` comments of a source file, as a markdown document.
-///
-/// The trick that makes this cheap: the result has **the same number of lines
-/// as the source**, with each doc line at its own line number and everything
-/// else blank. So a block's `origin.line` is already the line in the `.buri`
-/// file, and there is no map to build, keep, or get wrong. The blank lines
-/// between doc runs are also what separates one comment's prose from the
-/// next's, which is what markdown wants anyway.
-///
-/// This is deliberately textual rather than a walk over the AST: a file whose
-/// examples are worth checking may be one that does not currently compile, and
-/// the fences in it are still worth extracting.
-pub fn doc_comments(source: &str) -> String {
-    let mut out = String::new();
-    for line in source.lines() {
-        let t = line.trim_start();
-        // `////` is not a doc comment — the lexer says so, and so does this.
-        let body = if let Some(rest) = t.strip_prefix("//!") {
-            Some(crate::parsing::lexer::doc_body(rest))
-        } else if t.starts_with("///") && !t.starts_with("////") {
-            Some(crate::parsing::lexer::doc_body(&t[3..]))
-        } else {
-            None
-        };
-        if let Some(b) = body {
-            out.push_str(&b);
-        }
-        out.push('\n');
-    }
-    out
-}
-
-/// Whether a source file has anything for the doctest harness to do. A byte
-/// scan, so a repository full of files with no examples costs nothing.
-pub fn has_examples(source: &str) -> bool {
-    source.contains("```")
 }

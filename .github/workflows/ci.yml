@@ -28,7 +28,45 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       # node is preinstalled on GitHub runners; assert rather than assume.
       - run: node --version && bun --version
+      # mold on the Linux runner and nothing on the macOS one, which has
+      # Apple's `ld` and no use for another: mold is ELF-only and its Mach-O
+      # fork was archived (design/native/CODEGEN-CRANELIFT.md §7.3). Not
+      # required — with neither mold nor lld the link goes through the system
+      # default and works, more slowly — so it is installed rather than
+      # asserted.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mold
+      # `cc` is what the native link step and `tests/runtime_native.rs` drive.
+      # Both runners have one; assert rather than assume, because its absence
+      # would present as a link failure inside a test rather than as a missing
+      # tool.
+      - run: cc --version
       - run: cargo test -p buri --no-fail-fast
+
+  # `cargo install buri` on a machine with no LLVM. It is a job rather than an
+  # assertion because "it builds without the optional system library" is only
+  # true if something builds it that way, and the runner here is deliberately
+  # the one with nothing installed on it.
+  #
+  # Both halves matter. The default set is `backend-cranelift`, which is pure
+  # Rust and must never need a system library; `--no-default-features` is the
+  # dependency-free build the bar in `Cargo.toml` is about, and it is the one
+  # that catches a `#[cfg]` written only one way.
+  #
+  # The `backend-llvm` half of this matrix arrives with wave 2b, and needs
+  # exactly three things: LLVM 21 on both runners (`brew install llvm@21`,
+  # `apt.llvm.org`'s `llvm-21-dev`), `LLVM_SYS_211_PREFIX` exported, and
+  # `cargo test -p buri --no-fail-fast --features backend-llvm`. It is not here
+  # yet because a job that installs a 1 GB toolchain to compile a module with
+  # no code in it is a job that only fails.
+  no-llvm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p buri
+      - run: cargo build -p buri --no-default-features
 
   # The formal development: the build must succeed, the audit must record no
   # sorryAx, and no proof may contain `sorry`/`admit`. The toolchain is pinned

@@ -515,8 +515,8 @@ pub enum Expr {
     Index { base: Box<Expr>, index: Box<Expr>, span: Span },
     /// Postfix `?`.
     Try { base: Box<Expr>, span: Span },
-    /// `base::<T, U>`
-    TurboFish { base: Box<Expr>, args: Vec<TypeExpr>, span: Span },
+    /// `base<T, U>` — explicit type arguments in expression position.
+    Generic { base: Box<Expr>, args: Vec<TypeExpr>, span: Span },
     StructLit {
         head: Box<Expr>,
         spread: Option<Box<Expr>>,
@@ -552,7 +552,7 @@ impl Expr {
             | Expr::Call { span, .. }
             | Expr::Index { span, .. }
             | Expr::Try { span, .. }
-            | Expr::TurboFish { span, .. }
+            | Expr::Generic { span, .. }
             | Expr::StructLit { span, .. } => *span,
             Expr::Block(b) => b.span,
         }
@@ -568,11 +568,11 @@ impl Expr {
     }
 
     /// Whether this expression is a legal head for a struct literal — a type
-    /// path, optionally with a turbofish, or the dot form (SPEC 14.1).
+    /// path, optionally with type arguments, or the dot form (SPEC 14.1).
     pub fn is_type_path(&self) -> bool {
         match self {
             Expr::Ident { .. } | Expr::DotVariant { .. } => true,
-            Expr::TurboFish { base, .. } => base.is_type_path(),
+            Expr::Generic { base, .. } => base.is_type_path(),
             Expr::Field { base, .. } => base.is_type_path(),
             _ => false,
         }

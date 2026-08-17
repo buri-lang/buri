@@ -55,7 +55,7 @@ test "a field name is lowerCamelCase, and a keyword does not rename it" {
   // `user_name` is `userName` in the document and in Buri; `type` is `type`
   // in the document and `type_` in Buri, because the document is not ours to
   // rename.
-  let v = Everything { ..defaultEverything(), userName: "ada", type_: "t" };
+  let v = Everything { ..defaultEverything(), userName: .Some("ada"), type_: .Some("t")};
   assert.eq(text(ctx, v), "{\"type\":\"t\",\"userName\":\"ada\"}");
   assert.eq(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
 }
@@ -66,7 +66,7 @@ test "a 64-bit integer is a string and a 32-bit one is a number" {
   let ctx = Hermetic();
   // A JSON number is a double, and 2^53 + 1 is not one. Every proto3 JSON
   // implementation writes the 64-bit types as strings for this reason.
-  let v = Everything { ..defaultEverything(), count: 7, total: 7, serial: 7, signedBig: 7 };
+  let v = Everything { ..defaultEverything(), count: .Some(7), total: .Some(7), serial: .Some(7), signedBig: .Some(7)};
   assert.eq(
     text(ctx, v),
     "{\"count\":7,\"total\":\"7\",\"serial\":\"7\",\"signedBig\":\"7\"}",
@@ -79,35 +79,35 @@ test "a 64-bit integer is also accepted as a number" {
   // for.
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"total\":7}")),
-    .Ok(Everything { ..defaultEverything(), total: 7 }),
+    .Ok(Everything { ..defaultEverything(), total: .Some(7)}),
   );
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"count\":\"7\"}")),
-    .Ok(Everything { ..defaultEverything(), count: 7 }),
+    .Ok(Everything { ..defaultEverything(), count: .Some(7)}),
   );
 }
 
 test "bytes are base64 with padding" {
   let ctx = Hermetic();
-  let v = Everything { ..defaultEverything(), blob: [1.wrapToU8(), 255.wrapToU8()] };
+  let v = Everything { ..defaultEverything(), blob: .Some([1.wrapToU8(), 255.wrapToU8()])};
   assert.eq(text(ctx, v), "{\"blob\":\"Af8=\"}");
   assert.eq(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
 }
 
 test "an enum is the name of its value" {
   let ctx = Hermetic();
-  let v = Everything { ..defaultEverything(), shade: Shade.DARK };
+  let v = Everything { ..defaultEverything(), shade: .Some(Shade.DARK)};
   assert.eq(text(ctx, v), "{\"shade\":\"DARK\"}");
-  // The number is accepted too, and one the schema does not know is the zero
-  // value — the same rule the binary decoder follows.
+  // The number is accepted too, and one the schema does not name is kept —
+  // and written back out as a number, which is what the mapping says an open
+  // enum does.
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"shade\":2}")),
     .Ok(v),
   );
-  assert.eq(
-    decodeEverythingJson(ctx, doc(ctx, "{\"shade\":99}")),
-    .Ok(defaultEverything()),
-  );
+  let unknown = Everything { ..defaultEverything(), shade: .Some(Shade.Unrecognized(99)) };
+  assert.eq(decodeEverythingJson(ctx, doc(ctx, "{\"shade\":99}")), .Ok(unknown));
+  assert.eq(text(ctx, unknown), "{\"shade\":99}");
 }
 
 test "a oneof case is an ordinary member of the object" {
@@ -129,14 +129,22 @@ test "a oneof case is an ordinary member of the object" {
 
 // --- presence ---------------------------------------------------------------------
 
-test "an optional field set to its own default is still written" {
+test "a field set to its own zero value is still written" {
   let ctx = Hermetic();
-  assert.eq(text(ctx, Everything { ..defaultEverything(), age: .Some(0) }), "{\"age\":0}");
+  // Explicit presence, in the other format: proto3 JSON omitted a default and
+  // editions writes one that was *set*.
+  assert.eq(text(ctx, Everything { ..defaultEverything(), count: .Some(0) }), "{\"count\":0}");
   assert.eq(
-    text(ctx, Everything { ..defaultEverything(), nickname: .Some("") }),
-    "{\"nickname\":\"\"}",
+    text(ctx, Everything { ..defaultEverything(), name: .Some("") }),
+    "{\"name\":\"\"}",
   );
-  assert.eq(text(ctx, Everything { ..defaultEverything(), age: .None }), "{}");
+  assert.eq(text(ctx, Everything { ..defaultEverything(), count: .None }), "{}");
+}
+
+test "an IMPLICIT field is omitted at its default, the way proto3 did it" {
+  let ctx = Hermetic();
+  assert.eq(text(ctx, Everything { ..defaultEverything(), age: 0 }), "{}");
+  assert.eq(text(ctx, Everything { ..defaultEverything(), age: 7 }), "{\"age\":7}");
 }
 
 test "a message field is written when it is present, empty or not" {
@@ -148,7 +156,7 @@ test "a message field is written when it is present, empty or not" {
 
 test "an empty repeated field is omitted rather than written as []" {
   let ctx = Hermetic();
-  assert.eq(text(ctx, Everything { ..defaultEverything(), scores: list.empty::<Int>() }), "{}");
+  assert.eq(text(ctx, Everything { ..defaultEverything(), scores: list.empty<Int>() }), "{}");
   assert.eq(
     text(ctx, Everything { ..defaultEverything(), scores: [1, 2] }),
     "{\"scores\":[1,2]}",
@@ -166,9 +174,9 @@ test "a nested message and an imported one are objects" {
   let ctx = Hermetic();
   let v = Everything {
     ..defaultEverything(),
-    home: .Some(Address { city: "Kyoto", zip: 600, country: Country.JP }),
-    note: .Some(Everything_Note { text: "hi" }),
-    places: [Address { city: "London", zip: 1, country: Country.UK }],
+    home: .Some(Address { city: .Some("Kyoto"), zip: .Some(600), country: .Some(Country.JP)}),
+    note: .Some(Everything_Note { text: .Some("hi")}),
+    places: [Address { city: .Some("London"), zip: .Some(1), country: .Some(Country.UK)}],
   };
   assert.eq(
     text(ctx, v),
@@ -180,32 +188,33 @@ test "a nested message and an imported one are objects" {
 test "every field kind at once round-trips through JSON" {
   let ctx = Hermetic();
   let v = Everything {
-    name: "Ada",
-    count: -7,
-    total: 9007199254740991,
-    small: 4294967295,
-    large: 1,
-    delta: -3,
-    offset: -4,
-    tagId: 305419896,
-    serial: 4294967296,
-    signedSmall: -2,
-    signedBig: -4294967296,
-    active: true,
-    blob: [1.wrapToU8(), 255.wrapToU8(), 0.wrapToU8()],
-    ratio: 0.25,
-    rough: 0.5,
-    shade: Shade.DARK,
-    age: .Some(0),
-    nickname: .Some(""),
+    name: .Some("Ada"),
+    count: .Some(-7),
+    total: .Some(9007199254740991),
+    small: .Some(4294967295),
+    large: .Some(1),
+    delta: .Some(-3),
+    offset: .Some(-4),
+    tagId: .Some(305419896),
+    serial: .Some(4294967296),
+    signedSmall: .Some(-2),
+    signedBig: .Some(-4294967296),
+    active: .Some(true),
+    blob: .Some([1.wrapToU8(), 255.wrapToU8(), 0.wrapToU8()]),
+    ratio: .Some(0.25),
+    rough: .Some(0.5),
+    shade: .Some(Shade.DARK),
+    age: 0,
+    nickname: "",
     scores: [0, 1, -1, 300],
+    spread: [4, 5],
     labels: ["a", "", "c"],
-    places: [Address { city: "London", zip: 1, country: Country.UK }],
+    places: [Address { city: .Some("London"), zip: .Some(1), country: .Some(Country.UK)}],
     shades: [Shade.LIGHT, Shade.SHADE_UNSPECIFIED],
-    home: .Some(Address { city: "Kyoto", zip: 600, country: Country.JP }),
-    note: .Some(Everything_Note { text: "hi" }),
-    type_: "t",
-    userName: "ada",
+    home: .Some(Address { city: .Some("Kyoto"), zip: .Some(600), country: .Some(Country.JP)}),
+    note: .Some(Everything_Note { text: .Some("hi")}),
+    type_: .Some("t"),
+    userName: .Some("ada"),
     contact: .Some(Everything_Contact.Office(defaultAddress())),
   };
   assert.eq(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
@@ -254,6 +263,6 @@ test "a member the schema does not know is ignored" {
   // The same forward compatibility the binary decoder has, in the other format.
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"name\":\"Ada\",\"somethingNewer\":[1,2]}")),
-    .Ok(Everything { ..defaultEverything(), name: "Ada" }),
+    .Ok(Everything { ..defaultEverything(), name: .Some("Ada")}),
   );
 }

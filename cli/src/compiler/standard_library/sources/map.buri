@@ -88,10 +88,10 @@ fn replaceAt<K, V, C: Alloc>(
 ///
 /// Pure, and with no buckets at all: the first `insert` allocates them. That
 /// is not an optimisation, it is what makes the function callable — a context
-/// type is generated and has no name (SPEC 11.3), so `empty::<Str, Int, C>()`
-/// could not be written, and a turbofish is all-or-nothing.
+/// type is generated and has no name (SPEC 11.3), so `empty<Str, Int, C>()`
+/// could not be written, and a written type argument list is all-or-nothing.
 export fn empty<K, V>(): Map<K, V> {
-  Map { buckets: list.empty::<[(K, V)]>(), size: 0 }
+  Map { buckets: list.empty<[(K, V)]>(), size: 0 }
 }
 
 impl<K: Hash + Eq, V> Map<K, V> {
@@ -106,7 +106,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
   /// The value stored under `key`, if there is one.
   export fn get(self: Map<K, V>, key: K): Option<V> {
     let buckets = self.buckets;
-    let b = buckets.get(bucketOf(key.hash(), buckets.len())).withDefault(list.empty::<(K, V)>());
+    let b = buckets.get(bucketOf(key.hash(), buckets.len())).withDefault(list.empty<(K, V)>());
     b.find(fn(e) => {
       let (k, _v) = e;
       k == key
@@ -129,7 +129,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     };
     let buckets = grown.buckets;
     let target = bucketOf(key.hash(), buckets.len());
-    let existing = buckets.get(target).withDefault(list.empty::<(K, V)>());
+    let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
     let replaced = existing.any(fn(e) => {
       let (k, _v) = e;
       k == key
@@ -153,7 +153,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
   export fn remove<C: Alloc>(self: Map<K, V>, ctx: C, key: K): Map<K, V> {
     let buckets = self.buckets;
     let target = bucketOf(key.hash(), buckets.len());
-    let existing = buckets.get(target).withDefault(list.empty::<(K, V)>());
+    let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
     let kept = existing.filterCtx(ctx, fn(_c, e) => {
       let (k, _v) = e;
       k != key
@@ -198,14 +198,14 @@ impl<K: Hash + Eq, V> Map<K, V> {
     // index form had to capture `all`, and a lambda may not capture a
     // `[(K, V)]` when `V` is unbounded and so could be a context (SPEC 10.6).
     // `count` it does capture, and an `Int` never carries anything.
-    let blank = list.repeat(ctx, list.empty::<(K, V)>(), count);
+    let blank = list.repeat(ctx, list.empty<(K, V)>(), count);
     // `acc` is annotated because the accumulator's type comes from `blank`,
     // which the checker has not reached yet: type information flows
     // left-to-right (SPEC 13.2).
     let next = all.foldCtx(ctx, fn(c, acc: [[(K, V)]], e) => {
       let (k, _v) = e;
       let at = bucketOf(k.hash(), count);
-      let bucket = acc.get(at).withDefault(list.empty::<(K, V)>()).push(c, e);
+      let bucket = acc.get(at).withDefault(list.empty<(K, V)>()).push(c, e);
       replaceAt(c, acc, at, bucket)
     }, blank);
     Map { buckets: next, size: self.size }
@@ -217,7 +217,7 @@ export fn of<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
   entries.foldCtx(ctx, fn(c, acc, e) => {
     let (k, v) = e;
     acc.insert(c, k, v)
-  }, empty::<K, V>())
+  }, empty<K, V>())
 }
 
 impl<K: Hash + Eq, V: Eq> Map<K, V> {

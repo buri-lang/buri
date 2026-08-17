@@ -1,11 +1,10 @@
 # The suite is declared inside the target it tests. That is the only thing that
 # makes `test/cents.buri` a test source, and it is also what tells the compiler
 # which file the library-internal rule applies to.
-
 library {
-  sources: ["cents.buri"]
+    sources: ["cents.buri"]
 
-  test {
-    sources: ["test/cents.buri"]
-  }
+    test {
+        sources: ["test/cents.buri"]
+    }
 }

@@ -1,0 +1,7 @@
+binary {
+  sources: ["main.buri"]
+  outputs: [
+    { js { module: ESM }, platform: JS },
+    { arch: X86_64, platform: LINUX },
+  ]
+}

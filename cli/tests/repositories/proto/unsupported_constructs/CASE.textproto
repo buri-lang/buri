@@ -1,6 +1,6 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "every proto3 construct the schema reader refuses is refused by name, with the reason and the edit"
+doc: "every construct the schema reader refuses is refused by name, with the reason and the edit — including a `repeated` oneof case, which the case type then has nowhere to carry"
 
 run {
   args: ["lint", "//lib/bad"]
@@ -17,8 +17,8 @@ run {
 # The same file with nothing unsupported left in it checks.
 edit {
   file: "lib/bad/service.proto"
-  replace: "  map<string, int32> labels = 2;\n  google.protobuf.Any payload = 3;\n  required int32 must = 4;\n  group Inline = 5 { int32 x = 6; }\n}\n\nextend Request {\n  int32 extra = 100;\n}\n\nservice Greeter {\n  rpc Greet (Request) returns (Request);\n}"
-  with: "  int32 must = 4;\n}"
+  replace: "  map<string, int32> labels = 2;\n  google.protobuf.Any payload = 3;\n  required int32 must = 4;\n  oneof pick { repeated string many = 7; }\n  group Inline = 5 { int32 x = 6; }\n}\n\nextend Request {\n  int32 extra = 100;\n}\n\nservice Greeter {\n  rpc Greet (Request) returns (Request);\n}"
+  with: "  int32 must = 4;\n  oneof pick { string many = 7; }\n}"
 }
 
 run {

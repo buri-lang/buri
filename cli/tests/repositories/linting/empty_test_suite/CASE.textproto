@@ -19,7 +19,7 @@ run {
 # sources — is what `test_without_assertion` does instead.
 edit {
   file: "lib/money/BUILD.buri"
-  replace: "\n  # Written, and backed by nothing. Every tool that walks the graph reads this\n  # as \"this library has tests\".\n  test {\n  }\n"
+  replace: "\n    # Written, and backed by nothing. Every tool that walks the graph reads this\n    # as \"this library has tests\".\n    test {}\n"
   with: ""
 }
 

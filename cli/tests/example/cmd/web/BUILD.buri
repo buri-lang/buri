@@ -14,15 +14,11 @@
 # Dropping `tags: ["client"]` does not help either. REPO.buri limits the
 # `server` tag to [LINUX, MACOS], so the JS output fails on the platform rule
 # instead — the deployment policy is stated once and enforced from both sides.
-
 binary {
-  dependencies: [
-    "//lib/ledger",
-    "//lib/money",
-  ]
-  tags: ["client"]
+    dependencies: ["//lib/ledger", "//lib/money"]
+    tags: ["client"]
 
-  outputs: [
-    { platform: JS, js { module: ESM } },
-  ]
+    outputs: [
+        { platform: JS, js { module: ESM } },
+    ]
 }

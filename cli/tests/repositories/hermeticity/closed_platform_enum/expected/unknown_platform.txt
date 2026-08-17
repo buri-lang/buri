@@ -1,14 +1,14 @@
 error: an output must name a platform
- --> cmd/ok/BUILD.buri:2:13
+ --> cmd/ok/BUILD.buri:3:9
   |
-2 |   outputs: [{ platform: WINDOWS }]
-  |             ^^^^^^^^^^^^^^^^^^^^^
+3 |         { platform: WINDOWS },
+  |         ^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: add `platform: LINUX`, `MACOS`, or `JS`
 error: `WINDOWS` is not a platform
- --> cmd/ok/BUILD.buri:2:25
+ --> cmd/ok/BUILD.buri:3:21
   |
-2 |   outputs: [{ platform: WINDOWS }]
-  |                         ^^^^^^^
+3 |         { platform: WINDOWS },
+  |                     ^^^^^^^
   |
   = fix: the platforms are LINUX, MACOS, JS

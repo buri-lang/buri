@@ -43,12 +43,12 @@ export struct Set<T> {
 
 /// The empty set. Pure, for the same reason `map.empty` is.
 export fn empty<T>(): Set<T> {
-  Set { entries: map.empty::<T, ()>() }
+  Set { entries: map.empty<T, ()>() }
 }
 
 /// A set holding the given items. Duplicates collapse, which is the point.
 export fn of<T: Hash + Eq, C: Alloc>(ctx: C, items: [T]): Set<T> {
-  items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty::<T>())
+  items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
 }
 
 impl<T: Hash + Eq> Set<T> {

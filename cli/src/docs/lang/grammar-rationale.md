@@ -28,10 +28,16 @@ struct literal. Nothing competes, so `Point { x, y }` shorthand works and the
 grammar got smaller rather than more careful. *Cost:* every product type needs a
 name.
 
-**12.4 Type arguments in expressions use the turbofish `::<T>`.**
-`f<a>(b)` is genuinely ambiguous with two comparisons. Types have no comparison
-operators, so `<` is unambiguous inside a type; expressions get `::<`.
-*Cost:* the turbofish is ugly. It is also rare.
+**12.4 Type arguments in expressions are written `f<T>(x)`, with no `::`.**
+`f<a>(b)` and `(f < a) > (b)` are the same tokens. What settles them is a rule
+that was already there for its own sake: comparison is non-associative (12.4's
+neighbour, Section 5), so `a < b > c` is not a program under *either* reading,
+and there is no source the two readings both accept and disagree about. The
+parser looks ahead for the `>` that would close the list and backtracks if it
+does not find one; the generated tree-sitter grammar carries the same decision
+as its one declared conflict. *Cost:* the grammar stops being LR(1) at exactly
+one production, and `a < b > (c)` is a call. The turbofish `::<T>` that used to
+be here is a parse error that carries the edit removing the `::`.
 
 **12.5 There is no cast operator.**
 `as`, `as?`, and `as%` were three tokens and a precedence level doing work that

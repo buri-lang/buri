@@ -57,10 +57,10 @@ test "a negative value widens with its sign intact" {
 }
 
 test "the minimum of each signed width widens exactly" {
-  assert.eq(num.minValue::<I8>().toI64(), -128);
-  assert.eq(num.minValue::<I16>().toI64(), -32768);
-  assert.eq(num.minValue::<I32>().toI64(), -2147483648);
-  assert.eq(num.minValue::<I64>().toI128(), -9223372036854775808);
+  assert.eq(num.minValue<I8>().toI64(), -128);
+  assert.eq(num.minValue<I16>().toI64(), -32768);
+  assert.eq(num.minValue<I32>().toI64(), -2147483648);
+  assert.eq(num.minValue<I64>().toI128(), -9223372036854775808);
 }
 
 test "converting a value to its own type is the identity" {
@@ -74,7 +74,7 @@ test "converting a value to its own type is the identity" {
 
 test "every integer width converts to F64" {
   let a: U8 = 255;
-  let b: I16 = num.minValue::<I16>();
+  let b: I16 = num.minValue<I16>();
   let c: I32 = 1234567;
   let d: U32 = 4294967295;
   assert.eq(a.toF64(), 255.0);
@@ -141,11 +141,11 @@ test "the RangeError names the value and the target" {
 
 test "a narrowing conversion succeeds exactly at the boundary" {
   let a: I64 = 2147483647;
-  assert.eq(assert.ok(a.toI32()), num.maxValue::<I32>());
+  assert.eq(assert.ok(a.toI32()), num.maxValue<I32>());
   let b: I64 = -2147483648;
-  assert.eq(assert.ok(b.toI32()), num.minValue::<I32>());
+  assert.eq(assert.ok(b.toI32()), num.minValue<I32>());
   let c: I64 = 255;
-  assert.eq(assert.ok(c.toU8()), num.maxValue::<U8>());
+  assert.eq(assert.ok(c.toU8()), num.maxValue<U8>());
   let d: I64 = 0;
   assert.eq(assert.ok(d.toU8()), 0);
 }
@@ -184,7 +184,7 @@ test "narrowing from the bigint side to the number side" {
   let b: U64 = 65536;
   assert.eq(assert.err(b.toU16()).target, "U16");
   let c: I64 = -32768;
-  assert.eq(assert.ok(c.toI16()), num.minValue::<I16>());
+  assert.eq(assert.ok(c.toI16()), num.minValue<I16>());
 }
 
 // A checked conversion promises that its `.Ok` is the value it was given, so
@@ -282,7 +282,7 @@ test "wrapToU8 of a negative value wraps up from the top" {
 
 test "wrapToI8 wraps into the signed range" {
   let a: I64 = 128;
-  assert.eq(a.wrapToI8(), num.minValue::<I8>());
+  assert.eq(a.wrapToI8(), num.minValue<I8>());
   let b: I64 = 255;
   assert.eq(b.wrapToI8(), -1);
   let c: I64 = 129;
@@ -305,9 +305,9 @@ test "wrapToU16 and wrapToU32 wrap at their own boundaries" {
 
 test "wrapToI32 wraps at the top of I32" {
   let a: I64 = 2147483648;
-  assert.eq(a.wrapToI32(), num.minValue::<I32>());
+  assert.eq(a.wrapToI32(), num.minValue<I32>());
   let b: I64 = 2147483647;
-  assert.eq(b.wrapToI32(), num.maxValue::<I32>());
+  assert.eq(b.wrapToI32(), num.maxValue<I32>());
   let c: I64 = 4294967296;
   assert.eq(c.wrapToI32(), 0);
 }

@@ -5,19 +5,27 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "format --check reports without rewriting; format rewrites; formatting is a fixed point"
+doc: "format --check reports without rewriting; format rewrites source and build files alike; formatting is a fixed point"
 
-# `main.buri` is checked in badly formatted on purpose. `--check` must notice.
+# Both files are checked in badly formatted on purpose: `main.buri` is source,
+# and `cmd/f/BUILD.buri` is a build file whose fields are in the wrong order and
+# indented by the wrong amount. One command formats both, so `--check` must
+# report both.
 run {
   args: ["format", "--check"]
   exit: 1
   golden: "check_reports.txt"
 }
 
-# And must have left it exactly as it found it.
+# And must have left them exactly as it found them.
 file {
   path: "cmd/f/main.buri"
   golden: "ugly.buri"
+}
+
+file {
+  path: "cmd/f/BUILD.buri"
+  golden: "ugly_build.buri"
 }
 
 run {
@@ -28,6 +36,13 @@ run {
 file {
   path: "cmd/f/main.buri"
   golden: "formatted.buri"
+}
+
+# The schema's field order — `sources` before `outputs` — a four-space indent,
+# and the comment still on the block it was written above.
+file {
+  path: "cmd/f/BUILD.buri"
+  golden: "formatted_build.buri"
 }
 
 # A fixed point: formatting formatted source changes nothing.

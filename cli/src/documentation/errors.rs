@@ -70,6 +70,8 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("struct-literal-head", "A struct literal is headed by a type"),
     e!("test-only-import", "A `testing` module is reachable only from a test"),
     e!("test-outside-test-source", "A `test` lives in a test source"),
+    e!("turbofish", "Type arguments are written without `::`"),
+    e!("type-args-on-a-value", "Type arguments qualify a function, not a value"),
     e!("type-mismatch", "There are no implicit conversions"),
     e!("unannotated-variant", "A `.Variant` needs a known expected type"),
     e!("underivable", "A derive is a fold over the type's components"),

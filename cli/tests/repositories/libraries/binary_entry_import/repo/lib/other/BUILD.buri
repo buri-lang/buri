@@ -1,6 +1,5 @@
 # Another package entirely, so that the same import can be tried from outside.
-
 library {
-  sources: ["thing.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["thing.buri"]
+    visibility: ["//visibility:public"]
 }

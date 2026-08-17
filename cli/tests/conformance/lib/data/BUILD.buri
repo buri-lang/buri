@@ -1,7 +1,12 @@
 library {
-  sources: []
+    sources: []
 
-  test {
-    sources: ["test/lists.buri", "test/strings.buri", "test/patterns.buri", "test/optionresult.buri"]
-  }
+    test {
+        sources: [
+            "test/lists.buri",
+            "test/strings.buri",
+            "test/patterns.buri",
+            "test/optionresult.buri",
+        ]
+    }
 }

@@ -140,6 +140,14 @@ That is not a forgery hole — a fake `Stdout` still cannot write anything. What
 unforgeable is the *platform's* implementation. The open interface is what makes
 testing free (Section 10.8).
 
+`Alloc` is the case where that openness is useful outside a test, because it is
+the one effect whose implementation grants nothing: `allocate` answers a
+`Region`, which is a number nothing reads. So `core/alloc` ships three
+implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and is
+importable anywhere rather than only from `main`. Binding one is how a program
+asks what it is spending, or refuses to spend more than a budget; it is not how
+a program acquires an authority it was not given.
+
 ### 10.4 What "pure" means
 
 > **Purity theorem.** If a function has no `ctx` parameter, no

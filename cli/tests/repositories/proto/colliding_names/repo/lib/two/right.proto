@@ -1,0 +1,7 @@
+edition = "2026";
+
+package right.v1;
+
+message Status {
+  string text = 1;
+}

@@ -1,15 +1,15 @@
 error: //lib/a and //lib/b depend on each other [dep-cycle]
- --> lib/a/BUILD.buri:3:18
+ --> lib/a/BUILD.buri:3:20
   |
-3 |   dependencies: ["//lib/b"]
-  |                  ^^^^^^^^^
+3 |     dependencies: ["//lib/b"]
+  |                    ^^^^^^^^^
   |
   = fix: break the cycle: move what both need into a third target
 error: //lib/a is declared but nothing uses it [unused-dep]
- --> lib/b/BUILD.buri:7:18
+ --> lib/b/BUILD.buri:6:20
   |
-7 |   dependencies: ["//lib/a"]
-  |                  ^^^^^^^^^
+6 |     dependencies: ["//lib/a"]
+  |                    ^^^^^^^^^
   |
   = a dependencies entry no source uses makes the graph a description of something other than the code
   = fix: remove it from `dependencies`

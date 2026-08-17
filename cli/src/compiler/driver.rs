@@ -15,10 +15,15 @@ pub struct Analysis {
 
 /// Loads and checks one unit. The two halves are separate so that `lint` and
 /// `query` can stop after loading.
-pub fn analyze(ws: Option<&Workspace>, map: &mut SourceMap, unit: &Unit) -> Analysis {
+pub fn analyze(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    unit: &Unit,
+) -> Analysis {
     let mut diags = Diagnostics::new();
     let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags);
+        let mut loader = Loader::new(ws, map, &mut diags, cache);
         loader.load_unit(unit);
         loader.finish()
     };
@@ -32,8 +37,9 @@ pub fn analyze(ws: Option<&Workspace>, map: &mut SourceMap, unit: &Unit) -> Anal
 /// tests use.
 pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
     let mut diags = Diagnostics::new();
+    let mut cache = crate::parsing::parser::Cache::new();
     let loaded = {
-        let mut loader = Loader::new(None, map, &mut diags);
+        let mut loader = Loader::new(None, map, &mut diags, &mut cache);
         loader.load_all_std();
         loader.finish()
     };
@@ -53,8 +59,9 @@ pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
 /// imports.
 pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
     let mut diags = Diagnostics::new();
+    let mut cache = crate::parsing::parser::Cache::new();
     let loaded = {
-        let mut loader = Loader::new(None, map, &mut diags);
+        let mut loader = Loader::new(None, map, &mut diags, &mut cache);
         loader.load_builtin_modules();
         loader.load_std_module(path);
         loader.finish()
@@ -77,7 +84,8 @@ pub fn analyze_snippet(
     text: &str,
     role: crate::compiler::modules::Role,
 ) -> Analysis {
-    analyze_snippet_in(None, map, name, text, role)
+    let mut cache = crate::parsing::parser::Cache::new();
+    analyze_snippet_in(None, map, &mut cache, name, text, role)
 }
 
 /// The same, against a repository, so a snippet that imports `//lib/money`
@@ -90,11 +98,12 @@ pub fn analyze_snippet(
 pub fn analyze_snippet_in(
     ws: Option<&Workspace>,
     map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
     name: &str,
     text: &str,
     role: crate::compiler::modules::Role,
 ) -> Analysis {
-    analyze_snippet_as(ws, None, map, name, text, role)
+    analyze_snippet_as(ws, None, map, cache, name, text, role)
 }
 
 /// The same, with the snippet standing in for a file of `pkg` — which is what
@@ -103,13 +112,14 @@ pub fn analyze_snippet_as(
     ws: Option<&Workspace>,
     pkg: Option<crate::build::workspace::PkgId>,
     map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
     name: &str,
     text: &str,
     role: crate::compiler::modules::Role,
 ) -> Analysis {
     let mut diags = Diagnostics::new();
     let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags);
+        let mut loader = Loader::new(ws, map, &mut diags, cache);
         loader.load_all_std();
         loader.load_source_in(name, role, text.to_string(), pkg);
         loader.finish()
@@ -137,7 +147,9 @@ pub fn run_snippet_in(
     name: &str,
     text: &str,
 ) -> Result<String, Diagnostics> {
-    let analysis = analyze_snippet_in(ws, map, name, text, crate::compiler::modules::Role::Entry);
+    let mut cache = crate::parsing::parser::Cache::new();
+    let analysis =
+        analyze_snippet_in(ws, map, &mut cache, name, text, crate::compiler::modules::Role::Entry);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
@@ -154,17 +166,23 @@ pub fn run_snippet_in(
     };
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut program = crate::compiler::transform::monomorphize::run(
+    let mut program = crate::compiler::middle::monomorphize::run(
         &analysis.checked,
         module_paths,
         &mut diags,
-        crate::compiler::transform::monomorphize::Roots::Main(entry),
+        crate::compiler::middle::monomorphize::Roots::Main(entry),
     );
     if diags.has_errors() {
         return Err(diags);
     }
     let flags = crate::commands::arguments::Flags::default();
-    let source = actions::emit(&mut program, &analysis.checked.tables, &flags, &mut diags)?;
+    let source = actions::emit(
+        &mut program,
+        &analysis.checked.tables,
+        crate::compiler::backend::Target { platform: crate::build::buildfile::Platform::Js, arch: None },
+        &flags,
+        &mut diags,
+    )?;
     execute(name, &source)
 }
 
@@ -212,20 +230,76 @@ fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// The platform a build defaults to when nothing selects one.
+/// The platform this toolchain compiles *for* when nothing selects one: the
+/// machine it is running on, where it can produce something for that machine,
+/// and JavaScript where it cannot.
+///
+/// This is the switch `design/native/ARCHITECTURE.md` §4 calls "one line and a
+/// large amount of churn", and what it turned out to be is one line and a
+/// condition. `Platform::Js` unconditionally was right while there was no other
+/// backend; it is wrong now, because a toolchain that can emit, link and run a
+/// macOS executable should not be describing itself as a JavaScript compiler to
+/// the language server and the documentation harness.
+///
+/// The condition is [`actions::native_ready`] rather than `cfg!(target_os)`,
+/// because "this is a mac" and "this toolchain can build for a mac" are
+/// different claims: a build with `--no-default-features` has no native backend,
+/// a host outside macOS and Linux has no runtime archive, and either way the
+/// honest answer is the one that has always been given. That is what keeps a
+/// toolchain without a backend byte-identical to the one before this wave.
 pub fn host_platform() -> Platform {
-    // Only the JavaScript backend exists, so it is what a build produces.
-    Platform::Js
+    let native = host_native_platform();
+    if actions::native_ready(
+        crate::compiler::backend::Target { platform: native, arch: None },
+        crate::compiler::backend::Profile::Debug,
+    ) {
+        native
+    } else {
+        Platform::Js
+    }
 }
 
 /// The platform a *test suite* is checked against when it names none. A suite
 /// runs once, on the host platform (TAGS.md, "Tags and tests"), and the host
 /// is this machine — code tagged for the machine it was written for is not
 /// being asked to run in a browser just because the backend emits JavaScript.
+///
+/// Unconditional, unlike [`host_platform`], and the difference is the point:
+/// this one answers "which machine is this", which is a fact about the machine,
+/// and the other answers "what can this toolchain produce for it", which is a
+/// fact about the toolchain. A suite tagged `macos` is macOS code on a macOS
+/// host whether or not a native backend is compiled in.
 pub fn host_native_platform() -> Platform {
     if cfg!(target_os = "macos") {
         Platform::Macos
     } else {
         Platform::Linux
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The whole of what the switch promises, in both directions: a toolchain
+    /// that cannot build for its own host answers exactly what it answered
+    /// before this wave, and one that can answers the host.
+    ///
+    /// Written as an equivalence rather than as a constant, because the answer
+    /// depends on how this toolchain was built — `--no-default-features` has no
+    /// backend, a host outside macOS and Linux has no runtime archive — and a
+    /// test asserting `Js` would pass for the wrong reason on the machine where
+    /// it matters most.
+    #[test]
+    fn the_host_platform_is_js_exactly_when_this_toolchain_cannot_build_for_the_host() {
+        let native = host_native_platform();
+        let ready = actions::native_ready(
+            crate::compiler::backend::Target { platform: native, arch: None },
+            crate::compiler::backend::Profile::Debug,
+        );
+        assert_eq!(host_platform(), if ready { native } else { Platform::Js });
+        // And the machine's own platform is a fact about the machine, which no
+        // feature flag moves.
+        assert!(matches!(native, Platform::Macos | Platform::Linux));
     }
 }

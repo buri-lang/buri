@@ -17,7 +17,7 @@ from "core/set" import * as set;
 
 test "an empty map holds nothing" {
   let ctx = Hermetic();
-  let m = map.empty::<Str, Int>();
+  let m = map.empty<Str, Int>();
   assert.eq(m.len(), 0);
   assert.isTrue(m.isEmpty());
   assert.isTrue(m.get("nothing").isNone());
@@ -28,7 +28,7 @@ test "an empty map holds nothing" {
 
 test "insert then get" {
   let ctx = Hermetic();
-  let m = map.empty::<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
+  let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
   assert.eq(assert.some(m.get("a")), 1);
   assert.eq(assert.some(m.get("b")), 2);
   assert.eq(m.len(), 2);
@@ -37,14 +37,14 @@ test "insert then get" {
 
 test "inserting the same key replaces the value and does not change the size" {
   let ctx = Hermetic();
-  let m = map.empty::<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
+  let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
   assert.eq(assert.some(m.get("a")), 99);
   assert.eq(m.len(), 1);
 }
 
 test "a map is a value: inserting produces a new one" {
   let ctx = Hermetic();
-  let before = map.empty::<Str, Int>().insert(ctx, "a", 1);
+  let before = map.empty<Str, Int>().insert(ctx, "a", 1);
   let after = before.insert(ctx, "b", 2);
   assert.eq(before.len(), 1);
   assert.eq(after.len(), 2);
@@ -95,7 +95,7 @@ test "a map that outgrows its buckets keeps every entry" {
     // The accumulator is annotated because inference runs left to right: the
     // lambda is checked before the seed that would otherwise pin its type.
     fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i * 10),
-    map.empty::<Int, Int>(),
+    map.empty<Int, Int>(),
   );
   assert.eq(m.len(), n);
   assert.isTrue(list.range(ctx, 0, n).all(fn(i) => m.get(i) == .Some(i * 10)));
@@ -107,7 +107,7 @@ test "growth does not duplicate entries" {
   let m = list.range(ctx, 0, 100).foldCtx(
     ctx,
     fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i),
-    map.empty::<Int, Int>(),
+    map.empty<Int, Int>(),
   );
   assert.eq(m.entries(ctx).len(), 100);
 }
@@ -133,11 +133,11 @@ test "a set collapses duplicates" {
 
 test "insert, has, and remove" {
   let ctx = Hermetic();
-  let s = set.empty::<Str>().insert(ctx, "a");
+  let s = set.empty<Str>().insert(ctx, "a");
   assert.isTrue(s.has("a"));
   assert.isFalse(s.has("b"));
   assert.isFalse(s.remove(ctx, "a").has("a"));
-  assert.isTrue(set.empty::<Str>().isEmpty());
+  assert.isTrue(set.empty<Str>().isEmpty());
 }
 
 test "union, intersect and difference" {
@@ -156,7 +156,7 @@ test "isSubsetOf and equals" {
   let b = set.of(ctx, [1, 2, 3]);
   assert.isTrue(a.isSubsetOf(ctx, b));
   assert.isFalse(b.isSubsetOf(ctx, a));
-  assert.isTrue(set.empty::<Int>().isSubsetOf(ctx, a));
+  assert.isTrue(set.empty<Int>().isSubsetOf(ctx, a));
   assert.isTrue(a.equals(ctx, set.of(ctx, [2, 1])));
   assert.isFalse(a.equals(ctx, b));
 }

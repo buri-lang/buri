@@ -1,0 +1,28 @@
+# `buri version` prints the toolchain's version, and inside a repository it
+# prints exactly that — one line, and nothing about the repository.
+#
+# That "nothing" is the claim. `REPO.buri` used to pin a toolchain and this
+# command used to report the pin, so the case that pinned the refusal is now
+# the case that pins its absence: standing in a repository changes nothing
+# about what `version` prints, because it no longer opens one.
+#
+# The recorded output names a version, so it moves when the toolchain's version
+# moves. That is deliberate and it is not a maintenance cost: the diff is the
+# release.
+#
+# `--verbose` adds the hash of the running executable, which no golden can hold
+# — it is whichever `buri` the suite just compiled. `conformance.rs`'s
+# `version_works_outside_a_repository` asserts that line instead, along with
+# the clause that cannot be a repository case at all, since a case *is* a
+# repository.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "version prints the toolchain version and, inside a repository, nothing else"
+
+run {
+  args: ["version"]
+  exit: 0
+  golden: "version.txt"
+}

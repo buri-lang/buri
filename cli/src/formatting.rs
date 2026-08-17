@@ -124,12 +124,7 @@ enum Doc {
     /// printer wants the same answer.
     Blank,
     Nest(Box<Doc>),
-    Group {
-        doc: Box<Doc>,
-        /// Whether the contents force a break, computed when the group is
-        /// built. Prettier calls the pass that does this `propagateBreaks`.
-        breaks: bool,
-    },
+    Group(group::Group),
     /// Items and the separators between them, alternating, broken only where
     /// the next item would not fit.
     Fill(Vec<Doc>),
@@ -138,7 +133,69 @@ enum Doc {
     BreakParent,
     /// Candidate layouts, most preferred first. The last is used when none of
     /// the others has a first line that fits.
-    Alt(Vec<Doc>),
+    ///
+    /// Split into three fields rather than held in one `Vec` because a `Vec`
+    /// admits two arrangements that are not layouts at all. Empty made the
+    /// layout pass evaluate `states[..states.len() - 1]` — a `usize` underflow
+    /// — and `fits` index `states[0]` of nothing. A single candidate has
+    /// nothing to choose between, and silently skipped the strict measurement
+    /// of the first candidate that is the entire reason this variant exists.
+    /// Neither can be written now.
+    Alt {
+        /// The candidate a flat parent prints, and the only one measured
+        /// strictly: a forced break anywhere inside it rules it out.
+        flat: Box<Doc>,
+        /// The second candidate, which is what makes an `Alt` a choice.
+        next: Box<Doc>,
+        /// Any candidates after the second. The last candidate overall — the
+        /// last of these, or `next` when there are none — is what is used when
+        /// none of the ones before it has a first line that fits.
+        rest: Vec<Doc>,
+    },
+}
+
+/// [`Group`] and its one invariant, behind a module boundary so that the
+/// invariant is the only way to build one.
+///
+/// `breaks` is not an opinion a caller may hold: it is `super::breaks(&doc)`,
+/// the answer to "does anything inside force a line break", cached because
+/// recomputing it at every visit would walk the tree again. A group built by
+/// hand with `breaks: false` around a `HardLine` made `fits` return the wrong
+/// answer and the formatter print a line over the margin. The fields are
+/// private, so the only ways in are [`Group::of`], which computes it, and
+/// [`Group::forced`], which may only ever raise it.
+mod group {
+    use super::Doc;
+
+    #[derive(Clone, Debug)]
+    pub struct Group {
+        doc: Box<Doc>,
+        /// Whether the contents force a break. Prettier calls the pass that
+        /// does this `propagateBreaks`.
+        breaks: bool,
+    }
+
+    impl Group {
+        /// The group around `doc`, breaking exactly when `doc` does.
+        pub fn of(doc: Doc) -> Group {
+            let breaks = super::breaks(&doc);
+            Group { doc: Box::new(doc), breaks }
+        }
+
+        /// The same group, broken. Deliberately one-way: a caller may insist a
+        /// group breaks, and may never claim one does not.
+        pub fn forced(self) -> Group {
+            Group { doc: self.doc, breaks: true }
+        }
+
+        pub fn doc(&self) -> &Doc {
+            &self.doc
+        }
+
+        pub fn breaks(&self) -> bool {
+            self.breaks
+        }
+    }
 }
 
 fn text(s: impl Into<String>) -> Doc {
@@ -166,18 +223,22 @@ fn breaks(d: &Doc) -> bool {
         Doc::HardLine | Doc::Blank | Doc::BreakParent => true,
         Doc::Concat(xs) | Doc::Fill(xs) => xs.iter().any(breaks),
         Doc::Nest(x) => breaks(x),
-        Doc::Group { breaks, .. } => *breaks,
+        Doc::Group(g) => g.breaks(),
         // The candidate a flat parent would print. If even that must break,
         // everything containing it must too; which of the *other* candidates
         // wins is not known until the layout pass, so they say nothing here.
-        Doc::Alt(states) => states.first().is_some_and(breaks),
+        Doc::Alt { flat, .. } => breaks(flat),
         _ => false,
     }
 }
 
 fn group(d: Doc) -> Doc {
-    let breaks = breaks(&d);
-    Doc::Group { doc: Box::new(d), breaks }
+    Doc::Group(group::Group::of(d))
+}
+
+/// Two candidate layouts: all on a line, or the one to fall back to.
+fn alt(flat: Doc, next: Doc) -> Doc {
+    Doc::Alt { flat: Box::new(flat), next: Box::new(next), rest: Vec::new() }
 }
 
 /// The same document with its outermost group broken.
@@ -188,11 +249,19 @@ fn group(d: Doc) -> Doc {
 /// `shouldBreak: true`.
 fn force(d: Doc) -> Doc {
     match d {
-        Doc::Group { doc, .. } => Doc::Group { doc, breaks: true },
+        Doc::Group(g) => Doc::Group(g.forced()),
         // Forcing a set of candidates rules out the one that is all on a line.
-        Doc::Alt(mut states) if states.len() > 1 => {
-            states.remove(0);
-            Doc::Alt(states)
+        // With `next` promoted there may be only one candidate left, and one
+        // candidate is not an `Alt`; repeating it says the same thing — the
+        // strict measurement and the fallback land on the same document — in a
+        // shape the layout pass can still read.
+        Doc::Alt { flat: _, next, mut rest } => {
+            if rest.is_empty() {
+                Doc::Alt { flat: next.clone(), next, rest }
+            } else {
+                let second = rest.remove(0);
+                Doc::Alt { flat: next, next: Box::new(second), rest }
+            }
         }
         Doc::Concat(mut xs) => {
             if let Some(last) = xs.pop() {
@@ -206,7 +275,7 @@ fn force(d: Doc) -> Doc {
 }
 
 fn join(sep: Doc, items: Vec<Doc>) -> Doc {
-    let mut out = Vec::with_capacity(items.len() * 2);
+    let mut out = Vec::with_capacity(items.len().saturating_mul(2));
     for (i, it) in items.into_iter().enumerate() {
         if i > 0 {
             out.push(sep.clone());
@@ -289,7 +358,9 @@ fn fits(
 ) -> bool {
     let mut w = width as isize;
     let mut local = seed;
-    let mut ri = rest.len();
+    // The printer's stack is walked from its top, which is the end of the
+    // slice: what it pops next is what comes next on the line.
+    let mut behind = rest.iter().rev();
     // `must_be_flat` is a question about the *candidate*, not about the line it
     // is being fitted into. Once the walk leaves the seed and starts on what
     // the printer already has stacked behind it, a break there is the end of
@@ -301,14 +372,13 @@ fn fits(
         }
         let (ind, mode, cmd) = match local.pop() {
             Some(f) => f,
-            None => {
-                if ri == 0 {
-                    return true;
+            None => match behind.next() {
+                None => return true,
+                Some(f) => {
+                    strict = false;
+                    *f
                 }
-                ri -= 1;
-                strict = false;
-                rest[ri]
-            }
+            },
         };
         let d = match cmd {
             Cmd::Fill(parts) => {
@@ -326,7 +396,7 @@ fn fits(
                     return false;
                 }
             }
-            Doc::Text(s) => w -= s.chars().count() as isize,
+            Doc::Text(s) => w = w.saturating_sub(s.chars().count() as isize),
             Doc::Concat(xs) => {
                 for x in xs.iter().rev() {
                     local.push((ind, mode, Cmd::One(x)));
@@ -337,12 +407,12 @@ fn fits(
                     local.push((ind, mode, Cmd::One(x)));
                 }
             }
-            Doc::Nest(x) => local.push((ind + 1, mode, Cmd::One(x))),
+            Doc::Nest(x) => local.push((ind.saturating_add(1), mode, Cmd::One(x))),
             Doc::Line => {
                 if mode == Mode::Break {
                     return true;
                 }
-                w -= 1;
+                w = w.saturating_sub(1);
             }
             Doc::SoftLine => {
                 if mode == Mode::Break {
@@ -353,21 +423,21 @@ fn fits(
             Doc::IfBreak(b, f) => {
                 local.push((ind, mode, Cmd::One(if mode == Mode::Break { b } else { f })))
             }
-            Doc::Group { doc, breaks } => {
-                if *breaks && strict {
+            Doc::Group(g) => {
+                if g.breaks() && strict {
                     return false;
                 }
-                let m = if *breaks { Mode::Break } else { mode };
-                local.push((ind, m, Cmd::One(doc)));
+                let m = if g.breaks() { Mode::Break } else { mode };
+                local.push((ind, m, Cmd::One(g.doc())));
             }
             // The candidate a flat parent would print.
-            Doc::Alt(states) => local.push((ind, mode, Cmd::One(&states[0]))),
+            Doc::Alt { flat, .. } => local.push((ind, mode, Cmd::One(flat))),
         }
     }
 }
 
 fn indent_to(out: &mut String, ind: usize) {
-    for _ in 0..ind * INDENT {
+    for _ in 0..ind.saturating_mul(INDENT) {
         out.push(' ');
     }
 }
@@ -388,7 +458,7 @@ fn newline(out: &mut String, pos: &mut usize, ind: usize) {
         out.push('\n');
     }
     indent_to(out, ind);
-    *pos = ind * INDENT;
+    *pos = ind.saturating_mul(INDENT);
 }
 
 /// A line break with an empty line above it — unless there is one already, or
@@ -408,7 +478,7 @@ fn blank(out: &mut String, pos: &mut usize, ind: usize) {
         out.push('\n');
     }
     indent_to(out, ind);
-    *pos = ind * INDENT;
+    *pos = ind.saturating_mul(INDENT);
 }
 
 /// Wadler's `best`: lay the document out at the width, one pass, no backtracking.
@@ -428,18 +498,18 @@ fn render(doc: &Doc) -> String {
             Doc::Nil | Doc::BreakParent => {}
             Doc::Text(s) => {
                 out.push_str(s);
-                pos += s.chars().count();
+                pos = pos.saturating_add(s.chars().count());
             }
             Doc::Concat(xs) => {
                 for x in xs.iter().rev() {
                     stack.push((ind, mode, Cmd::One(x)));
                 }
             }
-            Doc::Nest(x) => stack.push((ind + 1, mode, Cmd::One(x))),
+            Doc::Nest(x) => stack.push((ind.saturating_add(1), mode, Cmd::One(x))),
             Doc::Line => match mode {
                 Mode::Flat => {
                     out.push(' ');
-                    pos += 1;
+                    pos = pos.saturating_add(1);
                 }
                 Mode::Break => newline(&mut out, &mut pos, ind),
             },
@@ -453,8 +523,8 @@ fn render(doc: &Doc) -> String {
             Doc::IfBreak(b, f) => {
                 stack.push((ind, mode, Cmd::One(if mode == Mode::Break { b } else { f })))
             }
-            Doc::Group { doc, breaks } => {
-                let m = if *breaks {
+            Doc::Group(g) => {
+                let m = if g.breaks() {
                     Mode::Break
                 } else if mode == Mode::Flat {
                     // A flat parent has already been measured with this group
@@ -462,7 +532,7 @@ fn render(doc: &Doc) -> String {
                     Mode::Flat
                 } else if fits(
                     &stack,
-                    vec![(ind, Mode::Flat, Cmd::One(doc))],
+                    vec![(ind, Mode::Flat, Cmd::One(g.doc()))],
                     WIDTH.saturating_sub(pos),
                     false,
                 ) {
@@ -470,13 +540,26 @@ fn render(doc: &Doc) -> String {
                 } else {
                     Mode::Break
                 };
-                stack.push((ind, m, Cmd::One(doc)));
+                stack.push((ind, m, Cmd::One(g.doc())));
             }
-            Doc::Alt(states) => {
+            Doc::Alt { flat, next, rest } => {
                 if mode == Mode::Flat {
-                    stack.push((ind, Mode::Flat, Cmd::One(&states[0])));
+                    stack.push((ind, Mode::Flat, Cmd::One(flat)));
                     continue;
                 }
+                // The last candidate is the fallback, taken without being
+                // measured; every earlier one is tried in turn. `flat` and
+                // `next` are two by construction, so peeling the last off
+                // `rest` — or, when `rest` is empty, taking `next` as the
+                // fallback — always leaves at least one to try.
+                let (tried, fallback): (Vec<&Doc>, &Doc) = match rest.split_last() {
+                    Some((last, middle)) => {
+                        let mut t: Vec<&Doc> = vec![&**flat, &**next];
+                        t.extend(middle);
+                        (t, last)
+                    }
+                    None => (vec![&**flat], &**next),
+                };
                 // The first candidate is "all of it on one line", so it is
                 // measured strictly: a forced break anywhere inside it rules it
                 // out. Every later candidate has already chosen where it
@@ -484,19 +567,18 @@ fn render(doc: &Doc) -> String {
                 // fits. Whichever wins is then laid out normally, so the groups
                 // inside it still answer for themselves.
                 let mut chosen = None;
-                for (i, s) in states[..states.len() - 1].iter().enumerate() {
+                for (i, s) in tried.iter().enumerate() {
                     if fits(
                         &stack,
                         vec![(ind, Mode::Flat, Cmd::One(s))],
                         WIDTH.saturating_sub(pos),
                         i == 0,
                     ) {
-                        chosen = Some(s);
+                        chosen = Some(*s);
                         break;
                     }
                 }
-                let s = chosen.unwrap_or_else(|| states.last().expect("non-empty"));
-                stack.push((ind, Mode::Break, Cmd::One(s)));
+                stack.push((ind, Mode::Break, Cmd::One(chosen.unwrap_or(fallback))));
             }
             Doc::Fill(parts) => {
                 fill_step(&mut stack, ind, mode, parts, WIDTH.saturating_sub(pos))
@@ -515,30 +597,29 @@ fn fill_step<'a>(
     parts: &'a [Doc],
     rem: usize,
 ) {
-    let Some(content) = parts.first() else { return };
+    let Some((content, after_content)) = parts.split_first() else { return };
     let content_fits = fits(&[], vec![(ind, Mode::Flat, Cmd::One(content))], rem, false);
-    if parts.len() == 1 {
+    let Some((ws, tail)) = after_content.split_first() else {
         stack.push((ind, if content_fits { Mode::Flat } else { Mode::Break }, Cmd::One(content)));
         return;
-    }
-    let ws = &parts[1];
-    if parts.len() == 2 {
+    };
+    let Some(next) = tail.first() else {
         let m = if content_fits { Mode::Flat } else { Mode::Break };
         stack.push((ind, m, Cmd::One(ws)));
         stack.push((ind, m, Cmd::One(content)));
         return;
-    }
+    };
     let pair = fits(
         &[],
         vec![
-            (ind, Mode::Flat, Cmd::One(&parts[2])),
+            (ind, Mode::Flat, Cmd::One(next)),
             (ind, Mode::Flat, Cmd::One(ws)),
             (ind, Mode::Flat, Cmd::One(content)),
         ],
         rem,
         false,
     );
-    stack.push((ind, mode, Cmd::Fill(&parts[2..])));
+    stack.push((ind, mode, Cmd::Fill(tail)));
     if pair {
         stack.push((ind, Mode::Flat, Cmd::One(ws)));
         stack.push((ind, Mode::Flat, Cmd::One(content)));
@@ -553,28 +634,121 @@ fn fill_step<'a>(
 
 // -- comments --------------------------------------------------------------
 
-/// A run of comments, doc-comment lines, and blank lines written above one
-/// token, with that token's byte offset.
+/// Doc-comment lines written above a token.
+///
+/// The blank line that may sit between the ordinary comments and these is part
+/// of *these*, so it cannot be recorded where there are no doc lines for it to
+/// be above. It used to be a `bool` beside a `Vec` that was allowed to be
+/// empty, and every reader of it had to remember to check the `Vec` first.
 #[derive(Clone)]
-struct Trivia {
-    at: u32,
-    comments: Vec<Comment>,
-    docs: Vec<String>,
-    /// A blank line sits between the comments and the doc lines under them.
-    docs_blank: bool,
-    /// A blank line sits above the run.
-    blank: bool,
-    /// A blank line sits between the last comment line and the token. At the
-    /// top of a file that is what tells a header apart from a comment about
-    /// the first import; anywhere else it is a paragraph break somebody typed,
-    /// and it comes back.
-    detached: bool,
+enum Docs {
+    /// None were written.
+    None,
+    Lines {
+        lines: Vec<String>,
+        /// A blank line sits between the comments and these. It matters only
+        /// when ordinary comments came first: a section heading, a blank line,
+        /// and then the declaration's own documentation are three things.
+        blank_above: bool,
+    },
+}
+
+impl Docs {
+    fn read(lines: Vec<String>, blank_above: bool) -> Docs {
+        if lines.is_empty() {
+            Docs::None
+        } else {
+            Docs::Lines { lines, blank_above }
+        }
+    }
+
+    fn lines(&self) -> &[String] {
+        match self {
+            Docs::None => &[],
+            Docs::Lines { lines, .. } => lines,
+        }
+    }
+
+    fn blank_above(&self) -> bool {
+        matches!(self, Docs::Lines { blank_above: true, .. })
+    }
+}
+
+/// What was written above one token, with that token's byte offset.
+///
+/// The two cases are separate variants because most of what a run has to say
+/// is meaningless without one. `detached` — "a blank line sits between the run
+/// and the token" — says nothing when there is no run, and every use of it had
+/// to be guarded by hand with `!t.is_empty()`. A blank line and nothing else is
+/// the other case, and it carries nothing but where it is.
+#[derive(Clone)]
+enum Trivia {
+    /// A blank line above the token, with nothing written in it.
+    Blank { at: u32 },
+    /// Comments, doc lines, or both. Never neither.
+    Run {
+        at: u32,
+        comments: Vec<Comment>,
+        docs: Docs,
+        /// A blank line sits above the run.
+        blank: bool,
+        /// A blank line sits between the last line of the run and the token.
+        /// At the top of a file that is what tells a header apart from a
+        /// comment about the first import; anywhere else it is a paragraph
+        /// break somebody typed, and it comes back.
+        detached: bool,
+    },
 }
 
 impl Trivia {
-    fn is_empty(&self) -> bool {
-        self.comments.is_empty() && self.docs.is_empty()
+    /// The only constructor, which is what makes `Run` non-empty: with nothing
+    /// written above the token there is no run for the rest of the fields to
+    /// describe, so there is no `Run` either.
+    fn read(t: &crate::parsing::lexer::Token) -> Trivia {
+        let at = t.span.start;
+        let docs = Docs::read(t.docs.clone(), t.docs_blank);
+        if t.comments.is_empty() && matches!(docs, Docs::None) {
+            return Trivia::Blank { at };
+        }
+        Trivia::Run {
+            at,
+            comments: t.comments.clone(),
+            docs,
+            blank: t.blank_before,
+            detached: t.detached,
+        }
     }
+
+    fn at(&self) -> u32 {
+        match self {
+            Trivia::Blank { at } | Trivia::Run { at, .. } => *at,
+        }
+    }
+
+    /// Whether a blank line was written above this.
+    fn blank(&self) -> bool {
+        match self {
+            Trivia::Blank { .. } => true,
+            Trivia::Run { blank, .. } => *blank,
+        }
+    }
+
+    fn is_run(&self) -> bool {
+        matches!(self, Trivia::Run { .. })
+    }
+}
+
+/// One entry of [`Comments`]: what was written, and whether it has been put
+/// back.
+///
+/// The two were a `Vec<Trivia>` and a parallel `Vec<bool>`, aligned once at
+/// construction and indexed together in five places afterwards. Two of those
+/// zipped rather than indexed, so a shorter `used` would have silently made
+/// later comments look unclaimed forever — and the failure mode of this file is
+/// deleting a comment.
+struct Entry {
+    trivia: Trivia,
+    claimed: bool,
 }
 
 /// Every comment in the file, in source order, and which of them have been put
@@ -591,61 +765,40 @@ impl Trivia {
 /// group it lands in cannot be flat. That is the whole of comment handling in
 /// the layout: there is no construct that has to ask whether it contains one.
 struct Comments {
-    entries: Vec<Trivia>,
-    used: Vec<bool>,
-}
-
-/// Whether nothing but whitespace, spanning a blank line, sits between `at`
-/// and whatever was written before it.
-fn blank_line_above(text: &str, at: u32) -> bool {
-    let mut newlines = 0;
-    for c in text[..at as usize].chars().rev() {
-        match c {
-            '\n' => newlines += 1,
-            c if c.is_whitespace() => {}
-            _ => break,
-        }
-        if newlines >= 2 {
-            return true;
-        }
-    }
-    false
+    entries: Vec<Entry>,
 }
 
 impl Comments {
     fn read(text: &str) -> Comments {
         let lexed = lex(text, FileId(0));
-        let entries: Vec<Trivia> = lexed
+        let entries = lexed
             .tokens
             .iter()
             .filter(|t| !t.comments.is_empty() || !t.docs.is_empty() || t.blank_before)
-            .map(|t| Trivia {
-                at: t.span.start,
-                comments: t.comments.clone(),
-                docs: t.docs.clone(),
-                docs_blank: t.docs_blank,
-                blank: t.blank_before,
-                detached: blank_line_above(text, t.span.start),
-            })
+            .map(|t| Entry { trivia: Trivia::read(t), claimed: false })
             .collect();
-        let used = vec![false; entries.len()];
-        Comments { entries, used }
+        Comments { entries }
     }
 
     /// Whether the comment above the token at `at` is separated from it by a
     /// blank line.
     fn is_detached(&self, at: u32) -> bool {
-        self.entries.iter().any(|e| e.at == at && !e.comments.is_empty() && e.detached)
+        self.entries.iter().any(|e| match &e.trivia {
+            Trivia::Run { at: a, comments, detached, .. } => {
+                *a == at && !comments.is_empty() && *detached
+            }
+            Trivia::Blank { .. } => false,
+        })
     }
 
     /// The trivia written above the token at `at`, marked as put back.
     fn take(&mut self, at: u32) -> Option<Trivia> {
-        let i = self.entries.iter().position(|e| e.at == at)?;
-        if self.used[i] {
+        let e = self.entries.iter_mut().find(|e| e.trivia.at() == at)?;
+        if e.claimed {
             return None;
         }
-        self.used[i] = true;
-        Some(self.entries[i].clone())
+        e.claimed = true;
+        Some(e.trivia.clone())
     }
 
     /// Every comment not yet put back whose token lies in `lo ..= hi`, in
@@ -654,13 +807,14 @@ impl Comments {
     /// above a comment, where the comment keeps the break it was given.
     fn drain(&mut self, lo: u32, hi: u32) -> Vec<Trivia> {
         let mut out = Vec::new();
-        for i in 0..self.entries.len() {
-            if self.used[i] || self.entries[i].at < lo || self.entries[i].at > hi {
+        for e in &mut self.entries {
+            let at = e.trivia.at();
+            if e.claimed || at < lo || at > hi {
                 continue;
             }
-            self.used[i] = true;
-            if !self.entries[i].is_empty() {
-                out.push(self.entries[i].clone());
+            e.claimed = true;
+            if e.trivia.is_run() {
+                out.push(e.trivia.clone());
             }
         }
         out
@@ -672,7 +826,9 @@ impl Comments {
     /// of it either way, and what the caller wants to know is whether somebody
     /// left a gap there, not whether anybody has asked yet.
     fn blank_at(&self, at: u32) -> bool {
-        self.entries.iter().zip(&self.used).any(|(e, used)| !used && e.at == at && e.blank)
+        self.entries
+            .iter()
+            .any(|e| !e.claimed && e.trivia.at() == at && e.trivia.blank())
     }
 
     /// Whether a comment is waiting inside `lo ..= hi`. Only the constructs
@@ -680,8 +836,8 @@ impl Comments {
     /// on, so it has to be printed as the other shape. Everywhere else the
     /// comment's own `HardLine` settles it.
     fn any_in(&self, lo: u32, hi: u32) -> bool {
-        self.entries.iter().zip(&self.used).any(|(e, used)| {
-            !used && e.at >= lo && e.at <= hi && !e.is_empty()
+        self.entries.iter().any(|e| {
+            !e.claimed && (lo..=hi).contains(&e.trivia.at()) && e.trivia.is_run()
         })
     }
 }
@@ -707,7 +863,9 @@ fn import_group(path: &str) -> u8 {
 /// legal, and is how a module takes both a namespace and a name from one path.
 /// `*` sorts before `{`, so the namespace form leads.
 fn import_key(item: &&Item) -> (u8, String, String) {
-    let Item::Import(i) = item else { unreachable!("callers pass imports") };
+    let Item::Import(i) = item else {
+        crate::ice!("import_key orders the leading import run, which `take_while` proved holds only imports")
+    };
     let clause = match &i.clause {
         ImportClause::Namespace(n) => format!("* as {}", n.name),
         ImportClause::Named(specs) => format!("{{ {} }}", spec_list(specs).join(", ")),
@@ -751,7 +909,10 @@ impl Build<'_> {
         // them.
         let mut lines: Vec<Doc> = vec![Doc::BreakParent];
         for t in ts {
-            for (i, c) in t.comments.iter().enumerate() {
+            // A blank line has no lines to print. Which of the two a `Trivia`
+            // is, is the variant, so there is no `is_empty()` to forget.
+            let Trivia::Run { comments, docs, detached, .. } = t else { continue };
+            for (i, c) in comments.iter().enumerate() {
                 if c.blank_before && i > 0 {
                     lines.push(Doc::Blank);
                 }
@@ -767,7 +928,7 @@ impl Build<'_> {
                 // thing that is stable under both.
                 for (j, l) in c.text.lines().enumerate() {
                     if j > 0 {
-                        let indent = l.len() - l.trim_start().len();
+                        let indent = l.len().saturating_sub(l.trim_start().len());
                         let rel = indent.saturating_sub(c.column as usize);
                         lines.push(Doc::HardLine);
                         lines.push(text(format!("{}{}", " ".repeat(rel), l.trim())));
@@ -777,15 +938,15 @@ impl Build<'_> {
                 }
                 lines.push(Doc::HardLine);
             }
-            if t.docs_blank && !t.comments.is_empty() {
+            if docs.blank_above() && !comments.is_empty() {
                 lines.push(Doc::Blank);
             }
-            for d in &t.docs {
+            for d in docs.lines() {
                 let d = format!("/// {d}");
                 lines.push(text(d.trim_end().to_string()));
                 lines.push(Doc::HardLine);
             }
-            if t.detached && !t.is_empty() {
+            if *detached {
                 lines.push(Doc::Blank);
             }
         }
@@ -806,7 +967,7 @@ impl Build<'_> {
         }
         let mut parts = Vec::new();
         for t in ts {
-            if t.blank {
+            if t.blank() {
                 parts.push(Doc::Blank);
             }
             let d = self.trivia_doc(std::slice::from_ref(&t));
@@ -822,7 +983,7 @@ impl Build<'_> {
     /// where the line used to sit.
     fn import_trivia(&mut self, at: u32, first: bool) -> Doc {
         let Some(t) = self.tv.take(at) else { return Doc::Nil };
-        if t.is_empty() {
+        if !t.is_run() {
             return Doc::Nil;
         }
         let mut parts = Vec::new();
@@ -840,10 +1001,10 @@ impl Build<'_> {
             return if first { Doc::Nil } else { Doc::Blank };
         };
         let mut parts = Vec::new();
-        if (t.blank || !t.is_empty()) && !first {
+        if (t.blank() || t.is_run()) && !first {
             parts.push(Doc::Blank);
         }
-        if !t.is_empty() {
+        if t.is_run() {
             parts.push(self.trivia_doc(std::slice::from_ref(&t)));
             parts.push(Doc::HardLine);
         }
@@ -874,14 +1035,17 @@ impl Build<'_> {
         // reporting it as a lint is the same argument the rest of this file
         // makes: a canonical layout is not a finding.
         let run = m.items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
+        // `run` is a count of a prefix of `m.items`, so the split is always the
+        // one asked for.
+        let (imports, declarations) = m.items.split_at_checked(run).unwrap_or((&m.items, &[]));
 
         // A comment block at the very top of the file, with a blank line
         // between it and the first import, is about the file. It stays at the
         // top: sorting the run would otherwise carry the header down to
         // wherever the import it happened to sit above ended up.
         let mut header = false;
-        if run > 0 {
-            let at = m.items[0].span().start;
+        if let Some(first) = imports.first() {
+            let at = first.span().start;
             if self.tv.is_detached(at) {
                 if let Some(t) = self.tv.take(at) {
                     let d = self.trivia_doc(std::slice::from_ref(&t));
@@ -892,8 +1056,8 @@ impl Build<'_> {
             }
         }
 
-        let mut head: Vec<&Item> = m.items[..run].iter().collect();
-        head.sort_by_key(|i| import_key(i));
+        let mut head: Vec<&Item> = imports.iter().collect();
+        head.sort_by_key(import_key);
 
         for (i, item) in head.iter().enumerate() {
             let first = i == 0 && m.docs.is_empty() && !header;
@@ -913,15 +1077,14 @@ impl Build<'_> {
         // a pass of its own, after every type in every module is known — and
         // where it *reads* is against the declaration it is about, the way an
         // attribute would.
-        let rest: Vec<&Item> = m.items[run..].iter().collect();
-        for (i, group) in derive_groups(&rest).into_iter().enumerate() {
+        let rest: Vec<&Item> = declarations.iter().collect();
+        for (i, (derives, decl)) in derive_groups(&rest).into_iter().enumerate() {
             // The derives lead and the declaration's own documentation stays
             // directly on the declaration. It cannot be the other way round: a
             // `///` run attaches to whatever token follows it, so documentation
             // printed above a `derive` is documentation *of* the derive the
             // next time the file is read, and formatting would not be a fixed
             // point.
-            let (decl, derives) = group.split_last().expect("a group holds its declaration");
             let first = i == 0 && m.docs.is_empty() && run == 0;
             if derives.is_empty() {
                 let t = self.decl_trivia(decl.span().start, first);
@@ -1203,17 +1366,18 @@ impl Build<'_> {
             }
             StructBody::Record(fields) => {
                 let head = format!("{ex}struct {}{g}", d.name.name);
-                if fields.is_empty() && !self.tv.any_in(d.span.start + 1, d.span.end) {
+                let inside = d.span.start.saturating_add(1);
+                if fields.is_empty() && !self.tv.any_in(inside, d.span.end) {
                     return text(format!("{head} {{}}"));
                 }
                 let mut items = Vec::new();
                 for f in fields {
                     // A field's documentation is trivia like any other, and
                     // comes back through the same path as a comment above it.
-                    let c = self.flush(d.span.start + 1, f.span.start);
+                    let c = self.flush(inside, f.span.start);
                     items.push(with_comment(c, text(field_decl(f))));
                 }
-                let trailing = self.flush(d.span.start + 1, d.span.end.saturating_sub(1));
+                let trailing = self.flush(inside, d.span.end.saturating_sub(1));
                 record(&head, items, trailing)
             }
         }
@@ -1223,15 +1387,16 @@ impl Build<'_> {
         let ex = if d.exported { "export " } else { "" };
         let g = generics(&d.generics);
         let head = format!("{ex}enum {}{g}", d.name.name);
-        if d.variants.is_empty() && !self.tv.any_in(d.span.start + 1, d.span.end) {
+        let inside = d.span.start.saturating_add(1);
+        if d.variants.is_empty() && !self.tv.any_in(inside, d.span.end) {
             return text(format!("{head} {{}}"));
         }
         let mut items = Vec::new();
         for v in &d.variants {
-            let c = self.flush(d.span.start + 1, v.span.start);
+            let c = self.flush(inside, v.span.start);
             items.push(with_comment(c, text(variant(v))));
         }
-        let trailing = self.flush(d.span.start + 1, d.span.end.saturating_sub(1));
+        let trailing = self.flush(inside, d.span.end.saturating_sub(1));
         record(&head, items, trailing)
     }
 
@@ -1366,7 +1531,7 @@ impl Build<'_> {
                 if matches!(&**body, Expr::Block(_)) {
                     return cat(vec![text(format!("{head} ")), d]);
                 }
-                Doc::Alt(vec![
+                alt(
                     cat(vec![text(format!("{head} ")), d.clone()]),
                     cat(vec![
                         text(format!("{head} {{")),
@@ -1374,7 +1539,7 @@ impl Build<'_> {
                         Doc::HardLine,
                         text("}"),
                     ]),
-                ])
+                )
             }
             Expr::Unary { op, operand, .. } => {
                 let d = self.at(operand, 10);
@@ -1385,16 +1550,12 @@ impl Build<'_> {
                 // `&&` reads as a list of conditions, and a list reads down.
                 let p = binop_prec(*op);
                 let mut parts = Vec::new();
-                spine(e, p, &mut parts);
-                let first = self.at(parts[0].0, p);
+                let head = spine(e, p, &mut parts);
+                let first = self.at(head, p);
                 let mut rest = Vec::new();
-                for (operand, op) in &parts[1..] {
-                    let d = self.at(operand, p + 1);
-                    rest.push(cat(vec![
-                        Doc::Line,
-                        text(format!("{} ", op.expect("only the head has none").text())),
-                        d,
-                    ]));
+                for (operand, op) in &parts {
+                    let d = self.at(operand, p.saturating_add(1));
+                    rest.push(cat(vec![Doc::Line, text(format!("{} ", op.text())), d]));
                 }
                 group(cat(vec![first, nest(cat(rest))]))
             }
@@ -1402,7 +1563,7 @@ impl Build<'_> {
             | Expr::Call { .. }
             | Expr::Index { .. }
             | Expr::Try { .. }
-            | Expr::TurboFish { .. } => self.chain_expr(e),
+            | Expr::Generic { .. } => self.chain_expr(e),
             Expr::TupleIndex { base, index, .. } => {
                 // `t.0.1` lexes as `t` `.` `0.1`, so a nested tuple index keeps
                 // its parentheses: `(t.0).1`. A known lexical wart, accepted
@@ -1544,7 +1705,7 @@ impl Build<'_> {
                 v.push(text(" => "));
                 v.push(body);
             } else {
-                v.push(Doc::Alt(vec![
+                v.push(alt(
                     cat(vec![text(" => "), body.clone()]),
                     cat(vec![
                         text(" => {"),
@@ -1552,7 +1713,7 @@ impl Build<'_> {
                         Doc::HardLine,
                         text("}"),
                     ]),
-                ]));
+                ));
             }
             v.push(text(","));
             lines.push(cat(v));
@@ -1568,7 +1729,7 @@ impl Build<'_> {
         ])
     }
 
-    /// A postfix chain: `base`, then `.name`, `(args)`, `[i]`, `?` and `::<T>`
+    /// A postfix chain: `base`, then `.name`, `(args)`, `[i]`, `?` and `<T>`
     /// in the order they were written.
     ///
     /// Three candidate layouts, in order of preference, as one `Alt`:
@@ -1584,8 +1745,8 @@ impl Build<'_> {
     ///    call keeps its head on one line and that argument spills; failing
     ///    that each argument list breaks on its own.
     ///
-    /// A dot is a dot: a field access breaks like a method call, and a
-    /// turbofish between the name and the call does not stop `.parse::<T>()`
+    /// A dot is a dot: a field access breaks like a method call, and type
+    /// arguments between the name and the call do not stop `.parse<T>()`
     /// being one. What makes a link a break point is that it starts with `.`,
     /// which is also what makes it readable at the start of a line.
     fn chain_expr(&mut self, e: &Expr) -> Doc {
@@ -1609,11 +1770,24 @@ impl Build<'_> {
                     assembled.push(cat(vec![text("["), d, text("]")]));
                 }
                 Link::Try => assembled.push(text("?")),
-                Link::Turbo(ts) => {
+                Link::TypeArgs(ts) => {
                     let inner = ts.iter().map(ty).collect::<Vec<_>>().join(", ");
-                    assembled.push(text(format!("::<{inner}>")));
+                    assembled.push(text(format!("<{inner}>")));
                 }
             }
+        }
+
+        // Counted before `natural` is built, because the answer decides
+        // whether the pieces have to survive being used twice. Most postfix
+        // expressions are not chains, and building the one-line form by
+        // *moving* the pieces into it costs nothing where a copy of every
+        // argument's document used to be made and thrown away.
+        let dots = links.iter().filter(|l| matches!(l, Link::Field(_))).count();
+        if dots < 2 {
+            // Not a chain: one call, whose arguments answer for themselves.
+            let mut v = vec![base_doc];
+            v.extend(assembled);
+            return group(cat(v));
         }
 
         let natural = {
@@ -1621,28 +1795,22 @@ impl Build<'_> {
             v.extend(assembled.iter().cloned());
             cat(v)
         };
-
-        let dots = links.iter().filter(|l| matches!(l, Link::Field(_))).count();
-        if dots < 2 {
-            // Not a chain: one call, whose arguments answer for themselves.
-            return group(natural);
-        }
         // Every link on its own line, the first included: all of it or none of
         // it. What a link does *within* its line is still the link's own
         // business, so a call in a chain hugs its trailing lambda exactly as
         // the same call would anywhere else.
         let mut tail = Vec::new();
-        for (i, d) in assembled.iter().enumerate() {
-            if matches!(links[i], Link::Field(_)) {
+        for (l, d) in links.iter().zip(&assembled) {
+            if matches!(l, Link::Field(_)) {
                 tail.push(Doc::HardLine);
             }
             tail.push(d.clone());
         }
-        Doc::Alt(vec![
-            natural.clone(),
-            cat(vec![base_doc, nest(cat(tail))]),
-            natural,
-        ])
+        Doc::Alt {
+            flat: Box::new(natural.clone()),
+            next: Box::new(cat(vec![base_doc, nest(cat(tail))])),
+            rest: vec![natural],
+        }
     }
 }
 
@@ -1650,21 +1818,30 @@ impl Build<'_> {
 /// its own to spill into — all on one line, **hugging** so that the head of the
 /// call stays on its line while that argument breaks, or one argument to a
 /// line — and the plain bracketed form otherwise.
-fn args_doc(ds: Vec<Doc>, hug: bool) -> Doc {
-    let plain = bracketed("(", ds.clone(), ")");
+fn args_doc(mut ds: Vec<Doc>, hug: bool) -> Doc {
     // The earlier arguments have to fit on the head line for a hug to mean
-    // anything, so one that breaks rules it out.
-    if !hug || ds[..ds.len() - 1].iter().any(breaks) {
-        return plain;
+    // anything, so one that breaks rules it out. An empty list has no last
+    // argument to hug either.
+    //
+    // Asked before anything is built, because an argument list that is not
+    // hugging needs only the plain form and can be *moved* into it. Building
+    // the plain form first and returning it meant every call in the program
+    // paid for a copy of every one of its arguments' documents, and a
+    // document is the whole subtree.
+    let hugs = hug && ds.split_last().is_some_and(|(_, earlier)| !earlier.iter().any(breaks));
+    if !hugs {
+        return bracketed("(", ds, ")");
     }
+    let plain = bracketed("(", ds.clone(), ")");
+    let Some(last) = ds.pop() else { return plain };
     let mut v = vec![text("(")];
-    for d in &ds[..ds.len() - 1] {
-        v.push(d.clone());
+    for d in ds {
+        v.push(d);
         v.push(text(", "));
     }
-    v.push(force(ds[ds.len() - 1].clone()));
+    v.push(force(last));
     v.push(text(")"));
-    Doc::Alt(vec![plain.clone(), cat(v), plain])
+    Doc::Alt { flat: Box::new(plain.clone()), next: Box::new(cat(v)), rest: vec![plain] }
 }
 
 /// `<head>` and a body on lines of its own, always — the shape every
@@ -1707,8 +1884,9 @@ fn record(head: &str, items: Vec<Doc>, trailing: Option<Doc>) -> Doc {
 /// left exactly where it was, because moving it would be a guess.
 ///
 /// Each returned group is emitted with no blank line inside it and the usual
-/// paragraph break above it.
-fn derive_groups<'a>(items: &[&'a Item]) -> Vec<Vec<&'a Item>> {
+/// paragraph break above it. The declaration is a field of its own rather than
+/// the last element of a list, so that there is no group without one.
+fn derive_groups<'a>(items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a Item)> {
     fn declares(item: &Item) -> Option<&str> {
         match item {
             Item::Struct(d) => Some(&d.name.name),
@@ -1722,7 +1900,10 @@ fn derive_groups<'a>(items: &[&'a Item]) -> Vec<Vec<&'a Item>> {
     fn derives_for(item: &Item) -> Option<&str> {
         let Item::Derive(d) = item else { return None };
         let TypeExpr::Named { path, args, .. } = &d.self_ty else { return None };
-        (path.len() == 1 && args.is_empty()).then(|| path[0].name.as_str())
+        match path.as_slice() {
+            [only] if args.is_empty() => Some(only.name.as_str()),
+            _ => None,
+        }
     }
 
     // Which declaration each `derive` belongs above, if any here does. It may
@@ -1735,19 +1916,18 @@ fn derive_groups<'a>(items: &[&'a Item]) -> Vec<Vec<&'a Item>> {
         })
         .collect();
 
-    let mut out: Vec<Vec<&Item>> = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        if attach[i].is_some() {
+    let mut out: Vec<(Vec<&Item>, &Item)> = Vec::new();
+    for (i, (item, a)) in items.iter().zip(&attach).enumerate() {
+        if a.is_some() {
             continue;
         }
-        let mut group: Vec<&Item> = attach
+        let derives: Vec<&Item> = attach
             .iter()
-            .enumerate()
-            .filter(|(_, a)| **a == Some(i))
-            .map(|(d, _)| items[d])
+            .zip(items)
+            .filter(|(a, _)| **a == Some(i))
+            .map(|(_, d)| *d)
             .collect();
-        group.push(item);
-        out.push(group);
+        out.push((derives, *item));
     }
     out
 }
@@ -1789,7 +1969,7 @@ enum Link<'a> {
     Call(&'a [Expr]),
     Index(&'a Expr),
     Try,
-    Turbo(&'a [TypeExpr]),
+    TypeArgs(&'a [TypeExpr]),
 }
 
 /// Splits a postfix chain into the thing it starts from and the operators
@@ -1820,9 +2000,9 @@ fn chain<'a>(e: &'a Expr, links: &mut Vec<Link<'a>>) -> &'a Expr {
             links.push(Link::Try);
             b
         }
-        Expr::TurboFish { base, args, .. } => {
+        Expr::Generic { base, args, .. } => {
             let b = chain(base, links);
-            links.push(Link::Turbo(args));
+            links.push(Link::TypeArgs(args));
             b
         }
         _ => e,
@@ -1849,7 +2029,7 @@ fn breakable(e: &Expr) -> bool {
         | Expr::StructLit { .. }
         | Expr::Binary { .. }
         | Expr::Lambda { .. } => true,
-        Expr::Field { .. } | Expr::Index { .. } | Expr::Try { .. } | Expr::TurboFish { .. } => {
+        Expr::Field { .. } | Expr::Index { .. } | Expr::Try { .. } | Expr::Generic { .. } => {
             let mut links = Vec::new();
             let base = chain(e, &mut links);
             links.iter().filter(|l| matches!(l, Link::Field(_))).count() >= 2
@@ -1871,15 +2051,19 @@ fn needs_parens(e: &Expr) -> bool {
 
 /// The operands of one precedence level, left to right. The first carries no
 /// operator; each of the rest carries the one written before it.
-fn spine<'a>(e: &'a Expr, p: u8, out: &mut Vec<(&'a Expr, Option<BinOp>)>) {
+/// The operands of one run of `p`-precedence operators, left to right. The head
+/// is returned rather than pushed, because it is the one operand with no
+/// operator in front of it and a caller that had to remember that was a caller
+/// that could forget.
+fn spine<'a>(e: &'a Expr, p: u8, out: &mut Vec<(&'a Expr, BinOp)>) -> &'a Expr {
     if let Expr::Binary { op, lhs, rhs, .. } = e {
         if binop_prec(*op) == p {
-            spine(lhs, p, out);
-            out.push((rhs, Some(*op)));
-            return;
+            let head = spine(lhs, p, out);
+            out.push((rhs, *op));
+            return head;
         }
     }
-    out.push((e, None));
+    e
 }
 
 fn lambda_head(params: &[LambdaParam], ret: &Option<TypeExpr>) -> String {
@@ -2096,11 +2280,10 @@ pub fn pattern_str(p: &Pattern) -> String {
             alts.iter().map(pattern_str).collect::<Vec<_>>().join(" | ")
         }
         Pattern::Path { path, dotted, payload, .. } => {
-            let base = if *dotted {
-                format!(".{}", path[0].name)
-            } else {
-                path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".")
-            };
+            let joined = path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+            // A dotted path is `.Variant`, so the one segment and the join of
+            // one segment are the same string.
+            let base = if *dotted { format!(".{joined}") } else { joined };
             match payload {
                 None => base,
                 Some(PatPayload::Tuple(ps)) => format!(
@@ -2149,6 +2332,16 @@ pub enum Shape {
 /// Reads the tokens *and the comments* of a file, so the formatter can tell
 /// whether it changed anything meaningful.
 pub fn token_shape(text: &str) -> Vec<Shape> {
+    shapes(text, true)
+}
+
+/// `tokens` is whether the token half is wanted at all.
+///
+/// It is a parameter rather than a filter over the result because rendering a
+/// token as a `Shape` allocates a `String` for it, and `comment_shape` — which
+/// every call to [`source`] makes twice, on the input and on its own output —
+/// discarded every one of them immediately.
+fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
     let lexed = lex(text, FileId(0));
     let mut out: Vec<Shape> = Vec::new();
     for (line, _) in &lexed.module_docs {
@@ -2161,7 +2354,7 @@ pub fn token_shape(text: &str) -> Vec<Shape> {
         for d in &t.docs {
             out.push(Shape::Doc(d.trim().to_string()));
         }
-        if !matches!(t.tok, Tok::Eof) {
+        if tokens && !matches!(t.tok, Tok::Eof) {
             out.push(Shape::Token(t.tok.to_string()));
         }
     }
@@ -2174,7 +2367,7 @@ pub fn token_shape(text: &str) -> Vec<Shape> {
 /// half may legally change: the formatter drops a redundant parenthesis and an
 /// optional trailing comma, and adds a required one.
 pub fn comment_shape(text: &str) -> Vec<Shape> {
-    token_shape(text).into_iter().filter(|s| !matches!(s, Shape::Token(_))).collect()
+    shapes(text, false)
 }
 
 fn trim_lines(s: &str) -> String {
@@ -2418,7 +2611,7 @@ export fn everything<C: Alloc>(ctx: C, b: [U8], t: (Int, Int), o: Option<Int>): 
   let structured = Working { a: t.0.wrapToU32(), b: t.1.wrapToU32(), h: b[0].withDefault(0).toI64().wrapToU32() };
   let templated = "first ${structured.a}, second ${structured.b}, and last ${structured.h}";
   let indexed = b[3];
-  let turbo = list.empty::<U8>();
+  let turbo = list.empty<U8>();
   let tried = parseIt(ctx, hexed)?;
   let nested = {
     // A block with a comment in it never collapses.
@@ -2445,7 +2638,7 @@ export fn everything<C: Alloc>(ctx: C, b: [U8], t: (Int, Int), o: Option<Int>): 
 test "every construct, and the width they all have to fit inside" {
   // An assertion wide enough to wrap.
   assert.eq(everything(Hermetic(), [1, 2, 3], (4, 5), .Some(6)), "a string that is long enough that the call around it cannot stay on one line");
-  assert.isTrue([1, 0, 3].foldResultCtx(Hermetic(), fn(c, acc: [Int], x) => if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) }, list.empty::<Int>()).isOk());
+  assert.isTrue([1, 0, 3].foldResultCtx(Hermetic(), fn(c, acc: [Int], x) => if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) }, list.empty<Int>()).isOk());
   // The last word in the test.
 }
 

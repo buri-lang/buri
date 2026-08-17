@@ -1,0 +1,17 @@
+tag {
+    name: "zebra"
+}
+
+tag {
+    name: "apple"
+}
+
+tag {
+    name: "middle"
+    forbids {
+        tags: ["zebra"]
+    }
+    requires {
+        platforms: [LINUX]
+    }
+}

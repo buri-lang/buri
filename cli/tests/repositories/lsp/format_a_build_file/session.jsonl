@@ -1,0 +1,12 @@
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A build file whose fields are in the wrong order and indented by the wrong
+# amount. Opened as `buri`, because a build file *is* one.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/f/BUILD.buri", "languageId": "buri", "version": 1, "text": "# What this binary is.\nbinary {\n      outputs: [{ platform: JS }]\n    dependencies: []\n}\n"}}}
+# The schema's field order, four spaces, and the comment still on its block.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/cmd/f/BUILD.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# A build file that does not read is left alone rather than mangled.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/g/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/cmd/g/BUILD.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -3,22 +3,22 @@
 # and `stray.buri` are on disk and in neither list, which is what the other
 # three rules are about.
 library {
-  sources: ["render.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["render.buri"]
+    visibility: ["//visibility:public"]
 
-  test {
-    sources: ["test/render.buri"]
-  }
+    test {
+        sources: ["test/render.buri"]
+    }
 }
 
 binary {
-  sources: ["flags.buri"]
+    sources: ["flags.buri"]
 
-  outputs: [
-    { platform: JS },
-  ]
+    outputs: [
+        { platform: JS },
+    ]
 
-  test {
-    sources: ["test/flags.buri"]
-  }
+    test {
+        sources: ["test/flags.buri"]
+    }
 }

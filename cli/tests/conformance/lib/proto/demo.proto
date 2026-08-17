@@ -1,10 +1,10 @@
-// One message of every field kind proto3 has, so that a change to the mapping
+// One message of every field kind editions has, so that a change to the mapping
 // fails an assertion rather than a review.
 //
 // The field numbers are deliberately not consecutive: a tag is the number, not
 // the position, and a corpus where the two agree cannot tell them apart.
 
-syntax = "proto3";
+edition = "2026";
 
 package conformance.proto.v1;
 
@@ -12,8 +12,9 @@ package conformance.proto.v1;
 // against `-I.`.
 import "lib/proto/address.proto";
 
-// A value the reader is expected not to know: nothing constructs LATER, and a
-// binary message carrying its number decodes to the zero value.
+// Enums are open, which is edition 2026's default: nothing here names 7, and a
+// message carrying that number decodes to `Shade.Unrecognized(7)` rather than
+// losing it.
 enum Shade {
   SHADE_UNSPECIFIED = 0;
   LIGHT = 1;
@@ -21,7 +22,8 @@ enum Shade {
 }
 
 message Everything {
-  // Implicit presence: always there, defaulted when absent.
+  // Explicit presence, which is the edition's default: each of these is an
+  // `Option`, and one set to its zero value is still on the wire.
   string name = 1;
   int32 count = 2;
   int64 total = 3;
@@ -39,9 +41,14 @@ message Everything {
   float rough = 15;
   Shade shade = 16;
 
-  // Explicit presence.
-  optional int32 age = 20;
-  optional string nickname = 21;
+  // Implicit presence, asked for by name: these two are bare types, and a
+  // value equal to the default is indistinguishable from an absent one — which
+  // is what a proto3 singular field was.
+  int32 age = 20 [features.field_presence = IMPLICIT];
+  string nickname = 21 [features.field_presence = IMPLICIT];
+
+  // Expanded rather than packed, which is the other feature with teeth.
+  repeated int32 spread = 34 [features.repeated_field_encoding = EXPANDED];
 
   // Repeated: packed for the numeric ones, one field each for the rest.
   repeated int32 scores = 30;

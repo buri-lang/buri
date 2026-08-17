@@ -30,14 +30,35 @@ enum Ctor {
     /// A literal drawn from a set too large to enumerate — an integer, a
     /// string, a char, a float. Two different literals are two different
     /// constructors, and no finite set of them ever completes a match.
-    Lit(String),
+    Lit(LitValue),
+}
+
+/// A literal pattern's value, for the "same constructor?" test the usefulness
+/// algorithm runs on it.
+///
+/// This was a `String` built with `format!` and a one-character type tag, so
+/// "the same constructor" meant string equality on a rendering: `-0.0` and
+/// `0.0` formatted to `"f-0"` and `"f0"` and were treated as two distinct
+/// constructors even though they are the same value, and an integer and a
+/// float were kept apart only by a prefix the producer had to remember.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum LitValue {
+    /// Magnitude and sign, as the pattern spells them.
+    Int(u128, bool),
+    /// The bit pattern, so equality is total and `-0.0` and `0.0` agree the
+    /// way the emitted comparison does.
+    Float(u64),
+    Str(String),
+    Char(char),
 }
 
 impl Ctor {
     /// How many sub-patterns this constructor holds, for a given type.
     fn arity(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> usize {
         match self {
-            Ctor::Variant(con, v) => tables.tycon(*con).variants()[*v].fields.len(),
+            Ctor::Variant(con, v) => {
+                tables.tycon(*con).variants().get(*v).map_or(0, |x| x.fields.len())
+            }
             Ctor::Single => match ty {
                 Ty::Tuple(ts) => ts.len(),
                 Ty::Con(con, _) => tables.tycon(*con).fields().len(),
@@ -56,7 +77,10 @@ impl Ctor {
                     Ty::Con(_, a) => a.clone(),
                     _ => Vec::new(),
                 };
-                tables.tycon(*con).variants()[*v]
+                let Some(variant) = tables.tycon(*con).variants().get(*v) else {
+                    return Vec::new();
+                };
+                variant
                     .fields
                     .iter()
                     .map(|f| crate::compiler::semantics::types::substitute(&f.ty, &args, None))
@@ -104,31 +128,32 @@ fn lower(p: &Pattern) -> Pat {
         },
         PatKind::Unit => Pat::Ctor(Ctor::Single, Vec::new()),
         PatKind::Bool(b) => Pat::Ctor(Ctor::Bool(*b), Vec::new()),
-        PatKind::Int(v, neg) => {
-            Pat::Ctor(Ctor::Lit(format!("{}{v}", if *neg { "-" } else { "" })), Vec::new())
+        PatKind::Int(v, neg) => Pat::Ctor(Ctor::Lit(LitValue::Int(*v, *neg)), Vec::new()),
+        // `+0.0 == -0.0`, so they are one constructor rather than two.
+        PatKind::Float(v) => {
+            Pat::Ctor(Ctor::Lit(LitValue::Float((v + 0.0).to_bits())), Vec::new())
         }
-        PatKind::Float(v) => Pat::Ctor(Ctor::Lit(format!("f{v}")), Vec::new()),
-        PatKind::Str(v) => Pat::Ctor(Ctor::Lit(format!("s{v:?}")), Vec::new()),
-        PatKind::Char(v) => Pat::Ctor(Ctor::Lit(format!("c{v:?}")), Vec::new()),
+        PatKind::Str(v) => Pat::Ctor(Ctor::Lit(LitValue::Str(v.clone())), Vec::new()),
+        PatKind::Char(v) => Pat::Ctor(Ctor::Lit(LitValue::Char(*v)), Vec::new()),
         PatKind::Tuple(ps) => Pat::Ctor(Ctor::Single, ps.iter().map(lower).collect()),
         PatKind::Struct { con, fields } => {
-            let n = fields.iter().map(|f| f.index + 1).max().unwrap_or(0);
+            let n = fields.iter().map(|f| f.index.saturating_add(1)).max().unwrap_or(0);
             let total = n.max(fields.len());
             let mut subs = vec![Pat::Wild; total];
             for f in fields {
-                if f.index < subs.len() {
-                    subs[f.index] = lower(&f.pattern);
+                if let Some(slot) = subs.get_mut(f.index) {
+                    *slot = lower(&f.pattern);
                 }
             }
             let _ = con;
             Pat::Ctor(Ctor::Single, subs)
         }
         PatKind::Variant { con, variant, fields } => {
-            let total = fields.iter().map(|f| f.index + 1).max().unwrap_or(0);
+            let total = fields.iter().map(|f| f.index.saturating_add(1)).max().unwrap_or(0);
             let mut subs = vec![Pat::Wild; total];
             for f in fields {
-                if f.index < subs.len() {
-                    subs[f.index] = lower(&f.pattern);
+                if let Some(slot) = subs.get_mut(f.index) {
+                    *slot = lower(&f.pattern);
                 }
             }
             Pat::Ctor(Ctor::Variant(*con, *variant), subs)
@@ -136,7 +161,7 @@ fn lower(p: &Pattern) -> Pat {
         PatKind::Array { elems, rest } => {
             let subs: Vec<Pat> = elems.iter().map(lower).collect();
             let ctor =
-                if rest.is_some() { Ctor::ArrayRest(subs.len()) } else { Ctor::Array(subs.len()) };
+                if rest.is_open() { Ctor::ArrayRest(subs.len()) } else { Ctor::Array(subs.len()) };
             Pat::Ctor(ctor, subs)
         }
         PatKind::Or(alts) => Pat::Or(alts.iter().map(lower).collect()),
@@ -180,10 +205,10 @@ fn expand_lengths(p: Pat, limit: usize) -> Pat {
                     Pat::Ctor(Ctor::Array(len), fields)
                 })
                 .collect();
-            if alts.len() == 1 {
-                alts.into_iter().next().unwrap()
-            } else {
-                Pat::Or(alts)
+            // One length is not an alternation.
+            match <[Pat; 1]>::try_from(alts) {
+                Ok([only]) => only,
+                Err(alts) => Pat::Or(alts),
             }
         }
         Pat::Ctor(c, subs) => {
@@ -200,11 +225,13 @@ fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
     let Some(pos) = row.iter().position(|p| matches!(p, Pat::Or(_))) else {
         return vec![row];
     };
-    let Pat::Or(alts) = row[pos].clone() else { unreachable!() };
+    let Some(Pat::Or(alts)) = row.get(pos).cloned() else { return vec![row] };
     let mut out = Vec::new();
     for alt in alts {
         let mut next = row.clone();
-        next[pos] = alt;
+        if let Some(slot) = next.get_mut(pos) {
+            *slot = alt;
+        }
         out.extend(expand(next));
     }
     out
@@ -215,7 +242,7 @@ fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
 fn distribute(alts: &[Pat], rest: &[Pat]) -> Vec<Vec<Pat>> {
     alts.iter()
         .map(|a| {
-            let mut row = Vec::with_capacity(rest.len() + 1);
+            let mut row = Vec::with_capacity(rest.len().saturating_add(1));
             row.push(a.clone());
             row.extend_from_slice(rest);
             row
@@ -336,17 +363,22 @@ impl<'a> Ctx<'a> {
     /// Whether `v` matches a value the matrix does not. Returns a witness when
     /// it does, so a diagnostic can name the missing case.
     fn useful(&self, matrix: &[Vec<Pat>], v: &[Pat], types: &[Ty]) -> Option<Vec<Witness>> {
-        if v.is_empty() {
+        let Some((head, tail)) = v.split_first() else {
             return matrix.is_empty().then(Vec::new);
-        }
-        let head_ty = types.first().cloned().unwrap_or(Ty::Error);
-        let rest_types = if types.len() > 1 { &types[1..] } else { &[][..] };
+        };
+        // A row and its type list are built together, but the type list is the
+        // one the caller supplied, so a shorter one leaves the columns past it
+        // untyped rather than out of bounds.
+        let (head_ty, rest_types) = match types.split_first() {
+            Some((t, rest)) => (t.clone(), rest),
+            None => (Ty::Error, &[][..]),
+        };
 
-        match &v[0] {
+        match head {
             Pat::Or(alts) => {
                 for alt in alts {
-                    let mut next = v.to_vec();
-                    next[0] = alt.clone();
+                    let mut next = vec![alt.clone()];
+                    next.extend_from_slice(tail);
                     if let Some(w) = self.useful(matrix, &next, types) {
                         return Some(w);
                     }
@@ -360,7 +392,7 @@ impl<'a> Ctx<'a> {
                 while next.len() < arity {
                     next.push(Pat::Wild);
                 }
-                next.extend_from_slice(&v[1..]);
+                next.extend_from_slice(tail);
                 let mut next_types = c.field_types(self.tables, &head_ty);
                 next_types.extend_from_slice(rest_types);
                 self.useful(&specialized, &next, &next_types).map(|w| {
@@ -383,7 +415,7 @@ impl<'a> Ctx<'a> {
                         let arity = c.arity(self.tables, &head_ty);
                         let specialized = self.specialize(matrix, &c, arity);
                         let mut next = vec![Pat::Wild; arity];
-                        next.extend_from_slice(&v[1..]);
+                        next.extend_from_slice(tail);
                         let mut next_types = c.field_types(self.tables, &head_ty);
                         next_types.extend_from_slice(rest_types);
                         if let Some(w) = self.useful(&specialized, &next, &next_types) {
@@ -397,7 +429,7 @@ impl<'a> Ctx<'a> {
                     None
                 } else {
                     let default = self.default_matrix(matrix);
-                    self.useful(&default, &v[1..], rest_types).map(|w| {
+                    self.useful(&default, tail, rest_types).map(|w| {
                         // Name a constructor the match does not mention, when
                         // there is one to name.
                         let missing = self
@@ -435,7 +467,9 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
         Witness::Wild => "_".into(),
         Witness::Ctor(c, ty, subs) => match c {
             Ctor::Variant(con, v) => {
-                let variant = &tables.tycon(*con).variants()[*v];
+                let Some(variant) = tables.tycon(*con).variants().get(*v) else {
+                    return "_".into();
+                };
                 if subs.is_empty() {
                     format!(".{}", variant.name)
                 } else if variant.record {
@@ -495,7 +529,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         return;
     }
     let lowered: Vec<Pat> = arms.iter().map(|a| lower(&a.pattern)).collect();
-    let limit = lowered.iter().map(length_limit).max().unwrap_or(0) + 1;
+    let limit = lowered.iter().map(length_limit).max().unwrap_or(0).saturating_add(1);
     let ctx = Ctx { tables: &inf.c.tables, limit };
     let types = vec![scrutinee.clone()];
 
@@ -531,7 +565,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
             .unwrap_or_else(|| "_".into());
         let mut d = Diagnostic::error(span, format!("this `match` does not cover `{shown}`")).with_code("match-not-exhaustive")
             .with_label("not covered");
-        if matches!(ctx.all_ctors(scrutinee), None) {
+        if ctx.all_ctors(scrutinee).is_none() {
             d = d
                 .with_note("exhaustiveness is not attempted over integer or string ranges")
                 .with_fix("add a `_` arm");

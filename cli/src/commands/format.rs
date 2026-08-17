@@ -5,13 +5,44 @@
 //! finding the files and writing them back. The printing itself is
 //! `crate::formatting`, which the documentation renderer and `buri gen` use
 //! too.
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the list of files it formatted, or would, is this command's output; \
+              diagnostics still leave through `Session::emit`"
+)]
 
 use crate::build::session;
 use crate::build::textproto;
 use crate::commands::arguments;
 use std::path::{Path, PathBuf};
 
-/// Formats `.buri` sources and `BUILD.buri` files, with no options and no
+/// Whether a file is a build file rather than source.
+///
+/// The name decides, not the extension: a build file is `.buri` too, because a
+/// repository has one kind of file in it and one command that formats them.
+pub fn is_build_file(name: &str) -> bool {
+    name == "BUILD.buri" || name == "REPO.buri"
+}
+
+/// The canonical form of one file, whichever of the two it is, or `None` when
+/// there is none — the file does not parse, and a file that does not parse is
+/// left exactly as it is.
+///
+/// One function, so that the command, the language server and the tests cannot
+/// disagree about which printer a file goes through.
+pub fn file(name: &str, text: &str) -> Option<String> {
+    if is_build_file(name) {
+        let parsed = textproto::parse(text, crate::diagnostics::FileId(0));
+        if !parsed.errors.is_empty() {
+            return None;
+        }
+        return Some(textproto::print(&parsed.doc));
+    }
+    crate::formatting::source(text)
+}
+
+/// Formats `.buri` sources and build files, with no options and no
 /// configuration file. A formatter with options is a formatter whose output is
 /// a repository decision.
 pub fn cmd_format(args: &arguments::Args) -> i32 {
@@ -37,22 +68,18 @@ pub fn cmd_format(args: &arguments::Args) -> i32 {
     let mut changed = Vec::new();
     for path in &files {
         let Ok(text) = std::fs::read_to_string(path) else { continue };
-        let name = path.file_name().unwrap().to_string_lossy().to_string();
-        let formatted = if name == "BUILD.buri" || name == "REPO.buri" {
-            let parsed = textproto::parse(&text, crate::diagnostics::FileId(0));
-            if !parsed.errors.is_empty() {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        let Some(formatted) = file(&name, &text) else {
+            // A build file that does not read is a hard error, because nothing
+            // else in the repository will work until it is fixed. Source that
+            // does not parse is left exactly as it is: it is being edited.
+            if is_build_file(&name) {
                 eprintln!("error: {} does not parse", s.ws.rel_of(path));
                 return 2;
             }
-            textproto::print(&parsed.doc)
-        } else {
-            match crate::formatting::source(&text) {
-                Some(f) => f,
-                None => {
-                    // A file that does not parse is left exactly as it is.
-                    continue;
-                }
-            }
+            continue;
         };
         if formatted != text {
             changed.push(s.ws.rel_of(path));

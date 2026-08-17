@@ -17,7 +17,7 @@ run {
 
 edit {
   file: "cmd/app/BUILD.buri"
-  replace: "  dependencies: [\"//lib/money\"]\n"
+  replace: "    dependencies: [\"//lib/money\"]\n"
   with: ""
 }
 

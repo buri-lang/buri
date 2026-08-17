@@ -1,0 +1,3 @@
+library {
+    proto_sources: ["left.proto", "right.proto", "use.proto"]
+}

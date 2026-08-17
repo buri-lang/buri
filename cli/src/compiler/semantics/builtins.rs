@@ -10,7 +10,7 @@
 
 use crate::compiler::semantics::resolve::Checker;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 
 impl<'a> Checker<'a> {
     pub(crate) fn register_primitive_methods(&mut self) {
@@ -64,9 +64,9 @@ impl<'a> Checker<'a> {
         prims.extend([Prim::Char, Prim::Str, Prim::Bool]);
         for p in prims {
             let con = self.tables.prim_id(p);
-            let to = self.to_json_method(p, json_ty.clone());
+            let to = self.declare_to_json(p, json_ty.clone());
             let ret = decoded(self, p);
-            let from = self.from_json_method(p, json_ty.clone(), ret);
+            let from = self.declare_from_json(p, json_ty.clone(), ret);
             self.add_impl("ToJson", con, vec![to]);
             self.add_impl("FromJson", con, vec![from]);
         }
@@ -82,7 +82,7 @@ impl<'a> Checker<'a> {
 
     /// `fn toJson<C: Alloc>(self: Self, ctx: C): Json` — `Show.show`'s shape,
     /// because encoding allocates for the same reason rendering does.
-    fn to_json_method(&mut self, p: Prim, json_ty: Ty) -> FnId {
+    fn declare_to_json(&mut self, p: Prim, json_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
         let alloc = self.known_traits.get("Alloc").copied();
@@ -114,7 +114,7 @@ impl<'a> Checker<'a> {
             span: Span::NONE,
             self_ty: Some(con),
             impl_of: None,
-            ast: AstRef::NONE,
+            ast: AstRef::Builtin,
             intrinsic: true,
         });
         self.tables.methods.entry((con, "toJson".into())).or_insert(fid);
@@ -126,7 +126,7 @@ impl<'a> Checker<'a> {
     /// It takes no `self` — there is no value yet — so like `Bounded`'s
     /// methods it gets no entry in the method table. `json.decode` reaches it
     /// through the type it is asked for.
-    fn from_json_method(&mut self, p: Prim, json_ty: Ty, ret: Ty) -> FnId {
+    fn declare_from_json(&mut self, p: Prim, json_ty: Ty, ret: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
         self.tables.add_fn(FnInfo {
@@ -144,7 +144,7 @@ impl<'a> Checker<'a> {
             span: Span::NONE,
             self_ty: Some(con),
             impl_of: None,
-            ast: AstRef::NONE,
+            ast: AstRef::Builtin,
             intrinsic: true,
         })
     }
@@ -196,7 +196,7 @@ impl<'a> Checker<'a> {
 
     fn prim_module_of(&self, p: Prim) -> ModuleId {
         self.loaded
-            .find(crate::compiler::standard_library::defining_module(p.name()))
+            .find(crate::compiler::standard_library::defining_module(p))
             .unwrap_or(ModuleId(0))
     }
 
@@ -228,7 +228,7 @@ impl<'a> Checker<'a> {
             span: Span::NONE,
             self_ty: Some(con),
             impl_of: None,
-            ast: AstRef::NONE,
+            ast: AstRef::Builtin,
             intrinsic: true,
         });
         self.tables.methods.entry((con, name.to_string())).or_insert(fid);
@@ -294,10 +294,8 @@ impl<'a> Checker<'a> {
         }
 
         let eq = self.method(p, "eq", vec![self_ty.clone()], bool_ty);
-        let compare = match &order {
-            Some(o) => Some(self.method(p, "compare", vec![self_ty.clone()], o.clone())),
-            None => None,
-        };
+        let compare =
+            order.as_ref().map(|o| self.method(p, "compare", vec![self_ty.clone()], o.clone()));
         // Rendering allocates, so `show` names `Alloc`.
         let show = self.show_method(p, str_ty);
         let hash = self.method(p, "hash", Vec::new(), u64_ty);
@@ -321,7 +319,7 @@ impl<'a> Checker<'a> {
         }
 
         // `Bounded`'s methods take no `self`, so they get no entry in the
-        // method table; `num.minValue::<U8>()` reaches them.
+        // method table; `num.minValue<U8>()` reaches them.
         let con = self.tables.prim_id(p);
         let bounded_methods = vec![
             self.static_method(p, "minValue", self_ty.clone()),
@@ -390,7 +388,7 @@ impl<'a> Checker<'a> {
             span: Span::NONE,
             self_ty: Some(con),
             impl_of: None,
-            ast: AstRef::NONE,
+            ast: AstRef::Builtin,
             intrinsic: true,
         });
         self.tables.methods.entry((con, "show".into())).or_insert(fid);
@@ -412,7 +410,7 @@ impl<'a> Checker<'a> {
             span: Span::NONE,
             self_ty: Some(con),
             impl_of: None,
-            ast: AstRef::NONE,
+            ast: AstRef::Builtin,
             intrinsic: true,
         })
     }
@@ -468,14 +466,22 @@ impl<'a> Checker<'a> {
 
     fn comparison_impls(&mut self) {}
 
+    /// `methods` is in the trait's declaration order. The slot vector is sized
+    /// from the trait itself rather than from the argument, so a caller that
+    /// supplies too few or too many cannot leave the table holding a row of a
+    /// length no consumer expects.
     fn add_impl(&mut self, trait_name: &str, con: TyConId, methods: Vec<FnId>) {
         let Some(&trait_id) = self.known_traits.get(trait_name) else { return };
+        let declared = self.tables.trait_(trait_id).methods.len();
+        let mut slots: Vec<Option<FnId>> = vec![None; declared];
+        for (slot, fid) in slots.iter_mut().zip(methods) {
+            *slot = Some(fid);
+        }
         self.tables.impls.entry((trait_id, con)).or_insert(ImplInfo {
             trait_id,
             self_con: con,
-            methods,
+            body: ImplBody::Written(slots),
             span: Span::NONE,
-            derived: false,
         });
     }
 
@@ -487,9 +493,8 @@ impl<'a> Checker<'a> {
         self.tables.impls.entry((trait_id, con)).or_insert(ImplInfo {
             trait_id,
             self_con: con,
-            methods: Vec::new(),
+            body: ImplBody::Derived,
             span: Span::NONE,
-            derived: true,
         });
     }
 }
@@ -510,8 +515,10 @@ pub fn conversion_is_exact(from: Prim, to: Prim) -> bool {
     }
     match (from.is_integer(), to.is_integer()) {
         (true, true) => {
-            let (from_lo, from_hi) = from.int_range().unwrap();
-            let (to_lo, to_hi) = to.int_range().unwrap();
+            let claim = "int_range answers for every integer type, which this arm is reached \
+                         only for";
+            let (from_lo, from_hi) = from.int_range().or_ice(claim);
+            let (to_lo, to_hi) = to.int_range().or_ice(claim);
             from_lo >= to_lo && from_hi <= to_hi
         }
         // Integer to float: always allowed, exact to 53 bits.

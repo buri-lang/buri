@@ -16,11 +16,11 @@ test "len counts the elements" {
 }
 
 test "len of the empty list is zero" {
-  assert.eq(list.empty::<Int>().len(), 0);
+  assert.eq(list.empty<Int>().len(), 0);
 }
 
 test "isEmpty is true only for the empty list" {
-  assert.isTrue(list.empty::<Int>().isEmpty());
+  assert.isTrue(list.empty<Int>().isEmpty());
   assert.isFalse([0].isEmpty());
 }
 
@@ -51,7 +51,7 @@ test "get at a large negative index yields None" {
 }
 
 test "get on the empty list yields None" {
-  assert.none(list.empty::<Int>().get(0));
+  assert.none(list.empty<Int>().get(0));
 }
 
 test "indexing syntax yields Option in range" {
@@ -70,7 +70,7 @@ test "indexing syntax yields None at a negative index" {
 }
 
 test "indexing the empty list yields None" {
-  let xs = list.empty::<Str>();
+  let xs = list.empty<Str>();
   assert.none(xs[0]);
 }
 
@@ -88,7 +88,7 @@ test "first yields the head" {
 }
 
 test "first of the empty list is None" {
-  assert.none(list.empty::<Int>().first());
+  assert.none(list.empty<Int>().first());
 }
 
 test "last yields the final element" {
@@ -100,7 +100,7 @@ test "last of a one-element list is its only element" {
 }
 
 test "last of the empty list is None" {
-  assert.none(list.empty::<Int>().last());
+  assert.none(list.empty<Int>().last());
 }
 
 // --- fold ---------------------------------------------------------------------
@@ -115,7 +115,7 @@ test "fold is left-associative in argument order" {
 }
 
 test "fold on the empty list returns the seed" {
-  assert.eq(list.empty::<Int>().fold(fn(acc, x) => acc + x, 99), 99);
+  assert.eq(list.empty<Int>().fold(fn(acc, x) => acc + x, 99), 99);
 }
 
 test "foldCtx threads the context through" {
@@ -129,7 +129,7 @@ test "foldCtx threads the context through" {
 test "foldCtx on the empty list returns the seed" {
   let ctx = Hermetic();
   assert.eq(
-    list.empty::<Str>().foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), "seed"),
+    list.empty<Str>().foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), "seed"),
     "seed",
   );
 }
@@ -156,7 +156,7 @@ test "foldResult does not run steps after the first Err" {
 }
 
 test "foldResult on the empty list returns Ok of the seed" {
-  let r = list.empty::<Int>().foldResult(fn(acc, x) => .Ok(acc + x), 5);
+  let r = list.empty<Int>().foldResult(fn(acc, x) => .Ok(acc + x), 5);
   assert.eq(assert.ok(r), 5);
 }
 
@@ -171,7 +171,7 @@ test "any is false when no element matches" {
 }
 
 test "any on the empty list is false" {
-  assert.isFalse(list.empty::<Int>().any(fn(x) => true));
+  assert.isFalse(list.empty<Int>().any(fn(x) => true));
 }
 
 test "all is true when every element matches" {
@@ -183,7 +183,7 @@ test "all is false when one element fails" {
 }
 
 test "all on the empty list is vacuously true" {
-  assert.isTrue(list.empty::<Int>().all(fn(x) => false));
+  assert.isTrue(list.empty<Int>().all(fn(x) => false));
 }
 
 test "count counts matching elements" {
@@ -195,7 +195,7 @@ test "count is zero when nothing matches" {
 }
 
 test "count on the empty list is zero" {
-  assert.eq(list.empty::<Int>().count(fn(x) => true), 0);
+  assert.eq(list.empty<Int>().count(fn(x) => true), 0);
 }
 
 // --- find / findIndex / contains ----------------------------------------------
@@ -209,7 +209,7 @@ test "find yields None when nothing matches" {
 }
 
 test "find on the empty list is None" {
-  assert.none(list.empty::<Int>().find(fn(x) => true));
+  assert.none(list.empty<Int>().find(fn(x) => true));
 }
 
 test "findIndex yields the index of the first match" {
@@ -221,7 +221,7 @@ test "findIndex yields None when nothing matches" {
 }
 
 test "findIndex on the empty list is None" {
-  assert.none(list.empty::<Int>().findIndex(fn(x) => true));
+  assert.none(list.empty<Int>().findIndex(fn(x) => true));
 }
 
 test "contains finds a present element" {
@@ -233,7 +233,7 @@ test "contains rejects an absent element" {
 }
 
 test "contains on the empty list is false" {
-  assert.isFalse(list.empty::<Int>().contains(1));
+  assert.isFalse(list.empty<Int>().contains(1));
 }
 
 test "contains works on strings" {
@@ -255,7 +255,7 @@ test "map may change the element type" {
 
 test "map on the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().map(ctx, fn(x) => x * 2), list.empty::<Int>());
+  assert.eq(list.empty<Int>().map(ctx, fn(x) => x * 2), list.empty<Int>());
 }
 
 test "mapCtx threads the context into the callback" {
@@ -269,8 +269,8 @@ test "mapCtx threads the context into the callback" {
 test "mapCtx on the empty list is empty" {
   let ctx = Hermetic();
   assert.eq(
-    list.empty::<Str>().mapCtx(ctx, fn(c, x) => x.toUpper(c)),
-    list.empty::<Str>(),
+    list.empty<Str>().mapCtx(ctx, fn(c, x) => x.toUpper(c)),
+    list.empty<Str>(),
   );
 }
 
@@ -286,12 +286,12 @@ test "filter keeps source order" {
 
 test "filter can keep nothing" {
   let ctx = Hermetic();
-  assert.eq([1, 2, 3].filter(ctx, fn(x) => false), list.empty::<Int>());
+  assert.eq([1, 2, 3].filter(ctx, fn(x) => false), list.empty<Int>());
 }
 
 test "filter on the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().filter(ctx, fn(x) => true), list.empty::<Int>());
+  assert.eq(list.empty<Int>().filter(ctx, fn(x) => true), list.empty<Int>());
 }
 
 test "filterCtx threads the context into the predicate" {
@@ -305,8 +305,8 @@ test "filterCtx threads the context into the predicate" {
 test "filterCtx on the empty list is empty" {
   let ctx = Hermetic();
   assert.eq(
-    list.empty::<Str>().filterCtx(ctx, fn(c, x) => true),
-    list.empty::<Str>(),
+    list.empty<Str>().filterCtx(ctx, fn(c, x) => true),
+    list.empty<Str>(),
   );
 }
 
@@ -319,19 +319,19 @@ test "concat joins two lists in order" {
 
 test "concat with an empty right operand is the left" {
   let ctx = Hermetic();
-  assert.eq([1, 2].concat(ctx, list.empty::<Int>()), [1, 2]);
+  assert.eq([1, 2].concat(ctx, list.empty<Int>()), [1, 2]);
 }
 
 test "concat with an empty left operand is the right" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().concat(ctx, [3, 4]), [3, 4]);
+  assert.eq(list.empty<Int>().concat(ctx, [3, 4]), [3, 4]);
 }
 
 test "concat of two empty lists is empty" {
   let ctx = Hermetic();
   assert.eq(
-    list.empty::<Int>().concat(ctx, list.empty::<Int>()),
-    list.empty::<Int>(),
+    list.empty<Int>().concat(ctx, list.empty<Int>()),
+    list.empty<Int>(),
   );
 }
 
@@ -342,7 +342,7 @@ test "push appends at the end" {
 
 test "push onto the empty list yields a singleton" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().push(ctx, 1), [1]);
+  assert.eq(list.empty<Int>().push(ctx, 1), [1]);
 }
 
 test "push leaves the original untouched" {
@@ -367,7 +367,7 @@ test "reverse of a singleton is itself" {
 
 test "reverse of the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().reverse(ctx), list.empty::<Int>());
+  assert.eq(list.empty<Int>().reverse(ctx), list.empty<Int>());
 }
 
 test "reverse twice is the identity" {
@@ -390,8 +390,8 @@ test "sortBy with a reversed comparator sorts descending" {
 test "sortBy on the empty list is empty" {
   let ctx = Hermetic();
   assert.eq(
-    list.empty::<Int>().sortBy(ctx, fn(a, b) => order.int(a, b)),
-    list.empty::<Int>(),
+    list.empty<Int>().sortBy(ctx, fn(a, b) => order.int(a, b)),
+    list.empty<Int>(),
   );
 }
 
@@ -421,7 +421,7 @@ test "sort orders by Ord" {
 
 test "sort of the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().sort(ctx), list.empty::<Int>());
+  assert.eq(list.empty<Int>().sort(ctx), list.empty<Int>());
 }
 
 test "sort of strings is lexicographic" {
@@ -443,7 +443,7 @@ test "take keeps the first n" {
 
 test "take of zero is empty" {
   let ctx = Hermetic();
-  assert.eq([1, 2, 3].take(ctx, 0), list.empty::<Int>());
+  assert.eq([1, 2, 3].take(ctx, 0), list.empty<Int>());
 }
 
 test "take of more than the length is the whole list" {
@@ -453,12 +453,12 @@ test "take of more than the length is the whole list" {
 
 test "take on the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().take(ctx, 3), list.empty::<Int>());
+  assert.eq(list.empty<Int>().take(ctx, 3), list.empty<Int>());
 }
 
 test "take of a negative count is empty" {
   let ctx = Hermetic();
-  assert.eq([1, 2, 3].take(ctx, -1), list.empty::<Int>());
+  assert.eq([1, 2, 3].take(ctx, -1), list.empty<Int>());
 }
 
 test "drop removes the first n" {
@@ -473,12 +473,12 @@ test "drop of zero is the whole list" {
 
 test "drop of more than the length is empty" {
   let ctx = Hermetic();
-  assert.eq([1, 2, 3].drop(ctx, 10), list.empty::<Int>());
+  assert.eq([1, 2, 3].drop(ctx, 10), list.empty<Int>());
 }
 
 test "drop on the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().drop(ctx, 3), list.empty::<Int>());
+  assert.eq(list.empty<Int>().drop(ctx, 3), list.empty<Int>());
 }
 
 test "drop of a negative count is the whole list" {
@@ -493,7 +493,7 @@ test "slice takes a half-open range" {
 
 test "slice with start equal to end is empty" {
   let ctx = Hermetic();
-  assert.eq([1, 2, 3].slice(ctx, 1, 1), list.empty::<Int>());
+  assert.eq([1, 2, 3].slice(ctx, 1, 1), list.empty<Int>());
 }
 
 test "slice covering everything is the whole list" {
@@ -508,12 +508,12 @@ test "slice clamps past the end" {
 
 test "slice with an inverted range is empty" {
   let ctx = Hermetic();
-  assert.eq([1, 2, 3].slice(ctx, 2, 1), list.empty::<Int>());
+  assert.eq([1, 2, 3].slice(ctx, 2, 1), list.empty<Int>());
 }
 
 test "slice on the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().slice(ctx, 0, 2), list.empty::<Int>());
+  assert.eq(list.empty<Int>().slice(ctx, 0, 2), list.empty<Int>());
 }
 
 // --- zip / flatten ------------------------------------------------------------
@@ -530,12 +530,12 @@ test "zip stops at the shorter list" {
 
 test "zip with an empty list is empty" {
   let ctx = Hermetic();
-  assert.eq([1, 2].zip(ctx, list.empty::<Str>()), list.empty::<(Int, Str)>());
+  assert.eq([1, 2].zip(ctx, list.empty<Str>()), list.empty<(Int, Str)>());
 }
 
 test "zip on the empty list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Int>().zip(ctx, ["a"]), list.empty::<(Int, Str)>());
+  assert.eq(list.empty<Int>().zip(ctx, ["a"]), list.empty<(Int, Str)>());
 }
 
 test "flatten concatenates the inner lists" {
@@ -545,19 +545,19 @@ test "flatten concatenates the inner lists" {
 
 test "flatten skips empty inner lists" {
   let ctx = Hermetic();
-  assert.eq([[1], list.empty::<Int>(), [2]].flatten(ctx), [1, 2]);
+  assert.eq([[1], list.empty<Int>(), [2]].flatten(ctx), [1, 2]);
 }
 
 test "flatten of an empty outer list is empty" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<[Int]>().flatten(ctx), list.empty::<Int>());
+  assert.eq(list.empty<[Int]>().flatten(ctx), list.empty<Int>());
 }
 
 test "flatten of a list of empty lists is empty" {
   let ctx = Hermetic();
   assert.eq(
-    [list.empty::<Int>(), list.empty::<Int>()].flatten(ctx),
-    list.empty::<Int>(),
+    [list.empty<Int>(), list.empty<Int>()].flatten(ctx),
+    list.empty<Int>(),
   );
 }
 
@@ -575,7 +575,7 @@ test "join of a singleton has no separator" {
 
 test "join of the empty list is the empty string" {
   let ctx = Hermetic();
-  assert.eq(list.empty::<Str>().join(ctx, ", "), "");
+  assert.eq(list.empty<Str>().join(ctx, ", "), "");
 }
 
 test "join with an empty separator concatenates" {
@@ -591,11 +591,11 @@ test "join preserves empty elements" {
 // --- empty / range / repeat ---------------------------------------------------
 
 test "empty produces a list of length zero" {
-  assert.eq(list.empty::<Int>().len(), 0);
+  assert.eq(list.empty<Int>().len(), 0);
 }
 
 test "empty lists of the same element type are equal" {
-  assert.eq(list.empty::<Int>(), list.empty::<Int>());
+  assert.eq(list.empty<Int>(), list.empty<Int>());
 }
 
 test "range is half-open" {
@@ -610,12 +610,12 @@ test "range from a nonzero start" {
 
 test "range with start equal to end is empty" {
   let ctx = Hermetic();
-  assert.eq(list.range(ctx, 4, 4), list.empty::<Int>());
+  assert.eq(list.range(ctx, 4, 4), list.empty<Int>());
 }
 
 test "range with start past end is empty" {
   let ctx = Hermetic();
-  assert.eq(list.range(ctx, 5, 2), list.empty::<Int>());
+  assert.eq(list.range(ctx, 5, 2), list.empty<Int>());
 }
 
 test "range over negative numbers" {
@@ -630,12 +630,12 @@ test "repeat produces n copies" {
 
 test "repeat zero times is empty" {
   let ctx = Hermetic();
-  assert.eq(list.repeat(ctx, 7, 0), list.empty::<Int>());
+  assert.eq(list.repeat(ctx, 7, 0), list.empty<Int>());
 }
 
 test "repeat a negative number of times is empty" {
   let ctx = Hermetic();
-  assert.eq(list.repeat(ctx, 7, -3), list.empty::<Int>());
+  assert.eq(list.repeat(ctx, 7, -3), list.empty<Int>());
 }
 
 test "repeat works on strings" {
@@ -650,7 +650,7 @@ test "sum adds the elements" {
 }
 
 test "sum of the empty list is zero" {
-  assert.eq(list.empty::<Int>().sum(), 0);
+  assert.eq(list.empty<Int>().sum(), 0);
 }
 
 test "sum handles negatives" {
@@ -662,7 +662,7 @@ test "sumFloat adds the elements" {
 }
 
 test "sumFloat of the empty list is zero" {
-  assert.eq(list.empty::<Float>().sumFloat(), 0.0);
+  assert.eq(list.empty<Float>().sumFloat(), 0.0);
 }
 
 test "maximum yields the largest element" {
@@ -670,7 +670,7 @@ test "maximum yields the largest element" {
 }
 
 test "maximum of the empty list is None" {
-  assert.none(list.empty::<Int>().maximum());
+  assert.none(list.empty<Int>().maximum());
 }
 
 test "maximum of a singleton is that element" {
@@ -686,7 +686,7 @@ test "minimum yields the smallest element" {
 }
 
 test "minimum of the empty list is None" {
-  assert.none(list.empty::<Int>().minimum());
+  assert.none(list.empty<Int>().minimum());
 }
 
 test "minimum of a singleton is that element" {
@@ -739,7 +739,7 @@ test "foldResultCtx accumulates while every step succeeds" {
   let out = [1, 2, 3].foldResultCtx(
     ctx,
     fn(c, acc: [Int], x) => .Ok(acc.push(c, x * 10)),
-    list.empty::<Int>(),
+    list.empty<Int>(),
   );
   assert.eq(assert.ok(out), [10, 20, 30]);
 }
@@ -750,14 +750,14 @@ test "foldResultCtx stops at the first failure" {
     ctx,
     fn(c, acc: [Int], x) =>
       if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) },
-    list.empty::<Int>(),
+    list.empty<Int>(),
   );
   assert.eq(assert.err(out), "zero");
 }
 
 test "foldResultCtx over the empty list is the seed" {
   let ctx = Hermetic();
-  let out = list.empty::<Int>().foldResultCtx(
+  let out = list.empty<Int>().foldResultCtx(
     ctx,
     fn(c, acc: [Int], x) => .Ok(acc.push(c, x)),
     [7],
@@ -773,7 +773,7 @@ test "foldResultCtx does not run the step after a failure" {
     ctx,
     fn(c, acc: [Int], x) =>
       if (x >= 2) { .Err(acc.len()) } else { .Ok(acc.push(c, x)) },
-    list.empty::<Int>(),
+    list.empty<Int>(),
   );
   // One element accumulated before the failure, and nothing after it.
   assert.eq(assert.err(out), 1);

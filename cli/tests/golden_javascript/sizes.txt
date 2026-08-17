@@ -12,7 +12,7 @@ guards: 1359 bytes artifact, 357 generated
 int_match: 1494 bytes artifact, 595 generated
 interpolation: 1506 bytes artifact, 429 generated
 interpreter: 4034 bytes artifact, 5839 generated
-json_derive: 8589 bytes artifact, 2947 generated
+json_derive: 9142 bytes artifact, 3709 generated
 literals: 1574 bytes artifact, 362 generated
 nested_match: 1532 bytes artifact, 776 generated
 nested_option: 6002 bytes artifact, 4759 generated
@@ -23,11 +23,11 @@ shared_constants: 1507 bytes artifact, 894 generated
 stdlib_chain: 2310 bytes artifact, 621 generated
 str_match: 1456 bytes artifact, 494 generated
 structs: 1319 bytes artifact, 209 generated
-tail_closure: 2468 bytes artifact, 1673 generated
-tail_mutual: 1479 bytes artifact, 658 generated
+tail_closure: 2468 bytes artifact, 1688 generated
+tail_mutual: 1479 bytes artifact, 665 generated
 tail_self: 1739 bytes artifact, 1160 generated
 tail_short_circuit: 2245 bytes artifact, 1496 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 64124 bytes artifact, 32453 generated
+total: 64677 bytes artifact, 33237 generated
 largest function: 1549 bytes, json_derive/$json_into

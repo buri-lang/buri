@@ -10,7 +10,7 @@
 use crate::build::session::Session;
 use crate::build::textproto::{Doc, Field, Msg, Value};
 use crate::build::workspace::{PkgId, RuleKind};
-use crate::diagnostics::{Diagnostic, Span};
+use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -19,6 +19,12 @@ pub struct Update {
     pub summary: Vec<String>,
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "the error is the diagnostic itself, and `gen` returns at most one per package — \
+              boxing it would put an allocation on a path that runs once and reads worse at \
+              all three call sites"
+)]
 pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnostic> {
     let p = s.ws.pkg(pkg);
     let build_path = p.build_path.clone();
@@ -31,8 +37,8 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
     // never creates a build file and never adds a rule: deciding that a
     // directory is a library is a design decision.
     let parsed = crate::build::textproto::parse(&original, file_id);
-    if !parsed.errors.is_empty() {
-        return Err(parsed.errors[0].clone());
+    if let Some(first) = parsed.errors.first() {
+        return Err(first.clone());
     }
     let mut doc = parsed.doc;
 
@@ -53,9 +59,11 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
     let mut lib_tests = Vec::new();
     let mut bin_tests = Vec::new();
     let mut testing_sources = Vec::new();
-    // The file, and whether both entry points reached it — the two halves of
-    // rule 4, which read differently to whoever has to place the file.
-    let mut unplaceable: Vec<(String, bool)> = Vec::new();
+    // The two halves of rule 4, which read differently to whoever has to place
+    // the file. Named rather than carried as a bool: the bool meant "reachable
+    // from both" only because the match arms below happened to be in the order
+    // they were in, and reordering them would have inverted the message.
+    let mut unplaceable: Vec<Unplaceable> = Vec::new();
 
     // A file already listed in a rule's `sources` stays there.
     let existing_lib = listed(&doc, "library", "sources");
@@ -94,7 +102,10 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
             (true, true) => match (from_main.contains(f), from_lib.contains(f)) {
                 (true, false) => bin_protos.push(f.clone()),
                 (false, true) => lib_protos.push(f.clone()),
-                (both, _) => unplaceable.push((f.clone(), both)),
+                (true, true) => unplaceable.push(Unplaceable::ReachableFromBoth(f.clone())),
+                (false, false) => {
+                    unplaceable.push(Unplaceable::ReachableFromNeither(f.clone()))
+                }
             },
             (false, false) => {}
         }
@@ -115,7 +126,7 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
             } else if existing_lib_tests.contains(f) {
                 false
             } else {
-                imports_of(&dir, f).iter().any(|p| *p == main_module)
+                imports_of(&dir, f).contains(&main_module)
             };
             // A package with one rule has one suite, whichever the import
             // named, so the rule that exists takes it.
@@ -151,17 +162,19 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
                 // that names the file and asks you to place it. Guessing here
                 // would silently move code across a boundary that exists to be
                 // explicit.
-                (both, _) => unplaceable.push((f.clone(), both)),
+                (true, true) => unplaceable.push(Unplaceable::ReachableFromBoth(f.clone())),
+                (false, false) => {
+                    unplaceable.push(Unplaceable::ReachableFromNeither(f.clone()))
+                }
             },
             (false, false) => {}
         }
     }
 
-    if let Some((file, both)) = unplaceable.first() {
-        let reached = if *both {
-            "both `lib.buri` and `main.buri`"
-        } else {
-            "neither `lib.buri` nor `main.buri`"
+    if let Some(entry) = unplaceable.first() {
+        let (file, reached) = match entry {
+            Unplaceable::ReachableFromBoth(f) => (f, "both `lib.buri` and `main.buri`"),
+            Unplaceable::ReachableFromNeither(f) => (f, "neither `lib.buri` nor `main.buri`"),
         };
         return Err(Diagnostic::error(
             Span::point(file_id, 0),
@@ -200,17 +213,17 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
             &mut summary,
             &name("library", "proto_sources"),
         );
-        if let Some(d) = &deps {
-            set_list(&mut doc, "library", &["dependencies"], &d.library, &mut summary, &name("library", "dependencies"));
+        if let Some(lib_deps) = deps.as_ref().and_then(|d| d.library.as_ref()) {
+            set_list(&mut doc, "library", &["dependencies"], &lib_deps.production, &mut summary, &name("library", "dependencies"));
         }
         if !lib_tests.is_empty() || has_block(&doc, "library", "test") {
             set_list(&mut doc, "library", &["test", "sources"], &lib_tests, &mut summary, &name("library", "test.sources"));
-            if let Some(d) = &deps {
+            if let Some(lib_deps) = deps.as_ref().and_then(|d| d.library.as_ref()) {
                 set_list(
                     &mut doc,
                     "library",
                     &["test", "dependencies"],
-                    &d.library_test,
+                    &lib_deps.test,
                     &mut summary,
                     &name("library", "test.dependencies"),
                 );
@@ -219,7 +232,7 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
         // A `testing/` directory is a surface only because a rule says so, so
         // this is the one managed field that waits to be asked for: `gen`
         // fills the block in and never decides the package has one.
-        if p.build.library.as_ref().is_some_and(|l| l.testing.present) {
+        if p.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
             set_list(
                 &mut doc,
                 "library",
@@ -228,12 +241,12 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
                 &mut summary,
                 &name("library", "testing.sources"),
             );
-            if let Some(d) = &deps {
+            if let Some(lib_deps) = deps.as_ref().and_then(|d| d.library.as_ref()) {
                 set_list(
                     &mut doc,
                     "library",
                     &["testing", "dependencies"],
-                    &d.testing,
+                    &lib_deps.testing,
                     &mut summary,
                     &name("library", "testing.dependencies"),
                 );
@@ -250,17 +263,17 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
             &mut summary,
             &name("binary", "proto_sources"),
         );
-        if let Some(d) = &deps {
-            set_list(&mut doc, "binary", &["dependencies"], &d.binary, &mut summary, &name("binary", "dependencies"));
+        if let Some(bin_deps) = deps.as_ref().and_then(|d| d.binary.as_ref()) {
+            set_list(&mut doc, "binary", &["dependencies"], &bin_deps.production, &mut summary, &name("binary", "dependencies"));
         }
         if !bin_tests.is_empty() || has_block(&doc, "binary", "test") {
             set_list(&mut doc, "binary", &["test", "sources"], &bin_tests, &mut summary, &name("binary", "test.sources"));
-            if let Some(d) = &deps {
+            if let Some(bin_deps) = deps.as_ref().and_then(|d| d.binary.as_ref()) {
                 set_list(
                     &mut doc,
                     "binary",
                     &["test", "dependencies"],
-                    &d.binary_test,
+                    &bin_deps.test,
                     &mut summary,
                     &name("binary", "test.dependencies"),
                 );
@@ -277,13 +290,40 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
     Ok(Some(Update { text, summary }))
 }
 
+/// A file in a package with both rules that `gen` will not place for you.
+///
+/// Two variants rather than a `(String, bool)`: the two are different findings
+/// with different messages, and a bool that means "both" rather than "neither"
+/// only by the order of the arms that produced it is one edit away from
+/// printing the opposite of what happened.
+enum Unplaceable {
+    ReachableFromBoth(String),
+    ReachableFromNeither(String),
+}
+
+/// What `gen` derived, per rule.
+///
+/// A rule's lists live behind that rule's `Option`, so "the binary's derived
+/// dependencies, in a package with no binary" is nothing that can be written
+/// down — where before it was five parallel vectors kept empty by a `has_binary`
+/// guard at the one place they were read.
 #[derive(Default)]
 struct Derived {
-    library: Vec<String>,
-    library_test: Vec<String>,
+    library: Option<LibraryDeps>,
+    binary: Option<BinaryDeps>,
+}
+
+#[derive(Default)]
+struct LibraryDeps {
+    production: Vec<String>,
+    test: Vec<String>,
     testing: Vec<String>,
-    binary: Vec<String>,
-    binary_test: Vec<String>,
+}
+
+#[derive(Default)]
+struct BinaryDeps {
+    production: Vec<String>,
+    test: Vec<String>,
 }
 
 /// Every library the sources use: the `//` imports, plus the libraries reached
@@ -318,7 +358,7 @@ fn derive_dependencies(
             platform: crate::build::buildfile::Platform::Js,
             with_tests: true,
         };
-        let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
+        let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
         if analysis.diags.has_errors() {
             // Without a clean check there is no method-resolution information,
             // so the imports alone would be an incomplete answer.
@@ -351,8 +391,12 @@ fn derive_dependencies(
                 if !path.starts_with("//") {
                     continue;
                 }
-                let Ok(loc) = s.ws.resolve_module(&path) else { continue };
-                let Some(other) = loc.pkg else { continue };
+                let Ok(crate::build::workspace::ModuleLoc::InPackage(loc)) =
+                    s.ws.resolve_module(&path)
+                else {
+                    continue;
+                };
+                let other = loc.pkg;
                 if other == pkg {
                     continue;
                 }
@@ -385,13 +429,10 @@ fn derive_dependencies(
         let production: Vec<String> = production.into_iter().collect();
         match kind {
             RuleKind::Library => {
-                out.library = production;
-                out.library_test = test;
-                out.testing = testing;
+                out.library = Some(LibraryDeps { production, test, testing });
             }
             RuleKind::Binary => {
-                out.binary = production;
-                out.binary_test = test;
+                out.binary = Some(BinaryDeps { production, test });
             }
         }
     }
@@ -425,8 +466,7 @@ fn resolved_by_role(
         let mut reached: Vec<String> = Vec::new();
         typed::walk(&body.expr, &mut |e| {
             let called = match &e.kind {
-                typed::ExprKind::CallFn { func, .. } => Some(*func),
-                typed::ExprKind::FnRef(f, _) => Some(*f),
+                typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func.decl(),
                 _ => None,
             };
             let Some(f) = called else { return };
@@ -488,8 +528,12 @@ fn imported_labels(s: &Session, pkg: PkgId, dir: &Path, files: &[String]) -> BTr
             if !path.starts_with("//") {
                 continue;
             }
-            let Ok(loc) = s.ws.resolve_module(&path) else { continue };
-            let Some(other) = loc.pkg else { continue };
+            let Ok(crate::build::workspace::ModuleLoc::InPackage(loc)) =
+                s.ws.resolve_module(&path)
+            else {
+                continue;
+            };
+            let other = loc.pkg;
             if other == pkg {
                 continue;
             }
@@ -544,8 +588,13 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<Str
         if name.starts_with('.') {
             continue;
         }
-        let rel =
-            || p.strip_prefix(root).unwrap().display().to_string().replace('\\', "/");
+        let rel = || {
+            p.strip_prefix(root)
+                .or_ice("this walk started at `root` and only ever descends, so every path is under it")
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        };
         if p.is_dir() {
             if p.join("BUILD.buri").is_file() {
                 continue;
@@ -575,16 +624,17 @@ fn listed(doc: &Doc, rule: &str, field: &str) -> BTreeSet<String> {
 
 /// The same, for a field inside a block: `test.sources`.
 fn listed_at(doc: &Doc, rule: &str, path: &[&str]) -> BTreeSet<String> {
+    let Some((leaf, blocks)) = path.split_last() else { return BTreeSet::new() };
     let Some(Value::Msg(mut m, _)) = doc.get(rule).map(|f| f.value.clone()) else {
         return BTreeSet::new();
     };
-    for seg in &path[..path.len() - 1] {
+    for seg in blocks {
         match m.get(seg).map(|f| f.value.clone()) {
             Some(Value::Msg(inner, _)) => m = inner,
             _ => return BTreeSet::new(),
         }
     }
-    listed_from(&m, path[path.len() - 1])
+    listed_from(&m, leaf)
 }
 
 fn has_block(doc: &Doc, rule: &str, block: &str) -> bool {
@@ -601,10 +651,11 @@ fn set_list(
     summary: &mut Vec<String>,
     label: &str,
 ) {
+    let Some((leaf, blocks)) = path.split_last() else { return };
     let Some(rule_field) = doc.fields.iter_mut().find(|f| f.name == rule) else { return };
     let Value::Msg(msg, span) = &mut rule_field.value else { return };
     let mut target: &mut Msg = msg;
-    for seg in &path[..path.len() - 1] {
+    for seg in blocks {
         let i = match target.fields.iter().position(|f| f.name == *seg) {
             Some(i) => i,
             None => {
@@ -616,6 +667,7 @@ fn set_list(
                 if values.is_empty() {
                     return;
                 }
+                let at = target.fields.len();
                 target.fields.push(Field {
                     name: (*seg).to_string(),
                     name_span: Span::NONE,
@@ -624,21 +676,20 @@ fn set_list(
                     blank_before: true,
                     span: Span::NONE,
                 });
-                target.fields.len() - 1
+                at
             }
         };
-        match &mut target.fields[i].value {
-            Value::Msg(inner, _) => target = inner,
+        match target.fields.get_mut(i).map(|f| &mut f.value) {
+            Some(Value::Msg(inner, _)) => target = inner,
             _ => return,
         }
     }
-    let leaf = path[path.len() - 1];
     let items: Vec<Value> =
         values.iter().map(|v| Value::Str(v.clone(), Span::NONE)).collect();
     let before = listed_from(target, leaf);
     let after: BTreeSet<String> = values.iter().cloned().collect();
 
-    match target.fields.iter_mut().find(|f| f.name == leaf) {
+    match target.fields.iter_mut().find(|f| f.name == *leaf) {
         Some(f) => f.value = Value::List(items, Span::NONE),
         None => {
             if values.is_empty() {

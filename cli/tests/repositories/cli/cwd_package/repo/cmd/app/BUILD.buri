@@ -1,7 +1,7 @@
 binary {
-  dependencies: ["//lib/money"]
+    dependencies: ["//lib/money"]
 
-  outputs: [
-    { platform: JS },
-  ]
+    outputs: [
+        { platform: JS },
+    ]
 }

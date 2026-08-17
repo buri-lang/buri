@@ -45,7 +45,8 @@ run {
 }
 
 # The program built from it runs, and the bytes are the wire format's:
-# field 1 varint 1 (0x08 0x01), field 2 varint 300 (0x10 0xac 0x02).
+# field 1 varint 1 (0x08 0x01), field 2 varint 300 (0x10 0xac 0x02). Both are
+# `Option`s, because edition 2026 tracks presence on a singular field.
 run {
   args: ["run", "//cmd/app"]
   exit: 0

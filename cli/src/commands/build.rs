@@ -4,6 +4,18 @@
 //! no artifact and is not meant to — the library's outputs are whatever
 //! depends on it — so what it reports is whether the code and the policy
 //! around it hold.
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the artifacts a build produced, and a refusal to start one, are this \
+              command's output; every diagnostic about the code still leaves \
+              through `Session::emit`"
+)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "the only arithmetic here counts artifacts already produced, so it is \
+              bounded by the number of targets the workspace holds"
+)]
 
 use crate::build::actions;
 use crate::build::session::{self, open_or_exit};
@@ -47,13 +59,17 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                 matched |= o.matches_selector(sel);
             }
         }
-        if !matched && !declared.is_empty() {
+        // A target that declares no outputs at all has nothing for the fix to
+        // name, and nothing the selector could have matched, so it is not this
+        // mistake.
+        let example = if matched { None } else { declared.first() };
+        if let Some(example) = example {
             let names: Vec<&str> = declared.iter().map(String::as_str).collect();
             eprintln!("error: no declared output matches `--output={sel}`");
             eprintln!("  = declared: {}", names.join(", "));
             eprintln!(
-                "  = fix: name one of them, as in `--output={}`, or add the output to the rule",
-                names[0]
+                "  = fix: name one of them, as in `--output={example}`, or add the output to \
+                 the rule"
             );
             return 2;
         }
@@ -73,7 +89,7 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                     platform: crate::build::buildfile::Platform::Js,
                     with_tests: false,
                 };
-                let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
+                let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
                 diags.extend(analysis.diags.items);
             }
             failed |= s.print(&diags);
@@ -132,8 +148,7 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
     let mut flags = arguments::Flags { force: true, ..arguments::Flags::default() };
     // Everything that is part of the configuration has to be carried across,
     // because "the same configuration" is half of what is being claimed.
-    flags.release = args.flags.release;
-    flags.debug = args.flags.debug;
+    flags.mode = args.flags.mode;
     flags.output = args.flags.output.clone();
     flags.verbose = args.flags.verbose;
     flags.color = args.flags.color;
@@ -150,11 +165,21 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
     };
 
     for entry in plan {
-        let Entry { label, path, pkg_path, artifact, platform } = entry;
+        let Entry { label, path, pkg_path, artifact, platform, output } = entry;
         if platform != crate::build::buildfile::Platform::Js {
-            eprintln!("error: the {} backend is not implemented", platform.slug());
-            eprintln!("  = this toolchain emits JavaScript; check `--output=js`");
-            return 1;
+            if !actions::native_ready(actions::target_of(&output), actions::profile_of(&flags)) {
+                eprintln!("error: the {} backend is not implemented", platform.slug());
+                eprintln!("  = this toolchain emits JavaScript; check `--output=js`");
+                return 1;
+            }
+            match check_native(&label, &path, &pkg_path, &artifact, &output, &flags, args) {
+                Ok(moved) => {
+                    compared += 1;
+                    differed |= moved;
+                    continue;
+                }
+                Err(code) => return code,
+            }
         }
         let mut bytes: Vec<Vec<u8>> = Vec::new();
         for round in ["a", "b"] {
@@ -196,7 +221,7 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let written = round_dir.join(&pkg_path).join(&artifact);
             let staged = written
                 .parent()
-                .map(|p| std::fs::create_dir_all(p))
+                .map(std::fs::create_dir_all)
                 .unwrap_or(Ok(()))
                 .and_then(|()| std::fs::write(&written, source.as_bytes()))
                 .and_then(|()| std::fs::read(&written));
@@ -211,10 +236,15 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
         }
 
         compared += 1;
-        match actions::first_difference(&bytes[0], &bytes[1]) {
+        // The loop above either pushes one artifact per round or returns, so
+        // there are exactly the two rounds' worth to compare.
+        let [round_a, round_b] = bytes.as_slice() else {
+            crate::ice!("each round of --check-reproducible pushes exactly one artifact")
+        };
+        match actions::first_difference(round_a, round_b) {
             None => {
                 if args.flags.verbose {
-                    println!("{label} is reproducible ({} bytes)", bytes[0].len());
+                    println!("{label} is reproducible ({} bytes)", round_a.len());
                 }
             }
             Some(at) => {
@@ -253,6 +283,171 @@ struct Entry {
     pkg_path: std::path::PathBuf,
     artifact: String,
     platform: crate::build::buildfile::Platform,
+    /// The declared output itself, because a native round needs the arch and
+    /// the span as well as the platform, and re-deriving them from the
+    /// platform would be inventing the arch the rule did not name.
+    output: crate::build::buildfile::Output,
+}
+
+/// `--check-reproducible` for a native artifact.
+///
+/// ARCHITECTURE.md §7: **the objects are compared first, then the executable.**
+/// A byte offset into a four-megabyte executable names nothing a person can act
+/// on; per unit, the report is "`core_list.o` differs, first at byte 4192",
+/// which names a module, and a module names a pass. The executable is compared
+/// too, because a reproducible set of objects and an irreproducible link is a
+/// real failure mode — link order, archive member ordering, a temporary path in
+/// a debug section — and it is the one a per-object comparison would hide.
+///
+/// The two rounds link in two different directories for the same reason the
+/// JavaScript rounds *write* in two: a path that leaked into a debug section
+/// leaks differently, and that is the failure this design exists to catch.
+///
+/// `Ok(true)` means the artifact differed and has already been reported;
+/// `Err(code)` means the check could not be run.
+fn check_native(
+    label: &str,
+    path: &str,
+    pkg_path: &std::path::Path,
+    artifact: &str,
+    output: &crate::build::buildfile::Output,
+    flags: &arguments::Flags,
+    args: &arguments::Args,
+) -> Result<bool, i32> {
+    use crate::build::link;
+    /// One round's output: the objects, named, and the executable they linked
+    /// into. Named rather than a tuple because the comparison below reads
+    /// better than `rounds[0].1` does, and because the objects are the half
+    /// that carries the useful report.
+    struct Round {
+        units: Vec<(String, Vec<u8>)>,
+        exe: Vec<u8>,
+    }
+    let mut rounds: Vec<Round> = Vec::new();
+    for round in ["a", "b"] {
+        let round_dir =
+            std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&round_dir);
+        let mut s = match session::open(flags) {
+            Ok(s) => s,
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                return Err(2);
+            }
+        };
+        if s.report() {
+            return Err(2);
+        }
+        let Some(target) = s
+            .ws
+            .targets()
+            .into_iter()
+            .find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
+        else {
+            eprintln!("error: {label} disappeared between two builds of one tree");
+            return Err(2);
+        };
+        let mut diags = crate::diagnostics::Diagnostics::new();
+        let objects = match actions::compile_objects(&mut s, target, output, flags, &mut diags) {
+            Ok(objects) => objects,
+            Err(diags) => {
+                s.print(&diags);
+                return Err(1);
+            }
+        };
+        let linker = match link::select(actions::target_of(output)) {
+            Ok(l) => l.in_dir(round_dir.join("link")),
+            Err(message) => {
+                eprintln!("error: {message}");
+                return Err(1);
+            }
+        };
+        let written = round_dir.join(pkg_path).join(artifact);
+        if let Some(parent) = written.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("error: cannot write {}: {e}", written.display());
+                return Err(2);
+            }
+        }
+        let prefix = s.ws.pkg(target.pkg).path.clone();
+        let opts = crate::compiler::backend::LinkOptions {
+            profile: actions::profile_of(flags),
+            target: actions::target_of(output),
+            unit_prefix: &prefix,
+        };
+        if let Err(diags) = link::run(&objects.units, &objects.rows, &linker, &written, &opts) {
+            s.print(&diags);
+            return Err(1);
+        }
+        let exe = match std::fs::read(&written) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                eprintln!("error: the link produced no {}: {e}", written.display());
+                return Err(2);
+            }
+        };
+        let units = objects.units.into_iter().map(|u| (u.name, u.bytes)).collect();
+        rounds.push(Round { units, exe });
+        let _ = std::fs::remove_dir_all(&round_dir);
+    }
+
+    let [a, b] = rounds.as_slice() else {
+        crate::ice!("each round of --check-reproducible pushes exactly one artifact")
+    };
+    let (a_units, a_exe) = (&a.units, &a.exe);
+    let (b_units, b_exe) = (&b.units, &b.exe);
+    let mut differed = false;
+    if a_units.len() != b_units.len() {
+        differed = true;
+        eprintln!("error: {label} is not reproducible");
+        eprintln!(
+            "  = two builds of the same tree produced {} and {} codegen units",
+            a_units.len(),
+            b_units.len()
+        );
+    }
+    for ((name, a), (other, b)) in a_units.iter().zip(b_units) {
+        if name != other {
+            differed = true;
+            eprintln!("error: {label} is not reproducible");
+            eprintln!("  = two builds of the same tree named unit `{name}` and unit `{other}`");
+            continue;
+        }
+        if let Some(at) = actions::first_difference(a, b) {
+            differed = true;
+            eprintln!("error: {label} is not reproducible");
+            eprintln!(
+                "  = {name} differs between two builds of the same tree, first at byte {at}"
+            );
+        }
+    }
+    match actions::first_difference(a_exe, b_exe) {
+        Some(at) => {
+            differed = true;
+            eprintln!("error: {label} is not reproducible");
+            eprintln!(
+                "  = {path} differs between two builds of the same tree, first at byte {at}"
+            );
+            eprintln!(
+                "  = the objects above say whether this is a codegen difference or a link one"
+            );
+        }
+        None if !differed && args.flags.verbose => {
+            println!(
+                "{label} is reproducible ({} bytes, {} objects)",
+                a_exe.len(),
+                a_units.len()
+            );
+        }
+        None => {}
+    }
+    if differed {
+        eprintln!(
+            "  = an artifact that is not a function of its declared inputs cannot be cached \
+             safely; this is a toolchain bug, not a problem with your repository"
+        );
+    }
+    Ok(differed)
 }
 
 type Plan = Vec<Entry>;
@@ -289,11 +484,8 @@ fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
                 path: reported,
                 pkg_path: std::path::PathBuf::from(&s.ws.pkg(target.pkg).path),
                 artifact: name,
-                platform: output
-                    .platform
-                    .as_ref()
-                    .map(|p| p.value)
-                    .unwrap_or(crate::build::buildfile::Platform::Js),
+                platform: output.platform(),
+                output,
             });
         }
     }

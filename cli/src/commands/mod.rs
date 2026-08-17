@@ -30,6 +30,7 @@ pub mod query;
 pub mod run;
 pub mod test;
 pub mod version;
+pub mod watch;
 
 use crate::commands::arguments::{Args, Flags};
 use std::fmt::Write as _;
@@ -106,7 +107,7 @@ pub const FLAGS: &[Flag] = &[
         blurb: "optimize and minify; the default is a readable debug build",
         global: false,
         set: |f, _| {
-            f.release = true;
+            f.mode = arguments::BuildMode::Release;
             Ok(())
         },
     },
@@ -117,7 +118,7 @@ pub const FLAGS: &[Flag] = &[
         blurb: "the default build mode, stated explicitly",
         global: false,
         set: |f, _| {
-            f.debug = true;
+            f.mode = arguments::BuildMode::Debug;
             Ok(())
         },
     },
@@ -210,6 +211,17 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "watch",
+        value: Value::None,
+        choices: &[],
+        blurb: "re-run on every change to a declared input, until interrupted",
+        global: false,
+        set: |f, _| {
+            f.watch = true;
+            Ok(())
+        },
+    },
+    Flag {
         name: "self-check",
         value: Value::None,
         choices: &[],
@@ -239,9 +251,9 @@ pub const FLAGS: &[Flag] = &[
         global: false,
         set: |f, v| {
             f.format = match v {
-                Some("json") => Some(arguments::Format::Json),
-                Some("markdown") | Some("md") => Some(arguments::Format::Markdown),
-                Some("human") | None => None,
+                Some("json") => arguments::Format::Json,
+                Some("markdown") | Some("md") => arguments::Format::Markdown,
+                Some("human") | None => arguments::Format::Human,
                 Some(other) => {
                     return Err(format!(
                         "unknown --format `{other}`; expected `human`, `markdown`, or `json`"
@@ -335,7 +347,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile and run test suites",
         doc: include_str!("../docs/cli/test.md"),
-        flags: &["release", "debug", "filter", "force", "accept", "explain"],
+        flags: &["release", "debug", "filter", "force", "accept", "explain", "watch"],
         targets: Targets::Any,
         needs_repo: true,
         run: test::cmd_test,
@@ -432,7 +444,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "version",
         args: "",
-        blurb: "toolchain version and the REPO.buri pin",
+        blurb: "toolchain version, and --verbose its executable's hash",
         doc: include_str!("../docs/cli/version.md"),
         flags: &["self-check"],
         targets: Targets::None,

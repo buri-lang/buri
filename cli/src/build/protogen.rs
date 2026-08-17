@@ -24,7 +24,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::build::protoschema::{EnumDef, Field, Label, Message, Scalar, Schema, TypeRef};
+use crate::build::protoschema::{
+    EnumDef, Features, Field, Label, Message, OneofCase, Presence, Scalar, Schema, TypeRef,
+};
 use crate::diagnostics::{Diagnostic, Span};
 
 /// A generated module.
@@ -49,6 +51,19 @@ struct Entry {
     /// An enum's zero value, which is its default and what an unrecognised
     /// number decodes to.
     zero: Option<String>,
+    /// The file it was declared in, for a diagnostic that has to name two.
+    origin: String,
+    /// Where in that file. Only useful for a type declared in *this* one, which
+    /// is the only case that can be pointed at.
+    span: Span,
+}
+
+impl Entry {
+    /// Whether two entries are the same declaration reached twice, rather than
+    /// two declarations claiming one name.
+    fn same_as(&self, other: &Entry) -> bool {
+        self.buri == other.buri && self.origin == other.origin
+    }
 }
 
 /// Where a field's type landed.
@@ -109,17 +124,26 @@ struct RField {
     number: i64,
     label: Label,
     ty: FTy,
-    /// Whether a repeated field of a packable type is written packed. proto3's
-    /// default is `true`, and `[packed = false]` is what turns it off.
+    /// Resolved against the field, the message and the file, in that order.
+    /// `EXPLICIT` — the edition's default — is what makes a singular field an
+    /// `Option`.
+    presence: Presence,
+    /// Whether a repeated field of a packable type is written packed.
+    /// `features.repeated_field_encoding`, resolved the same way.
     packed: bool,
 }
 
 impl RField {
-    /// A singular message field is `Option<T>` whatever its label says: in
-    /// proto3 a message field always tracks presence, and there is no "default
+    /// Whether the Buri field is an `Option`.
+    ///
+    /// Under editions this is the *default* for a singular field rather than
+    /// the exception it was under proto3: `features.field_presence` is
+    /// EXPLICIT unless something says otherwise, and a message field tracks
+    /// presence whatever the feature says, because there is no "default
     /// message" for an absent one to mean.
     fn optional(&self) -> bool {
-        self.label == Label::Optional || (self.label == Label::Single && self.is_message())
+        self.label == Label::Single
+            && (self.is_message() || self.presence == Presence::Explicit)
     }
 
     fn is_message(&self) -> bool {
@@ -204,38 +228,100 @@ fn upper_first(name: &str) -> String {
 
 /// Every message and enum a set of schemas declares, under every name a field
 /// could reasonably use to reach it.
+///
+/// A name can be claimed twice, and the two ways that happens are not the same
+/// mistake — so neither is silently resolved by whichever file was read first:
+///
+///   * a **fully-qualified** name claimed twice is a duplicate declaration, and
+///     one of the two files has to change;
+///   * a **short** name claimed by two packages is ordinary ambiguity, which is
+///     only a problem where a field actually reaches through it — so it is
+///     recorded here and reported at the use.
 #[derive(Default)]
 struct Table {
     by_name: BTreeMap<String, Entry>,
+    /// Short keys two different declarations both claim, with both of them.
+    ambiguous: BTreeMap<String, Vec<Entry>>,
+    /// Fully-qualified names declared twice: the name, and the two entries.
+    duplicates: Vec<(String, Entry, Entry)>,
+}
+
+/// Whether a key is the whole of a type's name or an abbreviation of it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeyKind {
+    Qualified,
+    Short,
 }
 
 impl Table {
-    fn add(&mut self, key: String, entry: Entry) {
-        self.by_name.entry(key).or_insert(entry);
+    fn add(&mut self, key: String, entry: Entry, kind: KeyKind) {
+        match self.by_name.get(&key) {
+            None => {
+                self.by_name.insert(key, entry);
+            }
+            // One declaration reached under a name it already has. Nothing to
+            // say: a type is allowed to be findable more than one way.
+            Some(existing) if existing.same_as(&entry) => {}
+            Some(existing) => {
+                let existing = existing.clone();
+                match kind {
+                    KeyKind::Qualified => {
+                        if !self.duplicates.iter().any(|(k, _, _)| *k == key) {
+                            self.duplicates.push((key, existing, entry));
+                        }
+                    }
+                    KeyKind::Short => {
+                        let seen = self.ambiguous.entry(key).or_insert_with(|| vec![existing]);
+                        if !seen.iter().any(|e| e.same_as(&entry)) {
+                            seen.push(entry);
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    fn collect(&mut self, schema: &Schema, module: Option<&str>) {
+    fn collect(&mut self, schema: &Schema, module: Option<&str>, origin: &str) {
         let pkg = schema.package.clone().unwrap_or_default();
         for e in &schema.enums {
-            self.add_enum(e, &[], &pkg, module);
+            self.add_enum(e, &[], &pkg, module, origin);
         }
         for m in &schema.messages {
-            self.add_message(m, &[], &pkg, module);
+            self.add_message(m, &[], &pkg, module, origin);
         }
     }
 
-    fn keys(scope: &[String], name: &str, pkg: &str) -> Vec<String> {
+    /// Every name a field could reach this type by, widest first. The first is
+    /// the whole of it; the rest are abbreviations another package may also be
+    /// using.
+    fn keys(scope: &[String], name: &str, pkg: &str) -> Vec<(String, KeyKind)> {
         let mut path = scope.to_vec();
         path.push(name.to_string());
         let relative = path.join(".");
-        let mut out = vec![relative.clone(), name.to_string()];
-        if !pkg.is_empty() {
-            out.insert(0, format!("{pkg}.{relative}"));
+        if pkg.is_empty() {
+            // With no package the relative name *is* the whole name.
+            let mut out = vec![(relative.clone(), KeyKind::Qualified)];
+            if relative != name {
+                out.push((name.to_string(), KeyKind::Short));
+            }
+            return out;
+        }
+        let mut out = vec![(format!("{pkg}.{relative}"), KeyKind::Qualified)];
+        out.push((relative.clone(), KeyKind::Short));
+        if relative != name {
+            out.push((name.to_string(), KeyKind::Short));
         }
         out
     }
 
-    fn add_enum(&mut self, e: &EnumDef, scope: &[String], pkg: &str, module: Option<&str>) {
+    fn add_enum(
+        &mut self,
+        e: &EnumDef,
+        scope: &[String],
+        pkg: &str,
+        module: Option<&str>,
+        origin: &str,
+    ) {
         let mut path = scope.to_vec();
         path.push(e.name.clone());
         let entry = Entry {
@@ -243,13 +329,22 @@ impl Table {
             kind: Kind::Enum,
             module: module.map(str::to_string),
             zero: zero_value(e),
+            origin: origin.to_string(),
+            span: e.span,
         };
-        for key in Table::keys(scope, &e.name, pkg) {
-            self.add(key, entry.clone());
+        for (key, kind) in Table::keys(scope, &e.name, pkg) {
+            self.add(key, entry.clone(), kind);
         }
     }
 
-    fn add_message(&mut self, m: &Message, scope: &[String], pkg: &str, module: Option<&str>) {
+    fn add_message(
+        &mut self,
+        m: &Message,
+        scope: &[String],
+        pkg: &str,
+        module: Option<&str>,
+        origin: &str,
+    ) {
         let mut path = scope.to_vec();
         path.push(m.name.clone());
         let entry = Entry {
@@ -257,40 +352,70 @@ impl Table {
             kind: Kind::Message,
             module: module.map(str::to_string),
             zero: None,
+            origin: origin.to_string(),
+            span: m.span,
         };
-        for key in Table::keys(scope, &m.name, pkg) {
-            self.add(key, entry.clone());
+        for (key, kind) in Table::keys(scope, &m.name, pkg) {
+            self.add(key, entry.clone(), kind);
         }
         for e in &m.enums {
-            self.add_enum(e, &path, pkg, module);
+            self.add_enum(e, &path, pkg, module, origin);
         }
         for inner in &m.messages {
-            self.add_message(inner, &path, pkg, module);
+            self.add_message(inner, &path, pkg, module, origin);
         }
     }
 
     /// proto's name resolution, narrowed to what a schema this small needs: a
     /// leading `.` is absolute, and everything else is tried from the innermost
     /// enclosing message outward.
-    fn resolve(&self, name: &str, scope: &[String], pkg: &str) -> Option<Entry> {
+    ///
+    /// Returns the key it matched as well as the entry, because whether the
+    /// answer is trustworthy depends on which name found it.
+    fn resolve(&self, name: &str, scope: &[String], pkg: &str) -> Option<(String, Entry)> {
+        let found = |key: String| self.by_name.get(&key).cloned().map(|e| (key, e));
         if let Some(absolute) = name.strip_prefix('.') {
-            return self.by_name.get(absolute).cloned();
+            return found(absolute.to_string());
         }
         for i in (0..=scope.len()).rev() {
-            let mut path: Vec<String> = scope[..i].to_vec();
+            let mut path: Vec<String> = scope.get(..i).unwrap_or(scope).to_vec();
             path.push(name.to_string());
             let joined = path.join(".");
-            if let Some(e) = self.by_name.get(&joined) {
-                return Some(e.clone());
+            if let Some(hit) = found(joined.clone()) {
+                return Some(hit);
             }
             if !pkg.is_empty() {
-                if let Some(e) = self.by_name.get(&format!("{pkg}.{joined}")) {
-                    return Some(e.clone());
+                if let Some(hit) = found(format!("{pkg}.{joined}")) {
+                    return Some(hit);
                 }
             }
         }
-        self.by_name.get(name).cloned()
+        found(name.to_string())
     }
+
+    /// The declarations a key names, when it names more than one.
+    fn ambiguity(&self, key: &str) -> Option<&[Entry]> {
+        self.ambiguous.get(key).map(|v| &v[..])
+    }
+}
+
+/// The variant an open enum keeps an unrecognised number in.
+///
+/// Editions enums are OPEN by default, and an open enum's contract is that a
+/// value the schema does not know *survives* — it is part of the value, not an
+/// unknown field. A generated Buri enum can hold that, so it does: one extra
+/// variant carrying the number. The alternative, collapsing to the zero value,
+/// is what this mapping used to do and it lost information on every round trip.
+///
+/// The name gives way to a declared one rather than the other way round: a
+/// schema is allowed to have a value called `Unrecognized`, and its meaning
+/// wins.
+fn unrecognized_name(e: &EnumDef) -> String {
+    let mut name = "Unrecognized".to_string();
+    while e.values.iter().any(|v| escape(&v.name) == name) {
+        name.push('_');
+    }
+    name
 }
 
 fn zero_value(e: &EnumDef) -> Option<String> {
@@ -317,14 +442,40 @@ pub fn generate(
     diags: &mut Vec<Diagnostic>,
 ) -> Generated {
     let mut table = Table::default();
-    table.collect(schema, None);
+    table.collect(schema, None, origin);
     for (module, dep) in deps {
-        table.collect(dep, Some(module));
+        table.collect(dep, Some(module), module);
+    }
+
+    // A fully-qualified name declared twice is a mistake in the schemas rather
+    // than in a reference to them, so it is reported once, here, whether or not
+    // anything uses the name.
+    for (name, first, second) in &table.duplicates {
+        let (a, b) = (&first.origin, &second.origin);
+        let mut d = Diagnostic::error(
+            second.span,
+            format!("`{name}` is declared twice"),
+        )
+        .with_code("proto-duplicate-type")
+        .with_note(format!("declared in {a} and in {b}"))
+        .with_fix(
+            "rename one of them, or put them in different packages — a fully-qualified name \
+             names one type",
+        );
+        // The other declaration can only be pointed at when it is in this file;
+        // a span from an imported schema belongs to a different source.
+        if first.module.is_none() && second.module.is_none() {
+            d = d.with_sub(first.span, "first declared here");
+        }
+        diags.push(d);
     }
 
     let mut g = Gen {
         table,
         pkg: schema.package.clone().unwrap_or_default(),
+        // The file's own `option features.…` over the edition's defaults, which
+        // is where every field's resolution starts.
+        features: schema.features.over(Features::edition_defaults()),
         out: String::new(),
         used: BTreeMap::new(),
         diags,
@@ -333,8 +484,9 @@ pub fn generate(
     for e in &schema.enums {
         g.enum_type(e, &[]);
     }
+    let file_features = g.features;
     for m in &schema.messages {
-        g.message(m, &[]);
+        g.message(m, &[], file_features);
     }
     let body = std::mem::take(&mut g.out);
 
@@ -374,6 +526,7 @@ fn codec_names(entry: &Entry) -> Vec<String> {
     let n = &entry.buri;
     match entry.kind {
         Kind::Message => vec![
+            format!("default{n}"),
             format!("encode{n}"),
             format!("decode{n}"),
             format!("merge{n}"),
@@ -389,9 +542,20 @@ fn codec_names(entry: &Entry) -> Vec<String> {
     }
 }
 
+/// The two parts of a field a type reference needs: what was written, and
+/// where. A `Field` and a `OneofCase` each have both and nothing else in
+/// common that resolution cares about.
+struct FieldLike {
+    ty: TypeRef,
+    span: Span,
+}
+
 struct Gen<'a> {
     table: Table,
     pkg: String,
+    /// The file's resolved features, which a message layers over and a field
+    /// layers over that.
+    features: Features,
     out: String,
     /// Every type actually referenced, so the import lines name exactly those.
     used: BTreeMap<String, Entry>,
@@ -436,10 +600,45 @@ impl<'a> Gen<'a> {
     }
 
     fn resolve(&mut self, f: &Field, scope: &[String]) -> Option<FTy> {
+        self.resolve_type(&f.ty, f.span, scope)
+    }
+
+    /// The same, for a oneof case, which is the same question about a type that
+    /// simply has no label to ask about.
+    fn resolve_case(&mut self, c: &OneofCase, scope: &[String]) -> Option<FTy> {
+        self.resolve_type(&c.ty, c.span, scope)
+    }
+
+    fn resolve_type(&mut self, ty: &TypeRef, span: Span, scope: &[String]) -> Option<FTy> {
+        let f = &FieldLike { ty: ty.clone(), span };
         match &f.ty {
             TypeRef::Scalar(s) => Some(FTy::Scalar(*s)),
             TypeRef::Named(name) => match self.table.resolve(name, scope, &self.pkg) {
-                Some(e) => {
+                Some((key, e)) => {
+                    // Two packages can both have a `Status`, and a short name
+                    // that reaches both is not an answer — it is a coin toss
+                    // decided by which file was read first.
+                    if let Some(claimants) = self.table.ambiguity(&key) {
+                        let named = name.clone();
+                        let mut where_ = claimants
+                            .iter()
+                            .map(|c| format!("{} in {}", c.buri, c.origin))
+                            .collect::<Vec<_>>();
+                        where_.sort();
+                        self.diags.push(
+                            Diagnostic::error(
+                                f.span,
+                                format!("`{named}` is ambiguous"),
+                            )
+                            .with_code("proto-ambiguous-type")
+                            .with_note(format!("it could be {}", where_.join(", or ")))
+                            .with_fix(
+                                "write the fully-qualified name, package and all, so the field \
+                                 says which one it means",
+                            ),
+                        );
+                        return None;
+                    }
                     self.used.insert(e.buri.clone(), e.clone());
                     Some(FTy::Named(e))
                 }
@@ -459,32 +658,60 @@ impl<'a> Gen<'a> {
         }
     }
 
-    fn rfield(&mut self, f: &Field, ty: FTy) -> RField {
-        let json = camel_case(&f.name);
+    fn rfield(&mut self, f: &Field, ty: FTy, scope: Features) -> RField {
+        self.rname(&f.name, f.number, f.label, f.features, ty, scope)
+    }
+
+    /// A oneof case, which is a field with no label: the case being selected is
+    /// its presence, so both are fixed rather than resolved.
+    fn rcase(&mut self, c: &OneofCase, ty: FTy, scope: Features) -> RField {
+        let mut out = self.rname(&c.name, c.number, Label::Single, c.features, ty, scope);
+        out.presence = Presence::Explicit;
+        out
+    }
+
+    fn rname(
+        &mut self,
+        name: &str,
+        number: i64,
+        label: Label,
+        own: Features,
+        ty: FTy,
+        scope: Features,
+    ) -> RField {
+        let json = camel_case(name);
+        let features = own.over(scope);
         RField {
             name: escape(&json),
             json: json.clone(),
-            proto: f.name.clone(),
-            number: f.number,
-            label: f.label,
+            proto: name.to_string(),
+            number,
+            label,
             ty,
-            packed: f.packed.unwrap_or(true),
+            presence: features.presence(),
+            packed: features.packed(),
         }
     }
 
-    fn resolved(&mut self, m: &Message, scope: &[String], name: &str) -> (Vec<RField>, Vec<ROneof>) {
+    fn resolved(
+        &mut self,
+        m: &Message,
+        scope: &[String],
+        name: &str,
+        inherited: Features,
+    ) -> (Vec<RField>, Vec<ROneof>) {
         let mut fields = Vec::new();
         for f in &m.fields {
             if let Some(ty) = self.resolve(f, scope) {
-                fields.push(self.rfield(f, ty));
+                fields.push(self.rfield(f, ty, inherited));
             }
         }
         let mut oneofs = Vec::new();
         for o in &m.oneofs {
             let mut cases = Vec::new();
-            for f in &o.fields {
-                if let Some(ty) = self.resolve(f, scope) {
-                    cases.push(self.rfield(f, ty));
+            for f in &o.cases {
+                if let Some(ty) = self.resolve_case(f, scope) {
+                    cases.push(self.rcase(f, ty, inherited));
                 }
             }
             // A oneof with no cases would be an uninhabited enum, which the
@@ -503,11 +730,12 @@ impl<'a> Gen<'a> {
 
     // -- declarations ------------------------------------------------------
 
-    fn message(&mut self, m: &Message, scope: &[String]) {
+    fn message(&mut self, m: &Message, scope: &[String], inherited: Features) {
         let mut path = scope.to_vec();
         path.push(m.name.clone());
         let name = path.join("_");
-        let (fields, oneofs) = self.resolved(m, &path, &name);
+        let features = m.features.over(inherited);
+        let (fields, oneofs) = self.resolved(m, &path, &name, features);
 
         for o in &oneofs {
             self.line(&format!("/// The cases of `{name}`'s `{}`.", o.field));
@@ -543,7 +771,7 @@ impl<'a> Gen<'a> {
             self.enum_type(e, &path);
         }
         for inner in &m.messages {
-            self.message(inner, &path);
+            self.message(inner, &path, features);
         }
     }
 
@@ -561,10 +789,17 @@ impl<'a> Gen<'a> {
             e.values.iter().map(|v| (escape(&v.name), v.name.clone(), v.number)).collect()
         };
 
+        let unknown = unrecognized_name(e);
         self.line(&format!("export enum {name} {{"));
         for (buri, _, _) in &values {
             self.line(&format!("  export {buri},"));
         }
+        self.line("  /// A number this schema does not name.");
+        self.line("  ///");
+        self.line("  /// Editions enums are open, and an open enum keeps a value it does not");
+        self.line("  /// recognise rather than losing it — so a message written by a newer");
+        self.line("  /// schema survives being read and written again by this one.");
+        self.line(&format!("  export {unknown}(Int),"));
         self.line("}");
         self.line("");
         self.line(&format!("derive Eq, Show for {name};"));
@@ -576,18 +811,18 @@ impl<'a> Gen<'a> {
         for (buri, _, number) in &values {
             self.line(&format!("    .{buri} => {number},"));
         }
+        self.line(&format!("    .{unknown}(n) => n,"));
         self.line("  }");
         self.line("}");
         self.line("");
 
         self.line(&format!(
-            "/// A number this schema does not know decodes to `{zero}`, the zero value."
+            "/// A number this schema does not name is kept as `{unknown}`."
         ));
         self.line("///");
-        self.line("/// A deliberate loss. proto3 asks a reader to *keep* an unrecognised number;");
-        self.line("/// a Buri enum has nowhere to keep one. Failing instead would mean that");
-        self.line("/// adding a value to an enum broke every reader built before it — which is");
-        self.line("/// the thing proto3's rule exists to prevent.");
+        self.line("/// That is what `features.enum_type = OPEN` means, and it is edition 2026's");
+        self.line("/// default: adding a value to an enum does not break a reader built before");
+        self.line("/// it, and the number it did not know comes back out unchanged.");
         self.line(&format!("export fn decode{name}(number: Int): {name} {{"));
         // An alias — two names for one number — decodes to the first of them.
         let mut seen: Vec<i64> = Vec::new();
@@ -599,17 +834,19 @@ impl<'a> Gen<'a> {
             seen.push(*number);
             arms.push((format!("number == {number}"), vec![format!("{name}.{buri}")]));
         }
-        let chain = if_chain("  ", &arms, &[format!("{name}.{zero}")]);
+        let chain = if_chain("  ", &arms, &[format!("{name}.{unknown}(number)")]);
         self.lines(&chain);
         self.line("}");
         self.line("");
 
-        self.line("/// proto3 JSON writes an enum as the *name* of its value.");
+        self.line("/// JSON writes an enum as the *name* of its value — and a value with no");
+        self.line("/// name as its number, which is what the mapping says an open enum does.");
         self.line(&format!("export fn encode{name}Json(value: {name}): Json {{"));
         self.line("  match (value) {");
         for (buri, proto_name, _) in &values {
             self.line(&format!("    .{buri} => Json.Str(\"{proto_name}\"),"));
         }
+        self.line(&format!("    .{unknown}(n) => proto.jsonInt32(n),"));
         self.line("  }");
         self.line("}");
         self.line("");
@@ -618,7 +855,7 @@ impl<'a> Gen<'a> {
         self.line(&format!(
             "export fn decode{name}Json(doc: Json, path: Str): Result<{name}, ProtoError> {{"
         ));
-        self.line(&format!("  match (doc) {{"));
+        self.line("  match (doc) {");
         self.line("    .Str(s) => {");
         let mut arms: Vec<(String, Vec<String>)> = Vec::new();
         for (buri, proto_name, _) in &values {
@@ -647,7 +884,7 @@ impl<'a> Gen<'a> {
 
     fn default_of(&self, f: &RField) -> String {
         if f.label == Label::Repeated {
-            return format!("list.empty::<{}>()", f.ty.buri());
+            return format!("list.empty<{}>()", f.ty.buri());
         }
         if f.optional() {
             return ".None".into();
@@ -655,7 +892,7 @@ impl<'a> Gen<'a> {
         match &f.ty {
             FTy::Scalar(Scalar::Bool) => "false".into(),
             FTy::Scalar(Scalar::Str) => "\"\"".into(),
-            FTy::Scalar(Scalar::Bytes) => "list.empty::<U8>()".into(),
+            FTy::Scalar(Scalar::Bytes) => "list.empty<U8>()".into(),
             FTy::Scalar(Scalar::Double | Scalar::Float) => "0.0".into(),
             FTy::Scalar(_) => "0".into(),
             FTy::Named(e) => {
@@ -763,7 +1000,7 @@ impl<'a> Gen<'a> {
         if fields.is_empty() && oneofs.is_empty() {
             self.line("  let _ = value;");
             self.line("  let _ = ctx;");
-            self.line("  list.empty::<U8>()");
+            self.line("  list.empty<U8>()");
             self.line("}");
             self.line("");
             return;
@@ -776,7 +1013,7 @@ impl<'a> Gen<'a> {
                     if f.ty.packable() && f.packed {
                         let raw = self.write_raw(f, "x", "c");
                         format!(
-                            "if ({v}.len() == 0) {{ list.empty::<U8>() }} else {{ proto.bytesField(ctx, {}, {v}.mapCtx(ctx, fn(c, x) => {raw}).flatten(ctx)) }}",
+                            "if ({v}.len() == 0) {{ list.empty<U8>() }} else {{ proto.bytesField(ctx, {}, {v}.mapCtx(ctx, fn(c, x) => {raw}).flatten(ctx)) }}",
                             f.number
                         )
                     } else {
@@ -786,12 +1023,12 @@ impl<'a> Gen<'a> {
                 }
                 _ if f.optional() => {
                     let one = self.write_one(f, "x", "ctx");
-                    format!("match ({v}) {{ .Some(x) => {one}, .None => list.empty::<U8>() }}")
+                    format!("match ({v}) {{ .Some(x) => {one}, .None => list.empty<U8>() }}")
                 }
                 _ => {
                     let test = self.is_default(f, &v);
                     let one = self.write_one(f, &v, "ctx");
-                    format!("if ({test}) {{ list.empty::<U8>() }} else {{ {one} }}")
+                    format!("if ({test}) {{ list.empty<U8>() }} else {{ {one} }}")
                 }
             };
             self.line(&format!("    {piece},"));
@@ -803,7 +1040,7 @@ impl<'a> Gen<'a> {
                 .map(|c| format!(".{}(x) => {}", upper_first(&c.name), self.write_one(c, "x", "ctx")))
                 .collect();
             self.line(&format!(
-                "    match (value.{}) {{ .Some(k) => match (k) {{ {} }}, .None => list.empty::<U8>() }},",
+                "    match (value.{}) {{ .Some(k) => match (k) {{ {} }}, .None => list.empty<U8>() }},",
                 o.field,
                 arms.join(", ")
             ));
@@ -1054,7 +1291,7 @@ impl<'a> Gen<'a> {
         if fields.is_empty() && oneofs.is_empty() {
             self.line("  let _ = value;");
             self.line("  let _ = ctx;");
-            self.line("  Json.Object(list.empty::<(Str, Json)>())");
+            self.line("  Json.Object(list.empty<(Str, Json)>())");
             self.line("}");
             self.line("");
             return;
@@ -1066,14 +1303,14 @@ impl<'a> Gen<'a> {
                 Label::Repeated => {
                     let one = self.json_of(f, "x", "c");
                     format!(
-                        "if ({v}.len() == 0) {{ list.empty::<(Str, Json)>() }} else {{ [(\"{}\", Json.Array({v}.mapCtx(ctx, fn(c, x) => {one})))] }}",
+                        "if ({v}.len() == 0) {{ list.empty<(Str, Json)>() }} else {{ [(\"{}\", Json.Array({v}.mapCtx(ctx, fn(c, x) => {one})))] }}",
                         f.json
                     )
                 }
                 _ if f.optional() => {
                     let one = self.json_of(f, "x", "ctx");
                     format!(
-                        "match ({v}) {{ .Some(x) => [(\"{}\", {one})], .None => list.empty::<(Str, Json)>() }}",
+                        "match ({v}) {{ .Some(x) => [(\"{}\", {one})], .None => list.empty<(Str, Json)>() }}",
                         f.json
                     )
                 }
@@ -1081,7 +1318,7 @@ impl<'a> Gen<'a> {
                     let test = self.is_default(f, &v);
                     let one = self.json_of(f, &v, "ctx");
                     format!(
-                        "if ({test}) {{ list.empty::<(Str, Json)>() }} else {{ [(\"{}\", {one})] }}",
+                        "if ({test}) {{ list.empty<(Str, Json)>() }} else {{ [(\"{}\", {one})] }}",
                         f.json
                     )
                 }
@@ -1102,7 +1339,7 @@ impl<'a> Gen<'a> {
                 })
                 .collect();
             self.line(&format!(
-                "    match (value.{}) {{ .Some(k) => match (k) {{ {} }}, .None => list.empty::<(Str, Json)>() }},",
+                "    match (value.{}) {{ .Some(k) => match (k) {{ {} }}, .None => list.empty<(Str, Json)>() }},",
                 o.field,
                 arms.join(", ")
             ));
@@ -1171,7 +1408,10 @@ impl<'a> Gen<'a> {
             ));
             next.push("  .None => ".to_string());
             for (i, l) in body.iter().enumerate() {
-                next.push(format!("    {l}{}", if i + 1 == body.len() { "," } else { "" }));
+                next.push(format!(
+                    "    {l}{}",
+                    if i.saturating_add(1) == body.len() { "," } else { "" }
+                ));
             }
             next.push("}".to_string());
             body = next;
@@ -1222,7 +1462,7 @@ impl<'a> Gen<'a> {
                         f.name,
                         f.buri_type()
                     ));
-                    self.line(&format!("        .None => list.empty::<{base}>(),"));
+                    self.line(&format!("        .None => list.empty<{base}>(),"));
                     self.line(&format!(
                         "        .Some(v) => proto.asArray(v, p_{})?.foldResultCtx(",
                         f.name
@@ -1232,7 +1472,7 @@ impl<'a> Gen<'a> {
                     self.line(&format!("            let one = {element}?;"));
                     self.line("            .Ok(acc.push(c, one))");
                     self.line("          },");
-                    self.line(&format!("          list.empty::<{base}>(),"));
+                    self.line(&format!("          list.empty<{base}>(),"));
                     self.line("        )?,");
                     self.line("      };");
                 }
@@ -1329,6 +1569,8 @@ mod tests {
     use crate::build::protoschema;
     use crate::diagnostics::FileId;
 
+    const HEAD: &str = "edition = \"2026\";\n";
+
     fn gen(src: &str) -> String {
         let parsed = protoschema::parse(src, FileId(0));
         assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
@@ -1350,8 +1592,8 @@ mod tests {
 
     #[test]
     fn a_keyword_field_name_is_escaped_and_its_json_name_is_not() {
-        let s = gen("syntax = \"proto3\";\nmessage M { string type = 1; }\n");
-        assert!(s.contains("export type_: Str,"), "{s}");
+        let s = gen(&format!("{HEAD}message M {{ string type = 1; }}\n"));
+        assert!(s.contains("export type_: Option<Str>,"), "{s}");
         assert!(s.contains("\"type\""), "the JSON name is the schema's: {s}");
     }
 
@@ -1363,32 +1605,127 @@ mod tests {
 
     /// The three labels, and the one field whose Buri type does not follow its
     /// label: a singular message.
+    /// The headline of the editions mapping: a singular scalar has presence,
+    /// so it is an `Option`, and `IMPLICIT` is what asks for the bare type.
     #[test]
-    fn the_label_mapping() {
-        let s = gen(
-            "syntax = \"proto3\";\nmessage Inner { int32 a = 1; }\nmessage M {\n  int32 plain = 1;\n  \
-             optional int32 maybe = 2;\n  repeated int32 many = 3;\n  Inner one = 4;\n}\n",
-        );
-        assert!(s.contains("export plain: Int,"), "{s}");
-        assert!(s.contains("export maybe: Option<Int>,"), "{s}");
+    fn the_presence_mapping() {
+        let s = gen(&format!(
+            "{HEAD}message Inner {{ int32 a = 1; }}\nmessage M {{\n  int32 tracked = 1;\n  \
+             int32 bare = 2 [features.field_presence = IMPLICIT];\n  repeated int32 many = 3;\n  \
+             Inner one = 4;\n}}\n"
+        ));
+        assert!(s.contains("export tracked: Option<Int>,"), "{s}");
+        assert!(s.contains("export bare: Int,"), "{s}");
         assert!(s.contains("export many: [Int],"), "{s}");
         assert!(s.contains("export one: Option<Inner>,"), "{s}");
     }
 
+    /// A file-level feature reaches every field, and a message-level one every
+    /// field of that message.
+    #[test]
+    fn presence_is_inherited_and_overridden() {
+        let s = gen(&format!(
+            "{HEAD}option features.field_presence = IMPLICIT;\nmessage M {{\n  int32 a = 1;\n  \
+             int32 b = 2 [features.field_presence = EXPLICIT];\n}}\n"
+        ));
+        assert!(s.contains("export a: Int,"), "{s}");
+        assert!(s.contains("export b: Option<Int>,"), "{s}");
+    }
+
+    /// An open enum keeps a number it does not name, which is what makes
+    /// adding a value to an enum safe for readers built before it.
+    #[test]
+    fn an_open_enum_keeps_what_it_does_not_recognise() {
+        let s = gen(&format!("{HEAD}enum E {{ E_UNSPECIFIED = 0; ONE = 1; }}\n"));
+        assert!(s.contains("export Unrecognized(Int),"), "{s}");
+        assert!(s.contains("    .Unrecognized(n) => n,"), "{s}");
+        assert!(s.contains("E.Unrecognized(number)"), "{s}");
+        assert!(s.contains(".Unrecognized(n) => proto.jsonInt32(n),"), "{s}");
+        // A schema that already uses the name keeps it, and the escape hatch
+        // moves out of the way.
+        let s = gen(&format!("{HEAD}enum E {{ E_UNSPECIFIED = 0; Unrecognized = 1; }}\n"));
+        assert!(s.contains("export Unrecognized,"), "{s}");
+        assert!(s.contains("export Unrecognized_(Int),"), "{s}");
+    }
+
+    /// Two files declaring one fully-qualified name is a mistake in the
+    /// schemas, and is reported whether or not anything uses the name.
+    #[test]
+    fn a_qualified_name_declared_twice_names_both_files() {
+        let other = schema_of("edition = \"2026\";\npackage p;\nmessage Dup { int32 a = 1; }\n");
+        let here = protoschema::parse(
+            "edition = \"2026\";\npackage p;\nmessage Dup { int32 b = 1; }\n",
+            FileId(0),
+        );
+        let mut diags = Vec::new();
+        generate(
+            "here.proto",
+            &here.schema,
+            &[("//there.proto".to_string(), other)],
+            &mut diags,
+        );
+        let d = diags
+            .iter()
+            .find(|d| d.code.as_deref() == Some("proto-duplicate-type"))
+            .unwrap_or_else(|| panic!("{diags:#?}"));
+        assert!(d.message.contains("`p.Dup` is declared twice"), "{d:#?}");
+        assert!(d.notes.iter().any(|n| n.contains("here.proto") && n.contains("//there.proto")));
+        assert!(d.fix.is_some());
+    }
+
+    /// A *short* name two packages both use is not a mistake — until a field
+    /// reaches through it, at which point taking the first would be a coin toss
+    /// decided by import order.
+    #[test]
+    fn a_short_name_two_packages_claim_is_ambiguous_where_it_is_used() {
+        let other = schema_of("edition = \"2026\";\npackage b;\nmessage Status { int32 a = 1; }\n");
+        let deps = [("//other.proto".to_string(), other)];
+
+        // Reached by its short name: ambiguous, and said so.
+        let here = protoschema::parse(
+            "edition = \"2026\";\npackage a;\nmessage Status { int32 a = 1; }\n             message Use { Status s = 1; }\n",
+            FileId(0),
+        );
+        let mut diags = Vec::new();
+        generate("here.proto", &here.schema, &deps, &mut diags);
+        let d = diags
+            .iter()
+            .find(|d| d.code.as_deref() == Some("proto-ambiguous-type"))
+            .unwrap_or_else(|| panic!("{diags:#?}"));
+        assert!(d.message.contains("`Status` is ambiguous"), "{d:#?}");
+        assert!(d.notes.iter().any(|n| n.contains("here.proto") && n.contains("//other.proto")));
+
+        // Reached by its whole name: one answer, and no complaint.
+        let here = protoschema::parse(
+            "edition = \"2026\";\npackage a;\nmessage Status { int32 a = 1; }\n             message Use { a.Status s = 1; }\n",
+            FileId(0),
+        );
+        let mut diags = Vec::new();
+        let out = generate("here.proto", &here.schema, &deps, &mut diags);
+        assert!(diags.is_empty(), "{diags:#?}");
+        assert!(out.source.contains("export s: Option<Status>,"), "{}", out.source);
+    }
+
+    fn schema_of(src: &str) -> protoschema::Schema {
+        let r = protoschema::parse(src, FileId(0));
+        assert!(r.errors.is_empty(), "{:#?}", r.errors);
+        r.schema
+    }
+
     #[test]
     fn nesting_flattens_with_an_underscore() {
-        let s = gen(
-            "syntax = \"proto3\";\nmessage Outer {\n  message Inner { int32 a = 1; }\n  Inner in = 1;\n}\n",
-        );
+        let s = gen(&format!(
+            "{HEAD}message Outer {{\n  message Inner {{ int32 a = 1; }}\n  Inner in = 1;\n}}\n"
+        ));
         assert!(s.contains("export struct Outer_Inner {"), "{s}");
         assert!(s.contains("export in_: Option<Outer_Inner>,"), "{s}");
     }
 
     #[test]
     fn a_oneof_becomes_an_enum_held_as_an_option() {
-        let s = gen(
-            "syntax = \"proto3\";\nmessage M { oneof pick { string a = 1; int32 b = 2; } }\n",
-        );
+        let s = gen(&format!(
+            "{HEAD}message M {{ oneof pick {{ string a = 1; int32 b = 2; }} }}\n"
+        ));
         assert!(s.contains("export enum M_Pick {"), "{s}");
         assert!(s.contains("export A(Str),"), "{s}");
         assert!(s.contains("export pick: Option<M_Pick>,"), "{s}");

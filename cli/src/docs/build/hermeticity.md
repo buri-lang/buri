@@ -15,7 +15,7 @@ set of inputs to a declared set of outputs. There are four kinds:
 | `interface` | A library's `lib.buri`, and the `interface` outputs of its deps | `<lib>.bi` — every exported name with its full type |
 | `compile` | One target's sources, the `interface` outputs of its deps, the platform | `<target>.bo` — the compiled module set |
 | `link` | A binary's `compile` output and those of its transitive deps | The artifact: an executable, or a `.mjs` |
-| `test` | A suite's `compile` output, the target's `compile` output, `test.data` | A pass/fail record and captured output |
+| `test` | A suite's `compile` output, the target's `compile` output, the `compile` output of every library the suite's own `dependencies` name, `test.data` | A pass/fail record and captured output |
 
 Splitting `interface` out from `compile` is the one structural decision here,
 and it is the language that makes it cheap. Top-level signatures are mandatory
@@ -116,9 +116,8 @@ output:
 
 ```
 key = H(
-  action_kind,             // interface | compile | link | test
-  toolchain.version,
-  toolchain.sha256,
+  action_kind,             // interface | compile | codegen | link | test
+  toolchain_version,       // this compiler's own version
   build_mode,              // --release / --debug
   platform, arch,          // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
@@ -149,6 +148,24 @@ bug:
 Outputs are content-addressed under `.buri/cache/`, keyed by action key. `buri
 build` after a no-op edit is a hash comparison and no compiler invocations.
 
+A native artifact adds one action kind and one directory. `codegen` is one
+action per codegen unit — the object file for one source module's worth of
+functions — and its key is the unit's *lowered IR* rather than the source it
+came from, so reformatting a comment produces an identical key and the object is
+reused, while a change to a type another module requested an instantiation of
+does not slip past. The objects a link ran over are staged under
+`.buri/link/<link-key>/`, alongside a `manifest` naming each unit, its `codegen`
+key, and whether this build produced the object or the cache did. It is derived
+from the cache and goes with it: `buri clean` drops it, and `buri clean
+--outputs` does not.
+
+The link itself is always full. No shipping linker links incrementally — the two
+fast ones say so in their own documentation, and one of them names
+reproducibility as the reason — so "relink only what changed" is delivered above
+the linker rather than inside it: an unchanged unit is never re-compiled, and a
+build in which no unit's key moved skips the link entirely, because the link key
+is the ordered list of the unit keys.
+
 ## What incrementality looks like
 
 Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
@@ -160,8 +177,9 @@ Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
 | A signature in `lib/money/lib.buri` | `interface(//lib/money)`, then `compile` of `//lib/money`, `//lib/ledger`, `//cmd/server`, then `link`. |
 | Adding a file to `sources` | `compile(//lib/money)` and downstream links. The interface is unchanged unless `lib.buri` re-exports from it. |
 | Adding a `tag` to `//lib/store` | No compilation at all — the tag check is a graph pass over cached facts. It either passes or fails a link. |
-| `toolchain.version` in `REPO.buri` | Everything. This is correct and is why the version is pinned exactly. |
+| A new toolchain version | Everything. An artifact built by a different compiler is a different artifact. |
 | A test file | That suite's `compile` and `test`. Nothing else, ever — nothing depends on a test. |
+| A file in a library named by `test { dependencies }` | The `test` of every suite that names it, and the `compile` and `link` of anything that depends on it in production. A test dependency is not in the production closure, so it moves no artifact's key by being one — but it is compiled *into* the suite, so it is in the suite's. |
 
 The last row is the payoff for tests being unimportable: test sources are always
 leaves, so a repository can have any number of them without any of them
@@ -208,21 +226,21 @@ to run it and a build that did it every time would take twice as long for a
 property the compiler is responsible for. It is the flag you reach for when a
 rebuild surprised you.
 
-## The pinned toolchain
+## The toolchain in the key
 
-`toolchain.version` and `toolchain.sha256` are the first two fields of every
-cache key, and the first thing every command that opens a repository checks. A
-`REPO.buri` naming a version this is not, or a `sha256` this executable does not
-hash to, is refused with exit `2` before anything is compiled — the difference
-between pinning a version and pinning a compiler
-([`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md#toolchain)).
+The compiler's own version is in every action key, so a release invalidates
+every entry in every repository. That is correct and it is deliberate: an
+artifact built by a different compiler is a different artifact, and a cache that
+served the old one would be serving a stale answer that nothing else could
+catch.
 
-The hash is of the running executable, which is the artifact a release archive
-would have contained; a `sha256` of nothing but zeros is the sentinel for
-*unpinned*, which is what a repository writes for as long as its toolchain has
-no published release to name. An unpinned pin verifies nothing and still enters
-every cache key, because two toolchains that disagree produce different
-artifacts whether or not anybody wrote the hash down.
+`REPO.buri` used to name the toolchain as well — an exact version and the
+SHA-256 of the compiler that had to build the repository, refused with exit `2`
+before anything was compiled — and both halves went into the key. That pin was
+removed ([`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md#what-is-not-here)):
+a pin earns its keep where a toolchain is fetched, and nothing fetches one. The
+key lost nothing a live repository could vary, because a repository that named a
+toolchain this was not never got as far as computing a key.
 
 ## The cache is local, for now
 

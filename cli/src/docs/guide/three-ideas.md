@@ -62,5 +62,5 @@ allocate" are separately expressible.
 resolution or the type checker. That is a design constraint that cost real
 ergonomics, and [SPEC.md §12](./SPEC.md#12-why-the-grammar-is-context-free-and-unambiguous)
 lists all seventeen decisions with what each one gave up — parenthesized `if`
-conditions, no record field shorthand, the turbofish, no `<<`/`>>` tokens,
+conditions, no record field shorthand, non-associative comparison, no `<<`/`>>` tokens,
 dot-prefixed variants in patterns, and the rest.

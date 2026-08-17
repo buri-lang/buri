@@ -36,7 +36,7 @@
 ] @operator
 
 ["(" ")" "[" "]" "{" "}"] @punctuation.bracket
-["," ";" ":" "::" "."] @punctuation.delimiter
+["," ";" ":" "."] @punctuation.delimiter
 
 ; --- Declarations ------------------------------------------------------------
 (function_declaration name: (identifier) @function)

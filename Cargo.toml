@@ -1,13 +1,98 @@
 [workspace]
 members = ["cli"]
 # `editors/zed` is a Zed extension, and a Zed extension must depend on
-# `zed_extension_api` and compile to WASM. `buri` itself has no dependencies at
-# all — the toolchain is pinned by hash, and a dependency tree is a second thing
-# to pin — so the extension is excluded rather than made a member. Adding it to
-# `members` would make `cargo test -p buri` resolve crates.io, and the
-# toolchain's central claim would quietly stop being true.
+# `zed_extension_api` and compile to WASM. It is excluded rather than made a
+# member so that `cargo test -p buri` does not resolve it.
 exclude = ["editors/zed"]
 resolver = "2"
+
+# The dependency policy. It used to be "none at all", and native code
+# generation ends that: a retargetable code generator is not something this
+# repository can write. So the policy is replaced by a bar rather than quietly
+# weakened, because a list is a thing people add to and a bar is not.
+#
+#   A dependency is admissible only if it is a code generator or a platform
+#   interface that this repository could not reasonably write, it is behind a
+#   cargo feature the default build can turn off, and its absence degrades the
+#   toolchain rather than breaking it.
+#
+# Everything that is an *algorithm* stays in-tree. SHA-256, the hasher, JSON,
+# the lexer, the parser, the minifier, the SAT-free exhaustiveness checker and
+# the file-change detector are all algorithms, and they are all already written
+# here. A crate that would save a hundred lines is not admissible; a crate that
+# encapsulates a million is.
+#
+# Each of the three clauses rules something out. "Code generator or platform
+# interface" rules out convenience (`anyhow`, `clap`, `serde`). "Behind a
+# feature" rules out anything that would make `cargo install buri` need a system
+# library. "Degrades rather than breaks" is what makes the second clause
+# enforceable: if turning a feature off broke the toolchain, the feature would
+# not stay off.
+#
+# The admitted set, in full: `cranelift-{codegen,frontend,module,object,native}`
+# behind `backend-cranelift`, `inkwell` behind `backend-llvm`, and
+# `target-lexicon`, which comes in with Cranelift. `object` is not a direct
+# dependency — `cranelift-object` re-exports it, so version skew is a compile
+# error. `notify` is not admitted and is not needed: the watch loop polls the
+# declared source set rather than watching the filesystem
+# (design/native/BUILD-AND-WATCH.md §1.2).
+#
+# All of them are in the lockfile as of wave 2a, and all of them are optional,
+# so `cargo build -p buri --no-default-features` still resolves nothing and the
+# gates are still compiled both ways. `cli/tests/corpus.rs`'s
+# `dependencies_stay_behind_the_bar` is what holds the paragraph above to a
+# closed set rather than to a habit.
+
+# The lints that pin the toolchain's central promise: **no input may panic the
+# compiler**. A malformed source file, build file, schema, flag, or
+# language-server message produces a diagnostic and a clean exit — never a Rust
+# panic, and never a stack overflow.
+#
+# Every one of them is `deny` rather than `warn`, because a warning is a thing
+# that accumulates: the promise holds only if the build fails when it stops
+# holding. Where an invariant genuinely cannot be broken by input, the site says
+# so with an `#[expect(..., reason = "...")]` naming what upholds it, or calls
+# `diagnostics::ice`, which prints "internal compiler error" and exits non-zero
+# rather than unwinding through a backtrace nobody can act on.
+#
+# The exceptions are written down where they apply, never here: a file-level
+# `#![allow(..., reason = "...")]` in the handful of modules whose arithmetic is
+# bounded by construction or whose printing *is* the command's output.
+#
+# `clippy.toml` exempts test code, and `cli/tests/` and `cli/examples/` carry
+# the same exemption at the top of each file: a test that unwraps fails on the
+# line that broke, which is what a test is for. The promise is about the
+# toolchain, not about the harness that drives it.
+[workspace.lints.clippy]
+# -- panics -------------------------------------------------------------------
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+# `impl From` cannot return an error, so a fallible one panics on conversion.
+fallible_impl_from = "deny"
+# -- panics hiding as syntax --------------------------------------------------
+# `v[i]` and `&s[a..b]` are the two panics that do not look like one. The
+# second also panics on a byte offset that is not a character boundary, which
+# is exactly what a span into a file with non-ASCII text can be.
+indexing_slicing = "deny"
+string_slice = "deny"
+# Overflow is a panic in a debug build and a wrong answer in a release one.
+# Where a whole file's arithmetic is bounded by construction — hashing, byte
+# emission, indentation counters, statistics over things already in memory —
+# the file says so once at the top rather than annotating every line.
+arithmetic_side_effects = "deny"
+# -- hygiene ------------------------------------------------------------------
+dbg_macro = "deny"
+# Every diagnostic leaves through `Session::emit`, so that `--error-format=json`
+# is one decision in one place rather than a flag each command remembers.
+# `commands/` and `documentation/mod.rs` are where a command writes its *own*
+# output, and each of those files allows these at the top with a reason;
+# everywhere else, a print is a bug.
+print_stdout = "deny"
+print_stderr = "deny"
 
 [profile.release]
 opt-level = 3

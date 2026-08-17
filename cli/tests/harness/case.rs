@@ -59,7 +59,47 @@
 //! printed actually works. **Every case that must stay clean ends with the
 //! edit that makes it fire** — a positive result is only evidence when its
 //! negative twin sits next to it and cannot drift away.
+//!
+//! # Placeholders
+//!
+//! A case that is about *the platform this toolchain is not* cannot write the
+//! platform down: `linux` names a machine the toolchain cannot build for from
+//! a mac and names the host on a Linux runner, and the goldens are the text of
+//! a message that says so. So a case writes `{{CROSS_PLATFORM}}` instead, and
+//! the harness fills it in with a platform chosen from a table keyed on the
+//! host ([`platforms_for`]).
+//!
+//! The substitution reaches all three places a platform can be written, which
+//! is the only way it is worth anything:
+//!
+//! * the fixture files copied into the scratch repository — a `BUILD.buri`
+//!   output list;
+//! * every string in the manifest — `run.args`, `edit.replace`, `file.path`;
+//! * and the recorded output, in reverse, so that what is compared and what
+//!   `BURI_BLESS=1` writes both hold the placeholder rather than one host's
+//!   answer.
+//!
+//! That last direction is the same trick [`super::normalise`] already plays
+//! with the scratch path: the golden holds `<scratch>`, and what is compared
+//! against it is the printed text with the real path put back. A golden here
+//! holds `{{CROSS_PLATFORM}}` for the same reason and by the same mechanism.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 use std::path::{Path, PathBuf};
 
 use super::{indent, run_in, Golden, Scratch};
@@ -126,6 +166,289 @@ pub struct Case {
     pub dir: PathBuf,
     pub doc: String,
     pub steps: Vec<Step>,
+    /// The placeholders this case writes, and what they stand for here.
+    pub subst: Subst,
+}
+
+// ---------------------------------------------------------------------------
+// Placeholders: the platform that is not this host
+// ---------------------------------------------------------------------------
+
+/// A platform in the two spellings the toolchain writes: `linux` in a
+/// diagnostic, an `--output=` selector and an artifact path, and `LINUX` in a
+/// build file.
+///
+/// Both, because a case needs both and deriving one from the other would be
+/// the string munging this table exists to avoid — `Platform::slug` and
+/// `Platform::proto` are two functions in the product for the same reason.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Plat {
+    pub slug: &'static str,
+    pub proto: &'static str,
+}
+
+const LINUX: Plat = Plat { slug: "linux", proto: "LINUX" };
+const MACOS: Plat = Plat { slug: "macos", proto: "MACOS" };
+
+/// A platform and an architecture: everything `{ platform: .., arch: .. }` and
+/// `--output=linux/x86_64` need.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Pair {
+    pub plat: Plat,
+    pub arch: &'static str,
+    pub arch_proto: &'static str,
+}
+
+const LINUX_X86_64: Pair = Pair { plat: LINUX, arch: "x86_64", arch_proto: "X86_64" };
+const MACOS_X86_64: Pair = Pair { plat: MACOS, arch: "x86_64", arch_proto: "X86_64" };
+
+/// The host's platform, and a platform/arch pair that is deliberately **not**
+/// the host's.
+///
+/// A table keyed on the host rather than anything computed, because what a
+/// case needs from it is a promise — that the pair names a target this
+/// toolchain refuses — and a promise is checked against a table by reading it.
+/// The refusal it rests on is `build/link.rs::can_link`: a native build is
+/// linked only when the host platform *is* the target's, because the runtime
+/// archive `cli/build.rs` embeds is built for the host and there is no cross
+/// runtime, cross libc or sysroot (`design/native/ARCHITECTURE.md` §9). So a
+/// cross pair fails `native_ready`'s conjunction on this machine and on the CI
+/// runner alike, whatever backend is compiled in.
+///
+/// The architecture is `x86_64` on both rows, and that is not an oversight. A
+/// diagnostic's caret run is as wide as the source text it underlines, and a
+/// golden records the carets; `MACOS`/`LINUX` are the same width but `ARM64`
+/// and `X86_64` are not, so an arm64 row would move a caret run between hosts
+/// and no placeholder can stand in for one. `macos/x86_64` is a real target
+/// (an Intel mac) and is cross from every Linux host, which is all that is
+/// asked of it.
+pub fn platforms_for(host_os: &str) -> (Option<Plat>, Pair) {
+    match host_os {
+        "macos" => (Some(MACOS), LINUX_X86_64),
+        "linux" => (Some(LINUX), MACOS_X86_64),
+        // A host `cli/build.rs` builds no runtime for. Neither platform is
+        // this one, so either is a cross one, and this is the row the goldens
+        // were written against.
+        _ => (None, LINUX_X86_64),
+    }
+}
+
+/// The whole vocabulary for a host, grouped into the facts it states.
+///
+/// A *fact* is "the platform that is not this host", and the toolchain writes
+/// it two ways: `LINUX` in a build file and `linux` in the diagnostic about
+/// that build file. A case names the fact by writing either spelling, and gets
+/// both — because a case that declares the output in one spelling always has a
+/// golden holding the other, and a placeholder that stopped at the spelling
+/// the manifest happened to use would leave a bare `linux` in a recorded file
+/// on one host and `macos` on the next.
+///
+/// The architecture is a second fact rather than part of the first, so that a
+/// case naming only a platform does not have `x86_64` rewritten underneath it
+/// somewhere it meant the host's.
+///
+/// There is no `HOST_ARCH`. A CI runner's architecture is not a property of
+/// the toolchain, and a golden that named one would pin the machine rather
+/// than the product.
+pub fn families(host_os: &str) -> Vec<Vec<(&'static str, &'static str)>> {
+    let (host, cross) = platforms_for(host_os);
+    let mut v = vec![
+        vec![("CROSS_PLATFORM", cross.plat.slug), ("CROSS_PLATFORM_PROTO", cross.plat.proto)],
+        vec![("CROSS_ARCH", cross.arch), ("CROSS_ARCH_PROTO", cross.arch_proto)],
+    ];
+    if let Some(h) = host {
+        v.push(vec![("HOST_PLATFORM", h.slug), ("HOST_PLATFORM_PROTO", h.proto)]);
+    }
+    v
+}
+
+/// The placeholders one case declared, and what they stand for on this host.
+///
+/// Only the families it declared: reverse substitution rewrites the
+/// toolchain's own output, and a case that never wrote `{{CROSS_PLATFORM}}`
+/// must get its goldens back byte for byte. An empty `Subst` is the identity
+/// in both directions, which is what every other case in the corpus has.
+#[derive(Clone, Default)]
+pub struct Subst {
+    used: Vec<(&'static str, &'static str)>,
+}
+
+impl Subst {
+    /// The placeholders written anywhere in a case: its manifest, and every
+    /// file of the repository it copies.
+    pub fn for_case(case: &str, dir: &Path, manifest: &str) -> Subst {
+        let mut texts = vec![manifest.to_string()];
+        collect_texts(&dir.join("repo"), &mut texts);
+        Subst::of(case, std::env::consts::OS, &texts)
+    }
+
+    /// The same for a host named rather than detected, which is what makes the
+    /// Linux answer testable from a mac.
+    pub fn of(case: &str, host_os: &str, texts: &[String]) -> Subst {
+        let vocabulary = families(host_os);
+        let mut written: Vec<String> = Vec::new();
+        for text in texts {
+            written.extend(placeholders(text));
+        }
+        let mut used: Vec<(&'static str, &'static str)> = Vec::new();
+        for name in &written {
+            let Some(family) = vocabulary.iter().find(|f| f.iter().any(|(n, _)| n == name)) else {
+                panic!(
+                    "{case}: `{{{{{name}}}}}` is not a placeholder the harness knows on this \
+                     host; they are {}",
+                    vocabulary
+                        .iter()
+                        .flatten()
+                        .map(|(n, _)| *n)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            // The whole family, not the spelling that happened to be written.
+            for &(n, v) in family {
+                if !used.iter().any(|(u, _)| *u == n) {
+                    used.push((n, v));
+                }
+            }
+        }
+        // Two placeholders standing for the same text would make the reverse
+        // direction a coin toss, and a golden would flip between them.
+        for (i, (n, v)) in used.iter().enumerate() {
+            for (m, w) in &used[i + 1..] {
+                assert!(
+                    v != w,
+                    "{case}: `{{{{{n}}}}}` and `{{{{{m}}}}}` both stand for {v:?} on this host, so \
+                     a recorded golden could not say which one it meant"
+                );
+            }
+        }
+        // Longest first, so a value that is a prefix of another cannot take
+        // the shorter answer. Whole-token matching already rules that out;
+        // this makes the order deterministic rather than declaration-order.
+        used.sort_by(|(an, av), (bn, bv)| bv.len().cmp(&av.len()).then(an.cmp(bn)));
+        Subst { used }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.used.is_empty()
+    }
+
+    /// `{{CROSS_PLATFORM}}` -> `linux`. What the toolchain is handed.
+    pub fn fill(&self, text: &str) -> String {
+        let mut s = text.to_string();
+        for (name, value) in &self.used {
+            s = s.replace(&format!("{{{{{name}}}}}"), value);
+        }
+        s
+    }
+
+    /// `linux` -> `{{CROSS_PLATFORM}}`. What is compared against a golden and
+    /// what `BURI_BLESS=1` records, so that blessing writes the placeholder
+    /// back rather than this host's answer.
+    ///
+    /// Whole tokens only: `linux` in `linux-x86_64` is one, `linux` in
+    /// `linuxish` is not.
+    pub fn hide(&self, text: &str) -> String {
+        let mut s = text.to_string();
+        for (name, value) in &self.used {
+            s = replace_tokens(&s, value, &format!("{{{{{name}}}}}"));
+        }
+        s
+    }
+
+    /// Every file of the scratch copy, rewritten in place. A fixture states an
+    /// output list the same way a golden states a message.
+    pub fn fill_tree(&self, root: &Path) {
+        if self.is_empty() {
+            return;
+        }
+        let mut files = Vec::new();
+        collect_files(root, &mut files);
+        for path in files {
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            if !text.contains("{{") {
+                continue;
+            }
+            std::fs::write(&path, self.fill(&text))
+                .unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));
+        }
+    }
+}
+
+/// The names between `{{` and `}}`, in order.
+///
+/// A placeholder is spelled in capitals, so `{{` in a program — where it means
+/// something to some other language — is not mistaken for one. A capitalised
+/// name the vocabulary does not hold is a typo, and [`Subst::of`] panics on it
+/// rather than leaving a token in a fixture that would never match anything.
+fn placeholders(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("{{") {
+        let after = &rest[i + 2..];
+        let Some(j) = after.find("}}") else { break };
+        let name = &after[..j];
+        if !name.is_empty()
+            && name.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+        {
+            out.push(name.to_string());
+        }
+        rest = &after[j + 2..];
+    }
+    out
+}
+
+/// `from` -> `to`, but only where `from` is a whole token: neither neighbour is
+/// a letter, a digit or an underscore. Hand-rolled, like `replace_between` in
+/// the harness proper, because the toolchain has no regex and is not getting
+/// one.
+fn replace_tokens(text: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return text.to_string();
+    }
+    let bytes = text.as_bytes();
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while let Some(rel) = text[i..].find(from) {
+        let start = i + rel;
+        let end = start + from.len();
+        let before_ok = start == 0 || !word(bytes[start - 1]);
+        let after_ok = end == bytes.len() || !word(bytes[end]);
+        out.push_str(&text[i..start]);
+        if before_ok && after_ok {
+            out.push_str(to);
+        } else {
+            out.push_str(from);
+        }
+        i = end;
+    }
+    out.push_str(&text[i..]);
+    out
+}
+
+/// Every file under `dir`, sorted, so a scan is the same on two machines.
+fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            collect_files(&path, out);
+        } else {
+            out.push(path);
+        }
+    }
+}
+
+fn collect_texts(dir: &Path, out: &mut Vec<String>) {
+    let mut files = Vec::new();
+    collect_files(dir, &mut files);
+    for path in files {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            out.push(text);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -138,8 +461,14 @@ pub struct Case {
 pub fn load_case(dir: &Path) -> Case {
     let name = dir.file_name().unwrap().to_string_lossy().to_string();
     let path = dir.join("CASE.textproto");
-    let text = std::fs::read_to_string(&path)
+    let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("{name}: cannot read {}: {e}", path.display()));
+    // Filled before parsing, so every string in the manifest is covered by one
+    // substitution: an `--output=` argument, the text an `edit` looks for, a
+    // path. Which placeholders the case declared is read from the manifest as
+    // written, and from the fixtures, before any of it is filled in.
+    let subst = Subst::for_case(&name, dir, &raw);
+    let text = subst.fill(&raw);
     let parsed = textproto::parse(&text, FileId(0));
     assert!(
         parsed.errors.is_empty(),
@@ -232,7 +561,7 @@ pub fn load_case(dir: &Path) -> Case {
         dir.join("repo/REPO.buri").is_file(),
         "{name}: repo/REPO.buri is missing, so the case has no repository"
     );
-    Case { name, dir: dir.to_path_buf(), doc, steps }
+    Case { name, dir: dir.to_path_buf(), doc, steps, subst }
 }
 
 fn as_str(case: &str, what: &str, v: &Value) -> String {
@@ -297,6 +626,10 @@ fn str_list(case: &str, what: &str, m: &Msg) -> Vec<String> {
 
 pub fn run_case(case: &Case, g: &mut Golden) {
     let scratch = Scratch::copy_of(&case.name, &case.dir.join("repo"));
+    // The fixtures are filled in on the copy, never in the checked-in tree:
+    // what is in the repository is the placeholder, which is the thing that
+    // reads the same on both hosts.
+    case.subst.fill_tree(&scratch.root);
     for (i, step) in case.steps.iter().enumerate() {
         match step {
             Step::Run { args, exit, golden, stream, stdin, cwd } => {
@@ -358,6 +691,10 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                         Stream::Out => super::normalise(&run.stdout, &scratch.root),
                         Stream::Err => super::normalise(&run.stderr, &scratch.root),
                     };
+                    // The placeholder goes back in before the golden is either
+                    // compared or recorded — one text, so blessing writes
+                    // exactly what a later run compares.
+                    let printed = case.subst.hide(&printed);
                     g.check(
                         &case.dir.join("expected").join(golden),
                         &format!("{}/{golden}", case.name),
@@ -386,7 +723,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     g.check(
                         &case.dir.join("expected").join(golden),
                         &format!("{}/{golden}", case.name),
-                        &text,
+                        &case.subst.hide(&text),
                     );
                 }
                 // Never blessed: `contains` and `absent` are hand-written the
@@ -508,4 +845,125 @@ fn unframe_responses(text: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// The substitution, on both hosts
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod placeholder_tests {
+    use super::*;
+
+    /// Everything a case writes, in one string, so the substitution is
+    /// exercised on the shapes it actually meets.
+    const CASE: &str = "run { args: [\"build\", \"//cmd/native\", \
+                        \"--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}\"] }\n\
+                        run { args: [\"--output={{CROSS_PLATFORM}}-{{CROSS_ARCH}}\"] }\n\
+                        { platform: {{CROSS_PLATFORM_PROTO}}, arch: {{CROSS_ARCH_PROTO}} },\n";
+
+    fn subst(host: &str) -> Subst {
+        Subst::of("test", host, &[CASE.to_string()])
+    }
+
+    /// The promise the table makes, and the only one a case rests on: the pair
+    /// is not the host, so `link.rs::can_link` refuses it — the runtime
+    /// archive is the host's and there is no cross one.
+    #[test]
+    fn the_cross_pair_is_never_the_host() {
+        for host in ["macos", "linux", "windows"] {
+            let (host_plat, cross) = platforms_for(host);
+            assert_ne!(
+                host_plat.map(|p| p.slug),
+                Some(cross.plat.slug),
+                "{host}: the cross platform is the host's, so the build would succeed"
+            );
+        }
+    }
+
+    /// The one thing in a golden no placeholder can stand in for is a caret
+    /// run: `^^^^` is as wide as the source text it underlines, and that text
+    /// is a filled-in fixture. So the two hosts have to spell every fact at the
+    /// same width, or a golden recorded on one would not hold on the other.
+    #[test]
+    fn the_two_hosts_spell_every_fact_at_the_same_width() {
+        for (mac, lin) in families("macos").iter().zip(&families("linux")) {
+            for (&(name, here), &(also, there)) in mac.iter().zip(lin) {
+                assert_eq!(name, also, "the two hosts have different vocabularies");
+                assert_eq!(
+                    here.len(),
+                    there.len(),
+                    "`{{{{{name}}}}}` is {here:?} here and {there:?} on Linux, and the two are \
+                     different widths — a recorded caret run would not line up"
+                );
+            }
+        }
+    }
+
+    /// A mac fills in Linux; the CI runner this is written for fills in macOS.
+    /// The Linux answer is the one that cannot be observed by running the
+    /// suite here, so it is asserted rather than run.
+    #[test]
+    fn each_host_gets_the_other_platform() {
+        assert_eq!(
+            subst("macos").fill("--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"),
+            "--output=linux/x86_64"
+        );
+        assert_eq!(
+            subst("linux").fill("--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"),
+            "--output=macos/x86_64"
+        );
+        assert_eq!(
+            subst("linux").fill("{ platform: {{CROSS_PLATFORM_PROTO}} }"),
+            "{ platform: MACOS }"
+        );
+    }
+
+    /// What a Linux runner records is what the repository already holds. This
+    /// is the round trip `BURI_BLESS=1` performs, with the host forced.
+    #[test]
+    fn blessing_records_the_placeholder_on_either_host() {
+        let recorded = "error: the {{CROSS_PLATFORM}} backend is not implemented\n \
+                        --> cmd/native/BUILD.buri:6:9\n  \
+                        = fix: drop the {{CROSS_PLATFORM}} output\n\
+                        .buri/out/{{CROSS_PLATFORM}}-{{CROSS_ARCH}}/cmd/native/native\n";
+        for host in ["macos", "linux"] {
+            let s = subst(host);
+            let printed = s.fill(recorded);
+            assert!(!printed.contains("{{"), "{host}: a placeholder survived the fill");
+            assert_eq!(s.hide(&printed), recorded, "{host}: the round trip lost something");
+        }
+    }
+
+    /// Reverse substitution rewrites the toolchain's own output, so it may only
+    /// touch whole tokens — and only for a case that declared the placeholder.
+    #[test]
+    fn only_whole_tokens_of_a_declared_placeholder_are_hidden() {
+        let s = subst("macos");
+        assert_eq!(s.hide("linuxish linux-x86_64 delinux /linux/"),
+                   "linuxish {{CROSS_PLATFORM}}-{{CROSS_ARCH}} delinux /{{CROSS_PLATFORM}}/");
+        // A macOS host's own platform is not in this case's vocabulary, so it
+        // is left exactly as the toolchain printed it.
+        assert_eq!(s.hide("built for macos"), "built for macos");
+        // And a case that declares nothing is the identity, which is what the
+        // other hundred-odd cases in the corpus rely on.
+        let none = Subst::of("test", "macos", &["doc: \"nothing\"".to_string()]);
+        assert!(none.is_empty());
+        assert_eq!(none.hide("linux x86_64 macos"), "linux x86_64 macos");
+    }
+
+    /// A capitalised name nobody defined is a typo, and a typo that survived
+    /// would be a fixture holding a token no diagnostic can ever match.
+    #[test]
+    #[should_panic(expected = "is not a placeholder the harness knows")]
+    fn an_unknown_placeholder_is_a_mistake_in_the_case() {
+        Subst::of("test", "macos", &["--output={{CROSS_PLATFROM}}".to_string()]);
+    }
+
+    /// `{{` means something in other languages, and a fixture is a program.
+    #[test]
+    fn lowercase_braces_are_not_placeholders() {
+        assert!(placeholders("let x = {{ a: 1 }};").is_empty());
+        assert_eq!(placeholders("{{CROSS_ARCH}}"), vec!["CROSS_ARCH".to_string()]);
+    }
 }

@@ -7,7 +7,7 @@ build of the toolchain at commit `1b0a711`. Reproducers are in `cases/`.
 To re-run: drop a case into a scratch repo as a JS binary package and build it.
 
 ```
-REPO.buri          toolchain { version: "0.3.0" sha256: "00" }
+REPO.buri               empty; its presence is what makes the directory a root
 cmd/<case>/BUILD.buri   binary { outputs: [{ platform: JS }] }
 cmd/<case>/main.buri    the case
 ```

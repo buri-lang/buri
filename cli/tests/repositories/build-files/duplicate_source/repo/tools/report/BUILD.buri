@@ -1,14 +1,13 @@
 # A package with both rules. `render.buri` is listed by each of them, so it is
 # compiled into two targets and belongs to neither.
-
 library {
-  sources: ["render.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["render.buri"]
+    visibility: ["//visibility:public"]
 }
 
 binary {
-  sources: ["render.buri"]
-  outputs: [
-    { platform: JS },
-  ]
+    sources: ["render.buri"]
+    outputs: [
+        { platform: JS },
+    ]
 }

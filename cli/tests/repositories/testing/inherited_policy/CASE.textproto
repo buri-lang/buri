@@ -22,7 +22,7 @@ run {
 
 edit {
   file: "lib/store/BUILD.buri"
-  replace: "    sources: [\"test/store.buri\"]"
+  replace: "        sources: [\"test/store.buri\"]"
   with: "    sources: [\"test/store.buri\"]\n    platforms: [JS]"
 }
 

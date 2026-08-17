@@ -97,7 +97,7 @@ export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
           _ => .Err(DecodeError(i * 2 + 1)),
         }
       },
-      list.empty::<U8>(),
+      list.empty<U8>(),
     )
   }
 }
@@ -131,7 +131,7 @@ export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
   let cs = text.chars(ctx);
   if (cs.len() % 4 != 0 || cs.len() == 0) {
     if (cs.len() == 0) {
-      .Ok(list.empty::<U8>())
+      .Ok(list.empty<U8>())
     } else {
       .Err(DecodeError(cs.len()))
     }

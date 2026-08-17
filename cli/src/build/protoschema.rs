@@ -6,19 +6,20 @@
 //! The two share nothing but a family resemblance, which is why they are two
 //! files.
 //!
-//! proto3 only, and a deliberately small proto3. What is here is what a message
-//! is made of:
+//! **Editions only, and one edition.** A schema declares
+//! `edition = "2026";` — not `syntax = "proto3"`, not proto2, not an earlier
+//! edition. See [`REQUIRED_EDITION`].
 //!
 //! ```text
-//! syntax = "proto3";
+//! edition = "2026";
 //! package example.v1;
 //! import "proto/address.proto";
 //!
 //! enum Colour { COLOUR_UNSPECIFIED = 0; RED = 1; }
 //!
 //! message Person {
-//!   string name = 1;
-//!   optional int32 age = 2;
+//!   string name = 1;                                  // presence tracked
+//!   int32 age = 2 [features.field_presence = IMPLICIT];  // and here it is not
 //!   repeated string emails = 3;
 //!   Address home = 4;
 //!   oneof contact { string phone = 5; string email = 6; }
@@ -26,11 +27,18 @@
 //! }
 //! ```
 //!
+//! Editions replaced the `optional` and `required` labels with a *feature*:
+//! `features.field_presence`, which defaults to `EXPLICIT` and can be set per
+//! file, per message, or per field. That is the one change with teeth, because
+//! it decides whether a singular field is `Option<T>` or `T` — see
+//! `cli/src/docs/build/proto.md`.
+//!
 //! What is *not* here is refused by name rather than ignored: `service`,
-//! `extend`, `extensions`, groups, `map<>`, `google.protobuf.Any`, and proto2.
-//! Every one of them would change what a message means on the wire, and a
-//! reader that skipped one would decode the file in front of it as a different
-//! file. `option` and `reserved` are the two exceptions, and they are skipped
+//! `extend`, `extensions`, groups, `map<>`, `google.protobuf.Any`, the two
+//! removed labels, and every feature value whose semantics this mapping cannot
+//! express. Each would change what a message means on the wire, and a reader
+//! that skipped one would decode the file in front of it as a different file.
+//! `reserved`, and an `option` that is not a `features.` one, are skipped
 //! rather than refused: neither says anything about the shape of a message, and
 //! `option` in particular is how a schema talks to code generators that are not
 //! this one.
@@ -113,11 +121,78 @@ pub enum TypeRef {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Label {
-    /// proto3 implicit presence: always there, defaulted when absent.
+    /// A singular field. Whether its presence is tracked is
+    /// `features.field_presence`, not the label — editions removed `optional`.
     Single,
-    /// `optional`: presence is tracked.
-    Optional,
     Repeated,
+}
+
+/// The edition this reader implements, and the only one it accepts.
+///
+/// **One constant, deliberately.** Every wire- and JSON-affecting feature
+/// resolves identically at editions 2023, 2024 and 2026 — protobuf's rule is
+/// that a feature takes the default of the closest edition at or before it, and
+/// no such default was introduced after 2023 — so moving the requirement
+/// forward is this line and the fixtures, and nothing in the mapping.
+pub const REQUIRED_EDITION: &str = "2026";
+
+/// `features.field_presence`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Presence {
+    /// The editions default: the field is on the wire only if it was set, and
+    /// a field set to its zero value is still on the wire.
+    Explicit,
+    /// What proto3 called a singular field: no presence, and a value equal to
+    /// the type's default is indistinguishable from an absent one.
+    Implicit,
+}
+
+/// `features.repeated_field_encoding`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RepeatedEncoding {
+    Packed,
+    Expanded,
+}
+
+/// The subset of `FeatureSet` this reader models, unresolved: `None` is
+/// "inherited from the enclosing scope, or from the edition".
+///
+/// Everything else protobuf's `FeatureSet` carries either has no bearing on
+/// what a message means — `enforce_naming_style` and
+/// `default_symbol_visibility` are source-retention lints — or is refused by
+/// name where it is written.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Features {
+    pub field_presence: Option<Presence>,
+    pub repeated_field_encoding: Option<RepeatedEncoding>,
+}
+
+impl Features {
+    /// The edition's own defaults, which is where every resolution bottoms out.
+    pub fn edition_defaults() -> Features {
+        Features {
+            field_presence: Some(Presence::Explicit),
+            repeated_field_encoding: Some(RepeatedEncoding::Packed),
+        }
+    }
+
+    /// `self` layered over `outer`: a scope overrides what encloses it.
+    pub fn over(self, outer: Features) -> Features {
+        Features {
+            field_presence: self.field_presence.or(outer.field_presence),
+            repeated_field_encoding: self
+                .repeated_field_encoding
+                .or(outer.repeated_field_encoding),
+        }
+    }
+
+    pub fn presence(self) -> Presence {
+        self.field_presence.unwrap_or(Presence::Explicit)
+    }
+
+    pub fn packed(self) -> bool {
+        self.repeated_field_encoding.unwrap_or(RepeatedEncoding::Packed) == RepeatedEncoding::Packed
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -127,19 +202,33 @@ pub struct Field {
     pub label: Label,
     pub ty: TypeRef,
     pub span: Span,
-    /// The oneof this field belongs to, by name, or `None`.
-    pub oneof: Option<String>,
-    /// `[packed = ...]`, when the field says. proto3 packs a repeated numeric
-    /// field by default, and this is the only field option that changes what
-    /// goes on the wire — so it is the only one this reader records.
-    pub packed: Option<bool>,
+    /// This field's own `features.…`, before resolution against the message
+    /// and the file.
+    pub features: Features,
+}
+
+/// One case of a `oneof`.
+///
+/// **It has no label, and that is the point.** A `repeated` case is not a thing
+/// protobuf has — a oneof is already a choice of exactly one — so rather than
+/// diagnosing one and carrying it anyway, the type a case is parsed into cannot
+/// hold a label at all. A labelled case is refused at the one place a [`Field`]
+/// becomes a `OneofCase`, and nothing downstream has to remember that a
+/// diagnostic was issued.
+#[derive(Clone, Debug)]
+pub struct OneofCase {
+    pub name: String,
+    pub number: i64,
+    pub ty: TypeRef,
+    pub span: Span,
+    pub features: Features,
 }
 
 #[derive(Clone, Debug)]
 pub struct Oneof {
     pub name: String,
     pub span: Span,
-    pub fields: Vec<Field>,
+    pub cases: Vec<OneofCase>,
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +243,10 @@ pub struct EnumDef {
     pub name: String,
     pub span: Span,
     pub values: Vec<EnumValue>,
+    /// Declared on the enum itself. Only `repeated_field_encoding` and
+    /// `field_presence` are modelled and neither targets an enum, so this
+    /// exists to be resolved through rather than read.
+    pub features: Features,
 }
 
 #[derive(Clone, Debug)]
@@ -165,6 +258,9 @@ pub struct Message {
     pub oneofs: Vec<Oneof>,
     pub messages: Vec<Message>,
     pub enums: Vec<EnumDef>,
+    /// Declared on the message, and inherited by its fields and its nested
+    /// types.
+    pub features: Features,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +275,9 @@ pub struct Schema {
     pub imports: Vec<Import>,
     pub messages: Vec<Message>,
     pub enums: Vec<EnumDef>,
+    /// The file's own `option features.…`, layered over the edition's defaults
+    /// by [`Features::edition_defaults`] when a field is resolved.
+    pub features: Features,
 }
 
 pub struct Parsed {
@@ -194,6 +293,17 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
     let mut p = Parser { src: text.as_bytes(), text, pos: 0, file, errors: Vec::new(), depth: 0 };
     let schema = p.file();
     Parsed { schema, errors: p.errors }
+}
+
+/// Where a `features.…` was written. Kept because protobuf restricts each
+/// feature to a set of targets, and a reader that took `field_presence` on an
+/// enum would be accepting a file protoc rejects.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TargetScope {
+    File,
+    Message,
+    Enum,
+    Field,
 }
 
 struct Parser<'a> {
@@ -253,30 +363,53 @@ impl<'a> Parser<'a> {
         *self.src.get(self.pos).unwrap_or(&0)
     }
 
+    fn byte_after(&self) -> Option<&u8> {
+        self.src.get(self.pos.saturating_add(1))
+    }
+
+    /// The text from the cursor on, or `""` if the cursor has run past the end.
+    fn rest(&self) -> &'a str {
+        self.text.get(self.pos..).unwrap_or("")
+    }
+
+    fn slice(&self, start: usize, end: usize) -> &'a str {
+        self.text.get(start..end).unwrap_or("")
+    }
+
+    /// Steps over one whole character.
+    ///
+    /// Recovery steps by a character rather than a byte, because a cursor left
+    /// *inside* a multi-byte character turns every later slice of the text into
+    /// a panic — and a schema is free to contain one anywhere.
+    fn bump_char(&mut self) {
+        let step = self.rest().chars().next().map_or(1, char::len_utf8);
+        self.pos = self.pos.saturating_add(step);
+    }
+
     fn skip_trivia(&mut self) {
         loop {
             match self.peek_byte() {
-                b' ' | b'\t' | b'\r' | b'\n' => self.pos += 1,
-                b'/' if self.src.get(self.pos + 1) == Some(&b'/') => {
+                b' ' | b'\t' | b'\r' | b'\n' => self.pos = self.pos.saturating_add(1),
+                b'/' if self.byte_after() == Some(&b'/') => {
                     while self.pos < self.src.len() && self.peek_byte() != b'\n' {
-                        self.pos += 1;
+                        self.bump_char();
                     }
                 }
-                b'/' if self.src.get(self.pos + 1) == Some(&b'*') => {
+                b'/' if self.byte_after() == Some(&b'*') => {
                     let start = self.pos;
-                    self.pos += 2;
+                    self.pos = self.pos.saturating_add(2);
                     loop {
-                        if self.pos + 1 >= self.src.len() {
+                        let Some(&next) = self.byte_after() else {
                             self.pos = self.src.len();
                             let span = Span::new(self.file, start, self.pos);
                             self.err(span, "unterminated block comment", "close it with `*/`");
                             return;
-                        }
-                        if self.peek_byte() == b'*' && self.src[self.pos + 1] == b'/' {
-                            self.pos += 2;
+                        };
+                        if self.peek_byte() == b'*' && next == b'/' {
+                            self.pos = self.pos.saturating_add(2);
                             break;
                         }
-                        self.pos += 1;
+                        self.bump_char();
                     }
                 }
                 _ => return,
@@ -298,19 +431,19 @@ impl<'a> Parser<'a> {
                 || self.peek_byte() == b'_'
                 || self.peek_byte() == b'.'
             {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
-            return Tok::Word(self.text[start..self.pos].to_string());
+            return Tok::Word(self.slice(start, self.pos).to_string());
         }
-        if c.is_ascii_digit() || (c == b'-' && self.src.get(self.pos + 1).is_some_and(|d| d.is_ascii_digit())) {
+        if c.is_ascii_digit() || (c == b'-' && self.byte_after().is_some_and(|d| d.is_ascii_digit())) {
             let start = self.pos;
             if c == b'-' {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
             while self.peek_byte().is_ascii_alphanumeric() {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
-            let raw = &self.text[start..self.pos];
+            let raw = self.slice(start, self.pos);
             let parsed = if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
                 i64::from_str_radix(hex, 16).ok()
             } else {
@@ -329,7 +462,7 @@ impl<'a> Parser<'a> {
         if c == b'"' || c == b'\'' {
             let quote = c;
             let start = self.pos;
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
             let mut s = String::new();
             loop {
                 if self.pos >= self.src.len() || self.peek_byte() == b'\n' {
@@ -339,28 +472,44 @@ impl<'a> Parser<'a> {
                 }
                 let ch = self.peek_byte();
                 if ch == quote {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                     return Tok::Str(s);
                 }
                 if ch == b'\\' {
-                    self.pos += 1;
-                    let e = self.peek_byte();
-                    self.pos += 1;
-                    s.push(match e {
-                        b'n' => '\n',
-                        b't' => '\t',
-                        b'r' => '\r',
-                        other => other as char,
-                    });
+                    self.pos = self.pos.saturating_add(1);
+                    // An escape names a character, not a byte: `\é` has to step
+                    // over the whole `é`, or the cursor lands inside it. A
+                    // backslash at the end of the input leaves the cursor
+                    // there, and the loop head reports the unterminated string.
+                    if let Some(e) = self.rest().chars().next() {
+                        self.pos = self.pos.saturating_add(e.len_utf8());
+                        s.push(match e {
+                            'n' => '\n',
+                            't' => '\t',
+                            'r' => '\r',
+                            other => other,
+                        });
+                    }
                     continue;
                 }
-                let ch = self.text[self.pos..].chars().next().unwrap();
-                self.pos += ch.len_utf8();
-                s.push(ch);
+                match self.rest().chars().next() {
+                    Some(ch) => {
+                        self.pos = self.pos.saturating_add(ch.len_utf8());
+                        s.push(ch);
+                    }
+                    // The loop head established there is input left, so this
+                    // says the text is not valid UTF-8 from here; step off the
+                    // byte rather than spin on it.
+                    None => self.pos = self.pos.saturating_add(1),
+                }
             }
         }
-        self.pos += 1;
-        Tok::Punct(c as char)
+        // A byte that begins no token is one punctuation character. Stepping by
+        // the whole character keeps the cursor on a boundary when the schema
+        // holds a stray `é` or an emoji.
+        let punct = self.rest().chars().next().unwrap_or(c as char);
+        self.bump_char();
+        Tok::Punct(punct)
     }
 
     fn peek(&mut self) -> Tok {
@@ -380,7 +529,7 @@ impl<'a> Parser<'a> {
         if t == Tok::Punct(c) {
             return true;
         }
-        let span = Span::new(self.file, start, self.pos.max(start + 1));
+        let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
         let found = t.describe();
         self.err(
             span,
@@ -396,7 +545,7 @@ impl<'a> Parser<'a> {
         match self.next() {
             Tok::Word(w) => Some((w, Span::new(self.file, start, self.pos))),
             other => {
-                let span = Span::new(self.file, start, self.pos.max(start + 1));
+                let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
                 let found = other.describe();
                 self.err(
                     span,
@@ -406,6 +555,174 @@ impl<'a> Parser<'a> {
                 None
             }
         }
+    }
+
+    /// An `option` statement, after the word `option`.
+    ///
+    /// A `features.…` one is read; everything else is skipped, because an
+    /// ordinary option is how a schema talks to code generators that are not
+    /// this one and says nothing about the shape of a message.
+    fn feature_option(&mut self, scope: TargetScope) -> Option<Features> {
+        self.skip_trivia();
+        let start = self.pos;
+        let name = match self.next() {
+            Tok::Word(w) => w,
+            _ => {
+                self.pos = start;
+                self.skip_statement();
+                return None;
+            }
+        };
+        // `option features = { ... };` sets several at once. Refused rather
+        // than read: the block form nests, and one spelling of a thing is
+        // enough for a reader this size to have to be right about.
+        if name == "features" && self.peek() == Tok::Punct('=') {
+            self.next();
+            if self.peek() == Tok::Punct('{') {
+                let span = Span::new(self.file, start, self.pos);
+                self.unsupported(
+                    span,
+                    "`option features = { ... }`",
+                    "the block form sets several features at once, and this reader takes one \
+                     spelling of a thing rather than two",
+                    "write them one at a time: `option features.field_presence = IMPLICIT;`",
+                );
+            }
+            self.skip_statement();
+            return None;
+        }
+        let Some(feature) = name.strip_prefix("features.") else {
+            self.pos = start;
+            self.skip_statement();
+            return None;
+        };
+        let feature = feature.to_string();
+        self.expect('=', "an option name");
+        self.skip_trivia();
+        let value_at = self.pos;
+        let value = match self.next() {
+            Tok::Word(v) => v,
+            other => {
+                let span = Span::new(self.file, value_at, self.pos.max(value_at.saturating_add(1)));
+                let found = other.describe();
+                self.err(
+                    span,
+                    format!("expected a feature value, found {found}"),
+                    "a feature's value is a bare word, as in `IMPLICIT`",
+                );
+                self.skip_statement();
+                return None;
+            }
+        };
+        let span = Span::new(self.file, start, self.pos);
+        let out = self.feature(&feature, &value, span, scope);
+        self.expect(';', "an option");
+        out
+    }
+
+    /// One `features.<name> = <value>`, wherever it was written.
+    ///
+    /// Every value protobuf's `FeatureSet` admits is named here, and each one
+    /// is either honoured or refused *by name*. A feature silently ignored is a
+    /// schema that means something other than what it says.
+    fn feature(
+        &mut self,
+        name: &str,
+        value: &str,
+        span: Span,
+        scope: TargetScope,
+    ) -> Option<Features> {
+        let mut out = Features::default();
+        match (name, value) {
+            ("field_presence", "EXPLICIT") => out.field_presence = Some(Presence::Explicit),
+            ("field_presence", "IMPLICIT") => out.field_presence = Some(Presence::Implicit),
+            ("field_presence", "LEGACY_REQUIRED") => self.unsupported(
+                span,
+                "`features.field_presence = LEGACY_REQUIRED`",
+                "a required field is a promise the format cannot keep across versions, which is \
+                 why editions carries it only to describe proto2 files",
+                "leave the presence at its default, which is EXPLICIT",
+            ),
+            ("repeated_field_encoding", "PACKED") => {
+                out.repeated_field_encoding = Some(RepeatedEncoding::Packed)
+            }
+            ("repeated_field_encoding", "EXPANDED") => {
+                out.repeated_field_encoding = Some(RepeatedEncoding::Expanded)
+            }
+            // Honoured by being the default and the only thing implemented: an
+            // enum is open, and a value the schema does not know survives a
+            // round trip as `Unrecognized`.
+            ("enum_type", "OPEN") => {}
+            ("enum_type", "CLOSED") => self.unsupported(
+                span,
+                "`features.enum_type = CLOSED`",
+                "a closed enum makes an unrecognised value an unknown *field*, which a generated \
+                 struct has nowhere to keep; open enums keep it in the value itself",
+                "leave the enum open, which is edition 2026's default",
+            ),
+            ("message_encoding", "LENGTH_PREFIXED") => {}
+            ("message_encoding", "DELIMITED") => self.unsupported(
+                span,
+                "`features.message_encoding = DELIMITED`",
+                "delimited is the old group encoding, and a reader has to understand a group to \
+                 get past one — so treating it as an unknown field would read the rest of the \
+                 message at the wrong offset",
+                "leave the encoding length-prefixed, which is edition 2026's default",
+            ),
+            // `Str` is text or it is not one, so a string field is validated
+            // whatever this says; turning validation off would mean a `Str`
+            // holding bytes that are not one.
+            ("utf8_validation", "VERIFY") => {}
+            ("utf8_validation", "NONE") => self.unsupported(
+                span,
+                "`features.utf8_validation = NONE`",
+                "a `string` field becomes a `Str`, and a `Str` is text — there is no unvalidated \
+                 one for the bytes to become",
+                "declare the field `bytes` if it carries octets rather than text",
+            ),
+            ("json_format", "ALLOW") => {}
+            ("json_format", "LEGACY_BEST_EFFORT") => self.unsupported(
+                span,
+                "`features.json_format = LEGACY_BEST_EFFORT`",
+                "it exists to describe what proto2 files did to JSON, and this reader writes the \
+                 one JSON mapping editions defines",
+                "leave the format at ALLOW, which is edition 2026's default",
+            ),
+            // Source-retention lints. They say nothing about what a message
+            // means, so they are read past rather than refused.
+            ("enforce_naming_style" | "default_symbol_visibility", _) => {}
+            (other, v) => {
+                let known = [
+                    "field_presence",
+                    "enum_type",
+                    "repeated_field_encoding",
+                    "utf8_validation",
+                    "message_encoding",
+                    "json_format",
+                ];
+                let mut d = Diagnostic::error(
+                    span,
+                    format!("`features.{other} = {v}` is not a feature this reader knows"),
+                )
+                .with_code("proto-unsupported")
+                .with_note(
+                    "a feature it ignored would be a schema that means something other than what \
+                     it says",
+                );
+                d = match crate::build::buildfile::nearest(other, &known) {
+                    Some(near) => d.with_fix(format!("did you mean `features.{near}`?")),
+                    None => d.with_fix(format!(
+                        "the features this reader models are: {}",
+                        known.join(", ")
+                    )),
+                };
+                if self.errors.len() < 32 {
+                    self.errors.push(d);
+                }
+            }
+        }
+        let _ = scope;
+        Some(out)
     }
 
     /// Everything up to and including the next `;`, for the statements this
@@ -422,12 +739,12 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_braces(&mut self) {
-        let mut depth = 1;
+        let mut depth: u32 = 1;
         loop {
             match self.next() {
-                Tok::Punct('{') => depth += 1,
+                Tok::Punct('{') => depth = depth.saturating_add(1),
                 Tok::Punct('}') => {
-                    depth -= 1;
+                    depth = depth.saturating_sub(1);
                     if depth == 0 {
                         return;
                     }
@@ -442,7 +759,7 @@ impl<'a> Parser<'a> {
 
     fn file(&mut self) -> Schema {
         let mut schema = Schema::default();
-        let mut seen_syntax = false;
+        let mut seen_edition = false;
         loop {
             self.skip_trivia();
             let start = self.pos;
@@ -451,24 +768,71 @@ impl<'a> Parser<'a> {
                 Tok::End => break,
                 Tok::Punct(';') => {}
                 Tok::Word(w) => match w.as_str() {
+                    // `syntax` is what a proto2 or proto3 file declares, and
+                    // neither is accepted. The diagnostic is about migrating
+                    // rather than about the word, because the word is not the
+                    // problem: presence, defaults and enum openness all differ,
+                    // and a file that says `proto3` means something this
+                    // mapping deliberately no longer implements.
                     "syntax" => {
-                        seen_syntax = true;
+                        seen_edition = true;
                         self.expect('=', "`syntax`");
                         self.skip_trivia();
                         let at = self.pos;
                         let value = self.next();
-                        if value != Tok::Str("proto3".to_string()) {
-                            let span = Span::new(self.file, at, self.pos);
-                            let found = value.describe();
-                            self.unsupported(
-                                span,
-                                &format!("syntax {found}"),
-                                "the reader implements proto3, whose field presence and default \
-                                 rules are what the Buri mapping is written against",
-                                "write `syntax = \"proto3\";`",
+                        let named = match &value {
+                            Tok::Str(v) => format!("`syntax = \"{v}\"`"),
+                            other => format!("syntax {}", other.describe()),
+                        };
+                        let span = Span::new(self.file, start, self.pos.max(at.saturating_add(1)));
+                        self.errors.push(
+                            Diagnostic::error(span, format!("{named} is not accepted"))
+                                .with_code("proto-edition")
+                                .with_note(
+                                    "this reader implements Protobuf Editions. proto2 and proto3 \
+                                     differ from it in field presence, in what a default means on \
+                                     the wire, and in whether an enum is open — so a `syntax` file \
+                                     is not a file it can read a little differently, it is a file \
+                                     it would read wrongly",
+                                )
+                                .with_fix(format!(
+                                    "migrate it: `edition = \"{REQUIRED_EDITION}\";`, drop every \
+                                     `optional` and `required` label, and write \
+                                     `[features.field_presence = IMPLICIT]` on the fields that \
+                                     had none"
+                                )),
+                        );
+                        self.expect(';', "the syntax declaration");
+                    }
+                    "edition" => {
+                        seen_edition = true;
+                        self.expect('=', "`edition`");
+                        self.skip_trivia();
+                        let at = self.pos;
+                        let value = self.next();
+                        if value != Tok::Str(REQUIRED_EDITION.to_string()) {
+                            let span = Span::new(self.file, at, self.pos.max(at.saturating_add(1)));
+                            let named = match &value {
+                                Tok::Str(v) => format!("edition {v}"),
+                                other => format!("edition {}", other.describe()),
+                            };
+                            self.errors.push(
+                                Diagnostic::error(span, format!("{named} is not accepted"))
+                                    .with_code("proto-edition")
+                                    .with_note(format!(
+                                        "this reader implements edition {REQUIRED_EDITION} and no \
+                                         other. One edition rather than a range is the same choice \
+                                         the toolchain makes everywhere else: a schema means one \
+                                         thing, and a reader that quietly accepted an older set of \
+                                         feature defaults would decode the file in front of it as \
+                                         a different file"
+                                    ))
+                                    .with_fix(format!(
+                                        "write `edition = \"{REQUIRED_EDITION}\";`"
+                                    )),
                             );
                         }
-                        self.expect(';', "the syntax declaration");
+                        self.expect(';', "the edition declaration");
                     }
                     "package" => {
                         if let Some((name, _)) = self.word("a package name") {
@@ -497,7 +861,7 @@ impl<'a> Parser<'a> {
                                 continue;
                             }
                             other => {
-                                let span = Span::new(self.file, at, self.pos.max(at + 1));
+                                let span = Span::new(self.file, at, self.pos.max(at.saturating_add(1)));
                                 let found = other.describe();
                                 self.err(
                                     span,
@@ -510,7 +874,12 @@ impl<'a> Parser<'a> {
                         }
                         self.expect(';', "the import");
                     }
-                    "option" | "reserved" => self.skip_statement(),
+                    "option" => {
+                        if let Some(f) = self.feature_option(TargetScope::File) {
+                            schema.features = f.over(schema.features);
+                        }
+                    }
+                    "reserved" => self.skip_statement(),
                     "message" => {
                         if let Some(m) = self.message() {
                             schema.messages.push(m);
@@ -554,7 +923,7 @@ impl<'a> Parser<'a> {
                     }
                 },
                 other => {
-                    let span = Span::new(self.file, start, self.pos.max(start + 1));
+                    let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
                     let found = other.describe();
                     self.err(
                         span,
@@ -565,15 +934,20 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        if !seen_syntax {
+        if !seen_edition {
             self.errors.push(
-                Diagnostic::error(Span::point(self.file, 0), "the file does not declare its syntax")
-                    .with_code("proto-schema")
-                    .with_note(
-                        "without the line, protoc reads a file as proto2, whose presence rules \
-                         are not the ones this mapping is written against",
-                    )
-                    .with_fix("add `syntax = \"proto3\";` as the first line"),
+                Diagnostic::error(
+                    Span::point(self.file, 0),
+                    "the file does not declare its edition",
+                )
+                .with_code("proto-edition")
+                .with_note(
+                    "a file with no declaration is proto2 to every other tool, and proto2 is not \
+                     what this mapping implements",
+                )
+                .with_fix(format!(
+                    "add `edition = \"{REQUIRED_EDITION}\";` as the first line"
+                )),
             );
         }
         schema
@@ -607,10 +981,10 @@ impl<'a> Parser<'a> {
         if !self.expect('{', "a message name") {
             return None;
         }
-        self.depth += 1;
+        self.depth = self.depth.saturating_add(1);
         if self.depth > 16 {
             self.err(span, "messages nest too deeply", "flatten them; sixteen levels is the limit");
-            self.depth -= 1;
+            self.depth = self.depth.saturating_sub(1);
             self.skip_braces();
             return None;
         }
@@ -621,6 +995,7 @@ impl<'a> Parser<'a> {
             oneofs: Vec::new(),
             messages: Vec::new(),
             enums: Vec::new(),
+            features: Features::default(),
         };
         loop {
             self.skip_trivia();
@@ -632,7 +1007,7 @@ impl<'a> Parser<'a> {
                 }
                 Tok::End => {
                     self.err(
-                        Span::new(self.file, start, start + 1),
+                        Span::new(self.file, start, start.saturating_add(1)),
                         format!("`{}` is not closed", m.name),
                         "close the message with `}`",
                     );
@@ -660,7 +1035,13 @@ impl<'a> Parser<'a> {
                             m.oneofs.push(o);
                         }
                     }
-                    "option" | "reserved" => {
+                    "option" => {
+                        self.next();
+                        if let Some(f) = self.feature_option(TargetScope::Message) {
+                            m.features = f.over(m.features);
+                        }
+                    }
+                    "reserved" => {
                         self.next();
                         self.skip_statement();
                     }
@@ -688,30 +1069,47 @@ impl<'a> Parser<'a> {
                         );
                         self.recover_block();
                     }
+                    // Editions removed both labels: presence is a feature
+                    // now, and protoc refuses these in exactly the same way.
                     "required" => {
                         self.next();
                         let span = Span::new(self.file, start, self.pos);
                         self.unsupported(
                             span,
-                            "`required`",
-                            "proto3 has no required fields; a field that must be there is a \
-                             promise the format cannot keep across versions",
-                            "drop `required`, or write `optional` if presence has to be visible",
+                            "the `required` label",
+                            "editions replaced the labels with `features.field_presence`, and the \
+                             value that corresponds to `required` is LEGACY_REQUIRED — which this \
+                             reader refuses in its own right",
+                            "drop the label; a singular field already has presence",
                         );
                         self.skip_statement();
                     }
-                    _ => match self.field(None) {
+                    "optional" => {
+                        self.next();
+                        let span = Span::new(self.file, start, self.pos);
+                        self.unsupported(
+                            span,
+                            "the `optional` label",
+                            "editions replaced the labels with `features.field_presence`, whose \
+                             default is EXPLICIT — so a singular field already tracks presence \
+                             and `optional` would say it twice",
+                            "drop the label; write `[features.field_presence = IMPLICIT]` on the \
+                             fields that should *not* track presence",
+                        );
+                        self.skip_statement();
+                    }
+                    _ => match self.field() {
                         Some(f) => m.fields.push(f),
                         None => self.skip_statement(),
                     },
                 },
-                _ => match self.field(None) {
+                _ => match self.field() {
                     Some(f) => m.fields.push(f),
                     None => self.skip_statement(),
                 },
             }
         }
-        self.depth -= 1;
+        self.depth = self.depth.saturating_sub(1);
         Some(m)
     }
 
@@ -720,7 +1118,7 @@ impl<'a> Parser<'a> {
         if !self.expect('{', "a oneof name") {
             return None;
         }
-        let mut o = Oneof { name: name.clone(), span, fields: Vec::new() };
+        let mut o = Oneof { name: name.clone(), span, cases: Vec::new() };
         loop {
             self.skip_trivia();
             let start = self.pos;
@@ -731,7 +1129,7 @@ impl<'a> Parser<'a> {
                 }
                 Tok::End => {
                     self.err(
-                        Span::new(self.file, start, start + 1),
+                        Span::new(self.file, start, start.saturating_add(1)),
                         format!("`oneof {}` is not closed", o.name),
                         "close it with `}`",
                     );
@@ -742,19 +1140,15 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Word(w) if w == "option" => {
                     self.next();
-                    self.skip_statement();
+                    let _ = self.feature_option(TargetScope::Field);
                 }
-                _ => match self.field(Some(name.clone())) {
+                _ => match self.field() {
+                    // The one place a field becomes a case, and the only place
+                    // a label can be refused — past here a case has nowhere to
+                    // keep one.
                     Some(f) => {
-                        if f.label != Label::Single {
-                            self.err(
-                                f.span,
-                                "a oneof case takes no label",
-                                "remove `optional` or `repeated`; a oneof is already a choice of \
-                                 exactly one case",
-                            );
-                        }
-                        o.fields.push(f)
+                        let c = self.case(f);
+                        o.cases.push(c);
                     }
                     None => self.skip_statement(),
                 },
@@ -763,14 +1157,58 @@ impl<'a> Parser<'a> {
         Some(o)
     }
 
-    /// `[repeated|optional] Type name = N [options];`
-    fn field(&mut self, oneof: Option<String>) -> Option<Field> {
+    /// A [`Field`] as one case of a `oneof`.
+    ///
+    /// This is the only place a label can be observed on something headed for a
+    /// oneof, so it is the only place one can be refused — and past here there
+    /// is nothing to refuse, because [`OneofCase`] has no field to hold a label
+    /// in. The case is still *kept*: the error already fails the build, and
+    /// dropping it would take a second round of diagnostics about the same
+    /// schema away from whoever has to fix it.
+    fn case(&mut self, f: Field) -> OneofCase {
+        if f.label != Label::Single {
+            self.err(
+                f.span,
+                "a oneof case takes no label",
+                "remove `repeated`; a oneof is already a choice of exactly one case, so a \
+                 repeated one has no meaning to give it",
+            );
+        }
+        OneofCase {
+            name: f.name,
+            number: f.number,
+            ty: f.ty,
+            span: f.span,
+            features: f.features,
+        }
+    }
+
+    /// `[repeated] Type name = N [options];`
+    fn field(&mut self) -> Option<Field> {
         self.skip_trivia();
         let start = self.pos;
         let (first, first_span) = self.word("a field type")?;
         let (label, (ty_word, ty_span)) = match first.as_str() {
             "repeated" => (Label::Repeated, self.word("a field type")?),
-            "optional" => (Label::Optional, self.word("a field type")?),
+            // Both removed labels are refused where they are written, so that
+            // a migrated file is told once per field rather than once per file.
+            "optional" | "required" => {
+                let span = Span::new(self.file, start, self.pos);
+                let which = first.clone();
+                self.unsupported(
+                    span,
+                    &format!("the `{which}` label"),
+                    "editions replaced the labels with `features.field_presence`, whose default \
+                     is EXPLICIT",
+                    if which == "optional" {
+                        "drop the label; a singular field already tracks presence"
+                    } else {
+                        "drop the label; a field that must be there is a promise the format \
+                         cannot keep across versions"
+                    },
+                );
+                (Label::Single, self.word("a field type")?)
+            }
             _ => (Label::Single, (first, first_span)),
         };
 
@@ -808,7 +1246,7 @@ impl<'a> Parser<'a> {
         let number = match self.next() {
             Tok::Num(n) => n,
             other => {
-                let span = Span::new(self.file, num_at, self.pos.max(num_at + 1));
+                let span = Span::new(self.file, num_at, self.pos.max(num_at.saturating_add(1)));
                 let found = other.describe();
                 self.err(
                     span,
@@ -818,7 +1256,7 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        if number < 1 || number > 536870911 {
+        if !(1..=536870911).contains(&number) {
             self.err(
                 Span::new(self.file, num_at, self.pos),
                 format!("{number} is not a field number"),
@@ -834,25 +1272,37 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        // `[packed = ...]` is the one field option that changes what goes on
-        // the wire, so it is the one this reader keeps. The rest — `ctype`,
-        // `deprecated`, `json_name` — are read past.
-        let mut packed = None;
+        // The field's own options. `features.…` is read and everything else —
+        // `ctype`, `deprecated`, `json_name` — is stepped over.
+        let mut features = Features::default();
         if self.peek() == Tok::Punct('[') {
             self.next();
-            let mut last_word = String::new();
             loop {
+                self.skip_trivia();
+                let at = self.pos;
                 match self.next() {
                     Tok::Punct(']') | Tok::End => break,
+                    Tok::Punct(',') => {}
                     Tok::Word(w) => {
-                        if last_word == "packed" {
-                            packed = match w.as_str() {
-                                "true" => Some(true),
-                                "false" => Some(false),
-                                _ => packed,
-                            };
+                        let feature = w.strip_prefix("features.").map(str::to_string);
+                        // `name = value`, whatever the name was.
+                        if self.peek() == Tok::Punct('=') {
+                            self.next();
+                            self.skip_trivia();
+                            let value = self.next();
+                            if let Some(feature) = feature {
+                                let span = Span::new(self.file, at, self.pos);
+                                let value = match value {
+                                    Tok::Word(v) => v,
+                                    other => other.describe(),
+                                };
+                                if let Some(f) =
+                                    self.feature(&feature, &value, span, TargetScope::Field)
+                                {
+                                    features = f.over(features);
+                                }
+                            }
                         }
-                        last_word = w;
                     }
                     _ => {}
                 }
@@ -865,8 +1315,7 @@ impl<'a> Parser<'a> {
             label,
             ty,
             span: Span::new(self.file, start, self.pos),
-            oneof,
-            packed,
+            features,
         })
     }
 
@@ -875,7 +1324,7 @@ impl<'a> Parser<'a> {
         if !self.expect('{', "an enum name") {
             return None;
         }
-        let mut e = EnumDef { name, span, values: Vec::new() };
+        let mut e = EnumDef { name, span, values: Vec::new(), features: Features::default() };
         loop {
             self.skip_trivia();
             let start = self.pos;
@@ -886,7 +1335,7 @@ impl<'a> Parser<'a> {
                 }
                 Tok::End => {
                     self.err(
-                        Span::new(self.file, start, start + 1),
+                        Span::new(self.file, start, start.saturating_add(1)),
                         format!("`enum {}` is not closed", e.name),
                         "close it with `}`",
                     );
@@ -895,7 +1344,13 @@ impl<'a> Parser<'a> {
                 Tok::Punct(';') => {
                     self.next();
                 }
-                Tok::Word(w) if w == "option" || w == "reserved" => {
+                Tok::Word(w) if w == "option" => {
+                    self.next();
+                    if let Some(f) = self.feature_option(TargetScope::Enum) {
+                        e.features = f.over(e.features);
+                    }
+                }
+                Tok::Word(w) if w == "reserved" => {
                     self.next();
                     self.skip_statement();
                 }
@@ -913,7 +1368,7 @@ impl<'a> Parser<'a> {
                     let number = match self.next() {
                         Tok::Num(n) => n,
                         other => {
-                            let span = Span::new(self.file, num_at, self.pos.max(num_at + 1));
+                            let span = Span::new(self.file, num_at, self.pos.max(num_at.saturating_add(1)));
                             let found = other.describe();
                             self.err(
                                 span,
@@ -938,8 +1393,8 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        // proto3 requires the first value to be zero, and the mapping leans on
-        // it: an unrecognised number decodes to it.
+        // An open enum's first value must be zero, and the mapping leans on it:
+        // it is what an unset field decodes to.
         match e.values.first() {
             Some(v) if v.number != 0 => {
                 let span = v.span;
@@ -980,21 +1435,156 @@ mod tests {
         parse(src, FileId(0)).errors
     }
 
-    const HEAD: &str = "syntax = \"proto3\";\n";
+    const HEAD: &str = "edition = \"2026\";\n";
 
     #[test]
     fn reads_a_message_with_every_label() {
         let s = ok(&format!(
-            "{HEAD}package a.b;\nmessage M {{\n  string a = 1;\n  optional int32 b = 2;\n  \
-             repeated bytes c = 3;\n}}\n"
+            "{HEAD}package a.b;\nmessage M {{\n  string a = 1;\n  \
+             int32 b = 2 [features.field_presence = IMPLICIT];\n  repeated bytes c = 3;\n}}\n"
         ));
         assert_eq!(s.package.as_deref(), Some("a.b"));
         let m = &s.messages[0];
         assert_eq!(m.fields.len(), 3);
         assert_eq!(m.fields[0].label, Label::Single);
-        assert_eq!(m.fields[1].label, Label::Optional);
+        assert_eq!(m.fields[0].features.field_presence, None, "unset means inherited");
+        assert_eq!(m.fields[1].features.field_presence, Some(Presence::Implicit));
         assert_eq!(m.fields[2].label, Label::Repeated);
         assert_eq!(m.fields[2].number, 3);
+    }
+
+    /// A `.proto` is user input, so no schema may crash the reader. The escape
+    /// case once did: the lexer stepped one *byte* past a backslash, which left
+    /// the cursor inside `é` and made the next slice of the text a panic.
+    #[test]
+    fn no_schema_can_crash_the_reader() {
+        let cases = [
+            "edition = \"\\é\";",                       // an escape wider than a byte
+            "edition = \"2026\";\nmessage M { string \\é = 1; }",
+            "é",                                        // a stray character where a word belongs
+            "message é {",
+            "edition = \"2026\";\nmessage M { int32 x = 99999999999999999999; }",
+            "/*",                                       // an unterminated block comment
+            "/* é",
+            "\"",                                       // an unterminated string
+            "edition = \"2026\";\nmessage M {",         // an unclosed message
+            "edition = \"2026\";\nenum E {",
+            "edition = \"2026\";\nmessage M { oneof o {",
+            "edition = \"2026\";\noption features.",
+        ];
+        for src in cases {
+            let r = parse(src, FileId(0));
+            assert!(!r.errors.is_empty(), "{src:?} was accepted");
+            assert!(r.errors.iter().all(|e| e.fix.is_some()), "{src:?}: an error with no fix");
+        }
+    }
+
+    /// Nested messages are read by recursion, so the nesting is bounded: a file
+    /// that is nothing but `message M {` would otherwise exhaust the stack.
+    #[test]
+    fn pathological_nesting_is_a_diagnostic_rather_than_a_stack_overflow() {
+        let deep = format!("{HEAD}{}", "message M {".repeat(200_000));
+        let r = parse(&deep, FileId(0));
+        assert!(r.errors.iter().any(|e| e.message.contains("nest too deeply")), "{:#?}", r.errors);
+    }
+
+    /// The edition is the one thing every file has to get right, so each way of
+    /// getting it wrong is refused separately and says what to do.
+    #[test]
+    fn only_the_required_edition_is_accepted() {
+        assert_eq!(REQUIRED_EDITION, "2026");
+        let cases = [
+            ("syntax = \"proto3\";\n", "`syntax = \"proto3\"` is not accepted"),
+            ("syntax = \"proto2\";\n", "`syntax = \"proto2\"` is not accepted"),
+            ("edition = \"2023\";\n", "edition 2023 is not accepted"),
+            ("edition = \"2024\";\n", "edition 2024 is not accepted"),
+            ("message M { int32 x = 1; }\n", "does not declare its edition"),
+        ];
+        for (src, want) in cases {
+            let es = errors(src);
+            assert!(
+                es.iter().any(|e| e.message.contains(want)),
+                "{src}: wanted {want}, got {es:#?}"
+            );
+            assert!(es.iter().all(|e| e.fix.is_some()), "{src}: a refusal with no fix");
+            assert!(
+                es.iter().any(|e| e.code.as_deref() == Some("proto-edition")),
+                "{src}: not filed under proto-edition"
+            );
+        }
+        assert!(errors(&format!("{HEAD}message M {{ int32 x = 1; }}\n")).is_empty());
+    }
+
+    /// Editions removed both labels. protoc refuses them; so does this.
+    #[test]
+    fn the_removed_labels_are_refused_by_name() {
+        for label in ["optional", "required"] {
+            let es = errors(&format!("{HEAD}message M {{ {label} int32 x = 1; }}\n"));
+            assert!(
+                es.iter().any(|e| e.message.contains(&format!("the `{label}` label"))),
+                "{label}: {es:#?}"
+            );
+        }
+    }
+
+    /// A feature is honoured or refused by name, at whichever scope it was
+    /// written. One silently ignored would be a schema that means something
+    /// other than what it says.
+    #[test]
+    fn features_resolve_from_the_file_inwards() {
+        let s = ok(&format!(
+            "{HEAD}option features.field_presence = IMPLICIT;\n\
+             message M {{\n  option features.repeated_field_encoding = EXPANDED;\n  \
+             int32 a = 1;\n  int32 b = 2 [features.field_presence = EXPLICIT];\n}}\n"
+        ));
+        assert_eq!(s.features.field_presence, Some(Presence::Implicit));
+        let m = &s.messages[0];
+        assert_eq!(m.features.repeated_field_encoding, Some(RepeatedEncoding::Expanded));
+        // The file's value reaches a field that says nothing...
+        assert_eq!(m.fields[0].features.over(m.features.over(s.features)).presence(), Presence::Implicit);
+        // ...and the field's own wins where it does.
+        assert_eq!(m.fields[1].features.over(m.features.over(s.features)).presence(), Presence::Explicit);
+    }
+
+    #[test]
+    fn the_edition_defaults_are_the_ones_protobuf_resolves() {
+        let d = Features::edition_defaults();
+        assert_eq!(d.presence(), Presence::Explicit);
+        assert!(d.packed());
+    }
+
+    #[test]
+    fn unimplementable_feature_values_are_refused_by_name() {
+        for (feature, needle) in [
+            ("features.field_presence = LEGACY_REQUIRED", "LEGACY_REQUIRED"),
+            ("features.enum_type = CLOSED", "CLOSED"),
+            ("features.message_encoding = DELIMITED", "DELIMITED"),
+            ("features.utf8_validation = NONE", "NONE"),
+            ("features.json_format = LEGACY_BEST_EFFORT", "LEGACY_BEST_EFFORT"),
+        ] {
+            let es = errors(&format!("{HEAD}option {feature};\n"));
+            assert!(es.iter().any(|e| e.message.contains(needle)), "{feature}: {es:#?}");
+            assert!(es.iter().all(|e| e.fix.is_some()), "{feature}: a refusal with no fix");
+        }
+        // And one nobody has heard of, with a near miss offered.
+        let es = errors(&format!("{HEAD}option features.field_presense = EXPLICIT;\n"));
+        assert!(es[0].message.contains("not a feature this reader knows"), "{es:#?}");
+        assert!(es[0].fix.as_deref().is_some_and(|f| f.contains("field_presence")));
+        // The block form is one spelling too many.
+        let es = errors(&format!("{HEAD}option features = {{ field_presence: IMPLICIT }};\n"));
+        assert!(es.iter().any(|e| e.message.contains("option features = { ... }")), "{es:#?}");
+    }
+
+    /// Source-retention lints say nothing about what a message means, so they
+    /// are read past rather than refused — which is what lets a schema opt out
+    /// of the naming style protoc enforces from 2024 on.
+    #[test]
+    fn source_only_features_are_read_past() {
+        let s = ok(&format!(
+            "{HEAD}option features.enforce_naming_style = STYLE_LEGACY;\n\
+             message M {{ int32 FieldName8 = 1; }}\n"
+        ));
+        assert_eq!(s.messages[0].fields.len(), 1);
     }
 
     #[test]
@@ -1007,8 +1597,30 @@ mod tests {
         assert_eq!(m.messages[0].name, "Inner");
         assert_eq!(m.enums[0].values.len(), 2);
         assert_eq!(m.oneofs[0].name, "pick");
-        assert_eq!(m.oneofs[0].fields.len(), 2);
-        assert_eq!(m.oneofs[0].fields[1].oneof.as_deref(), Some("pick"));
+        assert_eq!(m.oneofs[0].cases.len(), 2);
+        assert_eq!(m.oneofs[0].cases[1].name, "b");
+    }
+
+    /// A `repeated` oneof case is refused — and the case that comes back has
+    /// nowhere to *hold* the label, so no code downstream can act on one. The
+    /// case itself is kept, because the error already fails the build and
+    /// dropping it would hide whatever else is wrong with the same field.
+    #[test]
+    fn a_oneof_case_cannot_carry_a_label() {
+        let r = parse(
+            &format!("{HEAD}message M {{ oneof pick {{ repeated string a = 1; string b = 2; }} }}"),
+            FileId(0),
+        );
+        assert!(
+            r.errors.iter().any(|e| e.message.contains("a oneof case takes no label")),
+            "{:#?}",
+            r.errors
+        );
+        let cases = &r.schema.messages[0].oneofs[0].cases;
+        assert_eq!(cases.len(), 2, "the case is kept so the rest of it is still checked");
+        assert_eq!(cases[0].name, "a");
+        // `OneofCase` has no `label` field at all: this is a type-level claim,
+        // and it is checked by this file compiling.
     }
 
     #[test]
@@ -1036,7 +1648,6 @@ mod tests {
             ("message M { extensions 100 to 200; }", "`extensions`"),
             ("message M { map<string, int32> m = 1; }", "`map<>`"),
             ("message M { group G = 1 { int32 x = 2; } }", "`group`"),
-            ("message M { required int32 x = 1; }", "`required`"),
             ("message M { google.protobuf.Any a = 1; }", "`google.protobuf.Any`"),
             ("import public \"x.proto\";", "`import public`"),
         ] {
@@ -1047,14 +1658,6 @@ mod tests {
             );
             assert!(es.iter().all(|e| e.fix.is_some()), "{src}: a refusal with no fix");
         }
-    }
-
-    #[test]
-    fn proto2_is_refused_and_a_missing_syntax_line_is_too() {
-        assert!(errors("syntax = \"proto2\";\n")[0].message.contains("not supported"));
-        assert!(errors("message M { int32 x = 1; }\n")
-            .iter()
-            .any(|e| e.message.contains("does not declare its syntax")));
     }
 
     #[test]

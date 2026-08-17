@@ -1,14 +1,13 @@
 # The `testing` block has `dependencies` of its own. They are the testing
 # surface's, not the library's: //lib/aid must not appear in the library's
 # dependency closure, and `query deps` is what says so.
-
 library {
-  sources: ["w.buri"]
-  dependencies: ["//lib/core"]
-  visibility: ["//visibility:public"]
+    sources: ["w.buri"]
+    dependencies: ["//lib/core"]
+    visibility: ["//visibility:public"]
 
-  testing {
-    sources: ["testing/fixtures.buri"]
-    dependencies: ["//lib/aid"]
-  }
+    testing {
+        sources: ["testing/fixtures.buri"]
+        dependencies: ["//lib/aid"]
+    }
 }

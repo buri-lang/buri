@@ -1,0 +1,533 @@
+//! The native runtime, driven the way a generated program drives it.
+//!
+//! `cli/runtime` is not a cargo crate — it is built by `cli/build.rs` with a
+//! direct `rustc` invocation (BUILD-AND-WATCH.md §2.2) — so `cargo test` cannot
+//! reach inside it, and a `#[test]` in the runtime would prove nothing about
+//! the thing that matters anyway. What matters is the **C ABI**: whether a
+//! caller that knows only `cli/runtime/lib.rs`'s contract gets the answers the
+//! contract promises.
+//!
+//! So the suite compiles a C driver against the embedded archive with `cc` and
+//! runs it. `cc` is not a new requirement: the link step already drives the
+//! platform C compiler (CODEGEN-CRANELIFT.md §7.3), so a machine that can build
+//! a Buri artifact can build this driver.
+//!
+//! The four things it proves:
+//!
+//! 1. **The archive links.** A `buri_rt_*` symbol that is missing, or that has
+//!    the wrong arity, is a link error here rather than a miscompile later.
+//! 2. **The header is the header.** `rc`, `cap`, 16-byte alignment, the
+//!    `IMMORTAL` sentinel, drop-glue dispatch, and a heap that returns to its
+//!    starting size (MEMORY.md §2's leak property, on a corpus of one).
+//! 3. **The abort messages match JavaScript byte for byte**, which
+//!    `cli/tests/crash/` pins for the JavaScript backend and nothing pinned for
+//!    the native one until now (VALUE-MODEL.md §12 row 14).
+//! 4. **The host capabilities work**, including the byte forms and the write
+//!    ordering between the buffered text stream and `writeBytes`.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
+              `Cargo.toml` pins a promise about the toolchain, and a harness \
+              that drives the toolchain is not the toolchain."
+)]
+
+use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+const DRIVER: &str = include_str!("runtime_native/driver.c");
+
+/// A per-run directory under `CARGO_TARGET_TMPDIR`, so nothing is written
+/// inside a checked-in tree.
+fn workspace() -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("runtime-native");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Build the driver once, and hand every test the path to it.
+///
+/// `OnceLock` rather than a per-test build: `cc` on the driver plus a 6 MB
+/// archive is about a second, and paying it once for the suite is the
+/// difference between a test file that is worth running and one that is not.
+fn driver() -> &'static Path {
+    static BUILT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    BUILT.get_or_init(|| {
+        let dir = workspace();
+        let archive = dir.join(ARCHIVE_NAME);
+        let source = dir.join("driver.c");
+        let binary = dir.join("driver");
+        std::fs::write(&archive, ARCHIVE).unwrap();
+        std::fs::write(&source, DRIVER).unwrap();
+
+        let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
+        cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(&archive);
+        if cfg!(target_os = "linux") {
+            // Harmless where glibc has folded them in, and required where it
+            // has not. `std` reaches for all three.
+            cc.args(["-lpthread", "-ldl", "-lm"]);
+        }
+        let out = cc.output().unwrap();
+        assert!(
+            out.status.success(),
+            "cc failed to link the driver against {ARCHIVE_NAME}:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        binary
+    })
+}
+
+fn run(args: &[&str]) -> Output {
+    run_with(args, &[], "")
+}
+
+fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
+    let mut cmd = Command::new(driver());
+    cmd.args(args);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let mut pipe = child.stdin.take().unwrap();
+        pipe.write_all(stdin.as_bytes()).unwrap();
+    }
+    child.wait_with_output().unwrap()
+}
+
+fn stdout(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn stderr(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// Every host we build a runtime for runs these; the rest have nothing to run.
+fn skip() -> bool {
+    if !AVAILABLE {
+        eprintln!("runtime_native: no runtime archive on this host, nothing to test");
+        return true;
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+
+/// The header, the counts, the drop glue, and the leak property.
+#[test]
+fn the_memory_contract_holds() {
+    if skip() {
+        return;
+    }
+    let out = run(&["memory"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "rc=1 cap=100 aligned=1 \
+         after-incref=2 after-decref=1 \
+         dropped=1 freed=1 \
+         immortal-survives=1 \
+         realloc-keeps-rc=1 realloc-cap=200 \
+         leaked=0",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `Str`'s ASCII flag and the scalar count it stands in for
+/// (VALUE-MODEL.md §3.1), and `[T]` construction.
+#[test]
+fn the_value_contract_holds() {
+    if skip() {
+        return;
+    }
+    let out = run(&["values"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "ascii bytes=5 flag=1 scalars=5 \
+         utf8 bytes=6 flag=0 scalars=5 \
+         empty bytes=0 flag=1 \
+         list len=4 cap=32 \
+         divmod 142857 1 -142857 -1 \
+         udivmod-high 6148914691236517205 21 1",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// The rendering surface — `cli/runtime/fmt.rs` and `hash.rs`.
+///
+/// Every string and every number here is what the JavaScript runtime produces
+/// for the same input, which VALUE-MODEL.md §12 asks for and which nothing
+/// pinned natively until wave 3d. The float corpus lives next door in
+/// `native_float_parity.rs`, where four million values are checked against a
+/// JavaScript engine; these are the ones a reader would look up.
+#[test]
+fn the_rendering_contract_matches_javascript() {
+    if skip() {
+        return;
+    }
+    let out = run(&["render"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!(
+            // `$f64`'s four rows: the default arm, the integral one with its
+            // `.0`, the sign `Object.is(n, -0)` puts back, and the `1e21` cut
+            // above which the value is already exponential.
+            "f64 0.1\n",
+            "int 1.0\n",
+            "negzero -0.0\n",
+            "big 1e+21\n",
+            "denormal 5e-324\n",
+            // An `F32` is a double on JavaScript, so it renders as the double
+            // it widens to and not as the shortest `f32`.
+            "f32 0.10000000149011612\n",
+            "i128 -1\n",
+            "u128 18446744073709551616\n",
+            // `$show`'s `\"c\"` arm quotes and its `\"s\"` arm is
+            // `JSON.stringify`; `$str` does neither.
+            "char 'a'\n",
+            "charstr a\n",
+            "quoted \"a\\\"b\\n\"\n",
+            "fromint -42\n",
+            // `$hash(7)`, `$hash(\"ab\")`, `$hash('a')` and `$hash(NaN)`.
+            "hash-int 34363494\n",
+            "hash-str 1294271946\n",
+            "hash-char 3826002220\n",
+            "hash-nan 84696351",
+        ),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `core/str` at the C boundary — `cli/runtime/text.rs`.
+///
+/// Each line is a rule that would be easy to get subtly wrong, and each is
+/// `backend/js/runtime.js`'s answer rather than a defensible one: scalar
+/// indices instead of byte offsets, views instead of copies, JavaScript's
+/// whitespace set instead of Unicode's, UTF-16 order instead of byte order, and
+/// the `Option` discriminant of `cli/runtime/lib.rs` §2 rule 3 — `-1` present,
+/// `0` absent.
+#[test]
+fn the_string_surface_matches_javascript() {
+    if skip() {
+        return;
+    }
+    let out = run(&["text"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!(
+            "len 3\n",
+            "slice é\n",
+            // Scalar 2 of \"aé漢\" is U+6F22.
+            "charat -1 28450\n",
+            "charat-past 0\n",
+            // U+FEFF is JavaScript whitespace and is not Unicode `White_Space`.
+            "trim [x]\n",
+            "starts 1 ends 1 contains 1\n",
+            // A *scalar* index, so the two-byte and three-byte prefixes count
+            // as one each.
+            "indexof -1 3\n",
+            "indexof-none 0\n",
+            // The empty first half is what a null `ptr` would misreport as
+            // `.None`, which is why the runtime's empty string has an address.
+            "splitonce -1 [][b]\n",
+            "splitonce-none 0\n",
+            // `Less = 0`, `Equal = 1`, `Greater = 2`; the third pair is UTF-16
+            // order, where a surrogate pair sorts below U+FFFD.
+            "compare 0 1 2\n",
+            "eq 1 0\n",
+            "toint -1 42\n",
+            "toint-unsafe 0\n",
+            "tofloat -1 15\n",
+            "tofloat-bad 0\n",
+            "split 3 a b c\n",
+            "join a-b-c\n",
+            "lines 3\n",
+            "splitany 3\n",
+            "replace baNANA\n",
+            "repeat ababab\n",
+            "repeat-none []\n",
+            "upper AÉ\n",
+            "lower aé\n",
+            "padstart 007\n",
+            "padend 700\n",
+            "chars 2 97 233\n",
+            "fromchars aé",
+        ),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `core/list`'s block-copying half — `cli/runtime/list.rs`.
+///
+/// Including the retain glue, which is the part with no counterpart on the
+/// JavaScript side at all: a copied `[Str]` has to take a count on every string
+/// block it now names, and `repeat 3 3` is three elements and three retains.
+#[test]
+fn the_list_surface_copies_and_retains() {
+    if skip() {
+        return;
+    }
+    let out = run(&["list"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!(
+            "get -1 30\n",
+            "get-past 0\n",
+            "get-negative 0\n",
+            "concat 4 10 40\n",
+            "push 5 99\n",
+            "reverse 40 10\n",
+            // Clamped at both ends rather than aborting, as `xs.slice(a, b)` is.
+            "slice 4\n",
+            "repeat 3 3\n",
+            "range 3 4\n",
+            // An empty `[T]` allocates nothing, which is what makes
+            // `list.empty` free.
+            "range-empty 0 1",
+        ),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// The three messages `cli/tests/crash/` pins, byte for byte against
+/// `runtime.js`, plus the exit status `generate.rs:336` gives them.
+///
+/// A change to any of these on either backend breaks the other's corpus, which
+/// is the point: VALUE-MODEL.md §12 row 14 says the message and the status must
+/// agree, and this is the native half of the agreement.
+#[test]
+fn abort_messages_match_the_javascript_backend() {
+    if skip() {
+        return;
+    }
+    for (mode, message) in [
+        ("abort-div", "division by zero"),
+        ("abort-shift", "shift out of range"),
+        ("abort-random", "random range is empty"),
+    ] {
+        let out = run(&[mode]);
+        assert_eq!(stderr(&out), format!("{message}\n"), "mode {mode}");
+        assert_eq!(out.status.code(), Some(1), "mode {mode} must exit 1");
+    }
+}
+
+/// The aborts the JavaScript backend has no counterpart for. Nothing pins the
+/// wording, so this is what pins it.
+#[test]
+fn the_unpinned_aborts_say_what_they_mean() {
+    if skip() {
+        return;
+    }
+    let out = run(&["abort-bounds"]);
+    assert_eq!(stderr(&out), "index out of bounds: the length is 3 but the index is 7\n");
+    assert_eq!(out.status.code(), Some(1));
+
+    let out = run(&["abort-budget"]);
+    assert_eq!(
+        stderr(&out),
+        "allocation budget exhausted: 4096 bytes requested against a budget of 1024\n"
+    );
+    assert_eq!(out.status.code(), Some(1));
+}
+
+/// Buffered output is flushed before an abort, so the last thing a program
+/// printed is above the reason it stopped — `generate.rs:337`'s ordering.
+#[test]
+fn an_abort_flushes_what_was_printed() {
+    if skip() {
+        return;
+    }
+    let out = run(&["abort-after-print"]);
+    assert_eq!(stdout(&out), "printed before the abort\n");
+    assert_eq!(stderr(&out), "division by zero\n");
+    assert_eq!(out.status.code(), Some(1));
+}
+
+/// The text stream, the byte stream, and the ordering between them.
+///
+/// `writeBytes` flushes the text buffer first, for the same reason
+/// `$host_HostStdout_writeBytes` does: the two orderings a program can see are
+/// the one it wrote.
+#[test]
+fn the_streams_interleave_as_written() {
+    if skip() {
+        return;
+    }
+    let out = run(&["streams"]);
+    assert_eq!(stdout(&out), "one two\nthree\nfour");
+    assert_eq!(stderr(&out), "err one\nerr two");
+    assert!(out.status.success());
+}
+
+/// `Fs`, end to end, including the two error shapes a program can match on.
+#[test]
+fn the_filesystem_capability_works() {
+    if skip() {
+        return;
+    }
+    let dir = workspace().join("fs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = run(&["fs", dir.to_str().unwrap()]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "write=ok exists=1 read=hello utf8=héllo \
+         readdir=2 missing=0 notdir=4 exists-missing=0",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `Env`, both halves — and the argument vector the entry point hands over.
+#[test]
+fn the_environment_capability_works() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["env", "alpha", "beta"], &[("BURI_RT_TEST", "set")], "");
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "var=set missing=none args=3:env,alpha,beta",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `Clock` and `Rand`. Neither has a fixed answer, so what is asserted is the
+/// range each one promises.
+#[test]
+fn the_clock_and_random_capabilities_work() {
+    if skip() {
+        return;
+    }
+    let out = run(&["clock-rand"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "now-after-2020=1 slept=1 int-in-range=1000 float-in-range=1000 varies=1",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `Stdin`, both forms: lines to end of input, and exactly `n` octets.
+#[test]
+fn the_standard_input_capability_works() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["stdin-lines"], &[], "alpha\nbeta\n");
+    assert_eq!(stdout(&out).trim_end(), "line=alpha line=beta end", "stderr:\n{}", stderr(&out));
+
+    let out = run_with(&["stdin-bytes"], &[], "abcdef");
+    assert_eq!(stdout(&out).trim_end(), "got=4:abcd then=2:ef then=none");
+
+    let out = run_with(&["stdin-lines"], &[], "");
+    assert_eq!(stdout(&out).trim_end(), "end");
+}
+
+/// `Proc::exitWith` flushes and does not return.
+#[test]
+fn the_process_capability_exits() {
+    if skip() {
+        return;
+    }
+    let out = run(&["exit"]);
+    assert_eq!(stdout(&out), "buffered, and flushed by the exit\n");
+    assert_eq!(out.status.code(), Some(7));
+}
+
+/// `Net::fetch` against a socket this test owns.
+///
+/// A real HTTP server rather than a mock: the point of the client is that it
+/// speaks the protocol to something that did not come out of the same file.
+/// `http://` only, and the `https://` refusal is asserted too, because a
+/// refusal that silently became a cleartext request would be the worst possible
+/// regression in this file.
+#[test]
+fn the_network_capability_fetches() {
+    if skip() {
+        return;
+    }
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server = std::thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buf = [0_u8; 1024];
+        // Read until the headers are complete; the driver sends no body.
+        loop {
+            let n = sock.read(&mut buf).unwrap();
+            request.extend_from_slice(&buf[..n]);
+            if n == 0 || request.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response = concat!(
+            "HTTP/1.1 201 Created\r\n",
+            "Content-Type: text/plain\r\n",
+            "Transfer-Encoding: chunked\r\n",
+            "\r\n",
+            // Two chunks, so the client's dechunker is what assembled the body.
+            "5\r\nhello\r\n",
+            "4\r\n you\r\n",
+            "0\r\n\r\n",
+        );
+        sock.write_all(response.as_bytes()).unwrap();
+        sock.flush().unwrap();
+        String::from_utf8_lossy(&request).into_owned()
+    });
+
+    let out = run(&["net", &format!("http://127.0.0.1:{port}/probe")]);
+    let request = server.join().unwrap();
+    assert!(request.starts_with("GET /probe HTTP/1.1\r\n"), "request was:\n{request}");
+    assert!(request.contains(&format!("Host: 127.0.0.1:{port}\r\n")), "request was:\n{request}");
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "status=201 body=hello you",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// The two refusals, which are the honest half of `fetch`'s scope.
+#[test]
+fn the_network_capability_refuses_what_it_cannot_do() {
+    if skip() {
+        return;
+    }
+    let out = run(&["net", "https://example.invalid/"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "err=3 message=https is not supported by the native runtime \
+         (build with the `net-tls` feature)"
+    );
+
+    let out = run(&["net", "not-a-url"]);
+    assert_eq!(stdout(&out).trim_end(), "err=2 message=not an absolute http URL: not-a-url");
+}

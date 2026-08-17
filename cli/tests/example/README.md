@@ -10,7 +10,7 @@ visibility, tags, platforms, a testing surface, and a library boundary — which
 is why the documentation keeps pointing at it.
 
 ```
-REPO.buri                     repository root, toolchain pin, tag vocabulary
+REPO.buri                     repository root, tag vocabulary
 lib/
   money/                      //lib/money        no tags: links into anything
     BUILD.buri

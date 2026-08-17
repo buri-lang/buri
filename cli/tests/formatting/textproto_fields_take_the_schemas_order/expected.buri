@@ -1,0 +1,19 @@
+library {
+    sources: ["a.buri"]
+    dependencies: []
+    visibility: ["//..."]
+    test {
+        sources: ["test/b.buri"]
+    }
+}
+
+binary {
+    sources: ["main.buri"]
+    dependencies: ["//lib/money"]
+    outputs: [
+        { platform: JS },
+    ]
+    test {
+        sources: ["test/a.buri"]
+    }
+}

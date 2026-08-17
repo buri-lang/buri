@@ -1,0 +1,16 @@
+error: `syntax = "proto3"` is not accepted [proto-edition]
+ --> lib/legacy/shape.proto:1:1
+  |
+1 | syntax = "proto3";
+  | ^^^^^^^^^^^^^^^^^
+  |
+  = this reader implements Protobuf Editions. proto2 and proto3 differ from it in field presence, in what a default means on the wire, and in whether an enum is open — so a `syntax` file is not a file it can read a little differently, it is a file it would read wrongly
+  = fix: migrate it: `edition = "2026";`, drop every `optional` and `required` label, and write `[features.field_presence = IMPLICIT]` on the fields that had none
+error: the `optional` label is not supported [proto-unsupported]
+ --> lib/legacy/shape.proto:7:3
+  |
+7 |   optional int32 sides = 2;
+  |   ^^^^^^^^
+  |
+  = editions replaced the labels with `features.field_presence`, whose default is EXPLICIT — so a singular field already tracks presence and `optional` would say it twice
+  = fix: drop the label; write `[features.field_presence = IMPLICIT]` on the fields that should *not* track presence

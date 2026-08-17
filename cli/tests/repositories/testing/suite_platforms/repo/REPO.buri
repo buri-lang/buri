@@ -1,25 +1,19 @@
 # The tag vocabulary, and the whole of build policy. A build file says what
 # its code *is*; these blocks say what follows from that.
+tag {
+    name: "server"
+    doc: "runs on infrastructure we operate"
 
-toolchain {
-  version: "0.3.0"
-  sha256: "00"
+    requires {
+        platforms: [LINUX, MACOS]
+    }
 }
 
 tag {
-  name: "server"
-  doc: "runs on infrastructure we operate"
+    name: "browser"
+    doc: "runs in a web page, and nowhere else"
 
-  requires {
-    platforms: [LINUX, MACOS]
-  }
-}
-
-tag {
-  name: "browser"
-  doc: "runs in a web page, and nowhere else"
-
-  requires {
-    platforms: [JS]
-  }
+    requires {
+        platforms: [JS]
+    }
 }

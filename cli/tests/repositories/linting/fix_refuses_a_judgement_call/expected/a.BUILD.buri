@@ -1,5 +1,5 @@
 library {
-  sources: ["a.buri"]
-  dependencies: ["//lib/b"]
-  visibility: ["//visibility:public"]
+    sources: ["a.buri"]
+    dependencies: ["//lib/b"]
+    visibility: ["//visibility:public"]
 }

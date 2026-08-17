@@ -37,40 +37,54 @@ impl Position {
 }
 
 /// Byte offset -> protocol position.
+///
+/// Walking characters rather than slicing at `offset` means an offset that
+/// lands inside a multi-byte character counts that character rather than
+/// splitting it. Nothing in the compiler produces such an offset, but the
+/// alternative to counting one is a panic.
 pub fn position_of(text: &str, offset: u32) -> Position {
     let offset = (offset as usize).min(text.len());
     let mut line = 0u32;
-    let mut line_start = 0usize;
-    for (i, b) in text.bytes().enumerate().take(offset) {
-        if b == b'\n' {
-            line += 1;
-            line_start = i + 1;
+    let mut character = 0u32;
+    for (i, c) in text.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if c == '\n' {
+            line = line.saturating_add(1);
+            character = 0;
+        } else {
+            character = character.saturating_add(c.len_utf16() as u32);
         }
     }
-    let character = text[line_start..offset].chars().map(|c| c.len_utf16() as u32).sum();
     Position { line, character }
 }
 
 /// Protocol position -> byte offset. A position past the end of a line clamps
 /// to the end of that line, which is what a client sends when the buffer it is
-/// describing is one edit ahead of the one the server has.
+/// describing is one edit ahead of the one the server has. A line past the end
+/// of the file clamps to the end of the file, for the same reason.
+///
+/// The result is always a character boundary in `text`, which is what lets the
+/// callers slice with it.
 pub fn offset_of(text: &str, p: Position) -> u32 {
-    let mut start = 0usize;
-    for _ in 0..p.line {
-        match text[start..].find('\n') {
-            Some(i) => start += i + 1,
-            None => return text.len() as u32,
+    let mut line_start = 0usize;
+    for (n, line) in text.split_inclusive('\n').enumerate() {
+        if n != p.line as usize {
+            line_start = line_start.saturating_add(line.len());
+            continue;
         }
-    }
-    let line_end = text[start..].find('\n').map(|i| start + i).unwrap_or(text.len());
-    let mut units = 0u32;
-    for (i, c) in text[start..line_end].char_indices() {
-        if units >= p.character {
-            return (start + i) as u32;
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        let mut units = 0u32;
+        for (i, c) in line.char_indices() {
+            if units >= p.character {
+                return line_start.saturating_add(i) as u32;
+            }
+            units = units.saturating_add(c.len_utf16() as u32);
         }
-        units += c.len_utf16() as u32;
+        return line_start.saturating_add(line.len()) as u32;
     }
-    line_end as u32
+    text.len() as u32
 }
 
 pub fn range(text: &str, span: Span) -> Value {
@@ -100,27 +114,30 @@ pub fn path_of(uri: &str) -> Option<PathBuf> {
     // A `file://host/path` authority is not something a local editor sends,
     // and guessing at one would produce a path that silently is not the file.
     let rest = rest.strip_prefix('/').map(|r| format!("/{r}")).unwrap_or_else(|| rest.to_string());
-    let b = rest.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            let hex = std::str::from_utf8(&b[i + 1..i + 3]).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
+    let mut out: Vec<u8> = Vec::with_capacity(rest.len());
+    let mut bytes: &[u8] = rest.as_bytes();
+    while let Some((&b, tail)) = bytes.split_first() {
+        // A `%` without two bytes behind it is not an escape. `uri_of` never
+        // writes one, but a client's encoder is not this one.
+        match if b == b'%' { tail.split_at_checked(2) } else { None } {
+            Some((hex, after)) => {
+                out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+                bytes = after;
+            }
+            None => {
+                out.push(b);
+                bytes = tail;
+            }
         }
     }
     Some(PathBuf::from(String::from_utf8(out).ok()?))
 }
 
-fn severity(s: Severity) -> f64 {
+fn severity(s: Severity) -> i64 {
     match s {
-        Severity::Error => 1.0,
-        Severity::Warning => 2.0,
-        Severity::Note => 3.0,
+        Severity::Error => 1,
+        Severity::Warning => 2,
+        Severity::Note => 3,
     }
 }
 
@@ -204,6 +221,46 @@ mod tests {
         let text = "ab\ncd\n";
         assert_eq!(offset_of(text, Position { line: 0, character: 99 }), 2);
         assert_eq!(offset_of(text, Position { line: 99, character: 0 }), text.len() as u32);
+    }
+
+    /// A position is whatever the client sent. Every one of these used to be a
+    /// slice or a subtraction; none of them may be a panic, and each has to
+    /// land on a character boundary so that the callers can slice with it.
+    #[test]
+    fn a_position_the_client_made_up_still_lands_somewhere() {
+        let text = "aé😀\nx\n";
+        let hostile = [
+            Position { line: 0, character: u32::MAX },
+            Position { line: u32::MAX, character: u32::MAX },
+            Position { line: u32::MAX, character: 0 },
+            // Inside `é`, and inside `😀`: a UTF-16 offset the text has no
+            // boundary for.
+            Position { line: 0, character: 1 },
+            Position { line: 0, character: 3 },
+            Position { line: 1, character: 500 },
+            Position { line: 2, character: 0 },
+            Position { line: 3, character: 7 },
+        ];
+        for p in hostile {
+            let o = offset_of(text, p) as usize;
+            assert!(o <= text.len(), "{p:?} left the file at {o}");
+            assert!(text.is_char_boundary(o), "{p:?} landed inside a character at {o}");
+        }
+        // And the empty file, where there is no line to clamp to.
+        for p in hostile {
+            assert_eq!(offset_of("", p), 0, "{p:?}");
+        }
+    }
+
+    /// A byte offset past the end, or inside a character, is the compiler's
+    /// side of the same question.
+    #[test]
+    fn a_byte_offset_that_is_not_a_boundary_still_has_a_position() {
+        let text = "aé😀\nx";
+        assert_eq!(position_of(text, u32::MAX), Position { line: 1, character: 1 });
+        // Inside the `😀`: the character it is inside counts whole.
+        assert_eq!(position_of(text, 5), Position { line: 0, character: 4 });
+        assert_eq!(position_of("", 9), Position { line: 0, character: 0 });
     }
 
     #[test]

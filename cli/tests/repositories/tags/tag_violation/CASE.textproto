@@ -24,7 +24,7 @@ run {
 # about `//lib/store` being tagged at all.
 edit {
   file: "cmd/web/BUILD.buri"
-  replace: "  tags: [\"client\"]\n"
+  replace: "    tags: [\"client\"]\n"
   with: ""
 }
 

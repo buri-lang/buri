@@ -1,0 +1,7 @@
+edition = "2026";
+
+package left.v1;
+
+message Status {
+  int32 code = 1;
+}

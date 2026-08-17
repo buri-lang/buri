@@ -30,6 +30,10 @@ module.exports = grammar({
     $.block_comment,
   ],
 
+  conflicts: $ => [
+    [$._operand, $.generic_expression],
+  ],
+
   rules: {
     source_file: $ => repeat($._item),
 
@@ -300,7 +304,7 @@ module.exports = grammar({
       $.call_expression,
       $.index_expression,
       $.try_expression,
-      $.turbofish_expression,
+      $.generic_expression,
       $.struct_literal
     ),
 
@@ -319,7 +323,7 @@ module.exports = grammar({
 
     try_expression: $ => prec(11, seq($._postfix_expression, '?')),
 
-    turbofish_expression: $ => prec(11, seq($._postfix_expression, '::', $.type_arguments)),
+    generic_expression: $ => prec.dynamic(1, seq($._postfix_expression, $.type_arguments)),
 
     struct_literal: $ => prec(11, seq(field('type', $._postfix_expression), $.struct_literal_body)),
 

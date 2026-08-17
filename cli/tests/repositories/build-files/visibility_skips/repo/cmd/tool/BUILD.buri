@@ -1,18 +1,17 @@
 # The library declares no `visibility`, so it is `//visibility:private` — the
 # default, and the thing this case is really about. Two edges still reach it:
 # the binary in this same package, and this library's own test suite.
-
 library {
-  sources: ["render.buri"]
+    sources: ["render.buri"]
 
-  test {
-    sources: ["test/render.buri"]
-  }
+    test {
+        sources: ["test/render.buri"]
+    }
 }
 
 binary {
-  sources: ["flags.buri"]
-  outputs: [
-    { platform: JS },
-  ]
+    sources: ["flags.buri"]
+    outputs: [
+        { platform: JS },
+    ]
 }

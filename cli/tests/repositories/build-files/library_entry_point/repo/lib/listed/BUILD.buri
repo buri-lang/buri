@@ -1,8 +1,7 @@
 # `lib.buri` is named by the rule kind rather than listed, so writing it in
 # `sources` says nothing the rule did not already say. It is an error; see the
 # manifest.
-
 library {
-  sources: ["lib.buri", "b.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["lib.buri", "b.buri"]
+    visibility: ["//visibility:public"]
 }

@@ -4,20 +4,9 @@
 #
 # Schema: buri.build.v1.RepoConfig — ../schema/repo.proto
 #
-# Two things: which compiler builds this repository, and the tag vocabulary.
-# There is no name, no defaults block, no lint block, and no place to put a
-# compiler flag — see REPO-CONFIG.md for why each of those is absent.
-
-# A `sha256` of nothing but zeros is the sentinel for *unpinned*, and the CLI
-# verifies a pin that is not one against the executable running it. This
-# repository is built by whichever `buri` the test suite just compiled, so it
-# has no release to name — and the hash that used to sit here was a plausible
-# fake, which is the one thing a field nobody checked should never have been.
-toolchain {
-  version: "0.3.0"
-  sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-}
-
+# One thing: the tag vocabulary. There is no name, no defaults block, no lint
+# block, no toolchain pin, and no place to put a compiler flag — see
+# REPO-CONFIG.md for why each of those is absent.
 # The whole tag vocabulary, and the whole of build policy. A build file says
 # what its code *is*; these blocks say what follows from that. Adding a library
 # that reuses one of these tags never edits this file.
@@ -28,34 +17,38 @@ toolchain {
 # The deployment boundary. `forbids` is symmetric, so stating it once here is
 # the same as stating it on `client`.
 tag {
-  name: "server"
-  doc: "runs on infrastructure we operate"
+    name: "server"
+    doc: "runs on infrastructure we operate"
 
-  forbids { tags: ["client"] }
+    forbids {
+        tags: ["client"]
+    }
 
-  requires {
-    # Server code is never shipped to a browser. Declared here rather than on
-    # each library, and a whitelist rather than "not JS", so adding a platform
-    # to the toolchain does not silently widen anything written before it.
-    platforms: [LINUX, MACOS]
-  }
+    requires {
+        # Server code is never shipped to a browser. Declared here rather than on
+        # each library, and a whitelist rather than "not JS", so adding a platform
+        # to the toolchain does not silently widen anything written before it.
+        platforms: [LINUX, MACOS]
+    }
 }
 
 tag {
-  name: "client"
-  doc: "ships to a user's machine or browser"
+    name: "client"
+    doc: "ships to a user's machine or browser"
 }
 
 # Maturity is checked by the same walk as the tier boundary — both are questions
 # about what ends up in one artifact. `stable` is opt-in: a binary that refuses
 # to ship unfinished code says so.
 tag {
-  name: "experimental"
-  doc: "API may change without a deprecation period"
-  forbids { tags: ["stable"] }
+    name: "experimental"
+    doc: "API may change without a deprecation period"
+    forbids {
+        tags: ["stable"]
+    }
 }
 
 tag {
-  name: "stable"
-  doc: "contains nothing whose API may still move"
+    name: "stable"
+    doc: "contains nothing whose API may still move"
 }

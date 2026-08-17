@@ -2,8 +2,3 @@
 # directory asserts on what the language is specified to do, so a regression in
 # the backend shows up as a failing assertion rather than as a program that
 # still exits 0.
-
-toolchain {
-  version: "0.3.0"
-  sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-}

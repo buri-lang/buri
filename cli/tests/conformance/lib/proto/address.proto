@@ -3,7 +3,7 @@
 // `Country` is here rather than in demo.proto so that the enum a field names
 // and the message a field holds both cross a file boundary.
 
-syntax = "proto3";
+edition = "2026";
 
 package conformance.proto.v1;
 

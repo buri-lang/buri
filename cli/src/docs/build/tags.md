@@ -290,6 +290,13 @@ to be able to write. `I64` on the JS target ([`SPEC.md` §15](./SPEC.md)) is the
 standing reason it exists. A platform listed here must be one the target admits —
 asking for a JS run of a `[LINUX, MACOS]` library is an error, not a skip.
 
+A native platform runs as a native binary where this toolchain can build one for
+it, which means the host's own platform: there is no cross-compilation, so a
+`LINUX` run is a Linux machine's and a `MACOS` run is a Mac's, and the other is
+refused with `platform-not-implemented` rather than quietly run through
+JavaScript. A suite that names no platforms still runs on JavaScript, which is
+the only backend every program can rely on today.
+
 ## What tags are not
 
 - **Not a boolean expression language.** A tag declaration has one list of

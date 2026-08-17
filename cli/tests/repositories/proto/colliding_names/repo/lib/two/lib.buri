@@ -1,0 +1,1 @@
+from "//lib/two/use.proto" export { Holder };

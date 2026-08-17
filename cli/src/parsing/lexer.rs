@@ -6,11 +6,12 @@
 //! * There is no `<<`, `>>`, or `?.` token. Their absence is what keeps
 //!   `Wrapper<Wrapper<Int>>` from mis-lexing and `x?.field` from needing a
 //!   token splitter (SPEC 12.6).
-//! * Template interpolation is the only mode-dependent part. The lexer keeps a
-//!   stack of open interpolations so a `}` closing a block inside a hole is
-//!   told apart from the `}` that resumes template text.
+//! * Template interpolation is the only mode-dependent part. The lexer keeps
+//!   one stack of what is currently open — a brace or an interpolation hole —
+//!   so a `}` closing a block inside a hole is told apart from the `}` that
+//!   resumes template text by which of the two is on top.
 
-use crate::diagnostics::{Diagnostic, FileId, Span};
+use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
 use std::fmt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -298,6 +299,34 @@ pub struct Token {
     /// written before. The formatter preserves paragraph breaks between
     /// declarations; the breaks *inside* a comment run are on the comments.
     pub blank_before: bool,
+    /// Whether a blank line separated the comment run *below* from this token.
+    /// `false` when there is no run, where the question does not arise.
+    ///
+    /// This is here rather than left to the formatter because the formatter
+    /// used to re-derive it by scanning the source backwards, which made two
+    /// independent answers to "is there a blank line here" — this one, counted
+    /// while lexing, and that one — that could disagree about the same gap.
+    pub detached: bool,
+}
+
+/// One thing a `}` could be closing, innermost last.
+///
+/// This was two coupled fields — a `Vec<u32>` of the brace depth each open
+/// interpolation began at, and a `u32` counter — which had to agree for the
+/// lexer to tell a block's `}` from the one that resumes template text. An
+/// unbalanced `}` clamped the counter with `saturating_sub`, leaving it saying
+/// a smaller depth than the interpolations recorded, and a later `}` closing a
+/// genuine block was then read as "resume the template" — turning the rest of
+/// the file into string content. One stack cannot disagree with itself: the
+/// depth *is* its length, and an unbalanced `}` is a `pop` that finds nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LexMode {
+    /// An open `{`. Its `}` is a block terminator.
+    Braces,
+    /// An open interpolation hole. Its `}` resumes the template text, and it
+    /// is popped by the `}"` that ends the template rather than by the `}`
+    /// that ends the hole, because a template may have several holes.
+    Interpolation,
 }
 
 pub struct Lexer<'a> {
@@ -307,14 +336,14 @@ pub struct Lexer<'a> {
     file: FileId,
     tokens: Vec<Token>,
     errors: Vec<Diagnostic>,
-    /// Brace depth at the point each open interpolation began.
-    interp: Vec<u32>,
-    brace_depth: u32,
+    /// What is currently open, innermost last.
+    modes: Vec<LexMode>,
     pending_docs: Vec<String>,
     pending_docs_blank: bool,
     pending_comments: Vec<Comment>,
     module_docs: Vec<(String, Span)>,
     blank_before: bool,
+    detached: bool,
 }
 
 pub struct Lexed {
@@ -333,13 +362,13 @@ pub fn lex(text: &str, file: FileId) -> Lexed {
         file,
         tokens: Vec::new(),
         errors: Vec::new(),
-        interp: Vec::new(),
-        brace_depth: 0,
+        modes: Vec::new(),
         pending_docs: Vec::new(),
         pending_docs_blank: false,
         pending_comments: Vec::new(),
         module_docs: Vec::new(),
         blank_before: false,
+        detached: false,
     };
     l.run();
     Lexed { tokens: l.tokens, errors: l.errors, module_docs: l.module_docs }
@@ -351,13 +380,25 @@ impl<'a> Lexer<'a> {
     }
 
     fn peek_at(&self, n: usize) -> u8 {
-        *self.src.get(self.pos + n).unwrap_or(&0)
+        *self.src.get(self.pos.saturating_add(n)).unwrap_or(&0)
     }
 
     fn bump(&mut self) -> u8 {
         let c = self.peek();
-        self.pos += 1;
+        self.pos = self.pos.saturating_add(1);
         c
+    }
+
+    /// The source between two offsets, empty if they do not describe one.
+    ///
+    /// Every offset here is one the lexer walked to, so in a correct lexer
+    /// this is `&self.text[a..b]` — but that spelling panics on the one
+    /// arrangement of bytes where the lexer is wrong, and the arrangement in
+    /// question is "a character outside ASCII", which is not exotic input. A
+    /// total accessor makes the failure a short message instead of a crash,
+    /// and there is exactly one of it to reason about.
+    fn slice(&self, a: usize, b: usize) -> &'a str {
+        self.text.get(a..b).unwrap_or("")
     }
 
     fn span(&self, start: usize) -> Span {
@@ -375,7 +416,8 @@ impl<'a> Lexer<'a> {
         fix: impl Into<String>,
     ) -> &mut Diagnostic {
         self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
-        self.errors.last_mut().unwrap()
+        // Pushed on the line above, so there is a last one.
+        self.errors.last_mut().or_ice("the diagnostic just pushed is still there")
     }
 
     fn push(&mut self, tok: Tok, start: usize) {
@@ -384,7 +426,16 @@ impl<'a> Lexer<'a> {
         let docs_blank = std::mem::take(&mut self.pending_docs_blank);
         let comments = std::mem::take(&mut self.pending_comments);
         let blank = std::mem::take(&mut self.blank_before);
-        self.tokens.push(Token { tok, span, docs, docs_blank, comments, blank_before: blank });
+        let detached = std::mem::take(&mut self.detached);
+        self.tokens.push(Token {
+            tok,
+            span,
+            docs,
+            docs_blank,
+            comments,
+            blank_before: blank,
+            detached,
+        });
     }
 
     fn run(&mut self) {
@@ -409,8 +460,8 @@ impl<'a> Lexer<'a> {
 
     /// The column `at` sits at, counting from zero.
     fn column(&self, at: usize) -> u32 {
-        let line = self.text[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        self.text[line..at].chars().count() as u32
+        let line = self.slice(0, at).rfind('\n').map_or(0, |i| i.saturating_add(1));
+        self.slice(line, at).chars().count() as u32
     }
 
     /// Whether nothing of this token's trivia has been read yet, so a blank
@@ -420,15 +471,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_trivia(&mut self) {
-        let mut newlines = 0;
+        let mut newlines = 0usize;
         loop {
             match self.peek() {
                 b' ' | b'\t' | b'\r' => {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                 }
                 b'\n' => {
-                    newlines += 1;
-                    self.pos += 1;
+                    newlines = newlines.saturating_add(1);
+                    self.pos = self.pos.saturating_add(1);
                 }
                 b'/' if self.peek_at(1) == b'/' => {
                     let start = self.pos;
@@ -440,16 +491,16 @@ impl<'a> Lexer<'a> {
                     // reader would take it for a `///` typo.
                     let is_module_doc = self.peek_at(2) == b'!';
                     while self.pos < self.src.len() && self.peek() != b'\n' {
-                        self.pos += 1;
+                        self.pos = self.pos.saturating_add(1);
                     }
-                    let raw = &self.text[start..self.pos];
+                    let raw = self.slice(start, self.pos);
                     // Two newlines with nothing between them is a blank line.
                     // Above the first thing in the run it is the token's; above
                     // a later comment it is that comment's own paragraph break.
                     let blank = newlines >= 2;
                     if is_module_doc {
                         let span = self.span(start);
-                        self.module_docs.push((doc_body(&raw[3..]), span));
+                        self.module_docs.push((doc_body(raw.get(3..).unwrap_or("")), span));
                     } else if is_doc {
                         if self.run_empty() {
                             self.blank_before = blank;
@@ -457,7 +508,7 @@ impl<'a> Lexer<'a> {
                         if self.pending_docs.is_empty() {
                             self.pending_docs_blank = blank;
                         }
-                        self.pending_docs.push(doc_body(&raw[3..]));
+                        self.pending_docs.push(doc_body(raw.get(3..).unwrap_or("")));
                     } else {
                         if self.run_empty() {
                             self.blank_before = blank;
@@ -470,18 +521,18 @@ impl<'a> Lexer<'a> {
                 }
                 b'/' if self.peek_at(1) == b'*' => {
                     let start = self.pos;
-                    self.pos += 2;
+                    self.pos = self.pos.saturating_add(2);
                     // Block comments nest.
                     let mut depth = 1usize;
                     while self.pos < self.src.len() && depth > 0 {
                         if self.peek() == b'/' && self.peek_at(1) == b'*' {
-                            depth += 1;
-                            self.pos += 2;
+                            depth = depth.saturating_add(1);
+                            self.pos = self.pos.saturating_add(2);
                         } else if self.peek() == b'*' && self.peek_at(1) == b'/' {
-                            depth -= 1;
-                            self.pos += 2;
+                            depth = depth.saturating_sub(1);
+                            self.pos = self.pos.saturating_add(2);
                         } else {
-                            self.pos += 1;
+                            self.pos = self.pos.saturating_add(1);
                         }
                     }
                     if depth > 0 {
@@ -492,14 +543,21 @@ impl<'a> Lexer<'a> {
                     if self.run_empty() {
                         self.blank_before = blank;
                     }
-                    let text = self.text[start..self.pos].to_string();
+                    let text = self.slice(start, self.pos).to_string();
                     let column = self.column(start);
                     self.pending_comments.push(Comment { text, blank_before: blank, column });
                     newlines = 0;
                 }
                 _ => {
+                    // The newlines counted since the last thing read. With an
+                    // empty run that gap is above the token; with a run above
+                    // it, it is the gap between the run and the token, which
+                    // is what makes a file header a header rather than a
+                    // comment about the first declaration.
                     if self.run_empty() {
                         self.blank_before = newlines >= 2;
+                    } else {
+                        self.detached = newlines >= 2;
                     }
                     return;
                 }
@@ -509,9 +567,9 @@ impl<'a> Lexer<'a> {
 
     fn ident(&mut self, start: usize) {
         while is_ident_continue(self.peek()) {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
-        let s = &self.text[start..self.pos];
+        let s = self.slice(start, self.pos);
         if s == "_" {
             self.push(Tok::Punct(Punct::Underscore), start);
             return;
@@ -528,9 +586,11 @@ impl<'a> Lexer<'a> {
                 format!("`{s}` is a reserved word and may not be used as an identifier"),
                 format!("pick another name; `{s}` is not available"),
             ).code("reserved-word");
-            self.errors.last_mut().unwrap().notes.push(
-                "reserved for a future version of Buri; see grammar.ebnf, ReservedWord".into(),
-            );
+            if let Some(d) = self.errors.last_mut() {
+                d.notes.push(
+                    "reserved for a future version of Buri; see grammar.ebnf, ReservedWord".into(),
+                );
+            }
             self.push(Tok::Ident(s), start);
             return;
         }
@@ -548,14 +608,14 @@ impl<'a> Lexer<'a> {
                 b'o' => 8,
                 _ => 2,
             };
-            self.pos += 2;
+            self.pos = self.pos.saturating_add(2);
             let digits_start = self.pos;
             while self.peek().is_ascii_alphanumeric() || self.peek() == b'_' {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
-            let raw = self.text[start..self.pos].to_string();
+            let raw = self.slice(start, self.pos).to_string();
             let digits: String =
-                self.text[digits_start..self.pos].chars().filter(|c| *c != '_').collect();
+                self.slice(digits_start, self.pos).chars().filter(|c| *c != '_').collect();
             if digits.is_empty() {
                 let span = self.span(start);
                 self.err(span, format!("`{raw}` has no digits"), "write at least one digit after the base prefix, as in `0x1F`");
@@ -578,7 +638,7 @@ impl<'a> Lexer<'a> {
         }
 
         while self.peek().is_ascii_digit() || self.peek() == b'_' {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
 
         // A FLOAT must begin with a digit, and `pair.0` must lex as three
@@ -586,28 +646,28 @@ impl<'a> Lexer<'a> {
         let mut is_float = false;
         if self.peek() == b'.' && self.peek_at(1).is_ascii_digit() {
             is_float = true;
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
             while self.peek().is_ascii_digit() || self.peek() == b'_' {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
         }
         if matches!(self.peek(), b'e' | b'E') {
             let save = self.pos;
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
             if matches!(self.peek(), b'+' | b'-') {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
             if self.peek().is_ascii_digit() {
                 is_float = true;
                 while self.peek().is_ascii_digit() || self.peek() == b'_' {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                 }
             } else {
                 self.pos = save;
             }
         }
 
-        let raw = self.text[start..self.pos].to_string();
+        let raw = self.slice(start, self.pos).to_string();
         let clean: String = raw.chars().filter(|c| *c != '_').collect();
         if is_float {
             match clean.parse::<f64>() {
@@ -646,23 +706,22 @@ impl<'a> Lexer<'a> {
             }
             match self.peek() {
                 b'"' => {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                     return (out, false);
                 }
                 b'$' if self.peek_at(1) == b'{' => {
-                    self.pos += 2;
+                    self.pos = self.pos.saturating_add(2);
                     return (out, true);
                 }
                 b'\\' => {
                     let start = self.pos;
-                    self.pos += 1;
-                    match self.escape(start) {
-                        Some(c) => out.push(c),
-                        None => {}
+                    self.pos = self.pos.saturating_add(1);
+                    if let Some(c) = self.escape(start) {
+                        out.push(c);
                     }
                 }
                 b'\n' => {
-                    let span = Span::new(self.file, self.pos, self.pos + 1);
+                    let span = Span::new(self.file, self.pos, self.pos.saturating_add(1));
                     self.err(span, "unterminated string literal", "close it with `\"`; a string literal does not span a line break");
                     return (out, false);
                 }
@@ -675,8 +734,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_char(&mut self) -> char {
-        let ch = self.text[self.pos..].chars().next().unwrap_or('\0');
-        self.pos += ch.len_utf8();
+        let ch = self.text.get(self.pos..).and_then(|s| s.chars().next()).unwrap_or('\0');
+        self.pos = self.pos.saturating_add(ch.len_utf8());
         ch
     }
 
@@ -702,18 +761,18 @@ impl<'a> Lexer<'a> {
                     );
                     return None;
                 }
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
                 let ds = self.pos;
                 while self.peek().is_ascii_hexdigit() {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                 }
-                let digits = self.text[ds..self.pos].to_string();
+                let digits = self.slice(ds, self.pos).to_string();
                 if self.peek() != b'}' {
                     let span = self.span(start);
                     self.err(span, "unterminated `\\u{...}` escape", "close it with `}`");
                     return None;
                 }
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
                 match u32::from_str_radix(&digits, 16).ok().and_then(char::from_u32) {
                     Some(c) => c,
                     None => {
@@ -735,20 +794,21 @@ impl<'a> Lexer<'a> {
                     format!("unknown escape `\\{shown}`"),
                     "the escapes are `\\n` `\\r` `\\t` `\\0` `\\\\` `\\\"` `\\'` `\\$` and `\\u{...}`",
                 );
-                self.errors.last_mut().unwrap().notes.push(
-                    "the escapes are \\n \\r \\t \\0 \\\\ \\\" \\' \\$ and \\u{...}".into(),
-                );
+                if let Some(d) = self.errors.last_mut() {
+                    d.notes
+                        .push("the escapes are \\n \\r \\t \\0 \\\\ \\\" \\' \\$ and \\u{...}".into());
+                }
                 return None;
             }
         })
     }
 
     fn string_or_template(&mut self, start: usize) {
-        self.pos += 1; // the opening quote
+        self.pos = self.pos.saturating_add(1); // the opening quote
         let (body, hole) = self.scan_str_body();
         if hole {
             self.push(Tok::TemplateHead(body), start);
-            self.interp.push(self.brace_depth);
+            self.modes.push(LexMode::Interpolation);
         } else {
             self.push(Tok::Str(body), start);
         }
@@ -761,15 +821,16 @@ impl<'a> Lexer<'a> {
             self.push(Tok::TemplateSpan(body), start);
         } else {
             self.push(Tok::TemplateTail(body), start);
-            self.interp.pop();
+            debug_assert_eq!(self.modes.last(), Some(&LexMode::Interpolation));
+            self.modes.pop();
         }
     }
 
     fn char_literal(&mut self, start: usize) {
-        self.pos += 1;
+        self.pos = self.pos.saturating_add(1);
         let c = if self.peek() == b'\\' {
             let s = self.pos;
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
             self.escape(s).unwrap_or('\0')
         } else if self.pos >= self.src.len() || self.peek() == b'\n' {
             let span = self.span(start);
@@ -788,13 +849,20 @@ impl<'a> Lexer<'a> {
             );
             // Recover by skipping to the closing quote if one is nearby.
             while self.pos < self.src.len() && self.peek() != b'\'' && self.peek() != b'\n' {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
             }
         }
         if self.peek() == b'\'' {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
         self.push(Tok::Char(c), start);
+    }
+
+    /// A two-character token, the first character of which `bump` has already
+    /// taken: this consumes the second.
+    fn second(&mut self, p: Punct) -> Punct {
+        self.pos = self.pos.saturating_add(1);
+        p
     }
 
     fn punct(&mut self, start: usize) {
@@ -803,17 +871,27 @@ impl<'a> Lexer<'a> {
         let two = self.peek();
         let p = match (c, two) {
             (b'{', _) => {
-                self.brace_depth += 1;
+                self.modes.push(LexMode::Braces);
                 LBrace
             }
             (b'}', _) => {
-                // A `}` at the brace depth an interpolation started at is the
-                // one that resumes template text, not a block terminator.
-                if self.interp.last() == Some(&self.brace_depth) {
-                    self.resume_template(start);
-                    return;
+                match self.modes.last() {
+                    // The innermost thing open is a hole, so this `}` resumes
+                    // template text rather than terminating a block. The mode
+                    // stays open until the template itself ends.
+                    Some(LexMode::Interpolation) => {
+                        self.resume_template(start);
+                        return;
+                    }
+                    Some(LexMode::Braces) => {
+                        self.modes.pop();
+                    }
+                    // Nothing is open. This `}` closes nothing, which the
+                    // parser reports where it can say what was expected
+                    // instead; what matters here is that there is no counter
+                    // to clamp, so nothing after it is mis-lexed.
+                    None => {}
                 }
-                self.brace_depth = self.brace_depth.saturating_sub(1);
                 RBrace
             }
             (b'(', _) => LParen,
@@ -822,40 +900,19 @@ impl<'a> Lexer<'a> {
             (b']', _) => RBracket,
             (b',', _) => Comma,
             (b';', _) => Semi,
-            (b':', b':') => {
-                self.pos += 1;
-                ColonColon
-            }
+            (b':', b':') => self.second(ColonColon),
             (b':', _) => Colon,
-            (b'.', b'.') => {
-                self.pos += 1;
-                DotDot
-            }
+            (b'.', b'.') => self.second(DotDot),
             (b'.', _) => Dot,
             (b'@', _) => At,
-            (b'=', b'>') => {
-                self.pos += 1;
-                FatArrow
-            }
-            (b'=', b'=') => {
-                self.pos += 1;
-                EqEq
-            }
+            (b'=', b'>') => self.second(FatArrow),
+            (b'=', b'=') => self.second(EqEq),
             (b'=', _) => Eq,
-            (b'!', b'=') => {
-                self.pos += 1;
-                BangEq
-            }
+            (b'!', b'=') => self.second(BangEq),
             (b'!', _) => Bang,
-            (b'<', b'=') => {
-                self.pos += 1;
-                LtEq
-            }
+            (b'<', b'=') => self.second(LtEq),
             (b'<', _) => Lt,
-            (b'>', b'=') => {
-                self.pos += 1;
-                GtEq
-            }
+            (b'>', b'=') => self.second(GtEq),
             // No `>>` token: `Wrapper<Wrapper<Int>>` closes with two `>`.
             (b'>', _) => Gt,
             (b'+', _) => Plus,
@@ -863,28 +920,32 @@ impl<'a> Lexer<'a> {
             (b'*', _) => Star,
             (b'/', _) => Slash,
             (b'%', _) => Percent,
-            (b'&', b'&') => {
-                self.pos += 1;
-                AndAnd
-            }
+            (b'&', b'&') => self.second(AndAnd),
             (b'&', _) => And,
-            (b'|', b'|') => {
-                self.pos += 1;
-                OrOr
-            }
+            (b'|', b'|') => self.second(OrOr),
             (b'|', _) => Or,
             (b'^', _) => Caret,
             (b'~', _) => Tilde,
-            (b'?', b'?') => {
-                self.pos += 1;
-                QuestionQuestion
-            }
+            (b'?', b'?') => self.second(QuestionQuestion),
             // No `?.` token, so `x?.field` is `x` `?` `.` `field`.
             (b'?', _) => Question,
             _ => {
+                // `bump` advanced one *byte*, and this arm is where every
+                // character outside ASCII arrives — a `×` someone typed for
+                // multiplication, a non-breaking space a word processor left
+                // behind. Those are two, three, or four bytes, so reporting
+                // the span `bump` left would cut a character in half; taking
+                // the whole scalar is what makes the message show what was
+                // typed. The code point is spelled out because the two
+                // characters most likely to reach here are invisible.
+                self.pos = start;
+                let shown = self.next_char();
                 let span = self.span(start);
-                let shown = self.text[start..self.pos].to_string();
-                self.err(span, format!("unexpected character `{shown}`"), "delete it; no token in the language starts with it");
+                self.err(
+                    span,
+                    format!("unexpected character `{shown}` (U+{:04X})", shown as u32),
+                    "delete it; no token in the language starts with it",
+                );
                 return;
             }
         };
@@ -921,6 +982,40 @@ mod kw_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `punct` reported the byte it had bumped past, and every character
+    /// outside ASCII is more than one byte — so a stray `×`, an emoji, or a
+    /// non-breaking space out of a word processor panicked the lexer on a
+    /// `String` index that was not a character boundary. The message names the
+    /// code point because the two most likely to arrive are invisible.
+    #[test]
+    fn a_character_outside_ascii_is_one_diagnostic_naming_it() {
+        for (text, wanted) in [
+            ("5 × 3", "`×` (U+00D7)"),
+            ("🙂", "`🙂` (U+1F642)"),
+            ("a\u{a0}b", "(U+00A0)"),
+            ("\u{0}", "(U+0000)"),
+            ("\u{200f}", "(U+200F)"),
+        ] {
+            let l = lex(text, FileId(0));
+            let messages: Vec<&str> = l.errors.iter().map(|e| e.message.as_str()).collect();
+            assert!(
+                messages.iter().any(|m| m.contains(wanted)),
+                "lexing {text:?} said {messages:?}, not {wanted}"
+            );
+        }
+    }
+
+    /// Every offset the lexer slices at has to be one it walked to. A file made
+    /// only of characters it does not recognise is where that stopped being
+    /// true.
+    #[test]
+    fn a_file_of_nothing_but_unrecognised_characters_lexes() {
+        let text = "×÷≠🙂\u{a0}\u{200f}—“”";
+        let l = lex(text, FileId(0));
+        assert_eq!(l.errors.len(), text.chars().count(), "one per character");
+        assert_eq!(l.tokens.last().map(|t| t.tok.clone()), Some(Tok::Eof));
+    }
 
     fn toks(src: &str) -> Vec<Tok> {
         let l = lex(src, FileId(0));
@@ -967,6 +1062,25 @@ mod tests {
         let t = toks(r#""a${ { let x = 1; x } }b""#);
         assert_eq!(t[0], Tok::TemplateHead("a".into()));
         assert_eq!(t[t.len() - 2], Tok::TemplateTail("b".into()));
+    }
+
+    /// A `}` that closes nothing used to clamp a counter with `saturating_sub`,
+    /// leaving the counter and the stack of open interpolations describing two
+    /// different nestings. There is no counter now — the depth is the stack's
+    /// length — so an unbalanced `}` is a `pop` that finds nothing, and the
+    /// template after it still lexes as a template.
+    #[test]
+    fn an_unbalanced_brace_does_not_derail_a_later_template() {
+        let t = toks(r#"} { let s = "a${x}b"; }"#);
+        assert!(
+            t.contains(&Tok::TemplateHead("a".into())),
+            "the template head was swallowed: {t:?}"
+        );
+        assert!(
+            t.contains(&Tok::TemplateTail("b".into())),
+            "the template never ended: {t:?}"
+        );
+        assert_eq!(t.last(), Some(&Tok::Eof));
     }
 
     #[test]

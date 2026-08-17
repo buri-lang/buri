@@ -7,6 +7,13 @@
 //! formatter with options has no single right answer, and this suite exists to
 //! say that this one does.
 //!
+//! A case whose name begins with `textproto_` is a **build file** rather than
+//! source — `BUILD.buri` and `REPO.buri` go through the other of the two
+//! printers `buri format` has. Its `input.buri` is still called that, because
+//! a case is two files with fixed names; the case's own name is what says which
+//! dialect it is in, which is also the first thing a reader of the directory
+//! listing wants to know.
+//!
 //! Four claims per case, each its own test so that a failure names which of
 //! them broke:
 //!
@@ -39,9 +46,26 @@
 //! neither names this one — which is also why the guards those suites apply to
 //! the corpus are applied here, per case, rather than assumed.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 
-use buri::diagnostics::SourceMap;
+use buri::build::textproto;
+use buri::diagnostics::{FileId, SourceMap};
 use buri::formatting::{comment_shape, source, token_shape, Shape};
 use harness::{case_dirs, tests_dir, Golden};
 use std::path::{Path, PathBuf};
@@ -57,6 +81,17 @@ fn name(dir: &Path) -> String {
     dir.file_name().unwrap().to_string_lossy().to_string()
 }
 
+/// Which of the two things `buri format` formats a case is about.
+///
+/// The command decides by file name — `BUILD.buri` and `REPO.buri` are
+/// textproto, everything else is source — and a case cannot say it that way,
+/// because every case's input is `input.buri`. So the case's own name says it,
+/// which is also the first thing a reader of the directory listing wants to
+/// know.
+fn is_textproto(case: &str) -> bool {
+    case.starts_with("textproto_")
+}
+
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{} could not be read: {e}", path.display()))
@@ -70,6 +105,17 @@ fn read(path: &Path) -> String {
 /// `None` for that and for output it cannot vouch for, and those two want very
 /// different fixes.
 fn formatted(label: &str, path: &Path, text: &str) -> String {
+    if is_textproto(label.split('/').next().unwrap_or_default()) {
+        let parsed = textproto::parse(text, FileId(0));
+        assert!(
+            parsed.errors.is_empty(),
+            "{label} does not read, so there is nothing to format.\n\
+             A case's input must be a valid build file — badly laid out, not \
+             broken: {:?}",
+            parsed.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+        );
+        return textproto::print(&parsed.doc);
+    }
     let mut map = SourceMap::new();
     let id = map.add(label.to_string(), path.to_path_buf(), text.to_string());
     let parsed = buri::parsing::parser::parse(text, id);
@@ -178,6 +224,56 @@ fn formatting_every_expected_output_is_stable() {
 }
 
 /// Nothing a case was written with is missing from what it prints.
+/// Every `#` comment in a build file, sorted. A comment travels with the field
+/// beneath it and the fields are reordered, so the set is what survives.
+fn proto_comments(doc: &textproto::Doc) -> Vec<String> {
+    fn walk(fields: &[textproto::Field], out: &mut Vec<String>) {
+        for f in fields {
+            out.extend(f.comments.iter().cloned());
+            if let textproto::Value::Msg(m, _) = &f.value {
+                out.extend(m.trailing.iter().cloned());
+                walk(&m.fields, out);
+            }
+        }
+    }
+    let mut out = doc.trailing.clone();
+    walk(&doc.fields, &mut out);
+    out.sort();
+    out
+}
+
+/// Every leaf of a build file as `path = value`, sorted.
+///
+/// The textproto answer to `tokens`: reordering the fields is the whole point,
+/// so the *set* of what the file says is what must not change. It catches a
+/// field dropped, invented, renamed or given a different value.
+fn proto_leaves(doc: &textproto::Doc) -> Vec<String> {
+    fn value(v: &textproto::Value) -> String {
+        match v {
+            textproto::Value::Str(s, _) => format!("{s:?}"),
+            textproto::Value::Int(n, _) => n.to_string(),
+            textproto::Value::Ident(s, _) => s.clone(),
+            textproto::Value::Msg(..) => "{}".to_string(),
+            textproto::Value::List(items, _) => {
+                items.iter().map(value).collect::<Vec<_>>().join(",")
+            }
+        }
+    }
+    fn walk(fields: &[textproto::Field], path: &str, out: &mut Vec<String>) {
+        for f in fields {
+            let here = format!("{path}/{}", f.name);
+            match &f.value {
+                textproto::Value::Msg(m, _) => walk(&m.fields, &here, out),
+                v => out.push(format!("{here} = {}", value(v))),
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&doc.fields, "", &mut out);
+    out.sort();
+    out
+}
+
 #[test]
 fn formatting_keeps_every_case_whole() {
     let cases = cases();
@@ -187,6 +283,30 @@ fn formatting_keeps_every_case_whole() {
         let input_path = dir.join("input.buri");
         let input = read(&input_path);
         let once = expected(dir, &formatted(&format!("{case}/input.buri"), &input_path, &input));
+
+        if is_textproto(&case) {
+            let (before, after) =
+                (textproto::parse(&input, FileId(0)), textproto::parse(&once, FileId(0)));
+            for e in &after.errors {
+                failures.push(format!("{case}: the output does not read: {}", e.message));
+            }
+            if proto_comments(&before.doc) != proto_comments(&after.doc) {
+                failures.push(format!(
+                    "{case}: the comments are not the same set before and after.\n                       before: {:?}\n  after:  {:?}",
+                    proto_comments(&before.doc),
+                    proto_comments(&after.doc)
+                ));
+            }
+            if proto_leaves(&before.doc) != proto_leaves(&after.doc) {
+                failures.push(format!(
+                    "{case}: a field was invented, lost or changed. Layout may put the \
+                     fields in the schema's order; it may not do this.\n                       before: {:?}\n  after:  {:?}",
+                    proto_leaves(&before.doc),
+                    proto_leaves(&after.doc)
+                ));
+            }
+            continue;
+        }
 
         // The output parses. `source` already refuses output that does not,
         // so this is here to say what would have gone wrong if it had.
@@ -255,6 +375,71 @@ fn formatting_stays_inside_the_margin() {
         "{} line(s) over the margin:\n\n{}",
         failures.len(),
         failures.join("\n\n")
+    );
+}
+
+/// Every build file checked into the repository is already what `buri format`
+/// prints.
+///
+/// The paired cases above say what the printer does; this says the repository
+/// agrees with it. Without it a build file drifts silently — nothing reads
+/// `BUILD.buri` for its layout — until somebody runs `format --check` in CI and
+/// finds two hundred files to review at once.
+#[test]
+fn every_checked_in_build_file_is_formatted() {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.filter_map(Result::ok) {
+            let p = e.path();
+            let n = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            if n.starts_with('.') || n == "target" || n == "node_modules" {
+                continue;
+            }
+            if p.is_dir() {
+                walk(&p, out);
+            } else if n == "BUILD.buri" || n == "REPO.buri" {
+                out.push(p);
+            }
+        }
+    }
+
+    let root = tests_dir().parent().unwrap().parent().unwrap().to_path_buf();
+    let mut files = Vec::new();
+    walk(&root.join("cli/tests"), &mut files);
+    walk(&root.join("cli/src"), &mut files);
+    files.sort();
+    assert!(files.len() > 50, "expected the fixture repositories, found {}", files.len());
+
+    // The two the suite keeps deliberately misformatted, each as the question
+    // its case asks: `format --check` has to have something to report.
+    let deliberate = ["cli/tests/repositories/cli/format_check/repo/cmd/f/BUILD.buri"];
+
+    let mut stale = Vec::new();
+    for path in &files {
+        let rel = path.strip_prefix(&root).unwrap().display().to_string();
+        if deliberate.contains(&rel.as_str()) {
+            continue;
+        }
+        let text = read(path);
+        // A fixture carrying `{{…}}` placeholders is a harness template — the
+        // case runner substitutes host-dependent facts before the file is ever
+        // read as textproto (see harness/case.rs) — so the formatted claim is
+        // about what the harness writes, not these bytes.
+        if text.contains("{{") {
+            continue;
+        }
+        let parsed = textproto::parse(&text, FileId(0));
+        assert!(parsed.errors.is_empty(), "{rel} does not read");
+        if textproto::print(&parsed.doc) != text {
+            stale.push(rel);
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "{} build file(s) are not formatted. `buri format` fixes every one of \
+         them:\n  {}",
+        stale.len(),
+        stale.join("\n  ")
     );
 }
 

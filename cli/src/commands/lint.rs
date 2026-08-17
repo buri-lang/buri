@@ -5,6 +5,18 @@
 //! and no way to promote or silence a check for one repository. A lint that
 //! cannot be turned off has to be one nobody wants to turn off, which is the
 //! bar every check here is held to.
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "what `--fix` rewrote, and what it declined to rewrite, is this \
+              command's output; every finding itself still leaves through \
+              `Session::emit`"
+)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here counts findings and files that already exist, \
+              and walks forward through a string that bounds the offset"
+)]
 
 use crate::build::buildfile::Platform;
 use crate::build::session::{self, Session};
@@ -12,7 +24,7 @@ use crate::build::workspace::{PkgId, RuleKind, TargetId};
 use crate::commands::arguments;
 use crate::compiler::modules::{ModuleData, Unit};
 use crate::compiler::semantics::typed;
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -181,29 +193,27 @@ fn regenerate_build_files(s: &mut Session, diags: &Diagnostics) -> usize {
 /// on itself — and a file that fails it is left exactly as it was.
 fn apply_fixes(s: &mut Session, diags: &Diagnostics) -> usize {
     use std::collections::BTreeMap;
-    let mut by_file: BTreeMap<u32, Vec<&crate::diagnostics::Edit>> = BTreeMap::new();
+    let mut by_file: BTreeMap<u32, Vec<crate::diagnostics::Edit>> = BTreeMap::new();
     for d in &diags.items {
         for e in &d.edits {
-            by_file.entry(e.file.0).or_default().push(e);
+            by_file.entry(e.at.file.0).or_default().push(e.clone());
         }
     }
 
     let mut applied = regenerate_build_files(s, diags);
-    for (file, mut edits) in by_file {
+    for (file, edits) in by_file {
         let id = crate::diagnostics::FileId(file);
-        edits.sort_by_key(|e| (e.start, e.end));
-        if edits.windows(2).any(|w| w[0].end > w[1].start) {
-            eprintln!(
-                "warning: {} has overlapping fixes, so none were applied",
-                s.map.name(id)
-            );
-            continue;
-        }
+        // Sorting, overlap, bounds and character boundaries are all settled
+        // here, once, so that the application below cannot fail.
+        let edits = match crate::diagnostics::EditSet::new(id, s.map.text(id), edits) {
+            Ok(set) => set,
+            Err(why) => {
+                eprintln!("warning: {} has {why}, so none were applied", s.map.name(id));
+                continue;
+            }
+        };
 
-        let mut text = s.map.text(id).to_string();
-        for e in edits.iter().rev() {
-            text.replace_range(e.start as usize..e.end as usize, &e.replacement);
-        }
+        let text = edits.apply(s.map.text(id));
         // Parsed, not formatted. The guard a rewriting tool owes its user is
         // "what I wrote is still a program", and that is what parsing answers.
         // Running the result through the formatter would answer it too, and
@@ -249,7 +259,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
     }
     let Some(bin) = &s.ws.pkg(target.pkg).build.binary else { return };
     for output in &bin.outputs {
-        let Some(p) = output.platform.as_ref().map(|x| x.value) else { continue };
+        let p = output.platform();
         if !allowed.contains(&p) {
             crate::build::actions::check_platform(s, target, p, diags);
         }
@@ -262,8 +272,9 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
 /// the empty one is a leftover rather than a decision.
 fn check_test_suites(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
     let p = s.ws.pkg(pkg);
-    let mut report = |suite: &crate::build::buildfile::TestSuite, rule: &str| {
-        if !suite.present || !suite.sources.is_empty() {
+    let mut report = |suite: Option<&crate::build::buildfile::TestSuite>, rule: &str| {
+        let Some(suite) = suite else { return };
+        if !suite.sources.is_empty() {
             return;
         }
         diags.push(
@@ -277,10 +288,10 @@ fn check_test_suites(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
         );
     };
     if let Some(l) = &p.build.library {
-        report(&l.test, "library");
+        report(l.test.as_ref(), "library");
     }
     if let Some(b) = &p.build.binary {
-        report(&b.test, "binary");
+        report(b.test.as_ref(), "binary");
     }
 }
 
@@ -298,26 +309,29 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
     if let Some(lib) = &p.build.library {
         push(&lib.sources, &mut declared);
         push(&lib.proto_sources, &mut declared);
-        push(&lib.test.sources, &mut declared);
-        push(&lib.testing.sources, &mut declared);
+        if let Some(t) = &lib.test {
+            push(&t.sources, &mut declared);
+        }
+        if let Some(t) = &lib.testing {
+            push(&t.sources, &mut declared);
+        }
     }
     if let Some(bin) = &p.build.binary {
         push(&bin.sources, &mut declared);
         push(&bin.proto_sources, &mut declared);
-        push(&bin.test.sources, &mut declared);
+        if let Some(t) = &bin.test {
+            push(&t.sources, &mut declared);
+        }
     }
 
-    for i in 0..declared.len() {
-        for j in i + 1..declared.len() {
-            if declared[i].0 == declared[j].0 {
+    for (i, (first_name, first_span)) in declared.iter().enumerate() {
+        for (name, span) in declared.iter().skip(i + 1) {
+            if first_name == name {
                 diags.push(
-                    Diagnostic::error(
-                        declared[j].1,
-                        format!("{} is listed by two rules", declared[j].0),
-                    )
-                    .with_code("duplicate-source")
-                    .with_fix("list it under one rule only")
-                    .with_sub(declared[i].1, "first listed here"),
+                    Diagnostic::error(*span, format!("{name} is listed by two rules"))
+                        .with_code("duplicate-source")
+                        .with_fix("list it under one rule only")
+                        .with_sub(*first_span, "first listed here"),
                 );
             }
         }
@@ -330,7 +344,7 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
     known.insert("testing/lib.buri".into());
 
     let mut on_disk = Vec::new();
-    collect_package_sources(&p.dir, &p.dir, s, pkg, &mut on_disk);
+    collect_package_sources(&p.dir, &p.dir, &mut on_disk);
     for rel in on_disk {
         if known.contains(&rel) {
             continue;
@@ -354,13 +368,7 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
     }
 }
 
-fn collect_package_sources(
-    root: &Path,
-    dir: &Path,
-    s: &Session,
-    pkg: PkgId,
-    out: &mut Vec<String>,
-) {
+fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut items: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();
@@ -374,11 +382,16 @@ fn collect_package_sources(
             if p.join("BUILD.buri").is_file() {
                 continue;
             }
-            collect_package_sources(root, &p, s, pkg, out);
+            collect_package_sources(root, &p, out);
         } else if (p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri")
             || p.extension().is_some_and(|x| x == "proto")
         {
-            let rel = p.strip_prefix(root).unwrap().display().to_string().replace('\\', "/");
+            let rel = p
+                .strip_prefix(root)
+                .or_ice("this walk only descends into `root`, so every path it reaches is under it")
+                .display()
+                .to_string()
+                .replace('\\', "/");
             out.push(rel);
         }
     }
@@ -388,7 +401,7 @@ fn collect_package_sources(
 /// not the only way to use: a method resolving into a library counts too.
 fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics) {
     let unit = Unit { target: Some(target), platform: Platform::Js, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &unit);
+    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         diags.extend(analysis.diags.items);
         return;
@@ -422,8 +435,12 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
             if !path.starts_with("//") {
                 continue;
             }
-            let Ok(loc) = s.ws.resolve_module(&path) else { continue };
-            let Some(other) = loc.pkg else { continue };
+            let Ok(crate::build::workspace::ModuleLoc::InPackage(loc)) =
+                s.ws.resolve_module(&path)
+            else {
+                continue;
+            };
+            let other = loc.pkg;
             if other == own {
                 continue;
             }
@@ -557,7 +574,7 @@ fn check_unreachable_exports(
                 _ => continue,
             };
             let Ok(loc) = s.ws.resolve_module(path) else { continue };
-            if loc.pkg != Some(own) {
+            if loc.in_package().map(|m| m.pkg) != Some(own) {
                 continue;
             }
             for sp in specs {
@@ -626,7 +643,7 @@ fn exported_name(item: &crate::parsing::tree::Item) -> Option<(&str, Span)> {
         Item::Trait(d) => (d.exported, &d.name),
         _ => return None,
     };
-    exported.then(|| (name.name.as_str(), name.span))
+    exported.then_some((name.name.as_str(), name.span))
 }
 
 /// `unused-import`. Deliberately syntactic: a name counts as used if it appears
@@ -711,7 +728,10 @@ fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
             // are reported and carry none, because there is one edit between
             // them and it has already been claimed.
             if first {
-                d = d.with_edit(m.file, rewrite.0, rewrite.1, &rewrite.2);
+                d = d.with_edit(
+                    Span::new(m.file, rewrite.0 as usize, rewrite.1 as usize),
+                    &rewrite.2,
+                );
                 first = false;
             }
             diags.push(d);
@@ -721,15 +741,14 @@ fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
 
 /// The offset just past the newline ending the line `at` sits on.
 fn line_end(text: &str, at: u32) -> u32 {
-    let b = text.as_bytes();
-    let mut i = at as usize;
-    while i < b.len() && b[i] != b'\n' {
-        i += 1;
+    let from = at as usize;
+    let Some(rest) = text.get(from..) else { return at };
+    match rest.find('\n') {
+        Some(offset) => (from + offset + 1) as u32,
+        // The last line of a file need not end in a newline, and then the end
+        // of the line is the end of the text.
+        None => text.len() as u32,
     }
-    if i < b.len() {
-        i += 1;
-    }
-    i as u32
 }
 
 /// `discarded-result`. `let _ = <Result>` is already a hard type error
@@ -808,8 +827,9 @@ fn check_tests_assert(
             let Some(body) = analysis.checked.bodies.get(&f) else { continue };
             crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
                 match &e.kind {
-                    typed::ExprKind::CallFn { func, .. } => queue.push(*func),
-                    typed::ExprKind::FnRef(g, _) => queue.push(*g),
+                    typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
+                        queue.extend(func.decl())
+                    }
                     _ => {}
                 };
             });
@@ -851,9 +871,10 @@ fn calls_into(
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
             let called = match &e.kind {
-                typed::ExprKind::CallFn { func, .. } => *func,
+                typed::ExprKind::CallFn { func, .. } => func.decl(),
                 _ => return,
             };
+            let Some(called) = called else { return };
             let info = analysis.checked.tables.fun(called);
             let Some(m) = analysis.loaded.modules.get(info.module.index()) else { return };
             if m.path == module && names.contains(&info.name.as_str()) {
@@ -888,8 +909,7 @@ pub(crate) fn reached_by_resolution(
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
             let called = match &e.kind {
-                typed::ExprKind::CallFn { func, .. } => Some(*func),
-                typed::ExprKind::FnRef(f, _) => Some(*f),
+                typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func.decl(),
                 _ => None,
             };
             let Some(f) = called else { return };
@@ -913,10 +933,10 @@ pub(crate) fn reached_by_resolution(
 fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
     let p = s.ws.pkg(target.pkg);
     let suite = match target.kind {
-        RuleKind::Library => p.build.library.as_ref().map(|l| &l.test),
-        RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.test),
+        RuleKind::Library => p.build.library.as_ref().and_then(|l| l.test.as_ref()),
+        RuleKind::Binary => p.build.binary.as_ref().and_then(|b| b.test.as_ref()),
     };
-    let testing = p.build.library.as_ref().map(|l| &l.testing);
+    let testing = p.build.library.as_ref().and_then(|l| l.testing.as_ref());
     suite.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
         || testing.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
 }

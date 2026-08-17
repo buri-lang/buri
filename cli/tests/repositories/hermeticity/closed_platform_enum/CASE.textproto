@@ -59,8 +59,8 @@ edit {
 # hand rather than one the generator writes.
 edit {
   file: "REPO.buri"
-  replace: "}\n"
-  with: "}\n\ntag {\n  name: \"server\"\n  requires { platforms: [LINUXX] }\n}\n"
+  replace: "can be written.\n"
+  with: "can be written.\n\ntag {\n  name: \"server\"\n  requires { platforms: [LINUXX] }\n}\n"
 }
 
 run {

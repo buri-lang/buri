@@ -52,7 +52,14 @@ done
 #   chained_comparison            comparison is non-associative in the EBNF;
 #                                 tree-sitter is given left-associativity so
 #                                 that `chained-comparison` is what a reader
-#                                 sees rather than a parse failure.
+#                                 sees rather than a parse failure. That
+#                                 non-associativity is also what makes
+#                                 `f<A>(x)` readable as a call, so this is the
+#                                 one divergence the grammar leans on twice:
+#                                 the left-associative reading is what keeps
+#                                 `a < b > c` a comparison here, and the
+#                                 `@conflicts` group's dynamic precedence is
+#                                 what makes `a < b > (c)` a call in both.
 #   reserved_word_return_as_function,
 #   reserved_word_while_as_binding
 #                                 `while` is not a keyword, it is a word the

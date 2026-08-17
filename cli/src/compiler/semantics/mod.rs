@@ -7,7 +7,7 @@
 //! already typed, and `builtins` is what the primitives carry before any
 //! source file is read.
 //!
-//! `typed` is the output — the tree `transform` and `backend` consume.
+//! `typed` is the output — the tree `middle` and `backend` consume.
 
 pub mod builtins;
 pub mod exhaustiveness;

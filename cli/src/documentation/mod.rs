@@ -15,6 +15,18 @@
 //!     CLI reference, the standard library, and the error catalog next. Adding
 //!     one is a line in `sources()`, and the index, search, and `--format=json`
 //!     pick it up without being told.
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "this file is `buri docs` itself, and a page, an index, and a `there is no such \
+              topic` are the command's own output; the compiler's diagnostics still go through \
+              the Session"
+)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is column counting and search scores measured off text already \
+              in memory, both bounded by that text's length"
+)]
 
 pub mod assemble;
 pub mod errors;
@@ -26,19 +38,66 @@ pub mod reference;
 pub mod topics;
 
 use crate::commands::arguments;
+use crate::diagnostics::Invariant as _;
 use crate::documentation::topics::{Kind, Topic};
 use std::fmt::Write as _;
 
 /// How a page is rendered.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Style {
-    /// Wrapped, coloured, for a terminal.
-    #[default]
-    Human,
+///
+/// Colour lives inside `Human`, for the reason `build::session::Rendering`
+/// gives: an escape sequence in a JSON stream corrupts it, so "colour, in
+/// JSON" should be a thing that cannot be written down rather than a
+/// correlation `cmd_docs` has to re-establish on every construction — which it
+/// did, and which the test helpers went around.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Render {
+    /// Wrapped and coloured, for a terminal.
+    Human { color: bool },
     /// The markdown source, for piping somewhere that renders it.
     Markdown,
     /// One JSON object, for a tool.
     Json,
+}
+
+impl Render {
+    pub fn color(self) -> bool {
+        matches!(self, Render::Human { color: true })
+    }
+}
+
+/// The column text is wrapped at, clamped once — here, on the way in.
+///
+/// It used to be a bare `usize` clamped inside `markdown::to_terminal`, so
+/// `index` wrapped its listing against the raw `COLUMNS` while the page beneath
+/// it wrapped against the clamped one: two widths on one screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Width(usize);
+
+impl Width {
+    /// Narrower than this and a signature will not fit; wider and prose stops
+    /// being readable.
+    pub const NARROWEST: usize = 40;
+    pub const WIDEST: usize = 100;
+
+    pub fn new(columns: usize) -> Width {
+        Width(columns.clamp(Width::NARROWEST, Width::WIDEST))
+    }
+
+    /// As wide as text is ever wrapped, for a caller that collapses the
+    /// whitespace afterwards and so does not want wrapping at all.
+    pub fn widest() -> Width {
+        Width(Width::WIDEST)
+    }
+
+    pub fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl Default for Width {
+    fn default() -> Width {
+        Width::new(80)
+    }
 }
 
 /// How much of a page to print.
@@ -51,9 +110,8 @@ pub enum Density {
 }
 
 pub struct DocCtx {
-    pub width: usize,
-    pub color: bool,
-    pub style: Style,
+    pub width: Width,
+    pub render: Render,
     pub density: Density,
 }
 
@@ -67,6 +125,19 @@ pub struct Page {
     pub see_also: Vec<String>,
 }
 
+/// One line of a listing: what `buri docs <id>` will fetch, and what it is.
+///
+/// Three positional `String`s used to say this, built by hand in six `entries`
+/// implementations. Transposing `title` and `summary` in any of them would have
+/// compiled and passed every test.
+pub struct Entry {
+    /// What `resolve` takes back. `every_registered_page_resolves` is what
+    /// holds the two ends together.
+    pub id: String,
+    pub title: String,
+    pub summary: String,
+}
+
 /// A kind of documentation the CLI can serve.
 ///
 /// This is the extensibility seam. Implement it, add one line to `sources()`,
@@ -75,8 +146,8 @@ pub trait DocSource {
     fn kind(&self) -> &'static str;
     /// The page for an id, if this source owns it.
     fn resolve(&self, id: &str) -> Option<Page>;
-    /// `(id, title, summary)` for everything this source serves.
-    fn entries(&self) -> Vec<(String, String, String)>;
+    /// Everything this source serves.
+    fn entries(&self) -> Vec<Entry>;
 }
 
 /// Prose topics: the language reference, the build system, the guide.
@@ -92,10 +163,14 @@ impl DocSource for Prose {
         Some(page_of(t))
     }
 
-    fn entries(&self) -> Vec<(String, String, String)> {
+    fn entries(&self) -> Vec<Entry> {
         topics::TOPICS
             .iter()
-            .map(|t| (t.id.to_string(), t.title.to_string(), t.summary()))
+            .map(|t| Entry {
+                id: t.id.to_string(),
+                title: t.title.to_string(),
+                summary: t.summary(),
+            })
             .collect()
     }
 }
@@ -126,10 +201,13 @@ impl DocSource for Normative {
     }
 
     fn resolve(&self, id: &str) -> Option<Page> {
-        let (title, lang, text) = match id {
-            "grammar" => (NORMATIVE[0].1, "ebnf", topics::GRAMMAR),
-            "schema/build" => (NORMATIVE[1].1, "proto", topics::BUILD_PROTO),
-            "schema/repo" => (NORMATIVE[2].1, "proto", topics::REPO_PROTO),
+        // The title and the language come from the same row the index lists, so
+        // a page cannot be headed one thing and listed as another.
+        let (_, title, lang) = NORMATIVE.iter().find(|(name, _, _)| *name == id)?;
+        let text = match id {
+            "grammar" => topics::GRAMMAR,
+            "schema/build" => topics::BUILD_PROTO,
+            "schema/repo" => topics::REPO_PROTO,
             _ => return None,
         };
         Some(Page {
@@ -141,11 +219,13 @@ impl DocSource for Normative {
         })
     }
 
-    fn entries(&self) -> Vec<(String, String, String)> {
+    fn entries(&self) -> Vec<Entry> {
         NORMATIVE
             .iter()
-            .map(|(id, title, lang)| {
-                (id.to_string(), title.to_string(), format!("hand-written {lang}, held to the implementation by a test"))
+            .map(|(id, title, lang)| Entry {
+                id: id.to_string(),
+                title: title.to_string(),
+                summary: format!("hand-written {lang}, held to the implementation by a test"),
             })
             .collect()
     }
@@ -176,10 +256,14 @@ impl DocSource for Cli {
         })
     }
 
-    fn entries(&self) -> Vec<(String, String, String)> {
+    fn entries(&self) -> Vec<Entry> {
         crate::commands::COMMANDS
             .iter()
-            .map(|c| (format!("cli/{}", c.name), format!("buri {}", c.name), c.blurb.to_string()))
+            .map(|c| Entry {
+                id: format!("cli/{}", c.name),
+                title: format!("buri {}", c.name),
+                summary: c.blurb.to_string(),
+            })
             .collect()
     }
 }
@@ -227,24 +311,33 @@ impl DocSource for Std {
         })
     }
 
-    fn entries(&self) -> Vec<(String, String, String)> {
-        let mut out = Vec::new();
-        for m in &self.modules {
-            out.push((
-                m.path.clone(),
-                m.path.clone(),
-                m.docs.first().cloned().unwrap_or_default(),
-            ));
-            for item in &m.items {
-                out.push((
-                    item.path(&m.path),
-                    format!("{} {}", item.kind.label(), item.name),
-                    item.docs.first().cloned().unwrap_or_default(),
-                ));
-            }
-        }
-        out
+    fn entries(&self) -> Vec<Entry> {
+        module_entries(&self.modules)
     }
+}
+
+/// A module reference's listing: the module itself, then each item in it.
+///
+/// One function rather than the two near-identical copies `Std` and
+/// `Workspace` used to carry, which is the other thing an `Entry` buys — the
+/// duplication was only tolerable while the rows were anonymous triples.
+fn module_entries(modules: &[reference::ApiModule]) -> Vec<Entry> {
+    let mut out = Vec::new();
+    for m in modules {
+        out.push(Entry {
+            id: m.path.clone(),
+            title: m.path.clone(),
+            summary: m.docs.first().cloned().unwrap_or_default(),
+        });
+        for item in &m.items {
+            out.push(Entry {
+                id: item.path(&m.path),
+                title: format!("{} {}", item.kind().label(), item.name),
+                summary: item.docs.first().cloned().unwrap_or_default(),
+            });
+        }
+    }
+    out
 }
 
 /// The packages of the repository you are standing in, rendered by the same
@@ -270,13 +363,15 @@ impl Workspace {
         // Every library in the repository, checked together, so a page shows
         // what an importer would actually see.
         let mut modules = Vec::new();
+        let mut cache = crate::parsing::parser::Cache::new();
         for target in ws.targets() {
             let unit = crate::compiler::modules::Unit {
                 target: Some(target),
                 platform: crate::compiler::driver::host_platform(),
                 with_tests: false,
             };
-            let analysis = crate::compiler::driver::analyze(Some(&ws), &mut map, &unit);
+            let analysis =
+                crate::compiler::driver::analyze(Some(&ws), &mut map, &mut cache, &unit);
             let pkg = target.pkg;
             let owned = |m: &crate::compiler::modules::ModuleData| m.pkg == Some(pkg);
             for m in reference::from_loaded(&analysis.loaded, &owned) {
@@ -315,19 +410,8 @@ impl DocSource for Workspace {
         })
     }
 
-    fn entries(&self) -> Vec<(String, String, String)> {
-        let mut out = Vec::new();
-        for m in &self.modules {
-            out.push((m.path.clone(), m.path.clone(), m.docs.first().cloned().unwrap_or_default()));
-            for item in &m.items {
-                out.push((
-                    item.path(&m.path),
-                    format!("{} {}", item.kind.label(), item.name),
-                    item.docs.first().cloned().unwrap_or_default(),
-                ));
-            }
-        }
-        out
+    fn entries(&self) -> Vec<Entry> {
+        module_entries(&self.modules)
     }
 }
 
@@ -353,11 +437,13 @@ impl DocSource for Errors {
         })
     }
 
-    fn entries(&self) -> Vec<(String, String, String)> {
+    fn entries(&self) -> Vec<Entry> {
         crate::documentation::errors::ERRORS
             .iter()
-            .map(|e| {
-                (format!("error/{}", e.code), e.title.to_string(), format!("`{}`", e.code))
+            .map(|e| Entry {
+                id: format!("error/{}", e.code),
+                title: e.title.to_string(),
+                summary: format!("`{}`", e.code),
             })
             .collect()
     }
@@ -383,13 +469,18 @@ pub fn sources() -> Vec<Box<dyn DocSource>> {
 
 pub fn cmd_docs(args: &arguments::Args) -> i32 {
     let ctx = DocCtx {
-        width: terminal_width(),
-        color: args.flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err())
-            && args.flags.format != Some(Format::Json),
-        style: match args.flags.format {
-            Some(Format::Json) => Style::Json,
-            Some(Format::Markdown) => Style::Markdown,
-            None => Style::Human,
+        width: Width::new(terminal_width()),
+        // `--format` decides whether there is a human to colour for at all, so
+        // the colour flag is only asked about when there is one.
+        render: match args.flags.format {
+            Format::Json => Render::Json,
+            Format::Markdown => Render::Markdown,
+            Format::Human => Render::Human {
+                color: args
+                    .flags
+                    .color
+                    .unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
+            },
         },
         density: if args.flags.dense { Density::Dense } else { Density::Full },
     };
@@ -443,7 +534,7 @@ pub fn cmd_docs(args: &arguments::Args) -> i32 {
 fn error_index(ctx: &DocCtx) -> String {
     let mut out = String::new();
     let (bold, dim, reset) =
-        if ctx.color { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
     let _ = write!(out, "{bold}buri docs error <code>{reset} — one diagnostic in full\n\n");
     for e in crate::documentation::errors::ERRORS {
         let _ = writeln!(out, "  {:<28} {}", e.code, e.title);
@@ -461,7 +552,7 @@ fn error_index(ctx: &DocCtx) -> String {
 fn command_index(ctx: &DocCtx) -> String {
     let mut out = String::new();
     let (bold, dim, reset) =
-        if ctx.color { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
     let _ = write!(out, "{bold}buri docs cli <command>{reset} — one command in full\n\n");
     for c in crate::commands::COMMANDS {
         let _ = writeln!(out, "  cli/{:<10} {}", c.name, c.blurb);
@@ -479,9 +570,8 @@ fn show(id: &str, ctx: &DocCtx) -> i32 {
         }
     }
     eprintln!("error: there is no documentation topic `{id}`");
-    let all: Vec<(String, String, String)> =
-        sources().iter().flat_map(|s| s.entries()).collect();
-    let ids: Vec<&str> = all.iter().map(|(i, _, _)| i.as_str()).collect();
+    let all: Vec<Entry> = sources().iter().flat_map(|s| s.entries()).collect();
+    let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
     if let Some(near) = crate::build::buildfile::nearest(id, &ids) {
         eprintln!("  = did you mean `{near}`?");
     }
@@ -494,9 +584,9 @@ fn emit(page: &Page, ctx: &DocCtx) -> String {
         Density::Full => page.body.clone(),
         Density::Dense => markdown::dense(&page.body),
     };
-    match ctx.style {
-        Style::Markdown => body,
-        Style::Json => {
+    match ctx.render {
+        Render::Markdown => body,
+        Render::Json => {
             let mut out = String::new();
             let s = crate::diagnostics::json_str;
             let _ = write!(
@@ -514,8 +604,8 @@ fn emit(page: &Page, ctx: &DocCtx) -> String {
             out.push_str("}\n");
             out
         }
-        Style::Human => {
-            let mut out = markdown::to_terminal(&body, ctx.width, ctx.color);
+        Render::Human { color } => {
+            let mut out = markdown::to_terminal(&body, ctx.width, color);
             if !page.see_also.is_empty() {
                 let _ = write!(out, "\nSee also: {}\n", page.see_also.join(", "));
             }
@@ -529,17 +619,17 @@ fn emit(page: &Page, ctx: &DocCtx) -> String {
 
 /// The front page: what kinds exist, what is in each, and how to search.
 fn index(ctx: &DocCtx) -> String {
-    if ctx.style == Style::Json {
+    if ctx.render == Render::Json {
         let s = crate::diagnostics::json_str;
         let mut rows = Vec::new();
         for source in sources() {
-            for (id, title, summary) in source.entries() {
+            for e in source.entries() {
                 rows.push(format!(
                     "{{\"kind\":{},\"id\":{},\"title\":{},\"summary\":{}}}",
                     s(source.kind()),
-                    s(&id),
-                    s(&title),
-                    s(&summary)
+                    s(&e.id),
+                    s(&e.title),
+                    s(&e.summary)
                 ));
             }
         }
@@ -548,7 +638,7 @@ fn index(ctx: &DocCtx) -> String {
 
     let mut out = String::new();
     let (bold, dim, reset) =
-        if ctx.color { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
     let _ = writeln!(out, "{bold}buri docs{reset} — the language, the build system, and this CLI\n");
 
     for (kind, heading) in [
@@ -577,8 +667,9 @@ fn index(ctx: &DocCtx) -> String {
 
     let _ = writeln!(out, "{bold}The standard library{reset}");
     let mut line = String::from("  ");
-    for path in crate::compiler::standard_library::MODULES {
-        if line.chars().count() + path.len() + 2 > ctx.width {
+    for m in crate::compiler::standard_library::MODULES {
+        let path = m.path;
+        if line.chars().count() + path.len() + 2 > ctx.width.get() {
             let _ = writeln!(out, "{line}");
             line = String::from("  ");
         }
@@ -627,7 +718,7 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
     let mut hits: Vec<(i64, String, String, String)> = Vec::new();
 
     for source in sources() {
-        for (id, title, summary) in source.entries() {
+        for Entry { id, title, summary } in source.entries() {
             let topic = topics::find(&id);
             let body = topic.map(|t| t.text).unwrap_or("").to_lowercase();
             let tags: Vec<&str> = topic.map(|t| t.tags.to_vec()).unwrap_or_default();
@@ -670,7 +761,7 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
     hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     hits.truncate(12);
 
-    if ctx.style == Style::Json {
+    if ctx.render == Render::Json {
         let s = crate::diagnostics::json_str;
         let rows: Vec<String> = hits
             .iter()
@@ -693,11 +784,11 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
         return 1;
     }
     let (bold, dim, reset) =
-        if ctx.color { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
     let mut listing = String::new();
     for (_, id, title, summary) in &hits {
         let _ = writeln!(listing, "{bold}{id}{reset}  {title}");
-        let line = one_line(summary, ctx.width.saturating_sub(4));
+        let line = one_line(summary, ctx.width.get().saturating_sub(4));
         if !line.is_empty() {
             let _ = writeln!(listing, "  {dim}{line}{reset}");
         }
@@ -709,7 +800,9 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
 /// A summary as one terminal line: inline markup rendered away, whitespace
 /// collapsed, truncated on a word boundary.
 fn one_line(text: &str, width: usize) -> String {
-    let flat = markdown::to_terminal(text, 10_000, false);
+    // Wrapped and then unwrapped: the collapse below turns the line breaks
+    // back into spaces, and what is wanted is the inline markup rendered away.
+    let flat = markdown::to_terminal(text, Width::widest(), false);
     let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= width {
         return flat;
@@ -746,7 +839,7 @@ fn manifest() -> String {
     let mut pages: Vec<String> = Vec::new();
     for source in sources() {
         kinds.push(s(source.kind()));
-        for (id, title, summary) in source.entries() {
+        for Entry { id, title, summary } in source.entries() {
             let tags = topics::find(&id)
                 .map(|t| t.tags.iter().map(|x| s(x)).collect::<Vec<_>>())
                 .unwrap_or_default();
@@ -784,7 +877,7 @@ fn manifest() -> String {
 /// `write!` without building an intermediate `String` per page.
 fn pages_push(pages: &mut Vec<String>) -> &mut String {
     pages.push(String::new());
-    pages.last_mut().unwrap()
+    pages.last_mut().or_ice("a vector has a last element on the line after a push")
 }
 
 /// Compiles every fenced example in the named markdown files — or, with no
@@ -808,7 +901,7 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
 
     let files: Vec<std::path::PathBuf> = if paths.is_empty() {
         let mut found = Vec::new();
-        markdown_under(&root, &root, &mut found);
+        markdown_under(&root, &mut found);
         found
     } else {
         paths.iter().map(|p| root.join(p)).collect()
@@ -836,7 +929,7 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
         let found = crate::documentation::examples::extract(&rel, &text)
             .blocks
             .iter()
-            .filter(|b| b.mode != crate::documentation::examples::Mode::Ignore)
+            .filter(|b| !b.claim.is_ignored())
             .count();
         if source && found == 0 {
             continue;
@@ -848,7 +941,7 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
     let files_checked = checked;
 
     if failures.is_empty() {
-        let (dim, reset) = if ctx.color { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
+        let (dim, reset) = if ctx.render.color() { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
         arguments::out(&format!(
             "{blocks} example(s) in {files_checked} document(s) compile{dim} — and the ones \
              that print something were run{reset}\n"
@@ -861,7 +954,7 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
 }
 
 /// Every `.md` in the tree, skipping the build directory and anything hidden.
-fn markdown_under(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+fn markdown_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|e| e.path());
@@ -872,7 +965,7 @@ fn markdown_under(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<s
             continue;
         }
         if p.is_dir() {
-            markdown_under(root, &p, out);
+            markdown_under(&p, out);
         } else if p.extension().is_some_and(|x| x == "md" || x == "buri") {
             // `.buri` too: a documentation comment is documentation, and an
             // example in one has the same claim on being true as an example in
@@ -957,13 +1050,17 @@ mod tests {
     use super::*;
 
     fn ctx() -> DocCtx {
-        DocCtx { width: 80, color: false, style: Style::Human, density: Density::Full }
+        DocCtx {
+            width: Width::default(),
+            render: Render::Human { color: false },
+            density: Density::Full,
+        }
     }
 
     #[test]
     fn every_registered_page_resolves() {
         for source in sources() {
-            for (id, _, _) in source.entries() {
+            for Entry { id, .. } in source.entries() {
                 assert!(
                     source.resolve(&id).is_some(),
                     "`{id}` is listed by `{}` but does not resolve",
@@ -984,22 +1081,22 @@ mod tests {
     #[test]
     fn a_page_renders_in_every_style() {
         let page = Prose.resolve("lang/effects").expect("lang/effects exists");
-        for style in [Style::Human, Style::Markdown, Style::Json] {
-            let out = emit(&page, &DocCtx { style, ..ctx() });
-            assert!(!out.trim().is_empty(), "{style:?} rendered nothing");
+        for render in [Render::Human { color: false }, Render::Markdown, Render::Json] {
+            let out = emit(&page, &DocCtx { render, ..ctx() });
+            assert!(!out.trim().is_empty(), "{render:?} rendered nothing");
         }
         // JSON is one line, so a tool can read it a page at a time.
-        let json = emit(&page, &DocCtx { style: Style::Json, ..ctx() });
+        let json = emit(&page, &DocCtx { render: Render::Json, ..ctx() });
         assert_eq!(json.lines().count(), 1, "JSON output must be one line");
     }
 
     #[test]
     fn dense_is_shorter_but_keeps_the_examples() {
         let page = Prose.resolve("lang/effects").unwrap();
-        let full = emit(&page, &DocCtx { style: Style::Markdown, ..ctx() });
+        let full = emit(&page, &DocCtx { render: Render::Markdown, ..ctx() });
         let dense = emit(
             &page,
-            &DocCtx { style: Style::Markdown, density: Density::Dense, ..ctx() },
+            &DocCtx { render: Render::Markdown, density: Density::Dense, ..ctx() },
         );
         assert!(dense.len() < full.len());
         for f in markdown::fences(&page.body) {

@@ -139,8 +139,8 @@ It does not cover `America/New_York`, and it does not pretend to.
 `core/crypto` — SHA-256, HMAC-SHA-256, and a constant-time comparison.
 
 Written in Buri rather than handed to the platform, for the same reason
-`cli/src/build/cache.rs` hand-writes SHA-256 in Rust: the toolchain is pinned by hash
-and a dependency tree is a second thing to pin. The two implementations are
+`cli/src/build/cache.rs` hand-writes SHA-256 in Rust: a dependency tree is a second
+thing to audit, and this is a compiler. The two implementations are
 checked against the same NIST vectors, in two languages, neither of which can
 compile the other.
 
@@ -165,6 +165,46 @@ imported only by the module that exports `main`. `core/io`, `core/fs`,
 are used through. `core/testing/assert` and `core/testing/context` are
 importable only from a test source.
 
+### Allocators
+
+`core/alloc` — `GeneralPurpose`, `Arena`, `FixedBuffer`. Three implementations
+of `Alloc`, importable anywhere, because `Alloc` is the one effect whose
+implementation carries no authority: a `Region` is a number, so a library that
+builds its own allocator has been granted nothing.
+
+They were deliberately deferred while the only backend had a garbage collector,
+on the grounds that a count would be synthetic. **What made them real was not
+the native backend but the cost model.** The charge for an operation is
+*defined* — a `Str` of *n* UTF-8 bytes charges `16 + n`, a `[T]` of *n* charges
+`16 + n * stride(T)`, a view charges nothing — and it is computed from the
+types rather than measured. So the same program charges the same number on both
+backends by construction, and a count is not a JavaScript fact that a native
+run would contradict. The model is beside `Alloc` in `core/cap`, where a reader
+of the effect meets it; `design/native/MEMORY.md` §7 is the argument for it.
+
+- **`GeneralPurpose`** — unbounded, counts. `gp.stats()` answers
+  `Stats { allocations, bytes }`.
+- **`FixedBuffer(n)`** — a byte budget, and charging past it **aborts**. That
+  is forced rather than chosen: `allocate` answers `Region` and not
+  `Result<Region, _>`, so there is no value to report a failure with, and SPEC
+  6.10 says that is what an abort is for. The message carries both numbers.
+- **`Arena`** — a separate counter, and nothing more than a counter. It does
+  not free in bulk, and it says so: what would make it real is a **scoped
+  context**, a language feature bounding a context's lifetime so that
+  everything allocated under it is unreachable at the end of the scope. Until
+  that exists an arena has no scope to end at, so what it is for meanwhile is
+  attribution — an arena per phase, without subtracting two totals.
+
+**What is counted is narrower than the model, identically on both backends:
+every `allocate(ctx, n)`, and nothing else.** The list and string rows are
+charged by definition and reported to no allocator, because the allocating
+intrinsics drop the context — on JavaScript because `stride(T)` is a
+compile-time fact an untyped runtime does not have, and natively because the
+`buri_rt_*` ABI drops a context argument from every call. Widening it has to
+happen on both backends at once or the numbers stop agreeing, which is the one
+property the module exists to have. `core/alloc`'s own comment states the
+boundary, and `cli/tests/conformance/lib/memory/` pins it on both.
+
 ## What is deliberately not here
 
 **`MultiArrayList` / struct-of-arrays.** Not expressible, and not honourable on
@@ -183,13 +223,14 @@ this backend:
    belongs beside the native backend, which is where the layout would actually
    pay.
 
-**Allocators — `GeneralPurpose`, `Arena`, `FixedBuffer`.** `Alloc` is a
-type-level budget here and nothing more: a function that allocates says so in
-its signature, and nothing counts. That is the honest state on a backend with a
-garbage collector, where an arena would reclaim nothing and a general-purpose
-allocator would report a synthetic number rather than a measurement. The three
-types are worth having when there is real memory underneath, which is the
-native backend's job. `TODO.md` keeps the design notes.
+**Bulk reclamation — a real `Arena`.** The type is here and its counter is
+real; the bulk free is not, and it is not a backend gap. It needs a scoped
+context, which is a language proposal. See `core/alloc` above.
+
+**Automatic accounting of the list and string rows.** The cost model defines
+them and no allocator is told about them. Both backends drop the context at the
+allocating intrinsics, for a different reason each, and closing that is a wave
+of its own that has to land on both at once. Again: `core/alloc` above.
 
 ## Two rules for anything added here
 

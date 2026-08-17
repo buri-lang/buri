@@ -8,6 +8,6 @@ enum Level {
 }
 
 message Thing {
-  string name = 0;
+  optional string name = 0;
   Unknown other = 2;
   int32 reserved_range = 19500;

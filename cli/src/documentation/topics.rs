@@ -138,7 +138,7 @@ pub const TOPICS: &[Topic] = &[
         "Why the grammar is context-free and unambiguous",
         Kind::Lang,
         include_str!("../docs/lang/grammar-rationale.md"),
-        &["turbofish", "parser", "ambiguity", "LR(1)"],
+        &["type arguments", "parser", "ambiguity", "LR(1)"],
         &["lang/lexical"],
     ),
     t("lang/invariants", "Compilation invariants", Kind::Lang, include_str!("../docs/lang/invariants.md")),
@@ -200,7 +200,7 @@ pub const TOPICS: &[Topic] = &[
         "REPO.buri",
         Kind::Build,
         include_str!("../docs/build/repo-config.md"),
-        &["toolchain", "pin", "sha256", "root"],
+        &["tag", "root", "repository", "policy"],
         &["build/build-files"],
     ),
     tagged(

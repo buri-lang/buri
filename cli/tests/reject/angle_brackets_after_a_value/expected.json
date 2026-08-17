@@ -1,0 +1,1 @@
+{"severity":"error","message":"explicit type arguments qualify a function or a call","code":"type-args-on-a-value","location":{"file":"cmd/angle_brackets_after_a_value/main.buri","line":12,"column":3,"endLine":12,"endColumn":12,"text":"  a < Int > (c)"},"fix":"attach the type arguments to the call, as in `f<Str>(x)`","notes":[],"related":[]}

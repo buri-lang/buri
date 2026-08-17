@@ -49,7 +49,7 @@ larger than the language's own tests need.
       `bits.popCount` were correct 64-bit BigInt, so the two halves of the
       module disagreed with each other.
 
-      Fixed in `compiler/backend/generate.rs::prim_op`: above 32 bits the operation goes through
+      Fixed in `compiler/backend/js/generate.rs::prim_op`: above 32 bits the operation goes through
       `$and64`/`$or64`/`$xor64`/`$not64` (and the unsigned forms) in
       `runtime.js`; at 32 bits and below the native operator is exact and
       stays, so ordinary integer code is unchanged. Pinned by
@@ -227,8 +227,9 @@ larger than the language's own tests need.
       and nothing else. Recorded as a golden with a name in it rather than as
       an empty file, so the assertion is that the *right* dep is there and the
       other is not — an empty golden would have passed for the wrong reason.
-- [ ] `artifact_name` on an output. *(untested; native artifacts are
-      unimplemented — see below)*
+- [ ] `artifact_name` on an output. *(untested; native artifacts are built now,
+      so this is a test nobody has written rather than a feature nobody has
+      landed — `actions::artifact_path` is where it is read)*
 
 ## LIBRARIES.md
 
@@ -338,12 +339,21 @@ larger than the language's own tests need.
       executed as JavaScript, which is what `buri test` has always done and
       what the `server` tag in the example repository depends on.
 
-      The honest boundary is the last step of that case: only the JavaScript
-      backend exists, so a suite that *names* a platform this toolchain cannot
-      execute gets `platform-not-implemented` rather than being run through the
-      backend that does exist and reported as if it had run natively. When
-      there is a native backend, that step is the one that changes.
-      *(a non-JS run is unimplemented, and says so)*
+      The honest boundary is the last step of that case, and what stands behind
+      it has moved: a suite naming a platform this toolchain can build a binary
+      for is compiled and run as one, and a suite naming a platform it cannot —
+      no backend compiled in, no runtime archive, or a platform that is not this
+      host, since there is no cross-compilation — still gets
+      `platform-not-implemented` rather than being run through the backend that
+      does exist and reported as if it had run natively.
+
+      A native run has no *runner*: a failed assertion aborts the process, so
+      the binary runs every `test` block in order and stops at the first
+      failure. A clean run reports every test in it; a failing one reports the
+      failure and, in a suite of more than one test, says it cannot attribute
+      it. That is a worse report and not a wrong answer, and it is what SPEC
+      6.10 costs — there is nothing to catch.
+      *(landed, wave 3c)*
 
 ## TESTING.md
 
@@ -551,15 +561,20 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       reports `cached` when the cache survived and does not when it did not.
       The second reading is the one that matters, because a `--outputs` that
       deleted everything would pass the first.
-- [x] `buri version` printing the toolchain version and the `REPO.buri` pin —
-      `repositories/cli/version_pin`, plus
-      `conformance.rs::version_works_outside_a_repository` for the clause that
-      cannot be a repository case, since a case *is* a repository. The pinned
-      output names a version and so moves when the toolchain's does; that is
-      deliberate and costs nothing, because every `REPO.buri` in this corpus
-      already pins `0.3.0` and a release moves them together. The case ends by
-      pinning that a mismatched pin stops `buri build` too, rather than
-      `version` being the only command that looks.
+- [x] `buri version` printing the toolchain version — `repositories/cli/version`,
+      plus `conformance.rs::version_works_outside_a_repository` for the clause
+      that cannot be a repository case, since a case *is* a repository. The
+      pinned output names a version and so moves when the toolchain's does; that
+      is deliberate and the diff is the release.
+
+      **Reshaped when the toolchain pin was removed.** The case was
+      `version_pin` and pinned three things: the version, the `REPO.buri` pin
+      the command reported, and that a mismatched pin stopped `buri build` too.
+      The last two went with the feature, so what is left is one golden and the
+      claim that opening a repository adds nothing to what `version` prints —
+      the absence, recorded where the presence used to be. `--verbose`'s second
+      line is the running executable's hash and no golden can hold it, so
+      `conformance.rs` asserts that one instead.
 - [x] `buri lsp` — implemented, and recorded as three sessions in
       `repos/lsp/`. `diagnostics`, `hover`, `definition`, `documentSymbol`,
       `formatting`, and completion in the two places that need no type
@@ -756,13 +771,15 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       through it, `clean` takes it with the directory it points into, and a
       later build puts it back.
 
-      **The boundary, and it is the native-backend one again.** The link
-      points at a *platform* directory, and this toolchain emits JavaScript
-      and nothing else, so every build produces `.buri/out/js` and "most
-      recent" has one possible answer. Two builds of two targets cannot tell a
-      correct implementation from one that hard-codes the string. When a
-      second backend exists, the step that tells them apart is a build for one
-      platform followed by a build for the other, and it belongs in this case.
+      **The boundary was the native-backend one, and it has moved rather than
+      closed.** The link points at a *platform* directory, and while JavaScript
+      was the only backend every build produced `.buri/out/js`, so two builds of
+      two targets could not tell a correct implementation from one that
+      hard-codes the string. A native build now writes `.buri/out/macos/...`, so
+      the step that tells them apart — a build for one platform followed by a
+      build for the other, and the link naming the second — is writable today.
+      It is not written: the case is a repository manifest and the platform it
+      would have to name is the host's, which a manifest cannot ask for.
 - [x] `--output=linux/x86_64` selecting one of several outputs —
       `repositories/cli/output_selection`, and **selecting nothing used to
       exit 0**. `selected_outputs` filters the declared outputs by the
@@ -774,11 +791,16 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       selector is the thing you asked *with*.
 
       The rest is pinned as far as it goes. A target declaring both JS and
-      `LINUX/X86_64` builds the first and is refused at the backend for the
-      second, in both the `linux/x86_64` and the `linux-x86_64` spelling, and
-      with no selector at all it does both — one artifact and one refusal.
-      What a native artifact *is* remains untestable here; see the
-      native-backend gap below.
+      `LINUX/X86_64` builds the first and is refused for the second, in both
+      the `linux/x86_64` and the `linux-x86_64` spelling, and with no selector
+      at all it does both — one artifact and one refusal.
+
+      **The refusal is now about the host rather than about the backend**, and
+      that makes this case host-dependent: on a Linux x86_64 machine that
+      selector names the host, the build succeeds, and the two goldens do not
+      hold. What a native artifact *is* is pinned in `incrementality.rs`
+      instead, where a test can ask which platform this is; making the
+      repository cases host-independent needs the harness to know it too.
 - [ ] **A `main.buri` in a package with no `binary` rule is invisible.**
       Found writing `repositories/cli/gen_never_creates`, and pinned there as
       a clean `lint` run rather than fixed. `gen` is right to leave it alone —
@@ -795,14 +817,30 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       build cannot see. *(untested elsewhere; the case records today's
       silence, so the fix will show up as a diff there)*
 
-- [ ] **`buri format` does not put `library` before `binary`.** CLI.md:100
-      lists the ordering among the things the formatter fixes, and
-      `textproto::print` emits fields in the order it read them — a build file
-      written binary-first stays binary-first and `format --check` passes.
-      Not fixed here because `print` is shared with `REPO.buri`, where
-      reordering `toolchain` and `tag` blocks is a separate decision that
-      nothing has argued for; the ordering wanted is a build-file rule and
-      belongs where the two callers differ. *(unimplemented)*
+- [x] **`buri format` puts the fields of a build file in the schema's order.**
+      `textproto::print` used to emit them in the order it read them, so a file
+      written binary-first stayed binary-first and `format --check` passed.
+
+      The rule is one rule and it settles what blocked this before: the order is
+      **the schema's declaration order**, taken from the same `check_known`
+      lists in `buildfile.rs` that decide whether a field is a field at all. It
+      needs no special case for `REPO.buri`, because `REPO.buri` has a schema
+      too — a build file is data, the order of its fields carries no meaning,
+      and the one order nobody has to argue about is the one the schema was
+      written in. `library` before `binary` (CLI.md:100) falls out of it, and so
+      does `sources` before `dependencies` before `test`.
+
+      Two things the sort does not touch. A field the schema has never heard of
+      keeps its place at the end — a formatter that moved or dropped something
+      it did not recognise would be worse than one that left it alone — and two
+      fields of the same name keep the order they were written in, because that
+      order is the only thing about a repeated field that could mean something.
+
+      Build files are formatted at four spaces now, the same as source: a build
+      file and the code beside it are read by the same person on the same
+      screen. `buri gen` and the language server's code actions write through
+      this same printer, so what `gen` leaves behind is what `format --check`
+      accepts, and neither can drift from the other.
 
 - [x] **The lint catalogue is complete.** Build-graph rules:
       `undeclared-source`, `duplicate-source`, `entry-point-listed`,
@@ -992,7 +1030,7 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       body is never on one line and an empty one is `{}`; a lambda body and a
       match arm body that will not fit beside their `=>` are wrapped in braces
       rather than hung under it; a chain breaks at *every* dot or none of
-      them, a field access counting as a dot and a turbofish not interrupting
+      them, a field access counting as a dot and type arguments not interrupting
       one; the two import groups run together and the names inside a clause
       sort; a comment beside a parameter stays beside it; nothing is
       column-aligned; and a `derive` moves onto the type it is about when that
@@ -1142,6 +1180,19 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
 - [x] Content-keying, not timestamps: rewriting a file with the bytes it
       already held rebuilds nothing
       (`incrementality::rewriting_a_file_with_its_own_bytes_rebuilds_nothing`).
+- [x] **A test-only dependency was in no key, and the verdict cache served
+      stale answers because of it.** `test { dependencies }` and
+      `testing { dependencies }` are deliberately outside `Workspace::closure`
+      — a test dependency is not a dependency of the thing being shipped, so it
+      must not drag its tags into the tag closure or count against
+      `unused-dep` — and `test_key` walked the closure. So a helper was
+      compiled into the suite and hashed into nothing, and editing it left a
+      passing suite passing. Fixed in `actions::test_key`, which now
+      contributes each test dependency's own closure, and in `watch::inputs`,
+      which mirrors the same edges;
+      `incrementality::editing_a_test_only_dependency_re_runs_the_suite` asserts
+      it on the *verdict* rather than on the transcript, because a `run` line
+      with a stale answer behind it would satisfy a weaker test.
 - [x] Cache-key composition: platform and arch, rule identity, and dependencies
       entering **as keys rather than contents**. Both altitudes, because they
       are different claims — `build/cache.rs` asserts them on the `KeyBuilder`,
@@ -1177,39 +1228,53 @@ Well covered already, for contrast: the runner-context table (TESTING.md:262-272
       `session::open`, so every command that opens a repository checks it and
       none of them has to remember to).
 
-      Two decisions the spec left open, both now written down in REPO-CONFIG.md:
-      **what is hashed** is the running executable, which is the artifact the
-      release archive would have contained and is the stricter of the two — it
-      also catches an executable replaced after it was unpacked. And **a
-      `sha256` of nothing but zeros is the sentinel for unpinned**, which is the
-      state a repository is in while its compiler is built from source. That is
-      the whole escape hatch: no flag and no environment variable, because a pin
-      you can turn off from the command line is a pin that gets turned off in
-      the one script that matters.
+      **Removed by decision, and with it everything below.** The pin is gone
+      from `REPO.buri`, from the schema, from `session::open`, from the cache
+      key, and from `buri version`; `build/toolchain.rs` is deleted. The
+      argument that removed it: a pin is worth its weight where a toolchain is
+      *fetched*, because it is what a downloader verifies before unpacking an
+      archive — and nothing fetches one. A hash that the same person who
+      installed the compiler also writes into `REPO.buri` checks that they agree
+      with themselves. What survives is `buri version --verbose`, which prints
+      the running executable's hash so that a bug report can name one build of a
+      version, and `arguments::VERSION` in every cache key, which is the whole
+      of toolchain identity now.
 
-      The scratch repositories' `sha256: "00"` turned out to be exactly right
-      and `cli/tests/example/REPO.buri`'s plausible-looking fake exactly wrong —
-      the harness comment already worried that "a plausible hash would invite
-      someone to believe it was checked", and now something checks. It is zeros.
+      Kept for the record, because the reasoning was not wrong and would come
+      back with a downloader: **what was hashed** was the running executable,
+      which is the artifact the release archive would have contained and is the
+      stricter of the two — it also catches an executable replaced after it was
+      unpacked. And **a `sha256` of nothing but zeros was the sentinel for
+      unpinned**, which is the state a repository is in while its compiler is
+      built from source. That was the whole escape hatch: no flag and no
+      environment variable, because a pin you can turn off from the command line
+      is a pin that gets turned off in the one script that matters. That every
+      `REPO.buri` in this repository wrote the sentinel, for the whole life of
+      the feature, is most of why it is gone.
 
-      One test had to change and the reason is worth keeping:
-      `changing_the_toolchain_pin_changes_every_key` moved the `version` field,
-      which now refuses to run before a key is computed. It moves the `sha256`
-      sentinel instead — zeros stay a sentinel while their bytes change — so the
-      row is still observable in a live repository.
+      One test did not survive the removal:
+      `incrementality::changing_the_toolchain_pin_changes_every_key` moved the
+      pin between *unpinned* and *pinned to this executable* to show that
+      toolchain identity moves every key. A repository has nothing left to move,
+      and `VERSION` is a constant compiled into the binary under test, so the
+      property is now pinned on the key's composition instead
+      (`cache::the_toolchain_version_is_in_every_key`, which rebuilds the key
+      field by field). A comment where the test was says so; observing a
+      *change* of version would take a second binary to compare against.
 
 ## REPO-CONFIG.md
 
 - [x] A `REPO.buri` whose `toolchain.version` or `sha256` does not match the
-      running toolchain — exit 2, before anything is compiled.
-      `repos/hermeticity/toolchain_pin` records the version refusal from two
-      different commands, because a check that `build` remembers and `lint`
-      forgets is not a check on the repository. The sha256 half cannot be
-      recorded — its message names the hash of whichever `buri` the suite just
-      compiled — so `hermeticity::a_pin_on_this_executable_is_satisfied_and_a_pin_on_another_is_refused`
-      computes it, asserts the refusal names *both* hashes, and asserts the
-      positive half that no checked-in file can express: this executable
-      satisfies a pin on its own hash.
+      running toolchain — exit 2, before anything is compiled. **The pin was
+      removed** (see the entry under HERMETICITY-AND-CACHING.md above), so there
+      is no refusal left to record and `repos/hermeticity/toolchain_pin` is
+      deleted along with `hermeticity::a_pin_on_this_executable_is_satisfied_and_a_pin_on_another_is_refused`.
+      What replaces them is one unit test on the reader
+      (`buildfile::a_leftover_toolchain_block_is_an_unknown_field`): a
+      `REPO.buri` still carrying a `toolchain` block is a file naming a field
+      that does not exist, and gets the same diagnostic any other undeclared
+      field gets, with no suggestion — `tag` is nowhere near `toolchain`, and a
+      suggestion that far away would read as a rename that never happened.
 - [x] The closed platform enum rejecting an unknown `Platform` or `Arch` name.
       `repos/hermeticity/closed_platform_enum` records all three places one can
       be written — an output's `platform`, an output's `arch`, and a tag's
@@ -1232,12 +1297,21 @@ the number. `format --check` reporting without rewriting is
 
 ## Cross-cutting
 
-- [ ] **Only the JS backend exists** (`build/actions.rs:43-47`). The example declares
-      `LINUX`/`MACOS` outputs and `conformance.rs:725` runs only `lint` and
-      `test` against it, never `build`. So the `link` action, the
-      `.buri/out/<platform>/<package>/<artifact>` layout, `artifact_name`, and
-      per-output platform checking are unexercised end-to-end.
-      *(unimplemented)*
+- [x] **The JS backend is no longer the only one.** Cranelift builds the debug
+      quadrant and LLVM the release one, `build/link.rs` is the link action, and
+      `.buri/out/<platform>/<package>/<artifact>` is a path a native build
+      writes to. What is exercised end-to-end is a native `build`, a native
+      `run`, and a `test { platforms }` entry naming the host — the last two
+      through `incrementality.rs`, which has a half for a toolchain that has no
+      native backend and a half for one that does.
+
+      **What is still unexercised** is the *example repository's* own
+      `LINUX`/`MACOS` outputs: `conformance.rs` runs `lint` and `test` against
+      it and never `build`, and a `buri build //...` there would today be
+      refused for the intrinsics the native backend has no implementation of
+      (`core/fs`, `core/env`, `json.*`, every `list.*` taking a closure). That
+      refusal is the honest state and the reason the default output is still
+      `JS`; see the native roadmap below.
 - [ ] **`main.buri` is the only module that may import `core/host`**, and its
       context is checked against each output's platform — a `main` binding
       `Fs: host.fs` under `platform: JS` must be an unresolved name at the
@@ -1262,6 +1336,177 @@ the number. `format --check` reporting without rewriting is
 
 ---
 
+## How long the compiler takes
+
+Nothing here was a clever optimisation. Every one of them was the compiler
+doing a large amount of work that no part of it wanted done, found by sampling
+the binary on the two repositories in `cli/tests/` rather than by reading for
+things that looked slow — which is the point worth keeping, because the largest
+one by far sat in a function whose name gives no hint that it is on any hot
+path at all.
+
+Medians over eleven runs of a `--lto` release build, one machine, timed around
+the whole process:
+
+| | before | after |
+| --- | --- | --- |
+| `conformance` `build //...` | 233 ms | 22 ms |
+| `conformance` `lint //...` | 501 ms | 63 ms |
+| `conformance` `test //...`, cold | 935 ms | 499 ms |
+| `conformance` `format --check` | 71 ms | 56 ms |
+| `example` `build //...` | 21 ms | 8 ms |
+| `example` `lint //...` | 57 ms | 15 ms |
+| `example` `test //...`, cold | 186 ms | 151 ms |
+| `version --self-check` | 85 ms | 12 ms |
+
+`test`, cold, is the one that moved least, and that is as it should be: three
+fifths of it is the toolchain waiting on `node` to run the suites it just
+compiled, which is not the compiler's time to save.
+
+- [x] **`Checker::module` handed out a borrow of the checker rather than of
+      the modules, and half the compiler's life went into working around it.**
+      `Loaded` is behind a `&'a` the checker never writes through, so
+      `self.module(id)` could always have returned `&'a ModuleData`. Returning
+      `&ModuleData` instead meant every pass that walks a module's items while
+      filling in a table — which is every pass — could not hold the items and
+      the table at once, and the way each of them settled that was
+      `self.module(id).ast.items.clone()`: a deep copy of the module's entire
+      syntax tree, every body and every expression, once per pass.
+
+      Worse, `expand_alias` did it too, and `elaborate` calls `expand_alias`
+      for *every named type in the program* — so the whole tree was copied once
+      per type annotation. That single line was about half the wall time of a
+      build. `body_ast` in `inference.rs` was the same shape at function
+      granularity: one deep copy of a function's declaration per function
+      checked.
+
+      One word in one signature, and the `.clone()`s at seven call sites
+      became borrows. `conformance` `build //...` went from 233 ms to 31 ms.
+
+- [x] **The parser ran once per target on files it had already read.** A
+      command analyses one target at a time and every target pulls in the
+      standard library, so `lint //...` lexed and parsed 204 files to compile
+      121 distinct ones. `parser::Cache` keys the parse on `FileId`, which is
+      the identity `SourceMap` already uses to decide when a file's *text* is
+      re-read — so the two cannot disagree about which revision is in play —
+      and the tree is shared with an `Rc` rather than copied, which nothing
+      objects to because nothing mutates a tree after parsing. 128 of 204
+      parses became lookups.
+
+      The embedded standard library needed one further fix to benefit:
+      `load_std` called `SourceMap::add` rather than checking for the module
+      first, so every analysis got a *new* `FileId` for text compiled into the
+      binary — and a process that analysed a hundred targets accumulated a
+      hundred copies of the whole standard library in the map. That is
+      `SourceMap::embedded` now.
+
+- [x] **`SourceMap::find` was a linear scan, and `load` calls it for every
+      file.** Loading a repository was quadratic in the number of files it has,
+      which is invisible at ten and is not at a thousand. It is a `HashMap`
+      now; the map is append-only, so the index costs one insert per file.
+
+- [x] **The effect predicates scanned every `impl` in the program, per type
+      node.** `is_effect_carrying` and `may_carry_effect` answer "does this
+      constructor implement an effect?" once for every type-constructor node
+      they walk, and they answered it by walking `impls` — every conformance in
+      the compilation, standard library included. So checking one function got
+      slower as the repository declared more `impl` blocks *anywhere in it*,
+      whether or not that function had heard of them.
+
+      Asked of the effects instead it is one hash lookup each, and a program
+      declares a handful of effects and thousands of impls. `add_trait` is the
+      only way a trait comes into existence and `is_effect` is fixed there, so
+      the list cannot fall out of step. Measured against a repository of *n*
+      types each deriving three traits: at *n*=800, 28 ms → 17 ms; at *n*=1600,
+      90 ms → 38 ms; at *n*=3200, 327 ms → 121 ms. The old curve is quadratic
+      and the gap keeps widening.
+
+- [x] **The tables hash with a multiplicative hash rather than SipHash.**
+      `std`'s default is chosen to survive an adversary who picks the keys, and
+      nothing here has one — the keys are a program's own names and type ids.
+      `hash.rs` is rustc's function, constants and all, at about a hundred
+      lines with no dependency; rustc-hash's own test vectors are in the file,
+      so it is checkable against the thing it is a copy of. Worth 7–15%
+      across the front end.
+
+      The side effect matters more than the speed: `RandomState` seeds itself
+      per process, so two runs of the compiler on one input walked its tables
+      in two different orders. Nothing was allowed to depend on that — artifacts
+      are compared byte for byte — but that was a property maintained by care.
+      With a fixed seed a mistake of that kind is at least reproducible, and
+      `build --check-reproducible` can see it.
+
+- [x] **The formatter copied a document it was about to throw away.**
+      `args_doc` built the plain bracketed form *first* and returned it when
+      the call was not hugging, so every call in the program paid for a copy of
+      every one of its arguments' documents — and a document is the whole
+      subtree. `chain` had the same shape: it built the one-line form from
+      clones before asking whether the expression was a chain at all, which
+      most are not. Asking first and moving the pieces took `Doc::clone` from
+      63% of the formatter to 16%.
+
+      Separately, `comment_shape` called `token_shape` and filtered the tokens
+      out of the result — after allocating a `String` for each one. `source`
+      does that twice, on its input and on its own output. It is a parameter
+      now rather than a filter.
+
+- [x] **`Subst::shallow` copied the type before looking at it.** Following an
+      inference variable to what it stands for reads a type; it does not need
+      to own one. Every step of `unify`, `resolve` and `occurs` began by
+      deep-copying the type it was about to take apart, so `Result<[Str], E>`
+      was copied whole at every node, twice per unification step. `shallow_ref`
+      is the borrowing form, and `unify` now decides the cases that are decided
+      by looking — two primitives, a variable against itself — before any copy
+      happens.
+
+### What is still slow, and why it was left
+
+- [ ] **A command still analyses each target from scratch.** `lint //...` on
+      the conformance repository calls `driver::analyze` twelve times, and each
+      one re-*checks* the standard library modules that target imports. Parsing
+      is shared now; checking is not, and half of what is left is that. The fix
+      is interface-level incrementality — cache a package's checked surface,
+      keyed on its sources and its dependencies' surfaces — which is a design
+      question about what a package's interface *is*, not a performance patch,
+      and is tracked as its own item elsewhere. The cost is O(targets × the
+      closure each target imports), so it is a repository-size problem: it will
+      be felt long before a thousand targets.
+
+- [ ] **Exhaustiveness checking is combinatorial and has no complexity limit.**
+      `expand` splits a row on every top-of-column or-pattern, and
+      `expand_lengths` multiplies an array-rest pattern by the longest array
+      length any arm distinguishes. Both are inherent to the usefulness
+      algorithm. Measured, the growth is polynomial rather than exponential on
+      every shape that could be constructed for it — reaching 90 ms took a
+      match on a six-column tuple of arrays against an eighty-element literal
+      array pattern, which is not a program anybody writes. It is recorded
+      rather than fixed because the fix is a bail-out, and a bail-out in this
+      checker means a `match` that is *not* exhaustive compiles. That is a
+      decision about the language, not about how long the compiler takes.
+
+- [ ] **The documentation harness loads the whole standard library per
+      snippet.** `analyze_snippet_as` calls `load_all_std`, which defeats the
+      lazy loading every other entry point gets — and `analyze_snippet`'s own
+      comment says its value is being "the same `Loader` and the same `Checker`
+      the compiler runs", which loading all thirty modules is not. Making it
+      lazy passes the whole documentation suite and is arguably more faithful,
+      but it did not move the suite's runtime at all, so it is a correctness
+      question rather than a performance one and was left for whoever asks it
+      as one.
+
+- [ ] **Nothing shares work between processes.** The parse cache lives for one
+      command. Two `buri lint` runs in a row re-read and re-parse everything;
+      only the *action* cache in `.buri/cache` survives, and it caches
+      artifacts rather than analysis.
+
+Two things that were looked for and are not there, recorded so nobody looks
+again: there is no `Mutex`, `RwLock`, `RefCell`, `Rc` or `OnceLock` on any hot
+path — until the parse cache there were none in the tree at all — and
+diagnostic rendering re-reads no files, because every span resolves through the
+`SourceMap` that already holds the text.
+
+---
+
 ## The standard library
 
 Nine modules were added: `core/queue`, `core/bitset`, `core/json`, `core/map`,
@@ -1274,40 +1519,71 @@ every exported name, because `cli/tests/standard_library.rs` stops after type ch
 a body-less declaration with no runtime function behind it passes that suite
 silently. The suite went from 150 assertions to 1172.
 
-- [ ] **Allocators (`GeneralPurpose`, `Arena`, `FixedBuffer`) wait for the
-      native backend, deliberately.** `core/cap` declares
-      `effect Alloc { fn allocate(self, bytes: Int): Region }` and
-      `$host_HostAlloc_allocate` is `return [Number(n)]` — nothing reads the
-      `Region` and nothing counts.
+- [x] **Allocators (`GeneralPurpose`, `Arena`, `FixedBuffer`) landed, in
+      `core/alloc`, on both backends.** They were deferred here on the grounds
+      that JavaScript has a garbage collector, so an `Arena` would reclaim
+      nothing and a `GeneralPurpose` would report a synthetic number rather
+      than a measurement.
 
-      Accounting was designed and then **not built**, which is the right call
-      on this backend: JavaScript has a garbage collector, so an `Arena` would
-      reclaim nothing and a `GeneralPurpose` would report a synthetic number
-      rather than a measurement. The three types earn their keep when there is
-      real memory under them, and that is the native backend's problem.
+      **The premise was half wrong, and the half that was wrong is the
+      interesting one.** A count is synthetic only if it is supposed to be a
+      measurement. The cost model settled below is *defined* — computed from
+      the types, not from what an allocator did — so the same program charges
+      the same number on both backends by construction, and there is no
+      measurement for JavaScript to be missing. What made the three types real
+      was not native memory; it was deciding that the number is a definition.
+      Native memory made the *decision* necessary, which is a different thing
+      and is why the deferral was still the right call at the time.
 
-      What survives for whoever does build it, because it is the non-obvious
-      part: **the hook already exists.** Every allocating intrinsic is already
-      handed the context and discards it — `$list_map(xs, c, f)`,
-      `$str_split(s, c, sep)`, `$list_range(c, a, b)`. Routing it needs no
-      change to any signature.
+      What landed:
 
-      Two things that were settled while looking at it:
+      - `core/alloc`, a non-platform module — importable anywhere, because
+        `Alloc` is the one effect whose implementation carries no authority.
+        `generalPurpose()`, `arena()`, `fixedBuffer(n)`, each with `stats()`
+        answering `Stats { allocations, bytes }`, and `FixedBuffer` also
+        answering `budget` and `remaining()`. Each carries an `I64` handle into
+        a counter table, exactly as `core/testing/context` does, because Buri
+        has no mutation to hold a running total with.
+      - The model, written down beside `Alloc` in `core/cap` where a reader of
+        the effect meets it, and evaluated by `middle::layout`'s `charge_*`.
+      - A `FixedBuffer` overrun **aborts**, byte-exactly and with both numbers
+        in the message. `cli/tests/crash/alloc_budget_exhausted.buri` pins it
+        on JavaScript and `native_cranelift.rs` pins the same sentence
+        natively.
+      - `cli/tests/conformance/lib/memory/` — one file, run by the JavaScript
+        conformance suite and by the native one, asserting the same integers.
+        That is the payoff of a defined model, and it is the evidence.
 
-      - **A byte-exact cost model has to be *defined*, not measured**, or the
-        numbers are not reproducible across backends and every test that
-        asserts one is flaky. Something like: a list of *n* charges `16 + 8n`,
-        a string of *n* UTF-8 bytes charges `16 + n`. That makes the model
-        observable behaviour and a change to it a breaking change — a
-        commitment to state explicitly rather than discover.
-      - **No reserved context slot is needed.** The plan called for slot 0 of
-        every context to hold the `Alloc` implementation, which changes the
-        layout of every context in every program. It is cheaper to find the
-        allocator by scanning the context once and caching the answer on the
-        array, which changes no generated output at all. A native backend
-        knows the layout statically and does neither.
+      The two things settled while looking at it both held up:
 
-      *(deferred to the native backend, not merely unimplemented)*
+      - **A byte-exact cost model has to be *defined*, not measured.** It is,
+        and it is now a commitment: a change to any row is a breaking change to
+        observable behaviour.
+      - **No reserved context slot is needed.** None was added. Natively there
+        is not even a scan: an allocator that counts is a non-zero-sized
+        context member and arrives as an ordinary value.
+
+      What did **not** land, with the reason, because it is the part a reader
+      will look for:
+
+      - **The list, string and closure rows are charged by definition and
+        reported to no allocator.** Only `allocate(ctx, n)` is counted, on both
+        backends. The note above was right that "the hook already exists" —
+        every allocating intrinsic is handed the context — and wrong that
+        routing it is free. It is not the *signature* that is in the way, it is
+        that neither backend can compute the charge where the allocation
+        happens: `runtime.js` is untyped and `16 + n * stride(T)` needs
+        `stride(T)`, and natively `cranelift/runtime.rs` drops a context
+        argument from every `buri_rt_*` call by ABI. Widening the counted set
+        has to happen on both at once or the numbers stop agreeing, which is
+        the property the module exists to have. `core/alloc` states the
+        boundary and the conformance file pins it.
+      - **`Arena` does not free in bulk.** It is a separate counter and says
+        so. What would make it real is a scoped context — a language proposal,
+        not a backend feature (MEMORY.md §4, §7.2).
+      - **`listBytes(n, stride)` takes its stride as an argument**, because the
+        language has no `sizeOf<T>()` for a program to ask with. A
+        `sizeOf<T>()` would make it `listBytes<T>(n)`.
 
 - [x] **`core/json` has a typed encoding.** `derive ToJson for Point;` and
       `derive FromJson for Point;` are on the derivable list, and they needed no
@@ -1368,9 +1644,10 @@ silently. The suite went from 150 assertions to 1172.
       `json.encode(ctx, x)` is an ordinary Buri function — `value.toJson(ctx)`
       — so it dispatches like any other trait call. `json.decode(ctx, doc)`
       cannot: its trait method takes no `self`, so it is reached through the
-      type asked for, the way `num.maxValue::<U8>()` reaches `Bounded`. That
+      type asked for, the way `num.maxValue<U8>()` reaches `Bounded`. That
       also means **`decode` takes its type from the annotation**: it is generic
-      in the type and in the context, a turbofish must name every argument, and
+      in the type and in the context, a type argument list must name every
+      argument, and
       a context type has no name to write (SPEC 11.3), so there is nothing to
       put in the second slot.
 
@@ -1454,7 +1731,7 @@ silently. The suite went from 150 assertions to 1172.
 
 ## The JavaScript backend
 
-A pass over `backend/` and `transform/` informed by reading how ReScript,
+A pass over `backend/` and `middle/` (then `transform/`) informed by reading how ReScript,
 js_of_ocaml, Gleam, PureScript and Elm compile the same constructs. Most of what
 those compilers do, Buri already did — currying it never had, whole-program
 inlining and constant sharing it does better, and mutual tail recursion it
@@ -1561,33 +1838,98 @@ backend, which has a prerequisite that is cheap now and expensive later.
 
 ### Native macOS and Linux executables
 
-`build/actions.rs` errors on any non-JS platform; `driver::host_platform()` returns
-`Js` unconditionally; the example repository declares `LINUX`/`MACOS` outputs
-that nothing builds. `LLVM-tips.md` records the intended direction.
+Most of this landed, in the waves `design/native/ARCHITECTURE.md` §8 planned.
+`build/actions.rs` builds a native output where this toolchain can — a backend
+compiled in for the target and profile, a runtime archive for the host, and a
+linker — and refuses in the old words where it cannot;
+`driver::host_platform()` answers the host's own platform under exactly that
+condition; `buri run` executes a native artifact directly, and a `test {
+platforms }` entry naming a platform this toolchain can build for is compiled
+and run as a native binary.
 
-1. **Make the backend an interface before writing a second one.** `compiler/backend/generate.rs`
-   and `compiler/backend/javascript.rs` are entangled with `monomorphize::Program`. Extract
+What has *not* flipped is the default. A binary that declares no outputs still
+gets `JS`, and a suite that names no platforms still runs on JavaScript, because
+the native runtime surface is not complete: a program using `core/fs`,
+`core/env`, `json.*`, or any `list.*` entry taking a closure is refused by
+`Backend::missing_intrinsics` rather than mis-run, which is the right refusal
+and the wrong default. The trigger for flipping it is that refusal going quiet
+across the conformance corpus — at which point `selected_outputs`' fallback
+(`build/actions.rs`) and `run_suite`'s (`commands/test.rs`) are one line each.
+
+1. **[landed, wave 0]** Make the backend an interface before writing a second one.
+   `compiler/backend/js/generate.rs` and `js/javascript.rs` were entangled with `monomorphize::Program`. Extract
    `trait Backend { fn emit(&Program, &Tables, &Options) -> Result<Vec<u8>, Diagnostics> }`
-   and make JS the first implementor. Nothing else is safe until this exists,
-   and it gets harder every time either file grows.
-2. **The value model changes, and it is language-visible.** `runtime.js`
-   documents the current one: every integer is a double, a struct is an array,
-   an enum is a tag or `[tag, …]`. Native needs sized integers, tagged unions,
-   and a struct layout. This is where `I64` stops being a double and where
-   `SPEC.md` §6.2's "overflow is undefined" starts meaning something different
-   — `num.buri` says so explicitly, and it needs a SPEC amendment rather than a
-   quiet divergence.
-3. **Memory.** The language has no mutation and no destructors, so native
-   either ships a GC or does escape analysis with an arena per `Alloc` scope.
-   The allocator work above stops being decorative here — `Region` becomes
-   load-bearing — which is an argument for doing it properly first.
+   and make JS the first implementor — amended to `Vec<Emitted>` so an
+   incremental link is representable. See `design/native/ARCHITECTURE.md` §3.
+2. **[landed, waves 1b and 3c]** **The value model changes, and it is
+   language-visible.** `middle/layout.rs` is the native one — sized integers,
+   tagged unions, a struct layout — and `design/native/VALUE-MODEL.md` is the
+   argument for it. The SPEC amendment it needed is in: §6.2 now describes
+   *both* backends rather than one, §6.2.2 says a `Checked` method's second
+   bound is the backend's, and §6.2 promises that a float renders as the
+   shortest decimal that round-trips on every backend.
+
+   **What the amendment does not do is fix JavaScript**, and that is deliberate
+   rather than pending. The JS backend still has the 2^53 ceiling: making the
+   two agree everywhere means `BigInt` for every integer type, which taxes every
+   loop counter in every program for a case most never reach (`SPEC.md` §13,
+   open question 8, is where that trade is argued). So the differences that
+   remain are **documented divergences**, listed in
+   `design/native/VALUE-MODEL.md` §12.
+
+   **[landed, wave 4b]** The follow-up was that file's own promise: one test
+   that runs a corpus under both backends and holds every row of §12 to "must
+   agree" or to an explicit divergence entry. `cli/tests/backend_agreement.rs`
+   is it — one row per test, each source compiled through `actions::prepare` and
+   `backend::select` twice and compared byte for byte, plus
+   `every_row_of_the_table_names_a_test_that_exists`, which reads the table and
+   fails on a row whose test is missing. **The table was a claim, and four rows
+   of it were wrong:**
+
+   - Row 3 was false. `wrappingMul` was not exact on JavaScript at any width
+     where the product leaves 2^53 — `$wrapTo` wrapped a double that had already
+     been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 where
+     the answer is 1. That is a wrong answer at 32 bits rather than a precision
+     ceiling, from the surface a checksum is written with. `$wrapOp` now does
+     the arithmetic in `BigInt` at the widths where the intermediate can leave
+     the exact range, and nowhere else.
+   - Rows 2 and 5 describe divergences the toolchain does not have. Both
+     backends answer `.None` above the exact range — the native ones narrow the
+     bound on purpose, because `conformance/lib/numbers/test/integers.buri`
+     states `.None` as a property of the language — and `.Some(.None)` has been
+     distinct from `.None` on JavaScript since `$some`/`$val` grew their depth
+     counter. **§11.3 and `SPEC.md` §6.2.2 still say `(1 << 60).checkedAdd(1)`
+     is `.Some` natively, and that sentence is now the thing that is wrong.**
+     Fixing it is an edit to `cli/src/docs/lang/expressions.md`, which is SPEC
+     text and is left for whoever owns the amendment — the alternative, making
+     the backends match the sentence, breaks the conformance corpus.
+   - Two miscompiles fell out of writing it, both native-only and both silent on
+     JavaScript. `middle/lower.rs` interned `Str` and `Template` as two types,
+     so a `match` whose arms are a literal and an interpolation did not verify —
+     VALUE-MODEL.md §3.3 says the two *are* one type. `middle/tail_calls.rs`
+     labelled a merged tail-call group's forwarders `()`, so a mutually
+     recursive `Bool` came back as nothing: `even(3)` printed the empty string,
+     and used as a condition it panicked inside Cranelift.
+3. **[landed]** **Memory.** This said native either ships a GC or does escape
+   analysis with an arena per `Alloc` scope; `design/native/MEMORY.md` argues
+   both are wrong and the answer is non-atomic reference counting with static
+   elision, which is what shipped. `Region` did *not* become load-bearing —
+   nothing reads one, on either backend — and the allocator work above stopped
+   being decorative for a different reason than this predicted: not because
+   there is real memory under it, but because the charge became a definition
+   the two backends share.
 4. **`core/host` per platform**, and `check_intrinsics` generalized so
-   "missing intrinsic" is a question asked per backend.
-5. **A real `link` action per `Output`**, the
-   `.buri/out/<platform>/<package>/<artifact>` layout (specified and
-   unexercised), `artifact_name`, and `--output=linux/x86_64` selection.
-6. **A cross-compilation story, or an explicit refusal.** Refusing is fine.
-   Saying nothing is not.
+   "missing intrinsic" is a question asked per backend — `Backend::missing_intrinsics`, wave 0.
+5. **[landed, wave 2c]** **A real `link` action per `Output`**, the
+   `.buri/out/<platform>/<package>/<artifact>` layout, `artifact_name`, and
+   `--output=linux/x86_64` selection. The layout is exercised now rather than
+   specified: `.buri/out/macos/cmd/app/app` is a file a native build writes.
+6. **[landed, wave 2a]** **A cross-compilation story, or an explicit refusal.**
+   It is a refusal, and it is about the runtime archive rather than the
+   backends: `cli/build.rs` builds `libburi_rt.a` for the host and for nothing
+   else, so `--output=linux/x86_64` on a macOS host is refused
+   (`ARCHITECTURE.md` §9). The fix, when someone wants it, is prebuilt runtime
+   archives per triple — a packaging problem, not a compiler one.
 
 Prerequisite: the interface-level incremental caching gap described under
 HERMETICITY above. `driver::analyze` is whole-closure, and a native build is
@@ -1730,6 +2072,75 @@ remaining six are unknown-field retention, unrecognised enum numbers, and two
 Two more came out of writing the testee rather than running it: `[packed=false]`
 was ignored, and a field's own schema name was not accepted as a JSON key beside
 its camelCase one.
+
+### Then required Protobuf Editions, and edition 2026 only
+
+Which changed the headline of the mapping. `syntax = "proto3"` is refused, and
+so is proto2, and so is an older edition — `proto-edition`, with the migration
+in the `fix`. `REQUIRED_EDITION` in `build/protoschema.rs` is one constant.
+
+**Ground truth from protobuf v35.1, because the ruling asked for it first.**
+`EDITION_2026 = 1002` is in `descriptor.proto`'s `Edition` enum — it is real —
+but protoc v35.1 *refuses* a file declaring it: "Edition 2026 is later than the
+maximum supported edition 2024". So the schemas here declare an edition no
+toolchain will compile yet, which costs nothing: the conformance runner never
+reads them, and protobuf's own resolution rule gives 2026 a fully determined
+feature set from `descriptor.proto` alone. Every wire- and JSON-affecting
+feature resolves identically at 2023, 2024 and 2026 — EXPLICIT, OPEN, PACKED,
+VERIFY, LENGTH_PREFIXED, ALLOW — and the only defaults introduced since 2023
+are two source-retention lints. That is why one constant is the whole of the
+requirement.
+
+**Presence flipped, and it is the point.** A singular field is `Option<T>` now:
+editions made presence the default and deleted the `optional` label that used to
+ask for it. `.None` and `.Some(0)` are two different messages and both survive a
+round trip, which under proto3 they could not. `features.field_presence =
+IMPLICIT` asks for the old behaviour per file, per message or per field, and
+gives back the bare `T`. `LEGACY_REQUIRED` is refused by name.
+
+**Enums are open, so unknown values are kept.** Every generated enum has an
+`Unrecognized(Int)` variant, and a number the schema does not name round-trips
+through both formats rather than collapsing to the zero value — which is what
+the old proto3 mapping did and lost information doing. JSON writes it as a
+number, which is what the mapping says. That deleted a whole entry from the
+conformance failure list. `CLOSED` is refused: an unrecognised value would
+become an unknown *field*, and a generated struct has nowhere to keep one.
+
+`repeated_field_encoding` is honoured both ways — PACKED by default, EXPANDED by
+name, and a reader takes either. `message_encoding = DELIMITED`,
+`utf8_validation = NONE` and `json_format = LEGACY_BEST_EFFORT` are refused by
+name, as is the `option features = { ... }` block form; `enforce_naming_style`
+and `default_symbol_visibility` are read past, because they are lints rather
+than wire format.
+
+The conformance suite came back **970 succeeded, 1314 skipped, 456 expected to
+fail, 0 unexpected** — eighteen fewer successes than under proto3, every one of
+them a `Recommended` warning rather than a failure, and all of them the same
+thing: the reference implementation is proto3 and the schema under test is
+editions, so they disagree about whether a field set to its zero value gets
+written. Both are right about their own schema, and it has its own heading in
+the failure list. The open-enum change fixed one test outright.
+
+**Two structural defects in the reader, found by an audit and fixed here.**
+Both were the same shape — a wrong state that was diagnosed and then used
+anyway:
+
+- A `repeated` case inside a `oneof` was reported and then pushed into the
+  oneof regardless, so a codec was generated for a field protobuf has no
+  meaning for. The fix is not a better diagnostic: a oneof case is now its own
+  type, `OneofCase`, with no label field to hold one. The refusal happens at the
+  single point a `Field` becomes a case, and the case is still *kept* — the
+  error already fails the build, and dropping it would take a second round of
+  diagnostics about the same field away from whoever has to fix it.
+- `Table::add` used `or_insert`, so two schemas claiming one name were resolved
+  by whichever was read first. The two ways that happens are not the same
+  mistake and are no longer treated as one: a **fully-qualified** name declared
+  twice is `proto-duplicate-type`, reported whether or not anything uses it and
+  naming both files; a **short** name two packages both use is ordinary
+  ambiguity, so it is recorded and reported as `proto-ambiguous-type` at the
+  field that reaches through it, with the qualified name as the fix. A schema
+  that says which one it means still compiles, which is what keeps the vendored
+  conformance files working.
 
 The testee also needed something the language did not have: **binary standard
 input and output**. `Stdin.readLine` reads the stream to its end, so nothing

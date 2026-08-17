@@ -1,0 +1,8 @@
+binary {
+  sources: ["main.buri"]
+  outputs: [{ platform: JS }]
+}
+
+library {
+  sources: ["lib.buri"]
+}

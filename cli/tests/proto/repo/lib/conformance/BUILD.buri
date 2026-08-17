@@ -1,5 +1,5 @@
 library {
-  proto_sources: ["conformance.proto", "test_messages_proto3.proto"]
+    proto_sources: ["conformance.proto", "test_messages_proto3.proto"]
 
-  visibility: ["//visibility:public"]
+    visibility: ["//visibility:public"]
 }

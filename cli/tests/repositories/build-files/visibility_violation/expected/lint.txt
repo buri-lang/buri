@@ -1,8 +1,8 @@
 error: //cmd/app depends on //lib/secret, which is not visible to it [visibility-violation]
- --> cmd/app/BUILD.buri:2:18
+ --> cmd/app/BUILD.buri:2:20
   |
-2 |   dependencies: ["//lib/secret"]
-  |                  ^^^^^^^^^^^^^^ not visible
+2 |     dependencies: ["//lib/secret"]
+  |                    ^^^^^^^^^^^^^^ not visible
   |
   = //lib/secret is visible to: //lib/...
   = fix: add "//cmd/app" to visibility in lib/secret/BUILD.buri

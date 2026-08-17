@@ -1,7 +1,7 @@
 library {
-  sources: []
+    sources: []
 
-  test {
-    sources: ["test/sha256.buri"]
-  }
+    test {
+        sources: ["test/sha256.buri"]
+    }
 }

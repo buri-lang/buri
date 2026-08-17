@@ -1,3 +1,0 @@
-error: this repository pins toolchain 0.2.9 but this toolchain is 0.3.0
-  = an exact version, never a range: two checkouts of the same commit must not build with two different compilers
-  = install toolchain 0.2.9, or change `toolchain.version` in REPO.buri

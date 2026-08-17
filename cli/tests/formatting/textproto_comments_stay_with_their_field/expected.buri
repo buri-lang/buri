@@ -1,0 +1,10 @@
+# What this package is.
+library {
+    # the sources, listed one at a time
+    sources: ["a.buri", "b.buri"]
+
+    # and what it may depend on
+    dependencies: ["//lib/money"]
+    # the last word inside the block
+}
+# and below everything

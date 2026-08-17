@@ -1,12 +1,7 @@
 # The tag vocabulary. `money` forbids nothing and requires nothing: it exists
 # so that this repository has a hand-written `tags` entry for `buri gen` to
 # leave alone, and no policy consequence to confuse the case with.
-toolchain {
-  version: "0.3.0"
-  sha256: "00"
-}
-
 tag {
-  name: "money"
-  doc: "handles amounts of money"
+    name: "money"
+    doc: "handles amounts of money"
 }

@@ -76,6 +76,7 @@ one value rather than a new collection.
 |---|---|---|
 | `core/cap` | — | the effect declarations themselves |
 | `core/host` | — | `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — the platform's implementations, importable only by the module exporting `main` |
+| `core/alloc` | — | `generalPurpose`, `arena`, `fixedBuffer` — counting implementations of `Alloc`, importable anywhere, because an `Alloc` grants no authority |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
 | `core/fs` | `Fs` | `readText`, `writeText`, `exists`, `listDir`, and the `IoError` type |
 | `core/net/http` | `Net` | `get`, `post`, `Request`, `Response`, `errorText` |

@@ -1,11 +1,31 @@
 # `--output` selects one of the outputs a target declares, out of all of them.
 #
-# The honest boundary is the whole reason this case is short: this toolchain
-# has a JavaScript backend and no native one, so `--output=linux/x86_64` on a
-# target that declares it gets as far as the backend and is refused there. What
-# `--output` *selects* is testable now and is what is pinned here; what a
-# native artifact looks like is not, and no assertion here pretends otherwise.
-# See TODO.md, the native-backend entry.
+# The honest boundary is the whole reason this case is short. What `--output`
+# *selects* is what is pinned here; a selector naming a platform this toolchain
+# cannot build for is refused, and the refusal is the same sentence a toolchain
+# with no native backend at all gives.
+#
+# **Which platform that is depends on the machine**, so the case does not name
+# one. `{{CROSS_PLATFORM}}` and `{{CROSS_ARCH}}` are filled in by the harness
+# (cli/tests/harness/case.rs) with a platform/arch pair that is not the host's:
+# linux/x86_64 on a mac, macos/x86_64 on Linux. The goldens hold the
+# placeholder, so blessing on either machine records the same file.
+#
+# Why a *cross* pair is still refused once the native backend and the runtime
+# archive are compiled in: `build/actions.rs::native_ready` is a conjunction of
+# three questions, and the third is `build/link.rs::can_link`, which is
+# `host_platform() == Some(target.platform)` and nothing else. The runtime
+# archive `cli/build.rs` embeds is built for the host, and a cross link would
+# need a cross runtime, a cross libc and a sysroot
+# (design/native/ARCHITECTURE.md §9). So a platform that is not the host is
+# refused on every machine, whatever backend was compiled in — which is what
+# makes this case host-independent rather than merely re-worded.
+#
+# What is deliberately *not* here is the positive half: a build for the host
+# platform. That answer depends on how this toolchain was built — a
+# `--no-default-features` binary has no backend and refuses its own host — so
+# it is a claim about the toolchain rather than about `--output`, and it is
+# pinned where the native suites can state it as one.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -22,7 +42,7 @@ run {
 # all used to build nothing and exit 0, which is a build system reporting
 # success for work it did not do.
 run {
-  args: ["build", "//cmd/app", "--output=linux/x86_64"]
+  args: ["build", "//cmd/app", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
   exit: 2
   golden: "no_such_output.txt"
 }
@@ -38,17 +58,17 @@ run {
 # Selecting the other one reaches the backend, which says what is missing. Exit
 # 1: the selector was a real output, so the invocation was fine.
 run {
-  args: ["build", "//cmd/native", "--output=linux/x86_64"]
+  args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
   exit: 1
-  golden: "native_linux.txt"
+  golden: "native_cross.txt"
 }
 
 # The dash spelling is the directory under `.buri/out`, and selects the same
 # entry as the slash spelling.
 run {
-  args: ["build", "//cmd/native", "--output=linux-x86_64"]
+  args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}-{{CROSS_ARCH}}"]
   exit: 1
-  golden: "native_linux.txt"
+  golden: "native_cross.txt"
 }
 
 # With no selector, every declared output is built — which for this target is

@@ -1,0 +1,8 @@
+// The memory conformance package. Its `test/` directory calls every exported
+// name of `core/alloc` and pins the numbers the cost model defines.
+//
+// The numbers are the point. `design/native/MEMORY.md` §7.1 makes the charge a
+// *definition* computed from the types rather than a measurement, so this file
+// asserting `16 + n` is not a JavaScript fact — the native suite runs the same
+// assertions and gets the same integers, and a backend that disagreed with one
+// of them would be wrong rather than merely different.

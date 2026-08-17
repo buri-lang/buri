@@ -1,0 +1,18 @@
+// EXPECT: type arguments in an expression are written without `::`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+// The turbofish was the old spelling. It is kept here, and only here, so that
+// the error a file written against the old syntax gets — and the byte edit it
+// carries, which is what `buri lint --fix` and an editor's quick fix apply —
+// are pinned by something rather than described by nothing.
+fn empty(): [Int] {
+  list.empty::<Int>()
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${empty().len()}");
+  .Ok(())
+}

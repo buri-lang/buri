@@ -1,4 +1,4 @@
-syntax = "proto3";
+edition = "2026";
 
 package wire.v1;
 

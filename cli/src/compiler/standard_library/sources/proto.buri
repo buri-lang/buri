@@ -324,7 +324,7 @@ fn byteAt(b: [U8], i: Int): Int {
 // packed half.
 
 export fn packedVarints<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedVarintsAt(ctx, b, 0, list.empty::<Int>())
+  packedVarintsAt(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedVarintsAt<C: Alloc>(
@@ -343,7 +343,7 @@ fn packedVarintsAt<C: Alloc>(
 
 /// The same, keeping each value's low 32 bits.
 export fn packedVarints32<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedVarints32At(ctx, b, 0, list.empty::<Int>())
+  packedVarints32At(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedVarints32At<C: Alloc>(
@@ -361,7 +361,7 @@ fn packedVarints32At<C: Alloc>(
 }
 
 export fn packedFixed32<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedFixed32At(ctx, b, 0, list.empty::<Int>())
+  packedFixed32At(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedFixed32At<C: Alloc>(
@@ -379,7 +379,7 @@ fn packedFixed32At<C: Alloc>(
 }
 
 export fn packedFixed64<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedFixed64At(ctx, b, 0, list.empty::<Int>())
+  packedFixed64At(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedFixed64At<C: Alloc>(
@@ -397,7 +397,7 @@ fn packedFixed64At<C: Alloc>(
 }
 
 export fn packedF64<C: Alloc>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
-  packedF64At(ctx, b, 0, list.empty::<Float>())
+  packedF64At(ctx, b, 0, list.empty<Float>())
 }
 
 fn packedF64At<C: Alloc>(
@@ -415,7 +415,7 @@ fn packedF64At<C: Alloc>(
 }
 
 export fn packedF32<C: Alloc>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
-  packedF32At(ctx, b, 0, list.empty::<Float>())
+  packedF32At(ctx, b, 0, list.empty<Float>())
 }
 
 fn packedF32At<C: Alloc>(
@@ -468,9 +468,9 @@ export fn jsonInt32(x: Int): Json {
 export fn jsonFloat(x: Float): Json {
   if (x != x) {
     Json.Str("NaN")
-  } else if (x > num.maxValue::<F64>()) {
+  } else if (x > num.maxValue<F64>()) {
     Json.Str("Infinity")
-  } else if (x < num.minValue::<F64>()) {
+  } else if (x < num.minValue<F64>()) {
     Json.Str("-Infinity")
   } else {
     Json.Num(x)
@@ -593,9 +593,9 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
   let x = asFloat(doc, path)?;
   // NaN and the two infinities are values a `float` holds, so the range check
   // is about the finite ones only.
-  if (x != x || x > num.maxValue::<F64>() || x < num.minValue::<F64>()) {
+  if (x != x || x > num.maxValue<F64>() || x < num.minValue<F64>()) {
     .Ok(x)
-  } else if (x > num.maxValue::<F32>().toF64() || x < num.minValue::<F32>().toF64()) {
+  } else if (x > num.maxValue<F32>().toF64() || x < num.minValue<F32>().toF64()) {
     .Err(.BadJson { path: path, wanted: "a number a float can hold" })
   } else {
     .Ok(x)
@@ -607,7 +607,7 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
 fn finite(x: Float, path: Str): Result<Float, ProtoError> {
   if (x != x) {
     .Ok(x)
-  } else if (x > num.maxValue::<F64>() || x < num.minValue::<F64>()) {
+  } else if (x > num.maxValue<F64>() || x < num.minValue<F64>()) {
     .Err(.BadJson { path: path, wanted: "a number a double can hold" })
   } else {
     .Ok(x)

@@ -1,0 +1,170 @@
+// SPEC 10.5 and `design/native/MEMORY.md` §7 — `core/alloc`'s three
+// implementations of `Alloc`, and the charges they count.
+//
+// Every number here is *defined* rather than measured: the cost model beside
+// `Alloc` in `core/cap` computes a charge from the types, so the same program
+// charges the same number on every backend. The list and closure charges below
+// are the same integers `middle::layout`'s own unit tests assert for `[I64]`,
+// `[Str]` and a closure over a `Str` — one model, checked from both ends.
+//
+// What an allocator is *told about* is narrower than the model, and this file
+// pins that too: `allocate` is counted and nothing else is, identically on
+// both backends. See `core/alloc`'s module comment for why, and for what would
+// have to change on both backends at once to widen it.
+
+from "core/alloc" import { Stats };
+from "core/alloc" import * as alloc;
+from "core/cap" import { Alloc };
+from "core/testing/assert" import * as assert;
+
+// --- The model, as arithmetic ------------------------------------------------------
+
+test "the header is sixteen bytes and a view is free" {
+  assert.eq(alloc.HEADER_BYTES, 16);
+  assert.eq(alloc.VIEW_BYTES, 0);
+}
+
+test "a string charges its UTF-8 bytes plus the header" {
+  assert.eq(alloc.strBytes(0), 16);
+  assert.eq(alloc.strBytes(7), 23);
+  assert.eq(alloc.strBytes(5), 21);
+}
+
+test "a list charges its stride times its length plus the header" {
+  // `[I64]` of ten, `[Str]` of three, `[(I32, I32)]` of four, `[()]` of a
+  // thousand — `middle::layout`'s strides, and its numbers.
+  assert.eq(alloc.listBytes(10, 8), 96);
+  assert.eq(alloc.listBytes(3, 24), 88);
+  assert.eq(alloc.listBytes(4, 16), 80);
+  assert.eq(alloc.listBytes(1000, 0), 16);
+}
+
+test "a closure environment charges its record" {
+  assert.eq(alloc.closureBytes(0), 16);
+  assert.eq(alloc.closureBytes(16), 32);
+  assert.eq(alloc.closureBytes(24), 40);
+}
+
+// --- GeneralPurpose ----------------------------------------------------------------
+
+test "a general-purpose allocator counts every request" {
+  let gp = alloc.generalPurpose();
+  let ctx = context { Alloc: gp };
+  let _ = ctx.allocate(64);
+  let _ = ctx.allocate(alloc.strBytes(5));
+  assert.eq(gp.stats().allocations, 2);
+  assert.eq(gp.stats().bytes, 85);
+}
+
+test "a request for nothing is still a request" {
+  let gp = alloc.generalPurpose();
+  let ctx = context { Alloc: gp };
+  let _ = ctx.allocate(0);
+  assert.eq(gp.stats().allocations, 1);
+  assert.eq(gp.stats().bytes, 0);
+}
+
+test "a fresh allocator starts at zero" {
+  let gp = alloc.generalPurpose();
+  assert.eq(gp.stats().allocations, 0);
+  assert.eq(gp.stats().bytes, 0);
+}
+
+test "two general-purpose allocators count separately" {
+  let a = alloc.generalPurpose();
+  let b = alloc.generalPurpose();
+  let first = context { Alloc: a };
+  let second = context { Alloc: b };
+  let _ = first.allocate(10);
+  let _ = second.allocate(20);
+  let _ = second.allocate(2);
+  assert.eq(a.stats().allocations, 1);
+  assert.eq(a.stats().bytes, 10);
+  assert.eq(b.stats().allocations, 2);
+  assert.eq(b.stats().bytes, 22);
+}
+
+test "stats are a value, and compare as one" {
+  let gp = alloc.generalPurpose();
+  let ctx = context { Alloc: gp };
+  let _ = ctx.allocate(16);
+  assert.eq(gp.stats(), Stats { allocations: 1, bytes: 16 });
+  assert.notEq(gp.stats(), Stats { allocations: 1, bytes: 17 });
+}
+
+test "stats render" {
+  // `Show` is on `Stats` rather than on the allocators, because SPEC 10.1 says
+  // no type may implement both an effect and a trait — an allocator satisfies
+  // `Alloc`, so it can satisfy nothing else.
+  let gp = alloc.generalPurpose();
+  let ctx = context { Alloc: gp };
+  let _ = ctx.allocate(16);
+  assert.eq(gp.stats().show(ctx), "Stats { allocations: 1, bytes: 16 }");
+}
+
+// --- Arena -------------------------------------------------------------------------
+
+test "an arena counts what was charged since it was made" {
+  let a = alloc.arena();
+  let ctx = context { Alloc: a };
+  let _ = ctx.allocate(alloc.listBytes(4, 8));
+  let _ = ctx.allocate(alloc.strBytes(3));
+  assert.eq(a.stats().allocations, 2);
+  assert.eq(a.stats().bytes, 67);
+}
+
+test "an arena per phase attributes without subtracting" {
+  let parse = alloc.arena();
+  let check = alloc.arena();
+  let parsing = context { Alloc: parse };
+  let checking = context { Alloc: check };
+  let _ = parsing.allocate(100);
+  let _ = checking.allocate(7);
+  let _ = parsing.allocate(1);
+  assert.eq(parse.stats().bytes, 101);
+  assert.eq(check.stats().bytes, 7);
+}
+
+// --- FixedBuffer -------------------------------------------------------------------
+
+test "a fixed buffer reports its budget and what is left of it" {
+  let buffer = alloc.fixedBuffer(64);
+  let ctx = context { Alloc: buffer };
+  assert.eq(buffer.budget, 64);
+  assert.eq(buffer.remaining(), 64);
+  let _ = ctx.allocate(24);
+  assert.eq(buffer.remaining(), 40);
+  assert.eq(buffer.stats().allocations, 1);
+  assert.eq(buffer.stats().bytes, 24);
+}
+
+test "a request that exactly fills the budget is not an overrun" {
+  let buffer = alloc.fixedBuffer(48);
+  let ctx = context { Alloc: buffer };
+  let _ = ctx.allocate(16);
+  let _ = ctx.allocate(32);
+  assert.eq(buffer.remaining(), 0);
+  assert.eq(buffer.stats().bytes, 48);
+}
+
+test "a negative budget is a budget of nothing, not an unbounded one" {
+  // The one mistake the type exists to prevent is a `FixedBuffer` that
+  // silently has no limit, so a negative budget clamps to zero rather than
+  // meaning unbounded. The request that proves it is a crash, not an
+  // assertion; what is assertable is the budget it reports.
+  let buffer = alloc.fixedBuffer(0 - 1);
+  assert.eq(buffer.budget, 0);
+  assert.eq(buffer.remaining(), 0);
+}
+
+// The overrun itself is `cli/tests/crash/alloc_budget_exhausted.buri`: it ends
+// the process, so it cannot be observed from inside a test.
+
+test "a copy of an allocator shares its counter" {
+  // The context holds a copy of `buffer`, and charging through the copy is
+  // visible on the original. There is one budget, not two.
+  let buffer = alloc.fixedBuffer(100);
+  let ctx = context { Alloc: buffer };
+  let _ = ctx.allocate(30);
+  assert.eq(buffer.remaining(), 70);
+}

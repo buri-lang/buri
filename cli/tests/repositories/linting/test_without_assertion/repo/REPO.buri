@@ -1,4 +1,2 @@
-toolchain {
-  version: "0.3.0"
-  sha256: "00"
-}
+# No tags: this repository declares none. The file's presence is what makes
+# this directory the repository root.

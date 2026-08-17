@@ -1,1 +1,2 @@
+cmd/f/BUILD.buri
 cmd/f/main.buri

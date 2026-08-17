@@ -1,8 +1,8 @@
 error: //cmd/web cannot contain both "client" and "server" code [tag-violation]
- --> cmd/web/BUILD.buri:3:10
+ --> cmd/web/BUILD.buri:3:12
   |
-3 |   tags: ["client"]
-  |          ^^^^^^^^
+3 |     tags: ["client"]
+  |            ^^^^^^^^
   |
   = "client" is carried by //cmd/web itself
   = "server" is carried by //lib/store

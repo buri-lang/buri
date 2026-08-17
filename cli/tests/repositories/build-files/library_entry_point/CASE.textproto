@@ -34,7 +34,7 @@ run {
 # nothing else needed to: the rule already named the file.
 edit {
   file: "lib/listed/BUILD.buri"
-  replace: "  sources: [\"lib.buri\", \"b.buri\"]\n"
+  replace: "    sources: [\"lib.buri\", \"b.buri\"]\n"
   with: "  sources: [\"b.buri\"]\n"
 }
 
@@ -79,7 +79,7 @@ run {
 # the spec, and it reads the same whichever rule kind names the file.
 edit {
   file: "cmd/app/BUILD.buri"
-  replace: "library {}\n\nbinary {\n  sources: [\"flags.buri\"]\n"
+  replace: "library {}\n\nbinary {\n    sources: [\"flags.buri\"]\n"
   with: "binary {\n  sources: [\"main.buri\", \"flags.buri\"]\n"
 }
 

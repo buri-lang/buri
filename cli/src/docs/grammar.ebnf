@@ -19,12 +19,25 @@
      (* @... *)       a directive (see GENERATING A PARSER, below)
 
    PROPERTIES
-     The syntactic grammar below is context-free and unambiguous, and is
-     LR(1) / LALR(1) parseable. No production requires knowledge of what a
+     The syntactic grammar below is context-free and UNAMBIGUOUS: no string
+     of tokens has two parse trees. No production requires knowledge of what a
      name refers to; no production requires "feedback" from the type checker
      or from name resolution. See SPEC.md section 12 for the specific design
      decisions that buy this property, and section 14 for the well-formedness
      rules that are deliberately NOT encoded here.
+
+     It is LR(1) / LALR(1) everywhere but one place. `GenericExpr` -- type
+     arguments in expression position, `f<A>(x)` -- shares its first token
+     with the comparison operator, and which one a `<` is cannot be known
+     until the `>` that would close the list is found. That is unbounded
+     lookahead, and it is the reason the two implementations of this file both
+     say so: `parser.rs` looks ahead for the `>` and backtracks, and the
+     generated tree-sitter grammar declares the one `@conflicts` group below.
+
+     What keeps the grammar unambiguous through it is that CmpExpr is
+     NON-ASSOCIATIVE. `a < b > (c)` derives only as a call, because the
+     comparison reading of it would be a chain, and a chain is not derivable
+     from CmpExpr at all.
 
      The type system is NOMINAL throughout: every type has a declaration, and
      trait conformance is declared rather than inferred from shape.
@@ -64,16 +77,22 @@
      `@prose`       the body is documentation, and is not read as grammar
      `@as NAME`     the syntax tree represents this as another production
      `@prec ...`    a disambiguation a generated parser needs and LR(1) does
-                    not; the shape of the production is unaffected
+                    not; the shape of the production is unaffected.
+                    `left N`, `right N`, `N`, or `dynamic N` — the last being
+                    which of two *completed* parses to keep, and the only one
+                    that displaces the number the cascade would hand a
+                    production, because a static number would mean the second
+                    parse was never built
      `@raw JS`      the escape hatch: this rule, in the generator's own terms
 
    Five more describe the whole grammar rather than one production, and are
    written out below: `@grammar`, `@word`, `@extras`, `@externals` and
    `@words`. A sixth, `@cascade`, states the precedence ladder and lives with
    the expressions in section 5, where a reader is already looking at it. A
-   seventh, `@conflicts`, would declare a place the parser must explore two
-   readings at once; this grammar has none, which is a second opinion on the
-   LR(1) claim above.
+   seventh, `@conflicts`, declares a place a generated parser must explore two
+   readings at once and keep whichever completes; this grammar has exactly
+   one, at `GenericExpr`, and it is the same place the LR(1) claim above is
+   qualified.
 
    A line that opens with an `@` is a directive; that is why the list of them
    above writes each one in backticks.
@@ -321,8 +340,8 @@ TestDecl        ::= "test" name=STRING body=Block
    4. TYPES
 
    `<` and `>` are unambiguous inside Type because the type grammar has no
-   comparison operators. In expressions, type arguments are always introduced
-   by the turbofish `::<...>`.
+   comparison operators. In expressions they are not, and `GenericExpr` in
+   section 5 is where that is settled.
    -------------------------------------------------------------------------- *)
 
 (* @hidden *)
@@ -378,7 +397,7 @@ TupleType       ::= "(" Type ("," Type)+ ","? ")"
        + -                   left
        * / %                 left
        - ! ~                 prefix
-       postfix chain         . .N (args) [i] ? ::<T> {fields}
+       postfix chain         . .N (args) [i] ? <T> {fields}
 
    That table is the cascade below, and a generated parser is given it as a
    number per level rather than as eleven nested productions -- otherwise
@@ -465,7 +484,7 @@ PostfixExpr     ::= PrimaryExpr
                   | CallExpr
                   | IndexExpr
                   | TryExpr
-                  | TurbofishExpr
+                  | GenericExpr
                   | StructLit
 
 FieldExpr       ::= value=PostfixExpr "." field=IDENT        (* field / member / method *)
@@ -473,7 +492,24 @@ TupleIndexExpr  ::= value=PostfixExpr "." index=INT          (* tuple element ac
 CallExpr        ::= function=PostfixExpr "(" Args? ")"       (* call                    *)
 IndexExpr       ::= value=PostfixExpr "[" Expr "]"           (* index -> Option<T>      *)
 TryExpr         ::= PostfixExpr "?"                          (* try-propagate           *)
-TurbofishExpr   ::= PostfixExpr "::" TypeArgs                (* turbofish               *)
+
+(* Explicit type arguments: `list.empty<Int>()`, `identity<Int>`. The one
+   production in this file that is not LR(1), and the one place a generated
+   parser is told to explore two readings at once:
+
+     @conflicts _operand GenericExpr
+
+   The dynamic precedence is which reading to keep when both complete, and it
+   is a *replacement* for the postfix level's number rather than an addition
+   to it -- a static number would settle the conflict before the second
+   reading was ever built, and `a < b` would stop being a comparison.
+
+   Only `a < b > (c)` and `a<b>{ f: 1 }` reach the tie-break, and neither is a
+   comparison in this grammar: CmpExpr does not chain, so the reading that
+   loses is not a parse of anything.
+
+   @prec dynamic 1 *)
+GenericExpr     ::= PostfixExpr TypeArgs                     (* type arguments          *)
 StructLit       ::= type=PostfixExpr StructLitBody           (* struct literal          *)
 
 (* With records gone, a `{` that opens an expression is ALWAYS a block, and a

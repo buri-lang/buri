@@ -12,6 +12,22 @@
 //! turned away, some of them by the parser, and each one's expectation is
 //! checked exactly by the reject harness in `conformance.rs`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 
 use std::path::{Path, PathBuf};
@@ -242,31 +258,79 @@ fn formatting_the_corpus_preserves_what_it_means() {
     eprintln!("formatting: {changed} files rewritten, {got} assertions unchanged");
 }
 
-/// The toolchain has no dependencies, and that is a claim a test should hold
-/// rather than a comment.
+/// The dependency **bar**, and that is a claim a test should hold rather than a
+/// comment.
 ///
-/// It became load-bearing when `editors/zed` arrived: a Zed extension has no
+/// It used to be "no dependencies at all", and native code generation ended
+/// that: a retargetable code generator is not something this repository can
+/// write. So the promise is replaced by a bar rather than quietly weakened,
+/// because a list is a thing people add to and a bar is not (the root
+/// `Cargo.toml` states it in full):
+///
+///   A dependency is admissible only if it is a code generator or a platform
+///   interface this repository could not reasonably write, it is behind a
+///   cargo feature the default build can turn off, and its absence degrades
+///   the toolchain rather than breaking it.
+///
+/// This checks the two halves a file can check. **The admitted set is closed**:
+/// `cranelift-*`, `inkwell`, and `target-lexicon`, which comes in with
+/// Cranelift. And **every one of them is optional**, so
+/// `cargo build -p buri --no-default-features` still resolves nothing — which
+/// is the clause that makes the other two enforceable, because a feature that
+/// could not be turned off is a dependency by another name.
+///
+/// It stays load-bearing for the reason it was written: a Zed extension has no
 /// choice about depending on `zed_extension_api`, so it lives outside the
-/// workspace. Adding it to `members` is a one-line change that would make
-/// `cargo test -p buri` resolve crates.io, and nothing else would notice.
+/// workspace, and adding it to `members` is a one-line change that would make
+/// `cargo test -p buri` resolve crates.io with nothing else noticing.
 #[test]
-fn the_toolchain_still_has_no_dependencies() {
+fn dependencies_stay_behind_the_bar() {
+    /// The whole admitted set, by prefix. `object` is deliberately not here:
+    /// `cranelift-object` re-exports it, so version skew is a compile error
+    /// rather than a second thing to pin.
+    const ADMITTED: &[&str] = &["cranelift-", "inkwell", "target-lexicon"];
+    const BAR: &str = "The bar is in the root Cargo.toml: a dependency is admissible only if \
+                       it is a code generator or a platform interface this repository could not \
+                       reasonably write, it is behind a cargo feature the default build can turn \
+                       off, and its absence degrades the toolchain rather than breaking it.";
+
     let cli = std::fs::read_to_string(repo_root().join("cli/Cargo.toml")).expect("cli/Cargo.toml");
-    // Everything after a `[dependencies]`-ish header, up to the next section.
     let mut in_deps = false;
+    let mut seen = 0;
     for line in cli.lines() {
         let line = line.trim();
         if line.starts_with('[') {
+            // `[dependencies]` and every `[target.'...'.dependencies]`.
             in_deps = line.contains("dependencies");
             continue;
         }
-        if in_deps && !line.is_empty() && !line.starts_with('#') {
-            panic!(
-                "cli/Cargo.toml declares a dependency: `{line}`\n\
-                 The toolchain is pinned by hash, and a dependency tree is a second thing to pin."
-            );
+        if !in_deps || line.is_empty() || line.starts_with('#') {
+            continue;
         }
+        let name = line.split(['=', ' ']).next().unwrap_or(line).trim();
+        assert!(
+            ADMITTED.iter().any(|a| name.starts_with(a)),
+            "cli/Cargo.toml declares `{name}`, which is not in the admitted set {ADMITTED:?}.\n{BAR}"
+        );
+        assert!(
+            line.contains("optional = true"),
+            "the dependency `{name}` is not optional, so the default build cannot turn it \
+             off.\n{BAR}"
+        );
+        seen += 1;
     }
+    assert!(seen > 0, "the admitted dependencies vanished; this test is now asserting nothing");
+
+    // The default feature set is the one `cargo install buri` gets, and it must
+    // not be the one that needs LLVM installed (BUILD-AND-WATCH.md §2).
+    assert!(
+        cli.contains("default = [\"backend-cranelift\"]"),
+        "the default feature set changed; `cargo install buri` must not require LLVM"
+    );
+    assert!(
+        cli.contains("backend-llvm = [\"dep:inkwell\"]"),
+        "`backend-llvm` no longer gates inkwell, so a default build may now need LLVM 21"
+    );
 
     let root = std::fs::read_to_string(repo_root().join("Cargo.toml")).expect("Cargo.toml");
     assert!(

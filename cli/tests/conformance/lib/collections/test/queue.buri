@@ -13,7 +13,7 @@ from "core/queue" import * as queue;
 // --- empty / len / isEmpty ---------------------------------------------------
 
 test "an empty queue has no elements" {
-  let q = queue.empty::<Int>();
+  let q = queue.empty<Int>();
   assert.eq(q.len(), 0);
   assert.isTrue(q.isEmpty());
 }
@@ -29,13 +29,13 @@ test "of builds a queue from a list" {
 
 test "push adds to the back" {
   let ctx = Hermetic();
-  let q = queue.empty::<Int>().push(ctx, 1).push(ctx, 2);
+  let q = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
   assert.eq(q.toList(ctx), [1, 2]);
 }
 
 test "pushFront adds to the front" {
   let ctx = Hermetic();
-  let q = queue.empty::<Int>().push(ctx, 1).pushFront(ctx, 0);
+  let q = queue.empty<Int>().push(ctx, 1).pushFront(ctx, 0);
   assert.eq(q.toList(ctx), [0, 1]);
 }
 
@@ -53,8 +53,8 @@ test "peekBack is the last element" {
 }
 
 test "peek of an empty queue is None" {
-  assert.isTrue(queue.empty::<Int>().peek().isNone());
-  assert.isTrue(queue.empty::<Int>().peekBack().isNone());
+  assert.isTrue(queue.empty<Int>().peek().isNone());
+  assert.isTrue(queue.empty<Int>().peekBack().isNone());
 }
 
 // --- pop ---------------------------------------------------------------------
@@ -75,8 +75,8 @@ test "popBack takes from the back" {
 
 test "pop of an empty queue is None" {
   let ctx = Hermetic();
-  assert.isTrue(queue.empty::<Int>().pop(ctx).isNone());
-  assert.isTrue(queue.empty::<Int>().popBack(ctx).isNone());
+  assert.isTrue(queue.empty<Int>().pop(ctx).isNone());
+  assert.isTrue(queue.empty<Int>().popBack(ctx).isNone());
 }
 
 // The case the two-list representation exists for: everything is pushed to the
@@ -84,7 +84,7 @@ test "pop of an empty queue is None" {
 // come out is insertion order, which is what a queue means.
 test "pop reverses the back when the front is spent" {
   let ctx = Hermetic();
-  let q = queue.empty::<Int>().push(ctx, 1).push(ctx, 2).push(ctx, 3);
+  let q = queue.empty<Int>().push(ctx, 1).push(ctx, 2).push(ctx, 3);
   let (a, q1) = assert.some(q.pop(ctx));
   let (b, q2) = assert.some(q1.pop(ctx));
   let (c, q3) = assert.some(q2.pop(ctx));
@@ -96,7 +96,7 @@ test "pop reverses the back when the front is spent" {
 
 test "popBack reverses the front when the back is spent" {
   let ctx = Hermetic();
-  let q = queue.empty::<Int>().pushFront(ctx, 1).pushFront(ctx, 2);
+  let q = queue.empty<Int>().pushFront(ctx, 1).pushFront(ctx, 2);
   let (a, q1) = assert.some(q.popBack(ctx));
   let (b, q2) = assert.some(q1.popBack(ctx));
   assert.eq(a, 1);
@@ -110,8 +110,8 @@ test "equals ignores how the elements are split" {
   let ctx = Hermetic();
   // Same contents, opposite construction: one all pushed to the back, one all
   // pushed to the front. Their `front`/`back` fields do not match.
-  let a = queue.empty::<Int>().push(ctx, 1).push(ctx, 2);
-  let b = queue.empty::<Int>().pushFront(ctx, 2).pushFront(ctx, 1);
+  let a = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
+  let b = queue.empty<Int>().pushFront(ctx, 2).pushFront(ctx, 1);
   assert.isTrue(a.equals(ctx, b));
   assert.eq(a.toList(ctx), b.toList(ctx));
 }
@@ -132,7 +132,7 @@ test "equals is false for different lengths" {
 
 test "pushing and popping at both ends keeps the order" {
   let ctx = Hermetic();
-  let q = queue.empty::<Int>().push(ctx, 2).pushFront(ctx, 1).push(ctx, 3);
+  let q = queue.empty<Int>().push(ctx, 2).pushFront(ctx, 1).push(ctx, 3);
   assert.eq(q.toList(ctx), [1, 2, 3]);
   let (front, rest) = assert.some(q.pop(ctx));
   assert.eq(front, 1);
@@ -143,7 +143,7 @@ test "pushing and popping at both ends keeps the order" {
 
 test "a queue of one is both ends at once" {
   let ctx = Hermetic();
-  let q = queue.empty::<Str>().push(ctx, "only");
+  let q = queue.empty<Str>().push(ctx, "only");
   assert.eq(assert.some(q.peek()), "only");
   assert.eq(assert.some(q.peekBack()), "only");
   let (v, rest) = assert.some(q.pop(ctx));
@@ -153,5 +153,5 @@ test "a queue of one is both ends at once" {
 
 test "toList of an empty queue is empty" {
   let ctx = Hermetic();
-  assert.eq(queue.empty::<Int>().toList(ctx), list.empty::<Int>());
+  assert.eq(queue.empty<Int>().toList(ctx), list.empty<Int>());
 }

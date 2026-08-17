@@ -117,7 +117,11 @@ alike.
    one. What remains open is whether "undefined above 2^53" is a rule programmers
    internalize, or one they discover. The mitigations are that `Checked` answers
    `.None` rather than a wrong value, `str.toInt` refuses a string it cannot
-   parse exactly, and `core/bits` computes on the bit pattern.
+   parse exactly, and `core/bits` computes on the bit pattern. A native backend
+   has no such ceiling — an `I64` there is sixty-four bits and overflow wraps —
+   which narrows the question rather than closing it: the same program is exact
+   in one place and lossy in the other, and 6.2 says so out loud rather than
+   promising either.
 9. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
    user types would be more honest than a compiler that knows one type by name,
    but it is the first piece of attribute syntax in a language with none, and

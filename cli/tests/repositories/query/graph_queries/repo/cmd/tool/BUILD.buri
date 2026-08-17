@@ -1,9 +1,9 @@
 # A second binary that reaches //lib/money and never //lib/store, so that
 # `rdeps` has more than one answer and `path` has an honest "no path".
 binary {
-  dependencies: ["//lib/money"]
+    dependencies: ["//lib/money"]
 
-  outputs: [
-    { platform: JS },
-  ]
+    outputs: [
+        { platform: JS },
+    ]
 }

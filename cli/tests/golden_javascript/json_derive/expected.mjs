@@ -100,6 +100,41 @@ function core_json$stringify$u3rqgv(ctx_0,v_1){
   }
 }
 function core_json$quote$u3rqgv(ctx_0,s_1){
-  const inner_4=$list_join($list_mapCtx($str_chars(s_1,ctx_0),ctx_0,(c_2,ch_3)=>ch_3==='"'?'\\"':ch_3==='\\'?'\\\\':ch_3==='\n'?'\\n':ch_3==='\r'?'\\r':ch_3==='\t'?'\\t':$str_fromChars(c_2,[ch_3])),ctx_0,'');
+  const inner_4=$list_join($list_mapCtx($str_chars(s_1,ctx_0),ctx_0,(c_2,ch_3)=>{
+    if(ch_3==='"'){
+      return '\\"';
+    }else if(ch_3==='\\'){
+      return '\\\\';
+    }else if(ch_3==='\n'){
+      return '\\n';
+    }else if(ch_3==='\r'){
+      return '\\r';
+    }else if(ch_3==='\t'){
+      return '\\t';
+    }else if($char_toU32(ch_3)<32){
+      const n_7=$char_toU32(ch_3);
+      const self_8=$str_charAt('0123456789abcdef',Math.trunc(n_7/16));
+      let $t1;
+      if(self_8!==void 0){
+        $t1=self_8;
+      }else if(self_8===void 0){
+        $t1='0';
+      }else{
+        $abort('no arm matched');
+      }
+      const self_11=$str_charAt('0123456789abcdef',n_7%16);
+      let $t3;
+      if(self_11!==void 0){
+        $t3=self_11;
+      }else if(self_11===void 0){
+        $t3='0';
+      }else{
+        $abort('no arm matched');
+      }
+      return $str_format(c_2,'\\u00'+$t1+$t3);
+    }else{
+      return $str_fromChars(c_2,[ch_3]);
+    }
+  }),ctx_0,'');
   return $str_format(ctx_0,'"'+inner_4+'"');
 }

@@ -12,9 +12,9 @@ use crate::compiler::modules::Role;
 use crate::compiler::semantics::resolve::Checker;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{Diagnostic, Span};
+use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use crate::parsing::tree;
-use std::collections::HashMap;
+use crate::hash::Map as HashMap;
 
 pub fn check_all(c: &mut Checker) {
     // Constants first: a `const` may be referenced from any body.
@@ -31,22 +31,31 @@ pub fn check_all(c: &mut Checker) {
     check_tests(c);
 }
 
-fn body_ast(c: &Checker, r: AstRef) -> Option<tree::FnDecl> {
-    if r.module.0 == u32::MAX {
-        return None;
-    }
-    let item = c.module(r.module).ast.items.get(r.item as usize)?;
-    match item {
-        tree::Item::Fn(d) if r.sub == u32::MAX => Some(d.clone()),
-        tree::Item::Impl(d) => d.methods.get(r.sub as usize).cloned(),
-        _ => None,
+/// The declaration a function was written as. Borrowed from the loaded
+/// modules — `'a`, not the checker — so that checking a body does not begin by
+/// copying it. Every function in the compilation passed through here, so the
+/// copy was one deep clone of every body in the standard library and the
+/// repository, per analysis.
+fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
+    match r {
+        AstRef::Builtin => None,
+        AstRef::Item { module, item } => match c.module(module).ast.items.get(item as usize)? {
+            tree::Item::Fn(d) => Some(d),
+            _ => None,
+        },
+        AstRef::Method { module, item, sub } => {
+            match c.module(module).ast.items.get(item as usize)? {
+                tree::Item::Impl(d) => d.methods.get(sub as usize),
+                _ => None,
+            }
+        }
     }
 }
 
 fn check_fn(c: &mut Checker, fid: FnId) {
     let info = c.tables.fun(fid).clone();
     let Some(decl) = body_ast(c, info.ast) else { return };
-    let Some(body) = decl.body.clone() else { return };
+    let Some(body) = decl.body.as_ref() else { return };
 
     let mut inf = Infer::new(c, info.module, info.generics.clone(), info.ret.clone());
     inf.self_con = info.self_ty;
@@ -70,7 +79,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         }
     }
     let expected = info.ret.clone();
-    let expr = inf.check_block(&body, Some(&expected));
+    let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body.span, &expr.ty.clone(), &expected, "the declared return type");
     let hir_body = inf.finish(expr);
     c.bodies.insert(fid, hir_body);
@@ -78,12 +87,8 @@ fn check_fn(c: &mut Checker, fid: FnId) {
 
 fn check_const(c: &mut Checker, cid: ConstId) {
     let info = c.tables.const_(cid).clone();
-    if info.ast.module.0 == u32::MAX {
-        return;
-    }
-    let Some(tree::Item::Const(decl)) =
-        c.module(info.ast.module).ast.items.get(info.ast.item as usize).cloned()
-    else {
+    let Some((module, index)) = info.ast.item() else { return };
+    let Some(tree::Item::Const(decl)) = c.module(module).ast.items.get(index as usize) else {
         return;
     };
     let mut inf = Infer::new(c, info.module, Vec::new(), info.ty.clone());
@@ -97,8 +102,8 @@ fn check_const(c: &mut Checker, cid: ConstId) {
 
 fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     let info = c.tables.ctx_decl(id).clone();
-    let Some(tree::Item::Context(decl)) =
-        c.module(info.ast.module).ast.items.get(info.ast.item as usize).cloned()
+    let Some((decl_module, decl_index)) = info.ast.item() else { return };
+    let Some(tree::Item::Context(decl)) = c.module(decl_module).ast.items.get(decl_index as usize)
     else {
         return;
     };
@@ -106,9 +111,12 @@ fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     inf.in_main = true;
     inf.push_scope();
     let expr = inf.check_context_body(&decl.body, decl.span);
-    if let Ty::Ctx(ct) = expr.ty {
-        inf.c.tables.ctx_decls[id.index()].ty = Some(ct);
-    }
+    // A body that did not evaluate to a context type has no generated type,
+    // and then its constructor is not usable either — so neither is recorded.
+    let ctx_ty = match &expr.ty {
+        Ty::Ctx(ct) => Some(*ct),
+        _ => None,
+    };
     let body = inf.finish(expr);
     // A named context is constructed by calling it, and each call builds a
     // fresh one, so the declaration becomes a nullary function.
@@ -123,10 +131,12 @@ fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         span: info.span,
         self_ty: None,
         impl_of: None,
-        ast: AstRef::NONE,
+        ast: AstRef::Builtin,
         intrinsic: false,
     });
-    c.tables.ctx_decls[id.index()].ctor = Some(ctor);
+    if let Some(ty) = ctx_ty {
+        c.tables.ctx_decl_mut(id).checked = Some(CheckedContext { ty, ctor });
+    }
     c.bodies.insert(ctor, body);
 }
 
@@ -137,7 +147,7 @@ fn check_tests(c: &mut Checker) {
         if c.module(module).role != Role::TestSource {
             continue;
         }
-        let items = c.module(module).ast.items.clone();
+        let items = &c.module(module).ast.items;
         for (index, item) in items.iter().enumerate() {
             let tree::Item::Test(t) = item else { continue };
             // A test takes no parameters and returns nothing: it passes unless
@@ -152,7 +162,7 @@ fn check_tests(c: &mut Checker) {
                 span: t.span,
                 self_ty: None,
                 impl_of: None,
-                ast: AstRef { module, item: index as u32, sub: u32::MAX },
+                ast: AstRef::Item { module, item: index as u32 },
                 intrinsic: false,
             });
             let mut inf = Infer::new(c, module, Vec::new(), Ty::Unit);
@@ -183,6 +193,24 @@ pub(crate) struct LitCheck {
     pub(crate) span: Span,
 }
 
+/// The state of the or-pattern currently being checked.
+///
+/// `current` and `first` were two `Option<HashMap<..>>` fields side by side.
+/// Only one of them was saved and restored around a nested or-pattern, so an
+/// or-pattern inside an alternative of an outer one cleared the outer's
+/// first-alternative bindings on the way out — and the outer's remaining
+/// alternatives then declared fresh locals for names the first had already
+/// bound. As one value there is one thing to enter and one thing to leave, and
+/// `(no scope, but a first alternative)` is unrepresentable.
+#[derive(Default)]
+pub(crate) struct OrScope {
+    /// Bindings made by the alternative being checked right now.
+    pub(crate) current: HashMap<String, LocalId>,
+    /// Bindings made by the first alternative, which the rest reuse so that a
+    /// name bound by both is one local.
+    pub(crate) first: Option<HashMap<String, LocalId>>,
+}
+
 pub struct Infer<'a, 'b> {
     pub c: &'a mut Checker<'b>,
     pub(crate) module: ModuleId,
@@ -211,10 +239,8 @@ pub struct Infer<'a, 'b> {
     /// Whether the body being checked is `main`'s. A context may be built in
     /// `main`'s body, not merely anywhere in the module that exports it.
     pub(crate) in_main: bool,
-    /// Bindings made by the alternative of an or-pattern being checked, so the
-    /// next alternative reuses the same locals for the same names.
-    pub(crate) or_bindings: Option<HashMap<String, LocalId>>,
-    pub(crate) or_first: Option<HashMap<String, LocalId>>,
+    /// The or-pattern being checked, if any.
+    pub(crate) or_scope: Option<OrScope>,
     /// Names bound by the pattern currently being checked, so a duplicate
     /// within one pattern is caught (SPEC 14.6).
     pub(crate) pattern_names: Vec<String>,
@@ -233,16 +259,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             locals: Vec::new(),
             params: Vec::new(),
             self_con: None,
-            effect_locals: std::collections::HashSet::new(),
-            poly_locals: std::collections::HashSet::new(),
+            effect_locals: std::collections::HashSet::default(),
+            poly_locals: std::collections::HashSet::default(),
             lambda_depth: 0,
             obligations: Vec::new(),
             lit_checks: Vec::new(),
             hole_checks: Vec::new(),
             role,
             in_main: false,
-            or_bindings: None,
-            or_first: None,
+            or_scope: None,
             pattern_names: Vec::new(),
         }
     }
@@ -280,6 +305,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         typed::Body { locals, params: self.params, expr }
     }
 
+    /// A callee is pre-monomorphization here, so only its type arguments need
+    /// resolving.
+    fn resolve_callee(&self, c: typed::Callee) -> typed::Callee {
+        match c {
+            typed::Callee::Decl { id, targs } => typed::Callee::Decl {
+                id,
+                targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
+            },
+            typed::Callee::Func(i) => typed::Callee::Func(i),
+        }
+    }
+
     fn resolve_expr(&self, mut e: typed::Expr) -> typed::Expr {
         e.ty = self.subst.resolve(&e.ty);
         let sub = |x: typed::Expr| self.resolve_expr(x);
@@ -288,9 +325,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 callee: Box::new(sub(*callee)),
                 args: args.into_iter().map(sub).collect(),
             },
-            typed::ExprKind::CallFn { func, targs, args } => typed::ExprKind::CallFn {
-                func,
-                targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
+            typed::ExprKind::CallFn { func, args } => typed::ExprKind::CallFn {
+                func: self.resolve_callee(func),
                 args: args.into_iter().map(sub).collect(),
             },
             typed::ExprKind::CallTrait { trait_id, method, recv, targs, args } => {
@@ -393,7 +429,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             typed::ExprKind::Template { parts } => typed::ExprKind::Template {
                 parts: parts
                     .into_iter()
-                    .map(|p| typed::TemplatePart { text: p.text, hole: p.hole.map(&sub) })
+                    .map(|p| match p {
+                        typed::TemplatePart::Text(t) => typed::TemplatePart::Text(t),
+                        typed::TemplatePart::Hole(h) => typed::TemplatePart::Hole(sub(h)),
+                    })
                     .collect(),
             },
             typed::ExprKind::CtxLit { bindings } => typed::ExprKind::CtxLit {
@@ -407,9 +446,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
                 args: args.into_iter().map(sub).collect(),
             },
-            typed::ExprKind::FnRef(f, targs) => {
-                typed::ExprKind::FnRef(f, targs.iter().map(|t| self.subst.resolve(t)).collect())
-            }
+            typed::ExprKind::FnRef(c) => typed::ExprKind::FnRef(self.resolve_callee(c)),
             other => other,
         };
         e
@@ -455,7 +492,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     // -- scopes -------------------------------------------------------------
 
     pub(crate) fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(HashMap::default());
     }
 
     pub(crate) fn pop_scope(&mut self) {
@@ -470,15 +507,22 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn bind(&mut self, name: &str, local: LocalId) {
         // Shadowing is permitted, both in nested scopes and within a block.
-        self.scopes.last_mut().unwrap().insert(name.to_string(), local);
+        self.scopes
+            .last_mut()
+            .or_ice("a body is checked inside a scope pushed by `push_scope`")
+            .insert(name.to_string(), local);
     }
 
     pub(crate) fn lookup_local(&self, name: &str) -> Option<LocalId> {
         self.scopes.iter().rev().find_map(|s| s.get(name).copied())
     }
 
+    pub(crate) fn local(&self, id: LocalId) -> &typed::Local {
+        self.locals.get(id.index()).or_ice("every LocalId was minted by new_local on this body")
+    }
+
     pub(crate) fn local_ty(&self, id: LocalId) -> Ty {
-        self.locals[id.index()].ty.clone()
+        self.local(id).ty.clone()
     }
 
     // -- unification --------------------------------------------------------
@@ -530,7 +574,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn err(&mut self, span: Span, msg: impl Into<String>) -> &mut Diagnostic {
         self.c.diags.items.push(Diagnostic::error(span, msg));
-        self.c.diags.items.last_mut().unwrap()
+        self.c.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
     }
 
     pub(crate) fn error_expr(&self, span: Span) -> typed::Expr {
@@ -583,7 +627,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .tables
                     .impls
                     .get(&(tr, con))
-                    .is_some_and(|i| i.derived);
+                    .is_some_and(|i| i.is_derived());
                 if derived {
                     // The `derive` is there; one of the components it folds
                     // over is what fails, and naming it is the useful part.
@@ -686,10 +730,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             Ty::Unit => self.structural_trait(tr),
             Ty::Con(id, args) => {
-                if self.c.tables.impls.contains_key(&(tr, *id)) {
+                if let Some(imp) = self.c.tables.impls.get(&(tr, *id)) {
                     // A derived impl requires every field type to satisfy the
                     // trait too.
-                    let derived = self.c.tables.impls[&(tr, *id)].derived;
+                    let derived = imp.is_derived();
                     if derived {
                         if seen.contains(id) {
                             return true;

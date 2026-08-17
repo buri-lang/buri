@@ -12,21 +12,14 @@
 # Note what is *not* here: no platform restriction. This library has no opinion
 # about platforms of its own. It cannot be built for JS, but that follows from
 # the `server` tag's policy in REPO.buri, stated once for all server code.
-
 library {
-  sources: [
-    "codec.buri",
-    "file_store.buri",
-  ]
-  dependencies: [
-    "//lib/ledger",
-    "//lib/money",
-  ]
-  tags: ["server"]
-  visibility: ["//cmd/server"]
+    sources: ["codec.buri", "file_store.buri"]
+    dependencies: ["//lib/ledger", "//lib/money"]
+    tags: ["server"]
+    visibility: ["//cmd/server"]
 
-  test {
-    sources: ["test/store.buri"]
-    data: ["test/golden/log.txt"]
-  }
+    test {
+        sources: ["test/store.buri"]
+        data: ["test/golden/log.txt"]
+    }
 }

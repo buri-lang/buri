@@ -32,7 +32,7 @@ run {
 
 edit {
   file: "lib/b/BUILD.buri"
-  replace: "  dependencies: [\"//lib/a\"]\n"
+  replace: "    dependencies: [\"//lib/a\"]\n"
   with: ""
 }
 

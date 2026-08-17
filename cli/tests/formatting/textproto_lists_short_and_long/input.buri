@@ -1,0 +1,7 @@
+library {
+  sources: ["a.buri"]
+  dependencies: ["//lib/one", "//lib/two"]
+  test {
+    sources: ["test/aaaaaaaaaaaaaaaaaaaa.buri", "test/bbbbbbbbbbbbbbbbbbbb.buri", "test/cccccccccccccccccccc.buri"]
+  }
+}

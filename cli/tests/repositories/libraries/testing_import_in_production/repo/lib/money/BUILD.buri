@@ -1,8 +1,8 @@
 library {
-  sources: ["cents.buri", "parse.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["cents.buri", "parse.buri"]
+    visibility: ["//visibility:public"]
 
-  testing {
-    sources: ["testing/fixtures.buri"]
-  }
+    testing {
+        sources: ["testing/fixtures.buri"]
+    }
 }

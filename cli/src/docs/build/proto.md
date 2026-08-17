@@ -13,6 +13,10 @@ export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {
 }
 ```
 
+**The schema is an edition-2026 schema.** `syntax = "proto3"` is refused, and so
+is proto2, and so is an older edition — see [Editions, and only
+one](#editions-and-only-one) below.
+
 The import path is the schema's own path, extension included:
 `//lib/proto/address.proto` names `lib/proto/address.proto` on disk. There is
 one spelling, it is the file's name, and nothing has to be learned about where
@@ -56,16 +60,45 @@ Two hygiene rules step around a generated module on purpose. `unused-import`
 and `unreachable-export` both ask a person to make an edit, and there is no
 file here to edit: the module is a function of the schema.
 
+## Editions, and only one
+
+A schema declares `edition = "2026";`. Nothing else is accepted: not
+`syntax = "proto3"`, not proto2, not edition 2023 or 2024, and not a file that
+declares nothing.
+
+That is a strong requirement and the reason is the next section. Editions
+changed what a *singular field* means, and the change is not one a reader can
+paper over: under proto3 a singular scalar has no presence, under editions it
+has presence by default, and a file that says `proto3` is not a file this
+mapping can read a little differently — it is a file it would read wrongly. So
+it is refused, with the migration in the `fix`:
+
+```text
+error: `syntax = "proto3"` is not accepted [proto-edition]
+  = fix: migrate it: `edition = "2026";`, drop every `optional` and `required`
+    label, and write `[features.field_presence = IMPLICIT]` on the fields that
+    had none
+```
+
+One edition rather than a range, for the same reason there is one spelling of an
+import path: a schema means one thing, and a reader that quietly accepted an
+older set of feature defaults would decode the file in front of it as a
+different file. Moving the requirement forward is one constant in
+`build/protoschema.rs` — every feature that affects the wire or the JSON
+resolves identically at editions 2023, 2024 and 2026, because protobuf gives a
+feature the default of the closest edition at or before it and no such default
+has been introduced since 2023.
+
 ## Messages, fields, and presence
 
 ```proto
-syntax = "proto3";
+edition = "2026";
 
 package example.v1;
 
 message Person {
   string name = 1;
-  optional int32 age = 2;
+  int32 age = 2 [features.field_presence = IMPLICIT];
   repeated string emails = 3;
   Address home = 4;
 }
@@ -75,8 +108,8 @@ becomes
 
 ```text
 export struct Person {
-  export name: Str,
-  export age: Option<Int>,
+  export name: Option<Str>,
+  export age: Int,
   export emails: [Str],
   export home: Option<Address>,
 }
@@ -84,37 +117,47 @@ export struct Person {
 derive Eq, Show for Person;
 ```
 
-| proto3 | Buri |
+| editions | Buri |
 |---|---|
 | `message` | `struct` with named fields, `derive Eq, Show` |
-| `optional T` | `Option<T>` |
+| singular `T` (the default, EXPLICIT presence) | `Option<T>` |
+| singular `T` with `features.field_presence = IMPLICIT` | `T` |
+| singular message field | `Option<T>`, whatever the feature says |
 | `repeated T` | `[T]` |
-| singular `T` (a scalar or an enum) | `T` |
-| singular message field | `Option<T>` |
 | `oneof pick { ... }` | `enum Person_Pick`, held as `Option<Person_Pick>` |
 | `message Outer { message Inner { } }` | `Outer` and `Outer_Inner`, side by side |
-| `enum Colour` | `enum Colour`, value names verbatim |
+| `enum Colour` | `enum Colour`, value names verbatim, plus `Unrecognized(Int)` |
 
-**A proto3 singular scalar is `T`, not `Option<T>`.** This is the one decision
-the format forces and the language does not, so it is written here rather than
-discovered. proto3 has *implicit presence*: a singular scalar is always there,
-an unset one holds its type's default, and the wire format does not distinguish
-"absent" from "set to zero" — a writer omits the default and a reader
-substitutes it. Mapping such a field to `Option<T>` would invent a distinction
-the bytes cannot carry: `.None` and `.Some(0)` would encode to the same message
-and one of them would not survive a round trip. So the field is `T`, absence is
-the default, and `optional` — which is proto3's own keyword for "presence is
-tracked" — is the only thing that produces an `Option`.
+### Presence is the headline
 
-A singular *message* field is the exception, and it is proto3's exception too:
-a message field always tracks presence, because there is no "default message"
-for an absent one to mean. So `Address home = 4;` is `Option<Address>` with no
-`optional` in sight.
+**A singular field is `Option<T>`.** Editions made presence the default and
+removed the `optional` label that used to ask for it, so this is not the
+exception it was under proto3 — it is what a field is.
 
-The consequence is worth stating: `Person { name: "" }` and a `Person` whose
-name was never set are the same value, and both encode to zero bytes. If a
-program needs to tell them apart, the schema says `optional string name = 1;`
-and pays a byte for it.
+What that buys is that *absent* and *set to the zero value* are two different
+messages, and both survive a round trip:
+
+- `.None` is not written at all. Nothing on the wire, nothing in the JSON.
+- `.Some(0)` is written — two bytes of it — and reads back as `.Some(0)`.
+
+Under proto3 those were the same message, and one of them did not survive.
+That is the whole difference, and it is why the requirement is worth a refusal
+rather than a compatibility mode.
+
+`features.field_presence = IMPLICIT` asks for the old behaviour, on a file, a
+message, or a single field. An implicit field is a bare `T`; a value equal to
+the type's default is indistinguishable from an absent one; and it is not
+written when it holds that default. It is exactly what a proto3 singular field
+was, which is what makes it the migration for one.
+
+A singular *message* field is `Option<T>` whatever the feature says, and that is
+protobuf's rule rather than this mapping's: a message field always tracks
+presence, because there is no "default message" for an absent one to mean.
+
+`LEGACY_REQUIRED` — the third value, which describes a proto2 `required` field —
+is refused by name. A field that must be there is a promise the format cannot
+keep across versions, which is why editions carries the value only to describe
+files that already exist.
 
 ## Names
 
@@ -143,13 +186,15 @@ which a bare `Note` would not, and a `oneof` named `contact` inside
 | `string` | `Str` | UTF-8 on the wire; bytes that are not text are an error |
 | `bytes` | `[U8]` | |
 
-**The 64-bit caveat.** An `Int` is an `I64` and an `I64` is a double
+**The 64-bit caveat, on the JavaScript backend.** An `Int` is an `I64` on every
+backend, and on the JavaScript one an `I64` is a double
 ([`core/num`](./STANDARD-LIBRARY.md)), so it holds every integer up to 2^53
 exactly and nothing above it. A `uint64` or `int64` field carrying a larger
-value survives the round trip only to that precision, and a `uint64` above 2^63
-reads back negative, which is what a signed reading of those bits is. This is
-the same caveat every double-backed protobuf implementation carries; it is
-stated here rather than discovered.
+value survives the round trip only to that precision. This is the same caveat
+every double-backed protobuf implementation carries; it is stated here rather
+than discovered, and it does not apply to a native build, where an `I64` is
+sixty-four bits. What *is* true on every backend is that a `uint64` above 2^63
+reads back negative, which is what a signed reading of those bits is.
 
 Negative numbers cost bytes. A negative `int32` or `int64` is written as the
 ten-byte varint of its 64-bit two's complement, exactly as protoc writes one. A
@@ -171,16 +216,32 @@ becomes a Buri enum whose variants carry the proto value names verbatim —
 proto3 JSON writes an enum as the *name* of its value, and renaming them here
 would mean the document said one thing and the type said another.
 
-proto3 requires the first value to be zero, and so does this reader: the zero
-value is the field's default, and it is what an unrecognised number decodes to.
+An open enum's first value must be zero, and so does this reader require: the
+zero value is what an unset field means.
 
-**An unrecognised number decodes to the zero value.** That is a deliberate
-loss. proto3 asks a reader to *keep* an unrecognised enum number so it survives
-a re-encode; a Buri enum has nowhere to keep one. The alternative — failing —
-would mean that adding a value to an enum broke every reader built before it,
-which is the thing proto3's rule exists to prevent. Defaulting is the lesser of
-the two, and it is why a schema's zero value should be a real "unspecified"
-rather than a meaningful case.
+**Editions enums are open, and an open enum keeps what it does not recognise.**
+`features.enum_type` defaults to `OPEN`, whose contract is that a value the
+schema does not name is part of the *value* rather than an unknown field — so
+every generated enum carries one extra variant:
+
+```text
+export enum Shade {
+  export SHADE_UNSPECIFIED,
+  export LIGHT,
+  export DARK,
+  export Unrecognized(Int),
+}
+```
+
+A message written by a newer schema therefore survives being read and written
+again by an older one, which is the entire point of the rule. In JSON the
+unrecognised value goes out as its number, which is what the mapping says. If a
+schema already has a value called `Unrecognized`, that meaning wins and the
+extra variant becomes `Unrecognized_`.
+
+`features.enum_type = CLOSED` is refused by name. A closed enum makes an
+unrecognised value an unknown *field*, which a generated struct has nowhere to
+keep — so honouring it would mean silently losing what an open enum keeps.
 
 ## `oneof`
 
@@ -233,7 +294,9 @@ and `decodeEJson(Json, path): Result<E, ProtoError>`.
 from "//lib/proto/demo.proto" import { Everything, Shade, defaultEverything };
 
 export fn dark(): Everything {
-  Everything { ..defaultEverything(), name: "Ada", shade: Shade.DARK }
+  // Every singular field is an `Option`, because presence is the edition's
+  // default — so setting one is `.Some(...)` and leaving it out is `.None`.
+  Everything { ..defaultEverything(), name: .Some("Ada"), shade: .Some(Shade.DARK) }
 }
 ```
 
@@ -260,12 +323,17 @@ that differs between schemas.
 Ordinary proto3. Three things worth stating because a reader will otherwise
 have to check:
 
-- **A singular field holding its default is not written.** That is proto3's
-  canonical encoding, and it is what makes `defaultM()` encode to zero bytes.
-  An `optional` field that is set is written whatever it holds.
-- **A repeated numeric field is packed**; a repeated `string`, `bytes`, or
-  message field is one whole field per element. A reader accepts both forms of
-  the numeric one, because a writer is allowed to send either.
+- **A field that was set is written; a field that was not is not.** Under the
+  edition's default presence that is all there is to it, and it is what makes
+  `defaultM()` — every field `.None` — encode to zero bytes. An `IMPLICIT`
+  field has no "was set", so the rule there is proto3's instead: it is written
+  unless it holds the type's default.
+- **A repeated numeric field is packed** — `features.repeated_field_encoding`
+  defaults to `PACKED` — and `EXPANDED` asks for one whole field per element.
+  A repeated `string`, `bytes`, or message field is never packed, whatever the
+  feature says: packing strings would be indistinguishable from one long string.
+  A reader accepts both forms of the numeric one, because a writer is allowed to
+  send either.
 - **A field the schema does not know is skipped**, which is proto3's forward
   compatibility and the whole of it. The skipped bytes are *dropped* rather
   than retained: a generated type has nowhere to keep them, so re-encoding a
@@ -305,9 +373,12 @@ derived:
   `{"phone":"9"}`, not `{"contact":{"Phone":"9"}}`. The tagged form is what
   `derive ToJson` would write and what no other protobuf implementation reads.
 
-Beyond those: a field holding its default is omitted, an empty repeated field
-is omitted rather than written as `[]`, an absent member and a `null` member
-mean the same thing, and a member the schema does not know is ignored.
+Beyond those: a field that was not set is omitted and one that was is written —
+including at its zero value, which is where explicit presence shows through into
+JSON as well; an `IMPLICIT` field is omitted when it holds its default; an empty
+repeated field is omitted rather than written as `[]`; an absent member and a
+`null` member mean the same thing; and a member the schema does not know is
+ignored.
 
 One deviation from the specification, recorded rather than hidden: members are
 written in schema order with a `oneof`'s case last, rather than strictly in
@@ -331,9 +402,20 @@ Each of these is refused by name, with the reason and the edit, under
 | `group` | proto2's inline nesting, whose wire encoding was removed from proto3. Declare a nested `message`. |
 | `map<K, V>` | Sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be. Declare the entry message. |
 | `google.protobuf.Any` | Holds a message whose type is known only at runtime, and a generated type has to know its fields at compile time. Declare a `oneof`. |
-| `required` | proto2's. A field that must be there is a promise the format cannot keep across versions. |
+| the `optional` and `required` labels | Editions removed both; presence is `features.field_presence` now. protoc refuses them in the same words. |
 | `import public` | Re-exports another file's declarations, which would make one module's surface depend on a second file's. |
-| `syntax = "proto2"` | The presence and default rules above are proto3's. |
+| `syntax = "proto2"`, `syntax = "proto3"`, editions before 2026 | See [Editions, and only one](#editions-and-only-one). |
+| `features.field_presence = LEGACY_REQUIRED` | A field that must be there is a promise the format cannot keep across versions. |
+| `features.enum_type = CLOSED` | An unrecognised value would become an unknown field, which a generated struct has nowhere to keep. |
+| `features.message_encoding = DELIMITED` | The group encoding again, under its new name. |
+| `features.utf8_validation = NONE` | A `string` field becomes a `Str`, and a `Str` is text — there is no unvalidated one for the bytes to become. Declare the field `bytes`. |
+| `features.json_format = LEGACY_BEST_EFFORT` | It describes what proto2 did to JSON; this writes the one mapping editions defines. |
+| `option features = { ... }` | The block form of a feature. One spelling of a thing is enough. |
+
+`features.enforce_naming_style` and `features.default_symbol_visibility` are
+source-retention lints — they say nothing about what a message means — so they
+are read past rather than refused, which is what lets a schema opt out of the
+naming style protoc enforces from edition 2024 on.
 
 `option` and `reserved` are the two statements that are *skipped* rather than
 refused: neither says anything about the shape of a message, and `option` in
@@ -356,14 +438,20 @@ reason. It is the only test in this repository whose ground truth comes from
 somewhere else.
 
 ```text
-CONFORMANCE SUITE PASSED: 988 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
 ```
 
-The skips are the message types the testee does not implement — proto2 and the
-editions variants — and the expected failures are dominated by two things the
-vendored schema had removed from it, `map<>` and the well-known types, plus the
-64-bit precision caveat above. `cli/tests/proto/README.md` lists all seven
-reasons and the six real defects the suite found.
+The skips are the message types the testee does not implement, and the expected
+failures are dominated by two things the vendored schema had removed from it,
+`map<>` and the well-known types, plus the 64-bit precision caveat above.
+`cli/tests/proto/README.md` lists all seven reasons and the defects the suite
+found.
+
+One of those seven is worth naming here, because it is not a gap: the reference
+implementation is proto3 and the schema under test is edition 2026, so the two
+disagree about whether a field set to its zero value is written. They are both
+right about their own schema, and the difference is the one this page is mostly
+about.
 
 It is not part of `cargo test`, because a suite that needs a C++ build of
 another project is a suite that does not run. `cli/tests/proto_vectors.rs`

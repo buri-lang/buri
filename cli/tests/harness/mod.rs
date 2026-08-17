@@ -9,6 +9,22 @@
 //! test that edits a fixture in place corrupts it if it panics first — so every
 //! suite works on a copy under `CARGO_TARGET_TMPDIR` instead.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 // Each test binary gets its own copy of this module and uses a subset of it.
 #![allow(dead_code, unused_imports)]
 
@@ -43,10 +59,11 @@ pub fn js_runtime() -> String {
     std::env::var("BURI_JS").unwrap_or_else(|_| "bun".to_string())
 }
 
-/// The `REPO.buri` every scratch repository gets. The hash is deliberately not
-/// a real one: nothing in the test suite fetches a toolchain, and a plausible
-/// hash would invite someone to believe it was checked.
-pub const REPO_BURI: &str = "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n";
+/// The `REPO.buri` every scratch repository gets: no tags, and nothing else to
+/// say. The file's presence is what makes the directory a repository root, so
+/// its contents can be a comment and often are.
+pub const REPO_BURI: &str =
+    "# A scratch repository. The file's presence is what makes this a root.\n";
 
 /// The build file for a single-package JS binary, which is what most scratch
 /// repositories are.

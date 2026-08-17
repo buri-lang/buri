@@ -1,0 +1,28 @@
+error: `--watch` and `--force` are exclusive: `--force` turns every cache hit into a run, so every save would re-run every suite in the selection — and the cache is the whole of what makes a watch loop cheap
+
+buri — the toolchain for the Buri language
+
+  buri build    [targets]           compile
+  buri test     [targets]           compile and run test suites
+  buri run      <target> [-- args]  build one binary and execute it
+  buri format   [paths]             format .buri sources and BUILD.buri files
+  buri lint     [targets]           static checks beyond type checking
+  buri gen      [targets]           regenerate sources/deps in existing BUILD.buri files
+  buri query    <expr>              ask about the build graph
+  buri docs     [topic]             the language, the build system, and this CLI
+  buri lsp                          language server, over stdio
+  buri clean                        drop the local cache
+  buri version                      toolchain version, and --verbose its executable's hash
+
+Target arguments accept labels and patterns: //lib/money, //lib/..., //...
+With no argument, commands operate on the package containing the working
+directory.
+
+  --verbose                say more about what was skipped and why
+  --color[=<when>]         ANSI escapes; also honours NO_COLOR
+  --error-format=<format>  diagnostics as one JSON object per line, for tools and coding agents
+
+`buri docs` is the documentation: it works outside a repository, every
+example in it is compiled by the test suite, and `buri docs search <words>`
+looks inside every page at once. `buri docs cli <command>` documents one
+command and every flag it takes.

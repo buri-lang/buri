@@ -6,7 +6,7 @@
 //! already a primitive operation or a trait method; a `match` still has
 //! patterns but every path in one is resolved.
 
-use crate::compiler::semantics::types::{FnId, LocalId, Prim, TraitId, Ty, TyConId};
+use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, TraitId, Ty, TyConId};
 use crate::diagnostics::Span;
 
 #[derive(Clone, Debug)]
@@ -56,10 +56,15 @@ pub struct Arm {
     pub span: Span,
 }
 
+/// One piece of an interpolation: literal text, or a hole to render.
+///
+/// Mirrors `tree::TemplatePart`. A part is one or the other and never both or
+/// neither, so it is an enum rather than two `Option`s — a part that carried
+/// both would be rendered twice by the backend.
 #[derive(Clone, Debug)]
-pub struct TemplatePart {
-    pub text: Option<String>,
-    pub hole: Option<Expr>,
+pub enum TemplatePart {
+    Text(String),
+    Hole(Expr),
 }
 
 /// Which of `Option` and `Result` a `?` or `??` is working on. They are
@@ -99,6 +104,41 @@ pub enum PrimOp {
     Ge,
 }
 
+/// Who a direct call, or a function-valued reference, names.
+///
+/// Before monomorphization a call names a *declaration* together with the type
+/// arguments it is instantiated at. After it, every call names one concrete
+/// function — an index into `Program::funcs`. Both used to be spelled `FnId`
+/// with a `Vec<Ty>` beside it that had to be empty afterwards, so the two index
+/// spaces were interchangeable to the compiler and the rule lived in a doc
+/// comment in another module.
+#[derive(Clone, Debug)]
+pub enum Callee {
+    /// A declaration and the type arguments it is called at.
+    Decl { id: FnId, targs: Vec<Ty> },
+    /// One concrete function, after monomorphization. Carries no type
+    /// arguments, because there is nothing left to instantiate.
+    Func(FuncIdx),
+}
+
+impl Callee {
+    /// The declaration this names, before monomorphization has run.
+    pub fn decl(&self) -> Option<FnId> {
+        match self {
+            Callee::Decl { id, .. } => Some(*id),
+            Callee::Func(_) => None,
+        }
+    }
+
+    /// The concrete function this names, after monomorphization has run.
+    pub fn func(&self) -> Option<FuncIdx> {
+        match self {
+            Callee::Decl { .. } => None,
+            Callee::Func(i) => Some(*i),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ExprKind {
     /// The literal's value, already checked to be representable in `ty`.
@@ -113,13 +153,13 @@ pub enum ExprKind {
     /// A `const`, inlined by the backend.
     Const(crate::compiler::semantics::types::ConstId),
     /// A top-level function used as a value.
-    FnRef(FnId, Vec<Ty>),
+    FnRef(Callee),
 
     /// A call through a value of function type.
     CallValue { callee: Box<Expr>, args: Vec<Expr> },
     /// A direct call to a known function. After monomorphization every generic
     /// call is one of these.
-    CallFn { func: FnId, targs: Vec<Ty>, args: Vec<Expr> },
+    CallFn { func: Callee, args: Vec<Expr> },
     /// A trait or effect method whose receiver type is not yet concrete.
     /// Monomorphization turns each of these into a `CallFn`.
     CallTrait {
@@ -161,7 +201,46 @@ pub enum ExprKind {
     /// Postfix `?`, the only early exit in the language.
     Try { base: Box<Expr>, kind: OptionOrResult },
 
-    Prim { op: PrimOp, prim: Option<Prim>, args: Vec<Expr> },
+    /// A loop, and the only expression here that cannot be written down in the
+    /// source language: `middle::tail_calls` produces it and nothing else
+    /// does.
+    ///
+    /// It is always a whole function body, and the values it rebinds are that
+    /// function's parameters — [`ExprKind::Continue`] assigns them and
+    /// re-enters. There is one entry per member of the tail-recursive group
+    /// the loop was made from, which for a function that only tail-calls
+    /// itself is one; a merged group is entered from outside, so which entry
+    /// runs first is the caller's to choose.
+    Loop { entries: Vec<Expr> },
+
+    /// A tail call, after elimination: rebind and jump.
+    ///
+    /// `func` is `None` for a jump back to the top of the enclosing
+    /// [`ExprKind::Loop`], and `Some(f)` for the call that enters the function
+    /// a merged group became. The entry that call selects is a dispatch
+    /// parameter the backend materialises: it is a control index rather than a
+    /// value of any Buri type, so it is spelled here as a number rather than
+    /// smuggled in as an extra argument at a type the middle end would have
+    /// had to invent.
+    Continue { func: Option<FuncIdx>, entry: usize, args: Vec<Expr> },
+
+    /// A closure: a lifted function, and the environment it reads its captures
+    /// out of. Produced by `middle::closures` in place of a [`ExprKind::Lambda`],
+    /// on the native branch only.
+    ///
+    /// The type is still the `Ty::Fn` the lambda had — VALUE-MODEL.md §7 makes
+    /// `{ code, env }` the representation of *every* function value, so a
+    /// closure is not a different type from a function, only a different way of
+    /// filling one in. A lambda that captures nothing does not become one of
+    /// these at all: it becomes an [`ExprKind::FnRef`], which is already the
+    /// null-environment case.
+    Closure { func: FuncIdx, env: Vec<Expr> },
+
+    /// A primitive operation at a known primitive type. The type is not
+    /// optional: every operation here is chosen *because* the operand type
+    /// resolved to a primitive, and a missing one used to default to `I64` in
+    /// the backend — which is integer division semantics for a float divide.
+    Prim { op: PrimOp, prim: Prim, args: Vec<Expr> },
     /// Structural equality or ordering on a compound type, compiled per type.
     StructuralEq { negate: bool, args: Vec<Expr> },
     StructuralCmp { op: PrimOp, args: Vec<Expr> },
@@ -201,6 +280,26 @@ pub struct FieldPat {
     pub pattern: Pattern,
 }
 
+/// The tail of an array pattern. Three states, spelled once: this was
+/// `Option<Option<LocalId>>`, and every reader had to remember which nesting
+/// level meant "no `..`" and which meant "`..` without a name".
+#[derive(Clone, Copy, Debug)]
+pub enum ArrayRest {
+    /// No `..`, so the pattern matches an array of exactly `elems.len()`.
+    None,
+    /// `..` with no name: the tail is matched but discarded.
+    Ignored,
+    /// `..name`, binding the tail.
+    Bound(LocalId),
+}
+
+impl ArrayRest {
+    /// Whether the pattern matches arrays longer than its listed elements.
+    pub fn is_open(self) -> bool {
+        !matches!(self, ArrayRest::None)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum PatKind {
     Wild,
@@ -215,7 +314,7 @@ pub enum PatKind {
     Struct { con: TyConId, fields: Vec<FieldPat> },
     Variant { con: TyConId, variant: usize, fields: Vec<FieldPat> },
     /// `[a, b, ..rest]`. Rest patterns bind only at the end.
-    Array { elems: Vec<Pattern>, rest: Option<Option<LocalId>> },
+    Array { elems: Vec<Pattern>, rest: ArrayRest },
     Or(Vec<Pattern>),
     Error,
 }
@@ -236,7 +335,7 @@ impl Pattern {
             }
             PatKind::Array { elems, rest } => {
                 elems.iter().for_each(|p| p.binds(out));
-                if let Some(Some(l)) = rest {
+                if let ArrayRest::Bound(l) = rest {
                     out.push(*l);
                 }
             }
@@ -268,7 +367,7 @@ impl Pattern {
                     && fields.iter().all(|f| f.pattern.is_irrefutable(tables))
             }
             PatKind::Array { elems, rest } => {
-                elems.is_empty() && rest.is_some()
+                elems.is_empty() && rest.is_open()
             }
             PatKind::Or(alts) => alts.iter().any(|p| p.is_irrefutable(tables)),
             _ => false,
@@ -298,7 +397,10 @@ pub fn walk(e: &Expr, f: &mut impl FnMut(&Expr)) {
         | ExprKind::Prim { args, .. }
         | ExprKind::StructuralEq { args, .. }
         | ExprKind::StructuralCmp { args, .. }
-        | ExprKind::Intrinsic { args, .. } => args.iter().for_each(go),
+        | ExprKind::Intrinsic { args, .. }
+        | ExprKind::Continue { args, .. }
+        | ExprKind::Closure { env: args, .. }
+        | ExprKind::Loop { entries: args } => args.iter().for_each(go),
         ExprKind::StructUpdate { base, updates, .. } => {
             go(base);
             updates.iter().for_each(|(_, e)| go(e));
@@ -343,7 +445,7 @@ pub fn walk(e: &Expr, f: &mut impl FnMut(&Expr)) {
         }
         ExprKind::Template { parts } => {
             for p in parts {
-                if let Some(h) = &p.hole {
+                if let TemplatePart::Hole(h) = p {
                     go(h);
                 }
             }

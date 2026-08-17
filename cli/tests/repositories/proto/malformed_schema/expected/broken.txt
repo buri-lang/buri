@@ -1,11 +1,11 @@
-error: the file does not declare its syntax [proto-schema]
+error: the file does not declare its edition [proto-edition]
  --> lib/bad/broken.proto:1:1
   |
 1 | package bad.v1;
   | ^
   |
-  = without the line, protoc reads a file as proto2, whose presence rules are not the ones this mapping is written against
-  = fix: add `syntax = "proto3";` as the first line
+  = a file with no declaration is proto2 to every other tool, and proto2 is not what this mapping implements
+  = fix: add `edition = "2026";` as the first line
 error: "lib/bad/missing.proto" names no schema in this repository [proto-import-not-found]
  --> lib/bad/broken.proto:3:8
   |
@@ -21,13 +21,14 @@ error: the first value of `Level` is not zero [proto-schema]
   |   ^^^
   |
   = fix: give `LOW` the number 0, or put a zero value first
-error: 0 is not a field number [proto-schema]
-  --> lib/bad/broken.proto:11:17
+error: the `optional` label is not supported [proto-unsupported]
+  --> lib/bad/broken.proto:11:3
    |
-11 |   string name = 0;
-   |                 ^
+11 |   optional string name = 0;
+   |   ^^^^^^^^
    |
-   = fix: field numbers run from 1 to 536870911
+   = editions replaced the labels with `features.field_presence`, whose default is EXPLICIT — so a singular field already tracks presence and `optional` would say it twice
+   = fix: drop the label; write `[features.field_presence = IMPLICIT]` on the fields that should *not* track presence
 error: `Unknown` names no message or enum [proto-unknown-type]
   --> lib/bad/broken.proto:12:3
    |

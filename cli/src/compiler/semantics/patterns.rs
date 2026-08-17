@@ -6,13 +6,12 @@
 //! `Foo` versus `Foo(x)` versus `Foo { .. }` is decided by the token after
 //! `Foo`, never by what `Foo` means (SPEC 7.2).
 
-use crate::compiler::semantics::inference::{Infer, LitCheck};
+use crate::compiler::semantics::inference::{Infer, LitCheck, OrScope};
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 use crate::parsing::tree;
-use std::collections::HashMap;
 
 impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn check_pattern(&mut self, p: &tree::Pattern, ty: &Ty) -> typed::Pattern {
@@ -24,7 +23,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             tree::Pattern::Bind { name, sub, .. } => {
                 // Each name a pattern binds is bound once. `(a, a)` is a
                 // mistake, not a shorthand for "equal".
-                if self.or_bindings.is_none() && self.pattern_names.contains(&name.name) {
+                if self.or_scope.is_none() && self.pattern_names.contains(&name.name) {
                     let n = name.name.clone();
                     self.err(name.span, format!("`{n}` is bound twice in this pattern")).code("duplicate-bound")
                         .fix("rename one of them, or bind one and compare the other in a guard")
@@ -124,9 +123,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 };
                 let checked: Vec<typed::Pattern> =
                     elems.iter().map(|e| self.check_pattern(e, &elem_ty)).collect();
-                let rest_local = rest.as_ref().map(|name| {
-                    name.as_ref().map(|n| {
-                        if self.or_bindings.is_none() && self.pattern_names.contains(&n.name) {
+                let rest_local = match rest.as_ref() {
+                    None => typed::ArrayRest::None,
+                    Some(None) => typed::ArrayRest::Ignored,
+                    Some(Some(n)) => {
+                        if self.or_scope.is_none() && self.pattern_names.contains(&n.name) {
                             let dup = n.name.clone();
                             self.err(n.span, format!("`{dup}` is bound twice in this pattern")).code("duplicate-bound")
                                 .fix("rename one of them");
@@ -135,33 +136,38 @@ impl<'a, 'b> Infer<'a, 'b> {
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
                         let l = self.new_local(&n.name, arr, n.span);
                         self.bind(&n.name, l);
-                        l
-                    })
-                });
+                        typed::ArrayRest::Bound(l)
+                    }
+                };
                 typed::PatKind::Array { elems: checked, rest: rest_local }
             }
 
             tree::Pattern::Or { alts, .. } => {
                 let mut out = Vec::new();
-                let saved = self.or_bindings.take();
-                self.or_bindings = Some(HashMap::new());
+                // Entered and left as one value, so a nested or-pattern
+                // restores everything the outer one had.
+                let saved = self.or_scope.replace(OrScope::default());
                 let mut names: Option<Vec<String>> = None;
                 for alt in alts {
-                    self.or_bindings.as_mut().unwrap().clear();
                     // Each alternative starts from the same set, so a name
                     // bound by the first is reused rather than redeclared.
-                    if let Some(prev) = &self.or_first {
-                        let prev = prev.clone();
-                        *self.or_bindings.as_mut().unwrap() = prev;
+                    if let Some(scope) = self.or_scope.as_mut() {
+                        scope.current = scope.first.clone().unwrap_or_default();
                     }
                     let checked = self.check_pattern(alt, &ty);
-                    let bound = self.or_bindings.as_ref().unwrap().clone();
+                    let bound = self
+                        .or_scope
+                        .as_ref()
+                        .map(|s| s.current.clone())
+                        .unwrap_or_default();
                     let mut these: Vec<String> = bound.keys().cloned().collect();
                     these.sort();
                     match &names {
                         None => {
                             names = Some(these);
-                            self.or_first = Some(bound);
+                            if let Some(scope) = self.or_scope.as_mut() {
+                                scope.first = Some(bound);
+                            }
                         }
                         Some(first) if first != &these => {
                             let missing: Vec<&String> =
@@ -204,8 +210,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                     out.push(checked);
                 }
-                self.or_first = None;
-                self.or_bindings = saved;
+                self.or_scope = saved;
                 typed::PatKind::Or(out)
             }
 
@@ -217,12 +222,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn or_alternative_local(&self, name: &str) -> Option<LocalId> {
-        self.or_bindings.as_ref()?.get(name).copied()
+        self.or_scope.as_ref()?.current.get(name).copied()
     }
 
     fn record_or_binding(&mut self, name: &str, local: LocalId) {
-        if let Some(map) = self.or_bindings.as_mut() {
-            map.insert(name.to_string(), local);
+        if let Some(scope) = self.or_scope.as_mut() {
+            scope.current.insert(name.to_string(), local);
         }
     }
 
@@ -234,6 +239,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         ty: &Ty,
         span: Span,
     ) -> typed::PatKind {
+        let [head, rest @ ..] = path else {
+            crate::ice!("the parser builds every path pattern from at least one identifier")
+        };
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
             let Ty::Con(con, args) = ty else {
@@ -244,7 +252,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 return typed::PatKind::Error;
             };
-            let name = &path[0].name;
+            let name = &head.name;
             let Some(index) = self.c.tables.tycon(*con).variant_index(name) else {
                 self.report_no_variant(*con, name, span);
                 return typed::PatKind::Error;
@@ -253,20 +261,20 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
-        let resolved = if path.len() == 1 {
-            self.c.scopes[self.module.index()].names.get(&path[0].name).cloned()
-        } else {
-            let head = &path[0].name;
-            if let Some(ns) = self.c.scopes[self.module.index()].namespaces.get(head).copied() {
-                self.c.lookup_export_pub(ns, &path[1].name)
-            } else {
-                self.c.scopes[self.module.index()].names.get(head).cloned()
+        let module = self.module;
+        let resolved = match rest.first() {
+            None => self.c.scope(module).names.get(&head.name).cloned(),
+            Some(second) => {
+                match self.c.scope(module).namespaces.get(&head.name).copied() {
+                    Some(ns) => self.c.lookup_export_pub(ns, &second.name),
+                    None => self.c.scope(module).names.get(&head.name).cloned(),
+                }
             }
         };
 
         match resolved {
             Some(Sym::Ty(con)) => {
-                let variant_name = if path.len() > 1 { Some(&path[path.len() - 1].name) } else { None };
+                let variant_name = rest.last().map(|last| &last.name);
                 let is_enum = matches!(self.c.tables.tycon(con).def, TyDef::Enum { .. });
                 let args = match ty {
                     Ty::Con(c, a) if *c == con => a.clone(),
@@ -337,7 +345,14 @@ impl<'a, 'b> Infer<'a, 'b> {
         payload: Option<&tree::PatPayload>,
         span: Span,
     ) -> typed::PatKind {
-        let variant = self.c.tables.tycon(con).variants()[index].clone();
+        let variant = self
+            .c
+            .tables
+            .tycon(con)
+            .variants()
+            .get(index)
+            .or_ice("the index is a position in this same variant list")
+            .clone();
         // A type with any unexported variant cannot be matched outside its
         // module.
         let owner = self.c.tables.tycon(con).module;
@@ -403,11 +418,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .mismatch(want.to_string(), have.to_string())
                     .fix(format!("match exactly {want}, or end the pattern with `..`"));
                 }
+                // A payload with more patterns than the declaration has
+                // fields is already reported above; the extra ones have no
+                // field to check against, so `zip` stops at the shorter.
                 ps.iter()
+                    .zip(decl)
                     .enumerate()
-                    .filter(|(i, _)| *i < decl.len())
-                    .map(|(i, p)| {
-                        let ty = substitute(&decl[i].ty, args, None);
+                    .map(|(i, (p, d))| {
+                        let ty = substitute(&d.ty, args, None);
                         typed::FieldPat { index: i, pattern: self.check_pattern(p, &ty) }
                     })
                     .collect()
@@ -416,19 +434,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let mut out = Vec::new();
                 let mut seen = Vec::new();
                 for f in fields {
-                    let Some(i) = decl.iter().position(|d| d.name == f.name.name) else {
+                    let Some((i, d)) = decl.iter().enumerate().find(|(_, d)| d.name == f.name.name)
+                    else {
                         let n = f.name.name.clone();
                         self.err(f.name.span, format!("`{what}` has no field `{n}`"))
                             .fix("check the spelling, or name a field it declares");
                         continue;
                     };
                     seen.push(i);
-                    let ty = substitute(&decl[i].ty, args, None);
+                    let ty = substitute(&d.ty, args, None);
                     let pattern = match &f.pattern {
                         Some(p) => self.check_pattern(p, &ty),
                         // Field shorthand: `User { id, name }` binds both.
                         None => {
-                            if self.or_bindings.is_none()
+                            if self.or_scope.is_none()
                                 && self.pattern_names.contains(&f.name.name)
                             {
                                 let n = f.name.name.clone();

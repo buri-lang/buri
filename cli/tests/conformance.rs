@@ -19,6 +19,22 @@
 //! Every test here works on a copy under `CARGO_TARGET_TMPDIR`. Nothing writes
 //! into a checked-in tree, so the suites hold no lock and run in parallel.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 use harness::*;
 
@@ -421,15 +437,25 @@ fn outside_a_repository_is_a_bad_invocation() {
 }
 
 /// `buri version` is the one command with something to say outside a
-/// repository, and CLI.md says so explicitly: there is nothing to pin against,
-/// and that is not an error. It cannot be a repository case for the same
-/// reason as the test above — a case *is* a repository. The pin itself, and
-/// what a mismatched one prints, is `repositories/cli/version_pin`.
+/// repository, and CLI.md says so explicitly: it answers from the binary, and
+/// there being no repository is not an error. It cannot be a repository case
+/// for the same reason as the test above — a case *is* a repository. What it
+/// prints *inside* one is `repositories/cli/version`.
+///
+/// `--verbose` is here rather than in that case because its second line is the
+/// hash of whichever `buri` the suite just compiled, which no checked-in
+/// golden can hold. It is the only way to learn which build of a version is
+/// running, so a bug report can name one.
 #[test]
 fn version_works_outside_a_repository() {
     let nowhere = Scratch::empty("not-a-repo-version");
     let run = nowhere.run(&["version"]);
     run.ok().says("buri ");
-    // The pin is what it has nothing to say about, so it must not claim one.
-    run.silent_about("REPO.buri pins");
+    // A repository is what it has nothing to say about, so it must not claim
+    // to have read one.
+    run.silent_about("REPO.buri");
+
+    let verbose = nowhere.run(&["version", "--verbose"]);
+    verbose.ok().says("this executable: sha256 ");
+    verbose.silent_about("unreadable");
 }

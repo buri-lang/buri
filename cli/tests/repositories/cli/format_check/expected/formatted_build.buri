@@ -1,0 +1,7 @@
+# What this binary is.
+binary {
+    dependencies: []
+    outputs: [
+        { platform: JS },
+    ]
+}

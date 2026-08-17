@@ -15,6 +15,36 @@
 /// bounded only by `Alloc` deterministic (SPEC 10.5).
 export struct Region(export I64);
 
+/// What allocating costs, as a **definition**.
+///
+/// | Operation | Charge, in bytes |
+/// |---|---|
+/// | a `[T]` of `n` elements | `16 + n * stride(T)` |
+/// | a `Str` of `n` UTF-8 bytes | `16 + n` |
+/// | a `Str` view — `slice`, `trim`, `splitOnce` | `0` |
+/// | a closure environment of fields `F` | `16 + size(record(F))` |
+/// | a heap-promoted struct, tuple or enum payload | `0` |
+/// | `allocate(ctx, n)` | `n` |
+///
+/// The charge is a function of the *types*, computed from the layout in
+/// `design/native/VALUE-MODEL.md` §5, so the same program charges the same
+/// number on every backend and every platform. It is not a measurement of what
+/// an allocator did, and it is deliberately not one: a measured number is not
+/// reproducible across backends, and a test asserting one is flaky.
+///
+/// Two rows carry their reasons. A **view charges nothing** because the
+/// language says so — `slice`, `trim` and `splitOnce` are declared without an
+/// `Alloc` bound, and the accounting has to agree with the type system or the
+/// type system is lying. A **fixed-size construction charges nothing** even
+/// where the implementation heap-allocates, because SPEC 10.5 says fixed-size
+/// construction never requires `Alloc`: the model counts what the *language*
+/// says allocates, and a number that moves when the optimizer improves is not
+/// a number a test can assert.
+///
+/// Being a definition makes it a commitment: a change to any row is a breaking
+/// change to observable behaviour. `core/alloc` is where the charges are
+/// counted, and it states which of these rows an allocator is actually told
+/// about today.
 export effect Alloc {
   fn allocate(self: Self, bytes: Int): Region;
 }

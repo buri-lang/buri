@@ -1,0 +1,37 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a name two imported schemas both claim: ambiguous where it is used, not resolved by whichever file was read first — and a fully-qualified name declared twice is a duplicate naming both files"
+
+run {
+  args: ["lint", "//lib/two"]
+  exit: 1
+  golden: "ambiguous.txt"
+}
+
+# The fix the diagnostic names: say which one the field means.
+edit {
+  file: "lib/two/use.proto"
+  replace: "  Status status = 1;"
+  with: "  left.v1.Status status = 1;"
+}
+
+run {
+  args: ["lint", "//lib/two"]
+  exit: 0
+  golden: "qualified.txt"
+}
+
+# The other collision: one fully-qualified name, two declarations. That is a
+# mistake in the schemas rather than in a reference to them, so it is reported
+# whether or not anything uses the name.
+edit {
+  file: "lib/two/right.proto"
+  replace: "package right.v1;"
+  with: "package left.v1;"
+}
+
+run {
+  args: ["lint", "//lib/two"]
+  exit: 1
+  golden: "duplicate.txt"
+}

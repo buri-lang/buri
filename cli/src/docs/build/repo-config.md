@@ -14,11 +14,6 @@ the one `BUILD.buri` uses.
 ```textproto schema=repo
 # REPO.buri
 
-toolchain {
-  version: "0.3.0"
-  sha256: "9f2b1c4e8a7d3f60b5c1e9a24d7f8036b1c5e2a94f7d0b83c6e1a5d2f9b04c7e3"
-}
-
 tag {
   name: "server"
   doc: "runs on infrastructure we operate"
@@ -34,38 +29,13 @@ tag {
 }
 ```
 
-Two fields. That is not an abridged example — there is nothing else to write.
+One field. That is not an abridged example — there is nothing else to write.
 A repository-wide config file attracts settings, and every setting it accepts is
 a way for two repositories to disagree about what the language is, or a way for a
 rule to mean something different than it reads. The rule is that a knob goes on
 the command (where it is visible in the invocation) or on the rule it affects
 (where it is visible to someone reading that rule), and `REPO.buri` gets what
 genuinely has no other home.
-
-## `toolchain`
-
-An exact version, never a range. Two checkouts of the same commit must not build
-with two different compilers, and a range guarantees that eventually they will.
-The `sha256` covers the compiler release archive; the CLI refuses to run if the
-toolchain it resolved does not hash to it, which is the difference between
-pinning a version and pinning a compiler.
-
-Both are checked when a repository is opened, by every command that opens one,
-and a disagreement is exit `2` before anything is compiled. Two details of how:
-
-- **What is hashed is the running executable** — the artifact the release
-  archive would have contained. There is no archive on the machine to hash,
-  because there is no downloader yet to have fetched one, and hashing the
-  executable is the stricter of the two: it also catches an executable replaced
-  after it was unpacked.
-- **A `sha256` of nothing but zeros means unpinned.** `"00"` and sixty-four
-  zeros both say "this repository's toolchain has no published release to name",
-  which is the state a repository is in while its compiler is built from source
-  — including this toolchain's own test fixtures. An unpinned pin verifies
-  nothing, still enters every cache key, and is reported as unpinned by
-  `buri version`. That is the whole escape hatch: there is no flag and no
-  environment variable, because a pin you can turn off from the command line is
-  a pin that gets turned off in the one script that matters.
 
 There is no `flags` field. A repository-wide compiler flag is a dialect, and a
 dialect makes source files mean different things in different repositories — the
@@ -109,6 +79,17 @@ toolchain cannot silently widen code written before it existed — the reason
 
 ## What is not here
 
+- **No toolchain pin.** There was one: `toolchain { version, sha256 }`, an exact
+  compiler version and the hash of the compiler that had to build this
+  repository, refused with exit `2` by every command that opened a repository.
+  It was removed. A pin is worth its weight where a toolchain is *fetched* — it
+  is the thing a downloader verifies before unpacking an archive — and nothing
+  fetches one: a compiler is installed by whoever installs it, and a field
+  naming a hash that the same person also writes checks that they agree with
+  themselves. What is left of it is `buri version --verbose`, which prints the
+  running executable's hash so a bug report can name one build of a version.
+  A `REPO.buri` still carrying a `toolchain` block gets the unknown-field
+  diagnostic every other undeclared field gets.
 - **No `name`.** A repository does not need to announce what it is called. The
   label syntax is `//`-rooted and never mentions it, artifacts are named from
   their package directory, and a name here would be a second identifier
@@ -132,8 +113,8 @@ toolchain cannot silently widen code written before it existed — the reason
   consistent with it.
 - **No compiler flags.** Covered above: a flag list is a dialect.
 - **No dependency versions or lockfile.** There are no external repositories
-  yet; the only sources are this repository and the `core/*` that ships with the
-  pinned toolchain. When external repositories arrive they get their own file
+  yet; the only sources are this repository and the `core/*` that ships with
+  the toolchain. When external repositories arrive they get their own file
   rather than a section here, so that `REPO.buri` stays reviewable.
 - **No build settings, profiles, or optimization levels.** `buri build --release`
   is a flag on the command, part of the cache key, and not a thing a repository

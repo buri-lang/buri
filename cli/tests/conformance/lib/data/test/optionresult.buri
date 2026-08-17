@@ -122,7 +122,7 @@ test "option andThen chains a Some" {
 
 test "option andThen can produce None from Some" {
   let o: Option<Int> = .Some(4);
-  assert.none(o.andThen(fn(x) => Option.None::<Int>()));
+  assert.none(o.andThen(fn(x) => Option.None<Int>()));
 }
 
 test "option andThen leaves None alone" {
@@ -287,14 +287,14 @@ test "result andThen composes twice" {
 test "andThenCtx threads the context into the continuation" {
   let ctx = Hermetic();
   let r: Result<Int, Str> = .Ok(5);
-  let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok::<Str, Str>(str.fromInt(c, n)));
+  let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
   assert.eq(assert.ok(out), "5");
 }
 
 test "andThenCtx leaves Err alone" {
   let ctx = Hermetic();
   let r: Result<Int, Str> = .Err("boom");
-  let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok::<Str, Str>(str.fromInt(c, n)));
+  let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
   assert.eq(assert.err(out), "boom");
 }
 
@@ -347,7 +347,7 @@ test "? on Option returns None early" {
 }
 
 test "? on Option returns None early for an empty list" {
-  assert.none(firstEvenTimesTen(list.empty::<Int>()));
+  assert.none(firstEvenTimesTen(list.empty<Int>()));
 }
 
 test "? on Option picks the first match" {
@@ -505,7 +505,7 @@ test "a list of Options can be folded into a list of values" {
       .Some(v) => acc.push(c, v),
       .None => acc,
     },
-    list.empty::<Int>(),
+    list.empty<Int>(),
   );
   assert.eq(kept, [1, 3]);
 }

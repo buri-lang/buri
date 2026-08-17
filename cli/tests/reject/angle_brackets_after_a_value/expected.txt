@@ -1,0 +1,7 @@
+error: explicit type arguments qualify a function or a call [type-args-on-a-value]
+  --> cmd/angle_brackets_after_a_value/main.buri:12:3
+   |
+12 |   a < Int > (c)
+   |   ^^^^^^^^^
+   |
+   = fix: attach the type arguments to the call, as in `f<Str>(x)`

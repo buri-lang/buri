@@ -1,8 +1,8 @@
 library {
-  sources: ["text.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["text.buri"]
+    visibility: ["//visibility:public"]
 
-  testing {
-    sources: ["testing/checks.buri"]
-  }
+    testing {
+        sources: ["testing/checks.buri"]
+    }
 }

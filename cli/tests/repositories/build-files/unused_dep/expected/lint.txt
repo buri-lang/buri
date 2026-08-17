@@ -1,8 +1,8 @@
 error: //lib/money is declared but nothing uses it [unused-dep]
- --> cmd/app/BUILD.buri:2:18
+ --> cmd/app/BUILD.buri:2:20
   |
-2 |   dependencies: ["//lib/money"]
-  |                  ^^^^^^^^^^^^^
+2 |     dependencies: ["//lib/money"]
+  |                    ^^^^^^^^^^^^^
   |
   = a dependencies entry no source uses makes the graph a description of something other than the code
   = fix: remove it from `dependencies`

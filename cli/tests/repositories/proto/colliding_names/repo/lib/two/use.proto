@@ -1,0 +1,11 @@
+edition = "2026";
+
+package use.v1;
+
+import "lib/two/left.proto";
+import "lib/two/right.proto";
+
+message Holder {
+  // Two packages declare a `Status`, so the short name names neither.
+  Status status = 1;
+}

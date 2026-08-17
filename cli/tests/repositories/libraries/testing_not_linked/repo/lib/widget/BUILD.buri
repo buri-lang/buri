@@ -1,11 +1,10 @@
 # A library that ships fakes for other people's tests, in a `testing/`
 # subdirectory with its own surface.
-
 library {
-  sources: ["w.buri"]
-  visibility: ["//visibility:public"]
+    sources: ["w.buri"]
+    visibility: ["//visibility:public"]
 
-  testing {
-    sources: ["testing/fixtures.buri"]
-  }
+    testing {
+        sources: ["testing/fixtures.buri"]
+    }
 }

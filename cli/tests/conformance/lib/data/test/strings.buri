@@ -424,7 +424,7 @@ test "splitAny drops leading and trailing empties" {
 
 test "splitAny of the empty string is the empty list" {
   let ctx = Hermetic();
-  assert.eq("".splitAny(ctx, ","), list.empty::<Str>());
+  assert.eq("".splitAny(ctx, ","), list.empty<Str>());
 }
 
 test "splitAny splits on whitespace" {
@@ -549,7 +549,7 @@ test "chars explodes a string into scalar values" {
 
 test "chars of the empty string is the empty list" {
   let ctx = Hermetic();
-  assert.eq("".chars(ctx), list.empty::<Char>());
+  assert.eq("".chars(ctx), list.empty<Char>());
 }
 
 test "chars yields one element per non-BMP character" {
@@ -569,7 +569,7 @@ test "fromChars rebuilds a string" {
 
 test "fromChars of the empty list is the empty string" {
   let ctx = Hermetic();
-  assert.eq(str.fromChars(ctx, list.empty::<Char>()), "");
+  assert.eq(str.fromChars(ctx, list.empty<Char>()), "");
 }
 
 test "fromChars round-trips chars" {

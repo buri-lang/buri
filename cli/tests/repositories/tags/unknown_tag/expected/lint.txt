@@ -1,8 +1,8 @@
 error: unknown tag "sever" [unknown-tag]
- --> lib/store/BUILD.buri:3:10
+ --> lib/store/BUILD.buri:3:12
   |
-3 |   tags: ["sever"]
-  |          ^^^^^^^
+3 |     tags: ["sever"]
+  |            ^^^^^^^
   |
   = no `tag` block in REPO.buri declares this name
   = fix: did you mean "server"? — or declare "sever" with a `tag` block in REPO.buri

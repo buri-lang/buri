@@ -32,14 +32,17 @@ use state::State;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+#[expect(
+    clippy::print_stderr,
+    reason = "a message that did not parse has no id to answer and no Session to route through, and stdout carries protocol only — stderr is the log channel this server is specified to have"
+)]
 pub fn cmd_lsp(_args: &arguments::Args) -> i32 {
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
 
-    let root = std::env::current_dir().unwrap_or_default();
-    let mut state = State::new(root);
+    let mut state = State::new();
 
     loop {
         match read_message(&mut input) {
@@ -55,9 +58,10 @@ pub fn cmd_lsp(_args: &arguments::Args) -> i32 {
                 for reply in handle(&mut state, &message) {
                     write_message(&mut output, &reply);
                 }
-                if state.shutdown && message.get("method").and_then(|m| m.as_str()) == Some("exit")
-                {
-                    return 0;
+                // Whether the loop is over is the lifecycle's answer, not a
+                // second reading of the method string.
+                if let Some(code) = state.lifecycle.exit_code() {
+                    return code;
                 }
             }
             Err(e) => {
@@ -95,8 +99,24 @@ fn read_message(input: &mut impl Read) -> Result<Option<String>, String> {
     let Some(length) = length else {
         return Err("a message arrived with no Content-Length".into());
     };
-    let mut body = vec![0u8; length];
-    input.read_exact(&mut body).map_err(|e| format!("reading a {length}-byte body: {e}"))?;
+    // Read up to the declared length rather than allocating it. The header is
+    // a number someone else wrote: `Content-Length: 18446744073709551615`
+    // reserved that many bytes and aborted the process on the allocation,
+    // which is the one failure mode a server must not have. Growing as the
+    // bytes actually arrive makes an absurd header a short read and a message
+    // instead.
+    let mut body = Vec::new();
+    input
+        .by_ref()
+        .take(length as u64)
+        .read_to_end(&mut body)
+        .map_err(|e| format!("reading a {length}-byte body: {e}"))?;
+    if body.len() != length {
+        return Err(format!(
+            "a message declared {length} bytes and the stream ended after {}",
+            body.len()
+        ));
+    }
     String::from_utf8(body).map(Some).map_err(|e| format!("a message is not UTF-8: {e}"))
 }
 
@@ -139,6 +159,25 @@ fn response(id: &Value, result: Value) -> Value {
     ])
 }
 
+/// A JSON-RPC error reply. A request that cannot be served still gets an
+/// answer, because a client that got nothing waits forever.
+fn error(id: &Value, code: i64, message: &str) -> Value {
+    Value::obj(vec![
+        ("jsonrpc", Value::str("2.0")),
+        ("id", id.clone()),
+        (
+            "error",
+            Value::obj(vec![("code", Value::num(code)), ("message", Value::str(message))]),
+        ),
+    ])
+}
+
+/// `ServerNotInitialized`, from the protocol's own table of error codes.
+const NOT_INITIALIZED: i64 = -32002;
+
+/// `InvalidRequest`.
+const INVALID_REQUEST: i64 = -32600;
+
 fn notification(method: &str, params: Value) -> Value {
     Value::obj(vec![
         ("jsonrpc", Value::str("2.0")),
@@ -152,26 +191,41 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
     let id = msg.get("id").cloned();
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
 
+    // The lifecycle answers first. Everything below the three lifecycle
+    // methods needs an initialized server, and used to be served without one —
+    // against whatever directory the process was started in.
+    match (method, &id) {
+        ("initialize" | "initialized" | "shutdown" | "exit", _) => {}
+        (_, Some(id)) if !state.lifecycle.is_running() => {
+            return vec![error(id, NOT_INITIALIZED, "the server has not been initialized")];
+        }
+        (_, None) if !state.lifecycle.is_running() => return vec![],
+        _ => {}
+    }
+
     match (method, id) {
         ("initialize", Some(id)) => {
-            if let Some(root) =
-                params.get("rootUri").and_then(|u| u.as_str()).and_then(convert::path_of)
-            {
-                // The rest of the toolchain finds the repository from the
-                // working directory, so the server moves to it once rather
-                // than teaching every call site about a root.
-                let _ = std::env::set_current_dir(&root);
-                state.root = root;
+            let root = params
+                .get("rootUri")
+                .and_then(|u| u.as_str())
+                .and_then(convert::path_of)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            if let Err(why) = state.lifecycle.initialize() {
+                return vec![error(&id, INVALID_REQUEST, why)];
             }
+            // The rest of the toolchain finds the repository from the working
+            // directory, so the server moves to it once rather than teaching
+            // every call site about a root.
+            let _ = std::env::set_current_dir(&root);
             vec![response(&id, capabilities())]
         }
         ("initialized", _) => vec![],
-        ("shutdown", Some(id)) => {
-            state.shutdown = true;
-            vec![response(&id, Value::Null)]
-        }
+        ("shutdown", Some(id)) => match state.lifecycle.shutdown() {
+            Ok(()) => vec![response(&id, Value::Null)],
+            Err(why) => vec![error(&id, INVALID_REQUEST, why)],
+        },
         ("exit", _) => {
-            state.shutdown = true;
+            state.lifecycle.exit();
             vec![]
         }
 
@@ -210,9 +264,16 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                // `formatting::source` returns `None` for anything that does not
+                // The same dispatch `buri format` uses, so the editor and the
+                // command cannot disagree: a `BUILD.buri` goes through the
+                // textproto printer and everything else through the source
+                // formatter. Either returns `None` for a file that does not
                 // parse, so a file mid-edit is left alone rather than mangled.
-                let formatted = crate::formatting::source(&text)?;
+                let name = std::path::Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let formatted = crate::commands::format::file(&name, &text)?;
                 if formatted == text {
                     return None;
                 }
@@ -228,7 +289,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                Some(features::document_symbols(&text, &text))
+                Some(features::document_symbols(&text))
             })();
             vec![response(&id, result.unwrap_or(Value::Arr(Vec::new())))]
         }
@@ -272,7 +333,7 @@ fn capabilities() -> Value {
             Value::obj(vec![
                 // 1 = full. Incremental sync buys nothing without an
                 // incremental front end, and costs a text-edit applier.
-                ("textDocumentSync", Value::num(1.0)),
+                ("textDocumentSync", Value::num(1)),
                 ("hoverProvider", Value::Bool(true)),
                 ("definitionProvider", Value::Bool(true)),
                 ("documentSymbolProvider", Value::Bool(true)),
@@ -323,7 +384,7 @@ fn with_analysis<T>(
     let pos = Position::from_json(params.get("position")?)?;
     let text = state.text_of(&path)?;
     let a = state.analyze(&path)?;
-    f(a, &path, &text, pos)
+    f(&a, &path, &text, pos)
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +417,6 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
     let Some(a) = state.analyze(path) else {
         return published.into_iter().map(|(uri, items)| publish(&uri, items)).collect();
     };
-    let a: &state::Analyzed = a;
 
     for d in &a.analysis.diags.items {
         if d.span.is_none() {
@@ -410,67 +470,6 @@ fn publish(uri: &str, items: Vec<Value>) -> Value {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn framed(body: &str) -> Vec<u8> {
-        format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
-    }
-
-    #[test]
-    fn framing_reads_one_message_and_stops_at_the_end() {
-        let mut input = std::io::Cursor::new(framed(r#"{"a":1}"#));
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"a":1}"#));
-        assert_eq!(read_message(&mut input).unwrap(), None);
-    }
-
-    #[test]
-    fn framing_uses_the_length_rather_than_looking_for_a_blank_line() {
-        // A body containing the header separator must not truncate the message.
-        let body = r#"{"text":"a\r\n\r\nb"}"#;
-        let mut input = std::io::Cursor::new(framed(body));
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(body));
-    }
-
-    #[test]
-    fn framing_reads_two_messages_back_to_back() {
-        let mut bytes = framed(r#"{"a":1}"#);
-        bytes.extend(framed(r#"{"b":2}"#));
-        let mut input = std::io::Cursor::new(bytes);
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"a":1}"#));
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"b":2}"#));
-        assert_eq!(read_message(&mut input).unwrap(), None);
-    }
-
-    #[test]
-    fn a_message_with_no_content_length_is_an_error() {
-        let mut input = std::io::Cursor::new(b"Content-Type: x\r\n\r\n{}".to_vec());
-        assert!(read_message(&mut input).is_err());
-    }
-
-    /// An unknown *request* still gets a reply. A client that sent one and got
-    /// nothing back waits forever, which presents as the server having hung.
-    #[test]
-    fn an_unknown_request_is_answered_and_an_unknown_notification_is_not() {
-        let mut state = State::new(PathBuf::new());
-        let req = json::parse(r#"{"id":7,"method":"textDocument/rename"}"#).unwrap();
-        let out = handle(&mut state, &req);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].get("id").and_then(|v| v.as_u32()), Some(7));
-
-        let note = json::parse(r#"{"method":"$/setTrace"}"#).unwrap();
-        assert!(handle(&mut state, &note).is_empty());
-    }
-
-    #[test]
-    fn shutdown_then_exit_ends_the_loop() {
-        let mut state = State::new(PathBuf::new());
-        let shutdown = json::parse(r#"{"id":1,"method":"shutdown"}"#).unwrap();
-        assert_eq!(handle(&mut state, &shutdown).len(), 1);
-        assert!(state.shutdown);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Code actions
@@ -515,13 +514,13 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
             let mut by_file: std::collections::BTreeMap<String, Vec<Value>> =
                 std::collections::BTreeMap::new();
             for e in &d.edits {
-                let f = session.map.get(e.file);
+                let f = session.map.get(e.at.file);
                 if f.abs_path.as_os_str().is_empty() {
                     continue;
                 }
                 let range = Value::obj(vec![
-                    ("start", convert::position_of(&f.text, e.start).to_json()),
-                    ("end", convert::position_of(&f.text, e.end).to_json()),
+                    ("start", convert::position_of(&f.text, e.at.start).to_json()),
+                    ("end", convert::position_of(&f.text, e.at.end).to_json()),
                 ]);
                 by_file.entry(convert::uri_of(&f.abs_path)).or_default().push(Value::obj(vec![
                     ("range", range),
@@ -606,4 +605,101 @@ fn action(
             )]),
         ),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn framed(body: &str) -> Vec<u8> {
+        format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
+    }
+
+    #[test]
+    fn framing_reads_one_message_and_stops_at_the_end() {
+        let mut input = std::io::Cursor::new(framed(r#"{"a":1}"#));
+        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"a":1}"#));
+        assert_eq!(read_message(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn framing_uses_the_length_rather_than_looking_for_a_blank_line() {
+        // A body containing the header separator must not truncate the message.
+        let body = r#"{"text":"a\r\n\r\nb"}"#;
+        let mut input = std::io::Cursor::new(framed(body));
+        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(body));
+    }
+
+    #[test]
+    fn framing_reads_two_messages_back_to_back() {
+        let mut bytes = framed(r#"{"a":1}"#);
+        bytes.extend(framed(r#"{"b":2}"#));
+        let mut input = std::io::Cursor::new(bytes);
+        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"a":1}"#));
+        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"b":2}"#));
+        assert_eq!(read_message(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn a_message_with_no_content_length_is_an_error() {
+        let mut input = std::io::Cursor::new(b"Content-Type: x\r\n\r\n{}".to_vec());
+        assert!(read_message(&mut input).is_err());
+    }
+
+    /// An unknown *request* still gets a reply. A client that sent one and got
+    /// nothing back waits forever, which presents as the server having hung.
+    fn initialized() -> State {
+        let mut state = State::new();
+        let init = json::parse(r#"{"id":0,"method":"initialize","params":{}}"#).unwrap();
+        assert_eq!(handle(&mut state, &init).len(), 1);
+        state
+    }
+
+    #[test]
+    fn an_unknown_request_is_answered_and_an_unknown_notification_is_not() {
+        let mut state = initialized();
+        let req = json::parse(r#"{"id":7,"method":"textDocument/rename"}"#).unwrap();
+        let out = handle(&mut state, &req);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].get("id").and_then(|v| v.as_u32()), Some(7));
+
+        let note = json::parse(r#"{"method":"$/setTrace"}"#).unwrap();
+        assert!(handle(&mut state, &note).is_empty());
+    }
+
+    #[test]
+    fn shutdown_then_exit_ends_the_loop() {
+        let mut state = initialized();
+        let shutdown = json::parse(r#"{"id":1,"method":"shutdown"}"#).unwrap();
+        assert_eq!(handle(&mut state, &shutdown).len(), 1);
+        assert_eq!(state.lifecycle.exit_code(), None, "shutdown is not exit");
+        let exit = json::parse(r#"{"method":"exit"}"#).unwrap();
+        assert!(handle(&mut state, &exit).is_empty());
+        assert_eq!(state.lifecycle.exit_code(), Some(0));
+    }
+
+    /// The three orderings the `bool` could not tell apart. Each is now a
+    /// refusal rather than something served by accident.
+    #[test]
+    fn the_lifecycle_refuses_what_is_out_of_order() {
+        // A request before `initialize`.
+        let mut state = State::new();
+        let req = json::parse(r#"{"id":1,"method":"textDocument/hover"}"#).unwrap();
+        let out = handle(&mut state, &req);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].get("error").is_some(), "{}", out[0].to_string());
+        assert!(out[0].get("result").is_none());
+
+        // `initialize` twice.
+        let mut state = initialized();
+        let init = json::parse(r#"{"id":2,"method":"initialize","params":{}}"#).unwrap();
+        assert!(handle(&mut state, &init)[0].get("error").is_some());
+
+        // `exit` with no `shutdown` before it is a non-zero exit, which is
+        // what the protocol asks for and what the `bool` could not express.
+        let mut state = initialized();
+        let exit = json::parse(r#"{"method":"exit"}"#).unwrap();
+        assert!(handle(&mut state, &exit).is_empty());
+        assert_eq!(state.lifecycle.exit_code(), Some(1));
+    }
 }

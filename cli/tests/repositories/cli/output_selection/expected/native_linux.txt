@@ -1,7 +1,0 @@
-error: the linux backend is not implemented
- --> cmd/native/BUILD.buri:6:5
-  |
-6 |     { platform: LINUX, arch: X86_64 },
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = fix: this toolchain emits JavaScript; build with `--output=js`

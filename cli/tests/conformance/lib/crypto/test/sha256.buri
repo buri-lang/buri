@@ -144,7 +144,7 @@ test "equalsConstantTime agrees with equality" {
   let c = crypto.sha256Text(ctx, "y").0;
   assert.isTrue(crypto.equalsConstantTime(a, b));
   assert.isFalse(crypto.equalsConstantTime(a, c));
-  assert.isTrue(crypto.equalsConstantTime(list.empty::<U8>(), list.empty::<U8>()));
+  assert.isTrue(crypto.equalsConstantTime(list.empty<U8>(), list.empty<U8>()));
   assert.isFalse(crypto.equalsConstantTime(a, [1, 2]));
 }
 

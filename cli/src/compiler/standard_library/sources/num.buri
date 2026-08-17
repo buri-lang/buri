@@ -4,12 +4,15 @@
 //! `F64`, not a separate tier, so everyday code and code that names an exact
 //! width interoperate with no conversion at the boundary.
 //!
-//! Every one of them is a JavaScript `number`, which represents every integer
-//! up to 2^53 exactly and nothing above it. Overflow and underflow are
-//! undefined behaviour (SPEC 6.2), so that ceiling is inside what the language
-//! promises — and it is what keeps ordinary integer code as fast as ordinary
-//! JavaScript. Where a program needs an exact answer above 2^53, `core/bits`
-//! is the exception: it computes on the bit pattern rather than the value.
+//! Each is its own width, and what that costs depends on where the program
+//! runs. On a native backend a width is a width and arithmetic is two's
+//! complement. On the JavaScript backend every one of them is a `number`, which
+//! represents every integer up to 2^53 exactly and nothing above it. Overflow
+//! and underflow are undefined behaviour (SPEC 6.2), so both are inside what
+//! the language promises, and the difference between them is why it promises
+//! nothing: pinning either would be pinning a backend. Where a program needs an
+//! exact answer above 2^53 whichever backend it is on, `core/bits` computes on
+//! the bit pattern rather than the value.
 //!
 //! The conversion methods — `toI64`, `wrapToU8`, and the rest, one per
 //! source-and-target pair — are declared by the compiler on the primitive types
@@ -80,10 +83,12 @@ export trait Bounded {
 }
 
 /// Every one of these answers `.None` rather than a value the type cannot
-/// hold. "Cannot hold" means two things at once: outside the type's range, and
-/// above 2^53, where a `number` no longer represents an integer exactly. So
-/// `.Some(v)` is always a promise that `v` is the answer, which is the whole
-/// reason to reach for `Checked` over `+`.
+/// hold. "Cannot hold" means outside the type's range, and — on a backend that
+/// does not represent every value of the type exactly — above what it does
+/// represent: on JavaScript that is 2^53, where a `number` stops being an
+/// integer. So `.Some(v)` is always a promise that `v` is the answer, which is
+/// the whole reason to reach for `Checked` over `+`, and a backend that cannot
+/// keep the promise declines to make it (SPEC 6.2.2).
 export trait Checked {
   fn checkedAdd(self: Self, rhs: Self): Option<Self>;
   fn checkedSub(self: Self, rhs: Self): Option<Self>;
@@ -98,7 +103,7 @@ export trait Wrapping {
 }
 
 /// Clamps to the type's own bounds, which at 64 bits and above are themselves
-/// rounded — `maxValue::<I64>()` is the nearest `number` to I64's maximum, not
+/// rounded — `maxValue<I64>()` is the nearest `number` to I64's maximum, not
 /// that maximum. Use `Checked` where the difference matters.
 export trait Saturating {
   fn saturatingAdd(self: Self, rhs: Self): Self;
@@ -124,6 +129,6 @@ export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
 }
 
 /// `Bounded`'s methods take no `self`, so they are reached through these
-/// rather than through a receiver: `num.maxValue::<U8>()`.
+/// rather than through a receiver: `num.maxValue<U8>()`.
 export fn minValue<T: Bounded>(): T;
 export fn maxValue<T: Bounded>(): T;

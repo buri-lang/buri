@@ -1,3 +1,0 @@
-binary {
-  outputs: [{ platform: JS }]
-}

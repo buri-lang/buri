@@ -12,6 +12,18 @@
 //! half-supported, because a document that renders differently here than on
 //! GitHub is a second source of truth, which is the thing this whole feature
 //! exists to prevent.
+//!
+//! Nothing here may panic on the text it is handed. Most of the corpus ships
+//! inside the binary, but `buri docs test` reads any markdown file in the
+//! repository you are standing in, and the API reference renders `///`
+//! comments out of somebody else's source — so a document with an emoji at an
+//! awkward offset or a fence nobody closed is ordinary input, not an anomaly.
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "every operand is a byte offset into, or the length of, a `&str` already in memory, \
+              so a sum is bounded by that string's length and cannot overflow; the subtractions, \
+              which can underflow, are guarded or saturating at each site"
+)]
 
 use std::fmt::Write as _;
 
@@ -61,11 +73,17 @@ impl FenceState {
 
 /// A parsed fence info string: ```` ```buri run wrap=body ctx=alloc ````.
 ///
-/// The first word is the language. At most one further bare word is the mode.
-/// Everything else is `key=value`, with `"` around a value that has spaces.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The first word is the language, and lives on the [`Fence`] rather than
+/// here: it is readable from a fence whose info string does not parse, and a
+/// fence with no language at all is a bare ```` ``` ````. At most one further
+/// bare word is the mode. Everything else is `key=value`, with `"` around a
+/// value that has spaces.
+///
+/// There is deliberately no `Default`: an `Info` only ever comes from
+/// [`parse_info`], so there is no such thing as an info string that failed to
+/// parse and yet produced one.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Info {
-    pub lang: String,
     pub mode: Option<String>,
     pub keys: Vec<(String, String)>,
 }
@@ -118,12 +136,20 @@ fn info_words(raw: &str) -> Result<Vec<String>, String> {
     Ok(words)
 }
 
+/// The language word of an info string: everything up to the first space.
+///
+/// Readable whether or not the rest of the info string parses, which is what
+/// lets a malformed ```` ```buri ```` fence still be routed to the code that
+/// knows how to complain about it.
+pub fn info_lang(raw: &str) -> &str {
+    raw.split_whitespace().next().unwrap_or("")
+}
+
 pub fn parse_info(raw: &str) -> Result<Info, String> {
     let words = info_words(raw)?;
-    let mut info = Info::default();
+    let mut info = Info { mode: None, keys: Vec::new() };
     for (i, w) in words.iter().enumerate() {
         if i == 0 {
-            info.lang = w.clone();
             continue;
         }
         match w.split_once('=') {
@@ -151,7 +177,14 @@ pub fn parse_info(raw: &str) -> Result<Info, String> {
 
 #[derive(Clone, Debug)]
 pub struct Fence<'a> {
-    pub info: Info,
+    /// The fence's language, or `""` for a bare ```` ``` ````.
+    pub lang: &'a str,
+    /// The rest of the info string, or the reason it does not parse.
+    ///
+    /// A `Result` rather than a best effort: a fence whose info string is
+    /// malformed used to fall back to an empty `Info`, which read as "a fence
+    /// in no language" and so was neither compiled nor reported.
+    pub info: Result<Info, String>,
     /// The info string exactly as written, for error messages.
     pub raw_info: &'a str,
     /// The block's contents, with the opener's indentation removed and a
@@ -179,7 +212,7 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
     let mut open: Option<(usize, usize, usize, &str, usize)> = None; // start, line, indent, info, body_start
     for (line_no, offset, line) in lines(text) {
         let trimmed = line.trim_start();
-        let indent = line.len() - trimmed.len();
+        let indent = line.len().saturating_sub(trimmed.len());
         if state.feed(line) != Where::Delimiter {
             continue;
         }
@@ -189,9 +222,10 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
                 open = Some((offset, line_no, indent, rest, offset + line.len() + 1));
             }
             Some((start, open_line, open_indent, raw_info, body_start)) => {
-                let raw = &text[body_start..offset.max(body_start)];
+                let raw = text.get(body_start..offset.max(body_start)).unwrap_or("");
                 out.push(Fence {
-                    info: parse_info(raw_info).unwrap_or_default(),
+                    lang: info_lang(raw_info),
+                    info: parse_info(raw_info),
                     raw_info,
                     body: strip_indent(raw, open_indent),
                     line: open_line,
@@ -206,9 +240,12 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
     // An unterminated fence runs to the end of the document. Reporting it is
     // the caller's job; losing its contents would be worse.
     if let Some((start, line, indent, raw_info, body_start)) = open {
-        let raw = &text[body_start..];
+        // A fence opened on the last line of a document that does not end in a
+        // newline has a body that starts one byte past the end of the text.
+        let raw = text.get(body_start..).unwrap_or("");
         out.push(Fence {
-            info: parse_info(raw_info).unwrap_or_default(),
+            lang: info_lang(raw_info),
+            info: parse_info(raw_info),
             raw_info,
             body: strip_indent(raw, indent),
             line,
@@ -239,8 +276,10 @@ fn strip_indent(raw: &str, indent: usize) -> String {
     }
     let mut out = String::with_capacity(raw.len());
     for line in raw.lines() {
-        let keep = line.char_indices().take(indent).take_while(|(_, c)| *c == ' ').count();
-        out.push_str(&line[keep..]);
+        // A space is one byte, so a count of leading spaces is also the byte
+        // offset just past them.
+        let keep = line.bytes().take(indent).take_while(|b| *b == b' ').count();
+        out.push_str(line.get(keep..).unwrap_or(line));
         out.push('\n');
     }
     out
@@ -259,6 +298,22 @@ pub struct Heading<'a> {
     pub start: usize,
 }
 
+/// An ATX heading's level and title, or `None` if the line is not one.
+///
+/// One definition because five scanners ask the question, and a document whose
+/// renderer and whose numbering disagree about what a heading is would be
+/// numbered in one place and not the other. Takes a line already trimmed of its
+/// indentation.
+fn atx(trimmed: &str) -> Option<(usize, &str)> {
+    let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
+    if hashes == 0 || hashes > 6 {
+        return None;
+    }
+    // `#hashtag` is not a heading; ATX requires a space.
+    let rest = trimmed.get(hashes..)?.strip_prefix(' ')?;
+    Some((hashes, rest.trim()))
+}
+
 /// Every ATX heading outside a fenced block.
 ///
 /// Skipping fenced blocks is not an optimization: `SPEC.md` contains shell
@@ -271,22 +326,8 @@ pub fn headings(text: &str) -> Vec<Heading<'_>> {
         if state.feed(line) != Where::Outside {
             continue;
         }
-        let trimmed = line.trim_start();
-        let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
-        if hashes == 0 || hashes > 6 {
-            continue;
-        }
-        let rest = &trimmed[hashes..];
-        // `#hashtag` is not a heading; ATX requires a space.
-        if !rest.starts_with(' ') {
-            continue;
-        }
-        out.push(Heading {
-            level: hashes,
-            title: rest.trim(),
-            line: line_no,
-            start: offset,
-        });
+        let Some((level, title)) = atx(line.trim_start()) else { continue };
+        out.push(Heading { level, title, line: line_no, start: offset });
     }
     out
 }
@@ -316,15 +357,14 @@ pub fn shift_headings(text: &str, by: isize) -> String {
     for line in text.lines() {
         let trimmed = line.trim_start();
         let outside = state.feed(line) == Where::Outside;
-        let hashes = if outside { trimmed.bytes().take_while(|b| *b == b'#').count() } else { 0 };
-        if hashes == 0 || hashes > 6 || !trimmed[hashes..].starts_with(' ') {
+        let Some((hashes, title)) = outside.then(|| atx(trimmed)).flatten() else {
             out.push_str(line);
             out.push('\n');
             continue;
-        }
-        let level = (hashes as isize + by).clamp(1, 6) as usize;
-        let indent = &line[..line.len() - trimmed.len()];
-        let _ = writeln!(out, "{indent}{} {}", "#".repeat(level), trimmed[hashes..].trim());
+        };
+        let level = (hashes as isize).saturating_add(by).clamp(1, 6) as usize;
+        let indent = line.strip_suffix(trimmed).unwrap_or("");
+        let _ = writeln!(out, "{indent}{} {title}", "#".repeat(level));
     }
     out
 }
@@ -343,23 +383,26 @@ pub fn number_headings(text: &str, prefix: &str) -> String {
     for line in text.lines() {
         let trimmed = line.trim_start();
         let outside = state.feed(line) == Where::Outside;
-        let hashes = if outside { trimmed.bytes().take_while(|b| *b == b'#').count() } else { 0 };
-        if hashes == 0 || hashes > 6 || !trimmed[hashes..].starts_with(' ') {
+        let Some((hashes, title)) = outside.then(|| atx(trimmed)).flatten() else {
             out.push_str(line);
             out.push('\n');
             continue;
-        }
-        let title = trimmed[hashes..].trim();
+        };
         let depth = hashes.saturating_sub(base);
+        // The truncate and the pushes together leave `depth` as the last slot,
+        // whichever side of it the previous heading's depth was on.
         counters.truncate(depth + 1);
         while counters.len() <= depth {
             counters.push(0);
         }
-        counters[depth] += 1;
+        if let Some(n) = counters.last_mut() {
+            *n += 1;
+        }
         let number = if depth == 0 {
             prefix.to_string()
         } else {
-            let tail: Vec<String> = counters[1..=depth].iter().map(|n| n.to_string()).collect();
+            let tail: Vec<String> =
+                counters.get(1..=depth).unwrap_or(&[]).iter().map(usize::to_string).collect();
             format!("{prefix}.{}", tail.join("."))
         };
         let _ = writeln!(out, "{} {number} {title}", "#".repeat(hashes));
@@ -375,7 +418,7 @@ pub fn toc(text: &str, max_level: usize) -> String {
         if h.level < 2 || h.level > max_level {
             continue;
         }
-        let indent = "  ".repeat(h.level - 2);
+        let indent = "  ".repeat(h.level.saturating_sub(2));
         let _ = writeln!(out, "{indent}- [{}](#{})", h.title, slug(h.title));
     }
     out
@@ -385,14 +428,49 @@ pub fn toc(text: &str, max_level: usize) -> String {
 // Links
 // ---------------------------------------------------------------------------
 
+/// Where a link points.
+///
+/// This used to be a `target` and an `anchor` with an empty string standing for
+/// "absent" in either position, which made `("", "")` — a link pointing nowhere
+/// — indistinguishable from a link to a heading called nothing, and made every
+/// consumer re-derive the case from two `is_empty()` tests.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Dest {
+    /// `[text](#anchor)` — a heading in this document.
+    SameDoc { anchor: String },
+    /// `[text](path)` or `[text](path#anchor)`.
+    File { path: String, anchor: Option<String> },
+    /// `http://` or `https://`. Outside the corpus, so nothing resolves it.
+    External { url: String },
+    /// `[text]()`. No document wants one; it is reported rather than dropped so
+    /// that the link checker is the thing that says so.
+    Nowhere,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Link {
     pub text: String,
-    /// The part before any `#`. Empty for a same-document anchor.
-    pub target: String,
-    /// The part after `#`, without it. Empty when there is none.
-    pub anchor: String,
+    pub dest: Dest,
     pub line: usize,
+}
+
+/// One link destination, as written.
+fn dest_of(dest: &str) -> Dest {
+    if dest.starts_with("http://") || dest.starts_with("https://") {
+        return Dest::External { url: dest.to_string() };
+    }
+    if let Some(anchor) = dest.strip_prefix('#') {
+        return Dest::SameDoc { anchor: anchor.to_string() };
+    }
+    if dest.is_empty() {
+        return Dest::Nowhere;
+    }
+    match dest.split_once('#') {
+        Some((path, anchor)) => {
+            Dest::File { path: path.to_string(), anchor: Some(anchor.to_string()) }
+        }
+        None => Dest::File { path: dest.to_string(), anchor: None },
+    }
 }
 
 /// Every inline `[text](target)` outside a fenced block or a code span.
@@ -409,8 +487,11 @@ pub fn links(text: &str) -> Vec<Link> {
         let b = line.as_bytes();
         let mut i = 0;
         let mut in_code = false;
-        while i < b.len() {
-            match b[i] {
+        // Every byte this walk stops on is ASCII, and an ASCII byte in UTF-8 is
+        // always a whole character, so each offset it hands to a slice is on a
+        // character boundary.
+        while let Some(&c) = b.get(i) {
+            match c {
                 b'`' => {
                     in_code = !in_code;
                     i += 1;
@@ -429,17 +510,12 @@ pub fn links(text: &str) -> Vec<Link> {
                         i = close + 1;
                         continue;
                     };
-                    let dest = &line[close + 2..paren];
+                    let dest = line.get(close + 2..paren).unwrap_or("");
                     // A title after the destination, as in `(url "title")`.
                     let dest = dest.split_whitespace().next().unwrap_or("");
-                    let (target, anchor) = match dest.split_once('#') {
-                        Some((t, a)) => (t, a),
-                        None => (dest, ""),
-                    };
                     out.push(Link {
-                        text: line[i + 1..close].to_string(),
-                        target: target.to_string(),
-                        anchor: anchor.to_string(),
+                        text: line.get(i + 1..close).unwrap_or("").to_string(),
+                        dest: dest_of(dest),
                         line: line_no,
                     });
                     i = paren + 1;
@@ -451,22 +527,31 @@ pub fn links(text: &str) -> Vec<Link> {
     out
 }
 
+/// The offset of the `close` that matches the `open` at `from`, if there is
+/// one. A `\` escapes whatever follows it.
 fn find_balanced(b: &[u8], from: usize, open: u8, close: u8) -> Option<usize> {
     let mut depth = 0usize;
-    let mut i = from;
-    while i < b.len() {
-        match b[i] {
-            b'\\' => i += 1,
+    let mut escaped = false;
+    for (i, c) in b.iter().enumerate().skip(from) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match *c {
+            b'\\' => escaped = true,
             c if c == open => depth += 1,
             c if c == close => {
-                depth -= 1;
+                // Saturating because a caller that pointed `from` at something
+                // other than an `open` would otherwise underflow; the answer it
+                // gets, "the close is right here", is the same one the balanced
+                // count would give.
+                depth = depth.saturating_sub(1);
                 if depth == 0 {
                     return Some(i);
                 }
             }
             _ => {}
         }
-        i += 1;
     }
     None
 }
@@ -503,8 +588,11 @@ pub fn summary(text: &str) -> String {
 fn first_sentence(line: &str) -> String {
     let b = line.as_bytes();
     let mut in_code = false;
-    for i in 0..b.len() {
-        match b[i] {
+    // `wrapping_sub` rather than a bounds test: at the start of the line the
+    // index wraps to something no slice contains, and "there is no byte before
+    // this one" is exactly what each of these questions wants to hear.
+    for (i, c) in b.iter().enumerate() {
+        match *c {
             b'`' => in_code = !in_code,
             b'.' if !in_code => {
                 let next = b.get(i + 1);
@@ -512,16 +600,18 @@ fn first_sentence(line: &str) -> String {
                     continue;
                 }
                 // A digit on either side means a version or a section number.
-                let prev_digit = i > 0 && b[i - 1].is_ascii_digit();
-                let next_digit = b.get(i + 2).is_some_and(|c| c.is_ascii_digit());
+                let prev_digit = b.get(i.wrapping_sub(1)).is_some_and(u8::is_ascii_digit);
+                let next_digit = b.get(i + 2).is_some_and(u8::is_ascii_digit);
                 if prev_digit && next_digit {
                     continue;
                 }
                 // A single letter before the dot is an initial or `e.g`.
-                if i >= 2 && b[i - 1].is_ascii_alphabetic() && !b[i - 2].is_ascii_alphanumeric() {
+                if b.get(i.wrapping_sub(1)).is_some_and(u8::is_ascii_alphabetic)
+                    && b.get(i.wrapping_sub(2)).is_some_and(|c| !c.is_ascii_alphanumeric())
+                {
                     continue;
                 }
-                return line[..=i].to_string();
+                return line.get(..=i).unwrap_or(line).to_string();
             }
             _ => {}
         }
@@ -581,10 +671,8 @@ pub fn dense(text: &str) -> String {
             Where::Outside => {}
         }
 
-        let hashes = t.bytes().take_while(|b| *b == b'#').count();
-        if hashes > 0 && hashes <= 6 && t[hashes..].starts_with(' ') {
+        if let Some((hashes, title)) = atx(t) {
             flush(&mut out, &mut paragraph);
-            let title = t[hashes..].trim();
             skipping_at = match skipping_at {
                 // A heading at or above the level that started the skip ends it.
                 Some(level) if hashes <= level => {
@@ -665,10 +753,11 @@ const RESET: &str = "\x1b[0m";
 ///
 /// Wrapping stops at `width` columns but never inside a fenced block — a
 /// wrapped program is not a program, and somebody will copy it.
-pub fn to_terminal(text: &str, width: usize, color: bool) -> String {
+pub fn to_terminal(text: &str, width: super::Width, color: bool) -> String {
     let (bold, dim, blue, reset) =
         if color { (BOLD, DIM, BLUE, RESET) } else { ("", "", "", "") };
-    let width = width.clamp(40, 100);
+    // Already clamped: `Width` has no other constructor.
+    let width = width.get();
     let mut out = String::with_capacity(text.len());
     let mut state = FenceState::default();
     let mut paragraph = String::new();
@@ -709,10 +798,9 @@ pub fn to_terminal(text: &str, width: usize, color: bool) -> String {
             continue;
         }
 
-        let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
-        if hashes > 0 && hashes <= 6 && trimmed[hashes..].starts_with(' ') {
+        if let Some((hashes, heading)) = atx(trimmed) {
             flush(&mut out, &mut paragraph);
-            let title = inline(trimmed[hashes..].trim(), color);
+            let title = inline(heading, color);
             if hashes <= 2 {
                 let _ = writeln!(out, "{bold}{title}{reset}");
                 let _ = writeln!(out, "{blue}{}{reset}", "─".repeat(title.chars().count().min(width)));
@@ -736,7 +824,7 @@ pub fn to_terminal(text: &str, width: usize, color: bool) -> String {
         // rendered.
         if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with('>') {
             flush(&mut out, &mut paragraph);
-            let indent = &t[..t.len() - trimmed.len()];
+            let indent = t.strip_suffix(trimmed).unwrap_or("");
             let _ = writeln!(out, "{indent}{}", inline(trimmed, color));
             continue;
         }
@@ -768,27 +856,28 @@ fn render_table(out: &mut String, rows: &[String], width: usize, color: bool) {
         return;
     }
     let columns = cells.iter().map(|r| r.len()).max().unwrap_or(0);
-    if columns == 0 {
-        return;
-    }
     // Every column but the last is sized to its widest cell; the last takes
     // what is left.
     let mut widths = vec![0usize; columns];
     for row in &cells {
-        for (i, c) in row.iter().enumerate() {
-            widths[i] = widths[i].max(c.chars().count());
+        // `widths` is as long as the widest row, so the zip covers every cell.
+        for (w, c) in widths.iter_mut().zip(row) {
+            *w = (*w).max(c.chars().count());
         }
     }
-    let fixed: usize = widths[..columns - 1].iter().map(|w| w + 2).sum();
+    // `split_last` rather than `columns - 1`: it is the same "all but the last
+    // column", and it says what a table with no columns at all does.
+    let Some((_, leading)) = widths.split_last() else { return };
+    let fixed: usize = leading.iter().map(|w| w + 2).sum();
     let last = width.saturating_sub(fixed + 2).max(20);
 
     for (n, row) in cells.iter().enumerate() {
         let mut lead = String::from("  ");
-        for i in 0..columns - 1 {
+        for (i, w) in leading.iter().enumerate() {
             let cell = row.get(i).map(String::as_str).unwrap_or("");
-            let _ = write!(lead, "{cell:<w$}  ", w = widths[i]);
+            let _ = write!(lead, "{cell:<w$}  ", w = *w);
         }
-        let tail = row.get(columns - 1).map(String::as_str).unwrap_or("");
+        let tail = row.get(leading.len()).map(String::as_str).unwrap_or("");
         let mut wrapped = String::new();
         wrap_into(&mut wrapped, tail, last, "");
         for (k, line) in wrapped.lines().enumerate() {
@@ -821,27 +910,32 @@ fn inline(s: &str, color: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let b = s.as_bytes();
     let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'`' {
-            if let Some(end) = s[i + 1..].find('`') {
-                let _ = write!(out, "{dim}{}{reset}", &s[i + 1..i + 1 + end]);
+    // Every jump below lands just past an ASCII delimiter, and the fall-through
+    // advances by one whole character, so `i` is always on a character
+    // boundary — but each slice is taken with `get` anyway, because the cost of
+    // being wrong about that is a panic in the middle of somebody's `///`
+    // comment.
+    while let Some(&c) = b.get(i) {
+        if c == b'`' {
+            if let Some(end) = s.get(i + 1..).and_then(|rest| rest.find('`')) {
+                let _ = write!(out, "{dim}{}{reset}", s.get(i + 1..i + 1 + end).unwrap_or(""));
                 i += end + 2;
                 continue;
             }
         }
-        if b[i] == b'*' && b.get(i + 1) == Some(&b'*') {
-            if let Some(end) = s[i + 2..].find("**") {
-                let _ = write!(out, "{bold}{}{reset}", &s[i + 2..i + 2 + end]);
+        if c == b'*' && b.get(i + 1) == Some(&b'*') {
+            if let Some(end) = s.get(i + 2..).and_then(|rest| rest.find("**")) {
+                let _ = write!(out, "{bold}{}{reset}", s.get(i + 2..i + 2 + end).unwrap_or(""));
                 i += end + 4;
                 continue;
             }
         }
-        if b[i] == b'[' {
+        if c == b'[' {
             if let Some(close) = find_balanced(b, i, b'[', b']') {
                 if b.get(close + 1) == Some(&b'(') {
                     if let Some(paren) = find_balanced(b, close + 1, b'(', b')') {
-                        let label = &s[i + 1..close];
-                        let dest = &s[close + 2..paren];
+                        let label = s.get(i + 1..close).unwrap_or("");
+                        let dest = s.get(close + 2..paren).unwrap_or("");
                         let _ = write!(out, "{label} {dim}({dest}){reset}");
                         i = paren + 1;
                         continue;
@@ -849,9 +943,9 @@ fn inline(s: &str, color: bool) -> String {
                 }
             }
         }
-        let c = s[i..].chars().next().unwrap();
-        out.push(c);
-        i += c.len_utf8();
+        let Some(ch) = s.get(i..).and_then(|rest| rest.chars().next()) else { break };
+        out.push(ch);
+        i += ch.len_utf8();
     }
     out
 }
@@ -915,9 +1009,10 @@ mod tests {
         let text = "intro\n\n```buri run wrap=body\nlet a = 1;\n```\n\nafter\n";
         let f = fences(text);
         assert_eq!(f.len(), 1);
-        assert_eq!(f[0].info.lang, "buri");
-        assert_eq!(f[0].info.mode.as_deref(), Some("run"));
-        assert_eq!(f[0].info.get("wrap"), Some("body"));
+        assert_eq!(f[0].lang, "buri");
+        let info = f[0].info.as_ref().unwrap();
+        assert_eq!(info.mode.as_deref(), Some("run"));
+        assert_eq!(info.get("wrap"), Some("body"));
         assert_eq!(f[0].body, "let a = 1;\n");
         assert_eq!(f[0].line, 3);
         assert_eq!(f[0].body_line, 4);
@@ -937,8 +1032,31 @@ mod tests {
         let text = "```text\n```buri\n```\n";
         let f = fences(text);
         assert_eq!(f.len(), 1);
-        assert_eq!(f[0].info.lang, "text");
+        assert_eq!(f[0].lang, "text");
         assert_eq!(f[0].body, "```buri\n");
+    }
+
+    /// A document is text somebody else wrote. These are the shapes that used
+    /// to index past the end of one, or into the middle of a character.
+    #[test]
+    fn a_malformed_document_is_read_rather_than_indexed_past() {
+        // A fence opened on the last line, with no newline after it: the body
+        // begins one byte past the end of the document.
+        assert_eq!(fences("```buri").len(), 1);
+        assert_eq!(fences("```buri")[0].body, "");
+        assert_eq!(unterminated_fence("```buri"), Some(1));
+
+        // Multi-byte characters wherever a byte walk might stop between them.
+        for text in ["# 🎈\n\n[é](ü.md#ñ)\n\n| á | é |\n|---|---|\n| ü | ñ |\n", "`é", "**é", "[é"] {
+            let _ = fences(text);
+            let _ = headings(text);
+            let _ = links(text);
+            let _ = summary(text);
+            let _ = dense(text);
+            let _ = number_headings(text, "1");
+            let _ = shift_headings(text, 1);
+            let _ = to_terminal(text, super::super::Width::default(), true);
+        }
     }
 
     #[test]
@@ -988,8 +1106,27 @@ mod tests {
         let l = links(text);
         assert_eq!(l.len(), 1);
         assert_eq!(l[0].text, "tags");
-        assert_eq!(l[0].target, "cli/src/docs/build/tags.md");
-        assert_eq!(l[0].anchor, "why-forbids");
+        assert_eq!(
+            l[0].dest,
+            Dest::File {
+                path: "cli/src/docs/build/tags.md".into(),
+                anchor: Some("why-forbids".into()),
+            }
+        );
+
+        // The three other shapes a destination comes in, and the fourth that
+        // used to be spelled with two empty strings.
+        let l = links("[a](#here) [b](other.md) [c](https://x.test) [d]()\n");
+        let dests: Vec<&Dest> = l.iter().map(|l| &l.dest).collect();
+        assert_eq!(
+            dests,
+            vec![
+                &Dest::SameDoc { anchor: "here".into() },
+                &Dest::File { path: "other.md".into(), anchor: None },
+                &Dest::External { url: "https://x.test".into() },
+                &Dest::Nowhere,
+            ]
+        );
     }
 
     #[test]
@@ -999,7 +1136,7 @@ mod tests {
         // vacuously.
         let f = fences(SPEC);
         assert!(f.len() > 50, "found only {} fences in SPEC.md", f.len());
-        assert!(f.iter().any(|f| f.info.lang == "buri"));
+        assert!(f.iter().any(|f| f.lang == "buri"));
         assert!(headings(SPEC).len() > 50);
         assert_eq!(unterminated_fence(SPEC), None);
     }

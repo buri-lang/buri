@@ -1,0 +1,5 @@
+library {
+  somethingTheSchemaHasNeverHeardOf: 1
+  sources: ["a.buri"]
+  andAnotherOne: "x"
+}

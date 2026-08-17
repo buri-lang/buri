@@ -1,16 +1,13 @@
 ## What it does
 
-Prints the toolchain version, then checks it against the version `REPO.buri`
-pins. A mismatch is an error: the pin is an exact version and never a range,
-because two checkouts of the same commit must not build with two different
-compilers.
+Prints the toolchain version. One line, and it is answered from the binary, so
+it works outside a repository — there is nothing in a repository this command
+needs.
 
-It also says whether the repository pins a `sha256` at all. A hash of nothing
-but zeros is the sentinel for *unpinned*, which is the state a repository is in
-while its toolchain is built from source; any other value is checked against the
-hash of this executable, and a mismatch is the same error.
+With `--verbose` it also prints the SHA-256 of the running executable. Two
+builds of one version are two compilers, and this is the only way to say which
+one is here, which is what a bug report has to name.
 
-Outside a repository there is nothing to pin against, and that is not an error.
-
-With `--verbose` it prints this executable's own hash, which is the value a
-`REPO.buri` would write to pin it.
+`REPO.buri` used to pin a toolchain by version and hash, and this command used
+to report that pin. The pin was removed; see
+[`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md#what-is-not-here).

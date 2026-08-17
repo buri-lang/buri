@@ -1,5 +1,7 @@
 binary {
-  dependencies: ["//lib/conformance"]
+    dependencies: ["//lib/conformance"]
 
-  outputs: [{ platform: JS }]
+    outputs: [
+        { platform: JS },
+    ]
 }

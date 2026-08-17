@@ -1,0 +1,510 @@
+//! The attribute discipline. **Wave 2b.**
+//!
+//! `LLVM-tips.md:3`, and CODEGEN-LLVM.md §3. The effect system supplies most of
+//! it for free: a language where "does this function touch the world?" is a
+//! syntactic property of its signature can answer LLVM's memory-effect
+//! questions without an analysis.
+//!
+//! # What the middle end actually delivers, which is not quite what §3.1 says
+//!
+//! CODEGEN-LLVM.md §3.1 reads as though `ir::Purity::Pure` already means
+//! "`memory(none)` plus `willreturn`", with the theorem's two qualifiers folded
+//! in. **It does not, and this is the load-bearing correction of this file.**
+//!
+//! `rc::infer_effects` runs one fixpoint with *two independent columns*
+//! (`rc.rs:760-828`): `purity` joins over `worse(Pure < Allocating <
+//! Effectful)`, and `aborts` is a separate boolean lattice. Nothing in the
+//! transfer function lets `a` raise `p` — the division arm
+//! (`rc.rs:806-810`) sets `a = true` and leaves `p` at `Pure`. So
+//! `fn f(a: Int, b: Int): Int { a / b }` arrives here as
+//! `Purity::Pure` **with** `can_abort: true`, and an abort writes to stderr and
+//! `_exit`s, which is an observable effect.
+//!
+//! A backend that mapped `Purity::Pure -> memory(none)` on its own would
+//! therefore miscompile every function that can divide. [`memory_effects`] ANDs
+//! the two columns, which is what the doc's table row *"Same, and can abort |
+//! add `inaccessiblemem: write`"* (CODEGEN-LLVM.md:143) says to do, and the
+//! `ir::Purity::Pure` doc comment (`ir.rs:565`, "cannot abort") is the sentence
+//! that is wrong about the code rather than the code being wrong about itself.
+//!
+//! The second qualifier — "in the absence of undefined behaviour" — is not
+//! modelled anywhere in the middle end, and does not need to be: §3.4 declines
+//! to tell LLVM about overflow at all, so there is nothing to fold in.
+//!
+//! Two further gaps in the landed fixpoint are compensated *here* rather than
+//! reported as attributes we know to be lies:
+//!
+//!  * Only `Array` and `Template` raise `Allocating` (`rc.rs:811-813`). A
+//!    struct or enum literal allocates and is left `Pure`. So a function whose
+//!    body allocates would claim `memory(none)`.
+//!  * An `ExprKind::Intrinsic` raises purity but never `aborts`
+//!    (`rc.rs:800`), while a `CallFn` to an intrinsic *function* raises both.
+//!
+//! [`Observed`] is where the backend's own conservatism lands: a function this
+//! backend emitted an allocation or a runtime call into is demoted before its
+//! attributes are written, so the attribute describes the code that was
+//! emitted rather than the code the middle end predicted. It is computed for
+//! the whole program at once (`emit::observe`) and not per unit, because a
+//! declaration in one unit and a definition in another must carry the same
+//! bits or LLVM optimizes a call against a promise the definition does not
+//! keep.
+
+use inkwell::attributes::{Attribute, AttributeLoc};
+use inkwell::context::Context;
+use inkwell::values::{CallSiteValue, FunctionValue};
+
+use crate::compiler::middle::ir;
+
+use super::repr::{Slot, SlotTy};
+use crate::compiler::middle::layout::Scalar;
+
+// ---------------------------------------------------------------------------
+// The `memory(...)` encoding hazard — CODEGEN-LLVM.md §3.5
+// ---------------------------------------------------------------------------
+
+/// One location in LLVM's `MemoryEffects` bitmask.
+///
+/// **The location list has changed twice in versions this project could
+/// plausibly build against**, and the bitmask is two bits per location, so a
+/// literal is a silent miscompilation of the attribute on an LLVM bump — the
+/// worst kind, because the IR still verifies. The numbers below are read from
+/// `llvm/Support/ModRef.h` of the pinned LLVM (21.1.8):
+///
+/// ```text
+/// enum class IRMemLocation {
+///   ArgMem = 0, InaccessibleMem = 1, ErrnoMem = 2, Other = 3,
+/// };
+/// ```
+///
+/// | | locations | `memory(none)` | `memory(readwrite)` |
+/// |---|---|---|---|
+/// | LLVM 18-20 | ArgMem, InaccessibleMem, Other | 0 | 0x3F |
+/// | **LLVM 21** | + ErrnoMem *before* Other | 0 | 0xFF |
+/// | LLVM 22 | + TargetMem0, TargetMem1 | 0 | 0xFFF |
+///
+/// `memory(none)` is 0 in every version and the argmem-only forms are stable,
+/// because `ArgMem` has been location 0 throughout; everything naming the
+/// *default* location is not. So [`MemoryEffects::everything`] is the one
+/// function that has to move on a version bump, and nothing anywhere else in
+/// this backend writes a literal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Location {
+    ArgMem = 0,
+    InaccessibleMem = 1,
+    /// Present from LLVM 21. Named so that the count below is a list rather
+    /// than a number somebody has to re-derive.
+    ErrnoMem = 2,
+    Other = 3,
+}
+
+/// `NoModRef`, `Ref`, `Mod`, `ModRef` — LLVM's `ModRefInfo`, unchanged since
+/// the attribute was introduced.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ModRef {
+    None = 0,
+    Ref = 1,
+    Mod = 2,
+    RefMod = 3,
+}
+
+/// A `memory(...)` bitmask under construction.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct MemoryEffects(u64);
+
+impl MemoryEffects {
+    /// Every location, at `ModRef` — the default a function with no `memory`
+    /// attribute already has, spelled explicitly for the one caller that wants
+    /// to say so.
+    pub fn everything() -> MemoryEffects {
+        MemoryEffects::default()
+            .with(Location::ArgMem, ModRef::RefMod)
+            .with(Location::InaccessibleMem, ModRef::RefMod)
+            .with(Location::ErrnoMem, ModRef::RefMod)
+            .with(Location::Other, ModRef::RefMod)
+    }
+
+    /// `memory(none)`: reads nothing, writes nothing. Zero in every LLVM
+    /// version, which is why it is the one form that can be trusted across a
+    /// bump.
+    pub fn none() -> MemoryEffects {
+        MemoryEffects(0)
+    }
+
+    /// `memory(argmem: read)` — reads the heap through its parameters and
+    /// nothing else. Every `[T]`, `Str` and struct pointer.
+    pub fn arg_read() -> MemoryEffects {
+        MemoryEffects::default().with(Location::ArgMem, ModRef::Ref)
+    }
+
+    /// Adds `inaccessiblemem: write`: the function may write somewhere the
+    /// caller cannot observe except by not returning. That is what an abort
+    /// is (CODEGEN-LLVM.md §3.1).
+    pub fn and_may_abort(self) -> MemoryEffects {
+        self.with(Location::InaccessibleMem, ModRef::Mod)
+    }
+
+    /// Adds `inaccessiblemem: readwrite`: the allocator is inaccessible memory
+    /// (CODEGEN-LLVM.md §3.1, the `Alloc`-bounded row).
+    pub fn and_allocates(self) -> MemoryEffects {
+        self.with(Location::InaccessibleMem, ModRef::RefMod)
+    }
+
+    fn with(self, loc: Location, mr: ModRef) -> MemoryEffects {
+        let shift = (loc as u32).saturating_mul(2);
+        let mask = (mr as u64) << shift;
+        MemoryEffects(self.0 | mask)
+    }
+
+    /// Sets one location back to `NoModRef`, keeping the rest.
+    fn without(self, loc: Location) -> MemoryEffects {
+        let shift = (loc as u32).saturating_mul(2);
+        let mask = (ModRef::RefMod as u64) << shift;
+        let keep = (ModRef::None as u64) << shift;
+        MemoryEffects((self.0 & !mask) | keep)
+    }
+
+    pub fn bits(self) -> u64 {
+        self.0
+    }
+
+    fn is_everything(self) -> bool {
+        self == MemoryEffects::everything()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The calling conventions
+// ---------------------------------------------------------------------------
+
+/// `fastcc`, for Buri-to-Buri calls (CODEGEN-LLVM.md §5).
+///
+/// Costs nothing — both sides of every Buri call are generated here, there is
+/// no ABI to be compatible with, and the aggregates were already flattened
+/// (VALUE-MODEL.md §5.1) so no convention has to classify one.
+///
+/// inkwell has no `CallConv` enum; the convention is a raw `u32` set on both
+/// the function and every call site, and a mismatch between the two is a
+/// miscompile LLVM will not diagnose. [`set_convention`] and
+/// [`set_call_convention`] are the only two places either number appears.
+pub const FAST: u32 = 8;
+
+/// `ccc`, the platform C ABI, for the `buri_rt_*` runtime entries. This is the
+/// single place in a Buri artifact where a platform ABI appears
+/// (`cli/runtime/lib.rs` §2).
+pub const C: u32 = 0;
+
+pub fn set_convention(f: FunctionValue<'_>, conv: u32) {
+    f.set_call_conventions(conv);
+}
+
+pub fn set_call_convention(call: CallSiteValue<'_>, conv: u32) {
+    call.set_call_convention(conv);
+}
+
+// ---------------------------------------------------------------------------
+// Emission
+// ---------------------------------------------------------------------------
+
+/// What this backend decided a function's effects are, which is the middle
+/// end's answer narrowed by what was actually emitted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Observed {
+    /// The backend emitted a call into `cli/runtime` or an open-coded
+    /// allocation. `rc.rs` only raises `Allocating` for `Array` and `Template`
+    /// (`rc.rs:811-813`), so a struct literal that allocates would otherwise
+    /// keep `memory(none)`.
+    pub allocates: bool,
+    /// The backend emitted an abort, a division that can abort, or a call to
+    /// something that can. This is `Facts::can_abort` ORed with what emission
+    /// found, because `rc.rs:800` raises purity for an inline intrinsic and
+    /// never raises `aborts`.
+    pub aborts: bool,
+    /// The backend emitted a call whose callee's effects it does not know —
+    /// an indirect call, or a runtime entry with a capability behind it.
+    pub opaque: bool,
+}
+
+impl Observed {
+    pub fn clean() -> Observed {
+        Observed { allocates: false, aborts: false, opaque: false }
+    }
+
+    /// Everything, which is what a callee this compilation cannot see is
+    /// assumed to do — the direction that costs performance and cannot be
+    /// wrong.
+    pub fn opaque() -> Observed {
+        Observed { allocates: true, aborts: true, opaque: true }
+    }
+}
+
+/// The `memory(...)` bits for one function.
+///
+/// The whole of CODEGEN-LLVM.md §3.1's table, in one expression, with the
+/// module header's correction applied: `Purity::Pure` is only `memory(none)`
+/// when nothing can abort.
+pub fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
+    if observed.opaque {
+        return MemoryEffects::everything();
+    }
+    let aborts = facts.can_abort || observed.aborts;
+    let allocates = observed.allocates || matches!(facts.purity, ir::Purity::Allocating);
+    let base = match facts.purity {
+        ir::Purity::Effectful => return MemoryEffects::everything(),
+        // "Reads no heap through a parameter" is not a fact the middle end
+        // computes, so the honest floor for a pure function that takes a
+        // pointer is `argmem: read`; a function with no pointer parameter at
+        // all is narrowed to `none` by `narrow_for_params`.
+        ir::Purity::Pure | ir::Purity::Allocating => MemoryEffects::arg_read(),
+    };
+    let base = if allocates { base.and_allocates() } else { base };
+    if aborts {
+        base.and_may_abort()
+    } else {
+        base
+    }
+}
+
+/// Narrows `argmem` away where there is no argument memory to read: a function
+/// whose parameters are all scalars cannot read the heap through one.
+pub fn narrow_for_params(effects: MemoryEffects, params: &[Slot]) -> MemoryEffects {
+    if effects.is_everything() || params.iter().any(|s| s.ty.is_pointer()) {
+        effects
+    } else {
+        // Clear the `ArgMem` field and keep the rest — through the same
+        // location table, so §3.5's hazard has no second spelling here either.
+        effects.without(Location::ArgMem)
+    }
+}
+
+/// Applies the whole discipline to one function.
+///
+/// `params` is the flattened parameter list — one entry per LLVM parameter,
+/// which is what makes `readonly`, `nonnull` and `align` per-*slot* facts
+/// rather than per-Buri-parameter ones.
+pub fn decorate(
+    ctx: &Context,
+    f: FunctionValue<'_>,
+    facts: &ir::Facts,
+    observed: Observed,
+    params: &[Slot],
+    ret: &[Slot],
+    heap_align: u32,
+) {
+    // `nounwind` on every function, on every backend. The single most valuable
+    // attribute here and it costs no analysis: the language has no `throw`, no
+    // unwinding `panic` and no `catch` (SPEC 6.10). LLVM without it has to
+    // assume every call is a potential unwind edge.
+    enum_attr(ctx, f, "nounwind", 0);
+
+    let effects = narrow_for_params(memory_effects(facts, observed), params);
+    memory(ctx, f, effects);
+
+    // `willreturn` and `mustprogress` follow the same fact: a function the
+    // middle end proved terminates. `middle` has no termination analysis, so
+    // the fact available is the conservative one — a function with no loop and
+    // no call it cannot see. `Purity::Pure` with no abort is the strongest
+    // statement the landed IR supports, and it is exactly the set for which
+    // `speculatable` is also sound.
+    let terminates = matches!(facts.purity, ir::Purity::Pure)
+        && !facts.can_abort
+        && !observed.aborts
+        && !observed.opaque;
+    if terminates {
+        enum_attr(ctx, f, "willreturn", 0);
+        enum_attr(ctx, f, "mustprogress", 0);
+        if effects == MemoryEffects::none() {
+            // `memory(none)` + `willreturn` + `nounwind`: a call may be
+            // hoisted above a branch (CODEGEN-LLVM.md §3.1).
+            enum_attr(ctx, f, "speculatable", 0);
+        }
+    }
+
+    // `nofree` is deliberately *not* set: `decref` frees.
+
+    for (i, slot) in params.iter().enumerate() {
+        decorate_param(ctx, f, AttributeLoc::Param(i as u32), *slot, heap_align);
+    }
+    // A pointer return is a freshly allocated block on every path that
+    // produces one — every allocating runtime entry returns a block nothing
+    // else has a reference to (CODEGEN-LLVM.md §3.3, the first and most
+    // valuable case) — so `noalias` on the return is unconditional, and it is
+    // what lets LLVM keep a just-built aggregate's fields in registers across
+    // a call.
+    if let [one] = ret {
+        if one.ty.is_pointer() {
+            enum_attr_at(ctx, f, AttributeLoc::Return, "noalias", 0);
+            enum_attr_at(ctx, f, AttributeLoc::Return, "align", u64::from(heap_align));
+        }
+    }
+
+    // `noalias` on a *parameter*, case 2 of §3.3: a function with exactly one
+    // pointer parameter cannot alias any other, which is vacuous and free.
+    // Case 1 is the return, above. Case 3 — a parameter `middle::rc` proved
+    // uniquely owned — has no representation in the landed `ir::Facts`
+    // (`rc.rs`'s `FuncPlan::reuse` never reaches `lower`), so it is not
+    // emitted. Emitting `noalias` where aliasing is possible is a miscompile
+    // that shows up as a wrong answer months later.
+    let pointers: Vec<usize> =
+        params.iter().enumerate().filter(|(_, s)| s.ty.is_pointer()).map(|(i, _)| i).collect();
+    if let [only] = pointers.as_slice() {
+        enum_attr_at(ctx, f, AttributeLoc::Param(*only as u32), "noalias", 0);
+    }
+}
+
+/// The value model's half of the table (CODEGEN-LLVM.md §3.2).
+fn decorate_param(
+    ctx: &Context,
+    f: FunctionValue<'_>,
+    loc: AttributeLoc,
+    slot: Slot,
+    heap_align: u32,
+) {
+    match slot.ty {
+        SlotTy::Scalar(Scalar::Ptr) => {
+            // `readonly` on a pointer parameter is true *unconditionally* and
+            // would be a lie in almost any other language. Values are
+            // immutable, there is no interior mutability, and `middle::rc`'s
+            // in-place reuse writes only to a block whose count it has just
+            // observed to be 1 — a block no other reference reaches — so even
+            // reuse does not break the guarantee this makes to a caller.
+            enum_attr_at(ctx, f, loc, "readonly", 0);
+            // Every heap pointer is 16-byte aligned, because the header is
+            // 16 bytes and sits immediately before the payload (VALUE-MODEL.md
+            // §2). `nonnull` is *not* set: a `Str`'s `base`, a closure's `env`
+            // and a niche-encoded `Option` are all legitimately null, and the
+            // slot table does not carry which is which across a signature
+            // boundary. Setting it where null is a value is a miscompile;
+            // omitting it costs a null test LLVM would have removed.
+            enum_attr_at(ctx, f, loc, "align", u64::from(heap_align));
+        }
+        // A `Bool` is one byte with values 0 and 1 only, and a `Char` is a
+        // scalar value. `range` is a type attribute in LLVM's C API and
+        // inkwell 0.10 exposes only enum and type attributes by kind id, with
+        // no constructor for a range's two-constant payload — so these two
+        // rows of §3.2's table are the ones this backend does not emit, and
+        // saying so here is cheaper than leaving a reader to find out.
+        SlotTy::Scalar(_) | SlotTy::Blob(_) => {}
+    }
+}
+
+/// `cold` on a call, for CODEGEN-LLVM.md §6: every abort path, every free
+/// path, every `.None` arm of a `?`. This is the highest-value item on that
+/// list, because reference counting puts a rarely-taken branch next to *every*
+/// value that dies.
+pub fn cold_call(ctx: &Context, call: CallSiteValue<'_>) {
+    call_attr(ctx, call, AttributeLoc::Function, "cold", 0);
+    call_attr(ctx, call, AttributeLoc::Function, "nounwind", 0);
+}
+
+/// `noreturn` + `cold` on a call that does not come back: an abort, or
+/// `buri_rt_host_proc_exit_with`.
+pub fn noreturn_call(ctx: &Context, call: CallSiteValue<'_>) {
+    cold_call(ctx, call);
+    call_attr(ctx, call, AttributeLoc::Function, "noreturn", 0);
+}
+
+pub fn mark_noreturn(ctx: &Context, f: FunctionValue<'_>) {
+    enum_attr(ctx, f, "noreturn", 0);
+    enum_attr(ctx, f, "cold", 0);
+}
+
+/// The `memory(...)` attribute itself. One call site in the whole backend, per
+/// §3.5.
+fn memory(ctx: &Context, f: FunctionValue<'_>, effects: MemoryEffects) {
+    if effects.is_everything() {
+        // The default. Writing it out would be noise in every dump.
+        return;
+    }
+    enum_attr(ctx, f, "memory", effects.bits());
+}
+
+fn enum_attr(ctx: &Context, f: FunctionValue<'_>, name: &str, value: u64) {
+    enum_attr_at(ctx, f, AttributeLoc::Function, name, value);
+}
+
+fn enum_attr_at(ctx: &Context, f: FunctionValue<'_>, loc: AttributeLoc, name: &str, value: u64) {
+    let kind = Attribute::get_named_enum_kind_id(name);
+    // A zero kind id means this LLVM does not know the attribute. Silently
+    // skipping is right: an attribute is an optimization hint, and a toolchain
+    // that refused to build because a hint was unavailable would be trading a
+    // working artifact for a faster one.
+    if kind == 0 {
+        return;
+    }
+    f.add_attribute(loc, ctx.create_enum_attribute(kind, value));
+}
+
+fn call_attr(ctx: &Context, call: CallSiteValue<'_>, loc: AttributeLoc, name: &str, value: u64) {
+    let kind = Attribute::get_named_enum_kind_id(name);
+    if kind == 0 {
+        return;
+    }
+    call.add_attribute(loc, ctx.create_enum_attribute(kind, value));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts(purity: ir::Purity, can_abort: bool) -> ir::Facts {
+        ir::Facts { params: Vec::new(), purity, can_abort }
+    }
+
+    /// The bits, against `llvm/Support/ModRef.h` of the pinned LLVM. These are
+    /// the numbers §3.5 says must never be written as literals at a call site,
+    /// so they are written as literals *here*, once, where a version bump is
+    /// supposed to break them.
+    #[test]
+    fn the_bitmask_matches_llvm_21s_location_list() {
+        assert_eq!(MemoryEffects::none().bits(), 0);
+        assert_eq!(MemoryEffects::arg_read().bits(), 0b01);
+        assert_eq!(MemoryEffects::arg_read().and_may_abort().bits(), 0b1001);
+        assert_eq!(MemoryEffects::arg_read().and_allocates().bits(), 0b1101);
+        // Four locations at two bits each, all `ModRef`.
+        assert_eq!(MemoryEffects::everything().bits(), 0xFF);
+    }
+
+    /// The correction this file exists for: `Purity::Pure` with `can_abort`
+    /// must not become `memory(none)`.
+    #[test]
+    fn a_pure_function_that_can_abort_is_not_memory_none() {
+        let pure_clean = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
+        assert_eq!(pure_clean, MemoryEffects::arg_read());
+
+        let pure_aborting = memory_effects(&facts(ir::Purity::Pure, true), Observed::clean());
+        assert_ne!(pure_aborting, MemoryEffects::none());
+        assert_eq!(pure_aborting, MemoryEffects::arg_read().and_may_abort());
+    }
+
+    /// A pure function with no pointer parameter has no argument memory to
+    /// read, which is the only route to `memory(none)`.
+    #[test]
+    fn a_pure_scalar_function_is_memory_none() {
+        let e = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
+        let scalar = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
+        assert_eq!(narrow_for_params(e, &[scalar, scalar]), MemoryEffects::none());
+
+        let pointer = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) };
+        assert_eq!(narrow_for_params(e, &[scalar, pointer]), MemoryEffects::arg_read());
+    }
+
+    /// An effectful function keeps the default, and the default is never
+    /// written out.
+    #[test]
+    fn an_effectful_function_gets_no_memory_attribute() {
+        let e = memory_effects(&facts(ir::Purity::Effectful, true), Observed::clean());
+        assert!(e.is_everything());
+        let scalar = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
+        assert!(narrow_for_params(e, &[scalar]).is_everything());
+    }
+
+    /// What the backend observed narrows the middle end's answer, never
+    /// widens it.
+    #[test]
+    fn an_allocation_the_middle_end_missed_demotes_the_attribute() {
+        let observed = Observed { allocates: true, aborts: false, opaque: false };
+        let e = memory_effects(&facts(ir::Purity::Pure, false), observed);
+        assert_eq!(e, MemoryEffects::arg_read().and_allocates());
+        assert_ne!(e, MemoryEffects::none());
+    }
+}

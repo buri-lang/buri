@@ -1,12 +1,11 @@
 # The dependency is declared under `test.dependencies` rather than
 # `dependencies`, so it is not part of what this library ships. It is still a
 # declared edge, and BUILD-FILES.md:359-360 says it is checked normally.
-
 library {
-  sources: ["x.buri"]
+    sources: ["x.buri"]
 
-  test {
-    sources: ["test/x.buri"]
-    dependencies: ["//lib/helper"]
-  }
+    test {
+        sources: ["test/x.buri"]
+        dependencies: ["//lib/helper"]
+    }
 }

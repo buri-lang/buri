@@ -662,11 +662,12 @@ bound checking a lookup rather than a search (Section 5.12).
 Generic code that needs an operation no trait provides takes it as a function
 argument, as it always has: `sortBy(xs, cmp)` rather than inventing a trait.
 
-In *expression* position, explicit type arguments use the turbofish:
+In *expression* position, explicit type arguments are written on the
+expression itself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let f = identity::<Int>;
-let e: [Int] = list.empty::<Int>();
+let f = identity<Int>;
+let e: [Int] = list.empty<Int>();
 ```
 
 ### 5.11 Equality and ordering
@@ -876,7 +877,7 @@ Lowest to highest:
 | 8 | `+` `-` | left |
 | 9 | `*` `/` `%` | left |
 | 10 | `-` `!` `~` (prefix) | right |
-| 11 | `.f` `.0` `(args)` `[i]` `?` `::<T>` `{ ... }` | left |
+| 11 | `.f` `.0` `(args)` `[i]` `?` `<T>` `{ ... }` | left |
 
 Comparison is non-associative: `a < b < c` is a parse error, not a bug waiting to
 happen.
@@ -907,16 +908,28 @@ does not pay to find out. Overflow is not wrapping by default either: silent
 wrapping is a correctness bug in almost all code and a deliberate technique in a
 little of it, so the little of it says so out loud (below).
 
-Undefined does not mean unbounded in practice. Every integer type compiles to a
-JavaScript `number`, which represents every integer up to 2^53 - 1 exactly and
-no integer above it, so on that backend the observable consequence of overflow
-is lost precision rather than a wrapped value. Code that needs an exact answer
-above 2^53 has two ways to ask for one that are defined: the `Checked` methods,
-which answer `.None` rather than a value they cannot hold, and `core/bits`,
-which computes on the bit pattern.
+Undefined does not mean unbounded in practice, and what it means in practice
+depends on the backend.
+
+On a **native** backend every integer type is its own width and integer
+arithmetic is two's complement, so the observable consequence of overflow is a
+wrapped value. On the **JavaScript** backend every integer type compiles to a
+`number`, which represents every integer up to 2^53 - 1 exactly and no integer
+above it, so the observable consequence is lost precision. Neither is promised
+and neither is a definition — a program that overflows is wrong, and these are
+descriptions of two implementations rather than a specification of one.
+
+That the two differ is the reason overflow is undefined rather than
+implementation-defined: a language that pinned one of them would be pinning a
+backend. Code that needs an exact answer above 2^53 has two ways to ask for one
+that are defined on every backend: the `Checked` methods, which answer `.None`
+rather than a value they cannot hold, and `core/bits`, which computes on the bit
+pattern.
 
 Floating point follows IEEE-754. `==` on floats compares numerically with `-0.0`
-equal to `0.0`, and `NaN != NaN`.
+equal to `0.0`, and `NaN != NaN`. Rendering a float is the shortest decimal that
+round-trips, and that is a promise about digits rather than only about values:
+`1.0 / 3.0` prints the same characters on every backend.
 
 #### 6.2.1 Conversions
 
@@ -948,6 +961,11 @@ but converting a count to a float is too common to route through a `Result`, so
 `toF64` is defined on every integer type as an exact-to-53-bits conversion that
 rounds beyond that, documented as such. This is the one place the language
 prefers ergonomics to ceremony, and it is called out rather than hidden.
+
+That bound is the float's, not the backend's: `I64 → F64` is lossy above 2^53 on
+every backend, and `toF64` rounds. On the JavaScript backend the *source* is a
+double already, so the conversion is the identity and the loss happened earlier;
+the answer is the same either way.
 
 Earlier drafts used three cast operators (`as`, `as?`, `as%`). They were
 operators because a *function* cannot be generic over its source type — but a
@@ -992,18 +1010,21 @@ trait Bounded {
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let safe = a.checkedAdd(b) ?? 0;
 let hash = seed.wrappingMul(31).wrappingAdd(byte);
-let ceiling = num.maxValue::<U8>();
+let ceiling = num.maxValue<U8>();
 ```
 
 Every built-in integer type satisfies all three; the float types satisfy
 `Bounded` only.
 
 A `Checked` method answers `.None` whenever it cannot hand back the true result
-— outside the type's range, or above what the backend represents exactly. On the
-JavaScript backend that second bound is 2^53 - 1, well below `maxValue::<I64>()`,
-so `.Some(v)` is always a promise that `v` is the answer. That promise is the
-entire reason to reach for `Checked` over `+`, and it would be worthless if it
-held only up to the width where a value is hard to represent.
+— outside the type's range, or above what every backend represents exactly. The
+second bound is the language's, not a backend's: it is 2^53 - 1, well below
+`maxValue<I64>()`, and it applies **on every backend**, so
+`(1 << 60).checkedAdd(1)` is `.None` everywhere. A native backend could compute
+the true 64-bit sum, and answers `.None` anyway, because `.Some(v)` is a promise
+about `v` that must mean the same thing wherever the program runs — a value a
+program obtained natively must not become unrepresentable when the same program
+runs on JavaScript.
 
 `Bounded` and `Saturating` report the type's own bounds, which at 64 bits and
 above are themselves rounded to the nearest representable value. Where the
@@ -1611,6 +1632,14 @@ That is not a forgery hole — a fake `Stdout` still cannot write anything. What
 unforgeable is the *platform's* implementation. The open interface is what makes
 testing free (Section 10.8).
 
+`Alloc` is the case where that openness is useful outside a test, because it is
+the one effect whose implementation grants nothing: `allocate` answers a
+`Region`, which is a number nothing reads. So `core/alloc` ships three
+implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and is
+importable anywhere rather than only from `main`. Binding one is how a program
+asks what it is spending, or refuses to spend more than a budget; it is not how
+a program acquires an authority it was not given.
+
 ### 10.4 What "pure" means
 
 > **Purity theorem.** If a function has no `ctx` parameter, no
@@ -1915,6 +1944,7 @@ one value rather than a new collection.
 |---|---|---|
 | `core/cap` | — | the effect declarations themselves |
 | `core/host` | — | `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — the platform's implementations, importable only by the module exporting `main` |
+| `core/alloc` | — | `generalPurpose`, `arena`, `fixedBuffer` — counting implementations of `Alloc`, importable anywhere, because an `Alloc` grants no authority |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
 | `core/fs` | `Fs` | `readText`, `writeText`, `exists`, `listDir`, and the `IoError` type |
 | `core/net/http` | `Net` | `get`, `post`, `Request`, `Response`, `errorText` |
@@ -2176,10 +2206,16 @@ struct literal. Nothing competes, so `Point { x, y }` shorthand works and the
 grammar got smaller rather than more careful. *Cost:* every product type needs a
 name.
 
-**12.4 Type arguments in expressions use the turbofish `::<T>`.**
-`f<a>(b)` is genuinely ambiguous with two comparisons. Types have no comparison
-operators, so `<` is unambiguous inside a type; expressions get `::<`.
-*Cost:* the turbofish is ugly. It is also rare.
+**12.4 Type arguments in expressions are written `f<T>(x)`, with no `::`.**
+`f<a>(b)` and `(f < a) > (b)` are the same tokens. What settles them is a rule
+that was already there for its own sake: comparison is non-associative (12.4's
+neighbour, Section 5), so `a < b > c` is not a program under *either* reading,
+and there is no source the two readings both accept and disagree about. The
+parser looks ahead for the `>` that would close the list and backtracks if it
+does not find one; the generated tree-sitter grammar carries the same decision
+as its one declared conflict. *Cost:* the grammar stops being LR(1) at exactly
+one production, and `a < b > (c)` is a call. The turbofish `::<T>` that used to
+be here is a parse error that carries the edit removing the `::`.
 
 **12.5 There is no cast operator.**
 `as`, `as?`, and `as%` were three tokens and a precedence level doing work that
@@ -2335,7 +2371,7 @@ The grammar accepts a superset of well-formed programs. These are checked
 afterward:
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
-   with a turbofish, or the inferred-type dot form `.Variant` — not an arbitrary
+   with type arguments, or the inferred-type dot form `.Variant` — not an arbitrary
    expression. The grammar permits `f(x) { a: 1 }`; the checker does not.
 2. `let` patterns must be irrefutable.
 3. `match` must be exhaustive, and no arm may be unreachable.
@@ -2554,7 +2590,11 @@ alike.
    one. What remains open is whether "undefined above 2^53" is a rule programmers
    internalize, or one they discover. The mitigations are that `Checked` answers
    `.None` rather than a wrong value, `str.toInt` refuses a string it cannot
-   parse exactly, and `core/bits` computes on the bit pattern.
+   parse exactly, and `core/bits` computes on the bit pattern. A native backend
+   has no such ceiling — an `I64` there is sixty-four bits and overflow wraps —
+   which narrows the question rather than closing it: the same program is exact
+   in one place and lossy in the other, and 6.2 says so out loud rather than
+   promising either.
 9. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
    user types would be more honest than a compiler that knows one type by name,
    but it is the first piece of attribute syntax in a language with none, and

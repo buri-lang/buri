@@ -1,4 +1,2 @@
-toolchain {
-  version: "0.3.0"
-  sha256: "00"
-}
+# This repository declares no tags. The case adds one below, because a tag's
+# `requires { platforms }` is the third place a platform name can be written.

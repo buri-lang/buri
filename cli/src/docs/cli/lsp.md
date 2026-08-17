@@ -67,7 +67,7 @@ which is what lets `cli/tests/repos/lsp/` record one as a golden file.
 ## Editors
 
 The Zed extension is in `editors/zed`. It is a separate crate, outside the cargo
-workspace, because a Zed extension must depend on `zed_extension_api` and the
-toolchain itself has no dependencies at all.
+workspace, because a Zed extension must depend on `zed_extension_api`, which
+does not clear the toolchain's dependency bar (see the root `Cargo.toml`).
 
 Any editor that speaks LSP can start `buri lsp` for files matching `*.buri`.

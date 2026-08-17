@@ -573,7 +573,7 @@ test "the empty array pattern matches only the empty list" {
     [] => "empty",
     _ => "nonempty",
   };
-  assert.eq(describe(list.empty::<Int>()), "empty");
+  assert.eq(describe(list.empty<Int>()), "empty");
   assert.eq(describe([1]), "nonempty");
 }
 
@@ -583,7 +583,7 @@ test "a one-element array pattern binds that element" {
     _ => -1,
   };
   assert.eq(describe([42]), 42);
-  assert.eq(describe(list.empty::<Int>()), -1);
+  assert.eq(describe(list.empty<Int>()), -1);
   assert.eq(describe([1, 2]), -1);
 }
 
@@ -602,7 +602,7 @@ test "array patterns select by length" {
     [_, _] => "2",
     _ => "many",
   };
-  assert.eq(describe(list.empty::<Int>()), "0");
+  assert.eq(describe(list.empty<Int>()), "0");
   assert.eq(describe([1]), "1");
   assert.eq(describe([1, 2]), "2");
   assert.eq(describe([1, 2, 3]), "many");
@@ -620,7 +620,7 @@ test "an array pattern may hold literals" {
 test "a rest pattern binds the head and the tail" {
   let out = match ([1, 2, 3, 4]) {
     [first, ..rest] => (first, rest),
-    [] => (0, list.empty::<Int>()),
+    [] => (0, list.empty<Int>()),
   };
   assert.eq(out.0, 1);
   assert.eq(out.1, [2, 3, 4]);
@@ -629,7 +629,7 @@ test "a rest pattern binds the head and the tail" {
 test "a rest pattern binds a tail of the right length" {
   let rest = match ([1, 2, 3, 4, 5]) {
     [_, ..tail] => tail,
-    [] => list.empty::<Int>(),
+    [] => list.empty<Int>(),
   };
   assert.eq(rest.len(), 4);
   assert.eq(rest, [2, 3, 4, 5]);
@@ -640,12 +640,12 @@ test "a rest pattern binds an empty tail for a singleton" {
     [_, ..tail] => tail,
     [] => [0],
   };
-  assert.eq(rest, list.empty::<Int>());
+  assert.eq(rest, list.empty<Int>());
   assert.eq(rest.len(), 0);
 }
 
 test "a rest pattern does not match the empty list" {
-  let out = match (list.empty::<Int>()) {
+  let out = match (list.empty<Int>()) {
     [_, ..rest] => "nonempty",
     [] => "empty",
   };
@@ -655,7 +655,7 @@ test "a rest pattern does not match the empty list" {
 test "a rest pattern after two fixed elements" {
   let out = match ([1, 2, 3, 4]) {
     [a, b, ..rest] => (a + b, rest),
-    _ => (0, list.empty::<Int>()),
+    _ => (0, list.empty<Int>()),
   };
   assert.eq(out.0, 3);
   assert.eq(out.1, [3, 4]);
@@ -672,7 +672,7 @@ test "a rest pattern after two fixed elements needs at least two" {
 test "a rest pattern over strings" {
   let out = match (["a", "b", "c"]) {
     [head, ..tail] => (head, tail),
-    [] => ("", list.empty::<Str>()),
+    [] => ("", list.empty<Str>()),
   };
   assert.eq(out.0, "a");
   assert.eq(out.1, ["b", "c"]);
@@ -682,7 +682,7 @@ test "a rest pattern binding is a real list usable by list functions" {
   let ctx = Hermetic();
   let rest = match ([1, 2, 3, 4]) {
     [_, ..tail] => tail,
-    [] => list.empty::<Int>(),
+    [] => list.empty<Int>(),
   };
   assert.eq(rest.sum(), 9);
   assert.eq(rest.map(ctx, fn(x) => x * 2), [4, 6, 8]);

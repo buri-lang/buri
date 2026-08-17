@@ -1,8 +1,9 @@
 # Two declared outputs. `--output` selects one of them; with no selector every
-# one of them is built.
+# one of them is built. `{{CROSS_PLATFORM_PROTO}}` is a platform that is not this
+# host's, filled in by the harness — see cli/tests/harness/case.rs.
 binary {
-  outputs: [
-    { platform: JS },
-    { platform: LINUX, arch: X86_64 },
-  ]
+    outputs: [
+        { platform: JS },
+        { platform: {{CROSS_PLATFORM_PROTO}}, arch: {{CROSS_ARCH_PROTO}} },
+    ]
 }

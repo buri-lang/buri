@@ -4,11 +4,95 @@ version = "0.3.0"
 edition = "2021"
 description = "The Buri toolchain: compiler, build system, test runner, formatter, and linter."
 
-# No dependencies, on purpose. The toolchain is pinned by hash and runs actions
-# in an empty environment (cli/src/docs/build/hermeticity.md); a
-# dependency tree is a second thing to pin. SHA-256, textproto, and the JS
-# minifier are all implemented here.
+# The dependency bar is stated in the workspace manifest, and these are the
+# only things that clear it. Every one is optional, so the *dependency-free*
+# build is still `cargo build -p buri --no-default-features`, and every one is a
+# code generator this repository could not reasonably write.
+#
+# Both blocks land in wave 2a even though only the first is 2a's code: two
+# agents editing one manifest is a merge conflict for no gain, and the versions
+# have to be chosen together anyway (design/native/BUILD-AND-WATCH.md §2, §7).
 [dependencies]
+
+# -- backend-cranelift --------------------------------------------------------
+#
+# 0.123.x is the wasmtime 36 LTS line — 24 months of support, MSRV 1.86 —
+# rather than the monthly-major latest, because `Backend::identity()` carries
+# the Cranelift version into every `codegen` cache key: a bump invalidates every
+# cached object in every repository, and that is an event to schedule rather
+# than to inherit (CODEGEN-CRANELIFT.md §8). Resolved 0.123.13 at the time of
+# writing; nothing on the line is yanked.
+#
+# `default-features = false` plus `all-arch` rather than the default
+# `host-arch`, so the ISA is selected by triple and ARCHITECTURE.md §9's refusal
+# to cross-compile stays a decision about the runtime archive rather than a
+# limit of the backend. `object` is deliberately *not* a direct dependency:
+# `cranelift-object` re-exports it, so version skew is a compile error.
+cranelift-codegen = { version = "0.123", optional = true, default-features = false, features = ["std", "unwind", "all-arch"] }
+cranelift-frontend = { version = "0.123", optional = true, default-features = false, features = ["std"] }
+cranelift-module = { version = "0.123", optional = true }
+cranelift-object = { version = "0.123", optional = true }
+# `infer_native_flags`, for the host CPU features.
+cranelift-native = { version = "0.123", optional = true }
+# Comes in with Cranelift; named directly because a `Target` has to be spelled
+# as a triple to select an ISA, and re-exporting it through `cranelift-codegen`
+# would be depending on a path rather than on a crate.
+target-lexicon = { version = "0.13", optional = true }
+
+# -- backend-llvm -------------------------------------------------------------
+#
+# LLVM 21.1, inkwell 0.10, `llvm-sys` 211.x, `LLVM_SYS_211_PREFIX`
+# (CODEGEN-LLVM.md §8). 21 rather than the newest inkwell supports because the
+# flake's pinned `nixos-25.05` has no LLVM 22, and pinning one would mean
+# bumping the whole toolchain's nixpkgs in service of a codegen decision.
+#
+# The linking mode is target-gated, which is why this is two entries rather than
+# one. `llvm-sys` defaults to `prefer-static` since 191, and on macOS
+# `llvm-config --system-libs --link-static` mixes Homebrew static archives with
+# shared libraries and its `build.rs` panics ("Shared library should be a .so
+# file", llvm-sys GitLab #80). The mode must be selected *through inkwell* — a
+# bare `llvm-sys` feature makes Cargo try to resolve every LLVM version at once.
+#
+# CODEGEN-LLVM.md §8 also asks for `llvm-sys`'s `strict-versioning`, and it is
+# not here: inkwell's `llvm21-1` expands to `llvm-sys-211` and nothing else, so
+# reaching that flag would mean a *second* direct dependency on `llvm-sys` —
+# which is another entry against the bar above, for a flag. What it would buy is
+# a build failure instead of a silent substitution on a machine carrying LLVM
+# 22; what already stands in for it is `Backend::identity()`, which puts the
+# LLVM version in every release `codegen` key, so two toolchains built against
+# different LLVMs do not share cached objects. BUILD-AND-WATCH.md §3.4 says so
+# where a contributor will read it.
+[target.'cfg(target_os = "macos")'.dependencies]
+inkwell = { version = "0.10", optional = true, features = ["llvm21-1-prefer-dynamic"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
+
+[features]
+default = ["backend-cranelift"]
+
+# On by default. Cranelift is pure Rust with no system dependency and
+# cross-compiles anywhere Rust does, so having it on costs a contributor
+# nothing but compile time, and having it off would mean the default toolchain
+# cannot build a native artifact at all.
+backend-cranelift = [
+    "dep:cranelift-codegen",
+    "dep:cranelift-frontend",
+    "dep:cranelift-module",
+    "dep:cranelift-object",
+    "dep:cranelift-native",
+    "dep:target-lexicon",
+]
+
+# Off by default. It needs LLVM 21 installed and `LLVM_SYS_211_PREFIX` set, and
+# `cargo install buri` must not require that. A toolchain without it refuses a
+# native `--release` build naming this feature rather than falling back to
+# Cranelift.
+backend-llvm = ["dep:inkwell"]
+
+# The panic-free lint set, in the workspace manifest with the reasoning.
+[lints]
+workspace = true
 
 [lib]
 name = "buri"

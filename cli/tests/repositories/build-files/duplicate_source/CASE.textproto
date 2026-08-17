@@ -20,7 +20,7 @@ run {
 # `dependencies` entry.
 edit {
   file: "tools/report/BUILD.buri"
-  replace: "binary {\n  sources: [\"render.buri\"]\n"
+  replace: "binary {\n    sources: [\"render.buri\"]\n"
   with: "binary {\n"
 }
 

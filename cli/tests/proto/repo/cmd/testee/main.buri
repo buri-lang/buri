@@ -68,7 +68,7 @@ fn readFrame<C: Alloc + Stdin>(ctx: C): Option<[U8]> {
     } else {
       let n = readLittleEndian32(header);
       if (n == 0) {
-        .Some(list.empty::<U8>())
+        .Some(list.empty<U8>())
       } else {
         io.readBytes(ctx, n)
       }
@@ -94,11 +94,14 @@ fn answer<C: Alloc>(ctx: C, frame: [U8]): ConformanceResponse {
     // error: `parse_error` is about the *payload*, and saying so here would
     // report a broken harness as a passing test.
     .Err(e) => runtimeError(ctx, str.format(ctx, "cannot read the request: ${show(e)}")),
-    .Ok(request) => if (request.messageType != KNOWN) {
+    // Under editions every singular field tracks presence, so a request's
+    // fields are `Option`s and an unset one falls back to its zero value —
+    // which is what the protocol means by leaving one out.
+    .Ok(request) => if (request.messageType.withDefault("") != KNOWN) {
       skipped(ctx, str.format(ctx, "this testee implements ${KNOWN} only"))
-    } else if (request.testCategory == TestCategory.TEXT_FORMAT_TEST) {
+    } else if (category(request) == TestCategory.TEXT_FORMAT_TEST) {
       skipped(ctx, "text format is not implemented")
-    } else if (request.testCategory == TestCategory.JSPB_TEST) {
+    } else if (category(request) == TestCategory.JSPB_TEST) {
       skipped(ctx, "JSPB is not implemented")
     } else {
       match (parse(ctx, request)) {
@@ -108,6 +111,14 @@ fn answer<C: Alloc>(ctx: C, frame: [U8]): ConformanceResponse {
       }
     },
   }
+}
+
+fn category(request: ConformanceRequest): TestCategory {
+  request.testCategory.withDefault(TestCategory.UNSPECIFIED_TEST)
+}
+
+fn format(request: ConformanceRequest): WireFormat {
+  request.requestedOutputFormat.withDefault(WireFormat.UNSPECIFIED)
 }
 
 /// The payload, read in whichever format it arrived in. `.Ok(.None)` is a
@@ -140,12 +151,12 @@ fn serialize<C: Alloc>(
   request: ConformanceRequest,
   message: TestAllTypesProto3,
 ): ConformanceResponse {
-  if (request.requestedOutputFormat == WireFormat.PROTOBUF) {
+  if (format(request) == WireFormat.PROTOBUF) {
     ConformanceResponse {
       ..defaultConformanceResponse(),
       result: .Some(.ProtobufPayload(encodeTestAllTypesProto3(ctx, message))),
     }
-  } else if (request.requestedOutputFormat == WireFormat.JSON) {
+  } else if (format(request) == WireFormat.JSON) {
     let text = json.stringify(ctx, encodeTestAllTypesProto3Json(ctx, message));
     ConformanceResponse {
       ..defaultConformanceResponse(),

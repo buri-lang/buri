@@ -13,7 +13,7 @@ an incremental cache keyed on content rather than on timestamps.
 | [`LIBRARIES.md`](./cli/src/docs/build/libraries.md) | `lib.buri` as the only public surface, re-exports, import resolution |
 | [`TAGS.md`](./cli/src/docs/build/tags.md) | Build outputs, tags and the policy attached to them, platform restrictions |
 | [`TESTING.md`](./cli/src/docs/build/testing.md) | The `test` declaration, the test platform, what a test can reach |
-| [`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md) | `REPO.buri`: toolchain pin, tag vocabulary, defaults, lint policy |
+| [`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md) | `REPO.buri`: the tag vocabulary, and what a repository-wide file deliberately does not hold |
 | [`CLI.md`](./cli/src/docs/build/cli.md) | `buri build`, `test`, `run`, `format`, `lint`, `gen`, `query` |
 | [`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md) | Sandboxing, action graph, cache keys, incrementality |
 | [`schema/build.proto`](./cli/src/docs/schema/build.proto) | The normative schema for `BUILD.buri` |
@@ -23,7 +23,7 @@ an incremental cache keyed on content rather than on timestamps.
 ## The shape of a repository
 
 ```
-REPO.buri                     # repository root, toolchain pin, tag vocabulary
+REPO.buri                     # repository root, tag vocabulary
 lib/
   money/
     BUILD.buri                # declares //lib/money

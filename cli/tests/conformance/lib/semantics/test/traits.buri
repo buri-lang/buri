@@ -361,7 +361,7 @@ test "a bound of mine and a bound from core/order together" {
 
 test "a trait method inside a lambda inside a bounded generic" {
   assert.eq(totalGrams([Feather { count: 1 }]), 1);
-  assert.eq(totalGrams(list.empty::<Feather>()), 0);
+  assert.eq(totalGrams(list.empty<Feather>()), 0);
 }
 
 test "area matches on all three payload shapes" {

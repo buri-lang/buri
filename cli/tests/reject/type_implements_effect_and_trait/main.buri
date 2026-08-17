@@ -9,6 +9,7 @@ struct SilentOut {}
 impl Stdout for SilentOut {
   fn print(self: SilentOut, text: Template): () { () }
   fn println(self: SilentOut, text: Template): () { () }
+  fn writeBytes(self: SilentOut, b: [U8]): () { () }
 }
 
 impl Show for SilentOut {

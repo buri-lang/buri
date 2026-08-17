@@ -107,23 +107,93 @@ pub enum JsModule {
     Cjs,
 }
 
-#[derive(Clone, Debug, Default)]
+/// A platform that produces a machine artifact.
+///
+/// `Platform::Js` is deliberately not one of these. JavaScript is not built per
+/// machine, so an `arch` alongside it is meaningless — and the way to say that
+/// is for the two to live in different variants of [`OutputTarget`] rather than
+/// for a diagnostic to be the only thing standing between the reader and a
+/// value whose `arch` half the rest of the toolchain then disagrees about.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NativePlatform {
+    Linux,
+    Macos,
+}
+
+impl NativePlatform {
+    pub fn platform(self) -> Platform {
+        match self {
+            NativePlatform::Linux => Platform::Linux,
+            NativePlatform::Macos => Platform::Macos,
+        }
+    }
+}
+
+/// What an output is built for. The two variants carry exactly the fields their
+/// side has: an `arch` only exists for a native build, and a module kind only
+/// exists for a JavaScript one.
+#[derive(Clone, Debug)]
+pub enum OutputTarget {
+    Native { platform: NativePlatform, arch: Option<Sp<Arch>> },
+    Js { module: JsModule },
+}
+
+/// One entry of a binary's `outputs`.
+///
+/// A platform is required — the reader rejects an entry without one rather than
+/// producing a value three modules would then each invent a different default
+/// for.
+#[derive(Clone, Debug)]
 pub struct Output {
-    pub platform: Option<Sp<Platform>>,
-    pub arch: Option<Sp<Arch>>,
+    pub target: OutputTarget,
     pub artifact_name: Option<String>,
-    pub js_module: JsModule,
     pub span: Span,
 }
 
 impl Output {
+    /// The default output: this toolchain emits JavaScript.
+    pub fn js(span: Span) -> Output {
+        Output { target: OutputTarget::Js { module: JsModule::Esm }, artifact_name: None, span }
+    }
+
+    /// An output for a platform chosen at run time, as `buri test` does.
+    pub fn for_platform(platform: Platform, span: Span) -> Output {
+        let target = match platform {
+            Platform::Js => OutputTarget::Js { module: JsModule::Esm },
+            Platform::Linux => {
+                OutputTarget::Native { platform: NativePlatform::Linux, arch: None }
+            }
+            Platform::Macos => {
+                OutputTarget::Native { platform: NativePlatform::Macos, arch: None }
+            }
+        };
+        Output { target, artifact_name: None, span }
+    }
+
+    pub fn platform(&self) -> Platform {
+        match &self.target {
+            OutputTarget::Native { platform, .. } => platform.platform(),
+            OutputTarget::Js { .. } => Platform::Js,
+        }
+    }
+
+    pub fn arch(&self) -> Option<Arch> {
+        match &self.target {
+            OutputTarget::Native { arch, .. } => arch.as_ref().map(|a| a.value),
+            OutputTarget::Js { .. } => None,
+        }
+    }
+
     /// `linux-x86_64`, `js` — the directory under `.buri/out/`.
     pub fn dir(&self) -> String {
-        let p = self.platform.as_ref().map(|p| p.value).unwrap_or(Platform::Linux);
-        match (p, &self.arch) {
-            (Platform::Js, _) => "js".to_string(),
-            (p, Some(a)) => format!("{}-{}", p.slug(), a.value.slug()),
-            (p, None) => p.slug().to_string(),
+        match &self.target {
+            OutputTarget::Js { .. } => "js".to_string(),
+            OutputTarget::Native { platform, arch: Some(a) } => {
+                format!("{}-{}", platform.platform().slug(), a.value.slug())
+            }
+            OutputTarget::Native { platform, arch: None } => {
+                platform.platform().slug().to_string()
+            }
         }
     }
 
@@ -131,8 +201,7 @@ impl Output {
     /// `linux/x86_64`, and `linux-x86_64`.
     pub fn matches_selector(&self, sel: &str) -> bool {
         let sel = sel.replace('/', "-");
-        self.dir() == sel
-            || self.platform.as_ref().is_some_and(|p| p.value.slug() == sel)
+        self.dir() == sel || self.platform().slug() == sel
     }
 }
 
@@ -144,7 +213,6 @@ pub struct TestSuite {
     pub timeout_seconds: Option<u32>,
     pub platforms: Vec<Sp<Platform>>,
     pub span: Span,
-    pub present: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -152,7 +220,6 @@ pub struct TestingSurface {
     pub sources: Vec<Sp<String>>,
     pub dependencies: Vec<Sp<String>>,
     pub span: Span,
-    pub present: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -164,9 +231,16 @@ pub struct Library {
     pub dependencies: Vec<Sp<String>>,
     pub tags: Vec<Sp<String>>,
     pub platforms: Vec<Sp<Platform>>,
-    pub visibility: Vec<Sp<String>>,
-    pub test: TestSuite,
-    pub testing: TestingSurface,
+    /// Parsed here rather than at every consumer: an entry that is not a
+    /// visibility is a diagnostic, in the same place and the same way a bad
+    /// `platforms` entry is, instead of an unparseable string that silently
+    /// makes the library visible to nobody.
+    pub visibility: Vec<Sp<crate::build::workspace::Visibility>>,
+    /// The rule's suite, present exactly when the build file writes a `test`
+    /// block. An absent block and an empty one are different claims, and the
+    /// `empty-test-suite` lint exists to tell them apart.
+    pub test: Option<TestSuite>,
+    pub testing: Option<TestingSurface>,
     pub span: Span,
 }
 
@@ -177,7 +251,7 @@ pub struct Binary {
     pub dependencies: Vec<Sp<String>>,
     pub tags: Vec<Sp<String>>,
     pub outputs: Vec<Output>,
-    pub test: TestSuite,
+    pub test: Option<TestSuite>,
     pub span: Span,
 }
 
@@ -185,14 +259,6 @@ pub struct Binary {
 pub struct BuildFile {
     pub library: Option<Library>,
     pub binary: Option<Binary>,
-    pub file: Option<FileId>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Toolchain {
-    pub version: String,
-    pub sha256: String,
-    pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -206,9 +272,7 @@ pub struct Tag {
 
 #[derive(Clone, Debug, Default)]
 pub struct RepoConfig {
-    pub toolchain: Toolchain,
     pub tags: Vec<Tag>,
-    pub file: Option<FileId>,
 }
 
 impl RepoConfig {
@@ -345,6 +409,25 @@ impl Reader {
         out
     }
 
+    /// `visibility`, parsed. The shape mirrors `platforms`: a bad entry is
+    /// reported where it is written and dropped, rather than carried forward as
+    /// a string.
+    fn visibility(&mut self, msg: &Msg) -> Vec<Sp<crate::build::workspace::Visibility>> {
+        let mut out = Vec::new();
+        for entry in self.strings(msg, "visibility") {
+            match crate::build::workspace::Visibility::parse(&entry.value) {
+                Ok(v) => out.push(Sp::new(v, entry.span)),
+                Err(why) => self.err(
+                    entry.span,
+                    why,
+                    "the forms are `//visibility:public`, `//visibility:private`, `//pkg`, \
+                     `//pkg/...` and `//...`",
+                ),
+            }
+        }
+        out
+    }
+
     fn sub_msg<'a>(&mut self, msg: &'a Msg, name: &str) -> Option<(&'a Msg, Span)> {
         let f = msg.get(name)?;
         match &f.value {
@@ -357,37 +440,31 @@ impl Reader {
         }
     }
 
-    fn test_suite(&mut self, parent: &Msg) -> TestSuite {
-        let Some((m, span)) = self.sub_msg(parent, "test") else {
-            return TestSuite::default();
-        };
+    fn test_suite(&mut self, parent: &Msg) -> Option<TestSuite> {
+        let (m, span) = self.sub_msg(parent, "test")?;
         self.check_known(
             m,
             &["sources", "dependencies", "data", "timeout_seconds", "platforms"],
             "a `test` block",
         );
-        TestSuite {
+        Some(TestSuite {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
             data: self.strings(m, "data"),
             timeout_seconds: self.u32_field(m, "timeout_seconds"),
             platforms: self.platforms(m, "platforms"),
             span,
-            present: true,
-        }
+        })
     }
 
-    fn testing_surface(&mut self, parent: &Msg) -> TestingSurface {
-        let Some((m, span)) = self.sub_msg(parent, "testing") else {
-            return TestingSurface::default();
-        };
+    fn testing_surface(&mut self, parent: &Msg) -> Option<TestingSurface> {
+        let (m, span) = self.sub_msg(parent, "testing")?;
         self.check_known(m, &["sources", "dependencies"], "a `testing` block");
-        TestingSurface {
+        Some(TestingSurface {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
             span,
-            present: true,
-        }
+        })
     }
 
     fn outputs(&mut self, msg: &Msg) -> Vec<Output> {
@@ -448,23 +525,6 @@ impl Reader {
                     }
                 });
 
-                // `arch` is ignored, and must be unset, when platform is JS.
-                if let (Some(p), Some(a)) = (&platform, &arch) {
-                    if p.value == Platform::Js {
-                        self.errors.push(
-                            Diagnostic::error(a.span, "a JS output has no architecture")
-                                .with_fix("remove `arch`; JavaScript is not built per machine"),
-                        );
-                    }
-                }
-                if platform.is_none() {
-                    self.err(
-                        *span,
-                        "an output must name a platform",
-                        "add `platform: LINUX`, `MACOS`, or `JS`",
-                    );
-                }
-
                 let artifact_name = self.string(m, "artifact_name");
                 let mut js_module = JsModule::Esm;
                 if let Some((jm, _)) = self.sub_msg(m, "js") {
@@ -488,7 +548,38 @@ impl Reader {
                         }
                     }
                 }
-                out.push(Output { platform, arch, artifact_name, js_module, span: *span });
+
+                // A platform is what an output *is*, so an entry without one is
+                // rejected and dropped rather than carried forward for each
+                // consumer to guess about.
+                let Some(platform) = platform else {
+                    self.err(
+                        *span,
+                        "an output must name a platform",
+                        "add `platform: LINUX`, `MACOS`, or `JS`",
+                    );
+                    continue;
+                };
+                let target = match platform.value {
+                    Platform::Js => {
+                        // `arch` is ignored, and must be unset, when the
+                        // platform is JS.
+                        if let Some(a) = &arch {
+                            self.errors.push(
+                                Diagnostic::error(a.span, "a JS output has no architecture")
+                                    .with_fix("remove `arch`; JavaScript is not built per machine"),
+                            );
+                        }
+                        OutputTarget::Js { module: js_module }
+                    }
+                    Platform::Linux => {
+                        OutputTarget::Native { platform: NativePlatform::Linux, arch }
+                    }
+                    Platform::Macos => {
+                        OutputTarget::Native { platform: NativePlatform::Macos, arch }
+                    }
+                };
+                out.push(Output { target, artifact_name, span: *span });
             }
         }
         out
@@ -505,7 +596,7 @@ pub fn nearest<'a>(word: &str, known: &[&'a str]) -> Option<&'a str> {
     for k in known {
         let d = edit_distance(word, k);
         // Only suggest something genuinely close.
-        let limit = (word.len().max(k.len()) / 3).max(1) + 1;
+        let limit = (word.len().max(k.len()) / 3).max(1).saturating_add(1);
         if d > limit {
             continue;
         }
@@ -521,19 +612,28 @@ pub fn nearest<'a>(word: &str, known: &[&'a str]) -> Option<&'a str> {
 }
 
 pub fn edit_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut cur = vec![0usize; b.len() + 1];
-    for i in 1..=a.len() {
-        cur[0] = i;
-        for j in 1..=b.len() {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+    let mut cur: Vec<usize> = Vec::with_capacity(prev.len());
+    for (i, ca) in a.chars().enumerate() {
+        cur.clear();
+        // `left` is the cell to the left in the row being built, and
+        // `windows(2)` hands out the two cells above it — the whole
+        // recurrence, with no index to get off by one.
+        let mut left = i.saturating_add(1);
+        cur.push(left);
+        for (cb, above) in b.iter().zip(prev.windows(2)) {
+            let [diagonal, up] = above else { break };
+            let cost = usize::from(ca != *cb);
+            left = up
+                .saturating_add(1)
+                .min(left.saturating_add(1))
+                .min(diagonal.saturating_add(cost));
+            cur.push(left);
         }
         std::mem::swap(&mut prev, &mut cur);
     }
-    prev[b.len()]
+    prev.last().copied().unwrap_or(0)
 }
 
 pub struct ReadResult<T> {
@@ -569,7 +669,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
             dependencies: r.strings(m, "dependencies"),
             tags: r.strings(m, "tags"),
             platforms: r.platforms(m, "platforms"),
-            visibility: r.strings(m, "visibility"),
+            visibility: r.visibility(m),
             test: r.test_suite(m),
             testing: r.testing_surface(m),
             span,
@@ -610,7 +710,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     });
 
     ReadResult {
-        value: BuildFile { library, binary, file: Some(file) },
+        value: BuildFile { library, binary },
         doc: parsed.doc,
         errors: r.errors,
     }
@@ -620,19 +720,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let parsed = textproto::parse(text, file);
     let mut r = Reader { errors: parsed.errors };
     let msg = parsed.doc.as_msg();
-    r.check_known(&msg, &["toolchain", "tag"], "REPO.buri");
-
-    let toolchain = match r.sub_msg(&msg, "toolchain") {
-        Some((m, span)) => {
-            r.check_known(m, &["version", "sha256"], "a `toolchain` block");
-            Toolchain {
-                version: r.string(m, "version").unwrap_or_default(),
-                sha256: r.string(m, "sha256").unwrap_or_default(),
-                span,
-            }
-        }
-        None => Toolchain::default(),
-    };
+    r.check_known(&msg, &["tag"], "REPO.buri");
 
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.doc.all("tag") {
@@ -713,7 +801,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     }
 
     ReadResult {
-        value: RepoConfig { toolchain, tags, file: Some(file) },
+        value: RepoConfig { tags },
         doc: parsed.doc,
         errors: r.errors,
     }
@@ -739,8 +827,8 @@ library {
         assert!(r.errors.is_empty(), "{:#?}", r.errors);
         let lib = r.value.library.unwrap();
         assert_eq!(lib.sources.len(), 2);
-        assert_eq!(lib.visibility[0].value, "//visibility:public");
-        assert_eq!(lib.test.sources.len(), 1);
+        assert_eq!(lib.visibility[0].value, crate::build::workspace::Visibility::Public);
+        assert_eq!(lib.test.unwrap().sources.len(), 1);
     }
 
     #[test]
@@ -760,6 +848,16 @@ library {
         assert!(r.errors[0].message.contains("unknown field `source`"));
         // The suggestion is the fix, not background: it is the edit to make.
         assert!(r.errors[0].fix.as_deref().is_some_and(|f| f.contains("sources")));
+    }
+
+    /// A typo in a `visibility` entry is reported where it is written. Before,
+    /// it was silently discarded — which made the library private to everything
+    /// and then printed the typo back as if it were in force.
+    #[test]
+    fn a_visibility_that_is_not_one_is_an_error() {
+        let r = read_build_file("library {\n  visibility: [\"//visibility:pubic\"]\n}\n", FileId(0));
+        assert!(r.errors.iter().any(|e| e.message.contains("//visibility:pubic")), "{:#?}", r.errors);
+        assert!(r.value.library.unwrap().visibility.is_empty());
     }
 
     #[test]
@@ -786,5 +884,25 @@ library {
         let src = "tag { name: \"a\" }\ntag { name: \"a\" }\n";
         let r = read_repo_config(src, FileId(0));
         assert!(r.errors.iter().any(|e| e.message.contains("declared twice")));
+    }
+
+    /// The toolchain pin was removed, so a `REPO.buri` still carrying one is a
+    /// `REPO.buri` naming a field that does not exist — the same diagnostic any
+    /// other unknown field gets, with no special case remembering the pin.
+    ///
+    /// The fix names what the file *does* accept rather than guessing: `tag` is
+    /// nowhere near `toolchain`, and a suggestion that far away would read as a
+    /// rename that never happened.
+    #[test]
+    fn a_leftover_toolchain_block_is_an_unknown_field() {
+        let src = "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n";
+        let r = read_repo_config(src, FileId(0));
+        let d = r.errors.first().expect("a removed field is still a field REPO.buri does not have");
+        assert_eq!(d.message, "unknown field `toolchain` in REPO.buri");
+        assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag"));
+        assert!(nearest("toolchain", &["tag"]).is_none(), "`tag` was suggested for `toolchain`");
+        // The block's contents are not read at all: one diagnostic, on the
+        // field that does not exist, rather than one per field inside it.
+        assert_eq!(r.errors.len(), 1, "{:#?}", r.errors);
     }
 }

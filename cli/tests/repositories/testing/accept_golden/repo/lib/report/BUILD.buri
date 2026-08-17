@@ -5,15 +5,11 @@
 # `notdata.txt` exists on disk and is not declared here, and `absent.txt` is
 # declared here and does not exist on disk. Each one is a bound on `--accept`
 # that a wrong implementation would cross.
-
 library {
-  sources: ["render.buri"]
+    sources: ["render.buri"]
 
-  test {
-    sources: ["test/render.buri"]
-    data: [
-      "test/golden/statement.txt",
-      "test/golden/absent.txt",
-    ]
-  }
+    test {
+        sources: ["test/render.buri"]
+        data: ["test/golden/statement.txt", "test/golden/absent.txt"]
+    }
 }

@@ -336,11 +336,12 @@ bound checking a lookup rather than a search (Section 5.12).
 Generic code that needs an operation no trait provides takes it as a function
 argument, as it always has: `sortBy(xs, cmp)` rather than inventing a trait.
 
-In *expression* position, explicit type arguments use the turbofish:
+In *expression* position, explicit type arguments are written on the
+expression itself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let f = identity::<Int>;
-let e: [Int] = list.empty::<Int>();
+let f = identity<Int>;
+let e: [Int] = list.empty<Int>();
 ```
 
 ### 5.11 Equality and ordering

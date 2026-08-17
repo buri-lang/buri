@@ -11,7 +11,7 @@ use crate::compiler::semantics::inference::{Infer, LitCheck};
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{self, Diagnostic, Span};
+use crate::diagnostics::{self, Diagnostic, Invariant as _, Span};
 use crate::parsing::tree;
 
 /// What a callee names, when it names something statically.
@@ -104,7 +104,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let expected = ann.map(|t| {
             let generics = self.generics.clone();
-            self.c.elaborate(self.module, &generics, t, None)
+            self.c.elaborate(self.module, &generics, t)
         });
         let value_hir = self.check_expr(value, expected.as_ref());
         if let Some(exp) = &expected {
@@ -174,6 +174,34 @@ impl<'a, 'b> Infer<'a, 'b> {
         matches!(self.resolve(ty), Ty::Con(id, _) if self.c.known_types.get("Option") == Some(&id))
     }
 
+    /// `T`, when `ty` is `Option<T>`. Asking the question and reading the
+    /// payload are one step, so the arity cannot be checked in one place and
+    /// relied on in another.
+    fn option_payload<'t>(&self, ty: &'t Ty) -> Option<&'t Ty> {
+        match ty {
+            Ty::Con(id, args) if self.c.known_types.get("Option") == Some(id) => {
+                match args.as_slice() {
+                    [inner] => Some(inner),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `(T, E)`, when `ty` is `Result<T, E>`.
+    fn result_payload<'t>(&self, ty: &'t Ty) -> Option<(&'t Ty, &'t Ty)> {
+        match ty {
+            Ty::Con(id, args) if self.c.known_types.get("Result") == Some(id) => {
+                match args.as_slice() {
+                    [ok, err] => Some((ok, err)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Expressions
     // -----------------------------------------------------------------------
@@ -196,7 +224,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let ty = self.prim(Prim::Template);
             return typed::Expr::new(
                 typed::ExprKind::Template {
-                    parts: vec![typed::TemplatePart { text: None, hole: Some(e) }],
+                    parts: vec![typed::TemplatePart::Hole(e)],
                 },
                 ty,
                 span,
@@ -328,7 +356,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                         None => {
                             let n = elems.len();
                             self.err(*index_span, format!("a {n}-tuple has no element {index}"))
-                                .fix(format!("the elements are `.0` through `.{}`", n - 1));
+                                .fix(format!(
+                                    "the elements are `.0` through `.{}`",
+                                    n.saturating_sub(1)
+                                ));
                             self.error_expr(*span)
                         }
                     },
@@ -392,15 +423,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                 )
             }
             tree::Expr::Try { base, span } => self.check_try(base, *span),
-            tree::Expr::TurboFish { base, args, span } => {
-                // A turbofish only ever qualifies a callee; on its own it is a
-                // function reference.
+            tree::Expr::Generic { base, args, span } => {
+                // Type arguments only ever qualify a callee; on their own
+                // they are a function reference.
                 let targs = self.elaborate_all(args);
                 match self.static_ref(base) {
                     Some(Static::Fn(f)) => self.fn_ref(f, Some(targs), *span),
                     _ => {
                         self.err(*span, "explicit type arguments qualify a function or a call")
-                        .fix("attach the turbofish to the call, as in `f::<Str>(x)`");
+                        .code("type-args-on-a-value")
+                        .fix("attach the type arguments to the call, as in `f<Str>(x)`");
                         self.error_expr(*span)
                     }
                 }
@@ -413,7 +445,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn elaborate_all(&mut self, args: &[tree::TypeExpr]) -> Vec<Ty> {
         let generics = self.generics.clone();
-        args.iter().map(|a| self.c.elaborate(self.module, &generics, a, None)).collect()
+        args.iter().map(|a| self.c.elaborate(self.module, &generics, a)).collect()
     }
 
     fn option_of(&self, t: Ty) -> Ty {
@@ -431,7 +463,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Some(local) = self.lookup_local(name) {
             return typed::Expr::new(typed::ExprKind::Local(local), self.local_ty(local), span);
         }
-        let sym = self.c.scopes[self.module.index()].names.get(name).cloned();
+        let sym = self.c.scope(self.module).names.get(name).cloned();
         match sym {
             Some(Sym::Fn(f)) => self.fn_ref(f, None, span),
             Some(Sym::Const(cid)) => {
@@ -469,7 +501,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     })
                     .collect();
                 self.err(span, format!("`{name}` is ambiguous as a free function"))
-                    .fix(format!("call it on a receiver, which is what picks the one you mean"))
+                    .fix("call it on a receiver, which is what picks the one you mean")
                     .notes
                     .push(format!(
                         "it is a method on several types: {}",
@@ -485,7 +517,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => {
                 let _ = expected;
                 let mut note = None;
-                if self.c.scopes[self.module.index()].namespaces.contains_key(name) {
+                if self.c.scope(self.module).namespaces.contains_key(name) {
                     note = Some(format!("`{name}` is a module namespace; name a member of it"));
                 } else if let Some(near) = self.nearest_value(name) {
                     note = Some(format!("did you mean `{near}`?"));
@@ -510,7 +542,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn nearest_value(&self, name: &str) -> Option<String> {
         let mut candidates: Vec<String> =
             self.scopes.iter().flat_map(|s| s.keys().cloned()).collect();
-        candidates.extend(self.c.scopes[self.module.index()].names.keys().cloned());
+        candidates.extend(self.c.scope(self.module).names.keys().cloned());
         let refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
         nearest(name, &refs).map(|s| s.to_string())
     }
@@ -522,7 +554,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
         let ret = substitute(&info.ret, &targs, None);
         let ty = Ty::Fn(params, Box::new(ret));
-        typed::Expr::new(typed::ExprKind::FnRef(f, targs), ty, span)
+        typed::Expr::new(typed::ExprKind::FnRef(typed::Callee::Decl { id: f, targs }), ty, span)
     }
 
     /// Fresh variables for a generic item's parameters, with each bound
@@ -561,7 +593,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if self.lookup_local(name).is_some() {
                     return None;
                 }
-                match self.c.scopes[self.module.index()].names.get(name).cloned()? {
+                match self.c.scope(self.module).names.get(name).cloned()? {
                     Sym::Fn(f) => Some(Static::Fn(f)),
                     Sym::Context(c) => Some(Static::Context(c)),
                     Sym::Const(c) => Some(Static::Const(c)),
@@ -575,7 +607,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     return None;
                 }
                 // `list.map` — a member of a namespace import.
-                if let Some(ns) = self.c.scopes[self.module.index()].namespaces.get(head).copied() {
+                if let Some(ns) = self.c.scope(self.module).namespaces.get(head).copied() {
                     return match self.c.lookup_export_pub(ns, &name.name)? {
                         Sym::Fn(f) => Some(Static::Fn(f)),
                         Sym::Context(c) => Some(Static::Context(c)),
@@ -586,14 +618,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 // `Shape.Circle` — a qualified variant.
                 if let Some(Sym::Ty(con)) =
-                    self.c.scopes[self.module.index()].names.get(head).cloned()
+                    self.c.scope(self.module).names.get(head).cloned()
                 {
                     let index = self.c.tables.tycon(con).variant_index(&name.name)?;
                     return Some(Static::Variant(con, index));
                 }
                 None
             }
-            tree::Expr::TurboFish { base, .. } => self.static_ref(base),
+            tree::Expr::Generic { base, .. } => self.static_ref(base),
             _ => None,
         }
     }
@@ -660,13 +692,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         let explicit = match callee {
-            tree::Expr::TurboFish { args: targs, .. } => Some(self.elaborate_all(targs)),
+            tree::Expr::Generic { args: targs, .. } => Some(self.elaborate_all(targs)),
             _ => None,
         };
 
         // A method call has no production of its own: it is a `Field` whose
         // base is a value.
-        if let tree::Expr::Field { base, name, .. } = strip_turbofish(callee) {
+        if let tree::Expr::Field { base, name, .. } = strip_type_args(callee) {
             if self.static_ref(callee).is_none() {
                 return self.check_method_call(base, name, args, explicit, span, expected);
             }
@@ -704,8 +736,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 .into(),
                         );
                 }
-                let ty = match self.c.tables.ctx_decl(cid).ty {
-                    Some(t) => Ty::Ctx(t),
+                let ty = match self.c.tables.ctx_decl(cid).checked {
+                    Some(c) => Ty::Ctx(c.ty),
                     None => Ty::Error,
                 };
                 typed::Expr::new(typed::ExprKind::CtxCall { decl: cid }, ty, span)
@@ -785,7 +817,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             let _ = self.subst.unify(&self.c.tables, &ret, exp);
         }
 
-        let expected_args = if receiver.is_some() { params.len() - 1 } else { params.len() };
+        // A method's receiver takes the first parameter. A trait may declare
+        // a method with no `self` at all, and an `impl` of it is still reached
+        // through the method table, so the subtraction is saturating rather
+        // than a claim about the declaration.
+        let expected_args =
+            if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
         if args.len() != expected_args {
             let name = info.name.clone();
             let have = args.len();
@@ -797,7 +834,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             .with_fix(format!("pass exactly {expected_args}"));
             // The most common cause is forgetting the context, which is always
             // the parameter right after the receiver.
-            if info.params.iter().any(|p| p.role == ParamRole::Ctx) && have + 1 == expected_args {
+            if info.params.iter().any(|p| p.role == ParamRole::Ctx)
+                && have.saturating_add(1) == expected_args
+            {
                 d = d.with_fix("pass the context: the convention is receiver first, context second, everything else after");
             }
             self.c.diags.push(d);
@@ -813,7 +852,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             hir_args.push(r);
         }
         hir_args.extend(self.check_args(args, &param_types));
-        typed::Expr::new(typed::ExprKind::CallFn { func: f, targs, args: hir_args }, ret, span)
+        typed::Expr::new(
+            typed::ExprKind::CallFn {
+                func: typed::Callee::Decl { id: f, targs },
+                args: hir_args,
+            },
+            ret,
+            span,
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -837,8 +883,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         // A field of function type is called as `(x.f)(...)`.
         if let Ty::Con(con, targs) = &recv_ty {
-            if let Some(i) = self.c.tables.tycon(*con).field_index(&name.name) {
-                let f = self.c.tables.tycon(*con).fields()[i].clone();
+            let found = self
+                .c
+                .tables
+                .tycon(*con)
+                .fields()
+                .iter()
+                .enumerate()
+                .find(|(_, f)| f.name == name.name)
+                .map(|(i, f)| (i, f.clone()));
+            if let Some((i, f)) = found {
                 self.check_field_visible(*con, &f, name.span);
                 let fty = substitute(&f.ty, targs, None);
                 let base_hir =
@@ -957,12 +1011,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // Where two bounds declare the same method name, the call is
                 // ambiguous and must be disambiguated by calling the trait
                 // method as a function.
-                if let Some((prev, _)) = found {
+                if let Some((prev, prev_index)) = found {
                     let a = self.c.tables.trait_(prev).name.clone();
                     let c = self.c.tables.trait_(*b).name.clone();
                     self.err(span, format!("`{name}` is declared by both `{a}` and `{c}`"))
                         .fix(format!("call it as a function to say which: `{a}.{name}(x, y)`"));
-                    return Some(MethodTarget::Bound(prev, found.unwrap().1));
+                    return Some(MethodTarget::Bound(prev, prev_index));
                 }
                 found = Some((*b, i));
             }
@@ -979,7 +1033,14 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        let method = self.c.tables.trait_(tid).methods[index].clone();
+        let method = self
+            .c
+            .tables
+            .trait_(tid)
+            .methods
+            .get(index)
+            .or_ice("the index is a position in this same trait's method list")
+            .clone();
         let recv_ty = self.resolve(&recv.ty);
         // A trait method's own generics come after the trait's; the receiver
         // supplies `Self`.
@@ -995,7 +1056,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         let mut hir_args = vec![recv];
-        let rest = if params.is_empty() { &[][..] } else { &params[1..] };
+        // The receiver takes the first parameter, so the arguments are checked
+        // against what is left.
+        let rest = params.split_first().map_or(&[][..], |(_, rest)| rest);
         if args.len() != rest.len() {
             let name = method.name.clone();
             let want = rest.len();
@@ -1180,8 +1243,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         let bty = self.resolve(&b.ty);
         match &bty {
             Ty::Con(con, targs) => {
-                if let Some(i) = self.c.tables.tycon(*con).field_index(&name.name) {
-                    let f = self.c.tables.tycon(*con).fields()[i].clone();
+                let found = self
+                    .c
+                    .tables
+                    .tycon(*con)
+                    .fields()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, f)| f.name == name.name)
+                    .map(|(i, f)| (i, f.clone()));
+                if let Some((i, f)) = found {
                     self.check_field_visible(*con, &f, name.span);
                     let ty = substitute(&f.ty, targs, None);
                     return typed::Expr::new(
@@ -1295,7 +1366,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         head_span: Span,
     ) -> typed::Expr {
         let tycon = self.c.tables.tycon(con).clone();
-        let variant = tycon.variants()[index].clone();
+        let variant = tycon
+            .variants()
+            .get(index)
+            .or_ice("the variant index came from this same type's variant list")
+            .clone();
 
         // A type with any unexported variant cannot be constructed outside its
         // module.
@@ -1365,7 +1440,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        // The head must be a type path, optionally with a turbofish, or the
+        // The head must be a type path, optionally with type arguments, or the
         // dot form (SPEC 14.1).
         if !head.is_type_path() {
             self.err(head.span(), "the head of a struct literal must be a type").code("struct-literal-head")
@@ -1381,7 +1456,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         let explicit = match head {
-            tree::Expr::TurboFish { args, .. } => Some(self.elaborate_all(args)),
+            tree::Expr::Generic { args, .. } => Some(self.elaborate_all(args)),
             _ => None,
         };
         let Some(con) = self.struct_lit_head(head) else {
@@ -1410,7 +1485,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut values: Vec<Option<typed::Expr>> = vec![None; decl_fields.len()];
         let mut seen: Vec<&str> = Vec::new();
         for init in fields {
-            let Some(i) = decl_fields.iter().position(|f| f.name == init.name.name) else {
+            let found = decl_fields
+                .iter()
+                .enumerate()
+                .find(|(_, f)| f.name == init.name.name)
+                .map(|(i, f)| (i, f.clone()));
+            let Some((i, decl)) = found else {
                 let t = tycon.name.clone();
                 let n = init.name.name.clone();
                 self.err(init.name.span, format!("`{t}` has no field `{n}`"))
@@ -1423,8 +1503,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .fix("delete one of the two");
             }
             seen.push(&init.name.name);
-            self.check_field_visible(con, &decl_fields[i], init.name.span);
-            let want = substitute(&decl_fields[i].ty, &targs, None);
+            self.check_field_visible(con, &decl, init.name.span);
+            let want = substitute(&decl.ty, &targs, None);
             let value = match &init.value {
                 Some(v) => {
                     let c = self.check_expr(v, Some(&want));
@@ -1438,7 +1518,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     c
                 }
             };
-            values[i] = Some(value);
+            if let Some(slot) = values.get_mut(i) {
+                *slot = Some(value);
+            }
         }
 
         match spread {
@@ -1476,12 +1558,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 let filled: Vec<typed::Expr> = values
                     .into_iter()
-                    .enumerate()
-                    .map(|(i, v)| {
+                    .zip(&decl_fields)
+                    .map(|(v, f)| {
                         v.unwrap_or_else(|| {
                             typed::Expr::new(
                                 typed::ExprKind::Error,
-                                substitute(&decl_fields[i].ty, &targs, None),
+                                substitute(&f.ty, &targs, None),
                                 span,
                             )
                         })
@@ -1495,15 +1577,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn struct_lit_head(&mut self, head: &tree::Expr) -> Option<TyConId> {
         match head {
             tree::Expr::Ident { name, .. } => {
-                match self.c.scopes[self.module.index()].names.get(name)? {
+                match self.c.scope(self.module).names.get(name)? {
                     Sym::Ty(c) => Some(*c),
                     _ => None,
                 }
             }
-            tree::Expr::TurboFish { base, .. } => self.struct_lit_head(base),
+            tree::Expr::Generic { base, .. } => self.struct_lit_head(base),
             tree::Expr::Field { base, name, .. } => {
                 let tree::Expr::Ident { name: head, .. } = &**base else { return None };
-                let ns = self.c.scopes[self.module.index()].namespaces.get(head).copied()?;
+                let ns = self.c.scope(self.module).namespaces.get(head).copied()?;
                 match self.c.lookup_export_pub(ns, &name.name)? {
                     Sym::Ty(c) => Some(c),
                     _ => None,
@@ -1542,7 +1624,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         head_span: Span,
     ) -> typed::Expr {
         let tycon = self.c.tables.tycon(con).clone();
-        let variant = tycon.variants()[index].clone();
+        let variant = tycon
+            .variants()
+            .get(index)
+            .or_ice("the variant index came from this same type's variant list")
+            .clone();
         if tycon.module != self.module && !variant.exported && tycon.module.0 != u32::MAX {
             let t = tycon.name.clone();
             let v = variant.name.clone();
@@ -1555,14 +1641,20 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let mut values: Vec<Option<typed::Expr>> = vec![None; variant.fields.len()];
         for init in fields {
-            let Some(i) = variant.fields.iter().position(|f| f.name == init.name.name) else {
+            let found = variant
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, f)| f.name == init.name.name)
+                .map(|(i, f)| (i, f.ty.clone()));
+            let Some((i, decl_ty)) = found else {
                 let v = variant.name.clone();
                 let n = init.name.name.clone();
                 self.err(init.name.span, format!("`{v}` has no field `{n}`"))
                     .fix("check the spelling, or name a field the variant declares");
                 continue;
             };
-            let want = substitute(&variant.fields[i].ty, &targs, None);
+            let want = substitute(&decl_ty, &targs, None);
             let value = match &init.value {
                 Some(v) => {
                     let c = self.check_expr(v, Some(&want));
@@ -1575,7 +1667,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     c
                 }
             };
-            values[i] = Some(value);
+            if let Some(slot) = values.get_mut(i) {
+                *slot = Some(value);
+            }
         }
         let missing: Vec<String> = variant
             .fields
@@ -1592,12 +1686,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let filled: Vec<typed::Expr> = values
             .into_iter()
-            .enumerate()
-            .map(|(i, v)| {
+            .zip(&variant.fields)
+            .map(|(v, f)| {
                 v.unwrap_or_else(|| {
                     typed::Expr::new(
                         typed::ExprKind::Error,
-                        substitute(&variant.fields[i].ty, &targs, None),
+                        substitute(&f.ty, &targs, None),
                         span,
                     )
                 })
@@ -1654,7 +1748,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let e = self.check_expr(operand, Some(&b));
                 self.unify_at(operand.span(), &e.ty.clone(), &b, "`!` takes a `Bool`");
                 return typed::Expr::new(
-                    typed::ExprKind::Prim { op: typed::PrimOp::Not, prim: Some(Prim::Bool), args: vec![e] },
+                    typed::ExprKind::Prim { op: typed::PrimOp::Not, prim: Prim::Bool, args: vec![e] },
                     b,
                     span,
                 );
@@ -1665,9 +1759,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         let prim = self.as_prim(&ty);
         match op {
             tree::UnOp::Neg => {
-                if prim.is_some_and(|p| p.is_signed() || p.is_float()) {
+                if let Some(p) = prim.filter(|p| p.is_signed() || p.is_float()) {
                     typed::Expr::new(
-                        typed::ExprKind::Prim { op: typed::PrimOp::Neg, prim, args: vec![e] },
+                        typed::ExprKind::Prim { op: typed::PrimOp::Neg, prim: p, args: vec![e] },
                         ty,
                         span,
                     )
@@ -1676,9 +1770,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             tree::UnOp::BitNot => {
-                if prim.is_some_and(|p| p.is_integer()) {
+                if let Some(p) = prim.filter(|p| p.is_integer()) {
                     typed::Expr::new(
-                        typed::ExprKind::Prim { op: typed::PrimOp::BitNot, prim, args: vec![e] },
+                        typed::ExprKind::Prim { op: typed::PrimOp::BitNot, prim: p, args: vec![e] },
                         ty,
                         span,
                     )
@@ -1691,7 +1785,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.error_expr(span)
                 }
             }
-            tree::UnOp::Not => unreachable!(),
+            // `!` returned from the match above; it cannot arrive here.
+            tree::UnOp::Not => crate::ice!("`!` is handled before the operand's type is known"),
         }
     }
 
@@ -1723,20 +1818,18 @@ impl<'a, 'b> Infer<'a, 'b> {
             B::Coalesce => {
                 let l = self.check_expr(lhs, None);
                 let lty = self.resolve(&l.ty);
-                let (inner, kind) = match &lty {
-                    Ty::Con(id, args)
-                        if self.c.known_types.get("Option") == Some(id) && args.len() == 1 =>
-                    {
-                        (args[0].clone(), typed::OptionOrResult::Option)
-                    }
-                    Ty::Con(id, args)
-                        if self.c.known_types.get("Result") == Some(id) && args.len() == 2 =>
-                    {
-                        (args[0].clone(), typed::OptionOrResult::Result)
-                    }
-                    Ty::Error => return self.error_expr(span),
-                    other => {
-                        let shown = self.show_ty(other);
+                let payload = self
+                    .option_payload(&lty)
+                    .map(|t| (t.clone(), typed::OptionOrResult::Option))
+                    .or_else(|| {
+                        self.result_payload(&lty)
+                            .map(|(ok, _)| (ok.clone(), typed::OptionOrResult::Result))
+                    });
+                let (inner, kind) = match payload {
+                    Some(found) => found,
+                    None if lty.is_error() => return self.error_expr(span),
+                    None => {
+                        let shown = self.show_ty(&lty);
                         self.err(op_span, format!("`??` takes an `Option` or a `Result`, found `{shown}`"))
                             .fix("`??` supplies a default for an absent or failed value; this one is neither");
                         return self.error_expr(span);
@@ -1791,11 +1884,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
 
         if let Some(prim_op) = arith(op) {
-            let numeric = prim.is_some_and(|p| p.is_integer() || p.is_float());
             let bitwise = matches!(op, B::BitAnd | B::BitOr | B::BitXor);
-            if numeric && (!bitwise || prim.is_some_and(|p| p.is_integer())) {
+            let usable = prim.filter(|p| {
+                (p.is_integer() || p.is_float()) && (!bitwise || p.is_integer())
+            });
+            if let Some(p) = usable {
                 return typed::Expr::new(
-                    typed::ExprKind::Prim { op: prim_op, prim, args: vec![l, r] },
+                    typed::ExprKind::Prim { op: prim_op, prim: p, args: vec![l, r] },
                     ty,
                     span,
                 );
@@ -1808,7 +1903,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 return self.error_expr(span);
             }
-            let (tr, method) = op.trait_method().unwrap();
+            let Some((tr, method)) = op.trait_method() else {
+                crate::ice!("every arithmetic operator names a trait method")
+            };
             return self.operator_trait_call(tr, method, l, Some(r), span);
         }
 
@@ -1816,10 +1913,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         let bool_ty = self.prim(Prim::Bool);
         match op {
             B::Eq | B::Ne => {
-                if prim.is_some() {
+                if let Some(pr) = prim {
                     let p = if op == B::Eq { typed::PrimOp::Eq } else { typed::PrimOp::Ne };
                     return typed::Expr::new(
-                        typed::ExprKind::Prim { op: p, prim, args: vec![l, r] },
+                        typed::ExprKind::Prim { op: p, prim: pr, args: vec![l, r] },
                         bool_ty,
                         span,
                     );
@@ -1831,7 +1928,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     typed::Expr::new(
                         typed::ExprKind::Prim {
                             op: typed::PrimOp::Not,
-                            prim: Some(Prim::Bool),
+                            prim: Prim::Bool,
                             args: vec![call],
                         },
                         bool_ty,
@@ -1840,7 +1937,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             B::Lt | B::Le | B::Gt | B::Ge => {
-                if prim.is_some() {
+                if let Some(pr) = prim {
                     let p = match op {
                         B::Lt => typed::PrimOp::Lt,
                         B::Le => typed::PrimOp::Le,
@@ -1848,7 +1945,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         _ => typed::PrimOp::Ge,
                     };
                     return typed::Expr::new(
-                        typed::ExprKind::Prim { op: p, prim, args: vec![l, r] },
+                        typed::ExprKind::Prim { op: p, prim: pr, args: vec![l, r] },
                         bool_ty,
                         span,
                     );
@@ -1857,7 +1954,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let cmp = self.operator_trait_call("Ord", "compare", l, Some(r), span);
                 self.order_test(cmp, op, span)
             }
-            _ => unreachable!(),
+            // `&&`, `||`, `??` and the arithmetic and bitwise operators all
+            // returned above, so only the comparisons reach here.
+            _ => crate::ice!("every other binary operator returns before this match"),
         }
     }
 
@@ -1899,7 +1998,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             return self.error_expr(span);
         }
         let index = self.c.tables.trait_(tid).method_index(method).unwrap_or(0);
-        let sig = self.c.tables.trait_(tid).methods[index].clone();
+        let sig = self
+            .c
+            .tables
+            .trait_(tid)
+            .methods
+            .get(index)
+            .or_ice("an operator trait is one the prelude declares, with its method")
+            .clone();
         let ret = substitute(&sig.ret, &[], Some(&ty));
         let mut args = vec![lhs];
         if let Some(r) = rhs {
@@ -1968,19 +2074,17 @@ impl<'a, 'b> Infer<'a, 'b> {
         let b = self.check_expr(base, None);
         let bty = self.resolve(&b.ty);
         let ret = self.resolve(&self.ret.clone());
-        let (inner, kind) = match &bty {
-            Ty::Con(id, args)
-                if self.c.known_types.get("Result") == Some(id) && args.len() == 2 =>
-            {
+        let result = self.result_payload(&bty).map(|(ok, err)| (ok.clone(), err.clone()));
+        let option = self.option_payload(&bty).cloned();
+        let (inner, kind) = match (result, option) {
+            (Some((ok_ty, err_ty)), _) => {
                 // The enclosing function must return `Result<_, E>`. There is
                 // no automatic error conversion; map the error explicitly.
-                match &ret {
-                    Ty::Con(rid, rargs)
-                        if self.c.known_types.get("Result") == Some(rid) && rargs.len() == 2 =>
-                    {
-                        if let Err(_) = self.subst.unify(&self.c.tables, &args[1], &rargs[1]) {
-                            let from = self.show_ty(&args[1]);
-                            let to = self.show_ty(&rargs[1]);
+                match self.result_payload(&ret).map(|(_, err)| err.clone()) {
+                    Some(ret_err) => {
+                        if self.subst.unify(&self.c.tables, &err_ty, &ret_err).is_err() {
+                            let from = self.show_ty(&err_ty);
+                            let to = self.show_ty(&ret_err);
                             self.err(
                                 span,
                                 format!("`?` would propagate `{from}`, but this function returns `{to}`"),
@@ -1991,27 +2095,25 @@ impl<'a, 'b> Infer<'a, 'b> {
                             ));
                         }
                     }
-                    _ => {
+                    None => {
                         let shown = self.show_ty(&ret);
                         self.err(span, format!("`?` on a `Result` needs a `Result` return type, not `{shown}`")).code("question-mark-mismatch")
                             .fix("return a `Result` from this function, or handle the error here with `match` or `??`");
                     }
                 }
-                (args[0].clone(), typed::OptionOrResult::Result)
+                (ok_ty, typed::OptionOrResult::Result)
             }
-            Ty::Con(id, args)
-                if self.c.known_types.get("Option") == Some(id) && args.len() == 1 =>
-            {
+            (None, Some(inner)) => {
                 if !self.is_option(&ret) {
                     let shown = self.show_ty(&ret);
                     self.err(span, format!("`?` on an `Option` needs an `Option` return type, not `{shown}`")).code("question-mark-mismatch")
                         .fix("return an `Option` from this function, or turn absence into an error with `.okOr(e)?`");
                 }
-                (args[0].clone(), typed::OptionOrResult::Option)
+                (inner, typed::OptionOrResult::Option)
             }
-            Ty::Error => return self.error_expr(span),
-            other => {
-                let shown = self.show_ty(other);
+            _ if bty.is_error() => return self.error_expr(span),
+            _ => {
+                let shown = self.show_ty(&bty);
                 self.err(span, format!("`?` takes a `Result` or an `Option`, found `{shown}`"))
                     .fix("`?` propagates a failure; this value is neither a `Result` nor an `Option`")
                     .notes
@@ -2029,15 +2131,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut out = Vec::new();
         for p in parts {
             match p {
-                tree::TemplatePart::Text(t) => {
-                    out.push(typed::TemplatePart { text: Some(t.clone()), hole: None })
-                }
+                tree::TemplatePart::Text(t) => out.push(typed::TemplatePart::Text(t.clone())),
                 tree::TemplatePart::Hole(e) => {
                     let checked = self.check_expr(e, None);
                     // Deferred: a hole holding `1 + 1` has an unresolved
                     // literal type until defaulting has run.
                     self.hole_checks.push((checked.ty.clone(), e.span()));
-                    out.push(typed::TemplatePart { text: None, hole: Some(checked) });
+                    out.push(typed::TemplatePart::Hole(checked));
                 }
             }
         }
@@ -2063,7 +2163,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
 
         self.push_scope();
-        self.lambda_depth += 1;
+        self.lambda_depth = self.lambda_depth.saturating_add(1);
         let outer_scopes = self.scopes.len();
         // Locals are numbered in the order they are bound, so everything this
         // lambda introduces — its parameters, its `let`s, the names its match
@@ -2076,7 +2176,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let ty = match &p.ty {
                 Some(t) => {
                     let generics = self.generics.clone();
-                    self.c.elaborate(self.module, &generics, t, None)
+                    self.c.elaborate(self.module, &generics, t)
                 }
                 None => match want_params.get(i) {
                     Some(t) if !t.is_error() => t.clone(),
@@ -2096,7 +2196,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let declared_ret = ret.map(|t| {
             let generics = self.generics.clone();
-            self.c.elaborate(self.module, &generics, t, None)
+            self.c.elaborate(self.module, &generics, t)
         });
         let expect_ret = declared_ret.clone().or(want_ret);
         // `?` is the only early exit, and it returns from the *enclosing
@@ -2123,7 +2223,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
         });
         let _ = outer_scopes;
-        self.lambda_depth -= 1;
+        self.lambda_depth = self.lambda_depth.saturating_sub(1);
         self.pop_scope();
 
         // Lambdas capture by value, and a lambda may not capture an
@@ -2140,7 +2240,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         captures.dedup();
         for c in &captures {
             if self.effect_locals.contains(c) {
-                let name = self.locals[c.index()].name.clone();
+                let name = self.local(*c).name.clone();
                 self.err(span, format!("a lambda may not capture `{name}`, which carries an effect")).code("lambda-captures-effect")
                     .fix(
                         "thread the context through a `*Ctx` combinator, which passes it in as a \
@@ -2155,8 +2255,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 break;
             }
             if self.poly_locals.contains(c) {
-                let name = self.locals[c.index()].name.clone();
-                let shown = self.show_ty(&self.locals[c.index()].ty.clone());
+                let name = self.local(*c).name.clone();
+                let shown = self.show_ty(&self.local(*c).ty.clone());
                 self.err(
                     span,
                     format!(
@@ -2290,8 +2390,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .note("a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake");
             }
             explicit.push(tid);
-            if let Some(i) = bindings.iter().position(|(t, _)| *t == tid) {
-                bindings[i] = (tid, value);
+            if let Some(slot) = bindings.iter_mut().find(|(t, _)| *t == tid) {
+                *slot = (tid, value);
             } else {
                 bindings.push((tid, value));
                 spans.push((tid, binding.span));
@@ -2346,9 +2446,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 }
 
-fn strip_turbofish(e: &tree::Expr) -> &tree::Expr {
+fn strip_type_args(e: &tree::Expr) -> &tree::Expr {
     match e {
-        tree::Expr::TurboFish { base, .. } => strip_turbofish(base),
+        tree::Expr::Generic { base, .. } => strip_type_args(base),
         other => other,
     }
 }

@@ -1,6 +1,5 @@
 # No `visibility` field, so `//visibility:private`: nothing outside this
 # package may reach it. A test suite is not an exception.
-
 library {
-  sources: ["h.buri"]
+    sources: ["h.buri"]
 }

@@ -15,7 +15,7 @@ buri gen     [targets]   regenerate sources/deps in existing BUILD.buri files
 buri query   <expr>      ask about the build graph
 buri clean               drop the local cache
 buri lsp                 language server, over stdio
-buri version             toolchain version and the REPO.buri pin
+buri version             toolchain version, and --verbose its executable's hash
 ```
 
 Target arguments accept labels and patterns (`//lib/money`,
@@ -79,7 +79,16 @@ suite as a whole rather than about one test in it:
 | | |
 |---|---|
 | `test-timeout` | The suite ran past its `test { timeout_seconds }` and was killed, so no test in it has a result. |
-| `platform-not-implemented` | A platform in `test { platforms }` that this toolchain has no backend for. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
+| `platform-not-implemented` | A platform in `test { platforms }` that this toolchain cannot produce a binary for — no backend compiled in for it, no runtime archive, or no way to link it from this host. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
+
+A suite that names a native platform this toolchain *can* build for is compiled
+and run as a native binary. There is no native test runner: a failed assertion
+aborts the process (SPEC 6.10 leaves nothing to catch), so the binary runs every
+`test` block in order and stops at the first failure. A clean native run reports
+every test in it; a failing one reports the failure and, where the suite holds
+more than one test, cannot say which block it was in. `--filter` is applied to
+the program before it is compiled, so a filtered native run does not even
+generate code for the tests it leaves out.
 
 ## `run`
 
@@ -93,6 +102,14 @@ for the host configuration and executes it — **outside** the build graph, with
 the real environment and the real filesystem. That is the point of
 `run`: it is the one command that produces a program with authority. Everything
 before it in the pipeline is hermetic. Arguments after `--` go to the program.
+
+"The host configuration" is the host's own platform where the target declares an
+output for it and this toolchain can produce one — a native backend compiled in,
+a runtime archive for this host, and a linker — and `JS` otherwise. A native
+artifact is executed directly; a JavaScript one is handed to the JavaScript
+runtime (`bun`, or whatever `BURI_JS` names). Nothing here invents an output a
+rule did not declare: a binary that declares none still gets `JS`, which is the
+one backend every program can rely on today.
 
 ## `format`
 
@@ -157,9 +174,12 @@ Build-graph rules — always errors, not configurable:
 | `tag-violation` | Two tags that forbid each other in one dependency closure. |
 | `platform-violation` | A target in the closure that does not admit the platform being built. |
 | `unknown-tag` | A `tags` entry naming no `tag` block in `REPO.buri`. Suggests the nearest declared name. |
-| `proto-schema` | A `.proto` file that is not a well-formed proto3 schema: a missing `syntax` line, a field number outside 1..536870911, an enum whose first value is not zero. |
-| `proto-unsupported` | A proto3 construct the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `required`, `google.protobuf.Any`, `import public`, or a `syntax` other than proto3. [PROTO.md](./cli/src/docs/build/proto.md) says why each one is out. |
+| `proto-edition` | A `.proto` file that does not declare `edition = "2026"` — a `syntax = "proto3"` or `proto2` file, an older edition, or no declaration at all. The fix is the migration. |
+| `proto-schema` | A `.proto` file that is not a well-formed schema: a field number outside 1..536870911, an enum whose first value is not zero, an unclosed message. |
+| `proto-unsupported` | A construct or a feature value the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `google.protobuf.Any`, `import public`, the removed `optional` and `required` labels, and the `features.…` values it cannot express — `LEGACY_REQUIRED`, `CLOSED`, `DELIMITED`, `NONE`, `LEGACY_BEST_EFFORT`. [PROTO.md](./cli/src/docs/build/proto.md) says why each one is out. |
 | `proto-unknown-type` | A field whose type names no message or enum, in this schema or in one it imports. |
+| `proto-ambiguous-type` | A field whose type names a short name two imported schemas both claim. Which one it meant is not something import order should decide, so it is asked rather than guessed. |
+| `proto-duplicate-type` | One fully-qualified name declared by two schemas. Reported whether or not anything uses it, and naming both files. |
 | `proto-import-not-found` | An `import` inside a schema naming no file. The path is written from the repository root, the way protoc resolves one against `-I.`. |
 | `proto-source-not-a-schema` | A `proto_sources` entry that is not a `.proto` file. |
 
@@ -308,6 +328,10 @@ buri clean                drop .buri/cache and .buri/out
 buri clean --outputs      drop .buri/out only
 ```
 
+A native build also stages its object files under `.buri/link/`; that directory
+is derived from the cache and goes with it, so the first line drops it and the
+second does not.
+
 Rarely needed — the cache is keyed on content, so a stale entry is a bug rather
 than a fact of life ([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md)).
 Reaching for `buri clean` to fix a build is worth reporting.
@@ -384,4 +408,4 @@ applicable" rather than "empty", which is why they are omitted rather than
 |---|---|
 | 0 | Success. For `test`, every test passed. |
 | 1 | Build, lint, or test failure — the thing you asked about is wrong. |
-| 2 | Malformed invocation, unparseable `BUILD.buri` or `REPO.buri`, toolchain hash mismatch — the thing you asked *with* is wrong. |
+| 2 | Malformed invocation, or an unparseable `BUILD.buri` or `REPO.buri` — the thing you asked *with* is wrong. |

@@ -1,5 +1,7 @@
 binary {
-  dependencies: ["//lib/wire"]
+    dependencies: ["//lib/wire"]
 
-  outputs: [{ platform: JS }]
+    outputs: [
+        { platform: JS },
+    ]
 }

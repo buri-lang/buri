@@ -12,7 +12,7 @@
 
 use crate::build::buildfile::{self, BuildFile, Platform, RepoConfig, Sp};
 use crate::build::textproto::Doc;
-use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -136,10 +136,18 @@ impl Pattern {
 
 /// A `visibility` entry. The pattern language is the same shape as a label's,
 /// plus the two `//visibility:` forms.
-#[derive(Clone, Debug)]
+///
+/// Parsed where the build file is read, so a rule's `visibility` is a list of
+/// these rather than a list of strings each consumer re-parses and each
+/// consumer is free to give up on. `//...` has its own variant rather than
+/// being `Recursive("")`, so "everything" is a thing the enum says instead of
+/// an empty string two `allows` arms have to remember to special-case.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Visibility {
     Public,
     Private,
+    /// `//...` — every package in this repository.
+    Everything,
     Package(String),
     Recursive(String),
 }
@@ -158,20 +166,32 @@ impl Visibility {
             ));
         }
         match Pattern::parse(s)? {
-            Pattern::All => Ok(Visibility::Recursive(String::new())),
+            Pattern::All => Ok(Visibility::Everything),
             Pattern::Package(p) => Ok(Visibility::Package(p)),
             Pattern::Recursive(p) => Ok(Visibility::Recursive(p)),
         }
     }
 
-    fn allows(&self, pkg_path: &str) -> bool {
+    /// How the entry is written. Diagnostics print this rather than the text
+    /// the build file held, so a rejected entry cannot be echoed back inside a
+    /// list of entries that are in force.
+    pub fn spelling(&self) -> String {
+        match self {
+            Visibility::Public => "//visibility:public".to_string(),
+            Visibility::Private => "//visibility:private".to_string(),
+            Visibility::Everything => "//...".to_string(),
+            Visibility::Package(p) => format!("//{p}"),
+            Visibility::Recursive(p) => format!("//{p}/..."),
+        }
+    }
+
+    pub fn allows(&self, pkg_path: &str) -> bool {
         match self {
             Visibility::Public => true,
             Visibility::Private => false,
+            Visibility::Everything => true,
             Visibility::Package(p) => p == pkg_path,
-            Visibility::Recursive(p) => {
-                pkg_path == p || p.is_empty() || pkg_path.starts_with(&format!("{p}/"))
-            }
+            Visibility::Recursive(p) => pkg_path == p || pkg_path.starts_with(&format!("{p}/")),
         }
     }
 }
@@ -180,10 +200,12 @@ impl Visibility {
 // Module paths
 // ---------------------------------------------------------------------------
 
+/// What a module inside a package is. There is deliberately no `Std` here: a
+/// `core/...` module has no package, no file on disk and no repository-relative
+/// name, so it is a variant of [`ModuleLoc`] rather than a kind with three
+/// fields nulled out.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ModuleKind {
-    /// A `core/...` module, shipping with the toolchain.
-    Std,
     /// `//pkg` — the library's `lib.buri`.
     LibrarySurface,
     /// `//pkg/testing` — `testing/lib.buri`.
@@ -198,15 +220,46 @@ pub enum ModuleKind {
     Proto,
 }
 
+/// Where a module path resolves to.
+///
+/// The two cases are genuinely different shapes rather than one shape with
+/// optional halves: a `core/...` module is embedded in the toolchain, so it has
+/// no package and no file, and a module in this repository always has both.
+/// Splitting them is what lets a consumer that needs the package get it without
+/// an `Option` to skip past — and there is no longer an empty `PathBuf` standing
+/// in for "there is no file".
 #[derive(Clone, Debug)]
-pub struct ModuleLoc {
+pub enum ModuleLoc {
+    /// A `core/...` module, shipping with the toolchain.
+    Std { path: String },
+    InPackage(PackageModule),
+}
+
+#[derive(Clone, Debug)]
+pub struct PackageModule {
     pub path: String,
     pub kind: ModuleKind,
-    pub pkg: Option<PkgId>,
-    /// Absolute path on disk. Empty for a `core/` module, which is embedded.
+    pub pkg: PkgId,
+    /// Absolute path on disk.
     pub file: PathBuf,
     /// Repository-relative name, used in diagnostics and in cache keys.
     pub rel: String,
+}
+
+impl ModuleLoc {
+    pub fn path(&self) -> &str {
+        match self {
+            ModuleLoc::Std { path } => path,
+            ModuleLoc::InPackage(m) => &m.path,
+        }
+    }
+
+    pub fn in_package(&self) -> Option<&PackageModule> {
+        match self {
+            ModuleLoc::Std { .. } => None,
+            ModuleLoc::InPackage(m) => Some(m),
+        }
+    }
 }
 
 /// Any module path with a `testing` segment is test-only. The rule is in the
@@ -296,7 +349,9 @@ impl Workspace {
     }
 
     pub fn pkg(&self, id: PkgId) -> &Package {
-        &self.packages[id.0 as usize]
+        self.packages
+            .get(id.0 as usize)
+            .or_ice("every PkgId is an index this table minted while loading the repository")
     }
 
     pub fn pkg_by_path(&self, path: &str) -> Option<PkgId> {
@@ -406,13 +461,13 @@ impl Workspace {
         match t.kind {
             RuleKind::Library => {
                 if let Some(l) = &p.build.library {
-                    declared.extend(l.test.dependencies.iter());
-                    declared.extend(l.testing.dependencies.iter());
+                    declared.extend(l.test.iter().flat_map(|t| t.dependencies.iter()));
+                    declared.extend(l.testing.iter().flat_map(|t| t.dependencies.iter()));
                 }
             }
             RuleKind::Binary => {
                 if let Some(b) = &p.build.binary {
-                    declared.extend(b.test.dependencies.iter());
+                    declared.extend(b.test.iter().flat_map(|t| t.dependencies.iter()));
                 }
             }
         }
@@ -444,7 +499,7 @@ impl Workspace {
             .build
             .library
             .as_ref()
-            .filter(|l| l.testing.present)
+            .filter(|l| l.testing.is_some())
             .map(|_| TargetId { pkg: id, kind: RuleKind::Library })
     }
 
@@ -472,8 +527,8 @@ impl Workspace {
                 .sources
                 .iter()
                 .chain(l.proto_sources.iter())
-                .chain(l.test.sources.iter())
-                .chain(l.testing.sources.iter());
+                .chain(l.test.iter().flat_map(|t| t.sources.iter()))
+                .chain(l.testing.iter().flat_map(|t| t.sources.iter()));
             if listed.into_iter().any(|s| s.value == rel) {
                 return Some(RuleKind::Library);
             }
@@ -482,7 +537,7 @@ impl Workspace {
             if b.sources
                 .iter()
                 .chain(b.proto_sources.iter())
-                .chain(b.test.sources.iter())
+                .chain(b.test.iter().flat_map(|t| t.sources.iter()))
                 .any(|s| s.value == rel)
             {
                 return Some(RuleKind::Binary);
@@ -517,7 +572,9 @@ impl Workspace {
                 let mut path = vec![(cur, None)];
                 let mut node = cur;
                 while let Some((p, span)) = prev.get(&node).copied() {
-                    path.last_mut().unwrap().1 = span;
+                    if let Some(last) = path.last_mut() {
+                        last.1 = span;
+                    }
                     path.push((p, None));
                     node = p;
                 }
@@ -546,13 +603,7 @@ impl Workspace {
         }
         if let Some(rest) = path.strip_prefix("core/") {
             let _ = rest;
-            return Ok(ModuleLoc {
-                path: path.to_string(),
-                kind: ModuleKind::Std,
-                pkg: None,
-                file: PathBuf::new(),
-                rel: path.to_string(),
-            });
+            return Ok(ModuleLoc::Std { path: path.to_string() });
         }
         if path == "core" {
             return Err("\"core\" is not a module; name one, as in \"core/list\"".into());
@@ -601,7 +652,13 @@ impl Workspace {
                 return Err(format!("\"{path}\" names no file ({})", self.rel_of(&file)));
             }
             let rel = self.rel_of(&file);
-            return Ok(ModuleLoc { path: path.to_string(), kind, pkg: Some(*id), file, rel });
+            return Ok(ModuleLoc::InPackage(PackageModule {
+                path: path.to_string(),
+                kind,
+                pkg: *id,
+                file,
+                rel,
+            }));
         }
         Err(format!("\"{path}\" is in no package of this repository"))
     }
@@ -643,16 +700,13 @@ impl Workspace {
         }
         let Some(lib) = &self.pkg(to.pkg).build.library else { return false };
         let from_path = &self.pkg(from).path;
-        lib.visibility
-            .iter()
-            .filter_map(|v| Visibility::parse(&v.value).ok())
-            .any(|v| v.allows(from_path))
+        lib.visibility.iter().any(|v| v.value.allows(from_path))
     }
 
     pub fn visibility_list(&self, to: TargetId) -> String {
         match &self.pkg(to.pkg).build.library {
             Some(l) if !l.visibility.is_empty() => {
-                l.visibility.iter().map(|v| v.value.clone()).collect::<Vec<_>>().join(", ")
+                l.visibility.iter().map(|v| v.value.spelling()).collect::<Vec<_>>().join(", ")
             }
             // A rule that omits `visibility` is `//visibility:private`. There
             // is no package default and no repository default.
@@ -782,7 +836,12 @@ impl Workspace {
 /// Walks the tree collecting every directory that holds a `BUILD.buri`.
 fn collect_packages(root: &Path, dir: &Path, out: &mut Vec<String>) {
     if dir.join("BUILD.buri").is_file() {
-        let rel = dir.strip_prefix(root).unwrap().display().to_string().replace('\\', "/");
+        let rel = dir
+            .strip_prefix(root)
+            .or_ice("this walk started at `root` and only ever descends, so every path is under it")
+            .display()
+            .to_string()
+            .replace('\\', "/");
         out.push(rel);
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };

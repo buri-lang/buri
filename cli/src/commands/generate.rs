@@ -6,6 +6,12 @@
 //! `timeout_seconds`, `visibility`, `outputs`, `test.data`, `test.platforms`,
 //! and every comment come back saying exactly what they said — see
 //! `crate::build::regenerate`, which does the rewriting.
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "what was rewritten, and what is out of date under `--check`, is this \
+              command's output; diagnostics still leave through `Session::emit`"
+)]
 
 use crate::build::session;
 use crate::build::workspace::PkgId;

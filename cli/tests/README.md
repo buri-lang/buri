@@ -12,8 +12,9 @@ wrong *answer* fails, not merely a program that fails to run.
 | Rejection | `cli/tests/reject/` | Programs that must **not** compile, one directory each, holding the diagnostics exactly as the terminal and `--error-format=json` print them. |
 | Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
 | Repositories | `cli/tests/repositories/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
+| Native runtime | `cli/tests/runtime_native.rs` | The `buri_rt_*` C ABI, from C: that the archive links, that the 16-byte reference-count header and drop-glue dispatch behave and leak nothing, that every abort message is byte-identical to the JavaScript backend's, and that each host capability — the two output streams and their interleaving, standard input's two forms, the filesystem, the environment, the clock, randomness, and an HTTP fetch against a socket the test owns — answers what `core/cap` declares. |
 | Incrementality | `cli/tests/incrementality.rs` | What the cache may and may not do, read off the `--explain` transcript. |
-| Hermeticity | `cli/tests/hermeticity.rs` | That an action's spawn is deterministic and a perturbed parent environment changes neither an artifact's bytes nor a suite's verdict; what the toolchain pin refuses; what two builds of one tree have to agree about; and that four concurrent builds leave the cache intact. |
+| Hermeticity | `cli/tests/hermeticity.rs` | That an action's spawn is deterministic and a perturbed parent environment changes neither an artifact's bytes nor a suite's verdict; what two builds of one tree have to agree about; and that four concurrent builds leave the cache intact. |
 | Emitted JavaScript | `cli/tests/golden_javascript/` | What the backend *compiles to*, one construct per case: the generated code, what it prints, and the release size of the whole corpus. |
 | Golden | `WEB_STDOUT` in `conformance.rs` | The exact stdout of the worked monorepo's JS binary. |
 | Protobuf conformance | `cli/tests/proto/` | Protobuf's own conformance suite against the codecs generated from a `.proto` schema — the one test here whose ground truth comes from another project. Driven by a C++ runner, so it lives outside `cargo test`; `cli/tests/proto_vectors.rs` replays recorded exchanges without it. |
@@ -70,6 +71,11 @@ case marks a shape that is pinned rather than endorsed; there are none today.
 ```
 BURI_BLESS=1 cargo test -p buri --test formatting
 ```
+
+A case named `textproto_*` is a build file rather than source — `buri format`
+has two printers and this corpus pins both — and `every_checked_in_build_file_is_formatted`
+holds the repository's own two hundred `BUILD.buri` and `REPO.buri` files to what
+the second one prints.
 
 It is deliberately outside the repository-wide walkers: an `input.buri` is
 misformatted on purpose, and a suite asking whether every source in the
@@ -165,6 +171,31 @@ Goldens are path-stable without scrubbing, because every file enters the source
 map under a repository-relative name. So `--> cmd/app/main.buri:9:6` in a
 recorded file is also a path you can open.
 
+A case about *the platform this toolchain is not* cannot write the platform
+down. `linux` names a target a mac refuses and names the host on a Linux
+runner, so a golden holding the word would be true on one machine and false on
+the next. Such a case writes a placeholder instead:
+
+```
+run { args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"] exit: 1 }
+{ platform: {{CROSS_PLATFORM_PROTO}}, arch: {{CROSS_ARCH_PROTO}} },   # in a BUILD.buri fixture
+error: the {{CROSS_PLATFORM}} backend is not implemented              # in a golden
+```
+
+The harness fills these in from a table keyed on the host — `linux/x86_64` on a
+mac, `macos/x86_64` on Linux — in the fixtures it copies into the scratch tree,
+in the manifest's own strings, and in reverse on the way back out, so that what
+is compared against a golden and what `BURI_BLESS=1` records both hold the
+placeholder. It is the same trick `<scratch>` already plays with the temporary
+path, and it means blessing on either machine writes the same file.
+
+What the pair guarantees is that the toolchain refuses it: `native_ready` ends
+in `link.rs::can_link`, which is host-only, because the runtime archive the
+binary embeds is built for the host. The two hosts' spellings are the same
+width on purpose — a caret run is as wide as the line it underlines, and no
+placeholder can stand in for one. Only the facts a case actually names are
+substituted, so every other case's goldens come back byte for byte.
+
 **The incrementality suite** reads `buri build --explain`, which prints one line
 per action with its key and whether the cache served it. The claims in
 HERMETICITY-AND-CACHING.md are about *which actions run*, and until that flag
@@ -246,3 +277,15 @@ the language:
   distinction CLI.md draws between 1 and 2.
 - **`format --check` reports without rewriting**, and formatting is a fixed
   point.
+
+`backend_agreement.rs` is the one outside `conformance.rs`, and it is about the
+*pair* of backends rather than about either: one `.buri` source compiled through
+`actions::prepare` and `backend::select` twice — JavaScript under `bun`, native
+through Cranelift or LLVM and `cc` — with the two outputs compared byte for byte.
+Every row of `design/native/VALUE-MODEL.md` §12 is a `#[test]`, so a failure
+names the row, and `every_row_of_the_table_names_a_test_that_exists` reads the
+table back and fails on a row whose test is missing. A row the native surface
+cannot reach yet gets a gap test naming the missing intrinsic *and* an
+`#[ignore]`d agreement test beside it, so neither can rot alone. It skips with a
+printed reason where `native_ready` is false or no JavaScript engine is on the
+path, and compiles to nothing with `--no-default-features`.

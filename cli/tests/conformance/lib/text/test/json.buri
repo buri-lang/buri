@@ -166,11 +166,36 @@ test "a missing comma is unexpected" {
   assert.eq(failure("[1 2]"), JsonError.Unexpected(3));
 }
 
-// `\u` is the one escape this module does not read, and it says so rather than
-// producing the wrong text.
+// An escape the grammar does not have is reported rather than guessed at.
 test "an unsupported escape is reported rather than guessed at" {
-  assert.eq(failure("\"a\\u0041\""), JsonError.BadEscape(3));
   assert.eq(failure("\"a\\qb\""), JsonError.BadEscape(3));
+}
+
+// `\uXXXX` names a UTF-16 code unit, and a character above the basic plane is
+// written as a surrogate pair. Both halves are read, and a half on its own is
+// not a character.
+test "a unicode escape is read, in either case of hex digit" {
+  assert.eq(parsed("\"a\\u0041\""), Json.Str("aA"));
+  assert.eq(parsed("\"\\u00e9\""), Json.Str("é"));
+  assert.eq(parsed("\"\\u00E9\""), Json.Str("é"));
+  // The two escapes JSON has that this module used to be missing.
+  assert.eq(parsed("\"\\b\\f\"").isNull(), false);
+}
+
+test "a surrogate pair is one character, and half of one is an error" {
+  // U+1F600, written the only way JSON can write it.
+  assert.eq(parsed("\"\\ud83d\\ude00\""), Json.Str("😀"));
+  assert.eq(failure("\"\\ud83dx\""), JsonError.BadEscape(3));
+  assert.eq(failure("\"\\ude00\""), JsonError.BadEscape(3));
+  assert.eq(failure("\"\\u00zz\""), JsonError.BadEscape(3));
+}
+
+// A raw control character is not legal inside a JSON string, so writing one has
+// to escape it — otherwise this module produces documents it cannot read.
+test "a control character is written as an escape" {
+  let ctx = Hermetic();
+  assert.eq(json.stringify(ctx, Json.Str("a\u{0001}b")), "\"a\\u0001b\"");
+  assert.eq(json.stringify(ctx, parsed("\"\\u0000\"")), "\"\\u0000\"");
 }
 
 // Parsing recurses and the recursion is not in tail position, so the limit is

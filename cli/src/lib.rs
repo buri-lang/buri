@@ -7,7 +7,7 @@
 //!     because the formatter, the linter, and the language server read the
 //!     same tree, and none of them wants the rest of the compiler.
 //!   * `compiler` — one directory per stage after parsing: `semantics`,
-//!     `transform`, `backend`, with `driver` running the front of the pipeline.
+//!     `middle`, `backend`, with `driver` running the front of the pipeline.
 //!   * `build` — what a repository declares and what the toolchain does with
 //!     it: the graph, the build files, the action cache.
 //!   * `commands` — one file per `buri` subcommand, plus the table that
@@ -25,6 +25,7 @@ pub mod compiler;
 pub mod diagnostics;
 pub mod documentation;
 pub mod formatting;
+pub mod hash;
 pub mod json;
 pub mod language_server;
 pub mod parsing;

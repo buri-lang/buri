@@ -10,6 +10,22 @@
 //! compared between two states of one tree and never recorded, because a key
 //! includes the toolchain version and would move on every release.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 use harness::*;
 
@@ -189,32 +205,20 @@ fn adding_a_tag_recompiles_nothing() {
     );
 }
 
-/// The toolchain is part of every key, because an artifact built by a
-/// different compiler is a different artifact (HERMETICITY:116).
-///
-/// The `sha256` half of the pin rather than the `version` half, and that is a
-/// consequence of the pin now being *enforced*: a `REPO.buri` naming a version
-/// this toolchain is not gets exit 2 before a key is computed
-/// (`hermeticity.rs`), so the version cannot be moved in a live repository and
-/// still be observed. Both fields go into the key the same way, and the
-/// sentinel — a `sha256` of nothing but zeros — stays a sentinel while its
-/// bytes change, which is what makes it the field this can move.
-#[test]
-fn changing_the_toolchain_pin_changes_every_key() {
-    let example = Scratch::copy_of("explain-toolchain", &example_repo());
-    let before = keys(example.run(&["build", "//cmd/web", "--explain"]).ok());
-
-    example.edit("REPO.buri", "sha256: \"0000", "sha256: \"00000");
-    let after = keys(example.run(&["build", "//cmd/web", "--explain"]).ok());
-
-    assert_eq!(before.len(), after.len(), "the action graph changed shape");
-    for (action, key) in &before {
-        assert_ne!(
-            key, &after[action],
-            "{action} kept its key across a toolchain change"
-        );
-    }
-}
+// The toolchain is part of every key, because an artifact built by a different
+// compiler is a different artifact (HERMETICITY:116) — and there is no test for
+// it here any more. There used to be: `REPO.buri` pinned a toolchain by
+// `sha256`, the pin went into the key, and moving it between *unpinned* and
+// *pinned to this executable* was a change of toolchain identity a live
+// repository could be walked through. The pin was removed, so a repository has
+// nothing left to say about which compiler builds it, and the key's toolchain
+// identity is `arguments::VERSION` — a constant compiled into the binary under
+// test, which cannot be moved without a second binary to move it to.
+//
+// What survives is `cache::tests::the_toolchain_version_is_in_every_key`, which
+// rebuilds the key field by field and fails if the version stops entering it.
+// That is the honest boundary: the property is about the key's composition, and
+// a test that drives one binary can only ever observe one version of it.
 
 /// A test suite's sources reach the suite and nothing else. This is the row
 /// the design is proudest of: editing a test may not cost a rebuild of the
@@ -342,6 +346,72 @@ fn a_test_suite_is_cached_and_force_re_runs_it() {
     );
 }
 
+/// The third direction a suite's key can move: a library the *test* code
+/// depends on.
+///
+/// `test { dependencies }` is deliberately not part of the production closure —
+/// a test dependency is not a dependency of the thing being shipped, so it must
+/// not drag its tags into the tag closure or count against `unused-dep` — and
+/// `test_key` walked the production closure. So the helper's sources were
+/// compiled into the suite and hashed into nothing, and editing one served the
+/// previous verdict for a suite whose code had changed. That is the worst
+/// failure a cache has: not slow, wrong.
+///
+/// The assertion is on behaviour rather than on the transcript. A helper that
+/// starts answering something else must turn a passing suite red, because a
+/// `run` line with a stale verdict behind it would satisfy a test that only
+/// read `--explain`.
+#[test]
+fn editing_a_test_only_dependency_re_runs_the_suite() {
+    let scratch = Scratch::repo("test-dep-key");
+    scratch.write(
+        "lib/helper/BUILD.buri",
+        "library {\n    sources: [\"h.buri\"]\n    visibility: [\"//...\"]\n}\n",
+    );
+    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h\" export { double };\n");
+    scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 2 }\n");
+    scratch.write(
+        "lib/subject/BUILD.buri",
+        "library {\n    sources: [\"x.buri\"]\n\n    test {\n        sources: \
+         [\"test/x.buri\"]\n        dependencies: [\"//lib/helper\"]\n    }\n}\n",
+    );
+    scratch.write("lib/subject/lib.buri", "from \"//lib/subject/x\" export { triple };\n");
+    scratch.write("lib/subject/x.buri", "export fn triple(n: I64): I64 { n * 3 }\n");
+    scratch.write(
+        "lib/subject/test/x.buri",
+        "from \"//lib/subject\" import { triple };\nfrom \"//lib/helper\" import { double };\n\
+         from \"core/testing/assert\" import * as assert;\n\ntest \"triple against double\" {\n  \
+         assert.eq(triple(2), double(3));\n}\n",
+    );
+
+    let first = scratch.run(&["test", "//lib/subject", "--explain"]);
+    first.ok();
+    assert_eq!(status(&first, "test //lib/subject"), "run");
+    assert_eq!(status(&scratch.run(&["test", "//lib/subject", "--explain"]), "test //lib/subject"), "cached");
+
+    // `double` now answers something else, so `triple(2) == double(3)` is
+    // false. A suite served from the cache would still say it passed.
+    scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 5 }\n");
+    let edited = scratch.run(&["test", "//lib/subject", "--explain"]);
+    assert_eq!(
+        status(&edited, "test //lib/subject"),
+        "run",
+        "editing a test-only dependency did not uncache the suite:\n{}",
+        indent(&edited.all())
+    );
+    edited.exits(1);
+    assert_eq!(
+        edited.tests_passed(),
+        0,
+        "the cache served a verdict for code that had changed:\n{}",
+        indent(&edited.all())
+    );
+
+    // That the watch set holds the same file is `watch.rs`'s to assert, beside
+    // the rest of the declared set: `watch::inputs` mirrors this key, and the
+    // two enumerations are checked where the enumeration is.
+}
+
 /// `--filter` and `--accept` are the two modes that must not be served from the
 /// cache: one runs a different subset, and the other exists to write to the
 /// source tree. A cache hit in either would be a silent wrong answer.
@@ -379,6 +449,167 @@ fn filtering_and_accepting_never_come_from_the_cache() {
         example.run(&["test", "//lib/store", "--force"]).tests_passed(),
         "a filtered run poisoned the cache with a partial result:\n{}",
         indent(&whole.all())
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The native row
+// ---------------------------------------------------------------------------
+
+/// The `codegen` row of the incrementality table: a native build emits one
+/// object per codegen unit, an edit re-emits the unit it landed in, the
+/// siblings come out of the cache, and the link runs again because one of its
+/// inputs moved (`design/native/CODEGEN-CRANELIFT.md` §7.2).
+///
+/// One test with two halves, because the honest boundary moves: until a native
+/// backend is compiled into this toolchain there is no `codegen` action to
+/// watch, and the thing that *is* true — that a native output is refused, in
+/// exactly the words `repositories/cli/output_selection` pins — is what a test
+/// can hold the toolchain to. When a backend lands, the same invocation starts
+/// producing the transcript and the second half takes over, so this does not
+/// have to be rewritten to become the test it is meant to be.
+///
+/// The claim itself is proved *now*, below the CLI, in `tests/native_link.rs`:
+/// `editing_one_unit_re_emits_exactly_that_unit` drives the same
+/// `codegen_units` path this transcript reports, with objects a C compiler
+/// made. What is missing here is the wiring, not the behaviour.
+#[test]
+fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
+    let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let scratch = Scratch::repo("explain-native");
+    scratch.write(
+        "cmd/c/BUILD.buri",
+        &format!("binary {{\n  outputs: [{{ platform: {} }}]\n}}\n", host.to_uppercase()),
+    );
+    scratch.write("cmd/c/main.buri", &program(1));
+
+    let selector = format!("--output={host}");
+    let first = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
+    if first.all().contains("backend is not implemented") {
+        // The gate wave 3c flips. Refused, and refused in the words the
+        // repository case pins — a toolchain that started half-building a
+        // native artifact would fail here rather than in a golden file nobody
+        // reran.
+        first.exits(1);
+        assert!(
+            first.stderr.contains(&format!("the {host} backend is not implemented")),
+            "a native output was refused in words nothing pins:\n{}",
+            indent(&first.all())
+        );
+        assert!(
+            !first.stdout.contains("codegen"),
+            "a toolchain with no native backend reported a codegen action:\n{}",
+            indent(&first.all())
+        );
+        return;
+    }
+
+    first.ok();
+    let units: Vec<String> = first
+        .stdout
+        .lines()
+        .filter(|l| l.split_whitespace().nth(1) == Some("codegen"))
+        .map(|l| l.to_string())
+        .collect();
+    assert!(!units.is_empty(), "a native build reported no codegen action:\n{}", indent(&first.all()));
+
+    // Nothing edited: every unit is served from the cache and the link is
+    // skipped entirely, which is the case a watch loop hits on every keystroke
+    // inside a comment.
+    let again = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
+    again.ok();
+    for line in again.stdout.lines().filter(|l| l.split_whitespace().nth(1) == Some("codegen")) {
+        assert!(
+            line.starts_with("cached"),
+            "an unchanged unit was re-emitted:\n{}",
+            indent(&again.all())
+        );
+    }
+    assert_eq!(status(&again, "link //cmd/c"), "cached");
+
+    // One module edited. Exactly one unit re-emits, and the link runs again
+    // because the ordered list of unit keys is what the link key is made of.
+    scratch.write("cmd/c/main.buri", &program(2));
+    let edited = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
+    edited.ok();
+    let ran = edited
+        .stdout
+        .lines()
+        .filter(|l| l.split_whitespace().nth(1) == Some("codegen"))
+        .filter(|l| l.starts_with("run"))
+        .count();
+    assert_eq!(ran, 1, "an edit reached {ran} units rather than one:\n{}", indent(&edited.all()));
+    assert_eq!(status(&edited, "link //cmd/c"), "run");
+}
+
+/// A suite that names a native platform is compiled and run as a native
+/// binary, and its verdict is cached on the same key a JavaScript run uses.
+///
+/// Two halves, for the same reason as the test above: on a toolchain that
+/// cannot produce a binary for this host — no backend compiled in, no runtime
+/// archive, no linker — the refusal is what is true, and it is the refusal
+/// `repositories/testing/suite_platforms` pins. The platform is the *host's*,
+/// because there is no cross-compilation (`ARCHITECTURE.md` §9) and a suite
+/// naming the other one is refused whichever machine this is.
+#[test]
+fn a_suite_naming_the_host_platform_runs_natively() {
+    let host = if cfg!(target_os = "macos") { "MACOS" } else { "LINUX" };
+    let scratch = Scratch::repo("native-suite");
+    scratch.write(
+        "lib/n/BUILD.buri",
+        &format!(
+            "library {{\n  test {{\n    sources: [\"test/n.buri\"]\n    \
+             platforms: [{host}]\n  }}\n}}\n"
+        ),
+    );
+    scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
+    scratch.write(
+        "lib/n/test/n.buri",
+        "from \"//lib/n\" import { answer };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
+    );
+
+    let first = scratch.run(&["test", "//lib/n", "--explain"]);
+    if first.all().contains("backend is not implemented") {
+        first.exits(1);
+        assert!(
+            first.stderr.contains("platform-not-implemented"),
+            "a native suite was refused in words nothing pins:\n{}",
+            indent(&first.all())
+        );
+        return;
+    }
+    first.ok();
+    assert_eq!(first.tests_passed(), 1, "a native suite ran no tests:\n{}", indent(&first.all()));
+    // The objects and the link are the build's actions, reported under the
+    // platform the suite named rather than under `js`.
+    assert!(
+        first.stdout.lines().any(|l| l.split_whitespace().nth(1) == Some("codegen")),
+        "a native suite reported no codegen action:\n{}",
+        indent(&first.all())
+    );
+
+    // The verdict cache is in front of all of it: nothing is compiled, linked
+    // or executed a second time.
+    let again = scratch.run(&["test", "//lib/n", "--explain"]);
+    again.ok();
+    assert_eq!(status(&again, "test //lib/n"), "cached");
+    assert!(
+        !again.stdout.contains("codegen"),
+        "a cached suite still ran codegen:\n{}",
+        indent(&again.all())
+    );
+
+    // And a failing test is a failing run: the process aborts, and the runner
+    // reports the failure rather than the exit status.
+    scratch.write("lib/n/lib.buri", "export fn answer(): Int { 22 }\n");
+    let failed = scratch.run(&["test", "//lib/n"]);
+    failed.exits(1);
+    assert!(
+        failed.all().contains("assert.eq failed"),
+        "a native assertion failure did not name itself:\n{}",
+        indent(&failed.all())
     );
 }
 

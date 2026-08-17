@@ -1,0 +1,16 @@
+error: edition 2023 is not accepted [proto-edition]
+ --> lib/legacy/shape.proto:1:11
+  |
+1 | edition = "2023";
+  |           ^^^^^^
+  |
+  = this reader implements edition 2026 and no other. One edition rather than a range is the same choice the toolchain makes everywhere else: a schema means one thing, and a reader that quietly accepted an older set of feature defaults would decode the file in front of it as a different file
+  = fix: write `edition = "2026";`
+error: the `optional` label is not supported [proto-unsupported]
+ --> lib/legacy/shape.proto:7:3
+  |
+7 |   optional int32 sides = 2;
+  |   ^^^^^^^^
+  |
+  = editions replaced the labels with `features.field_presence`, whose default is EXPLICIT — so a singular field already tracks presence and `optional` would say it twice
+  = fix: drop the label; write `[features.field_presence = IMPLICIT]` on the fields that should *not* track presence

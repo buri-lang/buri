@@ -1,8 +1,9 @@
 ## What it does
 
-Formats `.buri` sources and `BUILD.buri` files in place. There are no options:
-one canonical layout, so formatting is never something to argue about in
-review and never something a repository has to configure.
+Formats `.buri` sources and build files — `BUILD.buri` and `REPO.buri` — in
+place. There are no options: one canonical layout, so formatting is never
+something to argue about in review and never something a repository has to
+configure.
 
 Formatting is a fixed point — running it twice changes nothing the second time —
 which is what lets `buri gen` and `buri format` write the same file without
@@ -19,6 +20,29 @@ not a finding to report.
 Only the *leading* run moves. An import written after a declaration stays where
 it is, because moving it across that declaration could change what the module
 means.
+
+## Build files
+
+A build file is data, so its canonical form is decided the same way and by the
+same command.
+
+Fields come back in **the order the schema declares them** — `library` before
+`binary`, `sources` before `dependencies` before `test`. The order of a field
+in a build file carries no meaning, and the one order nobody has to argue about
+is the one the schema was written in. A field the schema does not know keeps
+its place at the end rather than being moved or dropped: a formatter that
+rearranged something it did not recognise would be worse than one that left it
+alone. Repeated fields — two `tag` blocks, the entries of an `outputs` list —
+keep the order they were written in, because that order is the only thing about
+them that could mean something.
+
+The rest is layout: one field per line, four-space indent, `name: value` for a
+scalar and `name { … }` for a block, a list on one line while it is short and
+one element to a line with a trailing comma when it is not, and every comment
+kept with the field beneath it.
+
+`buri gen` writes build files through this same printer, so the two cannot
+fight over a file: what `gen` leaves behind is what `format --check` accepts.
 
 The `--check` form writes nothing and exits `1` if anything would change. That
 is the form for a continuous-integration job.

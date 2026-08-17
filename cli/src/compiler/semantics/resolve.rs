@@ -19,9 +19,10 @@ use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{Diagnostic, Diagnostics, Span, SubSpan};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span, SubSpan};
 use crate::parsing::tree;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use crate::hash::{Map as HashMap, Set as HashSet};
+use std::collections::BTreeSet;
 
 /// What a name in scope refers to.
 #[derive(Clone, Debug)]
@@ -119,14 +120,14 @@ impl<'a> Checker<'a> {
             diags,
             tables: Tables::default(),
             scopes,
-            bodies: HashMap::new(),
-            const_values: HashMap::new(),
+            bodies: HashMap::default(),
+            const_values: HashMap::default(),
             entry: None,
             tests: Vec::new(),
             prim_module: ModuleId(u32::MAX),
-            surfaces: HashMap::new(),
-            known_traits: HashMap::new(),
-            known_types: HashMap::new(),
+            surfaces: HashMap::default(),
+            known_traits: HashMap::default(),
+            known_types: HashMap::default(),
             resolving: Vec::new(),
             in_self_scope: false,
         }
@@ -157,11 +158,32 @@ impl<'a> Checker<'a> {
 
     pub fn err(&mut self, span: Span, msg: impl Into<String>) -> &mut Diagnostic {
         self.diags.items.push(Diagnostic::error(span, msg));
-        self.diags.items.last_mut().unwrap()
+        self.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
     }
 
-    pub fn module(&self, id: ModuleId) -> &crate::compiler::modules::ModuleData {
-        &self.loaded.modules[id.index()]
+    /// One module's scope. `new` sizes this table to `loaded.modules`, which is
+    /// the same table every `ModuleId` indexes, so the id is always in range.
+    pub fn scope(&self, module: ModuleId) -> &ModuleScope {
+        self.scopes.get(module.index()).or_ice("every ModuleId indexes the loaded module list")
+    }
+
+    fn scope_mut(&mut self, module: ModuleId) -> &mut ModuleScope {
+        self.scopes.get_mut(module.index()).or_ice("every ModuleId indexes the loaded module list")
+    }
+
+    /// The borrow is `'a`, not `&self` — the modules live in `loaded`, which
+    /// the checker only reads, so a caller can hold the syntax tree while it
+    /// mutates the tables it is filling in. That is the difference between
+    /// iterating a module's items and cloning them: every pass below walks
+    /// `self.module(id).ast.items` while calling `&mut self` methods, and with
+    /// a `&self` borrow the only way to do that is to deep-copy the whole
+    /// tree — every body, every expression — once per pass and once per type
+    /// alias lookup. It was more than half the wall time of a build.
+    pub fn module(&self, id: ModuleId) -> &'a crate::compiler::modules::ModuleData {
+        self.loaded
+            .modules
+            .get(id.index())
+            .or_ice("every ModuleId was minted as an index into this list")
     }
 
     // -----------------------------------------------------------------------
@@ -207,7 +229,7 @@ impl<'a> Checker<'a> {
     fn collect_declarations(&mut self) {
         for m in 0..self.loaded.modules.len() {
             let id = ModuleId(m as u32);
-            let items = self.module(id).ast.items.clone();
+            let items = &self.module(id).ast.items;
             for (index, item) in items.iter().enumerate() {
                 self.collect_item(id, index as u32, item);
             }
@@ -215,7 +237,7 @@ impl<'a> Checker<'a> {
     }
 
     fn collect_item(&mut self, module: ModuleId, index: u32, item: &tree::Item) {
-        let ast_ref = AstRef { module, item: index, sub: u32::MAX };
+        let ast_ref = AstRef::Item { module, item: index };
         match item {
             tree::Item::Struct(d) => {
                 let generics = self.generic_shells(&d.generics);
@@ -315,8 +337,7 @@ impl<'a> Checker<'a> {
                     name: d.name.name.clone(),
                     module,
                     exported: d.exported,
-                    ty: None,
-                    ctor: None,
+                    checked: None,
                     span: d.name.span,
                     ast: ast_ref,
                 });
@@ -329,7 +350,7 @@ impl<'a> Checker<'a> {
             // one file you can read top to bottom.
             tree::Item::Impl(d) if d.trait_ty.is_none() => {
                 let owner = d.self_ty.head_name().unwrap_or("?").to_string();
-                let scope = &mut self.scopes[module.index()];
+                let scope = self.scope_mut(module);
                 for method in &d.methods {
                     let sym = Sym::Method(owner.clone());
                     scope.own.entry(method.name.name.clone()).or_insert(sym.clone());
@@ -355,7 +376,7 @@ impl<'a> Checker<'a> {
     }
 
     fn declare(&mut self, module: ModuleId, name: &tree::Ident, sym: Sym, exported: bool) {
-        let scope = &mut self.scopes[module.index()];
+        let scope = self.scope_mut(module);
         if let Some(existing) = scope.own.get(&name.name) {
             // Two methods of the same name on different types are the shape
             // `core/num`'s conversions have; anything else is a redeclaration.
@@ -395,35 +416,31 @@ impl<'a> Checker<'a> {
         // Type aliases are transparent, so they are not symbols: an alias
         // resolves to whatever it names at elaboration time. They are recorded
         // per module here so `Type::Named` can find them.
-        for m in 0..self.loaded.modules.len() {
-            let _id = ModuleId(m as u32);
-            let own = self.scopes[m].own.clone();
-            self.scopes[m].names = own;
+        for scope in &mut self.scopes {
+            scope.names = scope.own.clone();
         }
 
         // Prelude names sit under everything, so a module may shadow any of
-        // them and importing one explicitly is harmless.
-        let prelude: Vec<(String, ModuleId, String)> = standard_library::PRELUDE
-            .iter()
+        // them and importing one explicitly is harmless. What each one refers
+        // to is the same in every module, so it is looked up once here rather
+        // than once per module.
+        let prelude: Vec<(String, Sym)> = standard_library::prelude()
             .filter_map(|(path, name)| {
-                self.loaded.find(path).map(|m| (name.to_string(), m, name.to_string()))
+                let from = self.loaded.find(path)?;
+                let sym = self.scope(from).exports.get(name)?.clone();
+                Some((name.to_string(), sym))
             })
             .collect();
-        for m in 0..self.loaded.modules.len() {
-            for (local, from, name) in &prelude {
-                if self.scopes[m].names.contains_key(local) {
-                    continue;
-                }
-                if let Some(sym) = self.scopes[from.index()].exports.get(name).cloned() {
-                    self.scopes[m].names.insert(local.clone(), sym);
-                }
+        for scope in &mut self.scopes {
+            for (local, sym) in &prelude {
+                scope.names.entry(local.clone()).or_insert_with(|| sym.clone());
             }
         }
 
         for m in 0..self.loaded.modules.len() {
             let id = ModuleId(m as u32);
-            let items = self.module(id).ast.items.clone();
-            for item in &items {
+            let items = &self.module(id).ast.items;
+            for item in items {
                 match item {
                     tree::Item::Import(imp) => self.apply_import(id, imp),
                     tree::Item::ReExport(re) => self.apply_reexport(id, re),
@@ -437,7 +454,7 @@ impl<'a> Checker<'a> {
         let Some(from) = self.loaded.find(&imp.path) else { return };
         match &imp.clause {
             tree::ImportClause::Namespace(alias) => {
-                self.scopes[module.index()].namespaces.insert(alias.name.clone(), from);
+                self.scope_mut(module).namespaces.insert(alias.name.clone(), from);
             }
             tree::ImportClause::Named(specs) => {
                 for spec in specs {
@@ -447,7 +464,7 @@ impl<'a> Checker<'a> {
                         let mut note = None;
                         // A name that exists but is not exported is a
                         // different mistake from a name that does not exist.
-                        if self.scopes[from.index()].own.contains_key(&name) {
+                        if self.scope(from).own.contains_key(&name) {
                             note = Some(format!(
                                 "`{name}` is declared in \"{module_path}\" but not exported"
                             ));
@@ -458,7 +475,12 @@ impl<'a> Checker<'a> {
                         // surface is what it re-exports — the declaration
                         // itself may already be exported, so pointing at it
                         // would send the reader to the wrong file.
-                        let is_surface = self.loaded.module(from).disk.file_name()
+                        let is_surface = self
+                            .loaded
+                            .module(from)
+                            .disk
+                            .as_ref()
+                            .and_then(|d| d.file_name())
                             .is_some_and(|f| f == "lib.buri");
                         let d = self.err(
                             spec.name.span,
@@ -482,7 +504,7 @@ impl<'a> Checker<'a> {
                     };
                     let local = spec.local().clone();
                     // An explicit import wins over a prelude name.
-                    self.scopes[module.index()].names.insert(local.name.clone(), sym);
+                    self.scope_mut(module).names.insert(local.name.clone(), sym);
                 }
             }
         }
@@ -503,13 +525,13 @@ impl<'a> Checker<'a> {
             // Re-exporting a name does not import it — write both declarations
             // if the module also uses it.
             let local = spec.local().name.clone();
-            self.scopes[module.index()].exports.insert(local, sym);
+            self.scope_mut(module).exports.insert(local, sym);
         }
     }
 
     /// Follows re-export chains, guarding against a cycle.
     fn lookup_export(&mut self, module: ModuleId, name: &str) -> Option<Sym> {
-        if let Some(sym) = self.scopes[module.index()].exports.get(name) {
+        if let Some(sym) = self.scope(module).exports.get(name) {
             return Some(sym.clone());
         }
         let key = (module, name.to_string());
@@ -519,22 +541,22 @@ impl<'a> Checker<'a> {
         self.resolving.push(key);
         // The re-export may not have been applied yet, if the modules were
         // visited in an unhelpful order. Resolve it on demand.
-        let items = self.module(module).ast.items.clone();
+        let items = &self.module(module).ast.items;
         let mut found = None;
-        for item in &items {
+        for item in items {
             if let tree::Item::ReExport(re) = item {
-                if re.specs.iter().any(|s| s.local().name == name) {
-                    if let Some(from) = self.loaded.find(&re.path) {
-                        let spec = re.specs.iter().find(|s| s.local().name == name).unwrap();
-                        found = self.lookup_export(from, &spec.name.name);
-                    }
-                    break;
+                let Some(spec) = re.specs.iter().find(|s| s.local().name == name) else {
+                    continue;
+                };
+                if let Some(from) = self.loaded.find(&re.path) {
+                    found = self.lookup_export(from, &spec.name.name);
                 }
+                break;
             }
         }
         self.resolving.pop();
         if let Some(sym) = &found {
-            self.scopes[module.index()].exports.insert(name.to_string(), sym.clone());
+            self.scope_mut(module).exports.insert(name.to_string(), sym.clone());
         }
         found
     }
@@ -546,7 +568,7 @@ impl<'a> Checker<'a> {
 
     fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
         let names: Vec<&str> =
-            self.scopes[module.index()].exports.keys().map(|s| s.as_str()).collect();
+            self.scope(module).exports.keys().map(|s| s.as_str()).collect();
         crate::build::buildfile::nearest(name, &names).map(|s| s.to_string())
     }
 
@@ -559,23 +581,23 @@ impl<'a> Checker<'a> {
         // parameter is effect-carrying.
         for m in 0..self.loaded.modules.len() {
             let id = ModuleId(m as u32);
-            let items = self.module(id).ast.items.clone();
-            for item in &items {
+            let items = &self.module(id).ast.items;
+            for item in items {
                 match item {
                     tree::Item::Struct(d) => {
-                        let Some(Sym::Ty(con)) = self.scopes[m].own.get(&d.name.name).cloned()
+                        let Some(Sym::Ty(con)) = self.scope(id).own.get(&d.name.name).cloned()
                         else {
                             continue;
                         };
                         let generics = self.elaborate_generics(id, &d.generics);
-                        self.tables.tycons[con.index()].generics = generics.clone();
+                        self.tables.tycon_mut(con).generics = generics.clone();
                         let def = match &d.body {
                             tree::StructBody::Record(fields) => TyDef::Struct {
                                 fields: fields
                                     .iter()
                                     .map(|f| FieldInfo {
                                         name: f.name.name.clone(),
-                                        ty: self.elaborate(id, &generics, &f.ty, Some(con)),
+                                        ty: self.elaborate(id, &generics, &f.ty),
                                         exported: f.exported,
                                         span: f.span,
                                     })
@@ -588,7 +610,7 @@ impl<'a> Checker<'a> {
                                     .enumerate()
                                     .map(|(i, f)| FieldInfo {
                                         name: i.to_string(),
-                                        ty: self.elaborate(id, &generics, &f.ty, Some(con)),
+                                        ty: self.elaborate(id, &generics, &f.ty),
                                         exported: f.exported,
                                         span: f.span,
                                     })
@@ -596,16 +618,16 @@ impl<'a> Checker<'a> {
                                 record: false,
                             },
                         };
-                        self.tables.tycons[con.index()].def = def;
+                        self.tables.tycon_mut(con).def = def;
                         self.check_unique_field_names(con);
                     }
                     tree::Item::Enum(d) => {
-                        let Some(Sym::Ty(con)) = self.scopes[m].own.get(&d.name.name).cloned()
+                        let Some(Sym::Ty(con)) = self.scope(id).own.get(&d.name.name).cloned()
                         else {
                             continue;
                         };
                         let generics = self.elaborate_generics(id, &d.generics);
-                        self.tables.tycons[con.index()].generics = generics.clone();
+                        self.tables.tycon_mut(con).generics = generics.clone();
                         let variants = d
                             .variants
                             .iter()
@@ -617,7 +639,7 @@ impl<'a> Checker<'a> {
                                             .enumerate()
                                             .map(|(i, t)| FieldInfo {
                                                 name: i.to_string(),
-                                                ty: self.elaborate(id, &generics, t, Some(con)),
+                                                ty: self.elaborate(id, &generics, t),
                                                 exported: v.exported,
                                                 span: t.span(),
                                             })
@@ -628,7 +650,7 @@ impl<'a> Checker<'a> {
                                         fs.iter()
                                             .map(|f| FieldInfo {
                                                 name: f.name.name.clone(),
-                                                ty: self.elaborate(id, &generics, &f.ty, Some(con)),
+                                                ty: self.elaborate(id, &generics, &f.ty),
                                                 exported: f.exported,
                                                 span: f.span,
                                             })
@@ -645,38 +667,37 @@ impl<'a> Checker<'a> {
                                 }
                             })
                             .collect();
-                        self.tables.tycons[con.index()].def = TyDef::Enum { variants };
+                        self.tables.tycon_mut(con).def = TyDef::Enum { variants };
                         self.check_unique_variant_names(con);
                         self.check_productive(con, d.span);
                     }
                     tree::Item::Trait(d) => {
-                        let Some(Sym::Trait(tid)) = self.scopes[m].own.get(&d.name.name).cloned()
+                        let Some(Sym::Trait(tid)) = self.scope(id).own.get(&d.name.name).cloned()
                         else {
                             continue;
                         };
                         let generics = self.elaborate_generics(id, &d.generics);
-                        self.tables.traits[tid.index()].generics = generics.clone();
-                        self.in_self_scope = true;
-                        let methods = d
-                            .methods
-                            .iter()
-                            .map(|sig| {
-                                let mut g = generics.clone();
-                                g.extend(self.elaborate_generics(id, &sig.generics));
-                                TraitMethod {
-                                    name: sig.name.name.clone(),
-                                    generics: g.clone(),
-                                    params: self.elaborate_params(id, &g, &sig.params),
-                                    ret: self.elaborate(id, &g, &sig.ret, None),
-                                    span: sig.span,
-                                }
-                            })
-                            .collect();
-                        self.tables.traits[tid.index()].methods = methods;
-                        self.in_self_scope = false;
+                        self.tables.trait_mut(tid).generics = generics.clone();
+                        let methods = self.enter_self_scope(|s| {
+                            d.methods
+                                .iter()
+                                .map(|sig| {
+                                    let mut g = generics.clone();
+                                    g.extend(s.elaborate_generics(id, &sig.generics));
+                                    TraitMethod {
+                                        name: sig.name.name.clone(),
+                                        generics: g.clone(),
+                                        params: s.elaborate_params(id, &g, &sig.params),
+                                        ret: s.elaborate(id, &g, &sig.ret),
+                                        span: sig.span,
+                                    }
+                                })
+                                .collect()
+                        });
+                        self.tables.trait_mut(tid).methods = methods;
                     }
                     tree::Item::Fn(d) => {
-                        let Some(sym) = self.scopes[m].own.get(&d.name.name).cloned() else {
+                        let Some(sym) = self.scope(id).own.get(&d.name.name).cloned() else {
                             continue;
                         };
                         let fid = match sym {
@@ -692,12 +713,12 @@ impl<'a> Checker<'a> {
                         self.elaborate_fn_signature(id, fid, d);
                     }
                     tree::Item::Const(d) => {
-                        let Some(Sym::Const(cid)) = self.scopes[m].own.get(&d.name.name).cloned()
+                        let Some(Sym::Const(cid)) = self.scope(id).own.get(&d.name.name).cloned()
                         else {
                             continue;
                         };
-                        let ty = self.elaborate(id, &[], &d.ty, None);
-                        self.tables.consts[cid.index()].ty = ty;
+                        let ty = self.elaborate(id, &[], &d.ty);
+                        self.tables.const_mut(cid).ty = ty;
                     }
                     _ => {}
                 }
@@ -707,11 +728,11 @@ impl<'a> Checker<'a> {
 
     fn elaborate_fn_signature(&mut self, module: ModuleId, fid: FnId, d: &tree::FnDecl) {
         let generics = self.elaborate_generics(module, &d.generics);
-        self.tables.fns[fid.index()].generics = generics.clone();
+        self.tables.fun_mut(fid).generics = generics.clone();
         let params = self.elaborate_params(module, &generics, &d.params);
-        let ret = self.elaborate(module, &generics, &d.ret, None);
-        self.tables.fns[fid.index()].params = params.clone();
-        self.tables.fns[fid.index()].ret = ret;
+        let ret = self.elaborate(module, &generics, &d.ret);
+        self.tables.fun_mut(fid).params = params.clone();
+        self.tables.fun_mut(fid).ret = ret;
 
         // A method is declared inside an `impl` block for its type, so a
         // `self` parameter at the top level has no receiver type to attach to.
@@ -733,19 +754,19 @@ impl<'a> Checker<'a> {
     /// two parameters and stop (SPEC 10.2).
     fn check_ctx_rule(&mut self, fid: FnId, d: &tree::FnDecl) {
         let info = self.tables.fun(fid).clone();
-        let mut ctx_count = 0;
-        let mut self_count = 0;
+        let mut ctx_count: usize = 0;
+        let mut self_count: usize = 0;
         for (i, p) in info.params.iter().enumerate() {
             match p.role {
                 ParamRole::SelfParam => {
-                    self_count += 1;
+                    self_count = self_count.saturating_add(1);
                     if i != 0 {
                         self.err(p.span, "`self` may appear only as the first parameter").code("self-not-first")
                             .fix("move it to the front, or rename it if this parameter is not the receiver");
                     }
                 }
                 ParamRole::Ctx => {
-                    ctx_count += 1;
+                    ctx_count = ctx_count.saturating_add(1);
                     let expected = if self_count > 0 { 1 } else { 0 };
                     if i != expected {
                         self.err(
@@ -821,9 +842,7 @@ impl<'a> Checker<'a> {
         let ok = match &info.ret {
             Ty::Con(id, args) => {
                 self.known_types.get("Result") == Some(id)
-                    && args.len() == 2
-                    && args[0] == unit
-                    && args[1] == str_ty
+                    && matches!(args.as_slice(), [ok, err] if *ok == unit && *err == str_ty)
             }
             _ => false,
         };
@@ -845,7 +864,7 @@ impl<'a> Checker<'a> {
             // Already reported by the parser.
             return;
         }
-        self.tables.fns[fid.index()].intrinsic = true;
+        self.tables.fun_mut(fid).intrinsic = true;
     }
 
     fn elaborate_generics(
@@ -863,7 +882,8 @@ impl<'a> Checker<'a> {
         }
         // Bounds may mention earlier parameters, so resolve them after the
         // names exist.
-        for (i, p) in params.iter().enumerate() {
+        let mut resolved: Vec<Vec<TraitId>> = Vec::new();
+        for p in params {
             let mut bounds = Vec::new();
             for b in &p.bounds {
                 match self.resolve_trait(module, b) {
@@ -882,7 +902,10 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            out[i].bounds = bounds;
+            resolved.push(bounds);
+        }
+        for (g, bounds) in out.iter_mut().zip(resolved) {
+            g.bounds = bounds;
         }
         out
     }
@@ -898,21 +921,16 @@ impl<'a> Checker<'a> {
     /// Resolves a possibly-qualified path (`Order`, `cap.Alloc`) in a module's
     /// scope.
     pub fn resolve_path(&mut self, module: ModuleId, path: &[tree::Ident]) -> Option<Sym> {
-        if path.len() == 1 {
-            return self.scopes[module.index()].names.get(&path[0].name).cloned();
+        match path {
+            [name] => self.scope(module).names.get(&name.name).cloned(),
+            // `ns.Name`, where `ns` is a namespace import. That is the only
+            // qualification there is, so a longer path names nothing.
+            [ns, name] => {
+                let from = self.scope(module).namespaces.get(&ns.name).copied()?;
+                self.lookup_export(from, &name.name)
+            }
+            _ => None,
         }
-        // `ns.Name` where `ns` is a namespace import.
-        let ns = self.scopes[module.index()].namespaces.get(&path[0].name).copied()?;
-        let mut current = ns;
-        for seg in &path[1..path.len() - 1] {
-            let _ = seg;
-            return None;
-        }
-        let last = &path[path.len() - 1].name;
-        let sym = self.lookup_export(current, last);
-        current = ns;
-        let _ = current;
-        sym
     }
 
     fn elaborate_params(
@@ -925,7 +943,7 @@ impl<'a> Checker<'a> {
             .iter()
             .map(|p| ParamInfo {
                 name: p.name.name.clone(),
-                ty: self.elaborate(module, generics, &p.ty, None),
+                ty: self.elaborate(module, generics, &p.ty),
                 role: match p.kind {
                     tree::ParamKind::SelfParam => ParamRole::SelfParam,
                     tree::ParamKind::CtxParam => ParamRole::Ctx,
@@ -943,7 +961,6 @@ impl<'a> Checker<'a> {
         module: ModuleId,
         generics: &[GenericInfo],
         t: &tree::TypeExpr,
-        inside: Option<TyConId>,
     ) -> Ty {
         match t {
             tree::TypeExpr::Unit { .. } => Ty::Unit,
@@ -959,17 +976,20 @@ impl<'a> Checker<'a> {
                 Ty::SelfTy
             }
             tree::TypeExpr::Array { elem, .. } => {
-                Ty::Array(Box::new(self.elaborate(module, generics, elem, inside)))
+                Ty::Array(Box::new(self.elaborate(module, generics, elem)))
             }
             tree::TypeExpr::Tuple { elems, .. } => Ty::Tuple(
-                elems.iter().map(|e| self.elaborate(module, generics, e, inside)).collect(),
+                elems.iter().map(|e| self.elaborate(module, generics, e)).collect(),
             ),
             tree::TypeExpr::Fn { params, ret, .. } => Ty::Fn(
-                params.iter().map(|p| self.elaborate(module, generics, p, inside)).collect(),
-                Box::new(self.elaborate(module, generics, ret, inside)),
+                params.iter().map(|p| self.elaborate(module, generics, p)).collect(),
+                Box::new(self.elaborate(module, generics, ret)),
             ),
             tree::TypeExpr::Named { path, args, span } => {
-                let name = &path[path.len() - 1].name;
+                let name = &path
+                    .last()
+                    .or_ice("the parser builds every named type from at least one identifier")
+                    .name;
                 // A generic parameter shadows everything.
                 if path.len() == 1 {
                     if let Some(i) = generics.iter().position(|g| &g.name == name) {
@@ -981,7 +1001,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 let elaborated_args: Vec<Ty> =
-                    args.iter().map(|a| self.elaborate(module, generics, a, inside)).collect();
+                    args.iter().map(|a| self.elaborate(module, generics, a)).collect();
 
                 // A type alias is transparent: `type UserId = Str` makes
                 // `UserId` and `Str` the same type.
@@ -1052,9 +1072,13 @@ impl<'a> Checker<'a> {
         args: &[Ty],
         span: Span,
     ) -> Option<Ty> {
-        let items = self.module(module).ast.items.clone();
+        // Every named type in the module reaches this, so the miss — no alias
+        // by that name, which is the overwhelmingly common case — has to cost
+        // a scan of item discriminants and nothing else. It used to clone the
+        // module's whole syntax tree first.
+        let items = &self.module(module).ast.items;
         let alias = items.iter().find_map(|i| match i {
-            tree::Item::TypeAlias(a) if a.name.name == name => Some(a.clone()),
+            tree::Item::TypeAlias(a) if a.name.name == name => Some(a),
             _ => None,
         })?;
         let generics: Vec<GenericInfo> = alias
@@ -1067,12 +1091,13 @@ impl<'a> Checker<'a> {
                 .fix(format!("supply exactly {}", generics.len()));
             return Some(Ty::Error);
         }
-        let body = self.elaborate(module, &generics, &alias.ty, None);
+        let body = self.elaborate(module, &generics, &alias.ty);
         Some(substitute(&body, args, None))
     }
 
     fn nearest_type_name(&self, module: ModuleId, name: &str) -> Option<String> {
-        let mut candidates: Vec<String> = self.scopes[module.index()]
+        let mut candidates: Vec<String> = self
+            .scope(module)
             .names
             .iter()
             .filter(|(_, s)| matches!(s, Sym::Ty(_)))
@@ -1088,7 +1113,7 @@ impl<'a> Checker<'a> {
     /// scope (SPEC 14.6).
     fn check_unique_field_names(&mut self, con: TyConId) {
         let fields = self.tables.tycon(con).fields().to_vec();
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         for f in &fields {
             if !seen.insert(f.name.clone()) {
                 let n = f.name.clone();
@@ -1164,9 +1189,9 @@ impl<'a> Checker<'a> {
     /// check can find their traits and types. Runs before signatures are
     /// elaborated, because that is where `main` is checked.
     fn register_known_names(&mut self) {
-        for (path, name) in standard_library::PRELUDE {
+        for (path, name) in standard_library::prelude() {
             if let Some(m) = self.loaded.find(path) {
-                match self.scopes[m.index()].exports.get(*name) {
+                match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {
                         self.known_traits.insert(name.to_string(), *t);
                     }
@@ -1182,7 +1207,7 @@ impl<'a> Checker<'a> {
         // time a primitive needs an implementation of either to be found.
         if let Some(m) = self.loaded.find("core/json") {
             for name in ["ToJson", "FromJson", "DecodeError", "Json"] {
-                match self.scopes[m.index()].exports.get(name) {
+                match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {
                         self.known_traits.insert(name.to_string(), *t);
                     }
@@ -1195,7 +1220,7 @@ impl<'a> Checker<'a> {
         }
         if let Some(m) = self.loaded.find("core/cap") {
             for name in ["Alloc", "IoError", "Region"] {
-                match self.scopes[m.index()].exports.get(name) {
+                match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {
                         self.known_traits.insert(name.to_string(), *t);
                     }
@@ -1235,7 +1260,7 @@ impl<'a> Checker<'a> {
 
         for m in 0..self.loaded.modules.len() {
             let id = ModuleId(m as u32);
-            let items = self.module(id).ast.items.clone();
+            let items = &self.module(id).ast.items;
             for (index, item) in items.iter().enumerate() {
                 match item {
                     tree::Item::Impl(d) => self.register_impl(id, index as u32, d),
@@ -1272,13 +1297,29 @@ impl<'a> Checker<'a> {
     }
 
     fn register_impl(&mut self, module: ModuleId, index: u32, d: &tree::ImplDecl) {
-        self.in_self_scope = true;
+        // `Self` means something only inside this declaration. Entering and
+        // leaving the scope around the *whole* body is what makes that true:
+        // four of the early returns below used to leave the flag set, so a
+        // later declaration in the same module could write `Self` outside any
+        // `trait` or `impl` and have it admitted.
+        self.enter_self_scope(|s| s.register_impl_body(module, index, d));
+    }
+
+    /// Runs `f` with `Self` in scope, restoring the previous scope afterwards
+    /// however `f` returns.
+    fn enter_self_scope<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = std::mem::replace(&mut self.in_self_scope, true);
+        let out = f(self);
+        self.in_self_scope = outer;
+        out
+    }
+
+    fn register_impl_body(&mut self, module: ModuleId, index: u32, d: &tree::ImplDecl) {
         let generics = self.elaborate_generics(module, &d.generics);
         // No `for` clause: this declares the type's own methods rather than
         // conformance to anything.
         let Some(trait_ref) = &d.trait_ty else {
             self.register_inherent_impl(module, index, d, &generics);
-            self.in_self_scope = false;
             return;
         };
         let Some(trait_id) = self.resolve_trait(module, trait_ref) else {
@@ -1288,10 +1329,9 @@ impl<'a> Checker<'a> {
                     "name a declared trait or effect after `impl`, or drop the `for` clause if \
                      `{shown}` was meant to be the type whose own methods these are"
                 ));
-            self.in_self_scope = false;
             return;
         };
-        let self_ty = self.elaborate(module, &generics, &d.self_ty, None);
+        let self_ty = self.elaborate(module, &generics, &d.self_ty);
         let Some(self_con) = self_ty.head() else {
             if !self_ty.is_error() {
                 self.err(d.self_ty.span(), "an `impl` names a declared type")
@@ -1302,9 +1342,10 @@ impl<'a> Checker<'a> {
 
         // An `impl` may appear only in the defining module of its type.
         let owner = self.tables.tycon(self_con).module;
-        let is_prim = matches!(self.tables.tycon(self_con).def, TyDef::Prim(_))
-            && standard_library::defining_module(&self.tables.tycon(self_con).name)
-                == self.module(module).path;
+        let is_prim = match self.tables.tycon(self_con).def {
+            TyDef::Prim(p) => standard_library::defining_module(p) == self.module(module).path,
+            _ => false,
+        };
         if owner != module && !is_prim {
             let name = self.tables.tycon(self_con).name.clone();
             self.err(d.self_ty.span(), format!("`{name}` is not declared in this module")).code("unresolved-name")
@@ -1389,7 +1430,7 @@ impl<'a> Checker<'a> {
             let mut g = generics.clone();
             g.extend(self.elaborate_generics(module, &method.generics));
             let params = self.elaborate_params(module, &g, &method.params);
-            let ret = self.elaborate(module, &g, &method.ret, None);
+            let ret = self.elaborate(module, &g, &method.ret);
             let fid = self.tables.add_fn(FnInfo {
                 name: method.name.name.clone(),
                 module,
@@ -1400,15 +1441,20 @@ impl<'a> Checker<'a> {
                 span: method.name.span,
                 self_ty: Some(self_con),
                 impl_of: Some((trait_id, slot)),
-                ast: AstRef { module, item: index, sub: sub as u32 },
+                ast: AstRef::Method { module, item: index, sub: sub as u32 },
                 intrinsic: method.body.is_none(),
             });
-            if supplied[slot].is_some() {
+            // `slot` is a position in `trait_methods`, which is what `supplied`
+            // was sized to, so it is always in range.
+            let already = supplied.get(slot).is_some_and(Option::is_some);
+            if already {
                 let n = method.name.name.clone();
                 self.err(method.name.span, format!("`{n}` is supplied twice"))
                     .fix("delete one of the two");
             }
-            supplied[slot] = Some(fid);
+            if let Some(cell) = supplied.get_mut(slot) {
+                *cell = Some(fid);
+            }
             self.register_method(self_con, &method.name.name, fid, method.name.span);
         }
 
@@ -1428,12 +1474,15 @@ impl<'a> Checker<'a> {
                 .note("an `impl` supplies every method its trait declares");
         }
 
-        let methods: Vec<FnId> = supplied.into_iter().map(|s| s.unwrap_or(FnId(u32::MAX))).collect();
         self.tables.impls.insert(
             (trait_id, self_con),
-            ImplInfo { trait_id, self_con, methods, span: d.span, derived: false },
+            ImplInfo {
+                trait_id,
+                self_con,
+                body: ImplBody::Written(supplied),
+                span: d.span,
+            },
         );
-        self.in_self_scope = false;
     }
 
     /// `impl Type { ... }` — the type's own methods. This is the only place a
@@ -1446,7 +1495,7 @@ impl<'a> Checker<'a> {
         d: &tree::ImplDecl,
         generics: &[GenericInfo],
     ) {
-        let self_ty = self.elaborate(module, generics, &d.self_ty, None);
+        let self_ty = self.elaborate(module, generics, &d.self_ty);
         let target = match &self_ty {
             Ty::Con(con, _) => Some(*con),
             Ty::Array(_) => None,
@@ -1465,9 +1514,12 @@ impl<'a> Checker<'a> {
             let owner = self.tables.tycon(con).module;
             // A primitive has no declaring module of its own, so its methods
             // belong to the `core` module named for it and nowhere else.
-            let is_prim = matches!(self.tables.tycon(con).def, TyDef::Prim(_))
-                && standard_library::defining_module(&self.tables.tycon(con).name)
-                    == self.module(module).path;
+            let is_prim = match self.tables.tycon(con).def {
+                TyDef::Prim(p) => {
+                    standard_library::defining_module(p) == self.module(module).path
+                }
+                _ => false,
+            };
             if owner != module && !is_prim {
                 let name = self.tables.tycon(con).name.clone();
                 self.err(d.self_ty.span(), format!("`{name}` is not declared in this module")).code("unresolved-name")
@@ -1487,7 +1539,7 @@ impl<'a> Checker<'a> {
             let mut g = generics.to_vec();
             g.extend(self.elaborate_generics(module, &method.generics));
             let params = self.elaborate_params(module, &g, &method.params);
-            let ret = self.elaborate(module, &g, &method.ret, None);
+            let ret = self.elaborate(module, &g, &method.ret);
 
             // A method is a function whose first parameter is `self`, and an
             // `impl` block is where one is declared — so anything else in here
@@ -1516,7 +1568,7 @@ impl<'a> Checker<'a> {
                 span: method.name.span,
                 self_ty: target,
                 impl_of: None,
-                ast: AstRef { module, item: index, sub: sub as u32 },
+                ast: AstRef::Method { module, item: index, sub: sub as u32 },
                 intrinsic: method.body.is_none(),
             });
             match target {
@@ -1583,13 +1635,7 @@ impl<'a> Checker<'a> {
             }
             self.tables.impls.insert(
                 (trait_id, self_con),
-                ImplInfo {
-                    trait_id,
-                    self_con,
-                    methods: Vec::new(),
-                    span: d.span,
-                    derived: true,
-                },
+                ImplInfo { trait_id, self_con, body: ImplBody::Derived, span: d.span },
             );
         }
     }
@@ -1629,7 +1675,7 @@ impl<'a> Checker<'a> {
             .tables
             .impls
             .iter()
-            .filter(|(_, i)| i.derived)
+            .filter(|(_, i)| i.is_derived())
             .map(|((t, c), i)| (*t, *c, i.span))
             .collect();
         let mut sorted = derived;
@@ -1708,8 +1754,7 @@ impl<'a> Checker<'a> {
     /// A library's `lib.buri` is its whole public surface, and a method call
     /// from outside the library resolves only to names on it.
     fn compute_surfaces(&mut self) {
-        for m in 0..self.loaded.modules.len() {
-            let module = &self.loaded.modules[m];
+        for (module, scope) in self.loaded.modules.iter().zip(&self.scopes) {
             let Some(pkg) = module.pkg else { continue };
             let is_surface = self
                 .ws
@@ -1718,8 +1763,7 @@ impl<'a> Checker<'a> {
             if !is_surface {
                 continue;
             }
-            let names: HashSet<String> =
-                self.scopes[m].exports.keys().cloned().collect();
+            let names: HashSet<String> = scope.exports.keys().cloned().collect();
             self.surfaces.insert(pkg, names);
         }
     }
@@ -1732,8 +1776,8 @@ impl<'a> Checker<'a> {
         for m in 0..self.loaded.modules.len() {
             let id = ModuleId(m as u32);
             let role = self.module(id).role;
-            let items = self.module(id).ast.items.clone();
-            for item in &items {
+            let items = &self.module(id).ast.items;
+            for item in items {
                 // `test` declarations are legal only in a test source.
                 if let tree::Item::Test(t) = item {
                     if role != Role::TestSource {

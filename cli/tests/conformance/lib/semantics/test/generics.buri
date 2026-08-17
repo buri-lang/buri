@@ -1,4 +1,5 @@
-// SPEC 5.10, 5.12.5 — generics, bounds, the turbofish, and monomorphization.
+// SPEC 5.10, 5.12.5 — generics, bounds, explicit type arguments, and
+// monomorphization.
 
 from "core/testing/assert" import * as assert;
 from "core/testing/context" import { Hermetic };
@@ -60,37 +61,37 @@ test "a three-parameter generic" {
 }
 
 // -----------------------------------------------------------------------------
-// The turbofish (SPEC 5.10)
+// Explicit type arguments (SPEC 5.10)
 // -----------------------------------------------------------------------------
 
-test "the turbofish pins a type argument at a call" {
-  assert.eq(identity::<Int>(3), 3);
+test "an explicit type argument pins a type at a call" {
+  assert.eq(identity<Int>(3), 3);
 }
 
-test "the turbofish at a second type" {
-  assert.eq(identity::<Str>("three"), "three");
+test "an explicit type argument at a second type" {
+  assert.eq(identity<Str>("three"), "three");
 }
 
-test "the turbofish on a stdlib generic" {
-  let empty: [Int] = list.empty::<Int>();
+test "an explicit type argument on a stdlib generic" {
+  let empty: [Int] = list.empty<Int>();
   assert.eq(empty.len(), 0);
   assert.eq(empty, []);
 }
 
-test "the turbofish produces a function value that can be bound" {
-  let f = identity::<Int>;
+test "explicit type arguments produce a function value that can be bound" {
+  let f = identity<Int>;
   assert.eq(f(7), 7);
 }
 
-test "two turbofished bindings of one generic are independent" {
-  let fi = identity::<Int>;
-  let fs = identity::<Str>;
+test "two type-argument bindings of one generic are independent" {
+  let fi = identity<Int>;
+  let fs = identity<Str>;
   assert.eq(fi(1), 1);
   assert.eq(fs("1"), "1");
 }
 
-test "the turbofish on a generic with a bound" {
-  assert.eq(twice::<Int>(21), 42);
+test "an explicit type argument on a generic with a bound" {
+  assert.eq(twice<Int>(21), 42);
 }
 
 // -----------------------------------------------------------------------------
@@ -120,7 +121,7 @@ test "an Ord bound uses the type's own compare, reversed or not" {
 }
 
 test "an Ord bound on an empty list gives None" {
-  assert.none(largest(list.empty::<Int>()));
+  assert.none(largest(list.empty<Int>()));
 }
 
 test "an Ord bound used twice in one expression" {

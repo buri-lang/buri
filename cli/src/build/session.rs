@@ -12,13 +12,35 @@ use crate::commands::arguments::{ErrorFormat, Flags};
 use crate::diagnostics::{Diagnostics, SourceMap};
 use std::path::PathBuf;
 
+/// How diagnostics are rendered.
+///
+/// Colour belongs to the human renderer and nowhere else — JSON carries its own
+/// rendering, and an escape sequence in it would corrupt the stream. Putting the
+/// flag inside the `Human` variant is what makes "colour, in JSON" a thing that
+/// cannot be written down, rather than a correlation one line of `open` has to
+/// keep enforcing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Rendering {
+    Human { color: bool },
+    Json,
+}
+
+impl Rendering {
+    pub fn color(self) -> bool {
+        matches!(self, Rendering::Human { color: true })
+    }
+}
+
 pub struct Session {
     pub root: PathBuf,
     pub map: SourceMap,
+    /// Parses, kept for the life of the command. A command analyses one target
+    /// at a time and every target imports the standard library, so without
+    /// this the same files are lexed and parsed once per target.
+    pub parsed: crate::parsing::parser::Cache,
     pub diags: Diagnostics,
     pub ws: Workspace,
-    pub color: bool,
-    pub error_format: ErrorFormat,
+    pub rendering: Rendering,
 }
 
 /// Finds the repository root, reads `REPO.buri`, and loads every package.
@@ -32,15 +54,13 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
     let ws = Workspace::load(&root, &mut map, &mut diags).map_err(|e| e.to_string())?;
-    // Before anything is built: a repository pinned to a compiler this is not
-    // gets a refusal rather than an artifact. Every command that needs a
-    // repository comes through here, so the pin is checked once and cannot be
-    // the one thing a new command forgets.
-    crate::build::toolchain::verify(&ws.repo.toolchain)?;
-    // JSON carries its own rendering, and escapes would corrupt it.
-    let color = flags.error_format == ErrorFormat::Human
-        && flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err());
-    Ok(Session { root, map, diags, ws, color, error_format: flags.error_format })
+    let rendering = match flags.error_format {
+        ErrorFormat::Json => Rendering::Json,
+        ErrorFormat::Human => Rendering::Human {
+            color: flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
+        },
+    };
+    Ok(Session { root, map, parsed: crate::parsing::parser::Cache::new(), diags, ws, rendering })
 }
 
 impl Session {
@@ -100,7 +120,7 @@ impl Session {
             self.emit(d);
             had_error |= d.is_error();
         }
-        self.diags.items.clear();
+        self.diags.clear();
         had_error
     }
 
@@ -114,10 +134,15 @@ impl Session {
     }
 
     /// Every diagnostic leaves through here, so the format is chosen once.
+    #[expect(
+        clippy::print_stderr,
+        reason = "this is the sink the `print_stderr` lint exists to funnel every diagnostic into; \
+                  writing them is what it is for"
+    )]
     pub fn emit(&self, d: &crate::diagnostics::Diagnostic) {
-        match self.error_format {
-            ErrorFormat::Human => eprint!("{}", self.map.render(d, self.color)),
-            ErrorFormat::Json => eprintln!("{}", self.map.to_json(d)),
+        match self.rendering {
+            Rendering::Human { color } => eprint!("{}", self.map.render(d, color)),
+            Rendering::Json => eprintln!("{}", self.map.to_json(d)),
         }
     }
 }
@@ -126,6 +151,11 @@ impl Session {
 ///
 /// Not being in a repository is a problem with the invocation rather than with
 /// the code, so it exits 2.
+#[expect(
+    clippy::print_stderr,
+    reason = "a failure to open the repository is a failure to build the Session, so there is no \
+              `emit` to route it through yet"
+)]
 pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
     match open(flags) {
         Ok(s) => Ok(s),

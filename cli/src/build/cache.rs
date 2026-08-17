@@ -9,7 +9,7 @@
 //! An action key hashes everything that can affect the output:
 //!
 //! ```text
-//! key = H(action_kind, toolchain.version, toolchain.sha256, build_mode,
+//! key = H(action_kind, toolchain_version, build_mode,
 //!         platform, arch, rule_identity, H(content of each input file),
 //!         key(each input action))
 //! ```
@@ -18,6 +18,12 @@
 //! than timestamps, repository-relative paths, dependencies entering as keys,
 //! and the platform in the key while tags are not — a tag decides whether a
 //! build is *allowed*, never what it *produces*.
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is SHA-256's: fixed-width word mixing that is defined to wrap, \
+              offsets within a 64-byte block, and one deadline ten seconds out. None of it takes \
+              a length or an offset from a file the user wrote"
+)]
 
 use std::path::{Path, PathBuf};
 
@@ -40,8 +46,9 @@ const K: [u32; 64] = [
     0xc67178f2,
 ];
 
-/// A streaming SHA-256. Implemented here rather than pulled in, because the
-/// toolchain is pinned by hash and a dependency tree is a second thing to pin.
+/// A streaming SHA-256. Implemented here rather than pulled in, because a
+/// dependency tree is a second thing to audit for a compiler that hashes
+/// everything it caches.
 pub struct Sha256 {
     state: [u32; 8],
     buffer: [u8; 64],
@@ -70,13 +77,20 @@ impl Sha256 {
 
     pub fn update(&mut self, data: &[u8]) {
         self.length = self.length.wrapping_add(data.len() as u64);
-        let mut at = 0;
-        while at < data.len() {
-            let take = (64 - self.buffered).min(data.len() - at);
-            self.buffer[self.buffered..self.buffered + take]
-                .copy_from_slice(&data[at..at + take]);
-            self.buffered += take;
-            at += take;
+        let mut rest = data;
+        while !rest.is_empty() {
+            // "Fill the rest of the block, or consume the rest of the input,
+            // whichever runs out first" is exactly what `zip` means, so it is
+            // written as one rather than as two lengths and a `min` to check.
+            // `buffered` is reset the moment it reaches 64, so the block always
+            // has room and the loop always advances.
+            let mut took = 0;
+            for (slot, &byte) in self.buffer.iter_mut().skip(self.buffered).zip(rest) {
+                *slot = byte;
+                took += 1;
+            }
+            self.buffered += took;
+            rest = rest.get(took..).unwrap_or(&[]);
             if self.buffered == 64 {
                 let block = self.buffer;
                 self.compress(&block);
@@ -96,15 +110,21 @@ impl Sha256 {
         self.field(s.as_bytes());
     }
 
+    /// One SHA-256 round over one 64-byte block, in the shape the standard
+    /// states it.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`w`, `K` and `state` are fixed-size arrays and every index is a literal loop \
+                  bound below their length — `i` runs under 64 and the largest lookback is \
+                  `i - 16`. Nothing here is derived from an input length, and writing the \
+                  standard's own indices is what makes this checkable against it"
+    )]
     fn compress(&mut self, block: &[u8; 64]) {
         let mut w = [0u32; 64];
-        for i in 0..16 {
-            w[i] = u32::from_be_bytes([
-                block[i * 4],
-                block[i * 4 + 1],
-                block[i * 4 + 2],
-                block[i * 4 + 3],
-            ]);
+        // `chunks_exact(4)` over 64 bytes is the first sixteen words, and the
+        // fold spells the big-endian read without a fallible `try_into`.
+        for (word, chunk) in w.iter_mut().zip(block.chunks_exact(4)) {
+            *word = chunk.iter().fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -135,9 +155,8 @@ impl Sha256 {
             b = a;
             a = t1.wrapping_add(t2);
         }
-        let next = [a, b, c, d, e, f, g, h];
-        for i in 0..8 {
-            self.state[i] = self.state[i].wrapping_add(next[i]);
+        for (slot, add) in self.state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
+            *slot = slot.wrapping_add(add);
         }
     }
 
@@ -176,6 +195,22 @@ pub enum Action {
     /// subject to the library boundary like any other.
     Proto,
     Compile,
+    /// Turning one codegen unit's lowered IR into object bytes. One action per
+    /// unit, where a unit is the set of monomorphized functions whose
+    /// declaration came from one source module.
+    ///
+    /// Its key is content-addressed **on the IR**, not on source files, and
+    /// that is the decision the whole incremental story rests on. Keying a unit
+    /// on the sources of the module it came from is wrong in both directions:
+    /// *unsound*, because a monomorphized unit contains instantiations
+    /// requested by other modules — `core/list`'s object for a program depends
+    /// on which types that program maps over — and *imprecise*, because
+    /// reformatting a comment changes a file's bytes and not one instruction of
+    /// its IR.
+    ///
+    /// See `design/native/ARCHITECTURE.md` §6. Wave 2c stores entries under it;
+    /// wave 0 adds the variant so that no later wave has to edit this enum.
+    Codegen,
     Link,
     Test,
 }
@@ -185,6 +220,7 @@ impl Action {
         match self {
             Action::Proto => "proto",
             Action::Compile => "compile",
+            Action::Codegen => "codegen",
             Action::Link => "link",
             Action::Test => "test",
         }
@@ -229,7 +265,19 @@ impl Status {
 /// the key are printed: enough to compare two runs of one tree, and short
 /// enough that nobody is tempted to check a whole key into a golden file, which
 /// would break on every toolchain version (the key includes `arguments::VERSION`).
-pub fn explain(on: bool, status: Status, action: Action, label: &str, platform: Platform, key: &str) {
+#[expect(
+    clippy::print_stdout,
+    reason = "this is `buri build --explain`'s own output — the record of what the build did — \
+              rather than a diagnostic, which still leaves through Session::emit"
+)]
+pub fn explain(
+    on: bool,
+    status: Status,
+    action: Action,
+    label: &str,
+    platform: Platform,
+    key: &ActionKey,
+) {
     if !on {
         return;
     }
@@ -238,8 +286,40 @@ pub fn explain(on: bool, status: Status, action: Action, label: &str, platform: 
         status.name(),
         action.name(),
         platform.slug(),
-        &key[..key.len().min(12)]
+        key.short()
     );
+}
+
+/// A finished cache key: the hex SHA-256 a [`KeyBuilder`] produced.
+///
+/// A newtype rather than a `String` because `Cache::path` splits it at byte two
+/// and every caller so far happened to hand it something 64 bytes long. There is
+/// now no way to hand it anything else — the only two constructors both hash,
+/// and a hash is always 64 hex digits.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ActionKey(String);
+
+impl ActionKey {
+    /// The key for some bytes directly, with no action or toolchain folded in.
+    /// Used where the content *is* the identity.
+    pub fn of(bytes: &[u8]) -> ActionKey {
+        ActionKey(hash_bytes(bytes))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The first twelve hex digits, which is what `--explain` prints.
+    fn short(&self) -> &str {
+        self.0.get(..12).unwrap_or(&self.0)
+    }
+
+    /// The key split the way [`Cache::path`] wants it: two hex digits of
+    /// directory and the rest of the name.
+    fn split(&self) -> (&str, &str) {
+        self.0.split_at_checked(2).unwrap_or((&self.0, ""))
+    }
 }
 
 pub struct Cache {
@@ -253,10 +333,12 @@ impl Cache {
         Cache { dir }
     }
 
-    fn path(&self, key: &str) -> PathBuf {
+    fn path(&self, key: &ActionKey) -> PathBuf {
         // Two levels, so a large repository does not put a hundred thousand
-        // entries in one directory.
-        self.dir.join(&key[..2]).join(&key[2..])
+        // entries in one directory. An `ActionKey` is a whole SHA-256 by
+        // construction, so the split always has both halves.
+        let (prefix, rest) = key.split();
+        self.dir.join(prefix).join(rest)
     }
 
     /// Reads without the lock, on purpose.
@@ -265,18 +347,24 @@ impl Cache {
     /// a reader has nothing to wait for. Taking the lock here would make every
     /// cache *hit* serialize behind every cache *write*, which is the opposite
     /// of what a cache is for.
-    pub fn get(&self, key: &str) -> Option<Vec<u8>> {
+    pub fn get(&self, key: &ActionKey) -> Option<Vec<u8>> {
         std::fs::read(self.path(key)).ok()
     }
 
     /// "All commands are safe to run concurrently; a file lock serializes cache
     /// writes" (CLI.md). This is that lock.
-    pub fn put(&self, key: &str, data: &[u8]) {
+    pub fn put(&self, key: &ActionKey, data: &[u8]) {
         let p = self.path(key);
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _guard = Lock::acquire(&self.dir);
+        // Either outcome writes: the lock is an optimisation for the rename,
+        // not a correctness requirement (see [`Lock`]). Naming both is what
+        // makes that a decision rather than a field nobody looks at.
+        let _guard = match Lock::acquire(&self.dir) {
+            LockOutcome::Held(lock) => Some(lock),
+            LockOutcome::ProceedUnlocked => None,
+        };
         // Written to a temporary and renamed, so a concurrent reader never
         // sees half an entry. The temporary is named for this process as well
         // as for the key, so that two writers of one key never share a file
@@ -311,7 +399,16 @@ impl Cache {
 ///   entry two processes agree about.
 pub struct Lock {
     path: PathBuf,
-    held: bool,
+}
+
+/// What [`Lock::acquire`] came back with. The two are different values because
+/// they are different situations: `ProceedUnlocked` carries nothing to drop and
+/// nothing to release, and making the caller name it is what stops "the lock
+/// timed out" from being a `Lock` whose type says it is held.
+#[must_use]
+pub enum LockOutcome {
+    Held(Lock),
+    ProceedUnlocked,
 }
 
 /// How long to wait for another process's write.
@@ -320,12 +417,12 @@ const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 const STALE: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Lock {
-    pub fn acquire(dir: &Path) -> Lock {
+    pub fn acquire(dir: &Path) -> LockOutcome {
         let path = dir.join(".lock");
         let deadline = std::time::Instant::now() + PATIENCE;
         loop {
             if std::fs::OpenOptions::new().create_new(true).write(true).open(&path).is_ok() {
-                return Lock { path, held: true };
+                return LockOutcome::Held(Lock { path });
             }
             let abandoned = std::fs::metadata(&path)
                 .and_then(|m| m.modified())
@@ -337,7 +434,7 @@ impl Lock {
                 continue;
             }
             if std::time::Instant::now() >= deadline {
-                return Lock { path, held: false };
+                return LockOutcome::ProceedUnlocked;
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
@@ -346,9 +443,7 @@ impl Lock {
 
 impl Drop for Lock {
     fn drop(&mut self) {
-        if self.held {
-            let _ = std::fs::remove_file(&self.path);
-        }
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -359,16 +454,15 @@ pub struct KeyBuilder {
 }
 
 impl KeyBuilder {
-    pub fn new(action: Action, toolchain: &buildfile::Toolchain, release: bool) -> KeyBuilder {
+    pub fn new(action: Action, mode: crate::commands::arguments::BuildMode) -> KeyBuilder {
         let mut hasher = Sha256::new();
         hasher.text(action.name());
-        hasher.text(&toolchain.version);
-        hasher.text(&toolchain.sha256);
         // `--release` and `--debug` are part of the cache key.
-        hasher.text(if release { "release" } else { "debug" });
-        // The compiler's own identity: a toolchain change invalidates
-        // everything, which is correct and is why the version is pinned
-        // exactly.
+        hasher.text(mode.name());
+        // The compiler's own identity, and the whole of it now that `REPO.buri`
+        // no longer names a toolchain: an artifact built by a different
+        // compiler is a different artifact, so a release moves every key in
+        // every repository at once.
         hasher.text(crate::commands::arguments::VERSION);
         KeyBuilder { hasher }
     }
@@ -399,18 +493,43 @@ impl KeyBuilder {
 
     /// A dependency enters as its key, not its contents, so a body edit does
     /// not propagate past the interface it did not change.
-    pub fn dependency(&mut self, key: &str) {
-        self.hasher.text(key);
+    pub fn dependency(&mut self, key: &ActionKey) {
+        self.hasher.text(key.as_str());
     }
 
-    pub fn finish(self) -> String {
-        self.hasher.finish()
+    /// Which backend produced the bytes, and the identity of everything
+    /// outside the program that they depend on.
+    ///
+    /// Two fields rather than one because they answer different questions.
+    /// `name` is which of `js`/`cranelift`/`llvm` ran, which a key that did not
+    /// name it could not tell apart. `identity` is what neither the name nor
+    /// the toolchain version catches: `llvm-sys` links against whatever
+    /// `llvm-config` found at build time, so two `buri` binaries with
+    /// identical Rust source and the same version can have
+    /// different LLVM underneath, and `Profile::Release` on LLVM 20 must not
+    /// share a cache entry with `Profile::Release` on LLVM 21. The build system
+    /// has no way to ask, so the backend answers (`Backend::identity`).
+    pub fn backend(&mut self, name: &str, identity: &str) {
+        self.hasher.text(name);
+        self.hasher.text(identity);
+    }
+
+    /// The linker's identity, for the same reason [`KeyBuilder::backend`]
+    /// exists: `ld64` and `mold` do not produce the same bytes.
+    pub fn linker(&mut self, name: &str, version: &str) {
+        self.hasher.text(name);
+        self.hasher.text(version);
+    }
+
+    pub fn finish(self) -> ActionKey {
+        ActionKey(self.hasher.finish())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::arguments::BuildMode;
 
     #[test]
     fn sha256_matches_the_known_vectors() {
@@ -453,20 +572,54 @@ mod tests {
     fn tags_are_not_in_the_key() {
         // The key builder has no method that takes one, which is the point:
         // there is nowhere for a tag to enter.
-        let tc = buildfile::Toolchain::default();
-        let mut a = KeyBuilder::new(Action::Compile, &tc, false);
+        let mut a = KeyBuilder::new(Action::Compile, BuildMode::Debug);
         a.rule_identity("//lib/money", "library", &["cents.buri".into()]);
-        let mut b = KeyBuilder::new(Action::Compile, &tc, false);
+        let mut b = KeyBuilder::new(Action::Compile, BuildMode::Debug);
         b.rule_identity("//lib/money", "library", &["cents.buri".into()]);
         assert_eq!(a.finish(), b.finish());
     }
 
     #[test]
     fn the_build_mode_changes_the_key() {
-        let tc = buildfile::Toolchain::default();
-        let debug = KeyBuilder::new(Action::Compile, &tc, false).finish();
-        let release = KeyBuilder::new(Action::Compile, &tc, true).finish();
+        let debug = KeyBuilder::new(Action::Compile, BuildMode::Debug).finish();
+        let release = KeyBuilder::new(Action::Compile, BuildMode::Release).finish();
         assert_ne!(debug, release);
+    }
+
+    /// The toolchain's identity is in every key, and since `REPO.buri` stopped
+    /// naming a toolchain it is `arguments::VERSION` and nothing else. A
+    /// release moves every key in every repository, which is the row
+    /// HERMETICITY-AND-CACHING.md promises and what the pin used to carry.
+    ///
+    /// It is asserted by rebuilding the key field by field rather than by
+    /// moving the version, because there is nothing left in a repository to
+    /// move: the version is a constant compiled into this binary, so varying it
+    /// would take a second binary to compare against. What can be held is that
+    /// it is in there, in a key that holds nothing else — a version dropped
+    /// from the key, or a fourth field slipped in beside it, fails here.
+    #[test]
+    fn the_toolchain_version_is_in_every_key() {
+        let mut expected = Sha256::new();
+        expected.text("compile");
+        expected.text("debug");
+        expected.text(crate::commands::arguments::VERSION);
+        assert_eq!(
+            KeyBuilder::new(Action::Compile, BuildMode::Debug).finish(),
+            ActionKey(expected.finish()),
+            "the key a build starts from is no longer the action, the mode and the version"
+        );
+
+        // The negative twin: the same key with any other version in it is a
+        // different key, so a release cannot be served a cache entry another
+        // toolchain wrote.
+        let mut other = Sha256::new();
+        other.text("compile");
+        other.text("debug");
+        other.text("0.0.0-some-other-toolchain");
+        assert_ne!(
+            KeyBuilder::new(Action::Compile, BuildMode::Debug).finish(),
+            ActionKey(other.finish())
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -482,9 +635,8 @@ mod tests {
     /// `js` is two entries, and nothing is reused between them.
     #[test]
     fn the_platform_and_the_arch_are_in_the_key() {
-        let tc = buildfile::Toolchain::default();
         let key = |p: Platform, a: Option<buildfile::Arch>| {
-            let mut k = KeyBuilder::new(Action::Compile, &tc, false);
+            let mut k = KeyBuilder::new(Action::Compile, BuildMode::Debug);
             k.platform(p, a);
             k.rule_identity("//lib/money", "library", &["cents.buri".into()]);
             k.finish()
@@ -506,9 +658,8 @@ mod tests {
     /// files hold the same bytes are still two rules.
     #[test]
     fn rule_identity_is_in_the_key() {
-        let tc = buildfile::Toolchain::default();
         let key = |label: &str, kind: &str, sources: &[&str]| {
-            let mut k = KeyBuilder::new(Action::Compile, &tc, false);
+            let mut k = KeyBuilder::new(Action::Compile, BuildMode::Debug);
             let sources: Vec<String> = sources.iter().map(|s| (*s).to_string()).collect();
             k.rule_identity(label, kind, &sources);
             // The same bytes under every spelling, so nothing below can be
@@ -535,25 +686,24 @@ mod tests {
     /// concerned, whatever they hold.
     #[test]
     fn a_dependency_enters_as_its_key_and_not_its_contents() {
-        let tc = buildfile::Toolchain::default();
-        let dependent = |dep_key: &str| {
-            let mut k = KeyBuilder::new(Action::Link, &tc, false);
+        let dependent = |dep: &[u8]| {
+            let mut k = KeyBuilder::new(Action::Link, BuildMode::Debug);
             k.rule_identity("//cmd/web", "binary", &["main.buri".into()]);
             k.input("cmd/web/main.buri", b"the binary's own source");
-            k.dependency(dep_key);
+            k.dependency(&ActionKey::of(dep));
             k.finish()
         };
         // One dependency, two states of its source tree that hash the same
         // because nothing output-determining moved.
-        assert_eq!(dependent("aaaa"), dependent("aaaa"));
-        assert_ne!(dependent("aaaa"), dependent("bbbb"), "a dependency's key is not in the key");
+        assert_eq!(dependent(b"aaaa"), dependent(b"aaaa"));
+        assert_ne!(dependent(b"aaaa"), dependent(b"bbbb"), "a dependency's key is not in the key");
 
         // And the negative twin: the builder has no way to fold a dependency's
         // *contents* in, so there is nowhere for a body edit to enter except
         // through the key it did or did not change.
-        let mut by_key = KeyBuilder::new(Action::Link, &tc, false);
-        by_key.dependency("aaaa");
-        let mut by_content = KeyBuilder::new(Action::Link, &tc, false);
+        let mut by_key = KeyBuilder::new(Action::Link, BuildMode::Debug);
+        by_key.dependency(&ActionKey::of(b"aaaa"));
+        let mut by_content = KeyBuilder::new(Action::Link, BuildMode::Debug);
         by_content.input("aaaa", b"");
         assert_ne!(by_key.finish(), by_content.finish());
     }
@@ -565,7 +715,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("buri-lock-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         {
-            let _held = Lock::acquire(&dir);
+            let held = Lock::acquire(&dir);
+            assert!(matches!(held, LockOutcome::Held(_)), "the lock was not taken");
             assert!(dir.join(".lock").exists(), "the lock file was not created");
         }
         assert!(!dir.join(".lock").exists(), "the lock outlived the write");
@@ -581,12 +732,13 @@ mod tests {
         let root = std::env::temp_dir().join(format!("buri-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let cache = Cache::open(&root);
-        let key = hash_bytes(b"an entry");
+        let key = ActionKey::of(b"an entry");
         cache.put(&key, b"an entry");
         cache.put(&key, b"an entry");
         assert_eq!(cache.get(&key).as_deref(), Some(&b"an entry"[..]));
         // Nothing half-written is left where a reader could find it.
-        let leftovers: Vec<String> = std::fs::read_dir(root.join(".buri/cache").join(&key[..2]))
+        let (prefix, _) = key.split();
+        let leftovers: Vec<String> = std::fs::read_dir(root.join(".buri/cache").join(prefix))
             .unwrap()
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().to_string())

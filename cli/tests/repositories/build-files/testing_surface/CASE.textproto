@@ -39,7 +39,7 @@ run {
 # testing directory at all, so declaring the block is the whole of the edit.
 edit {
   file: "lib/plain/BUILD.buri"
-  replace: "  visibility: [\"//visibility:public\"]\n"
+  replace: "    visibility: [\"//visibility:public\"]\n"
   with: "  visibility: [\"//visibility:public\"]\n\n  testing {\n    sources: [\"testing/helpers.buri\"]\n  }\n"
 }
 
@@ -55,7 +55,7 @@ run {
 # itself, which no target compiles now.
 edit {
   file: "lib/widget/BUILD.buri"
-  replace: "\n  testing {\n    sources: [\"testing/fixtures.buri\"]\n    dependencies: [\"//lib/aid\"]\n  }\n"
+  replace: "\n    testing {\n        sources: [\"testing/fixtures.buri\"]\n        dependencies: [\"//lib/aid\"]\n    }\n"
   with: ""
 }
 
@@ -70,7 +70,7 @@ run {
 # and the only thing that can notice is a question about the directory.
 edit {
   file: "lib/empty/BUILD.buri"
-  replace: "\n  testing {}\n"
+  replace: "\n    testing {}\n"
   with: ""
 }
 
@@ -90,7 +90,7 @@ run {
 # block is the whole of what this surface needs.
 edit {
   file: "lib/empty/BUILD.buri"
-  replace: "  visibility: [\"//visibility:public\"]\n"
+  replace: "    visibility: [\"//visibility:public\"]\n"
   with: "  visibility: [\"//visibility:public\"]\n\n  testing {}\n"
 }
 

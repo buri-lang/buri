@@ -22,7 +22,7 @@ run {
 
 edit {
   file: "cmd/api/BUILD.buri"
-  replace: "  tags: [\"server\"]\n"
+  replace: "    tags: [\"server\"]\n"
   with: ""
 }
 

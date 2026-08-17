@@ -1,7 +1,7 @@
 library {
-  sources: []
+    sources: []
 
-  test {
-    sources: ["test/simd.buri"]
-  }
+    test {
+        sources: ["test/simd.buri"]
+    }
 }

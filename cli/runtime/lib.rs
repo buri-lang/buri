@@ -1,0 +1,418 @@
+//! # `libburi_rt` — the native runtime, and the `buri_rt_*` ABI contract
+//!
+//! This file is **the contract**. Both native backends (`backend/cranelift`,
+//! `backend/llvm`) emit calls into the symbols declared here, and neither of
+//! them knows what is behind one. A disagreement between a backend and this
+//! comment is a miscompile that only shows up as a wrong answer at run time, so
+//! the rules are stated here once and cited from both.
+//!
+//! Design: `design/native/VALUE-MODEL.md` §10 (why a Rust staticlib),
+//! `design/native/MEMORY.md` §5 (the counts and the allocator),
+//! `design/native/BUILD-AND-WATCH.md` §2.2 (how it is built and embedded),
+//! `design/native/CODEGEN-CRANELIFT.md` §3.4, §3.5, §3.7 (who calls what).
+//!
+//! ## 0. What this crate is, and what it is not
+//!
+//! It is not the whole of the 203 `runtime.js` functions. It is what a
+//! *generated program* cannot do for itself, which is now seven things rather
+//! than three:
+//!
+//!   * **allocation** — the header, the block, the counts, the free path;
+//!   * **aborts** — the messages, and the exit status;
+//!   * **host capabilities** — the native counterpart of every `$host_*` in
+//!     `backend/js/runtime.js`;
+//!   * **rendering and hashing** ([`fmt`], [`hash`]) — the shortest-round-trip
+//!     float formatter, 128-bit decimal, quoted `Show`, and FNV-1a over UTF-16
+//!     code units. Every one of them has to produce *the same bytes as
+//!     JavaScript* (VALUE-MODEL.md §12), which makes them a shared body rather
+//!     than something each backend open-codes and gets subtly differently;
+//!   * **`core/str` and the block-copying half of `core/list`** ([`text`],
+//!     [`list`]) — UTF-8 slicing with the ASCII fast path, and the `[T]`
+//!     producers that are a copy plus a retain;
+//!   * **the exactly-specified half of `core/math`** ([`math`]) — `sqrt`, the
+//!     four rounding functions and the three predicates. The thirteen
+//!     transcendentals are deliberately absent, and that file says why: IEEE
+//!     754 does not fix their answers, so V8's fdlibm port and the platform's
+//!     libm differ in the last bit, and a rendered `Float` shows seventeen
+//!     digits of it;
+//!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
+//!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
+//!     here for one reason: the overflow test both backends use at 64 bits is
+//!     `smulhi`/`umulhi`, and Cranelift defines neither at `i128`, so a
+//!     hand-rolled 128-bit widening multiply would be two code generators to
+//!     get it wrong in.
+//!
+//! What deliberately stays *out* falls into two kinds, and the difference
+//! matters:
+//!
+//!   * **It needs a type the runtime does not have.** Every `list.*` entry
+//!     taking a closure, `zip`, `flatten`, and the whole of `json.*`. A closure
+//!     is `{ code, env }` where `code`'s signature is the *flattened* one of its
+//!     own element type, so calling one from C would mean synthesizing a call
+//!     whose parameter list depends on `T` — a backend's job by construction.
+//!   * **It has no single right answer, and guessing would be worse than a
+//!     gap.** `core/math`'s thirteen transcendentals, and `core/char`'s eight
+//!     classifiers. Implementing `sin` with the platform libm, or `isAlpha`
+//!     with Rust's `is_alphabetic` against JavaScript's `\p{L}`, would put a
+//!     divergence into the toolchain that shows up on one input in a few
+//!     thousand — which is the hardest kind of bug to find and the easiest to
+//!     ship.
+//!
+//! Each is named where it would otherwise be looked for — `list.rs`'s and
+//! `math.rs`'s headers, and `backend/{cranelift,llvm}`'s missing-intrinsic
+//! tables — rather than left to be discovered as a link error.
+//!
+//! ## 1. The symbol rule
+//!
+//! **Every exported symbol is `buri_rt_` followed by `snake_case`.** No
+//! exceptions, including the host capabilities: `host.HostFs.readFile` is
+//! `buri_rt_host_fs_read_file`. One prefix and one rule, so that "is this
+//! symbol ours" is a string comparison and not a table.
+//!
+//! ## 2. The calling convention
+//!
+//! `extern "C"` — the *platform* ABI, not the flattened Buri-to-Buri one
+//! (VALUE-MODEL.md §5.1). This is the single place in a Buri artifact where a
+//! platform ABI appears, and it is why the runtime is Rust with `#[repr(C)]`
+//! types rather than anything cleverer.
+//!
+//! Three rules make every signature below mechanical from the Buri one:
+//!
+//! 1. **Every parameter is a scalar leaf.** An aggregate parameter is
+//!    flattened into its leaves, in declaration order, exactly as VALUE-MODEL
+//!    §5.1 flattens a Buri call. So a `Str` argument is *three* parameters —
+//!    `base`, `ptr`, `len` — and a `[T]` argument is two. Nothing is ever
+//!    passed as a by-value aggregate, so no SysV classification rule and no
+//!    Cranelift aggregate-parameter support is ever needed.
+//!
+//! 2. **A scalar result is returned; an aggregate result is written through an
+//!    out-pointer.** A function producing a `Str` takes `out: *mut BuriStr` and
+//!    returns nothing, or returns a discriminant. Never `sret`, never a
+//!    multi-word return, and therefore nothing for the two backends to disagree
+//!    about.
+//!
+//! 3. **A sum-typed result returns its discriminant as an `i32`, and its
+//!    payload through out-pointers.** The runtime does *not* know how
+//!    `middle::layout` encoded `Option<Str>` or `Result<Str, IoError>` — that
+//!    is the backend's business, and a niche (VALUE-MODEL.md §6) can change
+//!    without touching this file. So the boundary is explicit:
+//!    [`BURI_OK`] (`-1`) means the success arm, and `0 ..= n` is the error
+//!    variant's index in *declaration order* in `core/cap`.
+//!
+//!    An `Option<T>` is the case with exactly one non-success arm, so it uses
+//!    the same convention with nothing added: [`BURI_OK`] and the payload
+//!    written, or `0` and the out-pointer untouched. Both backends translate
+//!    that into whatever `middle::layout` chose — a tag, or a niche — and the
+//!    runtime never learns which.
+//!
+//! 4. **A generic parameter is a pointer and a stride.** `list.get` and
+//!    `list.push` cannot name `T`'s leaves, so the element crosses as
+//!    `(*const u8, stride)` with the caller spilling to a stack slot, plus the
+//!    per-element `retain` glue described in `list.rs`'s header. This is the
+//!    one shape that is *not* mechanical from the Buri signature, and it exists
+//!    for exactly the entries where the Buri signature has a type variable in
+//!    it.
+//!
+//! ## 3. Ownership
+//!
+//! * A **parameter is borrowed.** No runtime function increments or decrements
+//!   a count on anything it was passed. The caller's own reference keeps the
+//!   value alive for the duration of the call, which is MEMORY.md §5.2's
+//!   borrowed-parameter rule applied to the FFI edge.
+//! * A **result is owned**, with `rc == 1`, transferred to the caller. The
+//!   caller is what eventually decrefs it.
+//! * A runtime function never stores a pointer it was passed.
+//!
+//! ## 4. The heap layout
+//!
+//! Per VALUE-MODEL.md §2 and MEMORY.md §5.1:
+//!
+//! ```text
+//!   p - 16   u64  rc     reference count, or IMMORTAL (u64::MAX)
+//!   p -  8   u64  cap    usable payload bytes
+//!   p        ...  payload, 16-byte aligned
+//! ```
+//!
+//! Every pointer that crosses this boundary — every `buri_rt_alloc` result,
+//! every `BuriStr::base`, every `BuriList::ptr` — is a **payload** pointer, so
+//! the header is always at `p - 16` and `incref`/`decref` are one sequence in
+//! the whole program. VALUE-MODEL.md §3 writes `Str::base` as `*Header`; it is
+//! the payload pointer of the allocation the header belongs to, which is the
+//! same pointer shape as everything else, and the distinction is load-bearing
+//! enough to say twice.
+//!
+//! `incref` and `decref` are **open-coded by both backends** and are not calls
+//! (MEMORY.md §5.1). [`buri_rt_incref`] and [`buri_rt_decref`] exist for the
+//! runtime's own use and for a defensive build, not for the hot path.
+//!
+//! ## 5. The allocator, in v1
+//!
+//! **`malloc`-backed, one block per allocation, no size classes.** MEMORY.md
+//! §5.4 describes segregated free lists over `mmap` chunks and says both
+//! backends open-code the fast path; that is the growth path and it is not v1.
+//! v1 is a call to [`buri_rt_alloc`], which is `std::alloc::alloc` with a
+//! 16-byte alignment and the header written. The reason to ship this first is
+//! that the size-class allocator is an optimization with no observable
+//! behaviour of its own — the header, the counts, `cap`, the reuse test and the
+//! `Alloc` cost model (MEMORY.md §7, which is *defined* and not measured) are
+//! all identical either way — so it can be replaced under a green test suite
+//! rather than co-developed with the backends.
+//!
+//! ## 5.1 `Alloc`, which is accounting and not allocation
+//!
+//! Five symbols, and none of them reaches the heap. MEMORY.md §7 makes the
+//! `Alloc` cost model a **definition** computed from the types rather than a
+//! measurement, so the accounting is a set of counters beside the allocator
+//! and not inside it:
+//!
+//!   * [`buri_rt_host_alloc_allocate`] — the platform's `Alloc`, which counts
+//!     nothing and answers the bytes it was asked for.
+//!   * [`buri_rt_alloc_new_counter`], [`buri_rt_alloc_charge`],
+//!     [`buri_rt_alloc_count`], [`buri_rt_alloc_total`] — `core/alloc`'s
+//!     `GeneralPurpose`, `Arena` and `FixedBuffer`, which carry a handle into
+//!     this table because Buri has no mutation to hold a running total with.
+//!
+//! [`buri_rt_alloc_charge`] is the one entry in this file that can end the
+//! process on an ordinary success path: a `FixedBuffer` overrun aborts through
+//! [`buri_rt_abort_alloc_budget`], because `allocate` answers `Region` and not
+//! `Result` and there is no value to report the failure with (SPEC 6.10).
+//! [`buri_rt_alloc_budget_check`] is the same check exposed on its own, for a
+//! backend that would rather open-code the charge.
+//!
+//! The counters are deliberately *not* [`buri_rt_heap_stats`]. That one is a
+//! measurement of `malloc` and has no counterpart on the JavaScript backend;
+//! these are the defined model, and the same program produces the same numbers
+//! from `runtime.js`'s `$alloc_*`.
+//!
+//! ## 6. Startup and shutdown, which the generated entry point owns
+//!
+//! Two calls the emitted `main` must make, and the whole of what it must know:
+//!
+//! ```c
+//! int main(int argc, char** argv) {
+//!     buri_rt_argv_init(argc, argv);   /* first statement */
+//!     ...                              /* the program */
+//!     buri_rt_flush();                 /* before every return path */
+//!     return 0;
+//! }
+//! ```
+//!
+//! [`buri_rt_argv_init`] is what makes `env.arguments()` exact — `std::env` in
+//! a staticlib depends on a platform-specific startup hook that a linker
+//! `--gc-sections` pass is entitled to have opinions about — and it installs
+//! the panic hook that turns a runtime bug into a message rather than a bare
+//! `SIGABRT`. If it is never called, `env.arguments()` falls back to `std::env`
+//! and the fallback is correct on both supported platforms; the call is
+//! preferred, not required.
+//!
+//! [`buri_rt_flush`] is required. Standard output and standard error are
+//! **buffered**, exactly as `$host` buffers them on JavaScript
+//! (`runtime.js:1224-1234`), so that the write ordering a program observes is
+//! the same on both backends. [`buri_rt_host_proc_exit_with`] and every abort
+//! path flush for themselves; a normal return does not.
+//!
+//! ## 7. Platforms
+//!
+//! macOS and Linux, by `cfg(unix)` plus `std`. There is no Windows support and
+//! no cross-compilation: the archive is built for the host by `cli/build.rs`
+//! and for nothing else (ARCHITECTURE.md §9).
+
+#![allow(clippy::missing_safety_doc)]
+
+mod abort;
+mod fmt;
+mod hash;
+mod host;
+mod http;
+mod list;
+mod math;
+mod memory;
+mod rng;
+mod text;
+mod value;
+
+pub use abort::*;
+pub use fmt::*;
+pub use hash::*;
+pub use host::*;
+pub use list::*;
+pub use math::*;
+pub use memory::*;
+pub use text::*;
+pub use value::*;
+
+/// The discriminant a fallible runtime entry returns for its success arm.
+///
+/// `-1` rather than `0` so that an error variant's index is its index — no
+/// biasing at either end of the call, and a backend that gets the sign wrong
+/// fails immediately rather than silently reporting `NotFound`.
+pub const BURI_OK: i32 = -1;
+
+/// 128-bit division and remainder, in one call.
+///
+/// CODEGEN-CRANELIFT.md §3.6: this is a hundred instructions on both backends
+/// and neither should inline it. Division by zero aborts here rather than at
+/// the call site, so the two backends share one message.
+///
+/// Every operand is a **pair of `u64`s, low half first**, rather than an
+/// `i128`: §2's first rule says a parameter is a scalar leaf, and a 128-bit
+/// value is not one. Passing it as a pair also means neither backend has to
+/// agree with the platform ABI about how a 128-bit integer is classified,
+/// which is a place the two have historically differed.
+///
+/// `signed` selects `sdiv`/`srem` semantics over `udiv`/`urem`. Truncating
+/// toward zero, so `a == (a / b) * b + (a % b)` holds — the same identity
+/// `$divi` documents on JavaScript (`runtime.js:48-50`).
+///
+/// # Safety
+/// `quot` and `rem` must each be non-null and point at two writable,
+/// `u64`-aligned words (low half first).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_i128_divmod(
+    a_lo: u64,
+    a_hi: u64,
+    b_lo: u64,
+    b_hi: u64,
+    signed: u8,
+    quot: *mut u64,
+    rem: *mut u64,
+) {
+    let a = u128::from(a_lo) | (u128::from(a_hi) << 64);
+    let b = u128::from(b_lo) | (u128::from(b_hi) << 64);
+    if b == 0 {
+        buri_rt_abort_div_zero();
+    }
+    let (q, r) = if signed == 0 {
+        (a / b, a % b)
+    } else {
+        // `i128::MIN / -1` overflows. Overflow is undefined in this language
+        // (SPEC 6.2) and the two's-complement wrap is the native answer
+        // (VALUE-MODEL.md §11.1), so wrap rather than abort.
+        let (sa, sb) = (a as i128, b as i128);
+        (sa.wrapping_div(sb) as u128, sa.wrapping_rem(sb) as u128)
+    };
+    unsafe {
+        quot.write(q as u64);
+        quot.add(1).write((q >> 64) as u64);
+        rem.write(r as u64);
+        rem.add(1).write((r >> 64) as u64);
+    }
+}
+
+
+/// 128-bit checked arithmetic, in one call.
+///
+/// `op` selects the operation — `0` add, `1` sub, `2` mul, `3` div — and the
+/// answer is [`BURI_OK`] with the result written through `out`, or `0` for the
+/// `.None` an overflow (or a division by zero) produces.
+///
+/// It is a call rather than open-coded for the same reason
+/// [`buri_rt_i128_divmod`] is: the overflow test both backends use at 64 bits is
+/// `smulhi`/`umulhi`, which Cranelift does not define at `i128`, and a
+/// hand-rolled 128-bit widening multiply in two code generators is two places to
+/// get it wrong. Here it is `i128::checked_mul`.
+///
+/// **The bound is the range a JavaScript `number` holds exactly**, not the
+/// type's. `Checked`'s promise is that a `.Some` is a value the answer really
+/// is, and past `2^53` a double cannot say *which* integer it is — so
+/// `$checkedIn` tests `exact_int_range`, and the conformance suite states that
+/// as a property of the operation rather than as an accident of the backend
+/// ("the type's nominal maximum is far above what a `number` holds, so a
+/// `Checked` operation anywhere near it is `.None`",
+/// `conformance/lib/numbers/test/integers.buri:594`). A native `i128` either
+/// overflows or does not, so following the machine alone would answer `.Some`
+/// where the language says `.None`. It follows the language.
+///
+/// `buri_rt_i128_saturating` is deliberately *not* clamped this way: `$sat`
+/// clamps at the type's own bounds, and so does it.
+///
+/// Every operand is a **pair of `u64`s, low half first**, per §2's first rule.
+///
+/// # Safety
+/// `out` must be non-null and point at two writable, `u64`-aligned words.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_i128_checked(
+    op: u8,
+    a_lo: u64,
+    a_hi: u64,
+    b_lo: u64,
+    b_hi: u64,
+    signed: u8,
+    out: *mut u64,
+) -> i32 {
+    let a = u128::from(a_lo) | (u128::from(a_hi) << 64);
+    let b = u128::from(b_lo) | (u128::from(b_hi) << 64);
+    let answer = if signed == 0 {
+        match op {
+            0 => a.checked_add(b),
+            1 => a.checked_sub(b),
+            2 => a.checked_mul(b),
+            _ => a.checked_div(b),
+        }
+    } else {
+        let (sa, sb) = (a as i128, b as i128);
+        let r = match op {
+            0 => sa.checked_add(sb),
+            1 => sa.checked_sub(sb),
+            2 => sa.checked_mul(sb),
+            _ => sa.checked_div(sb),
+        };
+        r.map(|v| v as u128)
+    };
+    // The exactly-representable range, at both signs. `2^53 - 1` is
+    // `9007199254740991`, and `Number.isSafeInteger` is strict below `2^53`.
+    const EXACT: i128 = 9_007_199_254_740_991;
+    let Some(v) = answer else { return 0 };
+    let magnitude = if signed == 0 { v } else { (v as i128).unsigned_abs() };
+    if magnitude > EXACT as u128 {
+        return 0;
+    }
+    // SAFETY: the caller promises two writable, aligned words.
+    unsafe {
+        out.write(v as u64);
+        out.add(1).write((v >> 64) as u64);
+    }
+    BURI_OK
+}
+
+/// 128-bit saturating arithmetic, in one call. `op` is as
+/// [`buri_rt_i128_checked`]'s, minus division, which cannot saturate.
+///
+/// `$sat(v, lo, hi)` clamps an exact double; this clamps at the type's own
+/// bounds, which is the same statement without a wider type to compute in.
+///
+/// # Safety
+/// As [`buri_rt_i128_checked`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_i128_saturating(
+    op: u8,
+    a_lo: u64,
+    a_hi: u64,
+    b_lo: u64,
+    b_hi: u64,
+    signed: u8,
+    out: *mut u64,
+) {
+    let a = u128::from(a_lo) | (u128::from(a_hi) << 64);
+    let b = u128::from(b_lo) | (u128::from(b_hi) << 64);
+    let v = if signed == 0 {
+        match op {
+            0 => a.saturating_add(b),
+            1 => a.saturating_sub(b),
+            _ => a.saturating_mul(b),
+        }
+    } else {
+        let (sa, sb) = (a as i128, b as i128);
+        let r = match op {
+            0 => sa.saturating_add(sb),
+            1 => sa.saturating_sub(sb),
+            _ => sa.saturating_mul(sb),
+        };
+        r as u128
+    };
+    // SAFETY: the caller promises two writable, aligned words.
+    unsafe {
+        out.write(v as u64);
+        out.add(1).write((v >> 64) as u64);
+    }
+}

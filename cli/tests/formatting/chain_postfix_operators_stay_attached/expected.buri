@@ -2,6 +2,6 @@ export fn f(ctx: Ctx): Result<Int, E> {
     let v = registry
         .lookUpTheThing(ctx, "a rather long key indeed")?
         .entries[3]?
-        .parse::<Int>()?;
+        .parse<Int>()?;
     .Ok(v)
 }

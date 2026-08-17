@@ -23,6 +23,22 @@
 //! `BURI_BLESS=1 cargo test -p buri --test golden_javascript` records. Read the diff:
 //! blessing without reading it is the one way this suite proves nothing.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
 mod harness;
 use harness::*;
 
@@ -35,7 +51,7 @@ use harness::*;
 /// program reaching more or less of the runtime than its neighbours.
 fn program_only(artifact: &str) -> String {
     let mut rest = artifact.to_string();
-    for (_, src) in buri::compiler::backend::javascript::split_declarations(buri::compiler::backend::runtime_source()) {
+    for (_, src) in buri::compiler::backend::js::javascript::split_declarations(buri::compiler::backend::js::runtime_source()) {
         rest = rest.replacen(src.trim(), "", 1);
     }
     // The entry epilogue is the same fifteen lines of `try`/`catch` in every
@@ -81,7 +97,7 @@ const LARGEST_FUNCTION_LIMIT: usize = 32768;
 
 /// The largest single declaration in an artifact, and what it is called.
 fn largest_function(artifact: &str) -> (String, usize) {
-    buri::compiler::backend::javascript::split_declarations(artifact)
+    buri::compiler::backend::js::javascript::split_declarations(artifact)
         .into_iter()
         .map(|(name, src)| (name, src.len()))
         .max_by_key(|(_, n)| *n)
@@ -238,6 +254,7 @@ struct Loud(Str);
 impl Stdout for Loud {
   fn print(self: Loud, text: Template): () { }
   fn println(self: Loud, text: Template): () { }
+  fn writeBytes(self: Loud, b: [U8]): () { }
 }
 
 // Recursive, so the optimiser cannot inline it away — an inlined function

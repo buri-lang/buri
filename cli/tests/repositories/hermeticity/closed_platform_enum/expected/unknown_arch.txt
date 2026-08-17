@@ -1,7 +1,7 @@
 error: `RISCV` is not an architecture
- --> cmd/ok/BUILD.buri:2:35
+ --> cmd/ok/BUILD.buri:3:31
   |
-2 |   outputs: [{ platform: JS  arch: RISCV }]
-  |                                   ^^^^^
+3 |         { platform: JS  arch: RISCV },
+  |                               ^^^^^
   |
   = fix: the architectures are X86_64 and ARM64

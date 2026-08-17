@@ -1,0 +1,287 @@
+//! core/alloc — the three counting implementations of `Alloc`.
+//!
+//! `core/host` implements `Alloc` the only way a platform can: `allocate`
+//! hands back the bytes it was asked for, nothing counts, and no request is
+//! ever refused. These three count, and one of them refuses.
+//!
+//! They are budgets and accounting policies over the one real allocator rather
+//! than three allocators (`design/native/MEMORY.md` §7.2). Nothing here
+//! reserves memory, and swapping one for another changes what a program is
+//! *told*, never where a value lives.
+//!
+//! ## The charge is defined, not measured
+//!
+//! The table beside `Alloc` in `core/cap` is the whole cost model: the charge
+//! for an operation is a function of the *types*, so the same program charges
+//! the same number on every backend and every platform. A count from
+//! `GeneralPurpose` on JavaScript — where there is a garbage collector under
+//! it and nothing to measure — is not a synthetic number, because it is not a
+//! measurement on the native backend either. It is the same *definition*,
+//! evaluated twice.
+//!
+//! ## What is counted
+//!
+//! **Every `allocate(ctx, n)`, at `n` bytes, on both backends. Nothing else.**
+//!
+//! That is smaller than the cost model, and the gap is worth stating exactly
+//! rather than leaving to be discovered. The list, string and closure rows of
+//! the model are charged *by definition* and reported to *no* allocator:
+//! `xs.map(ctx, f)` and `s.split(ctx, ",")` are already handed the context and
+//! already drop it, on both backends and for a different reason each.
+//!
+//!   * On JavaScript the runtime is untyped, and `16 + n * stride(T)` needs
+//!     `stride(T)`, which is a compile-time fact it does not have.
+//!   * Natively a context argument is dropped from every `buri_rt_*` call by
+//!     the ABI itself (`cranelift/runtime.rs`), so the runtime function that
+//!     builds the list never learns which allocator asked for it.
+//!
+//! Closing that gap is a wave of its own, and it has to close on both backends
+//! at once or the numbers stop agreeing — which is the one property this
+//! module exists to have. Until then a program that wants the other rows
+//! counted charges them itself, which is what `strBytes` and its neighbours below
+//! are for: `ctx.allocate(alloc.listBytes(xs.len(), 8))` is exactly the
+//! model's `16 + n * stride(T)`, and it is the same number natively.
+//!
+//! ## The counters live outside the values
+//!
+//! Buri has no mutation, so a running total cannot live in the struct that
+//! reports it. Each of the three carries a handle and the total lives beside
+//! it, exactly as `core/testing/context`'s captured stdout does. Two
+//! consequences, both deliberate:
+//!
+//!   * **A copy shares its counter.** Passing a `FixedBuffer` into a context
+//!     and keeping the original does not fork the budget; there is one budget
+//!     and both names reach it.
+//!   * **A constructor is *called*.** `alloc.arena()` twice is two arenas with
+//!     two totals, which is what makes an arena per phase expressible.
+//!
+//! None of the three implements a trait, and none of them can: SPEC 10.1 says
+//! no type may implement both an effect and a trait. So `stats` is an inherent
+//! method on each rather than one `trait Accounting` over all three, and `Show`
+//! is on `Stats` rather than on the allocators.
+//!
+//! ```buri run
+//! from "core/alloc" import * as alloc;
+//! from "core/cap" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let gp = alloc.generalPurpose();
+//!   let ctx = context { Alloc: gp, Stdout: host.stdout };
+//!   let _ = ctx.allocate(64);
+//!   let _ = ctx.allocate(alloc.strBytes(5));
+//!   let s = gp.stats();
+//!   let _ = ctx.println("${s.allocations} allocations, ${s.bytes} bytes");
+//!
+//!   // A budget refuses rather than reports: this one has 32 bytes left.
+//!   let buffer = alloc.fixedBuffer(64);
+//!   let small = context { Alloc: buffer };
+//!   let _ = small.allocate(32);
+//!   let _ = ctx.println("${buffer.remaining()} of ${buffer.budget} left");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 2 allocations, 85 bytes
+//! 32 of 64 left
+//! ```
+
+from "core/cap" import { Alloc, Region };
+
+// --- The cost model, as arithmetic --------------------------------------------
+//
+// `core/cap`'s table states the model; these evaluate it. They are ordinary
+// pure functions, so both backends compute them from one body and the
+// agreement is by construction rather than by test.
+
+/// The block header every heap value carries, in bytes (MEMORY.md §5.1).
+export const HEADER_BYTES: Int = 16;
+
+/// A `Str` view — `slice`, `trim`, `splitOnce` — charges nothing, and so does
+/// a fixed-size construction. The model counts what the *language* says
+/// allocates (SPEC 10.5), not what an implementation happens to do.
+export const VIEW_BYTES: Int = 0;
+
+/// The charge for a `Str` of `n` UTF-8 bytes: `16 + n`.
+///
+/// UTF-8 bytes, not scalars — `"é".len()` is 1 and its charge is 18.
+export fn strBytes(n: Int): Int {
+  HEADER_BYTES + n
+}
+
+/// The charge for a `[T]` of `n` elements: `16 + n * stride`.
+///
+/// The stride is a parameter because the language cannot yet name one: there
+/// is no `sizeOf<T>()`, and the model's `stride(T)` is VALUE-MODEL.md §5's
+/// layout, which the compiler knows and a program cannot ask for. A
+/// `sizeOf<T>()` would make this `listBytes<T>(n)` and is the obvious next
+/// step; until then this is the model with its one input supplied.
+export fn listBytes(n: Int, stride: Int): Int {
+  HEADER_BYTES + n * stride
+}
+
+/// The charge for a closure environment of `size` bytes: `16 + size`.
+export fn closureBytes(size: Int): Int {
+  HEADER_BYTES + size
+}
+
+// --- What an allocator has been asked for -------------------------------------
+
+/// What `GeneralPurpose.stats`, `Arena.stats` and `FixedBuffer.stats`
+/// answer: every charge since the allocator was made.
+///
+/// `allocations` counts *requests*, including a request for zero bytes, so a
+/// program can tell "asked once for nothing" from "never asked".
+export struct Stats {
+  export allocations: Int,
+  export bytes: Int,
+}
+
+derive Eq, Show for Stats;
+
+// --- The accounting, which all three share ------------------------------------
+//
+// One counter behind three types. The alternative — a set of operations per
+// type — is three copies of the same four runtime functions on two backends,
+// and nothing distinguishes the three policies except which counter they open
+// and whether it has a budget.
+
+/// A fresh counter. A negative budget is unbounded.
+fn newCounter(budget: Int): I64;
+
+/// Adds `bytes` to the counter and answers them.
+///
+/// Aborts when the counter has a budget and this request would pass it — see
+/// `FixedBuffer` for why that is an abort rather than an error value.
+fn charge(handle: I64, bytes: Int): Int;
+
+/// How many charges this counter has taken.
+fn count(handle: I64): Int;
+
+/// How many bytes this counter has taken.
+fn total(handle: I64): Int;
+
+/// Unbounded, in the shape `newCounter` wants it.
+const UNBOUNDED: Int = -1;
+
+// --- GeneralPurpose -----------------------------------------------------------
+
+/// Unbounded, and counts.
+///
+/// The one to reach for when the question is "how much does this cost?" rather
+/// than "does this fit?".
+export struct GeneralPurpose {
+  handle: I64,
+}
+
+impl Alloc for GeneralPurpose {
+  fn allocate(self: GeneralPurpose, bytes: Int): Region {
+    Region(charge(self.handle, bytes))
+  }
+}
+
+/// A fresh general-purpose allocator, with its own counter at zero.
+export fn generalPurpose(): GeneralPurpose {
+  GeneralPurpose { handle: newCounter(UNBOUNDED) }
+}
+
+impl GeneralPurpose {
+  export fn stats(self: GeneralPurpose): Stats {
+    Stats { allocations: count(self.handle), bytes: total(self.handle) }
+  }
+}
+
+// --- Arena --------------------------------------------------------------------
+
+/// A separate counter, and **nothing more than a counter** in this version.
+///
+/// An arena in the usual sense frees in bulk at the end of a scope, and this
+/// one does not: there is no scope for it to end at. Every allocator here
+/// hands its blocks to the same reference-counted heap, which frees each one
+/// when the last reference to it goes (MEMORY.md §5), so an `Arena` reclaims
+/// nothing that a `GeneralPurpose` would not have reclaimed anyway.
+///
+/// What it is for meanwhile is *attribution*: an arena per phase answers
+/// "how much did parsing charge?" without the caller subtracting two totals.
+///
+/// What would make it real is a language feature rather than a backend one — a
+/// **scoped context**, bounding a context's lifetime so that everything
+/// allocated under it is unreachable at the end of the scope. That is a
+/// proposal against SPEC 10, and naming it here is how the gap stays a known
+/// one instead of being filled with a bulk free that cannot be sound
+/// (MEMORY.md §4, §7.2).
+export struct Arena {
+  handle: I64,
+}
+
+impl Alloc for Arena {
+  fn allocate(self: Arena, bytes: Int): Region {
+    Region(charge(self.handle, bytes))
+  }
+}
+
+/// A fresh arena, with its own counter at zero.
+export fn arena(): Arena {
+  Arena { handle: newCounter(UNBOUNDED) }
+}
+
+impl Arena {
+  /// Everything charged to this arena since it was made. Nothing subtracts
+  /// from it, because nothing is reclaimed early — see the type.
+  export fn stats(self: Arena): Stats {
+    Stats { allocations: count(self.handle), bytes: total(self.handle) }
+  }
+}
+
+// --- FixedBuffer --------------------------------------------------------------
+
+/// A byte budget. Charging past it **aborts**.
+///
+/// The abort is forced rather than chosen, and the reasoning is worth having
+/// where a reader meets the type: `allocate` answers `Region`, not
+/// `Result<Region, _>` (`core/cap`), so there is no value to report a failure
+/// with; SPEC 10.5 says `Alloc` can fail; and SPEC 6.10 says a failure with no
+/// value to return is an abort. The message names both numbers —
+/// `allocation budget exhausted: 40 bytes requested against a budget of 64` —
+/// because the budget alone does not tell a reader what to change.
+///
+/// The check is against the *defined* charge, so it is byte-exact and it fires
+/// on the same request on both backends. A budget is therefore a test a
+/// program can write: give a function 64 bytes and it either fits or the
+/// process ends.
+export struct FixedBuffer {
+  handle: I64,
+  /// What this buffer was made with, in bytes.
+  export budget: Int,
+}
+
+impl Alloc for FixedBuffer {
+  fn allocate(self: FixedBuffer, bytes: Int): Region {
+    Region(charge(self.handle, bytes))
+  }
+}
+
+/// A buffer of exactly `budget` bytes.
+///
+/// A negative budget is **clamped to zero** rather than refused, and rather
+/// than meaning "unbounded": there is no value to refuse a construction with,
+/// and a `FixedBuffer` that silently had no limit would be the one mistake
+/// this type exists to prevent. So `fixedBuffer(-1).budget` is `0`, and the
+/// first request for a byte or more ends the process.
+export fn fixedBuffer(budget: Int): FixedBuffer {
+  let limit = if (budget < 0) { 0 } else { budget };
+  FixedBuffer { handle: newCounter(limit), budget: limit }
+}
+
+impl FixedBuffer {
+  export fn stats(self: FixedBuffer): Stats {
+    Stats { allocations: count(self.handle), bytes: total(self.handle) }
+  }
+
+  /// `budget` less what has been charged. Never negative: a request that would
+  /// make it negative aborts instead.
+  export fn remaining(self: FixedBuffer): Int {
+    self.budget - total(self.handle)
+  }
+}
