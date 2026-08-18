@@ -23,6 +23,10 @@ impl Str {
 
   export fn charAt(self: Str, index: Int): Option<Char>;
 
+  /// A view into `self`, not a copy — which is why it is pure and takes no
+  /// `Alloc`. The view keeps the whole parent string alive for as long as it
+  /// lives, so holding three bytes of a ten-megabyte line holds ten megabytes.
+  /// Copy with `format` when the parent is large and the view is small.
   export fn slice(self: Str, start: Int, end: Int): Str;
 
   export fn trim(self: Str): Str;

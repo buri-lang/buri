@@ -990,7 +990,7 @@ fn lines(text: &str) -> impl Iterator<Item = (usize, usize, &str)> {
 mod tests {
     use super::*;
 
-    const SPEC: &str = include_str!("../../../SPEC.md");
+    const SPEC: &str = include_str!("../docs/SPEC.md");
 
     #[test]
     fn slugs_match_github() {

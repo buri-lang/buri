@@ -10,7 +10,7 @@ buri docs lang/effects          one topic
 buri docs cli build             one command, flags generated from the dispatch table
 buri docs search <words>        every page at once
 buri docs manifest              every id and output shape, for an agent
-buri docs assemble              regenerate SPEC.md and README.md from the topics
+buri docs assemble              regenerate cli/src/docs/SPEC.md and README.md
 ```
 
 It works outside a repository: the prose ships inside the executable.
@@ -32,5 +32,6 @@ comment is documentation, and an example in one has the same claim on being
 true. `buri docs test` reads a source file through its comments, and a failure
 names the `.buri` line the example is written on.
 
-`SPEC.md` and `README.md` are generated from these same topics, and a test
-fails if the checked-in files drift from what the topics produce.
+`cli/src/docs/SPEC.md` and the repository's `README.md` are generated from
+these same topics, and a test fails if the checked-in files drift from what the
+topics produce.

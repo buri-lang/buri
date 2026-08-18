@@ -50,32 +50,28 @@ the two.
 
 `cranelift-frontend`'s `FunctionBuilder` runs the Braun et al. algorithm over
 `declare_var`/`def_var`/`use_var` and inserts block parameters for you
-(`cranelift/frontend/src/ssa.rs` cites the paper). We do not use any of it.
+(`cranelift/frontend/src/ssa.rs` cites the paper, vendored at
+[../../reference/braun-ssa-construction.pdf](../../reference/braun-ssa-construction.pdf)).
+We do not use any of it.
 
 The IR is already in SSA. Every value is either a block parameter or an
 instruction result, both of which are `ir::Value` directly. So the lowering:
 
 1. creates every block up front with `create_block()`,
 2. appends every block's parameters with `append_block_param(block, ty)`,
-3. calls `seal_block` on each one,
-4. then fills bodies with `switch_to_block` + `ins()`.
+3. fills bodies with `switch_to_block` + `ins()`,
+4. and calls `seal_all_blocks()` once, at the end.
 
-Step 1 before step 4 is what makes step 3 unconditional: `seal_block` means "all
-predecessors are known", and after the whole CFG exists they are. There is no
-sealing discipline to get wrong, which is the failure mode the `FunctionBuilder`
-docs warn about ("forgetting to call this method on every block will cause
-inconsistencies in the produced functions").
+**Sealing is one call in one place, and that is the point.** `seal_block` means
+"all predecessors are known", and the failure mode the `FunctionBuilder` docs
+warn about is forgetting it on some block ("will cause inconsistencies in the
+produced functions"). Sealing everything at the end cannot forget.
 
-> **Correction, from the implementation (wave 2a).** Step 3 cannot be step 3.
-> `SSABuilder` does not learn a block's predecessors when the block is created;
-> it learns them at each branch, and `declare_block_predecessor` asserts
-> `!is_sealed(block)`. Sealing every block before filling any body therefore
-> trips that assertion on the first jump in the function. The landed backend
-> seals in exactly one place — `seal_all_blocks()` after the body is complete —
-> and the substance of this section is unchanged, because sealing exists only
-> to drive the variable-to-phi construction the paragraph above declines to
-> use. Steps 1, 2 and 4 are as written, and there is still no sealing
-> discipline to get wrong.
+It also has to be at the end rather than beside step 1: `SSABuilder` learns a
+block's predecessors at each *branch*, not at creation, and
+`declare_block_predecessor` asserts `!is_sealed(block)`. None of that costs
+anything here, because sealing exists only to drive the variable-to-phi
+construction this section declines to use.
 
 `append_block_param`'s own doc comment says it "has to be called at the creation
 of the `Block` before adding instructions to it, otherwise this could interfere
@@ -216,10 +212,10 @@ variant's index otherwise.
 ```
     ;; incref v_p                          ;; decref v_p, cold path in b_free
     v_rc  = load.i64  v_p-16               v_rc = load.i64 v_p-16
-    v_1   = iconst.i64 1                   brif (v_rc == IMMORTAL), b_done, b_live
-    v_n   = uadd_sat.i64 v_rc, v_1     b_live:
-    store  v_n, v_p-16                     brif (v_rc == 1), b_free, b_dec
-                                       b_dec:
+    v_i   = iadd_imm.i64 v_rc, 1           brif (v_rc == IMMORTAL), b_done, b_live
+    v_im  = icmp_imm eq v_rc, IMMORTAL b_live:
+    v_n   = select v_im, v_rc, v_i         brif (v_rc == 1), b_free, b_dec
+    store  v_n, v_p-16                 b_dec:
                                            v_d = isub v_rc, 1
                                            store v_d, v_p-16
                                            jump b_done
@@ -229,15 +225,14 @@ variant's index otherwise.
 ```
 
 The `b_free` block is marked with `set_cold_block`, which moves it out of the hot
-path in the final layout — `LLVM-tips.md:4`'s cache-locality instruction, and
+path in the final layout — `design/LLVM-tips.md:4`'s cache-locality instruction, and
 Cranelift gives it directly.
 
-> **Correction, from the implementation (wave 2a).** `uadd_sat` is a Cranelift
-> instruction and is **vector-only**: its controlling type set requires `lanes
-> >= 2`, so `uadd_sat.i64` is rejected by the verifier outright. The scalar
-> spelling of a saturating increment is `iadd_imm` plus a compare against
-> `IMMORTAL` plus a `select` — three nodes rather than one, still branchless,
-> and `IMMORTAL` still needs no cold path.
+The saturating increment is three nodes rather than one because Cranelift's
+`uadd_sat` is **vector-only** — its controlling type set requires `lanes >= 2`,
+so `uadd_sat.i64` is rejected by the verifier. `iadd_imm` plus a compare against
+`IMMORTAL` plus a `select` is the scalar spelling: still branchless, and
+`IMMORTAL` still needs no cold path.
 
 `drop_T` is a generated per-type function; the null tests in front of both
 sequences are emitted only where the layout says the pointer is nullable, which
@@ -393,7 +388,7 @@ and the third is the one that settles it here:
 > binaries even if you are compiling the same source tree.
 
 That is a direct contradiction of this toolchain's central claim
-(`build.rs:128-133`, `TODO.md:1097-1101`). An incremental linker and
+(`build.rs:128-133`). An incremental linker and
 `--check-reproducible` cannot both be right. The author's conclusion — "I wanted
 to make full link as fast as possible, so that we don't have to think about how
 to work around the slowness of full link" — is the plan.
@@ -522,8 +517,9 @@ The reason to pin the LTS rather than track latest is specific to this design:
 `Backend::identity()` enters every `codegen` cache key (ARCHITECTURE.md §3, §6.2),
 so **a Cranelift bump invalidates every cached object in every repository**. At
 the monthly cadence that is churn nobody asked for; at the annual LTS cadence it
-is a deliberate, reviewable event that lands with a toolchain version bump, which
-every repository already pins by hash (`build/toolchain.rs`).
+is a deliberate, reviewable event that lands with a toolchain version bump —
+which is already in every key, since `arguments::VERSION` is what `KeyBuilder`
+folds in (`build/cache.rs`).
 
 What the LTS costs, named so nobody rediscovers it: `ObjectBuilder::unwind_info`
 (0.133) — not wanted, §5 — and whatever `regalloc_algorithm` values the newer

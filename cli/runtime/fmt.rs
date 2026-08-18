@@ -45,6 +45,8 @@
 //!
 //! # Why this rather than a hand-rolled Ryū
 //!
+//! (Adams' paper is vendored at `reference/ryu-float-to-string.pdf`.)
+//!
 //! The dependency bar (workspace `Cargo.toml`) is about *crates*, and `std` is
 //! not one: this runtime already uses `String::from_utf8_lossy`, `std::alloc`
 //! and `std::io`. A hand-written Ryū would be four hundred lines of table-driven

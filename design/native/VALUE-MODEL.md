@@ -4,7 +4,7 @@
 struct is an array, an enum is a number or `[tag, ...payload]`, `None` is
 `undefined`. This document is the other one — sized integers, a struct layout, a
 tagged union — and the language-visible consequences of the change, which
-`TODO.md:1744-1750` correctly says need a SPEC amendment rather than a quiet
+the roadmap correctly said need a SPEC amendment rather than a quiet
 divergence.
 
 The model is computed by `middle::layout` (ARCHITECTURE.md §2.2) and both native
@@ -177,6 +177,14 @@ capacity writes in place and returns the same pointer. That is MEMORY.md §5, it
 is invisible in the type, and it makes the loop `for … { xs = xs.push(ctx, x) }`
 amortized O(1) without changing what `[T]` is.
 
+That is not a plan: it is `cli/runtime/list.rs`'s `append_dest`, behind
+`list.push` and `list.concat` on both backends, with the capacity coming from
+doubling on the reallocating path. `cli/tests/native_cranelift.rs`'s
+`a_unique_push_loop_allocates_logarithmically` is the amortization stated as an
+allocation count. The one restriction is that an element type holding counted
+references — `[Str]` — still copies; MEMORY.md §5.3 says why, and it is a
+property of the drop glue rather than of `[T]`.
+
 ## 5. Tuples and structs
 
 Fields in **declaration order**, at natural alignment, C layout. Size rounded up
@@ -193,7 +201,7 @@ Reordering to close padding is the obvious optimization and it is not taken in
 v1, because `Desc::Struct` (`monomorphize.rs:120`) carries `fields` in
 declaration order and every derived operation is a fold over that order —
 `derive Show` prints them in it, `derive ToJson` writes a positional struct as an
-array in it (`TODO.md:1504-1508`, and that array's element order is *wire
+array in it (and that array's element order is *wire
 format*). A layout pass that reorders and a descriptor that does not is two
 orderings that must be kept in step by hand, and the failure is a JSON document
 with its fields transposed. The growth path is one field on `DescField` — the
@@ -314,7 +322,7 @@ compare against zero.
 Everything else gets a tag. In particular **`Option<Option<T>>` gets a tag**, and
 that is a semantic improvement over JavaScript rather than a cost: `runtime.js:24-27`
 records that `Some(None)` and `None` collide there, and that the collision is why
-`Option<T>` in JSON does not round-trip (`TODO.md:1499-1503`). Natively it does
+`Option<T>` in JSON does not round-trip. Natively it does
 not collide. §8 lists the test.
 
 General niche discovery — scanning a type for any unused bit pattern, Rust-style
@@ -428,13 +436,13 @@ The JS backend has it both ways. `derive Eq` is compiled per type into its own
 function (`generate.rs:221-232`: "compiled at the type, a two-field struct is
 `a[0]===b[0]&&a[1]===b[1]` — no dispatch left at all"), while `Show`, `Hash`,
 `ToJson` and `FromJson` go through a runtime walker over a `Desc` value
-(`monomorphize.rs:820-841`, `TODO.md:1483-1490`). The walker is the right call
+(`monomorphize.rs:820-841`). The walker is the right call
 there: it keeps one `$show` in the artifact instead of one per type, and artifact
 size is what a JavaScript build is judged on.
 
 **Natively, all of them are generated and no descriptor reaches the artifact.**
 
-The reasons are the ones `LLVM-tips.md` lists. A descriptor walk is an
+The reasons are the ones `design/LLVM-tips.md` lists. A descriptor walk is an
 interpreter: an indirect dispatch on `Desc`'s tag per field per element, which is
 the single megamorphic call site `generate.rs:222-227` already identifies as the
 problem in the JavaScript version. It defeats `readnone`/`readonly` attribution
@@ -500,7 +508,7 @@ The alternatives and why not:
 The boundary is narrow by construction: everything above the intrinsics is
 generated Buri, and `check_intrinsics` (`generate.rs:2669`) becomes
 `Backend::missing_intrinsics` (ARCHITECTURE.md §3), so a runtime that is missing
-`str.splitAny` is a build error naming it, per backend, exactly as TODO.md:1755
+`str.splitAny` is a build error naming it, per backend, exactly as the roadmap
 asks.
 
 The hot three — `incref`, `decref`, `alloc` fast path — are **not** calls. They
@@ -509,10 +517,10 @@ the thing that makes reference counting slow. MEMORY.md §5 gives the sequences.
 
 ## 11. The SPEC amendment
 
-`SPEC.md:910-916` and `SPEC.md:1001-1006` are written as though JavaScript were
+`cli/src/docs/SPEC.md:910-916` and `cli/src/docs/SPEC.md:1001-1006` are written as though JavaScript were
 the only backend. They are the amendment.
 
-**Applied in wave 3c**, to the sources rather than to `SPEC.md` — the document is
+**Applied in wave 3c**, to the sources rather than to `cli/src/docs/SPEC.md` — the document is
 assembled from `cli/src/docs/lang/expressions.md` by `buri docs assemble`, and
 editing the output would be edited back out by the next run. Three consequential
 notes on the landing:
@@ -522,19 +530,19 @@ notes on the landing:
   §12's divergence list a list rather than a bug queue. In particular the
   JavaScript backend still has the 2^53 ceiling: `BigInt` everywhere is the only
   fix and it taxes every loop counter in every program (SPEC §13, open question
-  8, has the trade). `TODO.md`'s native-backend roadmap carries that as the
+  8, has the trade). `design/TODO.md`'s native-backend section carries that as the
   follow-up.
 - Two documents outside §6.2 said the same thing unconditionally and were
   amended with it: `docs/build/proto.md`'s 64-bit caveat, which is now the
   JavaScript backend's rather than the language's, and `core/num`'s own module
-  comment, which `TODO.md:1744-1750` named as the file that would have to change.
+  comment, which the roadmap named as the file that would have to change.
 - §11.4's float-rendering promise is now in the SPEC and is **not yet checked**.
   It is a promise about digits — `1.0 / 3.0` prints the same characters on every
   backend — and the test that holds it is §12's, which does not exist. A promise
   in a specification with no test behind it is a claim; this one is written down
   as such rather than assumed.
 
-### 11.1 §6.2, replacing the paragraph at SPEC.md:910-916
+### 11.1 §6.2, replacing the paragraph at cli/src/docs/SPEC.md:910-916
 
 > Undefined does not mean unbounded in practice, and what it means in practice
 > depends on the backend.
@@ -554,27 +562,42 @@ notes on the landing:
 > rather than a value they cannot hold, and `core/bits`, which computes on the
 > bit pattern.
 
-### 11.2 §6.2.1, adding after SPEC.md:946-950
+### 11.2 §6.2.1, adding after cli/src/docs/SPEC.md:946-950
 
 > `I64 → F64` is lossy above 2^53 on every backend, and `toF64` rounds. On the
 > JavaScript backend the *source* is a double already, so the conversion is the
 > identity and the loss happened earlier; the answer is the same either way.
 
-### 11.3 §6.2.2, replacing the paragraph at SPEC.md:1001-1006
+### 11.3 §6.2.2, replacing the paragraph at cli/src/docs/SPEC.md:1001-1006
+
+**Shipped.** This is the text in `cli/src/docs/lang/expressions.md` and in
+`cli/src/docs/SPEC.md` §6.2.2, after the ruling recorded in `OPEN-QUESTIONS.md`.
 
 > A `Checked` method answers `.None` whenever it cannot hand back the true result
 > — outside the type's range, or above what the backend represents exactly. The
-> second bound is the backend's: on a native backend it does not exist, so
-> `.None` means "outside the type's range" and nothing else; on the JavaScript
-> backend it is 2^53 - 1, well below `maxValue<I64>()`. So
-> `(1 << 60).checkedAdd(1)` is `.Some` natively and `.None` on JavaScript, and
-> both are correct: `.Some(v)` is always a promise that `v` is the answer, and
-> the JavaScript backend declines to make a promise it cannot keep.
+> second bound is the backend's, and it is the numbers that backend has. On a
+> native backend there is no second bound: `.None` means "outside the type's
+> range" and nothing else, so `checkedAdd` on `I64` reports two's-complement
+> overflow and nothing more. On the JavaScript backend the second bound is
+> 2^53 - 1, well below `maxValue<I64>()`, because past it a `number` can no
+> longer say which integer it is.
+>
+> So `(1 << 60).checkedAdd(1)` is `.Some` natively and `.None` on JavaScript, and
+> both are correct, because both are the same promise kept over different
+> numbers: `.Some(v)` means `v` is the exact true result as that backend
+> represents numbers, and `.None` means that backend will not name a value it
+> cannot hold.
 >
 > A program whose behaviour depends on which of those it gets is a program
 > relying on a `Checked` method to *fail*, which is not what the trait is for.
 
-### 11.4 §6.2, adding after SPEC.md:918-919
+The alternative — a native backend that also stops at 2^53 — was implemented,
+shipped for a wave, and reversed: it makes `Checked` useless on `I64` natively,
+which is exactly where a program reaches for it, and it buys portability of a
+result nobody should be branching on. The cost of the ruling is one row on the
+divergence list, and that row is pinned in both directions.
+
+### 11.4 §6.2, adding after cli/src/docs/SPEC.md:918-919
 
 > Floating point follows IEEE-754 on every backend, and the rendering of a float
 > is the shortest decimal that round-trips. That is a promise about digits, not
@@ -595,8 +618,8 @@ and fails if a row names a test that is not there, so the column cannot rot.
 | # | Behaviour | JavaScript | Native | Verdict | Pinned by |
 |---|---|---|---|---|---|
 | 1 | `Int` overflow | precision loss above 2^53 | two's-complement wrap | Undefined on both (§11.1). **Divergence, listed.** | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
-| 2 | `checkedAdd` above 2^53, within `I64` | `.None` | `.None` | ~~Divergence~~ — **must agree, and does.** Both native backends narrow the bound to `exact_int_range` on purpose (`cranelift/emit.rs`'s `outside_exact_range`, `llvm/emit.rs`'s `checked`) because `conformance/lib/numbers/test/integers.buri` states `.None` as a property of the *language*. §11.3 and `SPEC.md` §6.2.2 still say `.Some`, and they are the text that is out of date: the fix is in `cli/src/docs/lang/expressions.md`, not in a backend. | `row_02_checked_above_the_exact_range` |
-| 3 | `wrappingMul` at 64 bits | exact while the *intermediate* stays inside 2^53 | exact, native | Must agree — and **the row as written was false**. `$wrapTo` wrapped a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles, not a 2^53 ceiling. `$wrapOp` computes in `BigInt` wherever the type's *whole range* is exact, which is every width up to 32 bits. At 64 and 128 it deliberately does not: the operands there may already be rounded — `maxValue<U64>()` is 2^64 — so exactness downstream is not a repair, and the compensating rounding is what makes `maxValue<U64>().wrappingAdd(1) == 0` on that backend, which the conformance corpus pins. So the true statement of this row is: **agrees at every width up to 32 bits, and above that agrees wherever the intermediate stays inside 2^53**. `(2^62 + 1024).wrappingMul(4)` is 4096 natively and 0 on JavaScript, and that case is row 1. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
+| 2 | `checkedAdd` above 2^53, within `I64` | `.None` | `.Some` | **Divergence, listed** — and settled by a ruling, after a wave in which it was not. `Checked` is bounded by the numbers the *backend* has: `exact_int_range` on JavaScript (`js/intrinsics.rs`), `int_range` natively (`cranelift/emit.rs`'s `checked`, `llvm/emit.rs`'s `checked`, `buri_rt_i128_checked` at 128). Both are the same promise — `.Some(v)` is the exact true result as that backend represents numbers — kept over different numbers, and §11.3 is the SPEC text. The band between the two bounds is the divergence and it lives *only* here: it came out of `conformance/lib/numbers/test/integers.buri`, which `native_conformance.rs` runs natively and which therefore may only assert what both backends answer. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
+| 3 | `wrappingMul` at 64 bits | exact while the *intermediate* stays inside 2^53 | exact, native | Must agree — and **the row as written was false**. `$wrapTo` wrapped a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles, not a 2^53 ceiling. `$wrapOp` computes in `BigInt` wherever the type's *whole range* is exact, which is every width up to 32 bits. At 64 and 128 it deliberately does not: the operands there may already be rounded — `maxValue<U64>()` is 2^64 — so exactness downstream is not a repair, and the compensating rounding is what makes `maxValue<U64>().wrappingAdd(1) == 0` on that backend, which the conformance corpus pins. So the true statement of this row is: **agrees at every width up to 32 bits, and above that agrees wherever the intermediate stays inside 2^53**. `(2^62 + 1024).wrappingMul(4)` is 4096 natively and 0 on JavaScript, and that case is row 1. Row 2's ruling does not touch this row: natively `wrapping*` **is** `iadd`/`isub`/`imul` (`cranelift/emit.rs`, and `llvm/emit.rs` where `wrappingAdd` and `add` are the same instruction because §3.4 emits no `nsw`/`nuw`), so it was exact at the type's width before the ruling and after it. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | inexact above 2^53 | exact | **Divergence, listed.** The native answer is the correct one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
 | 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | ~~Divergence~~ — **must agree, and does.** `.Some(.None)` collided with `.None` before the depth counter landed; it does not now, at any nesting depth, through `match`, `Eq` or `Show`. | `row_05_nested_option_is_distinct` |
 | 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |

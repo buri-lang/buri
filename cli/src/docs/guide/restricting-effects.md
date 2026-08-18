@@ -22,7 +22,7 @@ export fn main(): Result<(), Str> {
 No copy, no wrapper, no runtime cost, and confinement is transitive — `C` is
 opaque at every downstream call site. When you want the value itself to lack the
 effect rather than merely be unable to name it, wrap the context in a type
-that satisfies fewer traits ([SPEC.md §10.8](./SPEC.md)).
+that satisfies fewer traits ([SPEC.md §10.8](./cli/src/docs/SPEC.md)).
 
 One more thing falls out of effects being ordinary interfaces: **a test double is
 a struct with methods.** A test builds a context the same way `main` does, and

@@ -1017,18 +1017,28 @@ Every built-in integer type satisfies all three; the float types satisfy
 `Bounded` only.
 
 A `Checked` method answers `.None` whenever it cannot hand back the true result
-— outside the type's range, or above what every backend represents exactly. The
-second bound is the language's, not a backend's: it is 2^53 - 1, well below
-`maxValue<I64>()`, and it applies **on every backend**, so
-`(1 << 60).checkedAdd(1)` is `.None` everywhere. A native backend could compute
-the true 64-bit sum, and answers `.None` anyway, because `.Some(v)` is a promise
-about `v` that must mean the same thing wherever the program runs — a value a
-program obtained natively must not become unrepresentable when the same program
-runs on JavaScript.
+— outside the type's range, or above what the backend represents exactly. The
+second bound is the backend's, and it is the numbers that backend has. On a
+native backend there is no second bound: `.None` means "outside the type's
+range" and nothing else, so `checkedAdd` on `I64` reports two's-complement
+overflow and nothing more. On the JavaScript backend the second bound is
+2^53 - 1, well below `maxValue<I64>()`, because past it a `number` can no longer
+say which integer it is.
 
-`Bounded` and `Saturating` report the type's own bounds, which at 64 bits and
-above are themselves rounded to the nearest representable value. Where the
-difference matters, `Checked` is the one that will tell you.
+So `(1 << 60).checkedAdd(1)` is `.Some` natively and `.None` on JavaScript, and
+both are correct, because both are the same promise kept over different numbers:
+`.Some(v)` means `v` is the exact true result as that backend represents
+numbers, and `.None` means that backend will not name a value it cannot hold.
+The JavaScript backend declines to promise what it cannot keep; the native one
+keeps the promise further because it can.
+
+A program whose behaviour depends on which of those it gets is a program relying
+on a `Checked` method to *fail*, which is not what the trait is for.
+
+`Bounded` and `Saturating` report the type's own bounds on every backend, which
+at 64 bits and above are themselves rounded to the nearest representable value
+on JavaScript. Where the difference matters, `Checked` is the one that will tell
+you.
 
 ### 6.3 Blocks
 

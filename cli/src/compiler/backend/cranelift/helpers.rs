@@ -6,7 +6,7 @@
 //! | Helper | Why it is generated rather than called |
 //! |---|---|
 //! | [`Helper::Thunk`] | A closure's `code` takes its environment as a pointer; a lifted lambda takes it as leaves. Something has to convert. |
-//! | [`Helper::Concat`] | `str.concat` has no `buri_rt_*` entry, and the sequence is an allocation and two copies. |
+//! | [`Helper::Concat`] | `str.concat` has no `buri_rt_*` entry, and the sequence is a uniqueness test, a copy, and an allocation on the path that needs one (MEMORY.md §5.3). |
 //! | [`Helper::ShowInt`] | `derivePrimShow`'s integer arm (`middle/derives.rs`). |
 //! | [`Helper::ShowBool`] | The same, for `Bool`. |
 //! | [`Helper::Release`] | The per-type drop glue `Inst::DecRef` leaves `None` for wave 2 to fill (`middle/lower.rs`). |
@@ -27,7 +27,7 @@ use crate::compiler::backend::cranelift::emit::{
     mem, Cx, Helper, Pending, Unit, ENV_FIELDS,
 };
 use crate::compiler::middle::layout::{
-    HEADER_CAP_OFFSET, STR_ASCII_FLAG, STR_LEN_MASK,
+    GROWTH_FLOOR, HEADER_CAP_OFFSET, HEADER_RC_OFFSET, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::types::Ty;
 
@@ -102,16 +102,53 @@ fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
     cx.b.ins().return_(&results);
 }
 
-/// `str.concat`: one allocation and two copies (VALUE-MODEL.md §3).
+/// `str.concat` (VALUE-MODEL.md §3), with MEMORY.md §5.3's in-place growth.
 ///
 /// The ASCII flag is the *conjunction* of the two inputs' flags, which is
 /// correct and not merely conservative: a concatenation of two all-ASCII views
 /// is all ASCII, and clearing the flag only ever costs an O(n) scalar count.
+///
+/// # The three paths, and what licenses the first
+///
+///  1. **In place.** The left operand's block is uniquely owned — `rc == 1` —
+///     and has room for the right operand's bytes past the end of the view.
+///     The bytes are written there, the block takes one more reference (the
+///     result's), and the result is the *same* `base` and the *same* `ptr`
+///     with a longer length. Nothing is allocated and the left operand's own
+///     bytes are not copied.
+///  2. **Grown.** Uniquely owned but out of room: a fresh block of
+///     `max(n * 2, GROWTH_FLOOR)` bytes rather than exactly `n`, so the next
+///     concatenation in a chain takes path 1. A template of *k* holes, or a
+///     fold that concatenates, therefore allocates O(log n) times instead of
+///     once per step.
+///  3. **Exact.** Shared, immortal, or a literal (`base == 0`): exactly `n`
+///     bytes, which is what this helper did unconditionally before. A shared
+///     string must not grow speculatively — it is not the one being built.
+///
+/// **Why path 1 is unobservable.** `rc == 1` means exactly one live `Str`
+/// value refers to this block: every operation that produces a *new* view of a
+/// block increfs its base before answering (`cli/runtime/text.rs`'s header), so
+/// a second view would be a second count. Static elision never duplicates a
+/// reference without an `incref` — a borrowed argument aliases the caller's
+/// own reference rather than adding one — so the aliases it leaves behind are
+/// copies of that one value, carrying the same `ptr` and the same `len`. The
+/// write here starts at `ptr + len` and is therefore invisible to every one of
+/// them. That is the whole argument, and it rests on the reference counting
+/// being correct rather than on anything about this helper.
+///
+/// The copy is a `memmove` rather than a `memcpy` on that path: the right
+/// operand is *nearly* always a different block, and where it is a second view
+/// into this one the two ranges can touch. A `memmove` costs nothing measurable
+/// and removes the case from the argument entirely.
 fn concat(mut cx: Cx<'_, '_, '_>) {
     let p = entry(cx.b);
-    let (Some(a_ptr), Some(a_len), Some(b_ptr), Some(b_len)) =
-        (p.get(1).copied(), p.get(2).copied(), p.get(4).copied(), p.get(5).copied())
-    else {
+    let (Some(a_base), Some(a_ptr), Some(a_len), Some(b_ptr), Some(b_len)) = (
+        p.first().copied(),
+        p.get(1).copied(),
+        p.get(2).copied(),
+        p.get(4).copied(),
+        p.get(5).copied(),
+    ) else {
         return;
     };
     let mask = cx.iconst(types::I64, STR_LEN_MASK as i64);
@@ -130,16 +167,80 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
     let blank = empty_str(&mut cx);
     cx.b.ins().return_(&[zero, blank, flag]);
 
+    // `probe` reads the header, which is only there when there is a base;
+    // `check` is reached from both sides with the answer as a block parameter,
+    // so the header load stays behind the null test.
+    let probe = cx.b.create_block();
+    let check = cx.b.create_block();
+    cx.b.append_block_param(check, types::I64);
+    cx.b.append_block_param(check, types::I64);
+    let inplace = cx.b.create_block();
+    let fresh = cx.b.create_block();
+    cx.b.append_block_param(fresh, types::I64);
+    let ret = cx.b.create_block();
+    cx.b.append_block_param(ret, PTR);
+    cx.b.append_block_param(ret, PTR);
+
     cx.b.switch_to_block(work);
-    let block = cx.alloc(n);
+    let none = cx.iconst(types::I64, 0);
+    let has_base = cx.b.ins().icmp_imm(IntCC::NotEqual, a_base, 0);
+    cx.brif(has_base, probe, &[], check, &[none, none]);
+
+    cx.b.switch_to_block(probe);
+    let rc = cx.b.ins().load(types::I64, mem(), a_base, HEADER_RC_OFFSET);
+    let cap = cx.b.ins().load(types::I64, mem(), a_base, HEADER_CAP_OFFSET);
+    // `IMMORTAL` is `u64::MAX` and fails this by construction, which is what
+    // keeps a literal and an interned constant out of both fast paths.
+    let is_one = cx.b.ins().icmp_imm(IntCC::Equal, rc, 1);
+    let unique = cx.b.ins().uextend(types::I64, is_one);
+    cx.jump(check, &[unique, cap]);
+
+    cx.b.switch_to_block(check);
+    let cp = cx.b.block_params(check).to_vec();
+    let (Some(unique), Some(cap)) = (cp.first().copied(), cp.get(1).copied()) else {
+        return;
+    };
+    // The view may start inside the block, so what has to fit is the offset of
+    // its start plus the whole result. With no base the offset is nonsense and
+    // the capacity is zero, so this is false — and `unique` is zero anyway.
+    let offset = cx.b.ins().isub(a_ptr, a_base);
+    let end = cx.b.ins().iadd(offset, n);
+    let fits = cx.b.ins().icmp(IntCC::UnsignedLessThanOrEqual, end, cap);
+    let fits = cx.b.ins().uextend(types::I64, fits);
+    let take = cx.b.ins().band(unique, fits);
+    cx.brif(take, inplace, &[], fresh, &[unique]);
+
     let cfg = cx.unit.module.isa().frontend_config();
+
+    cx.b.switch_to_block(inplace);
+    let tail = cx.b.ins().iadd(a_ptr, la);
+    cx.b.call_memmove(cfg, tail, b_ptr, lb);
+    cx.incref(a_base);
+    cx.jump(ret, &[a_base, a_ptr]);
+
+    cx.b.switch_to_block(fresh);
+    let grow = cx.b.block_params(fresh).first().copied().unwrap_or(none);
+    let doubled = cx.b.ins().imul_imm(n, 2);
+    let floor = cx.iconst(types::I64, GROWTH_FLOOR as i64);
+    let bigger = cx.b.ins().icmp(IntCC::UnsignedGreaterThan, doubled, floor);
+    let wanted = cx.b.ins().select(bigger, doubled, floor);
+    let growing = cx.b.ins().icmp_imm(IntCC::NotEqual, grow, 0);
+    let size = cx.b.ins().select(growing, wanted, n);
+    let block = cx.alloc(size);
     cx.b.call_memcpy(cfg, block, a_ptr, la);
     let tail = cx.b.ins().iadd(block, la);
     cx.b.call_memcpy(cfg, tail, b_ptr, lb);
+    cx.jump(ret, &[block, block]);
+
+    cx.b.switch_to_block(ret);
+    let rp = cx.b.block_params(ret).to_vec();
+    let (Some(base), Some(ptr)) = (rp.first().copied(), rp.get(1).copied()) else {
+        return;
+    };
     let both = cx.b.ins().band(a_len, b_len);
     let ascii = cx.b.ins().band_imm(both, STR_ASCII_FLAG as i64);
     let len = cx.b.ins().bor(n, ascii);
-    cx.b.ins().return_(&[block, block, len]);
+    cx.b.ins().return_(&[base, ptr, len]);
 }
 
 /// The address of a byte that is not a string, for the empty `Str`.

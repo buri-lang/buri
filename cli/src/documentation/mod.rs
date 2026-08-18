@@ -1024,12 +1024,12 @@ fn cmd_assemble(check_only: bool) -> i32 {
 }
 
 /// The toolchain's own checkout, found by walking up to the directory holding
-/// `SPEC.md` and `cli/`. `find_root` looks for `REPO.buri`, which this
-/// repository does not have at its root.
+/// `cli/src/docs/`. `find_root` looks for `REPO.buri`, which this repository
+/// does not have at its root.
 fn repo_root_of(from: &std::path::Path) -> Option<std::path::PathBuf> {
     let mut dir = Some(from);
     while let Some(d) = dir {
-        if d.join("SPEC.md").is_file() && d.join("cli").is_dir() {
+        if d.join("cli/src/docs/SPEC.md").is_file() && d.join("cli/src/docs/lang").is_dir() {
             return Some(d.to_path_buf());
         }
         dir = d.parent();

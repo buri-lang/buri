@@ -1,8 +1,8 @@
 # Memory
 
-`TODO.md:1751-1754` states the problem and offers two answers: "the language has
-no mutation and no destructors, so native either ships a GC or does escape
-analysis with an arena per `Alloc` scope."
+`design/TODO.md#the-native-backend` states the problem and offers two answers:
+"the language has no mutation and no destructors, so native either ships a GC or
+does escape analysis with an arena per `Alloc` scope."
 
 Both are wrong, and the reasons are specific enough to be worth writing down
 before saying what is right instead. The answer is **non-atomic reference
@@ -72,7 +72,7 @@ from C; `cli/tests/memory.rs` is the same assertion over Buri programs.
 
 ## 3. Why not a tracing GC
 
-Direct conflict with `LLVM-tips.md:2`.
+Direct conflict with `design/LLVM-tips.md:2`.
 
 A tracing collector has to find the roots, which means knowing which stack slots
 and which registers hold pointers at every point a collection can happen. There
@@ -81,8 +81,8 @@ are two ways to have that in LLVM, and both are excluded:
 - **Precise, via `gc.statepoint`.** Every GC-reachable pointer has to live in a
   stack slot the runtime can enumerate at a safepoint, which is `alloca` +
   reload around every call. That is exactly the `alloca` form
-  `LLVM-tips.md:2` says not to generate, and running `mem2reg` over it does not
-  help — the whole point of a statepoint is that the value is *not* in a
+  `design/LLVM-tips.md:2` says not to generate, and running `mem2reg` over it
+  does not help — the whole point of a statepoint is that the value is *not* in a
   register across the call. The instruction and the collector are incompatible,
   and the instruction is the one with a reason behind it.
 - **Conservative, scanning the stack for anything that looks like a pointer.**
@@ -100,8 +100,8 @@ growing a rooting discipline.
 
 ## 4. Why not an arena per `Alloc` scope
 
-This is the one `TODO.md:1751-1754` hopes for, and the honest answer is that the
-effect system does not carry the information it would need.
+This is the one `design/TODO.md#the-native-backend` hopes for, and the honest
+answer is that the effect system does not carry the information it would need.
 
 **`Alloc` says a function allocates. It does not say when the allocation dies.**
 
@@ -174,7 +174,8 @@ free from `nonnull` (CODEGEN-LLVM.md §3).
 Naive reference counting increments on every parameter pass and decrements on
 every scope exit, and it is slow. The fix is the one Koka's Perceus and Lean 4's
 runtime both use, and this language is a better fit for it than either, because
-it has no mutation at all.
+it has no mutation at all. The algorithm's full details are in the paper, vendored
+at [../../reference/perceus-algorithm.pdf](../../reference/perceus-algorithm.pdf).
 
 `middle::rc` computes, per parameter, whether the callee **owns** or **borrows**
 it:
@@ -206,42 +207,146 @@ On top of that, three local rules:
   consumed within one function, never stored and never returned, becomes an
   `alloca` (LLVM) / stack slot (Cranelift) with no header and no counts. This is
   the one place `alloca` is emitted, and it is emitted for a value that is never
-  reloaded through a pointer, so `LLVM-tips.md:2`'s instruction is not violated —
-  see CODEGEN-LLVM.md §2.3.
+  reloaded through a pointer, so `design/LLVM-tips.md:2`'s instruction is not
+  violated — see CODEGEN-LLVM.md §2.3.
 
 ### 5.3 Reuse, which is where the copying goes
 
 The other half of Perceus, and the reason an immutable language can be fast.
 
-When a `decref` would take a count to zero, the block is about to be free. If the
-same expression is *constructing* a value of the same size class, the block is
-reused in place instead of freed and re-allocated:
+When a value is uniquely owned — `rc == 1` — nothing in the program can tell the
+difference between building a new value and writing into the old one. That is the
+whole of it, and everything below is which operations take the opportunity.
 
-```buri ignore why="illustrative"
-match xs {
-  .Cons(h, t) => .Cons(f(h), t),
-  .Nil => .Nil,
-}
-```
+Reuse is guarded by a runtime `rc == 1` test, which is one compare against a
+header word the operation was going to load anyway. When the test fails, the
+fallback is allocate-and-copy, which is what would have happened unconditionally
+without the feature.
 
-If the matched cell is uniquely owned, the constructed `.Cons` writes into it.
-A `map` over a uniquely owned list becomes an in-place map with no allocation and
-no copying, which is the same machine code the mutable version would have had.
+#### What has landed, and where each fast path lives
 
-The same applies to `[T]`: `xs.push(ctx, x)` where `xs` has `rc == 1` and
-`cap >= (len + 1) * stride` writes the element and returns the same pointer. So
-the accumulate-in-a-loop idiom is amortized O(1) — VALUE-MODEL.md §4.1 promises
-this and this is where it comes from — while remaining, in the language, a pure
-function returning a new list.
+The blocks in this implementation are not where a reader of the paragraph above
+would guess, so the list is worth having explicitly. A struct, a tuple, an enum
+and a closure record are **register or stack** values — `MakeStruct` is a
+Cranelift stack slot and an LLVM aggregate — and the only counted heap blocks
+are a `Str`'s bytes, a `[T]`'s elements, a closure *environment*, and the box a
+recursive field goes behind (VALUE-MODEL.md §5.2). So the two operations worth
+optimizing are the two that build the first two, and both are done:
 
-Reuse is guarded by a runtime `rc == 1` test, which is one compare against a value
-already loaded by the `decref` that was going to happen anyway. When the test
-fails, the fallback is allocate-and-copy, which is what would have happened
-unconditionally without the feature.
+- **`[T]` append — `cli/runtime/list.rs`'s `append_dest`, behind `list.push`
+  and `list.concat`.** Both are runtime calls on both backends
+  (`cranelift/runtime.rs`, `llvm/runtime.rs`), so the fast path is in the
+  runtime and is shared. Three paths: *in place* when the block is uniquely
+  owned and `cap >= (len + n) * stride`, writing past the end and taking one
+  more reference; *grown* when it is unique and out of capacity, allocating
+  `max(needed * 2, 64)` so the next append is in place; *exact* otherwise. A
+  loop of `n` pushes therefore allocates O(log n) times, which is where
+  VALUE-MODEL.md §4.1's amortized O(1) comes from.
+- **`Str` concatenation — `cranelift/helpers.rs`'s `concat` and
+  `llvm/emit.rs`'s `concat`.** `str.concat` is open-coded by both backends
+  rather than called, so the fast path is written twice and pinned twice. The
+  same three paths, with the capacity test allowing for a view that starts
+  inside its block: `(ptr - base) + alen + blen <= cap`. A template of *k*
+  holes, or a fold that concatenates, is the shape this turns from O(k)
+  allocations into O(log k).
 
-The middle end pairs a dying value with a construction only when the two are in
-the same basic block and the size classes match. Cross-block reuse is a known
-extension and is not in v1.
+**Why the in-place write is unobservable.** `rc == 1` means exactly one live
+value refers to the block. Every operation that produces a *new* view of a block
+increfs its base before answering (`cli/runtime/text.rs`), so a second view would
+be a second count; and static elision (§5.2) never duplicates a reference without
+an `incref` — a borrowed parameter *aliases* the caller's reference rather than
+adding one. So the aliases elision leaves behind are copies of that one value,
+carrying the same `ptr` and the same `len`, and a write that starts at `ptr + len`
+is invisible to all of them. The correctness of §5.2's counting is what licenses
+§5.3's mutation, and there is no separate argument to make.
+
+Which means a *wrong* count is not merely a leak or a use-after-free here: it is
+a licence to overwrite something live. Writing the fast paths turned up two
+places where `middle::rc` got the count wrong, both fixed with the code above
+and both with a regression test beside them, and they are worth naming because
+they are the shape the next one will have. A local scrutinized by **two**
+consuming `match`es was dropped by each of them, because the first one erased it
+from the liveness the second computed. And a **borrowed local handed to a
+construct beside a sibling holding its last mention** — `f(s, g(s))`, or
+`"${s} … ${s.len()}"` — was dropped after the sibling, while the construct was
+still holding uncounted words copied out of it. Neither was visible to the
+balance checker, which counts operations rather than orders them; both were
+visible the moment an allocation reused the freed block.
+
+**Growth policy: doubling with a floor of 64 bytes**, applied only when the left
+operand is uniquely owned. A shared operand is not the one being built, so it
+gets an exact allocation and no speculative capacity. The floor is
+`layout::GROWTH_FLOOR` for the backends and `BURI_RT_GROWTH_FLOOR` for the
+runtime — two constants for two crates that never link against each other, and a
+disagreement between them costs a reallocation rather than an answer.
+
+#### What is excluded, and why
+
+- **A counted element type — `[Str]`, `[(Str, Int)]` — takes neither the
+  in-place path nor the over-allocation.** Two reasons, and both are
+  correctness rather than caution. Writing at index `len` would drop whatever
+  reference that slot already held without a `decref`, because a slot past the
+  end of one descriptor may hold an element a *longer*, now-dead descriptor put
+  there. And the generated release glue for a `[T]` block walks **`cap /
+  stride`** elements (`cranelift/helpers.rs`'s `release_elems`,
+  `llvm/emit.rs`'s `Job::ReleaseElems`), so spare capacity would have the drop
+  walk slots nothing ever wrote. Lifting it means adding a per-element
+  *release* glue beside the `retain` this ABI already passes, and making that
+  walk follow the element count rather than the capacity. That is the growth
+  path, and it is a change in both backends rather than in the runtime.
+- **Aggregate-cell reuse — the `S { ..old, field: new }` that Perceus is
+  famous for — has no cell to reuse.** `middle::rc` computes the pairing
+  (`FuncPlan::reuse`, behind `Options::reuse`, on by default) and it is correct
+  as an analysis, but the construction it would rewrite does not allocate:
+
+  ```buri ignore why="illustrative"
+  match xs {
+    .Cons(h, t) => .Cons(f(h), t),
+    .Nil => .Nil,
+  }
+  ```
+
+  compiles to a stack slot and a store, not to a heap cell and a `decref`.
+  `cli/tests/native_cranelift.rs`'s
+  `a_struct_update_loop_allocates_nothing_per_iteration` is the measurement
+  rather than the claim: a thousand struct updates allocate exactly as many
+  blocks as ten. Emitting the conditional form — a `rc == 1` branch, a write,
+  and an allocate-and-`decref` on the other side — would be two backends' worth
+  of new IR to save an allocation that is not happening. The pairing therefore
+  stays analysis, and the *test* that would notice a layout change promoting
+  aggregates to the heap is the thing that had to exist.
+- **Cross-block reuse** — pairing a dying value with a construction in a
+  different basic block — is a known extension and is not in v1. So is reuse
+  across a function boundary.
+- **Same-layout reuse across types** — writing a `Point` into a dying `Pair`'s
+  cell because both are two words — is excluded for the same reason as the row
+  above it plus one of its own: it would make the reuse decision depend on the
+  layout table agreeing about two unrelated types, and a layout change would
+  then silently change which programs mutate.
+
+**The sanctioned direction, named so nobody has to re-derive it.** The
+performance story for this design is Roc's, and Roc is the existence proof that
+it works for a pure language shipped to users rather than only in a paper: Roc is
+Perceus-style reference counted, with no tracing collector, and its speed comes
+from **opportunistic in-place mutation at refcount 1** — mutate when there is a
+single owner, share persistently otherwise — with as much of the ownership
+decided statically as the compiler can manage, so the runtime `rc == 1` test is
+skipped where the answer is already known. Koka calls the paradigm this enables
+*functional but in-place*: an algorithm written as a pure fold that compiles to
+the in-place loop its mutable twin would have been.
+
+That is what §5.3's reuse *is*, and saying so pins the direction of every future
+optimization here. The order of work is: more static ownership (fewer `rc == 1`
+tests, not faster ones), then cross-block reuse, then reuse across a function
+boundary. What is explicitly **not** on the path is adding a tracing collector
+beside the counts to catch what they miss (§3 gives the reason), or making the
+counts atomic before the language has threads (§5.4).
+
+- Reinking, Xie, de Moura and Leijen, *Perceus: Garbage Free Reference Counting
+  with Reuse*, PLDI 2021 — the algorithm, and the FBIP framing.
+- Roc's implementation, and Teeuwissen's *Reference Counting with Reuse in Roc*
+  (Utrecht, 2023) — the same algorithm in a shipped compiler, including where
+  the reuse analysis pays and where it does not.
 
 ### 5.4 The allocator underneath
 
@@ -264,6 +369,24 @@ What it costs until then, stated so it is not discovered: an allocation is a
 between roughly twenty cycles and roughly five on the fast path. That is a real
 number and it is the right one to pay first, because a size-class allocator that
 is wrong is a heap corruption and a `malloc` that is slow is a profile.
+
+**`cap` is the block's usable capacity, not the value's length**, and §5.3's
+doubling is the reason it is now routinely larger. A `[T]`'s element count is in
+its descriptor and a `Str`'s byte count is in its view, so neither reads `cap`
+to know how long it is; `cap` is read by `buri_rt_free`, to recover the layout
+the block was made with, and by §5.3's headroom test. Two consequences worth
+naming before they are met. The heap accounting (`buri_rt_heap_stats`) counts
+capacity, so `live_bytes` after a build loop is up to twice the bytes the values
+hold — it is a measurement of `malloc`, and the `Alloc` charge in §7 is a
+definition over the *types*, so nothing a program can observe moves. And the
+release glue for a `[T]` block walks `cap / stride` elements, which is why
+§5.3's fast paths are restricted to element types that hold no counted
+references: spare capacity and a capacity-driven drop walk cannot both be right.
+
+When the size-class allocator lands it will round a request up to its class, so
+`cap` will exceed the request even without §5.3. That is the same property, and
+`buri_rt_grown_capacity` should then round to a class rather than double, which
+makes the doubling free — the block was going to be that big anyway.
 
 The growth path, in full:
 
@@ -301,7 +424,20 @@ are:
   and keeping one 3-byte half retains all 10 MB. This is a real footgun and it
   is the price of `slice` being pure (`str.buri:3-4`). It is documentable rather
   than fixable — a copying `slice` would have to name `Alloc`, which is a
-  language change. `core/str` should say so where `slice` is declared.
+  language change — and `core/str` now says so where `slice` is declared.
+
+  **Ruled on, and closed.** This was carried in `OPEN-QUESTIONS.md` as a
+  language question because the two alternatives — copying above a ratio, or
+  copying on a proven retention — change `slice`'s and `splitOnce`'s signatures
+  or the middle end's obligations. The ruling is that it is **neither**: slicing
+  keeps the parent, and *how* a view's storage is managed is an implementation
+  detail of the runtime, not a property of the language. `slice` promises a
+  view, `Alloc` is where allocation is named, and nothing in either promise
+  mentions reference counts. So the strategy underneath — Perceus today, with or
+  without the compaction pass in §5.3's known extensions — can change under a
+  green suite without a SPEC amendment, exactly as §5.4's allocator can. What is
+  *not* free to change is `slice` being pure, and that is why the language
+  question was worth asking before the answer was written down.
 - **A count on every heap value even where nothing shares.** Elision removes most
   of the traffic and none of the 16 bytes.
 
@@ -310,10 +446,10 @@ The alternative that would fix all three is a generational copying collector, an
 
 ## 7. `Alloc`, natively: a defined cost model
 
-`TODO.md:1468-1473` settles the important half already: **a byte-exact cost model
-has to be *defined*, not measured**, or the numbers are not reproducible across
-backends and every test that asserts one is flaky. That stands, and it decides
-everything below.
+`design/STANDARD-LIBRARY.md` §1 settles the important half already: **a
+byte-exact cost model has to be *defined*, not measured**, or the numbers are
+not reproducible across backends and every test that asserts one is flaky. That
+stands, and it decides everything below.
 
 ### 7.1 The model
 
@@ -349,7 +485,8 @@ Two rows deserve their reasons:
   number a test can assert.
 
 Making it a definition also makes it a **commitment**: a change to any row is a
-breaking change to observable behaviour, exactly as `TODO.md:1471-1473` says. It
+breaking change to observable behaviour, exactly as
+`design/STANDARD-LIBRARY.md` §1 says. It
 goes in `core/cap`'s own source next to the `Alloc` declaration, where a reader of
 the effect meets it — and it is there now, as a table above `effect Alloc`.
 `middle::layout`'s `charge_list`, `charge_str`, `charge_closure_env`,
@@ -360,9 +497,9 @@ to change silently, which is exactly what "commitment" is supposed to mean.
 
 ### 7.2 The three allocator types
 
-`GeneralPurpose`, `Arena` and `FixedBuffer` (`STANDARD-LIBRARY.md:186-192`) are
-budgets and accounting policies over the one real allocator. They are not three
-allocators.
+`GeneralPurpose`, `Arena` and `FixedBuffer`
+(`cli/src/docs/guide/standard-library.md` "Allocators") are budgets and
+accounting policies over the one real allocator. They are not three allocators.
 
 - **`GeneralPurpose`** — unbounded, counts. `allocate` returns
   `Region(bytes_charged)` and adds to a running total the type exposes.
@@ -385,7 +522,7 @@ allocators.
 - **`Arena`** — in v1, `GeneralPurpose` with its own separate counter. It does
   *not* free in bulk, and pretending otherwise would be the "synthetic number
   rather than a measurement" the JavaScript backend was rightly criticised for
-  (`TODO.md:1455-1458`).
+  (`design/STANDARD-LIBRARY.md` §2).
 
   What would make `Arena` real is a language construct that bounds a context's
   lifetime — a scoped context, such that everything allocated under it is
@@ -395,7 +532,8 @@ allocators.
 
 ### 7.3 The hook is already there
 
-`TODO.md:1460-1464` records the non-obvious part, and it survives intact: every
+`design/STANDARD-LIBRARY.md` §2 records the non-obvious part, and it survives
+intact: every
 allocating intrinsic is already handed the context and discards it —
 `$list_map(xs, c, f)`, `$str_split(s, c, sep)`, `$list_range(c, a, b)`. Routing
 it needs no change to any signature.
@@ -409,7 +547,8 @@ counting `GeneralPurpose` is *not* zero-sized — it holds a budget and a total 
 so a context binding one is a real record and the intrinsics receive it. The
 accounting costs exactly the programs that ask for accounting.
 
-`TODO.md:1474-1479` also settles that no reserved context slot is needed, and
+`design/STANDARD-LIBRARY.md` §2 also settles that no reserved context slot is
+needed, and
 notes "a native backend knows the layout statically and does neither". That is
 right and it is now stronger than it sounds: natively there is no scan and no
 cache because there is no context value to scan.

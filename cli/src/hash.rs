@@ -41,7 +41,8 @@ pub type Set<T> = std::collections::HashSet<T, BuildHasherDefault<FxHasher>>;
 
 /// The multiplier: an MCG constant from Steele and Vigna, "Computationally
 /// Easy, Spectrally Good Multipliers for Congruential Pseudorandom Number
-/// Generators".
+/// Generators" (vendored at
+/// `reference/steele-vigna-spectral-multipliers.pdf`).
 const K: u64 = 0xf135_7aea_2e62_a9c5;
 
 // Seeds for the byte path, and the constant that keeps a run of zero bytes

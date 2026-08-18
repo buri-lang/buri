@@ -312,19 +312,18 @@ pub unsafe extern "C" fn buri_rt_i128_divmod(
 /// hand-rolled 128-bit widening multiply in two code generators is two places to
 /// get it wrong. Here it is `i128::checked_mul`.
 ///
-/// **The bound is the range a JavaScript `number` holds exactly**, not the
-/// type's. `Checked`'s promise is that a `.Some` is a value the answer really
-/// is, and past `2^53` a double cannot say *which* integer it is — so
-/// `$checkedIn` tests `exact_int_range`, and the conformance suite states that
-/// as a property of the operation rather than as an accident of the backend
-/// ("the type's nominal maximum is far above what a `number` holds, so a
-/// `Checked` operation anywhere near it is `.None`",
-/// `conformance/lib/numbers/test/integers.buri:594`). A native `i128` either
-/// overflows or does not, so following the machine alone would answer `.Some`
-/// where the language says `.None`. It follows the language.
+/// **The bound is the type's own range**, which is `i128`/`u128` here and is
+/// where this parts company with the JavaScript backend: `$checkedIn` tests
+/// `exact_int_range` because past `2^53` a double cannot say *which* integer it
+/// is, so `.None` is the only honest answer it has. `Checked` is bounded by the
+/// numbers the *platform* has, and `.Some(v)` promises that `v` is the true
+/// result as this backend represents numbers (SPEC 6.2.2,
+/// `design/native/VALUE-MODEL.md` §12 row 2). Rust's `checked_*` is exactly that
+/// promise, including `i128::MIN.checked_div(-1)`, which is `None` because
+/// `2^127` has no two's-complement representation.
 ///
-/// `buri_rt_i128_saturating` is deliberately *not* clamped this way: `$sat`
-/// clamps at the type's own bounds, and so does it.
+/// `buri_rt_i128_saturating` clamps at the same bounds, as `$sat` does on the
+/// other backend: `Saturating` never had a second bound to lose.
 ///
 /// Every operand is a **pair of `u64`s, low half first**, per §2's first rule.
 ///
@@ -359,14 +358,9 @@ pub unsafe extern "C" fn buri_rt_i128_checked(
         };
         r.map(|v| v as u128)
     };
-    // The exactly-representable range, at both signs. `2^53 - 1` is
-    // `9007199254740991`, and `Number.isSafeInteger` is strict below `2^53`.
-    const EXACT: i128 = 9_007_199_254_740_991;
+    // `None` is the whole answer: `checked_*` already reports every way the
+    // type's own range can be left, and a division by zero along with it.
     let Some(v) = answer else { return 0 };
-    let magnitude = if signed == 0 { v } else { (v as i128).unsigned_abs() };
-    if magnitude > EXACT as u128 {
-        return 0;
-    }
     // SAFETY: the caller promises two writable, aligned words.
     unsafe {
         out.write(v as u64);

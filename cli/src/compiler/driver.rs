@@ -195,7 +195,10 @@ fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
         d.push(Diagnostic::error(Span::NONE, msg).with_fix(fix.to_string()));
         d
     };
-    let dir = std::env::temp_dir().join("buri-doctest");
+    // Process-scoped: the snippet-derived stem below is unique within one run,
+    // but two concurrent toolchain processes testing the same snippet would
+    // otherwise overwrite each other's file mid-execution.
+    let dir = std::env::temp_dir().join(format!("buri-doctest-{}", std::process::id()));
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return Err(fail(format!("cannot create {}: {e}", dir.display()), "check TMPDIR"));
     }

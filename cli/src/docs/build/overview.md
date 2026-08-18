@@ -5,7 +5,7 @@ builds, tests, lints, formats, and generates build files, hermetic actions, and
 an incremental cache keyed on content rather than on timestamps.
 
 **This is a design document, not an implementation**, in the same sense that
-[`SPEC.md`](./SPEC.md) is. It is written to be specific enough to argue with.
+[`SPEC.md`](./cli/src/docs/SPEC.md) is. It is written to be specific enough to argue with.
 
 | Document | What it covers |
 |---|---|
@@ -240,7 +240,7 @@ These were the open questions of the first draft. They are decided; the costs
 are recorded because a later change should have to argue with them.
 
 1. **`test` and `assert` are reserved words** ([`SPEC.md`
-   §11.2](./SPEC.md)). *Costs:* no function may be named `test`, no namespace
+   §11.2](./cli/src/docs/SPEC.md)). *Costs:* no function may be named `test`, no namespace
    `assert`. The alternatives were a naming convention (`export fn testFoo`),
    which the compiler cannot check, and an attribute syntax, which the language
    does not have and should not grow for one feature.

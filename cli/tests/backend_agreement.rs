@@ -5,7 +5,7 @@
 //! divergence**. Until this file existed the table was a claim: nothing
 //! compiled one program through both pipelines and compared the bytes, so a
 //! row that quietly stopped being true stayed in the document as a sentence.
-//! `TODO.md`'s native section said so in as many words — "that test does not
+//! `design/TODO.md`'s native section said so in as many words — "that test does not
 //! exist yet, and until it does the table is a claim rather than a check".
 //!
 //! It was not a check, and four of the rows were wrong. Each is a test below
@@ -24,11 +24,20 @@
 //!    [`row_03_wrapping_arithmetic_agrees`],
 //!    [`row_03_wrapping_at_narrow_widths_agrees`] and
 //!    [`row_03_wrapping_at_the_type_boundaries_agrees`].
-//!  * **Rows 2 and 5 are stale.** Both backends answer `.None` above the exact
-//!    range, and both keep `.Some(.None)` distinct from `.None`. The two rows
-//!    describe divergences the shipped toolchain does not have; §12 says so
-//!    now, and [`row_02_checked_above_the_exact_range`] and
-//!    [`row_05_nested_option_is_distinct`] hold the agreement.
+//!  * **Row 5 was stale.** Both backends keep `.Some(.None)` distinct from
+//!    `.None`; the row described a divergence the shipped toolchain does not
+//!    have. §12 says so now and [`row_05_nested_option_is_distinct`] holds the
+//!    agreement.
+//!  * **Row 2 went the other way and came back.** Both native backends briefly
+//!    narrowed `Checked` to `exact_int_range` so that `.None` above 2^53 was a
+//!    property of the *language*; the ruling in
+//!    `design/native/OPEN-QUESTIONS.md` is that `Checked` is bounded by the
+//!    numbers the **backend** has, so a native `checkedAdd` reports
+//!    two's-complement overflow and nothing else. The row is a listed
+//!    divergence again, [`row_02_checked_above_the_exact_range`] pins both
+//!    answers, and the band it covers came out of the shared conformance corpus
+//!    to get here. `Saturating` was never bounded that way and
+//!    [`row_02_saturating_is_bounded_by_the_type_on_both_backends`] says so.
 //!  * **Two miscompiles**, both found by a row test refusing to build.
 //!    `middle/lower.rs` interned `Str` and `Template` as two types, so a
 //!    `match` whose arms are a literal and an interpolation did not verify;
@@ -648,32 +657,38 @@ export fn main(): Result<(), Str> {
     // Row 2 — `Checked` above the exact range
     // -------------------------------------------------------------------
 
-    /// §12 row 2 and SPEC §6.2.2 both say `(1 << 60).checkedAdd(1)` is `.Some`
-    /// natively and `.None` on JavaScript. **It is `.None` on both**, and this
-    /// test is what says so.
+    /// §12 row 2 and SPEC §6.2.2: `(1 << 60).checkedAdd(1)` is `.Some`
+    /// natively and `.None` on JavaScript, and this test pins both.
     ///
-    /// The backends went the other way deliberately and said so where the code
-    /// is: `cranelift/emit.rs`'s `outside_exact_range` and `llvm/emit.rs`'s
-    /// `checked` both narrow the bound to `exact_int_range`, because
-    /// `conformance/lib/numbers/test/integers.buri` states it as a property of
-    /// the *language* — "the type's nominal maximum is far above what a
-    /// `number` holds, so a `Checked` operation anywhere near it is `.None` —
-    /// never a value that is not the answer" — and `native_conformance.rs` runs
-    /// that file natively, so a native backend answering `.Some` would fail it.
+    /// `Checked` is bounded by the numbers the **backend** has. `.Some(v)`
+    /// means `v` is the exact true result as that backend represents numbers,
+    /// so the JavaScript backend stops promising at `2^53 - 1` — past it a
+    /// `number` cannot say which integer it is — and a native backend stops at
+    /// the type's own range, where two's-complement overflow is the only thing
+    /// that could make the answer not the answer. Both keep the same promise;
+    /// they keep it over different numbers.
     ///
-    /// So the amendment's paragraph is the thing that is out of date, and it is
-    /// SPEC text: it lives in `cli/src/docs/lang/expressions.md` and is
-    /// assembled into `SPEC.md` §6.2.2. §12's row now carries the contradiction
-    /// where the next reader will find it.
+    /// The band between the two bounds is what diverges, and it is the whole
+    /// row: `1 << 60` plus one, and `maxValue<I64>()` unchanged, are values an
+    /// `I64` holds exactly and a `number` cannot name. Either side of the band
+    /// agrees, and both sides are asserted here too — `100 + 20` is `.Some` on
+    /// both, a division by zero and `maxValue<I64>() + 1` are `.None` on both —
+    /// so a change that collapsed the divergence in *one* direction cannot pass
+    /// by moving the whole row.
+    ///
+    /// The agreeing cases are also the only ones the shared conformance corpus
+    /// is allowed to hold: `conformance/lib/numbers/test/integers.buri` states
+    /// the rule and stays on one side of both bounds, because
+    /// `native_conformance.rs` runs that file natively and a divergent
+    /// assertion there would be asserting one backend against the other.
     #[test]
     fn row_02_checked_above_the_exact_range() {
         rows_or_skip!();
-        agree(
+        diverge(
             "row 2",
             r#"
 from "core/host" import { stdout, alloc };
 from "core/bits" import * as bits;
-from "core/num" import * as num;
 from "core/str" import * as str;
 
 fn tell(x: Option<Int>): Str {
@@ -682,16 +697,57 @@ fn tell(x: Option<Int>): Str {
 
 export fn main(): Result<(), Str> {
   let big = bits.shl(1, 60);
+  // `maxValue<I64>()` as a literal: `num.minValue`/`num.maxValue` have no LLVM
+  // body yet, and a row this one is about should not be skipped there.
+  let top: Int = 9223372036854775807;
   let a = tell(big.checkedAdd(1));
-  let b = tell(num.maxValue<I64>().checkedAdd(0));
+  let b = tell(top.checkedAdd(0));
   let small: Int = 100;
   let c = tell(small.checkedAdd(20));
   let d = tell(small.checkedDiv(0));
-  let _ = stdout.println("${a} ${b} ${c} ${d}");
+  let e = tell(top.checkedAdd(1));
+  let _ = stdout.println("${a} ${b} ${c} ${d} ${e}");
   .Ok(())
 }
 "#,
-            "None None Some 120 None\n",
+            "None None Some 120 None None\n",
+            "Some 1152921504606846977 Some 9223372036854775807 Some 120 None None\n",
+        );
+    }
+
+    /// The other half of row 2: `Saturating` has **no** second bound to lose,
+    /// and did not move when `Checked` did.
+    ///
+    /// `$sat` clamps at `int_range` and both native backends clamp at
+    /// `int_range`, so the family was type-bounded everywhere before the ruling
+    /// and is type-bounded everywhere after it. It is asserted rather than
+    /// stated because "unaffected" is the claim a change like that quietly
+    /// breaks.
+    ///
+    /// Every value here is inside 2^53 on purpose: `maxValue<U64>()` clamps to
+    /// the same *number* on both backends and then prints two different strings,
+    /// which is row 1 and not this row.
+    #[test]
+    fn row_02_saturating_is_bounded_by_the_type_on_both_backends() {
+        rows_or_skip!();
+        agree(
+            "row 2 saturating",
+            r#"
+from "core/host" import { stdout };
+
+export fn main(): Result<(), Str> {
+  let a: I32 = 2147483000;
+  let b: U8 = 250;
+  let c: I8 = 100;
+  let d: I32 = 46341;
+  let e: I32 = 0 - 2147483647;
+  let _ = stdout.println("${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSub(255)}");
+  let _ = stdout.println("${c.saturatingMul(2)} ${c.saturatingMul(0 - 2)} ${d.saturatingMul(d)}");
+  let _ = stdout.println("${e.saturatingSub(1000)}");
+  .Ok(())
+}
+"#,
+            "2147483647 255 0\n127 -128 2147483647\n-2147483648\n",
         );
     }
 
@@ -1590,6 +1646,63 @@ export fn main(): Result<(), Str> {
 }
 "#,
             "500000500000 false true yes\n",
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Not a row: a miscompile the rows did not reach
+    // -------------------------------------------------------------------
+
+    /// An aggregate holding two counted values, read back through its own
+    /// projections — the shape `middle::rc` dropped the base of one
+    /// instruction too early.
+    ///
+    /// Not a §12 row: nothing in the table is about *when* a count goes down,
+    /// because JavaScript is garbage collected and the question does not arise
+    /// there. That is exactly why it belongs here anyway. The reference answer
+    /// is the one backend that cannot get a reference count wrong, so a native
+    /// backend that frees a pair while a `str.concat` chain is still reading
+    /// words out of it does not merely print something odd — it prints
+    /// something JavaScript does not, and this is the comparison that says so.
+    ///
+    /// Every string here is a heap one. A literal's block is immortal, so the
+    /// same program over literals agreed all along, which is how the shape
+    /// survived a suite whose functions returned one value each.
+    #[test]
+    fn an_aggregate_of_two_counted_values_agrees_through_its_projections() {
+        rows_or_skip!();
+        agree(
+            "aggregate projections",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+struct Pair { a: Str, b: Str }
+
+fn dupTuple(s: Str): (Str, Str) { (s, s) }
+fn dupStruct(s: Str): Pair { Pair { a: s, b: s } }
+
+fn spin(n: Int, p: (Str, Str)): Str {
+  if (n == 0) { p.0 } else { spin(n - 1, (p.1, p.0)) }
+}
+
+export fn main(): Result<(), Str> {
+  let heap = "ab".repeat(alloc, 3);
+  let other = "cd".repeat(alloc, 2);
+  let dup = dupTuple(heap);
+  let rec = dupStruct(heap);
+  let two = (heap, other);
+  let xs = ["ef".repeat(alloc, 2)];
+  let got = match (xs[0]) { .Some(v) => v, .None => "?" };
+  let _ = stdout.println("${dup.0}|${dup.1}");
+  let _ = stdout.println("${rec.a}|${rec.b}");
+  let _ = stdout.println("${two.0}|${two.1}");
+  let _ = stdout.println("${got}");
+  let _ = stdout.println("${spin(5, ("kl".repeat(alloc, 2), "mn".repeat(alloc, 2)))}");
+  .Ok(())
+}
+"#,
+            "ababab|ababab\nababab|ababab\nababab|cdcd\nefef\nmnmn\n",
         );
     }
 

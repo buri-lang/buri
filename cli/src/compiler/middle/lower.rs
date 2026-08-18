@@ -1141,43 +1141,82 @@ impl FnLower<'_> {
     /// the place to do that is the middle-end rewrite VALUE-MODEL.md §3.3
     /// describes — one that turns a `Template` into a `str.concat` chain in
     /// the *tree*, where the context is still in scope.
+    /// # Who drops the chain
+    ///
+    /// `middle::rc` plans over the **tree**, and every value the join below
+    /// builds — each `Show` result and each intermediate `str.concat` — is a
+    /// value this pass invented, with no `typed::Expr` for a [`rc::Site`] to
+    /// name. So nothing in the plan can drop them, and until this dropped them
+    /// itself *every interpolation of a non-`Str` hole leaked a block, and so
+    /// did every join after the first*: `"[${s}]"` in a loop grew the heap by
+    /// one block an iteration, forever, in a language whose whole memory story
+    /// is that it does not.
+    ///
+    /// The `mine` flag is what says which of them this owns. A text run is an
+    /// immortal literal and a `Str` hole is a value the plan is already
+    /// accounting for — dropping either here would be a double free. A `Show`
+    /// result and every intermediate are this pass's, and the last `acc` is
+    /// the node's own value, which the plan *does* cover: `rc::fresh` counts a
+    /// `Template` as producing a new reference, so a borrowing parent drops it.
     fn template(&mut self, ty: Type, parts: &[TemplatePart]) -> ValueId {
-        let mut rendered: Vec<ValueId> = Vec::new();
+        let mut rendered: Vec<(ValueId, bool)> = Vec::new();
         for p in parts {
             match p {
                 TemplatePart::Text(t) => {
                     let v = self.konst(ty, Const::Str(t.clone()));
-                    rendered.push(v);
+                    rendered.push((v, false));
                 }
                 TemplatePart::Hole(h) => {
                     let v = self.expr(h);
                     let is_str =
                         matches!(self.tables.as_prim(&h.ty), Some(Prim::Str | Prim::Template));
                     if is_str {
-                        rendered.push(v);
+                        rendered.push((v, false));
                     } else {
                         let at = self.type_id(&h.ty);
-                        rendered.push(self.emit(ty, |dest| Inst::Structural {
+                        let shown = self.emit(ty, |dest| Inst::Structural {
                             dest,
                             op: StructuralOp::Show,
                             ty: at,
                             args: vec![v],
-                        }));
+                        });
+                        rendered.push((shown, true));
                     }
                 }
             }
         }
         let mut it = rendered.into_iter();
-        let mut acc = match it.next() {
-            Some(v) => v,
-            None => return self.konst(ty, Const::Str(String::new())),
+        let Some((mut acc, mut acc_is_mine)) = it.next() else {
+            return self.konst(ty, Const::Str(String::new()));
         };
-        for next in it {
-            acc = self.emit(ty, |dest| Inst::CallIntrinsic {
+        for (next, next_is_mine) in it {
+            let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
                 dests: vec![dest],
                 key: "str.concat".into(),
                 args: vec![acc, next],
             });
+            // *After* the join, not before. On MEMORY.md §5.3's in-place path
+            // the result is `acc`'s own block with one more count on it, so
+            // this drop takes that count back and frees nothing; on the two
+            // allocating paths the bytes have already been copied out. Either
+            // way the operand is dead the instant the join has run, and a
+            // `str.concat` chain of *k* parts ends holding exactly one block.
+            if next_is_mine {
+                self.push(Inst::DecRef { value: next, drop: None });
+            }
+            if acc_is_mine {
+                self.push(Inst::DecRef { value: acc, drop: None });
+            }
+            acc = joined;
+            acc_is_mine = true;
+        }
+        // `rc::fresh` counts a `Template` as producing a *new* reference, and
+        // the plan drops it on that word. A chain of one part does not produce
+        // one on its own — `"${s}"` renders to `s`'s own three words — so the
+        // count it is about to be dropped by is taken here. On a literal, whose
+        // `base` is null, this is nothing.
+        if !acc_is_mine {
+            self.push(Inst::IncRef { value: acc });
         }
         acc
     }

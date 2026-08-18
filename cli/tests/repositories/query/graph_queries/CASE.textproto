@@ -94,7 +94,7 @@ run {
 # disagreement: a flag that nothing reads cannot be listed, and deleting it
 # from FLAGS is the only way to stop accepting it. Recorded so that a future
 # reader of the old TODO entry finds the answer rather than the question — see
-# TODO.md, CLI.md section.
+# `design/TODO.md`, the CLI reference.
 run {
   args: ["query", "deps(//cmd/web)", "--output=proto"]
   exit: 2

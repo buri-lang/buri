@@ -83,8 +83,39 @@ mod native {
         stderr: String,
     }
 
-    /// The whole pipeline, for one snippet.
-    fn build(name: &str, source: &str) -> PathBuf {
+    /// A C shim linked beside the program, whose destructor reports the
+    /// runtime's allocation counters once `main` has returned.
+    ///
+    /// `buri_rt_heap_stats` is not reachable from Buri and should not be, so
+    /// an assertion about *how many times a program allocated* has to be made
+    /// from outside it. A destructor rather than a wrapper around `main`: the
+    /// emitted entry point is the one `cli/runtime/lib.rs` §6 describes, and
+    /// replacing it would be measuring a different program.
+    const ALLOC_PROBE: &str = r#"
+#include <stdio.h>
+#include <stdint.h>
+typedef struct { uint64_t live_blocks, live_bytes, total_blocks, total_bytes; } Stats;
+extern void buri_rt_heap_stats(Stats *out);
+__attribute__((destructor)) static void buri_probe(void) {
+  Stats s; buri_rt_heap_stats(&s);
+  fprintf(stderr, "blocks=%llu live=%llu\n",
+          (unsigned long long)s.total_blocks, (unsigned long long)s.live_blocks);
+}
+"#;
+
+    /// `(total_blocks, live_blocks)` from an [`ALLOC_PROBE`]-linked run.
+    fn probed(stderr: &str) -> (u64, u64) {
+        let line = stderr
+            .lines()
+            .find_map(|l| l.strip_prefix("blocks="))
+            .unwrap_or_else(|| panic!("the probe printed nothing: {stderr:?}"));
+        let (total, rest) = line.split_once(" live=").unwrap();
+        (total.trim().parse().unwrap(), rest.trim().parse().unwrap())
+    }
+
+    /// The whole pipeline, for one snippet, with an optional C probe linked
+    /// beside it.
+    fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
         let mut map = SourceMap::new();
         let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
         assert!(
@@ -127,6 +158,24 @@ mod native {
             std::fs::write(&path, &unit.bytes).unwrap();
             objects.push(path);
         }
+        if let Some(text) = probe {
+            let c = dir.join("probe.c");
+            std::fs::write(&c, text).unwrap();
+            let o = dir.join("probe.o");
+            let built = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()))
+                .arg("-c")
+                .arg(&c)
+                .arg("-o")
+                .arg(&o)
+                .output()
+                .unwrap();
+            assert!(
+                built.status.success(),
+                "the probe did not compile:\n{}",
+                String::from_utf8_lossy(&built.stderr)
+            );
+            objects.push(o);
+        }
         let archive = dir.join(ARCHIVE_NAME);
         std::fs::write(&archive, ARCHIVE).unwrap();
         let binary = dir.join("program");
@@ -151,7 +200,11 @@ mod native {
     }
 
     fn run(name: &str, source: &str) -> Ran {
-        let binary = build(name, source);
+        run_with(name, source, None)
+    }
+
+    fn run_with(name: &str, source: &str, probe: Option<&str>) -> Ran {
+        let binary = build_with(name, source, probe);
         let out = Command::new(&binary).output().unwrap();
         Ran {
             status: out.status.code().unwrap_or(-1),
@@ -1200,5 +1253,540 @@ export fn main(): Result<(), Str> {
             missing.iter().any(|m| m == "host.HostFs.readFile"),
             "expected `readFile` to be reported, got {missing:?}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // MEMORY.md §5.3: uniqueness, in-place growth, and what must not move
+    // -----------------------------------------------------------------------
+
+    /// MEMORY.md §5.3, pinned by allocation count rather than by reading the
+    /// emitted code.
+    ///
+    /// `str.concat` is open-coded rather than called, so this backend's fast
+    /// path lives in `cranelift/helpers.rs`'s `concat` and not in the runtime —
+    /// it is written twice across the two backends and therefore has to be
+    /// pinned twice. A chain of a thousand concatenations onto a uniquely-owned
+    /// string reallocates O(log n) times; without the fast path it allocates
+    /// once per step.
+    #[test]
+    fn a_unique_concat_loop_allocates_logarithmically() {
+        if !supported() {
+            return;
+        }
+        let r = run_with(
+            "concat-loop",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn build(s: Str, i: Int): Str {
+  if (i == 0) { s } else { build(s.concat(alloc, "xy"), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let s = build("", 1000);
+  let _ = stdout.println("${s.len()} ${s.slice(0, 4)}");
+  .Ok(())
+}
+"#,
+            Some(ALLOC_PROBE),
+        );
+        assert_eq!(r.stdout, "2000 xyxy\n", "stderr: {}", r.stderr);
+        let (blocks, _) = probed(&r.stderr);
+        assert!(
+            blocks < 50,
+            "a thousand concatenations allocated {blocks} blocks: the fast path did not fire"
+        );
+    }
+
+    /// The observable-semantics guard: a string a second binding still holds
+    /// has a count above one, so concatenating onto it must copy.
+    ///
+    /// A fast path that fired on a shared string would print the wrong answer,
+    /// not merely allocate less — which is why this is an output assertion.
+    #[test]
+    fn a_shared_concat_does_not_mutate_what_is_shared() {
+        if !supported() {
+            return;
+        }
+        let r = run(
+            "concat-shared",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let base = "ab".concat(alloc, "cd");
+  let a = base.concat(alloc, "-one");
+  let b = base.concat(alloc, "-two");
+  let _ = stdout.println(base);
+  let _ = stdout.println(a);
+  let _ = stdout.println(b);
+  let _ = stdout.println(base);
+  .Ok(())
+}
+"#,
+        );
+        assert_eq!(r.stdout, "abcd\nabcd-one\nabcd-two\nabcd\n", "stderr: {}", r.stderr);
+        assert_eq!(r.status, 0);
+    }
+
+    /// A borrowed local handed to a construct **beside** a sibling that holds
+    /// its last mention — `middle::rc`'s `children`, and the reason the
+    /// deferral there exists.
+    ///
+    /// `"${base} ${a} ${b} ${base.len()}"` is the shape: the first hole is
+    /// `base` itself, so the concatenation chain is holding three uncounted
+    /// words out of it while the last hole computes `base.len()`. A drop after
+    /// the rightmost mention frees the block those words point into, and the
+    /// failure is a wrong answer rather than a crash. It is a middle-end fact,
+    /// so both backends show it and both pin it.
+    #[test]
+    fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
+        if !supported() {
+            return;
+        }
+        let r = run(
+            "borrow-across-siblings",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let base = "ab".concat(alloc, "cd");
+  let a = base.concat(alloc, "-one");
+  let b = base.concat(alloc, "-two");
+  let _ = stdout.println("${base} ${a} ${b} ${base.len()}");
+  let _ = stdout.println("${b} ${b.len()}");
+  .Ok(())
+}
+"#,
+        );
+        assert_eq!(
+            r.stdout,
+            "abcd abcd-one abcd-two 4\nabcd-two 8\n",
+            "stderr: {}",
+            r.stderr
+        );
+        assert_eq!(r.status, 0);
+    }
+
+    /// A `Str` view whose block someone else still holds is not a place to
+    /// write either: two slices of one allocation, and appending to the first
+    /// must leave the second and the whole alone.
+    #[test]
+    fn appending_to_a_view_does_not_disturb_its_siblings() {
+        if !supported() {
+            return;
+        }
+        let r = run(
+            "concat-view",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let whole = "left".concat(alloc, ",right");
+  let head = whole.slice(0, 4);
+  let tail = whole.slice(5, 10);
+  let grown = head.concat(alloc, "!!");
+  let _ = stdout.println(head);
+  let _ = stdout.println(tail);
+  let _ = stdout.println(grown);
+  let _ = stdout.println(whole);
+  .Ok(())
+}
+"#,
+        );
+        assert_eq!(r.stdout, "left\nright\nleft!!\nleft,right\n", "stderr: {}", r.stderr);
+        assert_eq!(r.status, 0);
+    }
+
+    /// The list half of MEMORY.md §5.3, which lives in `cli/runtime/list.rs`
+    /// and is therefore the same code on both backends — but the *call* is
+    /// this backend's, so the count is asserted here as well.
+    #[test]
+    fn a_unique_push_loop_allocates_logarithmically() {
+        if !supported() {
+            return;
+        }
+        let many = run_with(
+            "push-loop",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/list" import * as list;
+
+export fn build(xs: [Int], i: Int): [Int] {
+  if (i == 0) { xs } else { build(xs.push(alloc, i), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let xs = build([], 2000);
+  let _ = stdout.println("${xs.len()}");
+  .Ok(())
+}
+"#,
+            Some(ALLOC_PROBE),
+        );
+        assert_eq!(many.stdout, "2000\n", "stderr: {}", many.stderr);
+        let base = run_with(
+            "push-loop-base",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/list" import * as list;
+
+export fn main(): Result<(), Str> {
+  let xs = [1, 2, 3];
+  let _ = stdout.println("${xs.len()}");
+  .Ok(())
+}
+"#,
+            Some(ALLOC_PROBE),
+        );
+        let (grown, live_grown) = probed(&many.stderr);
+        let (flat, live_flat) = probed(&base.stderr);
+        assert!(
+            grown.saturating_sub(flat) < 50,
+            "two thousand pushes allocated {grown} blocks against a {flat}-block baseline: \
+             the uniqueness fast path did not fire"
+        );
+        // The other half of the claim, and the one the *grown* path can break
+        // on its own: it allocates a bigger block and leaves the old one to the
+        // `decref` the caller was going to emit anyway. If that hand-off is
+        // wrong, the count above still passes and the heap still grows.
+        assert_eq!(
+            live_grown, live_flat,
+            "two thousand pushes left {live_grown} blocks live against a {live_flat}-block \
+             baseline: the growth path leaks the block it grew out of"
+        );
+    }
+
+    /// The same guard for the list half: two pushes onto a list a binding
+    /// still holds must answer two distinct lists and leave the original
+    /// alone.
+    #[test]
+    fn a_shared_push_does_not_mutate_what_is_shared() {
+        if !supported() {
+            return;
+        }
+        let r = run(
+            "push-shared",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/list" import * as list;
+
+export fn total(xs: [Int], acc: Int): Int {
+  match (xs) {
+    [] => acc,
+    [h, ..t] => total(t, acc + h),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let xs = [1, 2, 3].push(alloc, 4);
+  let a = xs.push(alloc, 100);
+  let b = xs.push(alloc, 200);
+  let _ = stdout.println("${xs.len()} ${total(xs, 0)}");
+  let _ = stdout.println("${a.len()} ${total(a, 0)}");
+  let _ = stdout.println("${b.len()} ${total(b, 0)}");
+  .Ok(())
+}
+"#,
+        );
+        assert_eq!(r.stdout, "4 10\n5 110\n5 210\n", "stderr: {}", r.stderr);
+        assert_eq!(r.status, 0);
+    }
+
+    /// `FuncPlan::reuse` is analysis only, and this is why it can be: a
+    /// functional record update **does not allocate**, so there is no cell for
+    /// in-place reuse to write into (`middle/rc.rs`, "Analysis only, and
+    /// deliberately so").
+    ///
+    /// A thousand updates allocate exactly as many blocks as ten, because both
+    /// allocate none: a struct is a register or stack value on both backends.
+    #[test]
+    fn a_struct_update_loop_allocates_nothing_per_iteration() {
+        if !supported() {
+            return;
+        }
+        let source = |n: u32| {
+            format!(
+                r#"
+from "core/host" import {{ stdout, alloc }};
+
+struct Point {{ x: Int, y: Int }}
+
+export fn step(p: Point, i: Int): Point {{
+  if (i == 0) {{ p }} else {{ step(Point {{ ..p, x: p.x + i }}, i - 1) }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let p = step(Point {{ x: 0, y: 7 }}, {n});
+  let _ = stdout.println("${{p.x}} ${{p.y}}");
+  .Ok(())
+}}
+"#
+            )
+        };
+        let many = run_with("struct-update-many", &source(1000), Some(ALLOC_PROBE));
+        let few = run_with("struct-update-few", &source(10), Some(ALLOC_PROBE));
+        assert_eq!(many.stdout, "500500 7\n", "stderr: {}", many.stderr);
+        assert_eq!(few.stdout, "55 7\n", "stderr: {}", few.stderr);
+        let (a, _) = probed(&many.stderr);
+        let (b, _) = probed(&few.stderr);
+        assert_eq!(
+            a, b,
+            "a hundredfold more struct updates allocated {} more block(s): an aggregate is on \
+             the heap now, and `middle::rc`'s reuse plan has something to do",
+            a.saturating_sub(b)
+        );
+    }
+
+    /// The counted-element half of `list.push`: the elements a grown block
+    /// carries keep exactly the counts they had, so a push loop over `[Str]`
+    /// leaves nothing behind.
+    ///
+    /// Measured as a differential rather than against zero, because the
+    /// interesting failure is *per push*: forty pushes and ten leaving the
+    /// same number of blocks live is the claim, and one leaked count per push
+    /// would make them differ by thirty.
+    #[test]
+    fn pushing_a_counted_element_type_is_unchanged() {
+        if !supported() {
+            return;
+        }
+        let source = |n: u32| {
+            format!(
+                r#"
+from "core/host" import {{ stdout, alloc }};
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn build(xs: [Str], i: Int): [Str] {{
+  if (i == 0) {{ xs }} else {{ build(xs.push(alloc, "x".concat(alloc, str.fromInt(alloc, i))), i - 1) }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let xs = build([], {n});
+  let joined = xs.join(alloc, "");
+  let _ = stdout.println("${{xs.len()}} ${{joined.slice(0, 9)}}");
+  .Ok(())
+}}
+"#
+            )
+        };
+        let many = run_with("push-counted", &source(40), Some(ALLOC_PROBE));
+        let few = run_with("push-counted-few", &source(10), Some(ALLOC_PROBE));
+        assert_eq!(many.stdout, "40 x40x39x38\n", "stderr: {}", many.stderr);
+        assert_eq!(few.stdout, "10 x10x9x8x7\n", "stderr: {}", few.stderr);
+        let (blocks, live_many) = probed(&many.stderr);
+        let (_, live_few) = probed(&few.stderr);
+        assert_eq!(
+            live_many, live_few,
+            "forty pushes left {live_many} blocks live and ten left {live_few}: \
+             a counted element type leaks per push"
+        );
+        // The exclusion, pinned from the other side. `append_dest` takes
+        // neither the in-place path nor the over-allocation when `retain` is
+        // non-null, so a `[Str]` still allocates once per push; a change that
+        // lifted the guard without also giving this ABI a per-element release
+        // glue would pass every assertion above and leak counts instead.
+        assert!(
+            blocks >= 40,
+            "forty pushes over a counted element type allocated {blocks} blocks: the fast path \
+             fired on a `[Str]`, and `cli/runtime/list.rs`'s `append_dest` says why it must not"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // A projection is not where its base dies
+    // -----------------------------------------------------------------------
+
+    /// An aggregate holding two counted values, read through its own
+    /// projections.
+    ///
+    /// `middle::rc` placed the base's `decref` at the projection that was its
+    /// last *mention* — `p.b` in `"[${p.a}][${p.b}]"` — and a projection
+    /// produces three words copied out of the base with **no count of their
+    /// own**. So the pair was dropped, and with it the two string blocks its
+    /// fields named, before the `str.concat` chain that reads those words ever
+    /// ran, and the program printed zeroed bytes.
+    ///
+    /// It is a middle-end fact, so this backend and LLVM printed the same wrong
+    /// answer and both pin it. The literal half is the control: a literal's
+    /// block is immortal, so the same program over `"..."` was always right and
+    /// says nothing about the count — which is how a shape this common survived
+    /// an audit whose differential used single-result functions.
+    #[test]
+    fn an_aggregate_of_counted_values_outlives_its_own_projections() {
+        if !supported() {
+            return;
+        }
+        let r = run_with(
+            "aggregate-projection",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+struct Pair { a: Str, b: Str }
+
+fn dupTuple(s: Str): (Str, Str) { (s, s) }
+fn dupStruct(s: Str): Pair { Pair { a: s, b: s } }
+fn twoTuple(a: Str, b: Str): (Str, Str) { (a, b) }
+
+export fn main(): Result<(), Str> {
+  let heap = "ab".repeat(alloc, 3);
+  let other = "cd".repeat(alloc, 2);
+
+  let dup = dupTuple(heap);
+  let _ = stdout.println("tuple [${dup.0}][${dup.1}]");
+
+  let rec = dupStruct(heap);
+  let _ = stdout.println("struct [${rec.a}][${rec.b}]");
+
+  let two = twoTuple(heap, other);
+  let _ = stdout.println("two [${two.0}][${two.1}]");
+
+  let here = (heap, heap);
+  let _ = stdout.println("local [${here.0}][${here.1}]");
+
+  let lit = dupTuple("zz");
+  let _ = stdout.println("literal [${lit.0}][${lit.1}]");
+
+  let one = (heap, 1);
+  let _ = stdout.println("one [${one.0}]");
+  .Ok(())
+}
+"#,
+            Some(ALLOC_PROBE),
+        );
+        assert_eq!(
+            r.stdout,
+            "tuple [ababab][ababab]\nstruct [ababab][ababab]\ntwo [ababab][cdcd]\n\
+             local [ababab][ababab]\nliteral [zz][zz]\none [ababab]\n",
+            "stderr: {}",
+            r.stderr
+        );
+        assert_eq!(r.status, 0);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "the heap did not come back balanced: {}", r.stderr);
+    }
+
+    /// The **class**, rather than the shape the report arrived in: every
+    /// borrowing projection, wherever the value it produces is read.
+    ///
+    /// `Field`, `TupleIndex`, `CtxGet` and `Index` all read a base without
+    /// taking it, and all four had the same drop placement. `xs[i]` as a
+    /// `match` scrutinee was the same bug as `p.a` in a template, except that
+    /// there it was a segmentation fault rather than a wrong answer — the arms
+    /// read a payload out of a list block the scrutinee's own drop had already
+    /// freed.
+    ///
+    /// The fourth row is a back edge: an aggregate of two counted values
+    /// carried around a tail-recursive loop and projected on every iteration,
+    /// where a drop placed one instruction early is a use-after-free per
+    /// iteration rather than once.
+    #[test]
+    fn a_borrowing_projection_does_not_end_its_bases_lifetime() {
+        if !supported() {
+            return;
+        }
+        let r = run_with(
+            "projection-class",
+            r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+from "core/list" import * as list;
+
+struct Held { name: Str, tag: Str }
+
+fn hold(a: Str, b: Str): Held { Held { name: a, tag: b } }
+
+fn spin(n: Int, p: (Str, Str)): Str {
+  if (n == 0) { p.0 } else { spin(n - 1, (p.1, p.0)) }
+}
+
+export fn main(): Result<(), Str> {
+  let held = hold("ab".repeat(alloc, 2), "cd".repeat(alloc, 2));
+  let _ = stdout.println("field [${held.name}][${held.tag}]");
+
+  let xs = ["ef".repeat(alloc, 2)];
+  let got = match (xs[0]) { .Some(v) => v, .None => "?" };
+  let _ = stdout.println("index [${got}]");
+
+  let pair = ("gh".repeat(alloc, 2), "ij".repeat(alloc, 2));
+  let picked = match (pair.0.toInt()) { .Some(_n) => "number", .None => pair.1 };
+  let _ = stdout.println("match [${picked}]");
+
+  let _ = stdout.println("loop [${spin(5, ("kl".repeat(alloc, 2), "mn".repeat(alloc, 2)))}]");
+  .Ok(())
+}
+"#,
+            Some(ALLOC_PROBE),
+        );
+        assert_eq!(
+            r.stdout,
+            "field [abab][cdcd]\nindex [efef]\nmatch [ijij]\nloop [mnmn]\n",
+            "stderr: {}",
+            r.stderr
+        );
+        assert_eq!(r.status, 0);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "the heap did not come back balanced: {}", r.stderr);
+    }
+
+    /// The join `middle::lower::template` builds is nobody else's to drop.
+    ///
+    /// Every `Show` result and every intermediate `str.concat` in an
+    /// interpolation is a value `lower` invents; `middle::rc` plans over the
+    /// *tree* and has no `NodeId` to name one with. So until `template`
+    /// dropped them itself, a program that interpolated in a loop grew the
+    /// heap by a block an iteration — and `Prim::Template` was
+    /// `Answer::Unknown` in `rc`'s oracle, so the block the chain *ended*
+    /// holding leaked once per evaluation on top of that.
+    ///
+    /// Counted rather than asserted against zero at one size: a per-iteration
+    /// leak is what this is about, so twenty iterations and two hundred have to
+    /// leave the same number of blocks live.
+    #[test]
+    fn interpolating_in_a_loop_leaks_nothing() {
+        if !supported() {
+            return;
+        }
+        let source = |n: u32| {
+            format!(
+                r#"
+from "core/host" import {{ stdout, alloc }};
+from "core/str" import * as str;
+
+fn go(n: Int, acc: Int): Int {{
+  if (n <= 0) {{ acc }} else {{
+    let h = "ab".repeat(alloc, 3);
+    let p = (h, h);
+    let s = str.format(alloc, "[${{p.0}}][${{p.1}}]");
+    let _ = stdout.println("${{n}}");
+    go(n - 1, acc + s.len())
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let _ = stdout.println("total ${{go({n}, 0)}}");
+  .Ok(())
+}}
+"#
+            )
+        };
+        let few = run_with("template-leak-few", &source(20), Some(ALLOC_PROBE));
+        let many = run_with("template-leak-many", &source(200), Some(ALLOC_PROBE));
+        assert!(few.stdout.ends_with("total 320\n"), "stdout was: {:?}", few.stdout);
+        assert!(many.stdout.ends_with("total 3200\n"), "stdout was: {:?}", many.stdout);
+        let (_, live_few) = probed(&few.stderr);
+        let (_, live_many) = probed(&many.stderr);
+        assert_eq!(
+            live_few, live_many,
+            "twenty interpolations left {live_few} blocks live and two hundred left \
+             {live_many}: the join leaks per iteration"
+        );
+        assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
     }
 }

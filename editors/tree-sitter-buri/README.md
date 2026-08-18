@@ -88,7 +88,7 @@ agree, so it cannot become a place to put things.
 
 ## Publishing
 
-`../zed/extension.toml` fetches the grammar from a git repository by commit,
-the same way `REPO.buri` pins the toolchain by hash. Until this grammar is
-published to one, that entry holds a placeholder commit and the extension can
-only be used as a dev extension, which builds the grammar from a local path.
+`../zed/extension.toml` fetches the grammar from a git repository by commit.
+Until this grammar is published to one, that entry holds a placeholder commit
+and the extension can only be used as a dev extension, which builds the grammar
+from a local path.

@@ -7,8 +7,8 @@
 //! phis rewrite, rather than a compromise between the two.
 //!
 //! The alternative — no shared CFG, and each native backend building its own
-//! SSA — is rejected on `LLVM-tips.md:2`, "avoid mem2reg, generate optimized
-//! SSA form". Cranelift's `FunctionBuilder` would build SSA for us and LLVM
+//! SSA — is rejected on `design/LLVM-tips.md:2`, "avoid mem2reg, generate
+//! optimized SSA form". Cranelift's `FunctionBuilder` would build SSA for us and LLVM
 //! would not, so one backend's SSA would be real and the other's an artifact of
 //! `alloca`, which is exactly the divergence that makes two backends disagree.
 //!

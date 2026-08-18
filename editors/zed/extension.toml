@@ -7,7 +7,7 @@ authors = ["The Buri authors"]
 
 [grammars.buri]
 repository = "https://github.com/buri-lang/tree-sitter-buri"
-# Pinned by commit, the same way REPO.buri pins the toolchain: an extension
+# Pinned by commit, the same way a hermetic build pins its inputs: an extension
 # that tracks a moving grammar is an extension that breaks without a change.
 commit = "0000000000000000000000000000000000000000"
 

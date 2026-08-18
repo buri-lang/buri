@@ -1,9 +1,9 @@
 //! The documentation's own tests.
 //!
-//! `documentation_examples.rs` compiles what the documents *show*. This file checks what the
-//! documents *are*: that every fence is scannable and tagged, that every link
-//! resolves, and — once assembly lands — that the checked-in `SPEC.md` still
-//! matches what `buri docs assemble` produces.
+//! `documentation_examples.rs` compiles what the documents *show*. This file
+//! checks what the documents *are*: that every fence is scannable and tagged,
+//! that every link resolves, and that the checked-in `cli/src/docs/SPEC.md`
+//! and `README.md` still match what `buri docs assemble` produces.
 
 #![allow(
     clippy::unwrap_used,
@@ -29,27 +29,35 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
-/// Every markdown document the toolchain is responsible for.
+/// Every markdown document the toolchain is responsible for that is not a
+/// registered topic.
 ///
 /// Adding a document here is the one-line registration that subjects it to
-/// every test in this file.
-const DOCUMENTS: &[&str] = &[
+/// every test in this file. The `build/` and `guide/` topics do not appear:
+/// `documents()` adds them from the registry, because a topic that is a page
+/// rather than a section of an assembled document would otherwise be checked
+/// by nothing.
+const STANDALONE: &[&str] = &[
     "README.md",
-    "SPEC.md",
-    "TODO.md",
-    "ECOSYSTEM-FEATURES.md",
-    "STANDARD-LIBRARY.md",
-    "cli/src/docs/build/overview.md",
-    "cli/src/docs/build/build-files.md",
-    "cli/src/docs/build/libraries.md",
-    "cli/src/docs/build/tags.md",
-    "cli/src/docs/build/testing.md",
-    "cli/src/docs/build/repo-config.md",
-    "cli/src/docs/build/cli.md",
-    "cli/src/docs/build/proto.md",
-    "cli/src/docs/build/hermeticity.md",
+    "cli/src/docs/SPEC.md",
+    "design/README.md",
+    "design/TODO.md",
+    "design/STANDARD-LIBRARY.md",
     "cli/tests/README.md",
 ];
+
+/// Every document these tests run over: the standalone files above, plus every
+/// `build/` and `guide/` topic as its own file. `lang/` topics are covered by
+/// `SPEC.md`, which is byte-for-byte their concatenation.
+fn documents() -> Vec<String> {
+    let mut out: Vec<String> = STANDALONE.iter().map(|s| (*s).to_string()).collect();
+    for t in topics::TOPICS {
+        if matches!(t.kind, topics::Kind::Build | topics::Kind::Guide) {
+            out.push(format!("cli/src/docs/{}.md", t.id));
+        }
+    }
+    out
+}
 
 fn read(rel: &str) -> String {
     let path = repo_root().join(rel);
@@ -59,7 +67,7 @@ fn read(rel: &str) -> String {
 #[test]
 fn every_document_is_scannable() {
     let mut problems = Vec::new();
-    for doc in DOCUMENTS {
+    for doc in &documents() {
         let text = read(doc);
         if let Some(line) = markdown::unterminated_fence(&text) {
             problems.push(format!("{doc}:{line}: this ``` is never closed"));
@@ -80,7 +88,7 @@ fn the_fence_census_is_what_we_think_it_is() {
     let mut buri = 0;
     let mut textproto = 0;
     let mut other = Vec::new();
-    for doc in DOCUMENTS {
+    for doc in &documents() {
         for f in markdown::fences(&read(doc)) {
             match f.lang {
                 "buri" => buri += 1,
@@ -103,7 +111,7 @@ fn the_fence_census_is_what_we_think_it_is() {
 fn every_link_resolves() {
     let root = repo_root();
     let mut broken = Vec::new();
-    for doc in DOCUMENTS {
+    for doc in &documents() {
         let text = read(doc);
         let anchors: Vec<String> =
             markdown::headings(&text).iter().map(|h| markdown::slug(h.title)).collect();
@@ -291,10 +299,11 @@ fn an_unknown_topic_exits_two_with_a_suggestion() {
 fn no_document_invents_a_flag() {
     let known: Vec<&str> = buri::commands::FLAGS.iter().map(|f| f.name).collect();
     let mut invented = Vec::new();
-    for doc in DOCUMENTS {
-        // `TODO.md` is an audit *of* the gaps, so naming an absent flag is its
-        // job. `cli/tests/README.md` documents `cargo`, not `buri`.
-        if *doc == "TODO.md" || *doc == "cli/tests/README.md" {
+    for doc in &documents() {
+        // `design/` is where the gaps are audited, so naming an absent flag is
+        // the job of what is written there. `cli/tests/README.md` documents
+        // `cargo`, not `buri`.
+        if doc.starts_with("design/") || doc.as_str() == "cli/tests/README.md" {
             continue;
         }
         let text = read(doc);

@@ -143,10 +143,16 @@ impl Prim {
     /// so the negation happens once, in a context the compiler evaluates.
     pub const EXACT_INTEGER_FLOOR: i128 = -((1_i128 << 53) - 1);
 
-    /// The range `Checked` answers about: the type's own range, narrowed to
-    /// what a double still represents exactly. A `Checked` operation that said
-    /// `.Some` outside this would be reporting a value it cannot actually
-    /// hold, which is the one thing `Checked` exists to rule out.
+    /// The range `Checked` answers about **on the JavaScript backend**: the
+    /// type's own range, narrowed to what a double still represents exactly. A
+    /// `Checked` operation that said `.Some` outside this would be reporting a
+    /// value it cannot actually hold, which is the one thing `Checked` exists to
+    /// rule out.
+    ///
+    /// A native backend uses [`Prim::int_range`] instead, because there the
+    /// value does not have to survive being a double. `Checked` is bounded by
+    /// the numbers the platform has, and the band between the two bounds is
+    /// `design/native/VALUE-MODEL.md` §12 row 2's documented divergence.
     pub fn exact_int_range(self) -> Option<(i128, u128)> {
         let (lo, hi) = self.int_range()?;
         Some((lo.max(Prim::EXACT_INTEGER_FLOOR), hi.min(Prim::EXACT_INTEGER_LIMIT)))

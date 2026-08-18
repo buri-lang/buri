@@ -5,7 +5,7 @@ The release backend: `buri build --release` for `Linux` and `Macos`
 between them do not — instruction selection, scheduling, register allocation and
 vectorization at production quality.
 
-`LLVM-tips.md` is normative for this document, and its four lines are answered in
+`design/LLVM-tips.md` is normative for this document, and its four lines are answered in
 order: dead code elimination before LLVM IR is §1; optimized SSA without mem2reg
 is §2; comprehensive attributes is §3; cache locality and basic-block size is §5.
 
@@ -14,7 +14,7 @@ Facts about LLVM and inkwell were checked against inkwell 0.10.0 (2026-08-06),
 
 ## 1. Dead code elimination happens before this file runs
 
-`LLVM-tips.md:1`. `middle::dce` (ARCHITECTURE.md §2.2) runs after inlining and
+`design/LLVM-tips.md:1`. `middle::dce` (ARCHITECTURE.md §2.2) runs after inlining and
 before lowering, so the module handed to LLVM contains no unreachable function
 and no unused local. Three things make that stronger here than in most compilers:
 
@@ -33,7 +33,7 @@ per-unit compile time in `--release` is what dominates a release build.
 
 ## 2. Direct SSA, and no `alloca`
 
-`LLVM-tips.md:2`: avoid mem2reg, generate optimized SSA form.
+`design/LLVM-tips.md:2`: avoid mem2reg, generate optimized SSA form.
 
 ### 2.1 Block parameters become phis, mechanically
 
@@ -67,7 +67,7 @@ entry block's allocas, finds none, and returns.
 
 The counter-design — emit an `alloca` per local, `store` on definition, `load` on
 use, and let mem2reg sort it out — is what most hand-written LLVM frontends do
-and it is what `LLVM-tips.md:2` names. Its cost is not just the pass: it is that
+and it is what `design/LLVM-tips.md:2` names. Its cost is not just the pass: it is that
 every intermediate value passes through memory in the IR the *inliner* and the
 early simplification passes see, so the decisions those passes take are taken on
 a worse program.
@@ -78,7 +78,7 @@ Escape analysis (MEMORY.md §5.2) promotes a struct that is constructed and
 consumed within one function, never stored into a heap value and never returned,
 into stack memory. That is an `alloca` in the entry block.
 
-It is not the case `LLVM-tips.md:2` is about. The instruction is about using
+It is not the case `design/LLVM-tips.md:2` is about. The instruction is about using
 memory as a stand-in for SSA values — an `alloca` whose whole purpose is to be
 promoted back. This one is a genuine aggregate in memory whose fields are
 accessed by `getelementptr`, exactly as a C local struct would be, and SROA
@@ -107,7 +107,7 @@ the emission (ARCHITECTURE.md §2.2), which was the reason to move it.
 
 ## 3. Attributes
 
-`LLVM-tips.md:3`. The effect system supplies most of this for free, and it is
+`design/LLVM-tips.md:3`. The effect system supplies most of this for free, and it is
 worth saying so plainly: **a language where "does this function touch the world?"
 is a syntactic property of its signature is a language that can answer LLVM's
 memory-effect questions without an analysis.** SPEC 10.4's purity theorem is an
@@ -138,15 +138,24 @@ The table:
 
 | Buri property | LLVM attribute |
 |---|---|
-| No `ctx`, no effect-carrying `self`, reads no heap through a parameter | `memory(none)` |
-| Same, but reads through a parameter (every `[T]`, `Str`, struct pointer) | `memory(argmem: read)` |
+| No `ctx`, no effect-carrying `self`, reads no heap through a parameter, **adjusts no reference count** | `memory(none)` |
+| Same, but reads through a parameter (every `[T]`, `Str`, struct pointer, and every tagged enum's payload blob) | `memory(argmem: read)` |
 | Same, and can abort | add `inaccessiblemem: write` |
-| Bounded only by `Alloc` — deterministic (SPEC 10.5) | `memory(argmem: read, inaccessiblemem: readwrite)` — the allocator is inaccessible memory |
+| Same, and **adjusts the count of a value based on a parameter** | `argmem` becomes `readwrite` — §3.2.1 |
+| Same, and adjusts a count reached any other way | no memory attribute for the heap: the default location is `readwrite` |
+| Bounded only by `Alloc` — deterministic (SPEC 10.5) | `memory(write, argmem: read, inaccessiblemem: readwrite, errnomem: readwrite)` — §3.2.1's second half |
 | Bounded by an observable effect | no memory attribute; the default `memory(readwrite)` |
 | Every function, on every backend | `nounwind` — there is no unwinding in the language at all (SPEC 6.10) |
 | A function `middle` proved terminates | `willreturn`, and `mustprogress` |
 | `memory(none)` + `willreturn` + `nounwind` | add `speculatable` — a call may be hoisted above a branch |
 | Every function that cannot abort | `nofree` is *not* set: `decref` frees |
+
+The purity theorem is still an attribute-emission rule and this is still where
+most of the discipline comes from for free. What the fourth and fifth rows add
+is the one thing the theorem does not talk about: SPEC 10.4 is a statement
+about *observable effects*, and LLVM's `memory(...)` is a statement about
+*bytes*. Reference counting writes bytes that no Buri program can observe, and
+that difference is §3.2.1.
 
 `nounwind` on every function is the single most valuable one and it costs no
 analysis: the language has no `throw`, no `panic` that unwinds, and no
@@ -161,23 +170,104 @@ it.
 |---|---|
 | Every pointer parameter that is not a niche-encoded `Option` (VALUE-MODEL.md §6) | `nonnull` on the parameter |
 | Every heap pointer (16-byte aligned header, VALUE-MODEL.md §2) | `align 16` on the parameter and the return |
-| Every pointer parameter, always | `readonly` — values are immutable, and no function in the language writes through a parameter |
+| A pointer parameter whose block this function adjusts no count in | `readonly` — §3.2.1 for the condition, which is not "always" |
 | A parameter whose lifetime the caller guarantees for the call (MEMORY.md §5.2's *borrowed*) | `nocapture` |
 | A pointer parameter the callee does not alias with any other parameter | `noalias` — §3.3 |
 | Every `Str`/`[T]`/heap pointer return | `noalias` on the return, plus `align 16` |
 | A parameter the layout says is `Bool` | `range(i8 0, 2)` |
 | A `Char` parameter | `range(i32 0, 0x110000)` |
 
-`readonly` on a parameter is the one that is true unconditionally and would be a
-lie in almost any other language. Values are immutable, there is no interior
-mutability, and `middle::rc`'s in-place reuse (MEMORY.md §5.3) is the only writer
-— and it writes only to a block whose reference count it has just observed to be
-1, which is to say a block no other reference reaches. So even reuse does not
-break the guarantee the attribute makes to a *caller*.
-
 Note that `readnone`/`readonly` remain valid **parameter** attributes in current
 LLVM; it is the *function*-level spellings that were replaced by `memory(...)`.
 §3.5 has the encoding hazard.
+
+#### 3.2.1 The reference count is memory
+
+This section used to say that `readonly` on a parameter is "true
+unconditionally and would be a lie in almost any other language", on the
+argument that values are immutable, that `middle::rc`'s in-place growth
+(MEMORY.md §5.3) writes only past the end of a block whose count it has just
+seen to be 1, and that the count itself is not part of the value. **Every one of
+those statements is true about Buri and none of them is what `readonly`
+means.** LangRef:
+
+> `readonly` — This attribute indicates that the function does not write
+> through this pointer argument [...] If a function writes to a readonly
+> pointer argument, the behavior is undefined.
+
+> `memory(...)`, access kind `read` — The location is only read. Writing to the
+> location is immediate undefined behavior. **This includes the case where the
+> location is read from and then the same value is written back.**
+
+That last sentence removes the "unobservable write" defence entirely: `read` is
+a promise about bytes, and a store of the identical value is still a store. And
+LangRef's *Pointer Aliasing Rules* settle where the count lives — a pointer
+formed by `getelementptr` **is** *based on* its operand, `argmem` is "accesses
+that are based on pointer arguments", so `incref`'s store at `p - 16` for a
+parameter `p` is a write to argument memory. Three writes in this language go
+through a parameter:
+
+- `incref`'s store of the count at `p - 16` (MEMORY.md §5.1);
+- `decref`'s store of the count, and its `free` of the block;
+- MEMORY.md §5.3's in-place growth — the `memmove` past the end of `concat`'s
+  left operand, and `cli/runtime/list.rs`'s `append_dest`.
+
+Because a function's `memory(...)` covers its callees' effects as well as its
+own, a caller of a function that increfs is a function that increfs, so the
+condition is a whole-call-graph one. `backend/llvm/emit.rs`'s `observe` computes
+it beside the allocation and abort bits it already propagated, and
+`argument_based` is the provenance analysis that decides *which* memory a count
+sits in: a register projection of a parameter keeps the parameter's provenance,
+a `load` — a `[T]`'s element — does not, and a block parameter takes the
+conjunction of its incoming values, which matters for every counted function
+because `middle::tail_calls` turns self-recursion into a loop.
+
+The corrected rule, which is what `backend/llvm/attrs.rs` implements:
+
+| what the body does to a count | `readonly` on the parameter | `memory(...)` |
+|---|---|---|
+| nothing | yes | `argmem: read` |
+| counts a value *based on* a parameter | **no** | `argmem: readwrite` |
+| counts anything else | yes — it is not a write through *this* parameter | the default location becomes `readwrite` |
+
+None of this is a guess about what LLVM will tolerate. `opt
+-passes=function-attrs` on the same shape — a `getelementptr i64 -16` from a
+parameter, a load, an add, a store — infers exactly `memory(argmem: readwrite)`
+and `captures(none)` **without** `readonly`, and on the third row it infers
+`readonly` on the parameter and `memory(readwrite, inaccessiblemem: none)`.
+LLVM's own answer and this table are the same table.
+
+The same reading corrects two neighbours:
+
+- **The allocating row.** A function that allocates and then initializes the
+  block writes memory that is neither argument memory nor inaccessible: once
+  `buri_rt_alloc` has returned, the block is ordinary program memory, and
+  LangRef's parenthetical about an allocator returning newly accessible memory
+  excuses the *allocator*, not its caller. `opt` agrees — it infers
+  `memory(write, argmem: none, inaccessiblemem: readwrite)` for exactly that
+  body, because the block escapes through the return and so gets no
+  function-local carve-out. `errnomem` comes with it: `malloc` sets `errno`.
+- **A tagged enum's payload parameter.** `repr.rs` gives it `SlotTy::Blob`, an
+  *integer*, so a signature of one used to narrow to `memory(none)` for having
+  no pointer parameter. A `Result<Str, E>` keeps its `Str`'s three words inside
+  that integer and gets them back with an `inttoptr`, which LangRef's aliasing
+  rules make based on the parameter. A blob parameter is a pointer parameter
+  wearing an integer's type, and only a genuinely all-scalar signature narrows.
+
+What survives is the whole of the discipline for functions that touch no count,
+which on a representative program is most of them: of twenty pointer parameters
+across twelve functions, sixteen carried `readonly` before and ten after — the
+six that went are exactly the parameters of the three functions with a
+reference-counting plan — and no function lost its `memory(...)` attribute
+outright.
+
+`cli/tests/native_llvm.rs` holds the two tests that keep this true. One scans
+*every* emitted function for the pattern rather than asserting on one of them:
+a store to `p - 16` for a `p` the define line marks `readonly`, or under a
+`memory(...)` whose `argmem` is not writable. The other runs one program
+through `default<O0>` and `default<O2>` and requires the two to agree about
+stdout, the exit code and `buri_rt_live_blocks` — which is what a memory
+attribute being exploited would break.
 
 ### 3.3 `noalias`, and where it stops
 
@@ -348,7 +438,7 @@ is a middle-end gap that predates this design, and the fix is a middle-end one.
 
 ## 6. Cache locality and basic-block size
 
-`LLVM-tips.md:4`.
+`design/LLVM-tips.md:4`.
 
 - **Cold blocks are marked cold.** Every abort path, every `decref` free path
   (MEMORY.md §5.1), every `.None` arm of a `?` (SPEC 6.8), and every
@@ -399,24 +489,80 @@ inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
 
 **LLVM 21.1, inkwell 0.10, `llvm-sys` 211.x, `LLVM_SYS_211_PREFIX`.**
 
-inkwell supports LLVM 12 through 22 (`llvm22-1` is the newest flag) and currently
-has zero lag behind stable LLVM. LLVM 22 would be the newest valid pin. 21 is
-chosen instead because availability decides it:
+### 8.1 The policy: exactly one LLVM, tracking latest
 
-- `nixpkgs` on the pinned `nixos-25.05` provides `llvmPackages_18` (18.1.8),
-  `_19` (19.1.7, the default), `_20` (20.1.8) and `_21` (21.1.2). **There is no
-  LLVM 22 on 25.05.** Pinning 22 would mean bumping the flake's nixpkgs before
-  the backend can be built at all, which is a change to how the whole toolchain
-  is built in service of a codegen decision.
+Ruled on, and it settles what `OPEN-QUESTIONS.md` asked:
+
+- **Exactly one supported LLVM at any moment.** Not a range, not a minimum, not a
+  set of `#[cfg]`-selected encodings. `strict-versioning` below is this policy
+  enforced by the build rather than by a promise.
+- **The pin is the latest LLVM that inkwell *and* the flake's nixpkgs both
+  carry.** Both, because a pin either side cannot supply is a pin nobody can
+  build: inkwell is where the feature flag comes from and nixpkgs is where the
+  `llvm-config` comes from. Where they disagree, the older wins, and today they
+  disagree — inkwell has `llvm22-1` and `nixos-25.05` stops at 21.
+- **The version is an internal detail.** No BUILD file, no `REPO.buri`, no
+  `Output`, no diagnostic and no flag names an LLVM version. What a program can
+  observe is `Backend::identity()`, which names the linked LLVM *because* a
+  codegen change must invalidate cached objects (ARCHITECTURE.md §3) — that is a
+  cache key, not an interface.
+- **Bumping it is a chore, not an event.** No deprecation window, no transition
+  period, no compatibility shim. The checklist is in §8.2 and it is four lines
+  plus a test.
+- **Multi-version support is refused, permanently.** The `memory(...)` bitmask in
+  §3.5 is why: supporting two LLVMs means the *same* attribute encoding two ways
+  and a test matrix that has to build both, for a benefit — a contributor keeping
+  an older LLVM — that `nix develop` already delivers.
+
+Neither of the two policies `OPEN-QUESTIONS.md` posed survives as written: "the
+flake leads" is right about the *default* and wrong as a rule, because it would
+forbid a bump the backend actually needs, and "the backend leads" prices a
+nixpkgs bump — which moves `cargo`, `bun` and `elan`, and therefore every
+artifact this toolchain produces — into a routine chore. The rule is that the pin
+tracks latest-available, so it moves when a nixpkgs bump that was happening
+anyway brings a newer LLVM along. A bump *for* an LLVM is possible and is a
+nixpkgs decision made on nixpkgs' terms, with the cache invalidation priced in,
+and no codegen improvement has yet been worth asking for one.
+
+### 8.2 The bump checklist
+
+Four edits and a test, in this order:
+
+1. `cli/Cargo.toml` — the inkwell feature, `llvm21-1` → `llvm<N>-1`, and the
+   `prefer-dynamic` variant beside it.
+2. The `LLVM_SYS_211_PREFIX` environment variable name — it carries the major and
+   minor, so `LLVM_SYS_<N>1_PREFIX`.
+3. `flake.nix` — `pkgs.llvmPackages_21` → `pkgs.llvmPackages_<N>`, which is what
+   makes the two agree.
+4. `backend/llvm/attrs.rs` — the `Location` list, per §3.5's table.
+
+Then `the_bitmask_matches_llvm_21s_location_list` in `attrs.rs` is the canary:
+it asserts `MemoryEffects::everything().bits()`, which changes at every LLVM
+whose location list changes, so a bump that forgot step 4 fails there rather than
+miscompiling an attribute that still verifies. Rename it with the version. The
+`identity()` change falls out of the linked version and invalidates cached
+release objects, which is correct.
+
+### 8.3 Why 21 today
+
+inkwell supports LLVM 12 through 22 (`llvm22-1` is the newest flag) and currently
+has zero lag behind stable LLVM. LLVM 22 would be the newest valid pin on
+inkwell's side alone. 21 is what both sides carry:
+
+- `nixpkgs` on the pinned `nixos-25.05` provides `llvmPackages_9` and `_12`
+  through `_21`; `_21` is 21.1.2 and `llvmPackages` (the default) is 19.1.7.
+  **There is no `llvmPackages_22` on 25.05** — re-checked against the locked
+  revision, not against the channel name. So 21 is the latest the two sides
+  share, which is what §8.1 asks for. Pinning 22 would mean bumping the flake's
+  nixpkgs before the backend can be built at all, which is a change to how the
+  whole toolchain is built in service of a codegen decision.
 - LLVM 21 is nixpkgs' *default* `llvmPackages` on 25.11, 26.05 and unstable, so a
   contributor on any of those gets it without naming a version.
 - Homebrew ships `llvm@21` (21.1.8) for macOS contributors who are not on nix.
 
 What 22 would buy is `musttail` on RISC-V, which §5 declines to use on any
-target. The pin is reviewed when the flake's nixpkgs is next bumped, and moving
-it is a one-line feature change plus a `Backend::identity()` bump that
-invalidates cached release objects — which is correct, and is why `identity()`
-exists (ARCHITECTURE.md §3).
+target — so there is nothing to want, and the pin moves when the flake does,
+through §8.2.
 
 **`strict-versioning` is on.** `llvm-sys` will otherwise build against any LLVM
 at least as new as its target, so a machine with LLVM 22 installed would silently

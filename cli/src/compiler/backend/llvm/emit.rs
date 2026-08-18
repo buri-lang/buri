@@ -382,6 +382,10 @@ struct Function<'ctx> {
     entry: BasicBlock<'ctx>,
     divmod: Option<(PointerValue<'ctx>, PointerValue<'ctx>)>,
     observed: Observed,
+    /// [`argument_based`], once per body rather than once per `incref`.
+    /// Empty for the generated helpers, which carry no attributes at all and
+    /// so have nothing to be right or wrong about.
+    based: Vec<bool>,
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -406,6 +410,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             entry,
             divmod: None,
             observed: Observed::clean(),
+            based: argument_based(code),
         };
 
         // The entry block's parameters are the function's parameters
@@ -464,9 +469,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // `observe`, and the safe direction is to widen.
         let (params, rets) = self.slots_of_sig(&func.sig);
         let mut observed = self.observed.get(idx.index()).copied().unwrap_or_else(Observed::opaque);
-        observed.allocates |= state.observed.allocates;
-        observed.aborts |= state.observed.aborts;
-        observed.opaque |= state.observed.opaque;
+        observed.join(state.observed);
         attrs::decorate(self.ctx, value, &func.facts, observed, &params, &rets, HEAP_ALIGN);
     }
 
@@ -1897,6 +1900,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let pieces = repr::disassemble(&self.builder, &slots, value);
         let place = Place::Registers { slots, pieces };
         self.walk_rc(state, &ty, &place, 0, retain, 0);
+        // The same split `observe::local` makes from the IR, made again here
+        // through the same function so that the two cannot answer it
+        // differently: a count in a parameter's block is `argmem`, and a count
+        // anywhere else is the default location.
+        if state.based.get(v.index()).copied().unwrap_or(false) {
+            state.observed.writes_args = true;
+        } else {
+            state.observed.reads_far = true;
+            state.observed.writes_far = true;
+        }
         if !retain {
             state.observed.opaque = true;
         }
@@ -2467,6 +2480,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             entry,
             divmod: None,
             observed: Observed::clean(),
+            based: Vec::new(),
         };
         let first: PointerValue<'ctx> = value
             .get_nth_param(0)
@@ -3468,10 +3482,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `Str` (§3.3), and `middle::lower` has already turned the holes
             // into a `str.concat` chain. The context is zero-sized and has
             // already been dropped from the argument list.
+            //
+            // The identity on the *bytes*, not on the count. `middle/rc.rs`'s
+            // stated convention is that an intrinsic borrows its arguments and
+            // returns a fresh count, and copying three words produces a second
+            // name for one block rather than a second reference to it — so the
+            // count is taken here. Without it the argument and the result are
+            // one block with one count and two owners, and the second drop is
+            // a double free.
             "str.format" => {
                 let Some(src) = args.last().copied() else { return false };
                 let value = self.get(state, src);
                 self.set(state, dest, value);
+                self.incref(state, code, src);
                 true
             }
             "str.concat" => self.concat(state, code, dest, args),
@@ -3736,17 +3759,36 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.build_call(f, args, "int").ok()?.try_as_basic_value().basic()
     }
 
-    /// `str.concat`: one allocation and two copies.
+    /// `str.concat`, with MEMORY.md §5.3's in-place growth.
     ///
     /// Generated rather than called, for the reason the Cranelift backend
     /// generates it: there is no `buri_rt_str_concat`, and the sequence is
-    /// short enough that a `ccc` call would cost more than it saves. The result
-    /// is a fresh block, so `base` and `ptr` are the same pointer and the count
-    /// starts at one (`cli/runtime/lib.rs` §3).
+    /// short enough that a `ccc` call would cost more than it saves.
     ///
     /// The ASCII flag is the **conjunction** of the two operands': a
     /// concatenation is all-ASCII exactly when both halves are, and the bit is
     /// a single one so an `and` of the two raw lengths carries it.
+    ///
+    /// # The three paths
+    ///
+    /// The same three `cranelift/helpers.rs`'s `concat` emits, and its comment
+    /// is the argument for why the first one is unobservable — a count of one
+    /// means one live `Str` value, every alias of it carries the same `ptr` and
+    /// `len`, and the write here starts at `ptr + len`:
+    ///
+    ///  1. **In place** — the left operand's block is uniquely owned and has
+    ///     the room. Nothing is allocated and nothing is copied but the right
+    ///     operand's bytes; the result is the same `base` and `ptr` with a
+    ///     longer length, and takes a reference of its own.
+    ///  2. **Grown** — uniquely owned but out of room: `max(n * 2,
+    ///     GROWTH_FLOOR)` bytes, so the next step of a chain takes path 1.
+    ///  3. **Exact** — shared, immortal or a literal: exactly `n` bytes, which
+    ///     is what this emitted unconditionally before.
+    ///
+    /// A `memmove` on path 1 rather than a `memcpy`: where the right operand is
+    /// a second view into the same block the two ranges can touch, and the
+    /// weaker instruction removes the case from the argument rather than
+    /// adding a test to it.
     fn concat(
         &mut self,
         state: &mut Function<'ctx>,
@@ -3774,11 +3816,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             pieces.extend(repr::disassemble(&self.builder, &slots, value));
         }
         let (
+            Some(BasicValueEnum::PointerValue(a_base)),
             Some(BasicValueEnum::PointerValue(a_ptr)),
             Some(BasicValueEnum::IntValue(a_raw)),
             Some(BasicValueEnum::PointerValue(b_ptr)),
             Some(BasicValueEnum::IntValue(b_raw)),
         ) = (
+            pieces.get(layout::STR_BASE).copied(),
             pieces.get(layout::STR_PTR).copied(),
             pieces.get(layout::STR_LEN).copied(),
             pieces.get(3usize.saturating_add(layout::STR_PTR)).copied(),
@@ -3793,9 +3837,119 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b_len = self.builder.build_and(b_raw, mask, "cat.blen").unwrap_or(b_raw);
         let total = self.builder.build_int_add(a_len, b_len, "cat.len").unwrap_or(a_len);
 
+        let probe = self.ctx.append_basic_block(state.value, "cat.probe");
+        let check = self.ctx.append_basic_block(state.value, "cat.check");
+        let inplace = self.ctx.append_basic_block(state.value, "cat.inplace");
+        let fresh = self.ctx.append_basic_block(state.value, "cat.fresh");
+        let join = self.ctx.append_basic_block(state.value, "cat.join");
+
+        // The header load stays behind the null test: a literal and a static
+        // have no base, and `base == 0` is how a `Str` says so.
+        let Some(entry) = self.builder.get_insert_block() else { return false };
+        let Ok(no_base) = self.builder.build_is_null(a_base, "cat.nobase") else { return false };
+        let _ = self.builder.build_conditional_branch(no_base, check, probe);
+
+        self.builder.position_at_end(probe);
+        let rc_at =
+            repr::byte_offset(self.ctx, &self.builder, a_base, i64::from(HEADER_RC_OFFSET), "cat.rcp");
+        let cap_at = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            a_base,
+            i64::from(HEADER_CAP_OFFSET),
+            "cat.capp",
+        );
+        let rc = match self.builder.build_load(word, rc_at, "cat.rc") {
+            Ok(BasicValueEnum::IntValue(v)) => v,
+            _ => word.const_zero(),
+        };
+        let cap = match self.builder.build_load(word, cap_at, "cat.cap") {
+            Ok(BasicValueEnum::IntValue(v)) => v,
+            _ => word.const_zero(),
+        };
+        // `IMMORTAL` is `u64::MAX`, so a literal or an interned constant fails
+        // this test by construction and never reaches either fast path.
+        let is_one = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, rc, word.const_int(1, false), "cat.one")
+            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let _ = self.builder.build_unconditional_branch(check);
+
+        self.builder.position_at_end(check);
+        let bool_ty = self.ctx.bool_type();
+        let unique = match self.builder.build_phi(bool_ty, "cat.uniq") {
+            Ok(phi) => {
+                phi.add_incoming(&[(&bool_ty.const_zero(), entry), (&is_one, probe)]);
+                phi.as_basic_value().into_int_value()
+            }
+            Err(_) => bool_ty.const_zero(),
+        };
+        let room = match self.builder.build_phi(word, "cat.room") {
+            Ok(phi) => {
+                phi.add_incoming(&[(&word.const_zero(), entry), (&cap, probe)]);
+                phi.as_basic_value().into_int_value()
+            }
+            Err(_) => word.const_zero(),
+        };
+        // What has to fit is the offset of the view inside the block plus the
+        // whole result, because a `Str` may start in the middle of one.
+        let a_at = self.builder.build_ptr_to_int(a_ptr, word, "cat.at").unwrap_or(total);
+        let base_at = self.builder.build_ptr_to_int(a_base, word, "cat.base").unwrap_or(total);
+        let offset = self.builder.build_int_sub(a_at, base_at, "cat.off").unwrap_or(total);
+        let end = self.builder.build_int_add(offset, total, "cat.end").unwrap_or(total);
+        let fits = self
+            .builder
+            .build_int_compare(IntPredicate::ULE, end, room, "cat.fits")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let take = self.builder.build_and(unique, fits, "cat.take").unwrap_or(fits);
+        let _ = self.builder.build_conditional_branch(take, inplace, fresh);
+
+        self.builder.position_at_end(inplace);
+        // SAFETY: `build_in_bounds_gep` is `unsafe` in inkwell because it
+        // cannot check the index; the branch above established that
+        // `offset + a_len + b_len` is within the block's capacity.
+        let at = unsafe {
+            self.builder
+                .build_in_bounds_gep(self.ctx.i8_type(), a_ptr, &[a_len], "cat.end")
+                .unwrap_or(a_ptr)
+        };
+        let _ = self.builder.build_memmove(at, 1, b_ptr, 1, b_len);
+        self.incref_pointer(state, a_base, Counted::NonNull);
+        // Both halves of MEMORY.md §5.3 write through `a_base`, which is
+        // routinely a parameter: the `memmove` above and the count `incref`
+        // just stored. `readonly` is a promise about bytes and this breaks it,
+        // whatever a Buri caller can observe — see `attrs.rs`'s header.
+        //
+        // The pre-pass already reached the same answer by a shorter route:
+        // `str.concat` is an `ir::Body::Runtime` callee, so `observe` seeded
+        // every caller of it from `Observed::opaque`, which carries both bits.
+        // This is the local statement of the same fact, so that the reason is
+        // where the store is.
+        state.observed.writes_args = true;
+        state.observed.writes_far = true;
+        let from_inplace = self.builder.get_insert_block().unwrap_or(inplace);
+        let _ = self.builder.build_unconditional_branch(join);
+
+        self.builder.position_at_end(fresh);
+        let doubled = self.builder.build_int_add(total, total, "cat.x2").unwrap_or(total);
+        let floor = word.const_int(layout::GROWTH_FLOOR, false);
+        let over = self
+            .builder
+            .build_int_compare(IntPredicate::UGT, doubled, floor, "cat.big")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let wanted = self
+            .builder
+            .build_select(over, doubled, floor, "cat.want")
+            .map(BasicValueEnum::into_int_value)
+            .unwrap_or(doubled);
+        let size = self
+            .builder
+            .build_select(unique, wanted, total, "cat.size")
+            .map(BasicValueEnum::into_int_value)
+            .unwrap_or(total);
         let alloc = self.rt_alloc();
         state.observed.allocates = true;
-        let block = match self.builder.build_call(alloc, &[total.into()], "cat") {
+        let block = match self.builder.build_call(alloc, &[size.into()], "cat") {
             Ok(call) => {
                 attrs::set_call_convention(call, attrs::C);
                 call.try_as_basic_value()
@@ -3809,15 +3963,33 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // view into the middle of somebody else's allocation (VALUE-MODEL.md
         // §3), so nothing here knows more than that.
         let _ = self.builder.build_memcpy(block, 1, a_ptr, 1, a_len);
-        // SAFETY: `build_in_bounds_gep` is `unsafe` in inkwell because it
-        // cannot check the index; `a_len` is inside a block of `a_len + b_len`
-        // bytes this call just allocated.
+        // SAFETY: as above; `a_len` is inside a block of at least
+        // `a_len + b_len` bytes this call just allocated.
         let second = unsafe {
             self.builder
                 .build_in_bounds_gep(self.ctx.i8_type(), block, &[a_len], "cat.at")
                 .unwrap_or(block)
         };
         let _ = self.builder.build_memcpy(second, 1, b_ptr, 1, b_len);
+        let from_fresh = self.builder.get_insert_block().unwrap_or(fresh);
+        let _ = self.builder.build_unconditional_branch(join);
+
+        self.builder.position_at_end(join);
+        let ptr_ty = self.ptr_ty();
+        let base = match self.builder.build_phi(ptr_ty, "cat.rbase") {
+            Ok(phi) => {
+                phi.add_incoming(&[(&a_base, from_inplace), (&block, from_fresh)]);
+                phi.as_basic_value().into_pointer_value()
+            }
+            Err(_) => block,
+        };
+        let start = match self.builder.build_phi(ptr_ty, "cat.rptr") {
+            Ok(phi) => {
+                phi.add_incoming(&[(&a_ptr, from_inplace), (&block, from_fresh)]);
+                phi.as_basic_value().into_pointer_value()
+            }
+            Err(_) => block,
+        };
 
         let both = self.builder.build_and(a_raw, b_raw, "cat.both").unwrap_or(a_raw);
         let ascii = self
@@ -3827,7 +3999,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let stored = self.builder.build_or(total, ascii, "cat.raw").unwrap_or(total);
 
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let values = [block.into(), block.into(), stored.into()];
+        let values = [base.into(), start.into(), stored.into()];
         let value = repr::assemble(self.ctx, &self.builder, &slots, &values);
         self.set(state, dest, value);
         true
@@ -4003,22 +4175,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// `checkedAdd`, `checkedSub`, `checkedMul`, `checkedDiv` — `Option<T>`.
     ///
-    /// **The bound is the range a JavaScript `number` holds exactly, not the
-    /// type's.** `Checked`'s promise is that a `.Some` is a value the answer
-    /// really *is*, and past `2^53` a double cannot say which integer it is — so
-    /// `js/intrinsics.rs` tests `exact_int_range` and the conformance suite
-    /// states that as a property of the operation rather than as an accident of
-    /// the backend. A native `i64` either overflows or does not, so following
-    /// the machine would answer `.Some` where the language says `.None`. This
-    /// follows the language.
+    /// **The bound is the type's own range**, which is where this parts company
+    /// with the JavaScript backend: there `js/intrinsics.rs` tests
+    /// `exact_int_range`, because past `2^53` a double cannot say which integer
+    /// it is and `.None` is the only honest answer it has. `Checked` is bounded
+    /// by the numbers the *platform* has, and `.Some(v)` promises that `v` is
+    /// the true result as this backend represents numbers — a promise both
+    /// backends keep, at different widths (SPEC 6.2.2,
+    /// `design/native/VALUE-MODEL.md` §12 row 2). The band between `2^53` and
+    /// the type's own maximum is a documented divergence and
+    /// `cli/tests/backend_agreement.rs`'s row 2 pins both answers.
     ///
     /// The arithmetic is done in 128 bits rather than with
     /// `llvm.*.with.overflow`, which is both simpler and *more* correct here:
-    /// the range test is not "did it wrap" but "is it inside `exact_int_range`",
-    /// and a 64-bit sum, difference or product is exact in 128 bits, so one
-    /// widening answers both questions at once. `i64::MIN / -1` is `2^63`, which
-    /// fits, and then fails the range test — which is `.None`, and is also what
-    /// `Math.trunc(a / b)` answers through `$checkedIn`.
+    /// a 64-bit sum, difference or product is exact in 128 bits, so the range
+    /// test over the widened value answers "did it overflow the type" directly,
+    /// with no per-operation overflow flag to interpret. `i64::MIN / -1` is
+    /// `2^63`, which the widening holds and the range test then rejects — which
+    /// is `.None`, and is two's-complement overflow rather than a special case.
+    ///
+    /// The division is guarded rather than branched around: an `sdiv` by zero is
+    /// immediate undefined behaviour in LLVM even on a path whose result is
+    /// discarded, so the divisor is *replaced* by one and the instruction never
+    /// sees it.
     fn checked(
         &mut self,
         state: &mut Function<'ctx>,
@@ -4031,7 +4210,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if prim.bits() == 128 {
             return self.checked_128(state, code, dest, task, span);
         }
-        let Some((lo, hi)) = prim.exact_int_range() else { return false };
+        let Some((lo, hi)) = prim.int_range() else { return false };
         let wide = self.ctx.i128_type();
         let signed = prim.is_signed();
         let a = self.widen(x, wide, signed);
@@ -4104,9 +4283,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// `saturatingAdd`, `saturatingSub`, `saturatingMul` — clamped to the
-    /// **type's own** bounds, which is `$sat`'s rule and deliberately not
-    /// `checked*`'s: `Saturating` promises a value in range and says nothing
-    /// about whether a double could name it.
+    /// **type's own** bounds, which is `$sat`'s rule on the other backend too:
+    /// `Saturating` promises a value in range and says nothing about whether a
+    /// double could name it, so it is the one family of the three that never
+    /// had a second bound to lose.
     fn saturating(
         &mut self,
         state: &mut Function<'ctx>,
@@ -4271,9 +4451,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `Bounded::minValue` and `Bounded::maxValue`, as constants.
     ///
     /// The bounds are the **type's**, not JavaScript's exactly-representable
-    /// ones: `js/intrinsics.rs` uses `int_range` here too, and only `checked*`
-    /// narrows to `exact_int_range` — because there the value has to survive
-    /// being a double, and here it does not.
+    /// ones: `js/intrinsics.rs` uses `int_range` here too. `exact_int_range` is
+    /// the JavaScript backend's business alone — it is the range a double still
+    /// names, and natively nothing has to survive being one.
     ///
     /// A float's bounds are the largest finite magnitude at both signs, which
     /// is what `Bounded` is about. Not `MIN_POSITIVE`, which is the smallest
@@ -4878,7 +5058,7 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
         for (i, f) in program.funcs.iter().enumerate() {
             let Some(code) = f.code() else { continue };
             let mut here = out.get(i).copied().unwrap_or_else(Observed::opaque);
-            let before = (here.allocates, here.aborts, here.opaque);
+            let before = key(here);
             for block in &code.blocks {
                 for inst in &block.insts {
                     let callee = match inst {
@@ -4889,12 +5069,10 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
                     // An unknown callee is the conservative answer, which is
                     // the direction that costs performance and cannot be wrong.
                     let theirs = out.get(callee).copied().unwrap_or_else(Observed::opaque);
-                    here.allocates |= theirs.allocates;
-                    here.aborts |= theirs.aborts;
-                    here.opaque |= theirs.opaque;
+                    here.join(theirs);
                 }
             }
-            if before != (here.allocates, here.aborts, here.opaque) {
+            if before != key(here) {
                 changed = true;
             }
             if let Some(slot) = out.get_mut(i) {
@@ -4905,9 +5083,130 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
     out
 }
 
+/// The six bits, as a tuple, so the fixpoint's "did anything change" is one
+/// comparison that a new bit cannot be left out of by accident.
+fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool) {
+    (o.allocates, o.aborts, o.opaque, o.writes_args, o.reads_far, o.writes_far)
+}
+
+/// Which values are *based on* one of this function's parameters, in the sense
+/// LangRef's **Pointer Aliasing Rules** define — which is the sense `argmem`
+/// is defined in, so it is the one that decides whether an `incref`'s store at
+/// `p - 16` is a write to argument memory.
+///
+/// LangRef's relation is `getelementptr`, `bitcast` and `inttoptr`, closed
+/// transitively. Two things follow that are not obvious from the source:
+///
+///  * **A register projection keeps it.** A `Str` parameter is three LLVM
+///    parameters (VALUE-MODEL.md §5.1); `bind_entry_params` binds them, and
+///    `GetField`/`GetPayload` disassemble and reassemble the same SSA values
+///    without touching memory. So a field of a parameter *is* a parameter, and
+///    a pointer shifted out of a tagged enum's payload blob comes back through
+///    an `inttoptr`, which LangRef makes based on everything that fed it.
+///  * **A load loses it.** `ArrayGet` reads an element out of a block; the
+///    result points at a *different* object, and no rule in LangRef's list
+///    reaches it from the array. Counting it is a write to the default
+///    location, not to `argmem` — which is exactly what `opt
+///    -passes=function-attrs` answers for the same shape.
+///
+/// A block parameter takes the **conjunction** of its incoming arguments, which
+/// is a meet rather than a join, so this fixpoint descends from an optimistic
+/// start instead of ascending from a pessimistic one. That matters for every
+/// counted function in the language and not as a corner case:
+/// `middle::tail_calls` rewrites self-recursion into a loop, so a parameter a
+/// leaf function counts arrives at the `incref` as a *loop header's* parameter
+/// whose incoming values are the entry parameter and itself.
+fn argument_based(code: &ir::Code) -> Vec<bool> {
+    let mut based = vec![true; code.values()];
+    let set = |based: &mut Vec<bool>, v: ir::ValueId, to: bool, changed: &mut bool| {
+        if let Some(slot) = based.get_mut(v.index()) {
+            if *slot && !to {
+                *slot = false;
+                *changed = true;
+            }
+        }
+    };
+    let mut operands: Vec<ir::ValueId> = Vec::new();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &code.blocks {
+            for inst in &block.insts {
+                match inst {
+                    // A block this function allocated, or one a callee handed
+                    // back. Both are ordinary program memory the caller cannot
+                    // name, which is the *default* location and not `argmem`.
+                    ir::Inst::MakeArray { dest, .. } | ir::Inst::MakeClosure { dest, .. } => {
+                        set(&mut based, *dest, false, &mut changed);
+                    }
+                    // A load: see the header.
+                    ir::Inst::ArrayGet { dest, .. } => {
+                        set(&mut based, *dest, false, &mut changed);
+                    }
+                    ir::Inst::Structural { dest, .. } => {
+                        set(&mut based, *dest, false, &mut changed);
+                    }
+                    ir::Inst::Call { dests, .. }
+                    | ir::Inst::CallIndirect { dests, .. }
+                    | ir::Inst::CallIntrinsic { dests, .. } => {
+                        for d in dests {
+                            set(&mut based, *d, false, &mut changed);
+                        }
+                    }
+                    // Everything else either produces a scalar — which is
+                    // never counted, so its verdict is read by nobody — or
+                    // assembles registers out of values already classified
+                    // here. `Inst::MakeStruct`, `Inst::MakeEnum`,
+                    // `Inst::GetField`, `Inst::GetPayload` and
+                    // `Inst::ArraySlice` are that second group: the
+                    // conjunction below is what carries the verdict through
+                    // them, because a struct built from a parameter's pieces
+                    // holds a parameter's pointers.
+                    _ => {
+                        operands.clear();
+                        inst.operands(&mut operands);
+                        let all = operands
+                            .iter()
+                            .all(|u| based.get(u.index()).copied().unwrap_or(false));
+                        if !all {
+                            for d in inst.results() {
+                                set(&mut based, *d, false, &mut changed);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The entry block's parameters are the function's, and nothing branches
+        // to the entry (`ir::Code`), so they are the fixed point's floor.
+        for (i, block) in code.blocks.iter().enumerate() {
+            if i == 0 {
+                continue;
+            }
+            for (k, p) in block.params.iter().enumerate() {
+                let mut all = true;
+                for src in &code.blocks {
+                    for t in src.term.targets() {
+                        if t.block.index() != i {
+                            continue;
+                        }
+                        if let Some(a) = t.args.get(k) {
+                            all &= based.get(a.index()).copied().unwrap_or(false);
+                        }
+                    }
+                }
+                set(&mut based, *p, all, &mut changed);
+            }
+        }
+    }
+    based
+}
+
 /// What one body holds, before anything is propagated into it.
 fn local(code: &ir::Code, profile: Profile) -> Observed {
     let mut o = Observed::clean();
+    let based = argument_based(code);
+    let from_args = |v: &ir::ValueId| based.get(v.index()).copied().unwrap_or(false);
     for block in &code.blocks {
         for inst in &block.insts {
             match inst {
@@ -4926,7 +5225,36 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
                 // A host capability, and a `decref` whose free path calls the
                 // allocator, are both the world.
                 ir::Inst::CallIntrinsic { .. } | ir::Inst::CallIndirect { .. } => o.opaque = true,
-                ir::Inst::DecRef { .. } => o.opaque = true,
+                // A count is memory, and *which* memory decides the attribute
+                // — see [`argument_based`]. `decref` keeps `opaque` on top of
+                // that for its free path, which goes back to the allocator
+                // through glue this scan cannot see.
+                ir::Inst::IncRef { value } => {
+                    if from_args(value) {
+                        o.writes_args = true;
+                    } else {
+                        o.reads_far = true;
+                        o.writes_far = true;
+                    }
+                }
+                ir::Inst::DecRef { value, .. } => {
+                    o.opaque = true;
+                    if from_args(value) {
+                        o.writes_args = true;
+                    } else {
+                        o.reads_far = true;
+                        o.writes_far = true;
+                    }
+                }
+                // An element load out of a block this function allocated, or
+                // out of one a callee returned, reads the default location.
+                // Out of a parameter's block it is `argmem`, which
+                // `memory(argmem: read)` already covers.
+                ir::Inst::ArrayGet { array, .. } => {
+                    if !from_args(array) {
+                        o.reads_far = true;
+                    }
+                }
                 _ => {}
             }
         }

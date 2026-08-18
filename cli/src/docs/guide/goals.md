@@ -14,25 +14,18 @@ Those goals are why the design looks the way it does:
 
 Where they pull against each other, the compiler absorbs it rather than the
 language: guaranteed tail calls become loops on a JS target, since no engine but
-JavaScriptCore implements them natively ([SPEC.md §8.3.1](./SPEC.md)). `I64` on
-JS is the one genuinely unresolved tension — see [SPEC.md §15](./SPEC.md).
+JavaScriptCore implements them natively ([SPEC.md §8.3.1](./cli/src/docs/SPEC.md)). `I64` on
+JS is the one genuinely unresolved tension — see [SPEC.md §15](./cli/src/docs/SPEC.md).
 
-[SPEC.md §13](./SPEC.md) states the invariants that make the compile-speed goal
+[SPEC.md §13](./cli/src/docs/SPEC.md) states the invariants that make the compile-speed goal
 reachable, so a future feature can be measured against them rather than
 quietly eroding them.
 
 **This repository is the specification and the toolchain that implements it.**
-Every example below is compiled by `cargo test`, and the ones that print
-something are run and their output compared — so the documentation cannot drift
-from the language. `buri docs` serves all of it from the binary.
-
-- [`SPEC.md`](./SPEC.md) — the language reference
-- [`grammar.ebnf`](./cli/src/docs/grammar.ebnf) — the normative grammar, in extended BNF
-- [`cli/src/docs/`](./cli/src/docs/) — the monorepo build system: `BUILD.buri`
-  files, library and binary targets, visibility, tags, hermetic incremental
-  builds, and one CLI. [`cli/tests/example/`](./cli/tests/example/) is a
-  worked monorepo, and the largest body of Buri here to read.
-- [`cli/tests/`](./cli/tests/) — how the toolchain is held to all of the above
+Every example in these pages is compiled by `cargo test`, and the ones that
+print something are run and their output compared — so the documentation cannot
+drift from the language. `buri docs` serves all of it from the binary; the
+[README](./README.md) says where each part lives.
 
 ```buri run
 from "core/cap" import { Alloc, Stdout };

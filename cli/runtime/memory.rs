@@ -316,6 +316,68 @@ pub extern "C" fn buri_rt_live_blocks() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
+// Uniqueness, and the growth policy over it (MEMORY.md §5.3)
+// ---------------------------------------------------------------------------
+
+/// The smallest capacity a growing block is given, in bytes.
+///
+/// One 16-byte header's worth of payload for eight `i64`s: the point is that a
+/// list built one element at a time does not reallocate for the first handful,
+/// and a floor smaller than a cache line buys nothing. Named here rather than
+/// spelled at each call site because MEMORY.md §5.3 documents the policy and a
+/// policy in three places is three policies.
+pub const BURI_RT_GROWTH_FLOOR: u64 = 64;
+
+/// The capacity to give a block that needs `needed` bytes and had `old_cap`.
+///
+/// **Doubling with a floor.** `needed` is the lower bound the caller cannot go
+/// under; `old_cap * 2` is what makes a sequence of appends amortized O(1) and
+/// therefore O(log n) allocations rather than O(n); the floor keeps the first
+/// few appends from reallocating at all.
+///
+/// Saturating rather than checked: a capacity that overflows a `u64` is a
+/// request `layout_for` will refuse, and refusing it there keeps the arithmetic
+/// here total.
+#[must_use]
+pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
+    needed.max(old_cap.saturating_mul(2)).max(BURI_RT_GROWTH_FLOOR)
+}
+
+/// `Some(cap)` when `p` is a live block that **nothing else references**.
+///
+/// This is MEMORY.md §5.3's test, and it is the whole licence for the in-place
+/// writes in `list.rs` and `text.rs`. The reasoning it rests on, stated once
+/// here because every caller depends on it:
+///
+/// * A reference count of one means exactly one live value in the program
+///   refers to this block. Static elision never *duplicates* a reference
+///   without an `incref` — a borrowed parameter aliases the caller's own
+///   reference rather than adding one, and every operation that produces a new
+///   view of a block (`str.slice`, `str.trim`, `splitOnce`) increfs the base
+///   before answering. So `rc == 1` is not "one binding": it is "one
+///   observable value", and the aliases elision leaves behind are copies of
+///   *that* value, with the same `ptr` and the same `len`.
+/// * Therefore a write **strictly past the length every such alias carries** is
+///   unobservable. That is the only kind of write the callers make: an append
+///   writes at `len` and beyond, never at an index any live descriptor covers.
+///
+/// `IMMORTAL` fails the test by construction (`u64::MAX != 1`), which is what
+/// keeps a literal or an interned constant aggregate out of it.
+///
+/// # Safety
+/// `p` is null or a live payload pointer from [`buri_rt_alloc`].
+#[must_use]
+pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
+    if p.is_null() {
+        return None;
+    }
+    // SAFETY: the caller promises a live payload pointer, so the header is in
+    // bounds and aligned.
+    let h = unsafe { &*header(p.cast_mut()) };
+    (h.rc == 1).then_some(h.cap)
+}
+
+// ---------------------------------------------------------------------------
 // `Alloc`, the effect
 // ---------------------------------------------------------------------------
 

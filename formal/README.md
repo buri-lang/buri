@@ -17,7 +17,7 @@ The second consumes the first: `match` progress is exactly the place a type
 safety proof needs "some arm fires", and that is what the exhaustiveness
 theorem was for.
 
-**Purity and inference remain unstarted.** `findings/README.md` §4, the hole
+**Purity and inference remain unstarted.** `findings/README.md` (finding 4 in its results table), the hole
 that made the purity theorem false, has since been closed by a language
 decision, so Stage 5 is now worth starting; it is not started here.
 
@@ -198,7 +198,7 @@ vectors are checked in, so the Rust suite never needs Lean.
 statements whose answers are not in doubt through the same observation path and
 asserts it sees them, so an agreement result is not vacuous.
 `the_corpus_covers_the_nested_alternation` asserts the corpus still contains
-the shape `findings/README.md` §6 was about, so a future edit to the pool
+the shape `findings/README.md` (finding 6 in its results table) was about, so a future edit to the pool
 cannot quietly drop it.
 
 **What it does not do.** It compares verdicts, not diagnostic text — the reject
@@ -213,7 +213,7 @@ serialisation of `typed::Expr` the Rust side does not have.
 **`useful_sound`**, the converse direction ("no false positives"): that the
 compiler reports a non-exhaustive match only when a value really is uncovered.
 
-`findings/README.md` §6 used to be the answer — the theorem was false, because
+`findings/README.md` (finding 6 in its results table) used to be the answer — the theorem was false, because
 a nested alternation made the checker reject an exhaustive match. That is fixed
 in `exhaustiveness.rs` and the model here is of the fixed algorithm, so that
 obstacle is gone. Two remain, and the first is sharper than the old one:
@@ -252,7 +252,7 @@ model's `Expr` is the post-inference form, so the Rust checker's two
 directions collapse into one. Everything `formal/README.md` used to say about
 `Ty::Var` being algorithmic is still true and still unstarted.
 
-**Purity.** No Lean is written for it. `findings/README.md` §4 — the reason the
+**Purity.** No Lean is written for it. `findings/README.md` (finding 4 in its results table) — the reason the
 theorem as stated was false — has since been resolved by a language decision,
 so it is now worth starting.
 
@@ -301,7 +301,7 @@ Four decisions about the core language:
 * **`Expr` is post-inference.** See "What is not proved".
 * **The model tracks the *fixed* algorithm.** `specialize`, `default_matrix`
   and `head_ctors` distribute over an or-headed row, matching
-  `exhaustiveness.rs` after the `findings/README.md` §6 fix. One consequence is
+  `exhaustiveness.rs` after the `findings/README.md` (finding 6 in its results table) fix. One consequence is
   worth noting: or-freeness is now nowhere a hypothesis, and
   `specializeRow_matches` is a biconditional where the old, dropping version
   needed a side condition for the forward direction.

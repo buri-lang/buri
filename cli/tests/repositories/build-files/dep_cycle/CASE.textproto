@@ -9,7 +9,7 @@ doc: "two packages that depend on each other: dep-cycle, once from each end"
 # The recorded output shows the *same* cycle reported twice, once per end —
 # `//lib/a and //lib/b`, then `//lib/b and //lib/a`. BUILD-FILES.md:389-390
 # describes one diagnostic per cycle, so this golden is pinning current
-# behaviour rather than intended behaviour; see TODO.md.
+# behaviour rather than intended behaviour; see `design/TODO.md`.
 run {
   args: ["lint", "//lib/a"]
   exit: 1

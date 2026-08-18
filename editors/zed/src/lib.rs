@@ -19,10 +19,9 @@ impl zed::Extension for BuriExtension {
         _id: &LanguageServerId,
         worktree: &Worktree,
     ) -> Result<Command> {
-        // `buri` from the user's PATH rather than a downloaded release: a
-        // repository pins its toolchain in REPO.buri, and an extension that
-        // fetched its own would be answering about a different compiler than
-        // the one `buri build` uses.
+        // `buri` from the user's PATH rather than a downloaded release: an
+        // extension that fetched its own would be answering about a different
+        // compiler than the one `buri build` uses.
         let path = worktree
             .which("buri")
             .ok_or_else(|| "`buri` is not on PATH; install the toolchain".to_string())?;

@@ -224,8 +224,22 @@ fn build_and_run_with(
     source: &str,
     probe: Option<&str>,
 ) -> (String, String, Option<i32>) {
+    build_and_run_at(name, source, probe, Profile::Release)
+}
+
+/// The same, at a chosen profile — which is a chosen *pipeline*:
+/// `Profile::Release` is `default<O2>` and `Profile::Debug` is `default<O0>`
+/// (`llvm/target.rs`). Running one program through both is how a claim about
+/// an attribute becomes a claim about a program: an optimizer that exploited a
+/// false `memory(...)` would make the two disagree.
+fn build_and_run_at(
+    name: &str,
+    source: &str,
+    probe: Option<&str>,
+    profile: Profile,
+) -> (String, String, Option<i32>) {
     let lowered = lower(source);
-    let opts = options(Profile::Release);
+    let opts = options(profile);
     let units =
         expect(llvm::emit_lowered(&lowered.ir, &lowered.tables, &opts, Some(lowered.entry)));
     assert!(!units.is_empty(), "the backend emitted no codegen unit");
@@ -821,11 +835,16 @@ export fn main(): Result<(), Str> {
     assert!(!ir.contains("getelementptr ") || ir.contains("inbounds"), "a bare gep:\n{ir}");
 }
 
-/// `readonly` on every pointer parameter — the row of CODEGEN-LLVM.md §3.2
-/// that is true unconditionally and would be a lie in almost any other
-/// language.
+/// `readonly` on a pointer parameter, and the condition CODEGEN-LLVM.md §3.2
+/// now attaches to it: the function must not adjust a reference count in that
+/// parameter's block.
+///
+/// `firstOrElse` is the shape that keeps it. It reads two `Str`s and returns
+/// one of them, and `middle::rc` gives it no plan at all — the caller owns
+/// both — so nothing in it writes through a parameter and the whole of the
+/// §3.2 row still applies.
 #[test]
-fn every_pointer_parameter_is_readonly_and_aligned() {
+fn a_borrowing_function_keeps_readonly_and_argmem_read() {
     skip_unless_executable!();
     let ir = optimized_ir(&program(
         r#"
@@ -841,15 +860,13 @@ export fn main(): Result<(), Str> {
 }
 "#,
     ));
-    // Every pointer parameter this backend emits carries both, so if any
-    // pointer parameter survives O2 it carries them; if none does, the
-    // program was fully inlined and there is nothing to check. Asserting the
-    // *absence* of a bare `ptr %` parameter without `readonly` is the form
-    // that holds either way.
+    // `align 16` is unconditional — every heap pointer is 16-byte aligned
+    // because the header is 16 bytes and sits immediately before the payload —
+    // so a pointer parameter with neither attribute is a bug either way.
     for line in ir.lines().filter(|l| l.starts_with("define")) {
         // The emitted `main` is the one function whose pointer parameter is
         // not a Buri value: `argv` comes from the platform, and claiming
-        // `readonly` on it would be a claim about the C runtime.
+        // anything about it would be a claim about the C runtime.
         if line.contains("@main(") {
             continue;
         }
@@ -862,6 +879,250 @@ export fn main(): Result<(), Str> {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The reference count is memory — CODEGEN-LLVM.md §3.2, the condition
+// ---------------------------------------------------------------------------
+
+/// One `define` line and the body under it.
+fn definitions(ir: &str) -> Vec<(&str, &str)> {
+    let mut out = Vec::new();
+    for chunk in ir.split("\ndefine ").skip(1) {
+        let Some((head, rest)) = chunk.split_once('\n') else { continue };
+        let body = rest.split("\n}").next().unwrap_or(rest);
+        out.push((head, body));
+    }
+    out
+}
+
+/// The `%N` names on a `define` line, and whether each is `readonly`.
+fn parameters(head: &str) -> Vec<(String, bool)> {
+    let Some(open) = head.find('(') else { return Vec::new() };
+    let Some(close) = head.rfind(')') else { return Vec::new() };
+    let Some(list) = head.get(open + 1..close) else { return Vec::new() };
+    list.split(',')
+        .filter_map(|piece| {
+            let name = piece.split_whitespace().find(|w| w.starts_with('%'))?;
+            Some((name.to_string(), piece.contains("readonly")))
+        })
+        .collect()
+}
+
+/// The attribute group `#N` a `define` line names, resolved through the
+/// module's `attributes #N = { ... }` lines.
+fn attribute_group<'a>(ir: &'a str, head: &str) -> &'a str {
+    let Some(hash) = head.rsplit('#').next().and_then(|t| t.split_whitespace().next()) else {
+        return "";
+    };
+    let key = format!("\nattributes #{hash} = ");
+    let Some(at) = ir.find(&key) else { return "" };
+    let rest = &ir[at + key.len()..];
+    rest.split('\n').next().unwrap_or("")
+}
+
+/// **The differential test for the whole miscompile class.**
+///
+/// Not one golden assertion about one function: a scan of every function the
+/// backend emitted for the *pattern* that was undefined behaviour, which is a
+/// store to `p - 16` for a `p` LangRef's Pointer Aliasing Rules call *based
+/// on* a parameter — `getelementptr` from the parameter, transitively — under
+/// a `readonly` on that parameter or a `memory(...)` whose `argmem` is not
+/// writable.
+///
+/// Both halves of that pair are undefined behaviour on their own:
+///
+///  * `readonly`: "If a function writes to a readonly pointer argument, the
+///    behavior is undefined."
+///  * `memory(argmem: read)`: "The location is only read. Writing to the
+///    location is immediate undefined behavior. This includes the case where
+///    the location is read from and then the same value is written back."
+///
+/// The second sentence is why "the count is not part of the value" is not a
+/// defence. LLVM does not have to *exploit* it for the IR to be wrong, and
+/// this asserts the IR rather than the exploit — `opt -passes=function-attrs`
+/// on the same shape infers `memory(argmem: readwrite)` and no `readonly`,
+/// which is the independent check that the corrected answer is the right one.
+///
+/// Asserted after `default<O2>`, where the `getelementptr` names the parameter
+/// directly, and with a count of matches so that a future lowering that stops
+/// producing the pattern fails here instead of passing vacuously.
+#[test]
+fn no_reference_count_store_sits_under_a_read_only_claim() {
+    skip_unless_executable!();
+    let ir = optimized_ir(&program(
+        r#"
+// Recursive, so `middle::inline` leaves it alone and it survives to be
+// inspected. `s` is used twice in the result, which is what `middle::rc`
+// plans an `incref` for — of a value the tail-call loop turns into a block
+// parameter whose incoming values are the entry parameter and itself.
+fn twice(s: Str, n: Int): (Str, Str) {
+  if (n <= 0) { (s, s) } else { twice(s, n - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let both = twice("ab".repeat(ctx, 2), 3);
+  let _ = ctx.println("${both.0}/${both.1}");
+  .Ok(())
+}
+"#,
+    ));
+
+    let mut found = 0usize;
+    for (head, body) in definitions(&ir) {
+        let params = parameters(head);
+        let attrs = attribute_group(&ir, head);
+        for line in body.lines() {
+            // `%rc.p = getelementptr inbounds i8, ptr %0, i64 -16`
+            let Some((dest, gep)) = line.split_once(" = getelementptr") else { continue };
+            if !gep.contains("i64 -16") {
+                continue;
+            }
+            let dest = dest.trim();
+            let Some(base) = gep
+                .split_whitespace()
+                .map(|w| w.trim_end_matches(','))
+                .find(|w| w.starts_with('%'))
+            else {
+                continue;
+            };
+            let Some((_, readonly)) = params.iter().find(|(n, _)| n == base) else { continue };
+            let target = format!(", ptr {dest},");
+            let stored = body
+                .lines()
+                .any(|l| l.trim_start().starts_with("store ") && l.contains(&target));
+            if !stored {
+                continue;
+            }
+            found += 1;
+            assert!(
+                !readonly,
+                "a reference count is stored through `{base}`, which is marked \
+                 `readonly`:\ndefine {head}\n{body}"
+            );
+            assert!(
+                !attrs.contains("memory(none)"),
+                "a function that stores a reference count claims `memory(none)`:\n\
+                 define {head}\nattributes: {attrs}"
+            );
+            assert!(
+                !attrs.contains("memory(") || attrs.contains("argmem: readwrite"),
+                "a reference count is stored through the parameter `{base}` under \
+                 `{attrs}`, which does not make `argmem` writable:\ndefine {head}"
+            );
+        }
+    }
+    assert!(
+        found > 0,
+        "no `p - 16` count store survived to be checked, so this test proved \
+         nothing:\n{ir}"
+    );
+}
+
+/// The other half: what the corrected discipline *says*, rather than what it
+/// no longer says.
+///
+/// `memory(argmem: readwrite)` is the honest floor for a function that counts
+/// a parameter, and it is strictly better than the `memory(readwrite)` a
+/// backend that gave up would emit — LLVM still knows the function reaches no
+/// global and no allocator. And the purity theorem survives untouched where it
+/// is true: a function of scalars that counts nothing is still `memory(none)`.
+#[test]
+fn counting_a_parameter_is_argmem_readwrite_and_purity_survives() {
+    skip_unless_executable!();
+    let ir = optimized_ir(&program(
+        r#"
+fn twice(s: Str, n: Int): (Str, Str) {
+  if (n <= 0) { (s, s) } else { twice(s, n - 1) }
+}
+
+// No pointer, no allocation, no abort — `n % 2` by a literal is a mask — so
+// nothing here has changed and the theorem is still an attribute.
+fn steps(n: Int, so_far: Int): Int {
+  if (n <= 1) { so_far } else {
+    if (n % 2 == 0) { steps(n - 2, so_far + 1) } else { steps(n - 1, so_far + 1) }
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let both = twice("ab".repeat(ctx, 2), 3);
+  let _ = ctx.println("${both.0}/${both.1} ${steps(27, 0)}");
+  .Ok(())
+}
+"#,
+    ));
+    let counting = function_body(&ir, "@\"main_buri$twice\"");
+    assert!(
+        !counting.lines().next().unwrap_or_default().contains("readonly"),
+        "a function that counts its parameter must not call it `readonly`:\n{counting}"
+    );
+    assert!(
+        ir.contains("memory(argmem: readwrite)"),
+        "a function that counts a parameter must say `argmem: readwrite`:\n{ir}"
+    );
+    assert!(
+        ir.contains("memory(none)"),
+        "a pure, pointer-free, non-aborting function must still be `memory(none)`:\n{ir}"
+    );
+}
+
+/// The behaviour the attribute was lying about, pinned end to end — and as a
+/// **differential between the two pipelines**, which is the shape a
+/// miscompile of this class has.
+///
+/// A false `memory(argmem: read)` or `readonly` is only a wrong *answer* once
+/// something exploits it, and the things that exploit memory attributes —
+/// GVN, LICM, DSE, load forwarding across a call — run in `default<O2>` and
+/// not in `default<O0>`. So the same source through both pipelines has to
+/// agree on all three observations, and the third is the one a reference count
+/// cannot hide from: `buri_rt_live_blocks` after `main` has returned.
+///
+/// The program is built out of the one shape that exercises the count and
+/// nothing else: `keep` is a tail-recursive loop over a `Str` parameter, which
+/// is what `middle::rc` inserts its back-edge `incref`/`decref` pair around,
+/// and the `Str` is a *heap* one — `repeat` allocates, so its `base` is not
+/// the null a literal carries and its count is a real one. Both the argument
+/// and the result are live at the `println`, so a count that came back wrong
+/// frees the block while it is still being read.
+#[test]
+fn the_two_pipelines_agree_about_a_shared_heap_strings_count() {
+    skip_unless_executable!();
+    let source = program(
+        r#"
+fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let owned = "ab".repeat(ctx, 3);
+  let echoed = keep(owned, 4);
+  let again = keep(owned, 2);
+  let _ = ctx.println("${owned}|${echoed}|${again}");
+  .Ok(())
+}
+"#,
+    );
+    let fast = build_and_run_at("rc-attrs-o2", &source, Some(LIVE_PROBE), Profile::Release);
+    let plain = build_and_run_at("rc-attrs-o0", &source, Some(LIVE_PROBE), Profile::Debug);
+
+    assert_eq!(fast.0, "ababab|ababab|ababab\n", "stderr was: {}", fast.1);
+    assert_eq!(fast.2, Some(0), "stderr was: {}", fast.1);
+    assert_eq!(
+        fast.0, plain.0,
+        "`default<O2>` and `default<O0>` printed different things, which is what \
+         an optimizer exploiting a false memory attribute looks like:\n{:?}\n{:?}",
+        fast.1, plain.1
+    );
+    assert_eq!(fast.2, plain.2, "the two pipelines exited differently");
+    assert_eq!(
+        live_blocks(&fast.1),
+        live_blocks(&plain.1),
+        "`default<O2>` left a different number of blocks live than `default<O0>`: \
+         {:?} against {:?}",
+        fast.1,
+        plain.1
+    );
 }
 
 /// CODEGEN-LLVM.md §2.2, as a test: nothing in the lowering emits an `alloca`
@@ -1295,6 +1556,239 @@ export fn main(): Result<(), Str> {
         ),
     );
     assert_eq!(out, "abcdef\n6\nab😀\n3\nx\n", "stderr was: {err}");
+    assert_eq!(code, Some(0));
+}
+
+/// A C shim that reports the runtime's *allocation* counters, so that the
+/// optimization can be pinned by counting rather than by reading the emitted
+/// IR.
+const ALLOC_PROBE: &str = r#"
+#include <stdio.h>
+#include <stdint.h>
+typedef struct { uint64_t live_blocks, live_bytes, total_blocks, total_bytes; } Stats;
+extern void buri_rt_heap_stats(Stats *out);
+__attribute__((destructor)) static void buri_probe(void) {
+  Stats s; buri_rt_heap_stats(&s);
+  fprintf(stderr, "blocks=%llu live=%llu\n",
+          (unsigned long long)s.total_blocks, (unsigned long long)s.live_blocks);
+}
+"#;
+
+/// `(total_blocks, live_blocks)` from an [`ALLOC_PROBE`]-linked run.
+fn probed(stderr: &str) -> (u64, u64) {
+    let line = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("blocks="))
+        .unwrap_or_else(|| panic!("the probe printed nothing: {stderr:?}"));
+    let (total, rest) = line.split_once(" live=").unwrap();
+    (total.trim().parse().unwrap(), rest.trim().parse().unwrap())
+}
+
+/// MEMORY.md §5.3, pinned by allocation count on this backend too.
+///
+/// `str.concat` is open-coded here rather than called, so this backend's
+/// `concat` carries its own copy of the three paths and needs its own
+/// assertion that they are the paths taken. A chain of a thousand
+/// concatenations onto a uniquely-owned string reallocates O(log n) times;
+/// without the fast path it allocates once per step.
+#[test]
+fn a_unique_concat_loop_allocates_logarithmically() {
+    skip_unless_executable!();
+    let (out, err, _) = build_and_run_with(
+        "concat-growth",
+        &program(
+            r#"
+from "core/str" import * as str;
+
+export fn build(s: Str, i: Int): Str {
+  if (i == 0) { s } else { build(s.concat(host.alloc, "xy"), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let s = build("", 1000);
+  let _ = ctx.println("${s.len()}");
+  let _ = ctx.println(s.slice(0, 4));
+  .Ok(())
+}
+"#,
+        ),
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(out, "2000\nxyxy\n", "stderr was: {err}");
+    let (blocks, _) = probed(&err);
+    assert!(
+        blocks < 50,
+        "a thousand concatenations allocated {blocks} blocks: the fast path did not fire"
+    );
+}
+
+/// The observable-semantics guard: a string a second binding still holds has
+/// a count above one, so concatenating onto it must copy.
+///
+/// A fast path that fired on a shared string would print the wrong answer, not
+/// merely allocate less — which is why this is an output assertion.
+#[test]
+fn a_shared_concat_does_not_mutate_what_is_shared() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "concat-shared",
+        &program(
+            r#"
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let base = "ab".concat(ctx, "cd");
+  let a = base.concat(ctx, "-one");
+  let b = base.concat(ctx, "-two");
+  let _ = ctx.println(base);
+  let _ = ctx.println(a);
+  let _ = ctx.println(b);
+  let _ = ctx.println(base);
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(out, "abcd\nabcd-one\nabcd-two\nabcd\n", "stderr was: {err}");
+    assert_eq!(code, Some(0));
+}
+
+/// A borrowed local handed to a construct **beside** a sibling that holds its
+/// last mention — `middle::rc`'s `children`, and the reason the deferral there
+/// exists.
+///
+/// `"${s} ${x} ${y} ${s.len()}"` is the shape: the first hole is `s` itself, so
+/// the concatenation chain is holding three uncounted words out of `s` while
+/// the last hole computes `s.len()`. A drop after the rightmost mention frees
+/// the block those words point into, and the failure is a wrong answer rather
+/// than a crash. It is a middle-end fact, so both backends show it and both
+/// pin it.
+#[test]
+fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "borrow-across-siblings",
+        &program(
+            r#"
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let base = "ab".concat(ctx, "cd");
+  let a = base.concat(ctx, "-one");
+  let b = base.concat(ctx, "-two");
+  let _ = ctx.println("${base} ${a} ${b} ${base.len()}");
+  let _ = ctx.println("${b} ${b.len()}");
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(out, "abcd abcd-one abcd-two 4\nabcd-two 8\n", "stderr was: {err}");
+    assert_eq!(code, Some(0));
+}
+
+/// A `Str` view whose block someone else still holds is not a place to write
+/// either: two slices of one allocation, and appending to the first must leave
+/// the second and the whole alone.
+#[test]
+fn appending_to_a_view_does_not_disturb_its_siblings() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "concat-view",
+        &program(
+            r#"
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let whole = "left".concat(ctx, ",right");
+  let head = whole.slice(0, 4);
+  let tail = whole.slice(5, 10);
+  let grown = head.concat(ctx, "!!");
+  let _ = ctx.println(head);
+  let _ = ctx.println(tail);
+  let _ = ctx.println(grown);
+  let _ = ctx.println(whole);
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(out, "left\nright\nleft!!\nleft,right\n", "stderr was: {err}");
+    assert_eq!(code, Some(0));
+}
+
+/// The list half of MEMORY.md §5.3, which lives in `cli/runtime/list.rs` and
+/// is therefore the same code on both backends — but the *call* is this
+/// backend's, so the count is asserted here as well.
+#[test]
+fn a_unique_push_loop_allocates_logarithmically() {
+    skip_unless_executable!();
+    let (out, err, _) = build_and_run_with(
+        "push-growth",
+        &program(
+            r#"
+from "core/list" import * as list;
+
+export fn build(xs: [Int], i: Int): [Int] {
+  if (i == 0) { xs } else { build(xs.push(host.alloc, i), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let xs = build([], 2000);
+  let _ = ctx.println("${xs.len()}");
+  .Ok(())
+}
+"#,
+        ),
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(out, "2000\n", "stderr was: {err}");
+    let (blocks, _) = probed(&err);
+    assert!(
+        blocks < 50,
+        "two thousand pushes allocated {blocks} blocks: the uniqueness fast path did not fire"
+    );
+}
+
+/// The same guard for the list half: two pushes onto a list a binding still
+/// holds must answer two distinct lists and leave the original alone.
+#[test]
+fn a_shared_push_does_not_mutate_what_is_shared() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "push-shared",
+        &program(
+            r#"
+from "core/list" import * as list;
+
+export fn total(xs: [Int], i: Int, acc: Int): Int {
+  if (i == xs.len()) { acc } else {
+    match (xs.get(i)) {
+      .Some(v) => total(xs, i + 1, acc + v),
+      .None => acc,
+    }
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let xs = [1, 2, 3].push(host.alloc, 4);
+  let a = xs.push(host.alloc, 100);
+  let b = xs.push(host.alloc, 200);
+  let _ = ctx.println("${xs.len()} ${total(xs, 0, 0)}");
+  let _ = ctx.println("${a.len()} ${total(a, 0, 0)}");
+  let _ = ctx.println("${b.len()} ${total(b, 0, 0)}");
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(out, "4 10\n5 110\n5 210\n", "stderr was: {err}");
     assert_eq!(code, Some(0));
 }
 
@@ -2047,17 +2541,28 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `Checked` and `Saturating`, whose two rules are deliberately different.
+/// `Checked` and `Saturating`, both bounded by the **type**.
 ///
-/// `checked*` tests `exact_int_range` — the type's range narrowed to what a
-/// double represents exactly — because `Checked`'s promise is that a `.Some` is
-/// a value the answer really *is*, and past `2^53` a double cannot say which
-/// integer it is. So `maxValue<I64>().checkedAdd(0)` is `.None` even though
-/// nothing overflowed: the answer is outside what the language can name.
-/// `saturating*` clamps at the **type's own** bounds instead, because it
-/// promises a value in range and says nothing about naming it.
+/// `Checked` is bounded by the numbers the backend has (SPEC 6.2.2): natively
+/// that is the type's own range, so `checkedAdd` reports two's-complement
+/// overflow and nothing else, and `(1 << 53).checkedAdd(1)` is `.Some` even
+/// though a JavaScript `number` could not name it — the JavaScript backend
+/// answers `.None` there, and `cli/tests/backend_agreement.rs`'s row 2 pins both.
+/// The interesting native case is the one the machine, not the width, decides:
+/// `minValue<I64>() / -1` is `2^63`, which has no two's-complement
+/// representation, so it is `.None` alongside a zero divisor.
+///
+/// `saturating*` clamps at the type's own bounds on every backend, and always
+/// answers a value.
+///
+/// The whole family is emitted by widening to 128 bits and range-testing there
+/// rather than by `llvm.*.with.overflow`: a 64-bit sum, difference or product is
+/// exact in 128 bits, so one widening answers the question directly. The
+/// division is the one that needs care — an `sdiv` by zero is undefined
+/// behaviour in LLVM even on a dead path, so the divisor is replaced by one
+/// with a `select` rather than branched around.
 #[test]
-fn the_checked_and_saturating_families_follow_the_language() {
+fn the_checked_and_saturating_families_are_bounded_by_the_type() {
     skip_unless_executable!();
     let (out, err, code) = build_and_run(
         "checked",
@@ -2066,13 +2571,20 @@ fn the_checked_and_saturating_families_follow_the_language() {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let say = fn(o: Option<Int>) => match (o) { .Some(v) => "some", .None => "none" };
-  let _ = ctx.println("add ${say((2).checkedAdd(3))} ${say((9007199254740991).checkedAdd(1))}");
-  let _ = ctx.println("sub ${say((5).checkedSub(3))} ${say((0 - 9007199254740991).checkedSub(1))}");
-  let _ = ctx.println("mul ${say((1000).checkedMul(1000))} ${say((4503599627370496).checkedMul(4))}");
-  // A checked division by zero is `.None`, not SPEC 6.2's abort.
-  let _ = ctx.println("div ${say((7).checkedDiv(2))} ${say((7).checkedDiv(0))}");
+  let top: Int = 9223372036854775807;
+  let bot: Int = 0 - 9223372036854775807;
+  let min = bot - 1;
+  // The third column of each line is inside the type and above 2^53: `.Some`
+  // here, `.None` on JavaScript, and that band is row 2's divergence.
+  let _ = ctx.println("add ${say((2).checkedAdd(3))} ${say(top.checkedAdd(1))} ${say((9007199254740991).checkedAdd(1))}");
+  let _ = ctx.println("sub ${say((5).checkedSub(3))} ${say(bot.checkedSub(2))} ${say(bot.checkedSub(1))}");
+  let _ = ctx.println("mul ${say((1000).checkedMul(1000))} ${say((4294967296).checkedMul(4294967296))} ${say((4503599627370496).checkedMul(4))}");
+  // A checked division by zero is `.None`, not SPEC 6.2's abort — and so is
+  // the one signed quotient the width cannot hold.
+  let _ = ctx.println("div ${say((7).checkedDiv(2))} ${say((7).checkedDiv(0))} ${say(min.checkedDiv(0 - 1))}");
   let _ = match ((2).checkedAdd(3)) { .Some(v) => ctx.println("value ${v}"), .None => ctx.println("value none") };
-  // A narrow type is bounded by itself, well inside 2^53.
+  // A narrow type is bounded by itself, and always was: at 32 bits and below
+  // the type's range and a double's exact range are the same range.
   let small: U8 = 200;
   let _ = ctx.println("u8 ${say2(small.checkedAdd(100))} ${say2(small.checkedAdd(55))}");
   // `saturating*` clamps at the type's own bounds and always answers a value.
@@ -2082,9 +2594,11 @@ export fn main(): Result<(), Str> {
   // 128 bits goes through `buri_rt_i128_checked` and
   // `buri_rt_i128_saturating`: the overflow test both backends use at 64 bits
   // is a widening multiply, which Cranelift does not have at `i128`, so one
-  // shared body rather than two hand-rolled ones.
+  // shared body rather than two hand-rolled ones. It is `i128::checked_mul`,
+  // so it is bounded by the type there too.
   let w: I128 = 1000;
-  let _ = ctx.println("i128 ${say3(w.checkedMul(1000))} ${say3(w.checkedMul(9007199254740991))}");
+  let wide: I128 = 170141183460469231731687303715884105727;
+  let _ = ctx.println("i128 ${say3(w.checkedMul(9007199254740991))} ${say3(wide.checkedAdd(1))}");
   let _ = ctx.println("i128sat ${w.saturatingAdd(1)}");
   .Ok(())
 }
@@ -2096,7 +2610,8 @@ fn say3(o: Option<I128>): Str { match (o) { .Some(_v) => "some", .None => "none"
     );
     assert_eq!(
         out,
-        "add some none\nsub some none\nmul some none\ndiv some none\nvalue 5\n\
+        "add some none some\nsub some none some\nmul some none some\n\
+         div some none none\nvalue 5\n\
          u8 none some\nsat 255 0\nsat8 127 -128\ni128 some none\ni128sat 1001\n",
         "stderr was: {err}"
     );
@@ -2175,4 +2690,206 @@ export fn main(): Result<(), Str> {
     assert_eq!(out, "before\n");
     assert!(err.contains("shift out of range"), "stderr was: {err:?}");
     assert_ne!(code, Some(0));
+}
+
+// ---------------------------------------------------------------------------
+// A projection is not where its base dies
+// ---------------------------------------------------------------------------
+
+/// An aggregate holding two counted values, read through its own projections.
+///
+/// `middle::rc` placed the base's `decref` at the projection that was its last
+/// *mention* — `p.b` in `"[${p.a}][${p.b}]"` — and a projection produces three
+/// words copied out of the base with **no count of their own**. So the pair was
+/// dropped, and with it the two string blocks its fields named, before the
+/// `str.concat` chain that reads those words ever ran; `malloc` handed the
+/// freed block straight back to the next concatenation, and the program printed
+/// zeroed bytes. It is a middle-end fact and not a backend one — Cranelift
+/// prints exactly the same wrong answer — but the whole point of a heap `Str`
+/// is that its `base` is not the null a literal carries, so both are here.
+///
+/// The literal half is the control: a literal's block is immortal, so the same
+/// program over `"..."` was *always* right and says nothing about the count.
+/// Only the heap half fails, which is what made this shape survive an audit
+/// whose differential used single-result functions.
+///
+/// Both profiles, because the audit reported it at `default<O0>` and
+/// `default<O2>` alike, and the live-block count on the way out, because a
+/// drop this early is a leak as well as a wrong answer: the incref'd block is
+/// freed once by the pair and then never again by the value that still names
+/// it.
+#[test]
+fn an_aggregate_of_counted_values_outlives_its_own_projections() {
+    skip_unless_executable!();
+    let source = program(
+        r#"
+from "core/str" import * as str;
+
+struct Pair { a: Str, b: Str }
+
+fn dupTuple(s: Str): (Str, Str) { (s, s) }
+fn dupStruct(s: Str): Pair { Pair { a: s, b: s } }
+fn twoTuple(a: Str, b: Str): (Str, Str) { (a, b) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let heap = "ab".repeat(ctx, 3);
+  let other = "cd".repeat(ctx, 2);
+
+  let dup = dupTuple(heap);
+  let _ = ctx.println("tuple [${dup.0}][${dup.1}]");
+
+  let rec = dupStruct(heap);
+  let _ = ctx.println("struct [${rec.a}][${rec.b}]");
+
+  let two = twoTuple(heap, other);
+  let _ = ctx.println("two [${two.0}][${two.1}]");
+
+  let here = (heap, heap);
+  let _ = ctx.println("local [${here.0}][${here.1}]");
+
+  let lit = dupTuple("zz");
+  let _ = ctx.println("literal [${lit.0}][${lit.1}]");
+
+  let one = (heap, 1);
+  let _ = ctx.println("one [${one.0}]");
+  .Ok(())
+}
+"#,
+    );
+    let expected = "tuple [ababab][ababab]\nstruct [ababab][ababab]\n\
+                    two [ababab][cdcd]\nlocal [ababab][ababab]\n\
+                    literal [zz][zz]\none [ababab]\n";
+
+    let fast = build_and_run_at("aggregate-projection-o2", &source, Some(LIVE_PROBE), Profile::Release);
+    let plain = build_and_run_at("aggregate-projection-o0", &source, Some(LIVE_PROBE), Profile::Debug);
+
+    assert_eq!(fast.0, expected, "stderr was: {}", fast.1);
+    assert_eq!(plain.0, expected, "stderr was: {}", plain.1);
+    assert_eq!(fast.2, Some(0), "stderr was: {}", fast.1);
+    assert_eq!(plain.2, Some(0), "stderr was: {}", plain.1);
+    assert_eq!(live_blocks(&fast.1), 0, "`default<O2>` left blocks live: {:?}", fast.1);
+    assert_eq!(live_blocks(&plain.1), 0, "`default<O0>` left blocks live: {:?}", plain.1);
+}
+
+/// The **class**, rather than the shape the report arrived in: every borrowing
+/// projection, wherever the value it produces is read.
+///
+/// `Field`, `TupleIndex`, `CtxGet` and `Index` all read a base without taking
+/// it, and all four had the same drop placement. `xs[i]` as a `match`
+/// scrutinee was the same bug as `p.a` in a template, except that there it was
+/// a segmentation fault rather than a wrong answer — the arms read a payload
+/// out of a list block the scrutinee's own drop had already freed.
+///
+/// Four rows, and the fourth is a back edge: an aggregate of two counted values
+/// carried around a tail-recursive loop, projected on every iteration, is where
+/// a drop placed one instruction early would be a use-after-free a thousand
+/// times over rather than once.
+#[test]
+fn a_borrowing_projection_does_not_end_its_bases_lifetime() {
+    skip_unless_executable!();
+    let source = program(
+        r#"
+from "core/str" import * as str;
+from "core/list" import * as list;
+
+struct Held { name: Str, tag: Str }
+
+fn hold(a: Str, b: Str): Held { Held { name: a, tag: b } }
+
+// A pair carried around a back edge, projected on every iteration.
+fn spin(n: Int, p: (Str, Str)): Str {
+  if (n == 0) { p.0 } else { spin(n - 1, (p.1, p.0)) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+
+  // 1. A field projection through a function's return value.
+  let held = hold("ab".repeat(ctx, 2), "cd".repeat(ctx, 2));
+  let _ = ctx.println("field [${held.name}][${held.tag}]");
+
+  // 2. An index whose base's last use it is, as a `match` scrutinee. This was
+  //    a segmentation fault: the arms read a payload out of a freed block.
+  let xs = ["ef".repeat(ctx, 2)];
+  let got = match (xs[0]) { .Some(v) => v, .None => "?" };
+  let _ = ctx.println("index [${got}]");
+
+  // 3. A tuple projection under `match`, where the scrutinee is the projection
+  //    rather than a bare local.
+  let pair = ("gh".repeat(ctx, 2), "ij".repeat(ctx, 2));
+  let picked = match (pair.0.toInt()) { .Some(_n) => "number", .None => pair.1 };
+  let _ = ctx.println("match [${picked}]");
+
+  // 4. A back edge.
+  let _ = ctx.println("loop [${spin(5, ("kl".repeat(ctx, 2), "mn".repeat(ctx, 2)))}]");
+  .Ok(())
+}
+"#,
+    );
+    let expected =
+        "field [abab][cdcd]\nindex [efef]\nmatch [ijij]\nloop [mnmn]\n";
+
+    let fast = build_and_run_at("projection-class-o2", &source, Some(LIVE_PROBE), Profile::Release);
+    let plain = build_and_run_at("projection-class-o0", &source, Some(LIVE_PROBE), Profile::Debug);
+
+    assert_eq!(fast.0, expected, "stderr was: {}", fast.1);
+    assert_eq!(plain.0, expected, "stderr was: {}", plain.1);
+    assert_eq!(fast.2, Some(0), "stderr was: {}", fast.1);
+    assert_eq!(live_blocks(&fast.1), 0, "`default<O2>` left blocks live: {:?}", fast.1);
+    assert_eq!(live_blocks(&plain.1), 0, "`default<O0>` left blocks live: {:?}", plain.1);
+}
+
+/// The join `middle::lower::template` builds is nobody else's to drop.
+///
+/// Every `Show` result and every intermediate `str.concat` in an interpolation
+/// is a value `lower` invents; `middle::rc` plans over the *tree* and has no
+/// `NodeId` to name one with. So until `template` dropped them itself, a
+/// program that interpolated in a loop grew the heap by a block an iteration
+/// — forever, in a language whose whole memory story is that it does not — and
+/// `Prim::Template` was `Answer::Unknown` in `rc`'s oracle, so the block the
+/// chain *ended* holding leaked once per evaluation on top of that.
+///
+/// Counted rather than asserted against zero at one size: a per-iteration leak
+/// is what this is about, so twenty iterations and two hundred have to leave
+/// the same number of blocks live.
+#[test]
+fn interpolating_in_a_loop_leaks_nothing() {
+    skip_unless_executable!();
+    let source = |n: u32| {
+        program(&format!(
+            r#"
+from "core/str" import * as str;
+
+fn go(n: Int, acc: Int): Int {{
+  if (n <= 0) {{ acc }} else {{
+    let h = "ab".repeat(host.alloc, 3);
+    let p = (h, h);
+    let s = str.format(host.alloc, "[${{p.0}}][${{p.1}}]");
+    let _ = host.stdout.println("${{n}}");
+    go(n - 1, acc + s.len())
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let _ = ctx.println("total ${{go({n}, 0)}}");
+  .Ok(())
+}}
+"#
+        ))
+    };
+    let few = build_and_run_with("template-leak-few", &source(20), Some(LIVE_PROBE));
+    let many = build_and_run_with("template-leak-many", &source(200), Some(LIVE_PROBE));
+    assert!(few.0.ends_with("total 320\n"), "stdout was: {:?}", few.0);
+    assert!(many.0.ends_with("total 3200\n"), "stdout was: {:?}", many.0);
+    assert_eq!(
+        live_blocks(&few.1),
+        live_blocks(&many.1),
+        "twenty interpolations left {} blocks live and two hundred left {}: \
+         the join leaks per iteration",
+        live_blocks(&few.1),
+        live_blocks(&many.1)
+    );
+    assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
 }

@@ -8,8 +8,8 @@
 //!
 //! Dropping by name is a JavaScript minifier's job. A native backend needs them
 //! dropped by index, before layout and codegen spend time on them, which is
-//! `LLVM-tips.md:1` ("dead code elimination before it reaches LLVM IR"). So it
-//! happens here, over the tree, for every backend.
+//! `design/LLVM-tips.md:1` ("dead code elimination before it reaches LLVM
+//! IR"). So it happens here, over the tree, for every backend.
 //!
 //! The minifier's own pass stays, because it drops things this one cannot see:
 //! a hand-written runtime declaration (`Stmt::RawDecl`) is not a function in

@@ -27,7 +27,10 @@
 //!  * **What the loop rebinds.** The loop assigns the parameters in place,
 //!    which is exact for every read within the iteration that wrote them and
 //!    wrong for a closure, which keeps the slot rather than the value. See
-//!    [`snapshot_captures`].
+//!    [`snapshot_captures`]. Rebinding parameters in place is the parallel-move
+//!    problem; `reference/` vendors the theory (Rideau, Serpette and Leroy) and
+//!    the survey of how other compilers to JavaScript solve it (Thivierge and
+//!    Feeley; Vouillon and Balat).
 //!
 //! # A rewrite, not an analysis the emitter reads back
 //!

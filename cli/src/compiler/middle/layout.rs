@@ -97,6 +97,22 @@ pub const HEADER_CAP_OFFSET: i32 = -8;
 /// `incref` saturates, so `IMMORTAL` stays `IMMORTAL` without a branch.
 pub const IMMORTAL: u64 = u64::MAX;
 
+/// The smallest capacity a block a backend grows is given, in bytes.
+///
+/// MEMORY.md §5.3's growth policy is **doubling with a floor**, and this is the
+/// floor: a block that is about to be appended to is allocated
+/// `max(needed * 2, GROWTH_FLOOR)` bytes, so that a chain of concatenations
+/// reallocates O(log n) times instead of once per step and the first few steps
+/// do not reallocate at all.
+///
+/// `cli/runtime/memory.rs`'s `BURI_RT_GROWTH_FLOOR` is the same number for the
+/// operations the runtime owns (`list.push`, `list.concat`). The two are
+/// deliberately separate constants rather than a shared one — the compiler and
+/// the runtime are two crates that never link against each other, which is the
+/// same reason `BURI_OK` is spelled twice — and a disagreement between them
+/// costs a reallocation, not an answer.
+pub const GROWTH_FLOOR: u64 = 64;
+
 /// Bit 63 of `Str::len`: set means every byte of the view is below `0x80`, so
 /// the scalar count is the byte count and `str.len()` is a mask
 /// (VALUE-MODEL.md §3.1).

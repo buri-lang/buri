@@ -188,7 +188,7 @@ which a bare `Note` would not, and a `oneof` named `contact` inside
 
 **The 64-bit caveat, on the JavaScript backend.** An `Int` is an `I64` on every
 backend, and on the JavaScript one an `I64` is a double
-([`core/num`](./STANDARD-LIBRARY.md)), so it holds every integer up to 2^53
+([`core/num`](./cli/src/docs/guide/standard-library.md)), so it holds every integer up to 2^53
 exactly and nothing above it. A `uint64` or `int64` field carrying a larger
 value survives the round trip only to that precision. This is the same caveat
 every double-backed protobuf implementation carries; it is stated here rather
@@ -300,7 +300,7 @@ export fn dark(): Everything {
 }
 ```
 
-`ProtoError` is [`core/proto`](./STANDARD-LIBRARY.md)'s, and every case of it
+`ProtoError` is [`core/proto`](./cli/src/docs/guide/standard-library.md)'s, and every case of it
 carries a byte offset or a field number, because a decoder that says only
 "malformed" of a four-kilobyte message is a decoder you debug by bisection.
 
@@ -386,7 +386,7 @@ field-number order. JSON objects are unordered, no conforming reader can
 notice, and the alternative is an interleave that buys nothing.
 
 A failure names the path it happened at, written the way
-[`core/json`](./STANDARD-LIBRARY.md)'s is — `$` for the document, `.name` for a
+[`core/json`](./cli/src/docs/guide/standard-library.md)'s is — `$` for the document, `.name` for a
 member — so `$.home.city` is a place a reader can find in the text in front of
 them.
 

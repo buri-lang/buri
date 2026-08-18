@@ -19,7 +19,7 @@ set of inputs to a declared set of outputs. There are four kinds:
 
 Splitting `interface` out from `compile` is the one structural decision here,
 and it is the language that makes it cheap. Top-level signatures are mandatory
-([`SPEC.md` §9](./SPEC.md)), so a library's interface is derivable by parsing
+([`SPEC.md` §9](./cli/src/docs/SPEC.md)), so a library's interface is derivable by parsing
 `lib.buri` and the modules it re-exports from — no inference, no body checking,
 no dependency on how anything is implemented. The consequence:
 
@@ -41,7 +41,7 @@ leaving as an absence:
   language. Reading the clock, the environment, a file, or a socket happens
   through a `$host_*` intrinsic and nowhere else.
 - **Only `main` can name one.** `core/host` is importable only from the module
-  that exports `main` ([`SPEC.md` §11](./SPEC.md)). A library, an inner module,
+  that exports `main` ([`SPEC.md` §11](./cli/src/docs/SPEC.md)). A library, an inner module,
   and a test source that write `from "core/host" import …` are rejected —
   `host-import`, pinned by the reject corpus. So no code that participates in an
   action has a *name* for ambient state.
@@ -193,7 +193,7 @@ artifacts. What that requires, beyond the deterministic spawn above:
 - **Deterministic code generation**: iteration over hash maps is by sorted key;
   monomorphization order follows source order; symbol names are derived from
   labels and module paths rather than from compilation order.
-- **Deterministic evaluation semantics**: [`SPEC.md` §8.2](./SPEC.md) specifies
+- **Deterministic evaluation semantics**: [`SPEC.md` §8.2](./cli/src/docs/SPEC.md) specifies
   evaluation order rather than leaving it to the backend, so constant folding
   cannot differ between targets or between runs.
 - **No embedded environment**: no paths, no timestamps, no hostname, no user.

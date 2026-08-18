@@ -13,7 +13,7 @@
 # noticed, because a binary's own unit pre-loads its entry point as
 # `Role::Entry` before anything can import it — but a compilation that reaches
 # main.buri through an import first got an entry point whose `core/host` import
-# and whose `context` were both rejected. See TODO.md.
+# and whose `context` were both rejected. See `design/TODO.md`.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

@@ -1,18 +1,20 @@
-# The Buri standard library
+## The standard library
 
 `core/*` ships with the toolchain. It is never listed in a `dependencies`, it
 is available to every target, and it cannot be replaced — there is one, and
 this is it.
 
-The reference for any module is the module: `buri docs std core/list` renders
-it from the source, so it cannot drift. This document is about the parts that
-are decisions rather than signatures — what is here, what is deliberately not,
-and what each thing costs.
+**The reference for a module is the module.** `buri docs core/list` renders it
+from the source the compiler checked, so a signature on the page is the
+signature that exists, and `buri docs core/list.map` renders one item of it.
+`buri docs` lists every module. This page is the map over the top of that:
+which modules there are, what each one costs, and what is deliberately absent.
 
-## The purity tiers
+### The purity tiers
 
 Every function sits in one of three tiers, and the tier is visible in the
-signature rather than in a comment. This is `SPEC.md` §10.5, applied:
+signature rather than in a comment. This is
+[`SPEC.md` §10.5](./cli/src/docs/SPEC.md), applied:
 
 | Tier | Shape | Example |
 |---|---|---|
@@ -26,8 +28,6 @@ are pure; `map` and `filter` are not. A `F32x4` is four numbers in a struct, so
 every operation in `core/simd` is pure — the vector types are exactly the shape
 the rule was drawn around.
 
-## What is here
-
 ### Values and control
 
 `core/option`, `core/result`, `core/order`, `core/num`, `core/bool`,
@@ -40,11 +40,19 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
 `core/str`, `core/char`, `core/bytes`, `core/json`, `core/proto`.
 
-- **`core/bytes`** — UTF-8, hex, base64, varints. Free functions rather than methods on
-  `[U8]`: a method may only be declared in its type's defining module, and
-  `[T]`'s is `core/list`. Decoding is strict, and validates before it
-  allocates: an overlong UTF-8 encoding, a truncated sequence, or a surrogate
-  is an error at a named index, not a replacement character.
+- **`core/bytes`** — UTF-8, hex, base64, varints. Free functions rather than
+  methods on `[U8]`: a method may only be declared in its type's defining
+  module, and `[T]`'s is `core/list`. Decoding is strict, and validates before
+  it allocates: an overlong UTF-8 encoding, a truncated sequence, or a
+  surrogate is an error at a named index, not a replacement character.
+
+  The varints live here rather than in `core/proto`, beside hex and base64,
+  because a varint is an encoding of a number as bytes, it has exactly one
+  definition, and anything speaking a length-prefixed format needs the same
+  one. They do 64-bit arithmetic on two 32-bit halves, so a negative `int64`
+  writes the ten bytes protoc writes; an `Int` is still a double, so a value
+  past 2^53 survives only to that precision.
+
 - **`core/json`** — a `Json` tree, `parse`, and `stringify`. **An object is an
   ordered association list, not a map**, so key order round-trips, no `Hash`
   bound is needed, and `get` is O(n). Every number is a `Float`, which is what
@@ -54,13 +62,11 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
   **`derive ToJson` and `derive FromJson` map it to your own types**, and
   `encode` and `decode` are the two functions that use them. Both are on
-  `derive`'s fixed list — no reflection and no macro is involved, because the
-  backend already ships a descriptor of every type the structural operations
-  reach and the runtime walks it. The mapping from Buri shapes onto JSON ones
-  is stated in the module's own source; the decisions with something at stake
-  in them are that an enum is externally tagged, that a positional struct is an
-  array whatever its arity, and that `Option<T>` is `T` or `null` — so
-  `Option<Option<T>>` does not round-trip.
+  `derive`'s fixed list — no reflection and no macro is involved. The mapping
+  from Buri shapes onto JSON ones is stated in the module's own source; the
+  decisions with something at stake in them are that an enum is externally
+  tagged, that a positional struct is an array whatever its arity, and that
+  `Option<T>` is `T` or `null` — so `Option<Option<T>>` does not round-trip.
 
   Both traits are **derived and never written by hand**, which the compiler
   enforces. A derived encoder stands for the type's shape, so a hand-written
@@ -71,23 +77,14 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
   readers, and `ProtoError`. Nothing here is written by hand either, but for a
   different reason: a `.proto` schema in a package *becomes* a module, and this
   is the part of that generated code which is the same for every schema. See
-  [PROTO.md](./cli/src/docs/build/proto.md) for the mapping and for why those
-  codecs are generated Buri rather than a descriptor walk — a protobuf message
-  is field numbers and wire types, and the descriptor `derive ToJson` walks
-  carries neither.
+  [the proto reference](./cli/src/docs/build/proto.md) for the mapping and for
+  why those codecs are generated Buri rather than a descriptor walk.
 
   Reading a request and writing a reply over a pipe is what `Stdin.readBytes`
   and `Stdout.writeBytes` are for: `readLine` reads the stream to its end, so a
   program using it cannot answer before the other side has finished speaking.
   Text and octets are two questions about one stream, so they are two
   operations, and a program should ask only one of them.
-
-  The varints live in `core/bytes` rather than here, beside hex and base64, for
-  the same reason those do: a varint is an encoding of a number as bytes, it
-  has exactly one definition, and anything speaking a length-prefixed format
-  needs the same one. They do 64-bit arithmetic on two 32-bit halves, so a
-  negative `int64` writes the ten bytes protoc writes; an `Int` is still a
-  double, so a value past 2^53 survives only to that precision.
 
 ### Collections
 
@@ -136,12 +133,10 @@ It does not cover `America/New_York`, and it does not pretend to.
 
 ### Cryptography
 
-`core/crypto` — SHA-256, HMAC-SHA-256, and a constant-time comparison.
-
-Written in Buri rather than handed to the platform, for the same reason
-`cli/src/build/cache.rs` hand-writes SHA-256 in Rust: a dependency tree is a second
-thing to audit, and this is a compiler. The two implementations are
-checked against the same NIST vectors, in two languages, neither of which can
+`core/crypto` — SHA-256, HMAC-SHA-256, and a constant-time comparison. Written
+in Buri rather than handed to the platform, because a dependency tree is a
+second thing to audit. It is checked against the NIST vectors, as is the
+independent SHA-256 the build cache uses, in two languages neither of which can
 compile the other.
 
 Deliberately absent, and not by oversight:
@@ -172,73 +167,36 @@ of `Alloc`, importable anywhere, because `Alloc` is the one effect whose
 implementation carries no authority: a `Region` is a number, so a library that
 builds its own allocator has been granted nothing.
 
-They were deliberately deferred while the only backend had a garbage collector,
-on the grounds that a count would be synthetic. **What made them real was not
-the native backend but the cost model.** The charge for an operation is
-*defined* — a `Str` of *n* UTF-8 bytes charges `16 + n`, a `[T]` of *n* charges
-`16 + n * stride(T)`, a view charges nothing — and it is computed from the
-types rather than measured. So the same program charges the same number on both
-backends by construction, and a count is not a JavaScript fact that a native
-run would contradict. The model is beside `Alloc` in `core/cap`, where a reader
-of the effect meets it; `design/native/MEMORY.md` §7 is the argument for it.
-
 - **`GeneralPurpose`** — unbounded, counts. `gp.stats()` answers
   `Stats { allocations, bytes }`.
 - **`FixedBuffer(n)`** — a byte budget, and charging past it **aborts**. That
   is forced rather than chosen: `allocate` answers `Region` and not
-  `Result<Region, _>`, so there is no value to report a failure with, and SPEC
-  6.10 says that is what an abort is for. The message carries both numbers.
+  `Result<Region, _>`, so there is no value to report a failure with, and
+  [`SPEC.md` §6.10](./cli/src/docs/SPEC.md) says that is what an abort is for.
+  The message carries both numbers.
 - **`Arena`** — a separate counter, and nothing more than a counter. It does
-  not free in bulk, and it says so: what would make it real is a **scoped
-  context**, a language feature bounding a context's lifetime so that
-  everything allocated under it is unreachable at the end of the scope. Until
-  that exists an arena has no scope to end at, so what it is for meanwhile is
-  attribution — an arena per phase, without subtracting two totals.
+  not free in bulk, and it says so.
 
-**What is counted is narrower than the model, identically on both backends:
-every `allocate(ctx, n)`, and nothing else.** The list and string rows are
-charged by definition and reported to no allocator, because the allocating
-intrinsics drop the context — on JavaScript because `stride(T)` is a
-compile-time fact an untyped runtime does not have, and natively because the
-`buri_rt_*` ABI drops a context argument from every call. Widening it has to
-happen on both backends at once or the numbers stop agreeing, which is the one
-property the module exists to have. `core/alloc`'s own comment states the
-boundary, and `cli/tests/conformance/lib/memory/` pins it on both.
+What an allocator is told about is narrower than what the cost model defines,
+identically on both backends: **every `allocate(ctx, n)`, and nothing else.**
+The charge for an operation is *defined* rather than measured — a `Str` of *n*
+UTF-8 bytes charges `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, a
+view charges nothing — and the list and string rows are charged by definition
+and reported to no allocator. The model is written down beside `Alloc` in
+`core/cap`, where a reader of the effect meets it.
 
-## What is deliberately not here
+### What is deliberately not here
 
-**`MultiArrayList` / struct-of-arrays.** Not expressible, and not honourable on
-this backend:
+- **Struct-of-arrays / `MultiArrayList`.** Not typeable today: exposing "column
+  *i* of `T`, at `T`'s *i*-th field type" needs dependent or row types, and
+  [`SPEC.md` §5.5](./cli/src/docs/SPEC.md) has no records. Write the two-field
+  struct yourself; on the JavaScript backend that is all a library would do.
+- **Bulk reclamation — a real `Arena`.** The type is here and its counter is
+  real; the bulk free is not. It needs a language feature that bounds a
+  context's lifetime, which does not exist yet.
+- **Automatic accounting of the list and string rows.** Stated above: the cost
+  model defines them and no allocator is told about them.
 
-1. A struct is already an array in the JavaScript representation, so `[Point]`
-   is an array of arrays. A columnar `{ xs: [Float], ys: [Float] }` really is
-   faster in a JIT — but a user gets that today by writing the two-field struct
-   themselves, and a library adds nothing.
-2. A generic `MultiArrayList<T>` is not typeable. Exposing "column *i* of `T`,
-   at `T`'s *i*-th field type" needs dependent or row types, and `SPEC.md` §5.5
-   has no records.
-3. The version that would work is a type-generating `derive` — `derive Soa for
-   Point;` producing a `PointSoa` and its accessors. Today `derive` only
-   attaches conformance; generating a *new type* is a language change, and it
-   belongs beside the native backend, which is where the layout would actually
-   pay.
-
-**Bulk reclamation — a real `Arena`.** The type is here and its counter is
-real; the bulk free is not, and it is not a backend gap. It needs a scoped
-context, which is a language proposal. See `core/alloc` above.
-
-**Automatic accounting of the list and string rows.** The cost model defines
-them and no allocator is told about them. Both backends drop the context at the
-allocating intrinsics, for a different reason each, and closing that is a wave
-of its own that has to land on both at once. Again: `core/alloc` above.
-
-## Two rules for anything added here
-
-1. **Every body-less declaration needs a conformance test that calls it.**
-   `cli/tests/stdlib.rs` stops after type checking, so a declaration with no
-   runtime function behind it passes that suite silently and fails only when a
-   real program reaches it. The suites under `cli/tests/conformance/lib/` are
-   what actually run the code.
-2. **State the cost.** Every structure here is persistent, and persistent
-   structures have costs that mutable ones do not. Saying `set` is O(n/32) is
-   better than implying the O(1) a mutable bit set would have.
+Why each of those is where it is, and what would have to change, is in
+[`design/STANDARD-LIBRARY.md`](./design/STANDARD-LIBRARY.md) — that is a
+contributor's document, not a user's.

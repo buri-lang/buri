@@ -6,9 +6,11 @@
 //! documentation and the toolchain from being separately versioned, which is
 //! how a doc goes stale without anybody noticing.
 //!
-//! `SPEC.md` and `README.md` at the repository root are *generated* from the
-//! `lang/` and `guide/` topics by `buri docs assemble`, so the files a reader
-//! meets on GitHub and the pages `buri docs` serves are the same bytes.
+//! `cli/src/docs/SPEC.md` and the repository's `README.md` are *generated*
+//! from the `lang/` and `guide/` topics by `buri docs assemble`, so the files a
+//! reader meets on GitHub and the pages `buri docs` serves are the same bytes.
+//! The specification is every `lang/` topic; the README is three `guide/` ones,
+//! and the rest of the guide is read here or through `buri docs`.
 //!
 //! Adding a topic is one line in `TOPICS`, plus — if it belongs in an
 //! assembled document — one line in `assemble::DOCUMENTS`.
@@ -17,11 +19,12 @@ use crate::documentation::markdown;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
-    /// The language reference: `SPEC.md`.
+    /// The language reference: `cli/src/docs/SPEC.md`.
     Lang,
     /// The build system, the monorepo, and the CLI.
     Build,
-    /// Prose that introduces rather than specifies: `README.md`.
+    /// Prose that introduces rather than specifies. Three of these assemble
+    /// into `README.md`; the rest are pages in their own right.
     Guide,
 }
 
@@ -228,6 +231,23 @@ pub const TOPICS: &[Topic] = &[
         &[],
     ),
     // -- The guide ---------------------------------------------------------
+    // The first two and `guide/installing` are what `README.md` assembles to;
+    // the others are pages, reached by `buri docs` or read in
+    // `cli/src/docs/guide/`.
+    t(
+        "guide/readme-intro",
+        "What Buri is",
+        Kind::Guide,
+        include_str!("../docs/guide/readme-intro.md"),
+    ),
+    tagged(
+        "guide/readme-links",
+        "Where the documentation is",
+        Kind::Guide,
+        include_str!("../docs/guide/readme-links.md"),
+        &["readme", "index", "manual", "where", "find"],
+        &["guide/goals"],
+    ),
     t("guide/goals", "Goals", Kind::Guide, include_str!("../docs/guide/goals.md")),
     t("guide/three-ideas", "Three ideas", Kind::Guide, include_str!("../docs/guide/three-ideas.md")),
     t("guide/numbers", "Numbers: two names, one set of types", Kind::Guide, include_str!("../docs/guide/numbers.md")),
@@ -249,6 +269,14 @@ pub const TOPICS: &[Topic] = &[
     t("guide/installing", "Installing", Kind::Guide, include_str!("../docs/guide/installing.md")),
     t("guide/status", "Status and open questions", Kind::Guide, include_str!("../docs/guide/status.md")),
     t("guide/naming", "Naming", Kind::Guide, include_str!("../docs/guide/naming.md")),
+    tagged(
+        "guide/standard-library",
+        "The standard library",
+        Kind::Guide,
+        include_str!("../docs/guide/standard-library.md"),
+        &["core", "stdlib", "std", "list", "map", "json", "crypto", "alloc", "allocator", "simd"],
+        &["lang/effects"],
+    ),
 ];
 
 /// The front matter each assembled document opens with: a title, and whatever

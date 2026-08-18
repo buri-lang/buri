@@ -233,7 +233,7 @@ binary {
 ```
 
 `main.buri` is required, is not listed in `sources`, and must export `main` with
-the signature [`SPEC.md` §11](./SPEC.md) requires: no parameters, returning
+the signature [`SPEC.md` §11](./cli/src/docs/SPEC.md) requires: no parameters, returning
 `Result<(), Str>`. It is also the only module in the binary that may import
 `core/host`, and the context it builds there is checked against the platform for
 each output — a `main` binding `Fs: host.fs` under `platform: JS` is an
@@ -387,7 +387,7 @@ who wrote the edge that pulled the code in.
   Dependencies are direct: a library you use is one you declare, whether or not
   something else in the graph also happens to pull it in.
 - `core/*` ships with the toolchain and is never listed. It is available to
-  every target, and the purity tiers in [`SPEC.md` §11.1](./SPEC.md) already
+  every target, and the purity tiers in [`SPEC.md` §11.1](./cli/src/docs/SPEC.md) already
   govern what any given import of it can do.
 - **Cycles are an error**, at the package level exactly as at the module level.
   The diagnostic prints the cycle in the order the edges were declared.

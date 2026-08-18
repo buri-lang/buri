@@ -44,7 +44,7 @@
 //!   neither is needed by the conformance corpus that the native set runs, so
 //!   they are named here rather than half-built.
 
-use crate::memory::buri_rt_alloc;
+use crate::memory::{buri_rt_alloc, buri_rt_grown_capacity, buri_rt_incref, buri_rt_unique_cap};
 use crate::value::BuriList;
 use crate::BURI_OK;
 
@@ -91,6 +91,88 @@ fn block(count: usize, stride: usize) -> BuriList {
     BuriList { ptr, len: count as u64 }
 }
 
+/// Where the `add` new elements of an append go, with the prefix already
+/// there — MEMORY.md §5.3's in-place growth, and the two fallbacks under it.
+///
+/// Three outcomes, in the order they are tried:
+///
+///  1. **In place.** The block is uniquely owned ([`buri_rt_unique_cap`]) and
+///     has the headroom. Nothing is copied and nothing is allocated: the
+///     elements are written past the end and the block takes one more
+///     reference, which the *result* holds. The caller's own reference is
+///     untouched, so the `decref` the compiler already emits for it — this
+///     runtime borrows its arguments (`rc.rs`'s header) — leaves the result
+///     uniquely owned and the next append in a loop takes this path again.
+///  2. **Grown.** Uniquely owned but out of capacity: a fresh block with
+///     [`buri_rt_grown_capacity`] bytes, so the *next* append takes path 1 and
+///     a loop of `n` appends allocates O(log n) times rather than O(n).
+///  3. **Exact.** Shared, immortal, or empty: exactly what the result needs,
+///     which is what this entry did unconditionally before.
+///
+/// # Why paths 1 and 2 are unobservable, and why `retain` gates them
+///
+/// The uniqueness half is [`buri_rt_unique_cap`]'s doc comment: `rc == 1` means
+/// one observable value, every alias of it carries the same `len`, and a write
+/// at `len` or beyond is therefore invisible to all of them. A `[T]` is never a
+/// view (`value.rs`), so there is no second descriptor into the same block at a
+/// different offset to worry about.
+///
+/// The `retain.is_none()` half is a *correctness* condition and not caution.
+/// A null `retain` is the backend saying the element type holds no counted
+/// references (`cranelift/emit.rs`'s `retain_glue`), and that is exactly what
+/// makes both paths safe:
+///
+///  * **Path 1** writes over whatever those slots held. For a scalar element
+///    that is nothing; for a counted one it would be a reference the block
+///    still owned, dropped without a `decref` — a leak.
+///  * **Path 2** leaves `cap / stride` above the element count, and the
+///    generated release glue for a `[T]` block walks **`cap / stride`
+///    elements** (`cranelift/helpers.rs`'s `release_elems`). For a scalar
+///    element the extra slots are bytes nobody reads; for a counted one they
+///    are uninitialized memory the drop glue would decref.
+///
+/// Lifting the restriction means giving this ABI a per-element *release* glue
+/// beside `retain`, and making the drop walk follow the element count rather
+/// than the capacity. Both are backend changes; MEMORY.md §5.3 records them as
+/// the growth path.
+///
+/// # Safety
+/// `ptr` covers `n * stride` bytes and is null or a live payload pointer;
+/// `retain`, where non-null, is the retain glue for the element type.
+unsafe fn append_dest(
+    ptr: *const u8,
+    n: usize,
+    add: usize,
+    stride: usize,
+    retain: Retain,
+) -> BuriList {
+    let total = n.saturating_add(add);
+    if stride == 0 || total == 0 {
+        return BuriList { ptr: std::ptr::null_mut(), len: total as u64 };
+    }
+    let needed = total.saturating_mul(stride) as u64;
+    if retain.is_none() && !ptr.is_null() {
+        // SAFETY: the caller promises a live payload pointer.
+        if let Some(cap) = unsafe { buri_rt_unique_cap(ptr) } {
+            if cap >= needed {
+                // SAFETY: as above. The result is a second reference to the
+                // block, so it takes a count of its own.
+                unsafe { buri_rt_incref(ptr.cast_mut()) };
+                return BuriList { ptr: ptr.cast_mut(), len: total as u64 };
+            }
+            let fresh = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
+            // SAFETY: a fresh block of at least `needed` bytes, disjoint from
+            // the source, which covers its own `n` elements.
+            unsafe { copy_retaining(fresh, ptr, n, stride, retain) };
+            return BuriList { ptr: fresh, len: total as u64 };
+        }
+    }
+    let out = block(total, stride);
+    // SAFETY: a fresh block of `total` elements, disjoint from the source.
+    unsafe { copy_retaining(out.ptr, ptr, n, stride, retain) };
+    out
+}
+
 /// `list.get(self, index) -> Option<T>` — `stride` bytes into `out`.
 ///
 /// # Safety
@@ -129,11 +211,20 @@ pub unsafe extern "C" fn buri_rt_list_concat(
     out: *mut BuriList,
 ) {
     let (a, b, s) = (len as usize, olen as usize, stride as usize);
-    let result = block(a.saturating_add(b), s);
-    // SAFETY: the destination is a fresh block of `a + b` elements, disjoint
-    // from both sources, and each source covers its own count.
+    // SAFETY: the caller promises the receiver's range; `append_dest` leaves
+    // the first `a` elements in place, however it got them there.
+    let result = unsafe { append_dest(ptr, a, b, s, retain) };
+    // SAFETY: the destination has room for `a + b` elements and the second
+    // source covers its own count.
+    //
+    // The two ranges are disjoint, including on the in-place path. The only
+    // way `optr` lands inside the receiver's block is `xs.concat(ctx, xs)` with
+    // both arguments borrowing one value, and then `a == b`, so the
+    // destination `[a, a + b)` begins exactly where the source `[0, b)` ends.
+    // Two descriptors of *different* lengths over one block do exist — that is
+    // what an in-place append produces — but each of them holds a count, so the
+    // in-place path's `rc == 1` excludes the case.
     unsafe {
-        copy_retaining(result.ptr, ptr, a, s, retain);
         if !result.ptr.is_null() {
             copy_retaining(result.ptr.add(a.saturating_mul(s)), optr, b, s, retain);
         }
@@ -141,8 +232,11 @@ pub unsafe extern "C" fn buri_rt_list_concat(
     }
 }
 
-/// `list.push(self, ctx, item) -> [T]` — a fresh block, because `[T]` is
-/// immutable and `push` is `Alloc`-bounded rather than in-place.
+/// `list.push(self, ctx, item) -> [T]`.
+///
+/// `[T]` is immutable *in the language*; the implementation writes past the end
+/// of a block nothing else can see, which is [`append_dest`]'s three paths and
+/// MEMORY.md §5.3. The result is a new value either way.
 ///
 /// The item arrives through a pointer for the same reason a `Str` result does:
 /// `lib.rs` §2 rule 1 flattens an aggregate parameter into leaves, and a
@@ -163,10 +257,13 @@ pub unsafe extern "C" fn buri_rt_list_push(
     out: *mut BuriList,
 ) {
     let (n, s) = (len as usize, stride as usize);
-    let result = block(n.saturating_add(1), s);
-    // SAFETY: a fresh block of `n + 1` elements, disjoint from both sources.
+    // SAFETY: the caller promises the receiver's range. Where the receiver is
+    // uniquely owned this writes nothing and allocates nothing — MEMORY.md
+    // §5.3, and the reason an accumulate-in-a-loop `push` is amortized O(1).
+    let result = unsafe { append_dest(ptr, n, 1, s, retain) };
+    // SAFETY: the destination has room for `n + 1` elements, and `item` covers
+    // one and is a stack slot the caller spilled, so it cannot be inside it.
     unsafe {
-        copy_retaining(result.ptr, ptr, n, s, retain);
         if !result.ptr.is_null() {
             copy_retaining(result.ptr.add(n.saturating_mul(s)), item, 1, s, retain);
         }
@@ -366,6 +463,162 @@ mod tests {
         assert_eq!(got, vec![10, 20, 30, 40]);
         // SAFETY: a fresh block with one reference.
         unsafe { crate::memory::buri_rt_free(out.ptr) };
+    }
+
+    /// One `push` per iteration over a uniquely-owned list allocates O(log n)
+    /// times, not O(n) — MEMORY.md §5.3's amortized O(1).
+    ///
+    /// The loop is the shape a Buri `loop { .. continue(acc.push(c, i), ..) }`
+    /// compiles to: the caller holds one reference, hands it to `push`
+    /// borrowed, and drops it after — so the count seen here is `1` on entry
+    /// and `2` on exit, and the `decref` standing in for the compiler's brings
+    /// it back to `1`.
+    #[test]
+    fn a_unique_push_grows_in_place() {
+        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut allocations = 0u32;
+        for i in 0i64..1000 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `acc` is this test's own live list and `i` is a live
+            // local of the element's stride.
+            unsafe {
+                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, None, &raw mut out);
+            }
+            if out.ptr != acc.ptr {
+                allocations += 1;
+            }
+            // The compiler's own `decref` of the argument, which is what makes
+            // the result unique again.
+            // SAFETY: `acc` holds one reference, or is the null descriptor.
+            unsafe { crate::memory::buri_rt_decref(acc.ptr, None) };
+            acc = out;
+        }
+        assert_eq!(acc.len, 1000);
+        // SAFETY: a thousand `i64`s were written there in order.
+        let got: Vec<i64> =
+            (0..1000).map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        assert_eq!(got, (0..1000).collect::<Vec<i64>>());
+        // Doubling from a 64-byte floor over 8000 bytes: eight growths, plus
+        // the first allocation. A linear implementation would report 1000.
+        assert!(allocations <= 12, "one push per element allocated {allocations} times");
+        // SAFETY: the last reference. Whether the *process* leaked is
+        // `cli/tests/runtime_native.rs`'s question and not this one: the
+        // counters are global and `cargo test` runs these in parallel, so a
+        // reading taken here would be a reading of every other test as well.
+        unsafe { crate::memory::buri_rt_free(acc.ptr) };
+    }
+
+    /// The observable-semantics guard: a `push` on a list something *else*
+    /// still holds must not touch what that other holder can see.
+    #[test]
+    fn a_shared_push_leaves_the_original_alone() {
+        let mut base = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        for i in 0i64..8 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: as above.
+            unsafe {
+                buri_rt_list_push(base.ptr, base.len, (&raw const i).cast(), 8, None, &raw mut out);
+                crate::memory::buri_rt_decref(base.ptr, None);
+            }
+            base = out;
+        }
+        // A second binding onto the same block: this is what `rc == 1` is
+        // testing for, and what the two pushes below must respect.
+        // SAFETY: `base` is a live block.
+        unsafe { crate::memory::buri_rt_incref(base.ptr) };
+        let held = BuriList { ptr: base.ptr, len: base.len };
+
+        let (mut one, mut two) = (
+            BuriList { ptr: std::ptr::null_mut(), len: 0 },
+            BuriList { ptr: std::ptr::null_mut(), len: 0 },
+        );
+        let (a, b) = (100i64, 200i64);
+        // SAFETY: `base` is live and each item is a live local.
+        unsafe {
+            buri_rt_list_push(base.ptr, base.len, (&raw const a).cast(), 8, None, &raw mut one);
+            buri_rt_list_push(base.ptr, base.len, (&raw const b).cast(), 8, None, &raw mut two);
+        }
+        assert_ne!(one.ptr, base.ptr, "a shared list was mutated in place");
+        assert_ne!(two.ptr, base.ptr, "a shared list was mutated in place");
+        assert_ne!(one.ptr, two.ptr, "two pushes answered one block");
+
+        let read = |l: &BuriList| -> Vec<i64> {
+            // SAFETY: `l.len` elements of eight bytes were written there.
+            (0..l.len as usize).map(|i| unsafe { l.ptr.add(i * 8).cast::<i64>().read() }).collect()
+        };
+        assert_eq!(read(&held), (0..8).collect::<Vec<i64>>(), "the other holder's value changed");
+        assert_eq!(read(&base), (0..8).collect::<Vec<i64>>());
+        assert_eq!(read(&one).last().copied(), Some(100));
+        assert_eq!(read(&two).last().copied(), Some(200));
+        // SAFETY: one reference each, and two on `base`'s block.
+        unsafe {
+            crate::memory::buri_rt_free(one.ptr);
+            crate::memory::buri_rt_free(two.ptr);
+            crate::memory::buri_rt_decref(held.ptr, None);
+            crate::memory::buri_rt_free(base.ptr);
+        }
+    }
+
+    /// A counted element type keeps the old behaviour exactly, for the reason
+    /// [`append_dest`] gives: the release glue for a `[T]` block walks
+    /// `cap / stride`, so a block with headroom would have it walk slots
+    /// nothing wrote.
+    #[test]
+    fn a_counted_element_type_still_allocates_exactly() {
+        unsafe extern "C" fn nothing(_: *mut u8) {}
+        let retain: Retain = Some(nothing);
+        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        for i in 0i64..4 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `acc` is this test's own live list.
+            unsafe {
+                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, retain, &raw mut out);
+                assert_ne!(out.ptr, acc.ptr, "a counted element type took the in-place path");
+                // SAFETY: `out` is a fresh block whose capacity is its length.
+                assert_eq!(crate::memory::buri_rt_cap(out.ptr), out.len * 8);
+                crate::memory::buri_rt_free(acc.ptr);
+            }
+            acc = out;
+        }
+        // SAFETY: the last reference.
+        unsafe { crate::memory::buri_rt_free(acc.ptr) };
+    }
+
+    /// `concat` takes the same three paths, and the grown one keeps the
+    /// elements in order across the seam.
+    #[test]
+    fn a_unique_concat_appends_in_place() {
+        let src: [i64; 3] = [7, 8, 9];
+        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut allocations = 0u32;
+        for _ in 0..100 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `src` covers three `i64`s and `acc` is this test's list.
+            unsafe {
+                buri_rt_list_concat(
+                    acc.ptr,
+                    acc.len,
+                    src.as_ptr().cast(),
+                    3,
+                    8,
+                    None,
+                    &raw mut out,
+                );
+                crate::memory::buri_rt_decref(acc.ptr, None);
+            }
+            if out.ptr != acc.ptr {
+                allocations += 1;
+            }
+            acc = out;
+        }
+        assert_eq!(acc.len, 300);
+        // SAFETY: three hundred `i64`s were written there, three at a time.
+        let got: Vec<i64> =
+            (0..300).map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        assert_eq!(got, (0..300).map(|i| 7 + (i % 3) as i64).collect::<Vec<i64>>());
+        assert!(allocations <= 10, "one concat per step allocated {allocations} times");
+        // SAFETY: the last reference.
+        unsafe { crate::memory::buri_rt_free(acc.ptr) };
     }
 
     #[test]

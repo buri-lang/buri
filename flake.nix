@@ -69,8 +69,8 @@
           # is a real test of it rather than a claim.
           buildNoDefaultFeatures = false;
 
-          # `cargo test` compiles and *runs* the examples in `SPEC.md` and
-          # `README.md`, which means spawning a JavaScript runtime -- a package
+          # `cargo test` compiles and *runs* the examples under `cli/src/docs/`,
+          # which means spawning a JavaScript runtime -- a package
           # build must not depend on that, so the suite stays in `nix develop`.
           doCheck = false;
 

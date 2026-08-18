@@ -7,65 +7,55 @@ between the middle end and a backend is, how the build graph grows, and what
 `--check-reproducible` means once an artifact is an executable.
 
 Everything here is decided. Where a decision contradicts something already
-written down — in `TODO.md`, or in the code — the contradiction is named with a
-file and a line.
+written down — in `design/TODO.md`, or in the code — the contradiction is named
+with a file and a line.
 
 ## 1. The shape of the problem
 
-Today there is one backend and it is entangled with the pass that feeds it.
-`compiler/backend/generate.rs` reads `monomorphize::Program` directly, holds the
-tail-call `Plan` as backend state (`generate.rs:100`), decides tail-call strategy
-while emitting rather than before (`generate.rs:260-273`), compiles `match` into
-a linear `if`/`else` chain (`generate.rs:1429-1470`), and relies on JavaScript's
-own lexical scoping for closures — `ExprKind::Lambda` carries a `captures` list
-(`typed.rs:194`) that the JS backend never reads (`generate.rs:2017-2023`).
+**Program-level decisions do not belong in an emitter.** Tail-call strategy,
+the shape a `match` compiles to, and closure conversion are properties of the
+program rather than of the language it is printed in: a linear arm chain is
+wrong for every backend, closure conversion is required by two of the three,
+and a tail-call plan two emitters each re-derive is two implementations of one
+rule.
 
-None of those four is a JavaScript decision. A linear arm chain is wrong for
-every backend; closure conversion is required by two of the three; tail-call
-strategy is a property of the program, not of the emitter. They are in the
-JavaScript file because there was only one file to put them in.
-
-So the first move is not "add a backend". It is **take the program-level
-decisions out of the emitter**, and the interface falls out of that rather than
-being designed in front of it.
+All three used to live inside the JavaScript emitter, because there was one
+emitter and one file to put them in. Taking them out is what the middle end
+(§2) is, and the `Backend` interface (§3) falls out of that rather than being
+designed in front of it.
 
 ## 2. Module layout
 
 ```
 cli/src/compiler/
-  semantics/            unchanged
-  middle/               was transform/
+  semantics/            unchanged by any of this
+  middle/               the middle end
     mod.rs              the pipeline, and `strongly_connected`
-    monomorphize.rs     moved verbatim
-    inline.rs           was optimize.rs — inlining and folding
-    dce.rs              new: reachability + drop, after inlining
-    tail_calls.rs       moved; now *rewrites* rather than advises
-    decision.rs         new: match arms -> a decision tree
-    closures.rs         new: lambda -> code pointer + environment record
-    derives.rs          new: a generated Show/Eq/Hash/Json per type
-    rc.rs               new: own/borrow inference, elision, reuse
-    layout.rs           new: the value model, as a computed table
-    ir.rs               new: block-argument SSA, native only
-    lower.rs            new: tree -> ir
+    monomorphize.rs     the call graph, made exact
+    inline.rs           inlining and folding
+    dce.rs              reachability + drop, after inlining
+    tail_calls.rs       *rewrites* rather than advises
+    decision.rs         match arms -> a decision tree
+    closures.rs         lambda -> code pointer + environment record
+    derives.rs          a generated Show/Eq/Hash/Json per type
+    rc.rs               own/borrow inference, elision, reuse
+    layout.rs           the value model, as a computed table
+    ir.rs               block-argument SSA, native only
+    lower.rs            tree -> ir
   backend/
     mod.rs              the `Backend` and `Linker` traits, and `Emitted`
-    runtime_native.rs   new: the embedded `libburi_rt.a`, and its hash
-    js/
-      generate.rs       what is left of it
-      javascript.rs     unchanged
-      intrinsics.rs     unchanged
-      runtime.js        unchanged
-    cranelift/
-      mod.rs  lower.rs  object.rs
-    llvm/
-      mod.rs  lower.rs  attrs.rs  passes.rs  target.rs
+    runtime_native.rs   the embedded `libburi_rt.a`, and its hash
+    js/                 generate.rs  javascript.rs  intrinsics.rs  runtime.js
+    cranelift/          mod.rs  emit.rs  helpers.rs  abi.rs  runtime.rs
+    llvm/               mod.rs  emit.rs  repr.rs  attrs.rs  runtime.rs  target.rs
 cli/src/build/
-  link.rs               new: the incremental link
-  watch.rs              new: the poll loop (see BUILD-AND-WATCH.md)
-cli/runtime/            new: the native runtime, Rust, C ABI
+  link.rs               the incremental link
+cli/src/commands/
+  watch.rs              the poll loop (see BUILD-AND-WATCH.md)
+cli/runtime/            the native runtime, Rust, C ABI
   lib.rs                the `buri_rt_*` ABI contract, which both backends cite
-  memory.rs abort.rs value.rs host.rs http.rs rng.rs
-cli/build.rs            new: builds `cli/runtime` into `libburi_rt.a` for the host
+  memory.rs abort.rs value.rs host.rs http.rs rng.rs list.rs text.rs fmt.rs …
+cli/build.rs            builds `cli/runtime` into `libburi_rt.a` for the host
 ```
 
 `transform` becomes `middle` because the name has to say what the thing is. A
@@ -98,7 +88,7 @@ make a stack trace useful) and make it print a state machine. The gain would be
 zero: everything JavaScript needs from the shared work is in layer A.
 
 The counter-proposal — no layer B, and each native backend builds its own SSA —
-is rejected on `LLVM-tips.md:2`. "Avoid mem2reg, generate optimized SSA form" is
+is rejected on `design/LLVM-tips.md:2`. "Avoid mem2reg, generate optimized SSA form" is
 an instruction the frontend can only honour by having SSA *before* it reaches
 LLVM. Cranelift would build it for us (its `FunctionBuilder` runs the Braun
 algorithm over `Variable` def/use), LLVM would not, and having one backend's SSA
@@ -109,7 +99,7 @@ LLVM phis (see CODEGEN-LLVM.md §2).
 
 ### 2.2 What each new layer-A pass is for
 
-- **`dce.rs`.** `LLVM-tips.md:1`: dead code elimination before it reaches LLVM
+- **`dce.rs`.** `design/LLVM-tips.md:1`: dead code elimination before it reaches LLVM
   IR. Monomorphization already gives reachability-based DCE for free
   (`monomorphize.rs:12-14`), but inlining creates *new* dead functions — a body
   inlined at its single call site leaves the original unreachable, which
@@ -203,7 +193,7 @@ corpus reaches, lowering is a small fraction of a native build.
 
 ## 3. The `Backend` trait
 
-`TODO.md:1741` proposes:
+The signature this was drawn from was:
 
 ```rust
 trait Backend { fn emit(&Program, &Tables, &Options) -> Result<Vec<u8>, Diagnostics> }
@@ -254,7 +244,8 @@ pub trait Backend {
     fn identity(&self) -> String;
 
     /// Intrinsic keys this backend has no implementation of, so
-    /// "missing intrinsic" becomes a question asked per backend (TODO.md:1755).
+    /// "missing intrinsic" becomes a question asked per backend
+    /// (`design/TODO.md`, "The native backend").
     ///
     /// Takes `&Tables` as well as the program: deciding whether a key has a
     /// body goes through the same code the emission does — `Gen::intrinsic`,
@@ -326,6 +317,11 @@ statement about programs and not about JavaScript, and it grows nothing.
 (Linux | Macos,  Release)  -> llvm
 ```
 
+The published measurements this split was weighed against — Cranelift's standing
+between LLVM `-O0` and a template JIT — are vendored at
+[../../reference/xu-kjolstad-copy-and-patch.pdf](../../reference/xu-kjolstad-copy-and-patch.pdf)
+and [../../reference/tpde-fast-compiler-backend.pdf](../../reference/tpde-fast-compiler-backend.pdf).
+
 Two knobs on top:
 
 - `--backend=<name>` forces one, and is how `cranelift_and_llvm_agree` is
@@ -338,26 +334,19 @@ Two knobs on top:
   different code depending on how the compiler was installed, which is the same
   class of bug as an unpinned toolchain. See BUILD-AND-WATCH.md §2.
 
-`driver::host_platform()` returned `Platform::Js` unconditionally, and this
-document predicted that flipping it would be "one line and a large amount of
-golden-file churn — every `buri run`, every `repositories/` case, every artifact
-path". **As landed (wave 3c) it is one line and a condition, and the churn did
-not happen.** Both halves of that are worth recording, because the prediction
-was wrong in an instructive way.
+`driver::host_platform()` is one line and a condition:
+`native_ready(host, Debug)` — the host's own platform where this toolchain can
+produce something for it (a backend compiled in, a runtime archive, a linker),
+and `Js` where it cannot. That keeps a toolchain built `--no-default-features`,
+and any host that is not macOS or Linux, answering `Js`.
 
-The line is `native_ready(host, Debug)`: the host's own platform where this
-toolchain can produce something for it — a backend compiled in, a runtime
-archive, a linker — and `Js` where it cannot. That keeps a toolchain built
-`--no-default-features`, and any host that is not macOS or Linux, answering
-exactly what it answered before.
-
-The churn did not happen because `host_platform()` was not what decided the
-artifact: `Output` was, and the build system reads the *declared* outputs.
-`host_platform()` reaches the language server and the documentation harness,
-where it sets a compilation's platform and where nothing varies on it. What
-*does* now vary on the host is `buri run`, which prefers a declared host-native
-output and executes the artifact directly, and `buri test`, which runs a suite
-named for a native platform as a native binary.
+**It is not what decides the artifact**, which is why flipping it cost no
+golden-file churn: `Output` decides, and the build system reads the *declared*
+outputs. `host_platform()` reaches the language server and the documentation
+harness, where it sets a compilation's platform and where nothing varies on it.
+What *does* vary on the host is `buri run`, which prefers a declared
+host-native output and executes the artifact directly, and `buri test`, which
+runs a suite named for a native platform as a native binary.
 
 **The default output is still `JS`, and that is a decision rather than the
 remaining half of this one.** A binary that declares no outputs gets `JS`; a
@@ -491,8 +480,8 @@ whitespace edit produces an identical key and the object is reused.
 
 The cost is that computing the key requires running the front end and the whole
 middle end, so `codegen` can never be skipped without doing the analysis. That is
-acceptable and, in this compiler, nearly free: `TODO.md:1279` measures
-`conformance build //...` at 22 ms end to end, and the expensive half of a native
+acceptable and, in this compiler, nearly free: `conformance build //...` measures
+22 ms end to end, and the expensive half of a native
 build is the half the key is protecting.
 
 `Link`'s key is the ordered list of `codegen` keys plus the linker's identity:
@@ -573,7 +562,8 @@ for.** Each is a known one and each has a name:
   to catch (`build.rs:144-146`), so it must be closed rather than tolerated.
 - **Timestamps in archive members and in the Mach-O/ELF headers.** Zeroed.
   `SOURCE_DATE_EPOCH=0` is already in the action environment
-  (`TODO.md:1107-1110`) and the object writer honours it directly rather than
+  (`build/spawn.rs`; `buri docs build/hermeticity`) and the object writer honours
+  it directly rather than
   through the environment, since the object writer is in-process.
 
 The claim the flag then earns is unchanged in wording and stronger in content:
@@ -582,35 +572,16 @@ executable.
 
 ## 8. Implementation waves
 
-Sized so each wave item is one agent's work and no two items in a wave write the
-same file. The full plan, with the collision map, is in BUILD-AND-WATCH.md §5;
-the summary:
-
-- **Wave 0, alone. Landed.** `transform` -> `middle`; the `Backend`/`Linker`
-  traits; `Action::Codegen`; the empty cargo features; `middle/mod.rs` declaring
-  every module the later waves add *and* the pipeline that calls them, so no
-  wave 1 item has to edit it. Nothing else can start until this lands, and it
-  gets harder every time `generate.rs` grows — which is `TODO.md:1742-1743`'s
-  point, restated with a date on it.
-
-  What wave 0 deliberately did **not** do: move `arm_chain`, closure conversion
-  and dead-code elimination out of the JavaScript backend. Those are wave 1d's
-  three files, and doing them here would both collide with 1d and mix a
-  behaviour change into the one wave whose value is that it changes no bytes.
-  The JavaScript output after wave 0 is byte-identical to before it, which is
-  the property that makes the rest of the plan safe to start.
-- **Wave 1, five in parallel.** `middle/ir.rs` + `lower.rs`; `middle/layout.rs`;
-  `cli/runtime/`; `middle/{decision,closures,dce,tail_calls}.rs`;
-  `middle/{derives,rc}.rs`.
-- **Wave 2, three in parallel.** Cranelift; LLVM; link + object cache.
-- **Wave 3, three in parallel.** Native `--check-reproducible`; `test --watch`;
-  the `host_platform` switch and the SPEC amendment.
-- **Wave 4.** The allocator types and `Alloc` accounting (MEMORY.md §7).
+The waves this section scheduled have all landed. The schedule itself is not
+kept: what it planned is now the module layout in §2, the trait in §3, and the
+action graph in §6, and a plan for finished work is a second description of
+those that nothing checks. What remains open is in `design/TODO.md`, under
+"The native backend".
 
 ## 9. What this does not do
 
-- **No cross-compilation.** `TODO.md:1760` allows an explicit refusal, and this
-  is one: `buri build --output=linux/x86_64` on a macOS host is an error naming
+- **No cross-compilation**, and the refusal is explicit:
+  `buri build --output=linux/x86_64` on a macOS host is an error naming
   the host it can build for. The reason is the runtime archive (§2, `cli/runtime`),
   which is built for the host by `cli/build.rs` and for nothing else. Cranelift
   can target any triple it was built with and LLVM can target all of them, so the

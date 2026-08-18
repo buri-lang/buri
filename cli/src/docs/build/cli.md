@@ -189,7 +189,7 @@ Style and hygiene rules:
 |---|---|
 | `unreachable-export` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export |
 | `unused-import` | error — an imported name that appears nowhere else in the module |
-| `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](./SPEC.md) |
+| `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](./cli/src/docs/SPEC.md) |
 | `empty-test-suite` | warn — a `test` block with no `sources` |
 | `test-without-assertion` | warn — a `test` from which nothing reachable calls `core/testing/assert` |
 

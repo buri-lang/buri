@@ -1,7 +1,7 @@
 //! The attribute discipline. **Wave 2b.**
 //!
-//! `LLVM-tips.md:3`, and CODEGEN-LLVM.md §3. The effect system supplies most of
-//! it for free: a language where "does this function touch the world?" is a
+//! `design/LLVM-tips.md:3`, and CODEGEN-LLVM.md §3. The effect system supplies
+//! most of it for free: a language where "does this function touch the world?" is a
 //! syntactic property of its signature can answer LLVM's memory-effect
 //! questions without an analysis.
 //!
@@ -48,6 +48,73 @@
 //! declaration in one unit and a definition in another must carry the same
 //! bits or LLVM optimizes a call against a promise the definition does not
 //! keep.
+//!
+//! # The reference count is memory, and LLVM was told it was not
+//!
+//! The third gap, and the one that was a miscompile rather than a missing
+//! optimization. `incref` and `decref` store the count at `p - 16`
+//! (MEMORY.md §5.1), and `p` is routinely a parameter. LangRef's
+//! *Pointer Aliasing Rules* say a `getelementptr` result **is** *based on* its
+//! pointer operand, and `argmem` is "accesses that are based on pointer
+//! arguments to the function" — so that store is a write to argument memory,
+//! full stop. Two attributes this file used to emit said it was not:
+//!
+//!  * `readonly` on the parameter — "the function does not write through this
+//!    pointer argument. If a function writes to a readonly pointer argument,
+//!    the behavior is undefined."
+//!  * `memory(argmem: read)` on the function — "The location is only read.
+//!    Writing to the location is immediate undefined behavior. **This includes
+//!    the case where the location is read from and then the same value is
+//!    written back.**"
+//!
+//! That last sentence is the one that decides it. The older comment in
+//! [`decorate_param`] argued that the write is *unobservable* — the count is
+//! not part of the value, and MEMORY.md §5.3's in-place append writes only
+//! past the end of a block whose count it has just seen to be 1. Both
+//! statements are true about Buri and neither is what LLVM's `read` means:
+//! `read` is a promise about the *bytes*, and a store of the identical value
+//! is still a store. `memory(...)`'s `write` kind has an observability
+//! carve-out; `read` deliberately has none.
+//!
+//! Because a function's `memory(...)` describes its callees' effects too, the
+//! same is true one level up: a caller of a function that increfs is a
+//! function that increfs.
+//!
+//! So [`Observed`] carries three more bits — [`Observed::writes_args`],
+//! [`Observed::reads_far`] and [`Observed::writes_far`] — and the rule this
+//! file now implements is:
+//!
+//! | what the body does to a count | `readonly` on the parameter | `memory(...)` |
+//! |---|---|---|
+//! | nothing | yes | `argmem: read` |
+//! | counts a value *based on* a parameter | **no** | `argmem: readwrite` |
+//! | counts anything else | yes | the default location becomes `readwrite` |
+//!
+//! The third row keeps `readonly`, and that is not an oversight: a count
+//! reached through a *load* — a `[T]`'s element — is a write through a pointer
+//! that is not based on the parameter, so `readonly` on the parameter stays
+//! true while the `memory(...)` claim does not. LangRef's "based on" relation
+//! is `getelementptr`/`bitcast`/`inttoptr` closed transitively, and a load is
+//! on none of those paths. `opt -passes=function-attrs` infers exactly this
+//! split for both shapes, which is the check that the table is LLVM's and not
+//! this file's opinion.
+//!
+//! `emit::argument_based` is the provenance analysis that decides which row a
+//! count is in, and `emit::observe` propagates the answer over the call graph
+//! beside the three bits that were already there — it has to, because a
+//! function's `memory(...)` covers its callees.
+//!
+//! The same reading corrects two neighbours, both in [`MemoryEffects`]:
+//! [`MemoryEffects::and_allocates`] (a function that initializes what it
+//! allocated writes the *default* location, and `malloc` sets `errno`) and
+//! [`narrow_for_params`] (a tagged enum's payload blob is an integer parameter
+//! holding pointers, so it is argument memory).
+//!
+//! What survives is the whole of the purity theorem for functions that touch
+//! no count: every all-scalar signature is still `memory(none)`, and every
+//! counted signature whose reference-counting plan is empty — the common leaf
+//! that reads a `Str` and returns part of it — still carries `readonly` and
+//! `memory(argmem: read)`.
 
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::context::Context;
@@ -136,6 +203,14 @@ impl MemoryEffects {
         MemoryEffects::default().with(Location::ArgMem, ModRef::Ref)
     }
 
+    /// `memory(argmem: readwrite)` — the same, plus the reference-count store
+    /// at `p - 16` for a `p` the parameter list supplied. See the module
+    /// header: the count is argument memory, and `read` has no carve-out for a
+    /// write nothing can observe.
+    pub fn arg_readwrite() -> MemoryEffects {
+        MemoryEffects::default().with(Location::ArgMem, ModRef::RefMod)
+    }
+
     /// Adds `inaccessiblemem: write`: the function may write somewhere the
     /// caller cannot observe except by not returning. That is what an abort
     /// is (CODEGEN-LLVM.md §3.1).
@@ -143,10 +218,44 @@ impl MemoryEffects {
         self.with(Location::InaccessibleMem, ModRef::Mod)
     }
 
-    /// Adds `inaccessiblemem: readwrite`: the allocator is inaccessible memory
-    /// (CODEGEN-LLVM.md §3.1, the `Alloc`-bounded row).
+    /// The allocator's own effects, which are three locations and not one.
+    ///
+    /// CODEGEN-LLVM.md §3.1's `Alloc`-bounded row said `inaccessiblemem:
+    /// readwrite` and stopped there. Two things are missing from that, and both
+    /// are checkable against LLVM's own inference — `opt -passes=function-attrs`
+    /// on `%p = call noalias ptr @alloc(...)` / `store ..., ptr %p` answers
+    /// `memory(write, argmem: none, inaccessiblemem: readwrite)`:
+    ///
+    ///  * **The default location, at `Mod`.** Every allocation this backend
+    ///    emits is followed by the stores that initialize the block —
+    ///    `make_array`'s elements, `make_closure`'s environment,
+    ///    `concat`'s two `memcpy`s. LangRef's `inaccessiblemem` covers memory
+    ///    "not accessible by the current module", and the parenthetical that
+    ///    excuses an allocator handing back newly accessible memory excuses the
+    ///    *allocator*, not its caller. Once `buri_rt_alloc` has returned, the
+    ///    block is ordinary program memory and it is not argument memory, so it
+    ///    is the default location. LLVM does not apply its function-local
+    ///    carve-out either, because the block escapes through the return.
+    ///  * **`errnomem`, at `ModRef`.** The allocator is `malloc` underneath and
+    ///    `malloc` sets `errno`.
     pub fn and_allocates(self) -> MemoryEffects {
         self.with(Location::InaccessibleMem, ModRef::RefMod)
+            .with(Location::ErrnoMem, ModRef::RefMod)
+            .with(Location::Other, ModRef::Mod)
+    }
+
+    /// Adds the default location at these bits: a reference count adjusted
+    /// through a pointer that is not based on a parameter, or an element read
+    /// out of a block this function allocated. See [`Observed::writes_far`].
+    pub fn and_far(self, read: bool, write: bool) -> MemoryEffects {
+        let mut out = self;
+        if read {
+            out = out.with(Location::Other, ModRef::Ref);
+        }
+        if write {
+            out = out.with(Location::Other, ModRef::Mod);
+        }
+        out
     }
 
     fn with(self, loc: Location, mr: ModRef) -> MemoryEffects {
@@ -222,18 +331,68 @@ pub struct Observed {
     /// The backend emitted a call whose callee's effects it does not know —
     /// an indirect call, or a runtime entry with a capability behind it.
     pub opaque: bool,
+    /// The backend emitted a store to memory **based on** a pointer parameter,
+    /// in LangRef's *Pointer Aliasing Rules* sense: an `incref`/`decref` of a
+    /// value that is one of this function's parameters — the count lives at a
+    /// `getelementptr` from it — or MEMORY.md §5.3's in-place append into a
+    /// block a parameter points into.
+    ///
+    /// Takes `readonly` off every pointer parameter and raises `argmem` from
+    /// `Ref` to `ModRef`. See the module header for why the write being
+    /// unobservable to a Buri caller does not make the attribute true.
+    pub writes_args: bool,
+    /// The backend emitted a *read* of memory that is neither argument memory
+    /// nor the allocator's: the count of a value this function did not receive
+    /// as a parameter, or an element of a block it allocated itself.
+    pub reads_far: bool,
+    /// The same, for a store. A reference-count write through a pointer that
+    /// is *not* based on a parameter — a count reached through a load, which
+    /// LangRef's "based on" relation does not follow, or a block a callee
+    /// returned. Such a store is neither `argmem` nor `inaccessiblemem`, so
+    /// only the *default* location describes it.
+    pub writes_far: bool,
 }
 
 impl Observed {
     pub fn clean() -> Observed {
-        Observed { allocates: false, aborts: false, opaque: false }
+        Observed {
+            allocates: false,
+            aborts: false,
+            opaque: false,
+            writes_args: false,
+            reads_far: false,
+            writes_far: false,
+        }
     }
 
     /// Everything, which is what a callee this compilation cannot see is
     /// assumed to do — the direction that costs performance and cannot be
     /// wrong.
+    ///
+    /// `writes_args` is part of "everything" and is the reason it has to be:
+    /// `buri_rt_list_push` writes past the end of the block it is handed when
+    /// it observes a count of 1 (`cli/runtime/list.rs`'s `append_dest`), and
+    /// the block is routinely the caller's parameter.
     pub fn opaque() -> Observed {
-        Observed { allocates: true, aborts: true, opaque: true }
+        Observed {
+            allocates: true,
+            aborts: true,
+            opaque: true,
+            writes_args: true,
+            reads_far: true,
+            writes_far: true,
+        }
+    }
+
+    /// Widens `self` by everything `other` found — the one direction this
+    /// lattice moves.
+    pub fn join(&mut self, other: Observed) {
+        self.allocates |= other.allocates;
+        self.aborts |= other.aborts;
+        self.opaque |= other.opaque;
+        self.writes_args |= other.writes_args;
+        self.reads_far |= other.reads_far;
+        self.writes_far |= other.writes_far;
     }
 }
 
@@ -253,10 +412,24 @@ pub fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
         // "Reads no heap through a parameter" is not a fact the middle end
         // computes, so the honest floor for a pure function that takes a
         // pointer is `argmem: read`; a function with no pointer parameter at
-        // all is narrowed to `none` by `narrow_for_params`.
-        ir::Purity::Pure | ir::Purity::Allocating => MemoryEffects::arg_read(),
+        // all is narrowed to `none` by `narrow_for_params`. A function that
+        // adjusts a count in a parameter's block writes that memory, so its
+        // floor is `argmem: readwrite`.
+        ir::Purity::Pure | ir::Purity::Allocating => {
+            if observed.writes_args {
+                MemoryEffects::arg_readwrite()
+            } else {
+                MemoryEffects::arg_read()
+            }
+        }
     };
     let base = if allocates { base.and_allocates() } else { base };
+    // The default location, for a count adjusted through a pointer that is not
+    // based on a parameter and for an element read out of a block this function
+    // allocated. Naming it at `ModRef` *is* `memory(readwrite)`, and
+    // [`memory`] declines to write the default out — so this is the one row
+    // that gives the attribute up entirely, which is what it costs to be true.
+    let base = base.and_far(observed.reads_far, observed.writes_far);
     if aborts {
         base.and_may_abort()
     } else {
@@ -266,8 +439,19 @@ pub fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
 
 /// Narrows `argmem` away where there is no argument memory to read: a function
 /// whose parameters are all scalars cannot read the heap through one.
+///
+/// A [`SlotTy::Blob`] counts as argument memory even though it is an integer.
+/// It is a tagged enum's payload area (`repr.rs`), a `Result<Str, E>` keeps its
+/// `Str`'s three words inside one, and the `inttoptr` that gets them back out
+/// is *based on* the parameter by LangRef's Pointer Aliasing Rules — "a pointer
+/// value formed by an `inttoptr` is based on all pointer values that contribute
+/// to the computation of the pointer's value". So a blob parameter is a pointer
+/// parameter wearing an integer's type, and the only signature this narrows to
+/// `memory(none)` is one that is genuinely all-scalar.
 pub fn narrow_for_params(effects: MemoryEffects, params: &[Slot]) -> MemoryEffects {
-    if effects.is_everything() || params.iter().any(|s| s.ty.is_pointer()) {
+    let reaches_memory =
+        params.iter().any(|s| s.ty.is_pointer() || matches!(s.ty, SlotTy::Blob(_)));
+    if effects.is_everything() || reaches_memory {
         effects
     } else {
         // Clear the `ArgMem` field and keep the rest — through the same
@@ -322,7 +506,7 @@ pub fn decorate(
     // `nofree` is deliberately *not* set: `decref` frees.
 
     for (i, slot) in params.iter().enumerate() {
-        decorate_param(ctx, f, AttributeLoc::Param(i as u32), *slot, heap_align);
+        decorate_param(ctx, f, AttributeLoc::Param(i as u32), *slot, heap_align, observed);
     }
     // A pointer return is a freshly allocated block on every path that
     // produces one — every allocating runtime entry returns a block nothing
@@ -358,16 +542,35 @@ fn decorate_param(
     loc: AttributeLoc,
     slot: Slot,
     heap_align: u32,
+    observed: Observed,
 ) {
     match slot.ty {
         SlotTy::Scalar(Scalar::Ptr) => {
-            // `readonly` on a pointer parameter is true *unconditionally* and
-            // would be a lie in almost any other language. Values are
-            // immutable, there is no interior mutability, and `middle::rc`'s
-            // in-place reuse writes only to a block whose count it has just
-            // observed to be 1 — a block no other reference reaches — so even
-            // reuse does not break the guarantee this makes to a caller.
-            enum_attr_at(ctx, f, loc, "readonly", 0);
+            // `readonly` on a pointer parameter is true of the *value*
+            // unconditionally — values are immutable and there is no interior
+            // mutability — and it is **not** what `readonly` means. LangRef:
+            // "the function does not write through this pointer argument", and
+            // a `getelementptr` to `p - 16` is a pointer through `p`. So the
+            // three writes this language does perform through a parameter all
+            // count:
+            //
+            //  * `incref`'s store of the count at `p - 16` (MEMORY.md §5.1),
+            //  * `decref`'s store of the count, and its `free` of the block,
+            //  * MEMORY.md §5.3's in-place growth — `emit::concat`'s `memmove`
+            //    past the end of the left operand's block, and
+            //    `cli/runtime/list.rs`'s `append_dest`.
+            //
+            // All three are unobservable to a *Buri* caller, which is the
+            // argument this comment used to make and which is beside the
+            // point: `readonly` is a promise about bytes, and none of the
+            // three is a promise about bytes. `Observed::writes_args` is the
+            // condition, computed over the whole call graph by
+            // `emit::observe`, and the attribute is emitted exactly where it
+            // is true — which is still every function whose reference-counting
+            // plan is empty, the common case for a leaf that reads a `Str`.
+            if !observed.writes_args {
+                enum_attr_at(ctx, f, loc, "readonly", 0);
+            }
             // Every heap pointer is 16-byte aligned, because the header is
             // 16 bytes and sits immediately before the payload (VALUE-MODEL.md
             // §2). `nonnull` is *not* set: a `Str`'s `base`, a closure's `env`
@@ -459,7 +662,10 @@ mod tests {
         assert_eq!(MemoryEffects::none().bits(), 0);
         assert_eq!(MemoryEffects::arg_read().bits(), 0b01);
         assert_eq!(MemoryEffects::arg_read().and_may_abort().bits(), 0b1001);
-        assert_eq!(MemoryEffects::arg_read().and_allocates().bits(), 0b1101);
+        // `argmem: read` (0b01), `inaccessiblemem: readwrite` (0b11 << 2),
+        // `errnomem: readwrite` (0b11 << 4) and the default location at `Mod`
+        // (0b10 << 6) — the three the allocator touches beside its argument.
+        assert_eq!(MemoryEffects::arg_read().and_allocates().bits(), 0b1011_1101);
         // Four locations at two bits each, all `ModRef`.
         assert_eq!(MemoryEffects::everything().bits(), 0xFF);
     }
@@ -498,11 +704,69 @@ mod tests {
         assert!(narrow_for_params(e, &[scalar]).is_everything());
     }
 
+    /// The module header's rule, as three assertions: a count in a
+    /// parameter's block is a *write* to argument memory, and the attribute
+    /// has to say so.
+    #[test]
+    fn counting_a_parameter_makes_argmem_readwrite() {
+        let clean = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
+        assert_eq!(clean, MemoryEffects::arg_read());
+
+        let counting =
+            Observed { writes_args: true, ..Observed::clean() };
+        let e = memory_effects(&facts(ir::Purity::Pure, false), counting);
+        assert_eq!(e, MemoryEffects::arg_readwrite());
+        assert_ne!(e, MemoryEffects::arg_read());
+        // Two bits, not one: `argmem: read` is `0b01` and the write is the
+        // second, so a bump that reordered the locations breaks this too.
+        assert_eq!(e.bits(), 0b11);
+    }
+
+    /// A count reached through a load is in neither `argmem` nor
+    /// `inaccessiblemem`, and the only `memory(...)` that covers the default
+    /// location is the one that is never written out.
+    #[test]
+    fn counting_anything_else_gives_up_the_memory_attribute() {
+        let far = Observed { reads_far: true, writes_far: true, ..Observed::clean() };
+        let e = memory_effects(&facts(ir::Purity::Pure, false), far);
+        // The default location at `ModRef` is what `memory(readwrite)` means,
+        // so nothing narrower than the default survives for the heap. What is
+        // still true and still said is that the allocator and `errno` are
+        // untouched, which is why this is not literally `everything`.
+        assert_ne!(e, MemoryEffects::arg_read());
+        assert_ne!(e, MemoryEffects::arg_readwrite());
+        assert_eq!(e.bits() & 0b1100_0000, 0b1100_0000);
+    }
+
+    /// A tagged enum's payload blob is an integer parameter that holds
+    /// pointers, so it is argument memory and must not narrow to
+    /// `memory(none)`.
+    #[test]
+    fn a_payload_blob_parameter_is_still_argument_memory() {
+        let e = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
+        let blob = Slot { offset: 0, ty: SlotTy::Blob(24) };
+        let tag = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I8) };
+        assert_eq!(narrow_for_params(e, &[tag, blob]), MemoryEffects::arg_read());
+        assert_eq!(narrow_for_params(e, &[tag]), MemoryEffects::none());
+    }
+
+    /// The lattice only ever widens, and a new bit has to be joined like the
+    /// old ones or the call-graph fixpoint silently loses it.
+    #[test]
+    fn join_widens_every_bit() {
+        let mut o = Observed::clean();
+        o.join(Observed::opaque());
+        assert_eq!(o, Observed::opaque());
+        let mut o = Observed::opaque();
+        o.join(Observed::clean());
+        assert_eq!(o, Observed::opaque());
+    }
+
     /// What the backend observed narrows the middle end's answer, never
     /// widens it.
     #[test]
     fn an_allocation_the_middle_end_missed_demotes_the_attribute() {
-        let observed = Observed { allocates: true, aborts: false, opaque: false };
+        let observed = Observed { allocates: true, ..Observed::clean() };
         let e = memory_effects(&facts(ir::Purity::Pure, false), observed);
         assert_eq!(e, MemoryEffects::arg_read().and_allocates());
         assert_ne!(e, MemoryEffects::none());

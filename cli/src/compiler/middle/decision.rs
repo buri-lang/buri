@@ -11,6 +11,9 @@
 //! A linear arm chain is not a JavaScript decision. It was in the JavaScript
 //! file because there was only one file to put it in.
 //!
+//! The background is Maranget's *Compiling Pattern Matching to Good Decision
+//! Trees* and Jacobs' *How to compile pattern matching*, both in `reference/`.
+//!
 //! # The tree is the `Match`, restructured
 //!
 //! There is no new node for a decision tree, and that is deliberate. The tree

@@ -7,9 +7,8 @@ Syntax highlighting, outline, indentation, and the language server.
 Zed › Extensions › *Install Dev Extension*, and choose this directory.
 
 The extension starts `buri lsp` from your `PATH`. It does not download a
-toolchain: a repository pins its own in `REPO.buri`, and an extension that
-fetched a different one would be answering questions about a different
-compiler than the one `buri build` uses.
+toolchain: an extension that fetched its own would be answering questions about
+a different compiler than the one `buri build` runs.
 
 ## What the server provides
 

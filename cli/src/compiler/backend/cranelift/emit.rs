@@ -90,6 +90,21 @@ pub const ENV_FIELDS: u32 = 8;
 /// Loads and stores this backend emits never trap and never claim an
 /// alignment: an aggregate covered by machine words (`abi.rs`) is read at
 /// offsets its own alignment does not guarantee.
+///
+/// **`readonly` is deliberately not set, and this is the one constructor that
+/// could set it.** Every load and store in this backend goes through here,
+/// including the reference-count load and store at `p - 16` that `Emit::rc`
+/// walks to —
+/// so a `with_readonly()` added for the payload would be added for the count
+/// as well, and Cranelift's redundant-load elimination would be entitled to
+/// forward a count across an intervening `incref`. This is the same hazard
+/// `backend/llvm/attrs.rs` §"The reference count is memory" documents on the
+/// LLVM side, where it *was* a live miscompile; here it is not, because CLIF
+/// has no function-level memory-effects attribute at all, `mir::Func::facts`
+/// is never read on this path, and `opt_level = none` (`mod.rs`) leaves the
+/// aegraph mid-end — GVN, LICM, alias analysis — switched off entirely. Both
+/// of those would have to change before the flag could be considered, and
+/// then it would have to be per-access rather than shared.
 pub fn mem() -> MemFlags {
     MemFlags::new().with_notrap()
 }
@@ -2490,9 +2505,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// the result has lost the signedness that separates `0` from `-128`.
     ///
     /// The bounds are the **type's**, not JavaScript's exactly-representable
-    /// ones: `js/intrinsics.rs` uses `int_range` here too, and only `checked*`
-    /// narrows to `exact_int_range` — because on that backend the value has to
-    /// survive being a double, and here it does not.
+    /// ones: `js/intrinsics.rs` uses `int_range` here too. `exact_int_range` is
+    /// the JavaScript backend's business alone — it is the range a double still
+    /// names, and natively nothing has to survive being one.
     fn bounds(&mut self, dest: ValueId, prim: Prim, op: &str) -> bool {
         if !matches!(op, "minValue" | "maxValue") {
             return false;
@@ -2609,9 +2624,19 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// longer say which integer it is, so `.None` is the only honest answer it
     /// has. Natively an `i64` addition either overflows or does not, and
     /// reporting `.None` for a value the machine represents exactly would be
-    /// inventing a failure. The two agree on every operand inside `±2^53`,
-    /// which is where `cli/tests/conformance/lib/numbers` deliberately stays
-    /// ("inside the exact-integer range of a double, on purpose").
+    /// inventing a failure. `Checked` is bounded by the numbers the *platform*
+    /// has, and `.Some(v)` promises that `v` is the true result as this backend
+    /// represents numbers — which is a promise both backends keep, at different
+    /// widths (SPEC 6.2.2, `design/native/VALUE-MODEL.md` §12 row 2).
+    ///
+    /// The two agree on every operand inside `±2^53` and on every overflow of
+    /// the type itself; the band between them is a documented divergence, and
+    /// `cli/tests/backend_agreement.rs`'s row 2 pins both answers. The shared
+    /// conformance corpus deliberately stays out of that band.
+    ///
+    /// `Div` is where "the type's own range" is not the same statement as "the
+    /// machine did not wrap": `MIN / -1` is `2^63`, which the width cannot
+    /// hold, so [`Lower::overflowing`] reports it alongside a zero divisor.
     ///
     /// 128-bit goes to the runtime, because the overflow test below is
     /// `smulhi`/`umulhi` and Cranelift does not define either at `i128`
@@ -2634,62 +2659,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let Some((value, overflowed)) = self.overflowing(kind, signed, width, x, y) else {
             return false;
         };
-        let bad = self.outside_exact_range(from, signed, value, overflowed);
-        self.build_option(dest, value, bad);
+        self.build_option(dest, value, overflowed);
         true
-    }
-
-    /// `overflowed`, widened to *also* refuse a result outside the range a
-    /// JavaScript `number` represents exactly.
-    ///
-    /// This is where `Checked` is a promise about the language rather than
-    /// about the machine, and the two readings differ. `$checkedIn` tests
-    /// `exact_int_range` — capped at `2^53 - 1` — because past that a double
-    /// cannot say *which* integer it is, and `Checked`'s whole promise is that a
-    /// `.Some` is a value the answer really is. Natively an `i64` addition
-    /// either overflows or does not, so the machine test alone would answer
-    /// `.Some(9007199254740992)` where JavaScript answers `.None`.
-    ///
-    /// The conformance suite asserts the JavaScript answer and states the reason
-    /// as a property of the operation ("the type's nominal maximum is far above
-    /// what a `number` holds, so a `Checked` operation anywhere near it is
-    /// `.None` — never a value that is not the answer",
-    /// `conformance/lib/numbers/test/integers.buri:594`), so the *language* says
-    /// `.None` and this follows it. `saturating*` is unaffected: `$sat` clamps at
-    /// `int_range`, not at the exact one.
-    ///
-    /// Nothing is emitted at a width whose whole range is exact — every type at
-    /// 32 bits and below, which is most of them.
-    fn outside_exact_range(
-        &mut self,
-        from: Prim,
-        signed: bool,
-        value: Value,
-        overflowed: Value,
-    ) -> Value {
-        let (Some((lo, hi)), Some((exact_lo, exact_hi))) =
-            (from.int_range(), from.exact_int_range())
-        else {
-            return overflowed;
-        };
-        if lo == exact_lo && hi == exact_hi {
-            return overflowed;
-        }
-        let width = self.cx.b.func.dfg.value_type(value);
-        let mut bad = overflowed;
-        if exact_hi < hi {
-            let cap = self.cx.iconst(width, exact_hi as u64 as i64);
-            let cc = if signed { IntCC::SignedGreaterThan } else { IntCC::UnsignedGreaterThan };
-            let above = self.cx.b.ins().icmp(cc, value, cap);
-            bad = self.cx.b.ins().bor(bad, above);
-        }
-        if exact_lo > lo {
-            let floor = self.cx.iconst(width, exact_lo as u64 as i64);
-            let cc = if signed { IntCC::SignedLessThan } else { IntCC::UnsignedLessThan };
-            let below = self.cx.b.ins().icmp(cc, value, floor);
-            bad = self.cx.b.ins().bor(bad, below);
-        }
-        bad
     }
 
     /// `(result, did it overflow)` for one of the four checked operations.
@@ -3136,10 +3107,17 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             // `Str` (§3.3), and `middle::lower` has already turned the holes
             // into a `str.concat` chain. The context is zero-sized and has
             // already been dropped from the argument list.
+            //
+            // The identity on the *bytes*, not on the count. `middle/rc.rs`'s
+            // stated convention is that an intrinsic borrows its arguments and
+            // returns a fresh count, and copying three words produces a second
+            // name for one block rather than a second reference to it — so the
+            // count is taken here. Without it the argument and the result are
+            // one block with one count and two owners, and the second drop is
+            // a double free.
             "str.format" => {
-                let Some(src) = args.last().copied().and_then(|v| self.get(v)) else {
-                    return false;
-                };
+                let Some(arg) = args.last().copied() else { return false };
+                let Some(src) = self.get(arg) else { return false };
                 let dty = self.code.ty_of(dest);
                 let l = self.layout(dty);
                 if l.size == 0 {
@@ -3147,6 +3125,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 }
                 let d = self.alloc_slot(dest, dty);
                 self.cx.copy(d, src, l.size, l.align);
+                self.rc(arg, true);
                 true
             }
             // `core/testing/context`'s allocator, and only its allocator.

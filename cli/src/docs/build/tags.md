@@ -286,7 +286,7 @@ library {
 
 That is the mechanism for "this must behave identically on both backends," which
 for a language targeting a native binary and JavaScript is the test you most want
-to be able to write. `I64` on the JS target ([`SPEC.md` §15](./SPEC.md)) is the
+to be able to write. `I64` on the JS target ([`SPEC.md` §15](./cli/src/docs/SPEC.md)) is the
 standing reason it exists. A platform listed here must be one the target admits —
 asking for a JS run of a `[LINUX, MACOS]` library is an error, not a skip.
 

@@ -87,12 +87,25 @@
 //! the entry of a branch that does not use a live value, a drop at function
 //! entry for an owned parameter nothing reads.
 //!
-//! **Analysis only.** [`FuncPlan::reuse`] pairs a dying value with a
-//! construction in the same arm (MEMORY.md §5.3's "same basic block, matching
-//! size class"). The *transformation* is a `lower` decision — it is the
-//! allocation call that changes, and this pass emits no allocation calls — so
-//! what lands here is the pairing and the token, behind
-//! [`Options::reuse`] so a backend can be brought up without it.
+//! **Analysis only, and deliberately so.** [`FuncPlan::reuse`] pairs a dying
+//! value with a construction in the same arm (MEMORY.md §5.3's "same basic
+//! block, matching size class"), behind [`Options::reuse`], which is on.
+//! Nothing consumes it, and the reason is not that the transformation is hard:
+//! **the construction it would rewrite does not allocate.** A struct, a tuple,
+//! an enum and a closure record are register or stack values in both backends
+//! (`cranelift/emit.rs`'s `make_struct` is a stack slot), so
+//! `.Cons(f(h), t)` writing into the matched cell has no cell to write into.
+//! `cli/tests/native_cranelift.rs`'s
+//! `a_struct_update_loop_allocates_nothing_per_iteration` measures it: a
+//! thousand functional record updates allocate exactly as many blocks as ten.
+//!
+//! What *does* allocate is a `Str`'s bytes and a `[T]`'s elements, and the
+//! in-place growth for both landed where each operation lives —
+//! `cli/runtime/list.rs`'s `append_dest` for `push` and `concat`, and each
+//! backend's open-coded `str.concat`. MEMORY.md §5.3 has the list, the growth
+//! policy and what is excluded. This pairing stays here, correct and inert,
+//! against a layout change that puts aggregates on the heap; the test above is
+//! what would notice.
 //!
 //! **Assumed, and written down because it is a contract with the runtime.**
 //! A runtime intrinsic **borrows** its arguments and returns a fresh count;
@@ -402,6 +415,16 @@ impl Syntactic {
             typed::walk(body, &mut |e| match &e.kind {
                 ExprKind::Str(_) => {
                     prim_of.entry(e.ty.clone()).or_insert(Prim::Str);
+                }
+                // An interpolation names `Template`, and nothing else in a
+                // body does: a text run is not an `ExprKind::Str` and no
+                // literal has the type. Without this row every `Template` was
+                // `Answer::Unknown` — read as "not counted" — so the block
+                // `lower::template`'s `str.concat` chain ends holding was
+                // never dropped, and `println("[${x}]")` in a loop grew the
+                // heap by a block an iteration.
+                ExprKind::Template { .. } => {
+                    prim_of.entry(e.ty.clone()).or_insert(Prim::Template);
                 }
                 ExprKind::Bool(_) => {
                     prim_of.entry(e.ty.clone()).or_insert(Prim::Bool);
@@ -1124,6 +1147,40 @@ impl Scan<'_> {
         }
     }
 
+    /// What a **projection** does with the drops its base raised, which is not
+    /// what every other construct does with them.
+    ///
+    /// `p.a`, `p.0`, `xs[i]` and `ctx.f` read their base without taking it, and
+    /// the value they produce is *words copied out of the base* — a `Str`'s
+    /// three words, a `[T]`'s two — with no count of their own. So the base has
+    /// to outlive whatever goes on to read those words, and that is the
+    /// **parent**, not the projection.
+    ///
+    /// Under [`Mode::Own`] the projection has just increfed what it produced,
+    /// so the alias carries a count and the base may die here: this flushes,
+    /// exactly as it always did.
+    ///
+    /// Under [`Mode::Borrow`] it must not. `"[${p.a}][${p.b}]"` is the shape
+    /// and it was a wrong answer rather than a crash: the last mention of `p`
+    /// is `p.b`, so flushing here dropped the pair — and with it the two string
+    /// blocks its fields named — *before* the `str.concat` chain that reads
+    /// them ran, and `malloc` handed the freed block straight back to the next
+    /// concatenation. `match (xs[i]) { .. }` is the same bug one construct
+    /// over, and there it was a segmentation fault. Leaving the drop pending
+    /// hands it to the enclosing construct, which flushes after its own code:
+    /// [`Scan::children`] after every sibling has been read, [`Scan::match_`]
+    /// after the arms.
+    ///
+    /// This is the same deferral, for the same reason, that
+    /// [`Scan::children`]'s doc comment describes for a bare `Local` handed to
+    /// a borrowing construct. A projection of one is no less an alias than the
+    /// local itself, and it took three shapes to notice.
+    fn project(&mut self, id: NodeId, mode: Mode) {
+        if mode == Mode::Own {
+            self.flush(id);
+        }
+    }
+
     /// The id of the `k`th child of the node at `id`, from the subtree sizes —
     /// which is why the numbering needs no second traversal.
     fn child(&self, id: NodeId, k: usize) -> NodeId {
@@ -1347,7 +1404,7 @@ impl Scan<'_> {
                 if mode == Mode::Own && self.counted_ty(&e.ty.clone()) {
                     self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
                 }
-                self.flush(id);
+                self.project(id, mode);
                 out
             }
             ExprKind::Index { base, index, .. } => {
@@ -1358,7 +1415,7 @@ impl Scan<'_> {
                 if mode == Mode::Own && self.counted_ty(&e.ty.clone()) {
                     self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
                 }
-                self.flush(id);
+                self.project(id, mode);
                 out
             }
             _ => self.children(e, id, live),
@@ -1450,7 +1507,7 @@ impl Scan<'_> {
         }
         let sid = self.child(id, 0);
         let smode = if owns { Mode::Own } else { Mode::Borrow };
-        let mut out = self.expr(scrutinee, sid, &before, smode);
+        let out = self.expr(scrutinee, sid, &before, smode);
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
         // it, so dropping at an arm's entry would free what the arm is about
@@ -1462,10 +1519,11 @@ impl Scan<'_> {
         } else {
             self.flush(id);
         }
-        if let Some(t) = token {
-            // The arms dropped it; it is not live before them either.
-            out.remove(&t);
-        }
+        // Deliberately *not* removed from `out`: the scrutinee is read here,
+        // so it is live before this expression however the arms dispose of it.
+        // Removing it made a second consuming `match` on the same local — a
+        // shape the standard library does not have and a program can — look
+        // like a first use, so both matches emitted a drop.
         out
     }
 
@@ -1501,12 +1559,56 @@ impl Scan<'_> {
 
     /// The default: every child is evaluated, left to right, and each takes
     /// what the construct's own convention says.
+    ///
+    /// # The one thing right-to-left scanning gets wrong on its own
+    ///
+    /// "A child's live-after is everything to its right" is the rule, and it
+    /// makes the *rightmost* mention of a local its last use. That is right for
+    /// a local whose value is a register, and wrong for a **borrowed local
+    /// handed to the construct directly**.
+    ///
+    /// `f(s, g(s))` is the shape, and a `Str` is what makes it bite. The first
+    /// argument is `s` itself: the construct is holding three words copied out
+    /// of `s`, with no count of their own, and it goes on holding them while
+    /// `g(s)` runs and until `f` is called. But the rightmost mention of `s` is
+    /// inside `g`, so a drop placed after *that* frees the block those three
+    /// words point into, before `f` ever reads them. `"${s} ${x} ${s.len()}"`
+    /// is the same shape — a template is a `str.concat` chain over holes that
+    /// are all evaluated first (`lower::template`) — and it was a wrong answer
+    /// rather than a crash, because the freed block is usually handed straight
+    /// back by `malloc` to the next allocation in the same expression.
+    ///
+    /// So a bare `Local` child under a borrowing convention is **kept alive
+    /// across its siblings** and dropped by this construct instead. That is the
+    /// same deferral [`Scan::short_circuit`] makes for the same reason, and one
+    /// extra pair of operations is what it costs on the path where the local
+    /// really did die inside a sibling.
+    ///
+    /// An *owning* child needs nothing: it increfs what it takes (a
+    /// construction's field, an owned parameter), so the alias it holds carries
+    /// a count and cannot be freed underneath it.
     fn children(&mut self, e: &Expr, id: NodeId, live: &Live) -> Live {
         let kids = kids(e);
         let modes = child_modes(e, kids.len(), self.ownership);
+        let mut kept: Vec<LocalId> = Vec::new();
+        for (k, kid) in kids.iter().enumerate() {
+            if modes.get(k).copied().unwrap_or(Mode::Borrow) != Mode::Borrow {
+                continue;
+            }
+            let ExprKind::Local(l) = &kid.kind else { continue };
+            if self.is_counted(*l)
+                && self.owned.contains(l)
+                && !live.contains(l)
+                && !kept.contains(l)
+            {
+                kept.push(*l);
+            }
+        }
+        kept.sort_by_key(|l| l.0);
         let mut after = live.clone();
+        after.extend(kept.iter().copied());
         // Right to left: a child's "live after" is everything the children to
-        // its right go on to use.
+        // its right go on to use, plus whatever `kept` is holding open.
         for (k, kid) in kids.iter().enumerate().rev() {
             let kid_id = self.child(id, k);
             let m = modes.get(k).copied().unwrap_or(Mode::Borrow);
@@ -1514,6 +1616,9 @@ impl Scan<'_> {
             if m == Mode::Borrow {
                 self.drop_temporary(kid, kid_id, id);
             }
+        }
+        for l in kept {
+            self.pending.push(l);
         }
         self.flush(id);
         after
@@ -2470,6 +2575,129 @@ export fn main(): Result<(), Str> {
         let swap_off = without.func(find(&program, "swap")).expect("a plan");
         assert!(swap_off.reuse.is_empty());
         assert_eq!(swap_off.sites, swap.sites);
+    }
+
+    /// A scrutinee that is **still live after the match** is not dying, so
+    /// there is nothing to reuse and nothing is paired.
+    ///
+    /// This is the edge that makes reuse sound rather than fast: writing into
+    /// a cell something else still reads is the one way MEMORY.md §5.3's
+    /// mutation becomes observable, and the guard against it is the same
+    /// `!live.contains(l)` that decides the drop.
+    #[test]
+    fn a_value_used_after_the_construction_is_not_paired() {
+        let src = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Pair { One(Str), Two(Str, Str) }
+
+export fn first(p: Pair): Str {
+  match (p) {
+    .One(a) => a,
+    .Two(a, _b) => a,
+  }
+}
+
+export fn swapped(p: Pair, other: Pair): Pair {
+  let q: Pair = match (p) {
+    .One(a) => .One(a),
+    .Two(a, b) => .Two(b, a),
+  };
+  // `p` is read *after* the construction, so the match above did not consume
+  // it and its cell is not dying at the point the arm built a new one.
+  let n = match (p) { .One(_a) => 1, .Two(_a, _b) => 2 };
+  if (n == 1) { q } else { other }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(first(swapped(Pair.Two("a", "b"), Pair.One("c"))));
+  .Ok(())
+}
+"#;
+        let program = compile(src);
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let swapped = plan.func(find(&program, "swapped")).expect("a plan");
+        assert!(
+            swapped.reuse.is_empty(),
+            "a scrutinee read after the arms was paired anyway: {:?}",
+            swapped.reuse
+        );
+    }
+
+    /// An arm whose body is **not a construction** pairs nothing, and an arm
+    /// whose construction has a different field count is recorded with *its
+    /// own* count rather than the scrutinee's.
+    ///
+    /// [`Reuse::fields`] is the shape half of MEMORY.md §5.3's condition, and
+    /// `lower` compares size classes with it. A pairing that reported the
+    /// wrong count would be a write into a block too small for it, so the
+    /// number is asserted per arm rather than in aggregate.
+    #[test]
+    fn only_a_construction_pairs_and_it_carries_its_own_shape() {
+        let src = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Shape { Nil, One(Str), Two(Str, Str) }
+
+export fn reshape(s: Shape, fallback: Str): Shape {
+  match (s) {
+    .Nil => .Nil,
+    // A construction of one field, out of a scrutinee whose live variant
+    // carries one.
+    .One(a) => .One(a),
+    // A construction of *two* fields out of the same scrutinee type.
+    .Two(a, b) => .Two(b, a),
+  }
+}
+
+export fn pick(s: Shape, d: Str): Str {
+  match (s) {
+    // Not a construction at all: every arm answers a binding.
+    .Nil => d,
+    .One(a) => a,
+    .Two(a, _b) => a,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let a = reshape(Shape.Two("a", "b"), "z");
+  let _ = ctx.println(pick(a, "z"));
+  .Ok(())
+}
+"#;
+        let program = compile(src);
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let reshape = plan.func(find(&program, "reshape")).expect("a plan");
+        let mut shapes: Vec<usize> = reshape.reuse.iter().map(|r| r.fields).collect();
+        shapes.sort_unstable();
+        assert_eq!(
+            shapes,
+            vec![0, 1, 2],
+            "each arm pairs with its own field count: {:?}",
+            reshape.reuse
+        );
+        // Every pairing names the scrutinee and no other local.
+        let scrutinee = reshape.reuse.first().map(|r| r.token);
+        assert!(
+            reshape.reuse.iter().all(|r| Some(r.token) == scrutinee),
+            "a pairing named something other than the dying scrutinee: {:?}",
+            reshape.reuse
+        );
+        // `pick` consumes its scrutinee just as `reshape` does, and pairs
+        // nothing: no arm of it builds anything, so there is no allocation for
+        // the dying cell to become.
+        let pick = plan.func(find(&program, "pick")).expect("a plan");
+        assert!(
+            pick.reuse.is_empty(),
+            "an arm that is not a construction was paired: {:?}",
+            pick.reuse
+        );
     }
 
     /// The purity column, which is the other half of what `ir::Facts` wants.

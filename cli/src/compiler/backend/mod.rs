@@ -118,7 +118,7 @@ pub struct Emitted {
 
 /// What every backend can be asked.
 ///
-/// The signature `TODO.md:1741` proposed was
+/// The signature `design/native/ARCHITECTURE.md` §3 proposed was
 /// `emit(&Program, &Tables, &Options) -> Result<Vec<u8>, Diagnostics>`, and it
 /// is amended in one place: `Vec<u8>` is one artifact, and the whole of the
 /// incremental-link plan is that a build emits *many* object files and relinks
@@ -143,7 +143,7 @@ pub trait Backend {
     fn identity(&self) -> String;
 
     /// Intrinsic keys this backend has no implementation of, so "missing
-    /// intrinsic" becomes a question asked per backend (`TODO.md:1755`).
+    /// intrinsic" becomes a question asked per backend (`design/TODO.md#the-native-backend`).
     ///
     /// Taking the program rather than a list of strings is the point: the list
     /// was accumulated as a side effect of emission, so a program could only be

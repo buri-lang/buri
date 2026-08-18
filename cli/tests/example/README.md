@@ -91,7 +91,7 @@ looked harmless, which visibility would not catch.
 
 | File | The point |
 |---|---|
-| [`REPO.buri`](./REPO.buri) | An exactly pinned toolchain, the whole tag vocabulary with its policy attached, private-by-default visibility |
+| [`REPO.buri`](./REPO.buri) | The whole tag vocabulary with its policy attached, private-by-default visibility, and how little else belongs in a repository-wide file |
 | [`lib/money/lib.buri`](./lib/money/lib.buri) | A complete public surface in two lines; `toCents` deliberately left off it |
 | [`lib/money/cents.buri`](./lib/money/cents.buri) | Why a type's methods all live in one file, and what an unexported field hides from whom |
 | [`lib/money/parse.buri`](./lib/money/parse.buri) | Free functions over a type declared in another module; three levels of visibility in one file |

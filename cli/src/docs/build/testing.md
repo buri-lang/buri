@@ -6,7 +6,7 @@ test-only source directory outside the package, and no way to test a private
 function directly.
 
 The language side of this — the `test` declaration, `core/testing/assert`, and
-the `context` form — is [`SPEC.md` §11.2 and §11.3](./SPEC.md). This document
+the `context` form — is [`SPEC.md` §11.2 and §11.3](./cli/src/docs/SPEC.md). This document
 is the build system's half: where tests live, what they may import, and how they
 run.
 
@@ -237,7 +237,7 @@ what makes it testable, which is the pressure you want.
 
 **`main` itself is not testable**, and that is deliberate. It takes no
 parameters and builds its own context out of `core/host`, so there is no fake to
-hand it ([`SPEC.md` §11](./SPEC.md)). A binary whose failure modes you want to
+hand it ([`SPEC.md` §11](./cli/src/docs/SPEC.md)). A binary whose failure modes you want to
 assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
@@ -330,7 +330,7 @@ prints to its captured stdout is invisible to the next — which is why a named
 context is called rather than referred to.
 
 Anything the runner does not provide is an ordinary struct with methods, since
-effects are ordinary interfaces ([`SPEC.md` §10.9](./SPEC.md)), and it is bound
+effects are ordinary interfaces ([`SPEC.md` §10.9](./cli/src/docs/SPEC.md)), and it is bound
 exactly the way the runner's own implementations are:
 
 ```buri role=test
@@ -367,7 +367,7 @@ and keeps the state on the runner's side, which is exactly what
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot
 open a socket in anything it transitively calls — that is
-[`SPEC.md` §10](./SPEC.md), not a build system feature. There is no third layer:
+[`SPEC.md` §10](./cli/src/docs/SPEC.md), not a build system feature. There is no third layer:
 the toolchain applies no operating-system confinement, because a suite has no
 name for a real capability to begin with
 ([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md)).

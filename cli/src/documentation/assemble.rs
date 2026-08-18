@@ -1,10 +1,17 @@
 //! Regenerating the documents a reader meets on GitHub.
 //!
-//! `SPEC.md` and `README.md` are not edited. They are assembled from the
-//! topics in `doc_topics`, so there is exactly one copy of every sentence: the
-//! one `buri docs` serves. `buri docs assemble --check` fails when the
-//! checked-in file has drifted from what the topics produce, which is the same
-//! shape as `buri format --check` and `buri gen --check`.
+//! `cli/src/docs/SPEC.md` and the top-level `README.md` are not edited. They
+//! are assembled from the topics in `doc_topics`, so there is exactly one copy
+//! of every sentence: the one `buri docs` serves. `buri docs assemble --check`
+//! fails when the checked-in file has drifted from what the topics produce,
+//! which is the same shape as `buri format --check` and `buri gen --check`.
+//!
+//! The assembled specification lives beside the topics it is made of rather
+//! than at the repository root: one directory is the documentation, and a
+//! generated copy two levels above the sources it came from is how a reader
+//! ends up editing the wrong file. `README.md` stays at the root because
+//! GitHub renders it there and nowhere else, and it is deliberately small —
+//! an introduction, how to install, and where the documentation actually is.
 //!
 //! **Section numbers are written down, not computed.** Ninety-nine comments in
 //! `cli/src/` cite `SPEC 10.5` and friends. If assembly renumbered positionally,
@@ -62,7 +69,7 @@ pub struct Document {
 
 pub const DOCUMENTS: &[Document] = &[
     Document {
-        path: "SPEC.md",
+        path: "cli/src/docs/SPEC.md",
         front: topics::LANG_FRONT,
         sections: &[
             sec("1", "lang/introduction"),
@@ -87,18 +94,18 @@ pub const DOCUMENTS: &[Document] = &[
         front: topics::GUIDE_FRONT,
         // The guide's sections are prose, not a numbered specification, so
         // there is nothing to pin.
+        //
+        // Three sections and no more. The whole guide used to be dumped here,
+        // which made the front page of the repository a forty-minute read and
+        // put a second copy of the language tour a click away from the first.
+        // What a reader wants from a README is what this is, how to get it,
+        // and where the documentation lives; the rest is `buri docs` and the
+        // files under `cli/src/docs/`, which is where it was being edited
+        // anyway.
         sections: &[
-            prose("guide/goals"),
-            prose("guide/three-ideas"),
-            prose("guide/numbers"),
-            prose("guide/methods-and-traits"),
-            prose("guide/restricting-effects"),
-            prose("guide/errors"),
-            prose("guide/imports"),
-            prose("guide/whats-in"),
+            prose("guide/readme-intro"),
             prose("guide/installing"),
-            prose("guide/status"),
-            prose("guide/naming"),
+            prose("guide/readme-links"),
         ],
     },
 ];
@@ -200,20 +207,27 @@ mod tests {
         }
     }
 
-    /// Every `lang/` and `guide/` topic is reachable from an assembled
-    /// document — a topic that is in neither would be served by `buri docs`
-    /// and invisible on GitHub.
+    /// Every `lang/` topic is a section of the specification, and nothing else
+    /// is. A `lang/` topic left out would be served by `buri docs` and missing
+    /// from the document that is supposed to be the whole language.
+    ///
+    /// `guide/` is deliberately not held to this. Guide topics are pages first;
+    /// three of them happen to also be the README, and the rest are read
+    /// through `buri docs` or in `cli/src/docs/guide/`. A `build/` topic is
+    /// never assembled — the build system's pages are the files themselves.
     #[test]
-    fn no_topic_is_orphaned() {
+    fn only_lang_topics_are_specification_sections() {
         for t in topics::TOPICS {
             let assembled = DOCUMENTS.iter().any(|d| d.sections.iter().any(|s| s.topic == t.id));
-            let expected = matches!(t.kind, topics::Kind::Lang | topics::Kind::Guide);
-            assert_eq!(
-                assembled, expected,
-                "`{}` is {} an assembled document but should be the other way",
-                t.id,
-                if assembled { "in" } else { "not in" }
-            );
+            match t.kind {
+                topics::Kind::Lang => {
+                    assert!(assembled, "`{}` is a language topic but is in no document", t.id);
+                }
+                topics::Kind::Build => {
+                    assert!(!assembled, "`{}` is a build topic and must not be assembled", t.id);
+                }
+                topics::Kind::Guide => {}
+            }
         }
     }
 }

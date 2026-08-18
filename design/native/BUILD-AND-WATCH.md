@@ -7,37 +7,14 @@ already exists.
 
 ## 1. The dependency policy ends, and what replaces it
 
-The current policy is stated in the root `Cargo.toml`:
+The policy used to be "no dependencies at all", and native code generation ends
+that: a retargetable code generator is not something this repository can write.
+What replaces it is a **bar** rather than a list, because a list is a thing
+people add to. The bar and the argument for each of its three clauses are in the
+root `Cargo.toml`, where somebody about to add a dependency will meet them; they
+are not restated here.
 
-> `buri` itself has no dependencies at all — the toolchain is pinned by hash, and
-> a dependency tree is a second thing to pin
-
-and again in `flake.nix`:
-
-> The toolchain has no dependencies on purpose (see the root `Cargo.toml`), so
-> the lockfile names one package -- this crate -- and vendoring fetches nothing.
-> There is no `cargoHash` to keep in sync because there is nothing to hash.
-
-That is now false, and it has to be replaced by something rather than quietly
-weakened. The replacement is a **bar**, not a list, because a list is a thing
-people add to.
-
-> **A dependency is admissible only if it is a code generator or a platform
-> interface that this repository could not reasonably write, it is behind a cargo
-> feature the default build can turn off, and its absence degrades the toolchain
-> rather than breaking it.**
->
-> Everything that is an *algorithm* stays in-tree. SHA-256, the hasher, JSON, the
-> lexer, the parser, the minifier, the SAT-free exhaustiveness checker and the
-> file-change detector are all algorithms, and they are all already written here.
-> A crate that would save a hundred lines is not admissible; a crate that
-> encapsulates a million is.
-
-The three clauses each rule something out. "Code generator or platform interface"
-rules out convenience (`anyhow`, `clap`, `serde`). "Behind a feature" rules out
-anything that would make `cargo install buri` need a system library. "Degrades
-rather than breaks" is what makes the second clause enforceable: if turning a
-feature off broke the toolchain, the feature would not stay off.
+What belongs here is what the bar admitted, and why each one clears it.
 
 ### 1.1 The admitted set
 
@@ -48,9 +25,8 @@ feature off broke the toolchain, the feature would not stay off.
 | `target-lexicon` | both | Comes in with Cranelift; a triple parser is small, but forking one to disagree with Cranelift's is worse than depending on Cranelift's. |
 | `object` | — | **Not a direct dependency.** `cranelift-object` depends on it and re-exports it, so version skew is a compile error. Nothing in this design needs it on the LLVM path — `TargetMachine::write_to_memory_buffer` produces the object. |
 
-That is the whole list. `Cargo.lock` names four packages plus their closures, the
-flake gains a `cargoHash`, and both of the comments quoted above are rewritten to
-state the bar instead of the absence.
+That is the whole list. `Cargo.lock` names those packages plus their closures,
+and the flake carries a `cargoHash` because there is now something to hash.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
@@ -141,21 +117,20 @@ require that, so it does not.
 
 It refuses `--release` for a native platform, with a diagnostic naming the
 feature — it does not fall back to Cranelift. A `--release` build that silently
-produced different code depending on how the compiler happened to be installed is
-the same class of bug as an unpinned toolchain, and this repository already
-refuses to run against a compiler it was not pinned to.
+produced different code depending on how the compiler happened to be installed
+is the wrong kind of surprise, and a refusal naming the feature is the right
+one.
 
-The hazard that would normally follow — two `buri` binaries with identical
-sources and different capabilities — is already closed by a mechanism that
-exists. `build/toolchain.rs` hashes **the running executable** and refuses to run
-if `REPO.buri`'s `sha256` does not match (`TODO.md:1175-1189`), and a binary built
-with `backend-llvm` is a different executable with a different hash. So a
-repository pinned to an LLVM-enabled toolchain cannot be built by one without,
-and nobody has to have thought about it.
-
-`Backend::identity()` (ARCHITECTURE.md §3) closes the other half: the LLVM
-version enters every release `codegen` key, so two LLVM-enabled toolchains built
-against different LLVMs do not share cache entries.
+The hazard that follows is two `buri` binaries with identical sources and
+different capabilities. **Nothing pins which one a repository is built with**:
+`REPO.buri` used to name an exact toolchain version and its SHA-256, and that
+pin was removed because a pin earns its keep only where a toolchain is fetched
+and nothing fetches one (`buri docs build/hermeticity`). What stands in its
+place is the refusal above — a toolchain that cannot do the job says so rather
+than doing a different one — plus `Backend::identity()` (ARCHITECTURE.md §3),
+which puts the LLVM version into every release `codegen` key, so two
+LLVM-enabled toolchains built against different LLVMs do not share cache
+entries.
 
 ### 2.2 The runtime archive
 
@@ -231,6 +206,21 @@ Four notes, each of which is a mistake someone would otherwise make:
   `nixos-25.05` provides 18.1.8, 19.1.7 (the default), 20.1.8 and 21.1.2, and no
   22 — so pinning LLVM 22 would require bumping the flake's nixpkgs, which is a
   change to how the whole toolchain is built in service of a codegen decision.
+
+  **The policy, ruled on and stated in full at CODEGEN-LLVM.md §8.1:** there is
+  **exactly one** supported LLVM at any moment, and the pin is the latest that
+  inkwell and this flake both carry — which is why this line and `cli/Cargo.toml`'s
+  `llvm21-1` are one decision written twice, and why they may never disagree.
+  Multi-version support is refused permanently; a contributor who wants a
+  different LLVM gets it by not using `nix develop`, and then owns the mismatch.
+  Bumping is a **routine chore**, not a compatibility event: bump this
+  `llvmPackages_N`, the inkwell feature, `LLVM_SYS_<N>1_PREFIX`, and
+  `backend/llvm/attrs.rs`'s location list, then let
+  `the_bitmask_matches_llvm_21s_location_list` catch the one of those four that
+  fails silently. No deprecation window, because there is no second version to
+  deprecate. The LLVM version is an internal detail — nothing a program, a BUILD
+  file or a diagnostic names — with `Backend::identity()` the sole exception, and
+  that is a cache key rather than an interface.
 - **`llvm.dev`**, not `llvm`. The `.dev` output carries `bin/llvm-config` and the
   headers; the default output does not, and the failure does not say so.
 - **`mkShell` rather than `mkShellNoCC`.** `llvm-sys`'s build script needs a C++
@@ -423,133 +413,42 @@ Not a hot-reload, not a REPL, and not a language server. It re-runs `buri test`
 and it does not keep a compiled program alive between runs. The reason to say so
 is that the machinery that would make it more — a persistent process holding the
 checked standard library between runs — is the same machinery
-`TODO.md:1423-1427` names as still missing ("nothing shares work between
-processes"), and it is a separate, larger piece of work whose first customer
+`design/TODO.md` names as still missing under "Incrementality and caching"
+("nothing shares work between processes"), and it is a separate, larger piece
+of work whose first customer
 would be the language server rather than this.
 
 ## 5. Implementation waves
 
-Sized so each item is one agent's work, ordered so no two items in a wave write
-the same file. The collision map is the point of the table: it is what makes
-parallel implementation safe rather than optimistic.
+The waves have landed. The collision map that made them safe to run in parallel
+is not kept — it described who was allowed to write which file during a rollout
+that is over, and what it produced is the module layout in
+ARCHITECTURE.md §2 and the action graph in ARCHITECTURE.md §6.
 
-### Wave 0 — the middle end. One agent, alone. **Landed.**
+What is kept is the **legend**, because the wave labels are still module headers
+in the source (`//! ... **Wave 2b.**`) and a reader who meets one needs
+somewhere to look it up:
 
-Nothing starts until this lands, and it gets harder every time `generate.rs`
-grows — `TODO.md:1739-1743`, with a date on it.
+| Wave | What it was |
+|---|---|
+| 0 | `transform` → `middle`; the `Backend`/`Linker` traits and `Emitted`; `Action::Codegen`; the cargo features; `middle/mod.rs` declaring every module the later waves fill in |
+| 1a | `middle::ir` and `middle::lower` — the block-argument SSA CFG |
+| 1b | `middle::layout` — the value model as a memoised table, plus the `Alloc` cost model |
+| 1c | `cli/runtime` — the C-ABI runtime, and the `build.rs` that builds it |
+| 1d | `middle::{decision, closures, dce, tail_calls}` — the tree passes, and the tail-call *rewrite* that replaced the emitter consulting a `Plan` |
+| 1e | `middle::{derives, rc}` — generated derives, and own/borrow inference with reuse |
+| 2a | The Cranelift backend |
+| 2b | The LLVM backend |
+| 2c | The link step, the object cache, and the manifest |
+| 3a | Native `--check-reproducible` |
+| 3b | `buri test --watch` |
+| 3c | The `host_platform()` switch, the SPEC amendment, and the golden re-record |
+| 3d | The `buri_rt_*` runtime surface as both backends call it |
+| 4 | The allocator types and `Alloc` accounting |
 
-- `compiler/transform/` → `compiler/middle/`, `optimize.rs` → `inline.rs`, and
-  `middle/mod.rs` declares **every** module later waves add, each a stub. It
-  also holds `middle::run` and `middle::native`, which already *call* the stubs
-  — so a wave 1 item fills a function body and touches nothing else. This is
-  what makes the later waves collision-free, and it is the reason it is worth
-  doing up front.
-- `backend/generate.rs` + `javascript.rs` + `intrinsics.rs` + `runtime.js` move
-  under `backend/js/`, which gains a `mod.rs` holding the `Backend` impl.
-  `backend/{cranelift,llvm}/mod.rs` are created as feature-gated stubs, so both
-  gates are compiled before there is anything behind them to break.
-- `backend/mod.rs` gains `Backend`, `Linker`, `Emitted`, `Options`, `Target`,
-  `select`, and `Profile` moves into it from `generate.rs:36`.
-- `cache.rs` gains `Action::Codegen`, and `KeyBuilder` gains `backend` and
-  `linker`. `Backend::identity()` enters every `link` and `test` key, so a
-  backend change invalidates the cache.
-- `Cargo.toml` gains the two features, empty, and the dependency policy becomes
-  the bar in §1 rather than "none at all".
-- The JS backend implements `Backend`, and `actions.rs::emit` (`actions.rs:334`)
-  goes through the trait. `actions.rs` also gains `codegen_key`, so wave 2c
-  writes a body rather than a shape.
-
-**Not** in wave 0: `arm_chain`, closure conversion and DCE stay in the
-JavaScript backend until wave 1d moves them. Wave 0's whole value is that it
-changes no emitted bytes — `golden_javascript` passes unblessed across it — and
-mixing a behaviour change in would cost that.
-
-**Touches:** everything. **Blocks:** everything.
-
-### Wave 1 — five in parallel.
-
-| # | Item | Files it writes |
-|---|---|---|
-| 1a | `middle::ir` and `middle::lower` — the block-argument SSA CFG (CODEGEN-CRANELIFT.md §1) | `middle/ir.rs`, `middle/lower.rs` |
-| 1b | `middle::layout` — VALUE-MODEL.md, as a memoised table, plus the `Alloc` cost model (MEMORY.md §7.1) | `middle/layout.rs` |
-| 1c | `cli/runtime` — the C-ABI runtime and the `build.rs` that builds it | `cli/runtime/**`, `cli/build.rs`, `cli/Cargo.toml` |
-| 1d | `middle::{decision, closures, dce, tail_calls}` — the tree passes every backend or the native branch needs, and the tail-call *rewrite* that replaces the emitter's `Plan` consultation | `middle/decision.rs`, `middle/closures.rs`, `middle/dce.rs`, `middle/tail_calls.rs`, `backend/js/generate.rs` |
-| 1e | `middle::{derives, rc}` — generated derives (VALUE-MODEL.md §9) and own/borrow inference with reuse (MEMORY.md §5.2-5.3) | `middle/derives.rs`, `middle/rc.rs` |
-
-**Collisions:** none. 1a, 1d and 1e all add files under `middle/`, but
-`middle/mod.rs` was written in wave 0 and none of them edits it — wave 0 left
-the pipeline already calling every stub, so filling one in is a change to one
-file. 1c is the only writer of `cli/Cargo.toml` in this wave, and 1d is the only
-writer of `backend/js/generate.rs`, which it edits to *delete*: `arm_chain`, the
-`Plan` consultation, and the dead-code pass by name all leave together.
-
-**Note:** 1a depends on 1b's *interface* but not its content — the lowering asks
-`layout(ty)` for sizes and offsets. Agree the signature in wave 0's stub and both
-proceed.
-
-### Wave 2 — three in parallel.
-
-| # | Item | Files it writes |
-|---|---|---|
-| 2a | The Cranelift backend | `backend/cranelift/**`, root `Cargo.toml` (`backend-cranelift` deps) |
-| 2b | The LLVM backend | `backend/llvm/**` |
-| 2c | The link step, the object cache, and the manifest | `build/link.rs`, `build/actions.rs`, `build/cache.rs` |
-
-**Collisions:** 2a and 2b would both want `Cargo.toml`. Resolved by having **2a
-own it** and land both dependency blocks — the `inkwell` line is three lines and
-2b does not need to write them. `cache.rs`'s `Action::Codegen` was added in wave
-0, so 2c edits `cache.rs` only for the key builders.
-
-**Note:** 2a and 2b are the two that must agree, and what they agree on is
-`middle::layout` and `middle::ir`, both frozen in wave 1.
-`cranelift_and_llvm_agree` is written by whichever lands second.
-
-### Wave 3 — three in parallel.
-
-| # | Item | Files it writes |
-|---|---|---|
-| 3a | Native `--check-reproducible`: per-object comparison, `-no_uuid`, relative debug paths (ARCHITECTURE.md §7) | `commands/build.rs` |
-| 3b | `buri test --watch`: the poller and the loop | `build/watch.rs`, `commands/test.rs`, `commands/mod.rs`, `commands/arguments.rs` |
-| 3c | The `host_platform()` switch, the SPEC amendment, the docs, and the golden re-record | `compiler/driver.rs`, `SPEC.md`, `cli/src/docs/**`, `cli/tests/**` goldens |
-
-**Wave 3c, as landed.** Four things, and the third and fourth were not in the
-plan:
-
-1. The `host_platform()` switch, gated on `native_ready` (ARCHITECTURE.md §4 has
-   the amended version, including why the default output stays `JS`), with
-   `buri run` executing a native artifact directly and `buri test` running a
-   native suite as a binary.
-2. The SPEC amendment (VALUE-MODEL.md §11, now marked applied), and `num.buri`'s
-   2^53 comment with it.
-3. **The pipeline seam.** Wave 2b reported that `Backend::emit` takes `&Program`
-   and `middle::native` needs `&mut`, so the composition had to move into the
-   build system: `actions::prepare` is it, and it is what both `actions::emit`
-   and `actions::objects_of` call. Without it, a native target reached through
-   `actions::emit` — which is the path `buri test` takes — would have been
-   handed a program that never went through closure conversion.
-4. **The `test_key` hole** (§4.2), found by wave 3b and fixed here because the
-   key and the watch set are one enumeration.
-
-**Not** landed: the golden re-record for a *Linux* host. Two fixtures name
-`linux` as the platform this toolchain cannot produce, and on a Linux machine it
-now can. See ARCHITECTURE.md §4's last paragraph.
-
-**Collisions:** 3b is the only writer of `commands/mod.rs` and
-`commands/arguments.rs`. 3a and 3c both remove a "the backend is not implemented"
-refusal — `build.rs:169-173` is 3a's, `test.rs:232-247` is 3b's, and
-`actions.rs:45-54` was 2c's. Assigning one refusal to each is deliberate; the
-alternative is three agents editing one condition.
-
-**Note:** 3c is the largest by volume and the smallest by thought. It is last
-because every golden file it re-records depends on 2a and 2b being settled.
-
-### Wave 4 — the allocator types.
-
-`GeneralPurpose`, `Arena` and `FixedBuffer` in `core/cap`, the `Alloc` accounting
-in the runtime, and the cost model written into `core/cap`'s own source
-(MEMORY.md §7). One agent. It is last because it is the only item that needs both
-a working native runtime and a settled cost model, and it is the item
-`TODO.md:1448-1481` has been holding.
+One thing from wave 3c did **not** land: the golden re-record for a *Linux*
+host. Two fixtures name `linux` as the platform this toolchain cannot produce,
+and on a Linux machine it now can. ARCHITECTURE.md §4's last paragraph has it.
 
 ### What is not in any wave
 

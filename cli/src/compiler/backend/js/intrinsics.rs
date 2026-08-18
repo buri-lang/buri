@@ -169,7 +169,10 @@ impl<'a> Gen<'a> {
             // The default `+` leaves overflow undefined; these are the
             // alternatives, spelled out where they are used. The bounds are
             // the exactly-representable ones, so a `.Some` is always a value
-            // the answer really is.
+            // the answer really is. That is *this backend's* bound: a native
+            // one tests `int_range`, because there nothing has to survive being
+            // a double, and the band between the two is
+            // `design/native/VALUE-MODEL.md` §12 row 2's documented divergence.
             "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv" => {
                 let (x, y) = two()?;
                 let (lo, hi) = from.exact_int_range()?;
