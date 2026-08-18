@@ -1,2 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# The checked-in benchmark corpora, whose whole point is their bytes.
+#
+# `text=auto` above permits line-ending translation on checkout, and a corpus
+# that is translated is a corpus whose digest no longer matches its manifest and
+# whose byte-rate measurement is off by one byte per line. `-text` turns every
+# form of normalization off for this subtree. See
+# `cli/benches/corpora/README.md` and `design/PERFORMANCE.md` §3.1.
+cli/benches/corpora/** -text

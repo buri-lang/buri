@@ -1,0 +1,69 @@
+//! Generated module 9 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+from "//bench/m0005" import { Node5, seed5, blend5, reach5 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node9 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node9;
+
+export fn seed9(): Int { 1272 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend9(base: Int): Int {
+  let d0 = blend4(base) + seed4();
+  let d1 = blend5(base) + seed5();
+  d0 + d1 + seed9()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift9(n: Node4): Node9 {
+  Node9 { label: n.label, value: n.value + seed9(), weight: n.weight }
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr9_0<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll9_0<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric9_0(ns: [Int], ss: [Str]): Int {
+  firstOr9_0<Int>(ns, 0) + firstOr9_0<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_0<C: Alloc>(ctx: C): Int {
+  useGeneric9_0([1, 2], ["a"]) + describeAll9_0(ctx, [1, 2]).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach9<C: Alloc>(ctx: C): Int {
+  0
+    + probe9_0(ctx)
+    + reach4(ctx)
+    + reach5(ctx)
+}

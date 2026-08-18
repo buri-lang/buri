@@ -99,6 +99,13 @@ pub struct Checker<'a> {
     pub known_traits: HashMap<String, TraitId>,
     /// Enums by well-known name.
     pub known_types: HashMap<String, TyConId>,
+    /// The three of those the body checker asks about by name on hot paths —
+    /// `?`, `??`, and every comparison. They are settled by
+    /// `register_known_names` before any body is looked at, so asking the map
+    /// again was a string hash and a probe per `let` and per operator.
+    pub option_con: Option<TyConId>,
+    pub result_con: Option<TyConId>,
+    pub order_con: Option<TyConId>,
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
     /// Whether the declaration being elaborated is a trait, an effect, or an
@@ -128,6 +135,9 @@ impl<'a> Checker<'a> {
             surfaces: HashMap::default(),
             known_traits: HashMap::default(),
             known_types: HashMap::default(),
+            option_con: None,
+            result_con: None,
+            order_con: None,
             resolving: Vec::new(),
             in_self_scope: false,
         }
@@ -619,6 +629,7 @@ impl<'a> Checker<'a> {
                             },
                         };
                         self.tables.tycon_mut(con).def = def;
+                        self.tables.index_members(con);
                         self.check_unique_field_names(con);
                     }
                     tree::Item::Enum(d) => {
@@ -668,6 +679,7 @@ impl<'a> Checker<'a> {
                             })
                             .collect();
                         self.tables.tycon_mut(con).def = TyDef::Enum { variants };
+                        self.tables.index_members(con);
                         self.check_unique_variant_names(con);
                         self.check_productive(con, d.span);
                     }
@@ -841,7 +853,7 @@ impl<'a> Checker<'a> {
         let str_ty = self.tables.prim(Prim::Str);
         let ok = match &info.ret {
             Ty::Con(id, args) => {
-                self.known_types.get("Result") == Some(id)
+                self.result_con.as_ref() == Some(id)
                     && matches!(args.as_slice(), [ok, err] if *ok == unit && *err == str_ty)
             }
             _ => false,
@@ -1112,38 +1124,61 @@ impl<'a> Checker<'a> {
     /// Struct field names and enum variant names must be unique within their
     /// scope (SPEC 14.6).
     fn check_unique_field_names(&mut self, con: TyConId) {
-        let fields = self.tables.tycon(con).fields().to_vec();
-        let mut seen = HashSet::default();
-        for f in &fields {
-            if !seen.insert(f.name.clone()) {
-                let n = f.name.clone();
-                self.err(f.span, format!("field `{n}` is declared twice")).code("duplicate-declaration")
-                    .fix("rename one of them, or delete the duplicate");
+        // Found under the borrow and reported after it, so that the check
+        // reads the declaration in place rather than copying every field of
+        // it to get a `&mut self` for the diagnostic.
+        let mut dups: Vec<(Span, String)> = Vec::new();
+        {
+            let mut seen: HashSet<&str> = HashSet::default();
+            for f in self.tables.tycon(con).fields() {
+                if !seen.insert(f.name.as_str()) {
+                    dups.push((f.span, f.name.clone()));
+                }
             }
+        }
+        for (span, n) in dups {
+            self.err(span, format!("field `{n}` is declared twice")).code("duplicate-declaration")
+                .fix("rename one of them, or delete the duplicate");
         }
     }
 
     /// Enum variant names must be unique within their scope (SPEC 14.6).
     fn check_unique_variant_names(&mut self, con: TyConId) {
-        let variants = self.tables.tycon(con).variants().to_vec();
-        let mut seen: Vec<String> = Vec::new();
-        for v in &variants {
-            if seen.contains(&v.name) {
-                let n = v.name.clone();
-                self.err(v.span, format!("variant `{n}` is declared twice")).code("duplicate-declaration")
-                    .fix("rename one of them; `match` tells variants apart by name");
+        // A set rather than a `Vec` searched with `contains`: one arm per
+        // variant is already the shape a wide enum has, and this was N²/2
+        // string comparisons on top of a copy of every variant.
+        /// A duplicate, in the order the walk below meets it: a variant's own
+        /// diagnostic comes before its fields'.
+        enum Dup {
+            Variant(Span, String),
+            Field(Span, String, String),
+        }
+        let mut dups: Vec<Dup> = Vec::new();
+        {
+            let mut seen: HashSet<&str> = HashSet::default();
+            for v in self.tables.tycon(con).variants() {
+                if !seen.insert(v.name.as_str()) {
+                    dups.push(Dup::Variant(v.span, v.name.clone()));
+                }
+                // A variant's own fields have to be unique too.
+                let mut fields: HashSet<&str> = HashSet::default();
+                for f in &v.fields {
+                    if !fields.insert(f.name.as_str()) {
+                        dups.push(Dup::Field(f.span, f.name.clone(), v.name.clone()));
+                    }
+                }
             }
-            seen.push(v.name.clone());
-            // A variant's own fields have to be unique too.
-            let mut fields: Vec<String> = Vec::new();
-            for f in &v.fields {
-                if fields.contains(&f.name) {
-                    let fname = f.name.clone();
-                    let vname = v.name.clone();
-                    self.err(f.span, format!("field `{fname}` of `{vname}` is declared twice")).code("duplicate-declaration")
+        }
+        for dup in dups {
+            match dup {
+                Dup::Variant(span, n) => {
+                    self.err(span, format!("variant `{n}` is declared twice")).code("duplicate-declaration")
+                        .fix("rename one of them; `match` tells variants apart by name");
+                }
+                Dup::Field(span, fname, vname) => {
+                    self.err(span, format!("field `{fname}` of `{vname}` is declared twice")).code("duplicate-declaration")
                         .fix("rename one of them, or delete the duplicate");
                 }
-                fields.push(f.name.clone());
             }
         }
     }
@@ -1151,13 +1186,13 @@ impl<'a> Checker<'a> {
     /// A recursive enum must have at least one variant that does not recurse,
     /// or no value of it could ever be built (SPEC 14.14).
     fn check_productive(&mut self, con: TyConId, span: Span) {
-        let variants = self.tables.tycon(con).variants().to_vec();
+        let variants = self.tables.tycon(con).variants();
         if variants.is_empty() {
             return;
         }
-        let productive = variants.iter().any(|v| {
-            !v.fields.iter().any(|f| self.mentions_directly(&f.ty, con))
-        });
+        let productive = variants
+            .iter()
+            .any(|v| !v.fields.iter().any(|f| self.mentions_directly(&f.ty, con)));
         if !productive {
             let name = self.tables.tycon(con).name.clone();
             self.err(span, format!("`{name}` can never be constructed")).code("uninhabited")
@@ -1231,6 +1266,9 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        self.option_con = self.known_types.get("Option").copied();
+        self.result_con = self.known_types.get("Result").copied();
+        self.order_con = self.known_types.get("Order").copied();
     }
 
     fn register_conformance(&mut self) {
@@ -1273,7 +1311,7 @@ impl<'a> Checker<'a> {
 
     fn register_method(&mut self, con: TyConId, name: &str, fid: FnId, span: Span) {
         // A method may not share a name with a field of its `self` type.
-        if self.tables.tycon(con).field_index(name).is_some() {
+        if self.tables.field_index(con, name).is_some() {
             let ty = self.tables.tycon(con).name.clone();
             self.err(span, format!("`{name}` is already a field of `{ty}`")).code("duplicate-field")
                 .fix("rename the method, or rename the field")
@@ -1284,8 +1322,8 @@ impl<'a> Checker<'a> {
                 );
             return;
         }
-        if let Some(prev) = self.tables.methods.get(&(con, name.to_string())) {
-            let prev_span = self.tables.fun(*prev).span;
+        if let Some(prev) = self.tables.method(con, name) {
+            let prev_span = self.tables.fun(prev).span;
             let ty = self.tables.tycon(con).name.clone();
             self.err(span, format!("`{ty}` already has a method `{name}`"))
                 .fix("rename one of them")
@@ -1293,7 +1331,7 @@ impl<'a> Checker<'a> {
                 .push(SubSpan { span: prev_span, label: "first declared here".into() });
             return;
         }
-        self.tables.methods.insert((con, name.to_string()), fid);
+        self.tables.add_method(con, name, fid);
     }
 
     fn register_impl(&mut self, module: ModuleId, index: u32, d: &tree::ImplDecl) {
@@ -1474,15 +1512,12 @@ impl<'a> Checker<'a> {
                 .note("an `impl` supplies every method its trait declares");
         }
 
-        self.tables.impls.insert(
-            (trait_id, self_con),
-            ImplInfo {
-                trait_id,
-                self_con,
-                body: ImplBody::Written(supplied),
-                span: d.span,
-            },
-        );
+        self.tables.add_impl(ImplInfo {
+            trait_id,
+            self_con,
+            body: ImplBody::Written(supplied),
+            span: d.span,
+        });
     }
 
     /// `impl Type { ... }` — the type's own methods. This is the only place a
@@ -1633,10 +1668,12 @@ impl<'a> Checker<'a> {
                     .fix("drop it from this `derive`, or delete the hand-written `impl`");
                 continue;
             }
-            self.tables.impls.insert(
-                (trait_id, self_con),
-                ImplInfo { trait_id, self_con, body: ImplBody::Derived, span: d.span },
-            );
+            self.tables.add_impl(ImplInfo {
+                trait_id,
+                self_con,
+                body: ImplBody::Derived,
+                span: d.span,
+            });
         }
     }
 
@@ -1682,11 +1719,14 @@ impl<'a> Checker<'a> {
         sorted.sort_by_key(|(t, c, _)| (t.0, c.0));
 
         for (tr, con, span) in sorted {
-            let tycon = self.tables.tycon(con).clone();
             // A generic type's components are checked at each use site, where
             // the arguments are known; here only the ones that cannot depend
             // on an argument are decidable.
-            let components: Vec<(String, Ty)> = match &tycon.def {
+            //
+            // The components are read out of the declaration rather than out
+            // of a copy of it: a type deriving four traits is walked four
+            // times, and each walk copied every variant and every field.
+            let components: Vec<(String, Ty)> = match &self.tables.tycon(con).def {
                 TyDef::Struct { fields, .. } => {
                     fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect()
                 }
@@ -1701,8 +1741,8 @@ impl<'a> Checker<'a> {
             for (name, ty) in components {
                 if !self.component_can_satisfy(&ty, tr, con) {
                     let t = self.tables.trait_(tr).name.clone();
-                    let c = tycon.name.clone();
-                    let shown = show(&self.tables, None, &tycon.generics, &ty);
+                    let c = self.tables.tycon(con).name.clone();
+                    let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
                     self.err(
                         span,
                         format!("`{c}` cannot derive `{t}`: `{name}` has type `{shown}`"),

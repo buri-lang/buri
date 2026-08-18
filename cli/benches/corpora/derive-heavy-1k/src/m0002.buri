@@ -1,0 +1,312 @@
+//! Generated module 2 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "core/json" import { ToJson, FromJson };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node2 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show, Ord, Hash, ToJson, FromJson for Node2;
+
+export fn seed2(): Int { 5839 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend2(base: Int): Int {
+  let d0 = blend0(base) + seed0();
+  let d1 = blend1(base) + seed1();
+  d0 + d1 + seed2()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift2(n: Node0): Node2 {
+  Node2 { label: n.label, value: n.value + seed2(), weight: n.weight }
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr2_0<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll2_0<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric2_0(ns: [Int], ss: [Str]): Int {
+  firstOr2_0<Int>(ns, 0) + firstOr2_0<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_0<C: Alloc>(ctx: C): Int {
+  useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).len()
+}
+
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec2_1 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+  export f4: Int,
+}
+
+derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec2_1;
+
+impl Rec2_1 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec2_1, factor: Int): Int {
+    self.f0 * factor + 822
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec2_1, ctx: C): Str {
+    str.format(ctx, "rec2_1: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_1<C: Alloc>(ctx: C): Int {
+  let r = Rec2_1 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A body of 7 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute2_2(input: Int): Int {
+  let a0 = input * 8 + 228;
+  let a1 = a0 * 71;
+  let a2 = a1 - 75;
+  let a3 = a2 + 64;
+  let a4 = a3 * 33;
+  let a5 = a4 - 29;
+  let a6 = a5 * 26;
+  if (a6 > 9744) { a6 } else { a6 - 72 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_2<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute2_2(7)
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr2_3<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll2_3<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric2_3(ns: [Int], ss: [Str]): Int {
+  firstOr2_3<Int>(ns, 0) + firstOr2_3<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_3<C: Alloc>(ctx: C): Int {
+  useGeneric2_3([1, 2], ["a"]) + describeAll2_3(ctx, [1, 2]).len()
+}
+
+/// An enum of 5 variants, matched exhaustively below.
+export enum State2_4 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+}
+
+derive Eq, Show, Ord, Hash, ToJson, FromJson for State2_4;
+
+/// The match every enum in a real program has somewhere.
+export fn rank2_4(state: State2_4): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start2_4(ticks: Int): State2_4 {
+  if (ticks == 0) { .Idle } else if (ticks < 93) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_4<C: Alloc>(ctx: C): Int {
+  let s = start2_4(5);
+  rank2_4(s) + s.show(ctx).len()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State2_5 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show, Ord, Hash, ToJson, FromJson for State2_5;
+
+/// The match every enum in a real program has somewhere.
+export fn rank2_5(state: State2_5): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start2_5(ticks: Int): State2_5 {
+  if (ticks == 0) { .Idle } else if (ticks < 84) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_5<C: Alloc>(ctx: C): Int {
+  let s = start2_5(5);
+  rank2_5(s) + s.show(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose2_6(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth2_6(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_6<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth2_6("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose2_6(.Some(3), .None) + extra
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec2_7 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec2_7;
+
+impl Rec2_7 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec2_7, factor: Int): Int {
+    self.f0 * factor + 669
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec2_7, ctx: C): Str {
+    str.format(ctx, "rec2_7: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_7<C: Alloc>(ctx: C): Int {
+  let r = Rec2_7 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// An enum of 5 variants, matched exhaustively below.
+export enum State2_8 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+}
+
+derive Eq, Show, Ord, Hash, ToJson, FromJson for State2_8;
+
+/// The match every enum in a real program has somewhere.
+export fn rank2_8(state: State2_8): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start2_8(ticks: Int): State2_8 {
+  if (ticks == 0) { .Idle } else if (ticks < 84) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe2_8<C: Alloc>(ctx: C): Int {
+  let s = start2_8(5);
+  rank2_8(s) + s.show(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach2<C: Alloc>(ctx: C): Int {
+  0
+    + probe2_0(ctx)
+    + probe2_1(ctx)
+    + probe2_2(ctx)
+    + probe2_3(ctx)
+    + probe2_4(ctx)
+    + probe2_5(ctx)
+    + probe2_6(ctx)
+    + probe2_7(ctx)
+    + probe2_8(ctx)
+    + reach0(ctx)
+    + reach1(ctx)
+}

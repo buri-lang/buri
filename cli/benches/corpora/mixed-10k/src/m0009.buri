@@ -1,0 +1,324 @@
+//! Generated module 9 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0008" import { Node8, seed8, blend8, reach8 };
+from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node9 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node9;
+
+export fn seed9(): Int { 1272 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend9(base: Int): Int {
+  let d0 = blend8(base) + seed8();
+  let d1 = blend2(base) + seed2();
+  let d2 = blend0(base) + seed0();
+  d0 + d1 + d2 + seed9()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift9(n: Node8): Node9 {
+  Node9 { label: n.label, value: n.value + seed9(), weight: n.weight }
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label9_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "alpha" } else { "echo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants9_0(): (Int, Int, Float, Char, Str) {
+  (258516, 0xDCFA, 723.105, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_0<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants9_0();
+  label9_0(ctx, a, e).len() + b
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label9_1<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "hotel" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants9_1(): (Int, Int, Float, Char, Str) {
+  (156295, 0xE82B, 846.664, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_1<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants9_1();
+  label9_1(ctx, a, e).len() + b
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose9_2(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth9_2(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_2<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth9_2("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose9_2(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest9_3<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [9536, 8707, 7480, 1266, 5100, 4049, 4910];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain9_3(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_3<C: Alloc>(ctx: C): Int {
+  digest9_3(ctx) + drain9_3()
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State9_4 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State9_4;
+
+/// The match every enum in a real program has somewhere.
+export fn rank9_4(state: State9_4): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start9_4(ticks: Int): State9_4 {
+  if (ticks == 0) { .Idle } else if (ticks < 60) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_4<C: Alloc>(ctx: C): Int {
+  let s = start9_4(5);
+  rank9_4(s) + s.show(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose9_5(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth9_5(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_5<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth9_5("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose9_5(.Some(3), .None) + extra
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State9_6 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State9_6;
+
+/// The match every enum in a real program has somewhere.
+export fn rank9_6(state: State9_6): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start9_6(ticks: Int): State9_6 {
+  if (ticks == 0) { .Idle } else if (ticks < 29) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_6<C: Alloc>(ctx: C): Int {
+  let s = start9_6(5);
+  rank9_6(s) + s.show(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose9_7(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth9_7(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_7<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth9_7("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose9_7(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest9_8<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [625, 2486, 3681, 9832, 2055, 556, 8130, 4758, 2889];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain9_8(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_8<C: Alloc>(ctx: C): Int {
+  digest9_8(ctx) + drain9_8()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State9_9 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State9_9;
+
+/// The match every enum in a real program has somewhere.
+export fn rank9_9(state: State9_9): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start9_9(ticks: Int): State9_9 {
+  if (ticks == 0) { .Idle } else if (ticks < 75) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe9_9<C: Alloc>(ctx: C): Int {
+  let s = start9_9(5);
+  rank9_9(s) + s.show(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach9<C: Alloc>(ctx: C): Int {
+  0
+    + probe9_0(ctx)
+    + probe9_1(ctx)
+    + probe9_2(ctx)
+    + probe9_3(ctx)
+    + probe9_4(ctx)
+    + probe9_5(ctx)
+    + probe9_6(ctx)
+    + probe9_7(ctx)
+    + probe9_8(ctx)
+    + probe9_9(ctx)
+    + reach8(ctx)
+    + reach2(ctx)
+    + reach0(ctx)
+}

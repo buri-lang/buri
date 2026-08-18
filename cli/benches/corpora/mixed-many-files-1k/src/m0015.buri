@@ -1,0 +1,72 @@
+//! Generated module 15 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0011" import { Node11, seed11, blend11, reach11 };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+from "//bench/m0012" import { Node12, seed12, blend12, reach12 };
+from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node15 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node15;
+
+export fn seed15(): Int { 8786 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend15(base: Int): Int {
+  let d0 = blend11(base) + seed11();
+  let d1 = blend1(base) + seed1();
+  let d2 = blend12(base) + seed12();
+  let d3 = blend2(base) + seed2();
+  d0 + d1 + d2 + d3 + seed15()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift15(n: Node11): Node15 {
+  Node15 { label: n.label, value: n.value + seed15(), weight: n.weight }
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest15_0<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [574, 8858, 2620, 1855];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain15_0(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_0<C: Alloc>(ctx: C): Int {
+  digest15_0(ctx) + drain15_0()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach15<C: Alloc>(ctx: C): Int {
+  0
+    + probe15_0(ctx)
+    + reach11(ctx)
+    + reach1(ctx)
+    + reach12(ctx)
+    + reach2(ctx)
+}

@@ -1650,15 +1650,49 @@ struct LocalFacts {
 }
 
 impl LocalFacts {
+    // `get_mut` before `insert` rather than `entry`, in all three of these: the
+    // entry API needs an owned key whether or not the name is already there,
+    // and these run over every identifier of every body, four times a body.
+    // A name is spelled once here however often it occurs.
     fn read(&mut self, name: &str) {
-        *self.uses.entry(name.to_string()).or_insert(0) += 1;
         let d = self.depth;
-        self.use_depth.entry(name.to_string()).and_modify(|x| *x = (*x).max(d)).or_insert(d);
+        match self.uses.get_mut(name) {
+            Some(n) => *n += 1,
+            None => {
+                self.uses.insert(name.to_string(), 1);
+            }
+        }
+        match self.use_depth.get_mut(name) {
+            Some(x) => *x = (*x).max(d),
+            None => {
+                self.use_depth.insert(name.to_string(), d);
+            }
+        }
     }
 
     fn declare(&mut self, name: &str) {
-        *self.declared.entry(name.to_string()).or_insert(0) += 1;
-        self.decl_depth.insert(name.to_string(), self.depth);
+        let d = self.depth;
+        match self.declared.get_mut(name) {
+            Some(n) => *n += 1,
+            None => {
+                self.declared.insert(name.to_string(), 1);
+            }
+        }
+        match self.decl_depth.get_mut(name) {
+            Some(x) => *x = d,
+            None => {
+                self.decl_depth.insert(name.to_string(), d);
+            }
+        }
+    }
+
+    fn assign(&mut self, name: &str) {
+        match self.assigns.get_mut(name) {
+            Some(n) => *n += 1,
+            None => {
+                self.assigns.insert(name.to_string(), 1);
+            }
+        }
     }
 
     /// Whether every read of `name` sits no deeper than its binding.
@@ -1689,9 +1723,7 @@ fn count_expr(e: &Expr, f: &mut LocalFacts) {
         Expr::Assign { target, value } => {
             match &**target {
                 // The target of a plain assignment is written, not read.
-                Expr::Ident(name) => {
-                    *f.assigns.entry(name.clone()).or_insert(0) += 1;
-                }
+                Expr::Ident(name) => f.assign(name),
                 other => count_expr(other, f),
             }
             count_expr(value, f);
@@ -1783,10 +1815,42 @@ fn count_stmt(s: &Stmt, f: &mut LocalFacts) {
     }
 }
 
-fn subst_expr(e: Expr, map: &HashMap<String, Expr>) -> Expr {
+/// Where a substitution's values come from, and whether pasting one consumes
+/// it.
+///
+/// A value bound to a name that is read once may be *moved* to that read rather
+/// than copied there. Copying is what a substitution normally has to do — a
+/// name read twice needs its value twice — so the moving form carries the set of
+/// names its caller has proved single-read, and every other name is still
+/// copied.
+enum Subst<'a> {
+    Copying(&'a HashMap<String, Expr>),
+    Moving { values: &'a mut HashMap<String, Expr>, movable: &'a HashSet<String> },
+}
+
+impl Subst<'_> {
+    fn value(&mut self, name: &str) -> Option<Expr> {
+        match self {
+            Subst::Copying(map) => map.get(name).cloned(),
+            Subst::Moving { values, movable } => {
+                if movable.contains(name) {
+                    values.remove(name)
+                } else {
+                    values.get(name).cloned()
+                }
+            }
+        }
+    }
+}
+
+fn subst_stmt(s: Stmt, map: &HashMap<String, Expr>) -> Stmt {
+    subst_stmt_with(s, &mut Subst::Copying(map))
+}
+
+fn subst_expr_with(e: Expr, map: &mut Subst) -> Expr {
     match e {
-        Expr::Ident(name) => match map.get(&name) {
-            Some(v) => v.clone(),
+        Expr::Ident(name) => match map.value(&name) {
+            Some(v) => v,
             None => Expr::Ident(name),
         },
         Expr::Assign { target, value } => {
@@ -1794,42 +1858,42 @@ fn subst_expr(e: Expr, map: &HashMap<String, Expr>) -> Expr {
             // rewritten — only what is assigned to it.
             let target = match *target {
                 Expr::Ident(n) => Expr::Ident(n),
-                other => subst_expr(other, map),
+                other => subst_expr_with(other, map),
             };
-            Expr::Assign { target: Box::new(target), value: Box::new(subst_expr(*value, map)) }
+            Expr::Assign { target: Box::new(target), value: Box::new(subst_expr_with(*value, map)) }
         }
-        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| subst_expr(x, map)).collect()),
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| subst_expr(x, map)).collect()),
+        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| subst_expr_with(x, map)).collect()),
+        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| subst_expr_with(x, map)).collect()),
         Expr::Object(fs) => {
-            Expr::Object(fs.into_iter().map(|(k, v)| (k, subst_expr(v, map))).collect())
+            Expr::Object(fs.into_iter().map(|(k, v)| (k, subst_expr_with(v, map))).collect())
         }
-        Expr::Member { obj, prop } => Expr::Member { obj: Box::new(subst_expr(*obj, map)), prop },
+        Expr::Member { obj, prop } => Expr::Member { obj: Box::new(subst_expr_with(*obj, map)), prop },
         Expr::Index { obj, index } => Expr::Index {
-            obj: Box::new(subst_expr(*obj, map)),
-            index: Box::new(subst_expr(*index, map)),
+            obj: Box::new(subst_expr_with(*obj, map)),
+            index: Box::new(subst_expr_with(*index, map)),
         },
         Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(subst_expr(*callee, map)),
-            args: args.into_iter().map(|a| subst_expr(a, map)).collect(),
+            callee: Box::new(subst_expr_with(*callee, map)),
+            args: args.into_iter().map(|a| subst_expr_with(a, map)).collect(),
         },
         Expr::New { callee, args } => Expr::New {
-            callee: Box::new(subst_expr(*callee, map)),
-            args: args.into_iter().map(|a| subst_expr(a, map)).collect(),
+            callee: Box::new(subst_expr_with(*callee, map)),
+            args: args.into_iter().map(|a| subst_expr_with(a, map)).collect(),
         },
-        Expr::Unary { op, operand } => Expr::un(op, subst_expr(*operand, map)),
+        Expr::Unary { op, operand } => Expr::un(op, subst_expr_with(*operand, map)),
         Expr::Binary { op, lhs, rhs } => {
-            Expr::bin(op, subst_expr(*lhs, map), subst_expr(*rhs, map))
+            Expr::bin(op, subst_expr_with(*lhs, map), subst_expr_with(*rhs, map))
         }
         Expr::Cond { test, cons, alt } => Expr::cond(
-            subst_expr(*test, map),
-            subst_expr(*cons, map),
-            subst_expr(*alt, map),
+            subst_expr_with(*test, map),
+            subst_expr_with(*cons, map),
+            subst_expr_with(*alt, map),
         ),
         Expr::Arrow { params, body } => {
-            Expr::Arrow { params, body: Box::new(subst_expr(*body, map)) }
+            Expr::Arrow { params, body: Box::new(subst_expr_with(*body, map)) }
         }
         Expr::ArrowBlock { params, body } => {
-            let body: Vec<Stmt> = body.into_iter().map(|s| subst_stmt(s, map)).collect();
+            let body: Vec<Stmt> = body.into_iter().map(|s| subst_stmt_with(s, map)).collect();
             // Rebuilding may leave a body that is one `return`, which is the
             // concise form.
             if let [Stmt::Return(Some(e))] = &body[..] {
@@ -1837,47 +1901,47 @@ fn subst_expr(e: Expr, map: &HashMap<String, Expr>) -> Expr {
             }
             Expr::ArrowBlock { params, body }
         }
-        Expr::Spread(x) => Expr::Spread(Box::new(subst_expr(*x, map))),
+        Expr::Spread(x) => Expr::Spread(Box::new(subst_expr_with(*x, map))),
         other => other,
     }
 }
 
-fn subst_stmt(s: Stmt, map: &HashMap<String, Expr>) -> Stmt {
+fn subst_stmt_with(s: Stmt, map: &mut Subst) -> Stmt {
     match s {
         Stmt::Var { kind, name, init } => {
-            Stmt::Var { kind, name, init: init.map(|e| subst_expr(e, map)) }
+            Stmt::Var { kind, name, init: init.map(|e| subst_expr_with(e, map)) }
         }
         Stmt::Func { name, params, body } => Stmt::Func {
             name,
             params,
-            body: body.into_iter().map(|s| subst_stmt(s, map)).collect(),
+            body: body.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
         },
-        Stmt::Return(e) => Stmt::Return(e.map(|e| subst_expr(e, map))),
+        Stmt::Return(e) => Stmt::Return(e.map(|e| subst_expr_with(e, map))),
         Stmt::If { cond, then, else_ } => Stmt::If {
-            cond: subst_expr(cond, map),
-            then: then.into_iter().map(|s| subst_stmt(s, map)).collect(),
-            else_: else_.into_iter().map(|s| subst_stmt(s, map)).collect(),
+            cond: subst_expr_with(cond, map),
+            then: then.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
+            else_: else_.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
         },
         Stmt::While { cond, body } => Stmt::While {
-            cond: subst_expr(cond, map),
-            body: body.into_iter().map(|s| subst_stmt(s, map)).collect(),
+            cond: subst_expr_with(cond, map),
+            body: body.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
         },
         Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: subst_expr(disc, map),
+            disc: subst_expr_with(disc, map),
             cases: cases
                 .into_iter()
                 .map(|(t, b)| {
                     (
-                        t.map(|t| subst_expr(t, map)),
-                        b.into_iter().map(|s| subst_stmt(s, map)).collect(),
+                        t.map(|t| subst_expr_with(t, map)),
+                        b.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
                     )
                 })
                 .collect(),
         },
-        Stmt::Expr(e) => Stmt::Expr(subst_expr(e, map)),
-        Stmt::Throw(e) => Stmt::Throw(subst_expr(e, map)),
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(subst_expr(e, map)),
-        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|s| subst_stmt(s, map)).collect()),
+        Stmt::Expr(e) => Stmt::Expr(subst_expr_with(e, map)),
+        Stmt::Throw(e) => Stmt::Throw(subst_expr_with(e, map)),
+        Stmt::ExportDefault(e) => Stmt::ExportDefault(subst_expr_with(e, map)),
+        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|s| subst_stmt_with(s, map)).collect()),
         other => other,
     }
 }
@@ -2132,51 +2196,99 @@ fn depends_on_assigned(e: &Expr, facts: &LocalFacts) -> bool {
 ///
 /// are collected in one round, and `v` must resolve to `o[1]`: substituting
 /// `t[1]` verbatim would name a binding that this same round removes.
-fn resolve_map(map: &mut HashMap<String, Expr>) {
+/// A resolved value is *moved* to the one place that reads it rather than
+/// copied there, wherever that is provably the only place left.
+///
+/// A binding read once in the whole body, from inside another binding's value,
+/// has no reader left once that value has been pasted: its own declaration is
+/// in the same round's `dead` set and goes with the rest, and its one read went
+/// with the declaration that held it. Copying instead would make a chain of `n`
+/// such bindings — which is what a long `let` chain lowers to — cost `n²` nodes
+/// to build and `n²` more to drop, for a result that is `n` nodes long.
+///
+/// The names this holds of are exactly the ones a resolution is allowed to take
+/// out of `done` rather than clone, and they are the ones absent from the map
+/// it leaves behind. That absence is what the caller wants: substituting them
+/// back into the body would paste into declarations the same round removes.
+fn movable_values(
+    map: &HashMap<String, Expr>,
+    uses: &HashMap<String, usize>,
+) -> HashSet<String> {
+    let mut refs: HashMap<&str, usize> = HashMap::default();
+    for value in map.values() {
+        let mut reads = HashSet::default();
+        reads_of(value, &mut reads);
+        for r in reads {
+            if let Some((name, _)) = map.get_key_value(&r) {
+                *refs.entry(name.as_str()).or_insert(0) += 1;
+            }
+        }
+    }
+    refs.into_iter()
+        .filter(|&(name, n)| n == 1 && uses.get(name).copied() == Some(1))
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+fn resolve_map(map: &mut HashMap<String, Expr>, uses: &HashMap<String, usize>) {
     let names: Vec<String> = map.keys().cloned().collect();
+    let movable = movable_values(map, uses);
     let mut done: HashMap<String, Expr> = HashMap::default();
+    let mut taken: HashSet<String> = HashSet::default();
     let mut visiting: HashSet<String> = HashSet::default();
     for name in &names {
-        resolve_one(name, map, &mut done, &mut visiting);
+        resolve_one(name, map, &movable, &mut done, &mut taken, &mut visiting);
     }
     *map = done;
 }
 
+/// Leaves `done[name]` holding `name`'s resolved value, unless `name` is
+/// movable and its one reader has already taken it.
 fn resolve_one(
     name: &str,
     map: &HashMap<String, Expr>,
+    movable: &HashSet<String>,
     done: &mut HashMap<String, Expr>,
+    taken: &mut HashSet<String>,
     visiting: &mut HashSet<String>,
-) -> Expr {
-    if let Some(e) = done.get(name) {
-        return e.clone();
+) {
+    if done.contains_key(name) || taken.contains(name) {
+        return;
     }
     let Some(raw) = map.get(name).cloned() else {
-        return Expr::Ident(name.to_string());
+        return;
     };
     // A binding cannot name itself — that would not have run — but a bound is
     // cheaper than trusting it.
     if !visiting.insert(name.to_string()) {
-        return Expr::Ident(name.to_string());
+        return;
     }
 
     let mut reads = HashSet::default();
     reads_of(&raw, &mut reads);
-    let mut inner: HashMap<String, Expr> = HashMap::default();
     // Sorted, so the order values are resolved in cannot depend on hash order.
-    let mut reads: Vec<String> = reads.into_iter().collect();
+    let mut reads: Vec<String> = reads.into_iter().filter(|r| map.contains_key(r)).collect();
     reads.sort();
-    for r in reads {
-        if map.contains_key(&r) {
-            let v = resolve_one(&r, map, done, visiting);
-            inner.insert(r, v);
-        }
+    for r in &reads {
+        resolve_one(r, map, movable, done, taken, visiting);
     }
     visiting.remove(name);
 
-    let out = if inner.is_empty() { raw } else { subst_expr(raw, &inner) };
-    done.insert(name.to_string(), out.clone());
-    out
+    // A movable value leaves `done` for the one place that reads it, so the
+    // name it was under is settled and must not be resolved a second time.
+    // Everything else stays where it is and is copied, as a substitution
+    // normally must.
+    for r in &reads {
+        if movable.contains(r) && done.contains_key(r) {
+            taken.insert(r.clone());
+        }
+    }
+    let out = if reads.is_empty() {
+        raw
+    } else {
+        subst_expr_with(raw, &mut Subst::Moving { values: done, movable })
+    };
+    done.insert(name.to_string(), out);
 }
 
 /// `let x; x = e;` is `const x = e`.
@@ -2419,7 +2531,7 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     // so it terminates.
     loop {
         let mut resolved = map.clone();
-        resolve_map(&mut resolved);
+        resolve_map(&mut resolved, &facts.uses);
         let overshot: Vec<String> = resolved
             .iter()
             .filter(|(name, value)| {
@@ -3133,175 +3245,328 @@ fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
         }
     }
 
-    stmts.into_iter().map(|s| rename_stmt(s, &map)).collect()
+    // The counter above hands each global a name of its own, so this is a
+    // bijection, and it answers "which global holds this short name" in
+    // constant time — the question every local's search asks, once per
+    // candidate it rejects.
+    let by_short: HashMap<String, String> =
+        map.iter().map(|(k, v)| (v.clone(), k.clone())).collect();
+    let scope = Scope::global(&map, &by_short);
+    let mut pool = Pool::default();
+    stmts.into_iter().map(|s| rename_stmt(s, &scope, &mut pool)).collect()
 }
 
-fn rename_stmt(s: Stmt, map: &HashMap<String, String>) -> Stmt {
+/// The names in scope while one body is renamed.
+///
+/// Layered rather than one map per scope. The whole program's globals used to
+/// be copied into every function, and again into every block, loop, `switch`
+/// case and arrow inside it — one copy per scope of a map with an entry per
+/// declaration in the program — and the search for a free local name then
+/// scanned that copy once per candidate it rejected. Locals are the only part
+/// that differs between scopes, so they are the only part that is copied.
+struct Scope<'a> {
+    globals: &'a HashMap<String, String>,
+    /// Which global each global short name stands for.
+    by_short: &'a HashMap<String, String>,
+    locals: HashMap<String, String>,
+    /// The short names this scope's locals hold, and how many hold each — a
+    /// count rather than a set because rebinding a name releases the one it
+    /// held.
+    local_names: HashMap<String, usize>,
+    /// Set once a local has taken a global's *original* name, which releases
+    /// that global's short name for the rest of this scope. It is what makes
+    /// `Pool`'s answers — which know nothing of locals — no longer apply.
+    shadows_global: bool,
+}
+
+impl<'a> Scope<'a> {
+    fn global(globals: &'a HashMap<String, String>, by_short: &'a HashMap<String, String>) -> Scope<'a> {
+        Scope {
+            globals,
+            by_short,
+            locals: HashMap::default(),
+            local_names: HashMap::default(),
+            shadows_global: false,
+        }
+    }
+
+    /// A nested scope: everything this one binds, and whatever it binds itself
+    /// stays inside it.
+    fn nested(&self) -> Scope<'a> {
+        Scope {
+            globals: self.globals,
+            by_short: self.by_short,
+            locals: self.locals.clone(),
+            local_names: self.local_names.clone(),
+            shadows_global: self.shadows_global,
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<&String> {
+        self.locals.get(name).or_else(|| self.globals.get(name))
+    }
+
+    /// Whether a short name is one this scope already stands for — a local's,
+    /// or a global's that no local has shadowed.
+    fn holds(&self, short: &str) -> bool {
+        if self.local_names.contains_key(short) {
+            return true;
+        }
+        self.by_short.get(short).is_some_and(|g| !self.locals.contains_key(g))
+    }
+
+    fn bind(&mut self, original: &str, short: String) {
+        if self.globals.contains_key(original) {
+            self.shadows_global = true;
+        }
+        *self.local_names.entry(short.clone()).or_insert(0) += 1;
+        if let Some(old) = self.locals.insert(original.to_string(), short) {
+            if let Some(n) = self.local_names.get_mut(&old) {
+                *n -= 1;
+                if *n == 0 {
+                    self.local_names.remove(&old);
+                }
+            }
+        }
+    }
+}
+
+/// Where a scope's search for a free local name has reached: an index into
+/// [`Pool`], and the raw counter that index stands for.
+#[derive(Default, Clone)]
+struct Counter {
+    index: usize,
+    raw: usize,
+}
+
+/// The candidate names, in counter order, that no global holds.
+///
+/// Every scope numbers its locals from zero, so every one of them walks the
+/// same prefix of the counter before it reaches a name the globals have left
+/// free. Walking it once and keeping the answers is what turns that prefix
+/// from a scan of the whole program, per local, per scope, into an index.
+#[derive(Default)]
+struct Pool {
+    /// Each free candidate, with the counter value that follows it.
+    names: Vec<(String, usize)>,
+    /// Where the walk that built `names` stopped.
+    next: usize,
+}
+
+impl Pool {
+    fn at(&mut self, i: usize, by_short: &HashMap<String, String>) -> Option<(String, usize)> {
+        while self.names.len() <= i {
+            let candidate = short_name(self.next);
+            self.next += 1;
+            if RESERVED.contains(&candidate.as_str()) || by_short.contains_key(&candidate) {
+                continue;
+            }
+            self.names.push((candidate, self.next));
+        }
+        self.names.get(i).cloned()
+    }
+}
+
+fn rename_stmt(s: Stmt, scope: &Scope, pool: &mut Pool) -> Stmt {
     match s {
         Stmt::Var { kind, name, init } => Stmt::Var {
             kind,
-            name: map.get(&name).cloned().unwrap_or(name),
-            init: init.map(|e| rename(e, map)),
+            name: scope.get(&name).cloned().unwrap_or(name),
+            init: init.map(|e| rename(e, scope, pool)),
         },
         Stmt::Func { name, params, body } => {
             // Parameters and locals get their own short names, reused across
             // functions because each is a fresh scope.
-            let mut local = map.clone();
-            let mut counter = 0usize;
-            let params: Vec<String> =
-                params.into_iter().map(|p| fresh_local(&p, &mut local, &mut counter)).collect();
-            let body = rename_scope(body, &mut local, &mut counter);
-            Stmt::Func { name: map.get(&name).cloned().unwrap_or(name), params, body }
+            let mut local = scope.nested();
+            let mut counter = Counter::default();
+            let params: Vec<String> = params
+                .into_iter()
+                .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
+                .collect();
+            let body = rename_scope(body, &mut local, &mut counter, pool);
+            Stmt::Func { name: scope.get(&name).cloned().unwrap_or(name), params, body }
         }
-        Stmt::Return(e) => Stmt::Return(e.map(|x| rename(x, map))),
+        Stmt::Return(e) => Stmt::Return(e.map(|x| rename(x, scope, pool))),
         Stmt::If { cond, then, else_ } => Stmt::If {
-            cond: rename(cond, map),
-            then: then.into_iter().map(|x| rename_stmt(x, map)).collect(),
-            else_: else_.into_iter().map(|x| rename_stmt(x, map)).collect(),
+            cond: rename(cond, scope, pool),
+            then: then.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
+            else_: else_.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
         },
         Stmt::While { cond, body } => Stmt::While {
-            cond: rename(cond, map),
-            body: body.into_iter().map(|x| rename_stmt(x, map)).collect(),
+            cond: rename(cond, scope, pool),
+            body: body.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
         },
         Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: rename(disc, map),
+            disc: rename(disc, scope, pool),
             cases: cases
                 .into_iter()
                 .map(|(t, b)| {
                     (
-                        t.map(|x| rename(x, map)),
-                        b.into_iter().map(|x| rename_stmt(x, map)).collect(),
+                        t.map(|x| rename(x, scope, pool)),
+                        b.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
                     )
                 })
                 .collect(),
         },
-        Stmt::Expr(e) => Stmt::Expr(rename(e, map)),
-        Stmt::Throw(e) => Stmt::Throw(rename(e, map)),
-        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|x| rename_stmt(x, map)).collect()),
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(rename(e, map)),
+        Stmt::Expr(e) => Stmt::Expr(rename(e, scope, pool)),
+        Stmt::Throw(e) => Stmt::Throw(rename(e, scope, pool)),
+        Stmt::Block(b) => {
+            Stmt::Block(b.into_iter().map(|x| rename_stmt(x, scope, pool)).collect())
+        }
+        Stmt::ExportDefault(e) => Stmt::ExportDefault(rename(e, scope, pool)),
         other => other,
     }
 }
 
 fn fresh_local(
     original: &str,
-    map: &mut HashMap<String, String>,
-    counter: &mut usize,
+    scope: &mut Scope,
+    counter: &mut Counter,
+    pool: &mut Pool,
 ) -> String {
-    loop {
-        let candidate = short_name(*counter);
-        *counter += 1;
-        if RESERVED.contains(&candidate.as_str()) {
+    let candidate = loop {
+        // A local may not shadow a global the body still needs, which is what
+        // the pool has already settled — unless a local has taken a global's
+        // name, in which case the search runs against the scope itself.
+        if !scope.shadows_global {
+            if let Some((candidate, after)) = pool.at(counter.index, scope.by_short) {
+                counter.index += 1;
+                counter.raw = after;
+                if scope.local_names.contains_key(&candidate) {
+                    continue;
+                }
+                break candidate;
+            }
+        }
+        let candidate = short_name(counter.raw);
+        counter.raw += 1;
+        counter.index += 1;
+        if RESERVED.contains(&candidate.as_str()) || scope.holds(&candidate) {
             continue;
         }
-        // A local may not shadow a global the body still needs.
-        if map.values().any(|v| v == &candidate) {
-            continue;
-        }
-        map.insert(original.to_string(), candidate.clone());
-        return candidate;
-    }
+        break candidate;
+    };
+    scope.bind(original, candidate.clone());
+    candidate
 }
 
 fn rename_scope(
     body: Vec<Stmt>,
-    map: &mut HashMap<String, String>,
-    counter: &mut usize,
+    scope: &mut Scope,
+    counter: &mut Counter,
+    pool: &mut Pool,
 ) -> Vec<Stmt> {
     let mut out = Vec::new();
     for s in body {
         match s {
             Stmt::Var { kind, name, init } => {
-                let init = init.map(|e| rename(e, map));
-                let renamed = fresh_local(&name, map, counter);
+                let init = init.map(|e| rename(e, scope, pool));
+                let renamed = fresh_local(&name, scope, counter, pool);
                 out.push(Stmt::Var { kind, name: renamed, init });
             }
             Stmt::If { cond, then, else_ } => {
-                let cond = rename(cond, map);
-                let then = rename_scope(then, &mut map.clone(), &mut counter.clone());
-                let else_ = rename_scope(else_, &mut map.clone(), &mut counter.clone());
+                let cond = rename(cond, scope, pool);
+                let then = rename_scope(then, &mut scope.nested(), &mut counter.clone(), pool);
+                let else_ =
+                    rename_scope(else_, &mut scope.nested(), &mut counter.clone(), pool);
                 out.push(Stmt::If { cond, then, else_ });
             }
             Stmt::While { cond, body } => {
-                let cond = rename(cond, map);
-                let body = rename_scope(body, &mut map.clone(), &mut counter.clone());
+                let cond = rename(cond, scope, pool);
+                let body = rename_scope(body, &mut scope.nested(), &mut counter.clone(), pool);
                 out.push(Stmt::While { cond, body });
             }
             Stmt::Block(b) => {
-                out.push(Stmt::Block(rename_scope(b, &mut map.clone(), &mut counter.clone())));
+                out.push(Stmt::Block(rename_scope(
+                    b,
+                    &mut scope.nested(),
+                    &mut counter.clone(),
+                    pool,
+                )));
             }
             Stmt::Switch { disc, cases } => {
-                let disc = rename(disc, map);
+                let disc = rename(disc, scope, pool);
                 let cases = cases
                     .into_iter()
                     .map(|(t, b)| {
                         (
-                            t.map(|x| rename(x, map)),
-                            rename_scope(b, &mut map.clone(), &mut counter.clone()),
+                            t.map(|x| rename(x, scope, pool)),
+                            rename_scope(b, &mut scope.nested(), &mut counter.clone(), pool),
                         )
                     })
                     .collect();
                 out.push(Stmt::Switch { disc, cases });
             }
-            other => out.push(rename_stmt(other, map)),
+            other => out.push(rename_stmt(other, scope, pool)),
         }
     }
     out
 }
 
-fn rename(e: Expr, map: &HashMap<String, String>) -> Expr {
+fn rename(e: Expr, scope: &Scope, pool: &mut Pool) -> Expr {
     match e {
-        Expr::Ident(name) => Expr::Ident(map.get(&name).cloned().unwrap_or(name)),
-        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| rename(x, map)).collect()),
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| rename(x, map)).collect()),
-        Expr::Object(fs) => {
-            Expr::Object(fs.into_iter().map(|(k, v)| (k, rename(v, map))).collect())
+        Expr::Ident(name) => Expr::Ident(scope.get(&name).cloned().unwrap_or(name)),
+        Expr::Array(xs) => {
+            Expr::Array(xs.into_iter().map(|x| rename(x, scope, pool)).collect())
         }
-        Expr::Member { obj, prop } => Expr::Member { obj: Box::new(rename(*obj, map)), prop },
+        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| rename(x, scope, pool)).collect()),
+        Expr::Object(fs) => {
+            Expr::Object(fs.into_iter().map(|(k, v)| (k, rename(v, scope, pool))).collect())
+        }
+        Expr::Member { obj, prop } => {
+            Expr::Member { obj: Box::new(rename(*obj, scope, pool)), prop }
+        }
         Expr::Index { obj, index } => Expr::Index {
-            obj: Box::new(rename(*obj, map)),
-            index: Box::new(rename(*index, map)),
+            obj: Box::new(rename(*obj, scope, pool)),
+            index: Box::new(rename(*index, scope, pool)),
         },
         Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(rename(*callee, map)),
-            args: args.into_iter().map(|a| rename(a, map)).collect(),
+            callee: Box::new(rename(*callee, scope, pool)),
+            args: args.into_iter().map(|a| rename(a, scope, pool)).collect(),
         },
         Expr::New { callee, args } => Expr::New {
-            callee: Box::new(rename(*callee, map)),
-            args: args.into_iter().map(|a| rename(a, map)).collect(),
+            callee: Box::new(rename(*callee, scope, pool)),
+            args: args.into_iter().map(|a| rename(a, scope, pool)).collect(),
         },
         Expr::Unary { op, operand } => {
-            Expr::Unary { op, operand: Box::new(rename(*operand, map)) }
+            Expr::Unary { op, operand: Box::new(rename(*operand, scope, pool)) }
         }
         Expr::Binary { op, lhs, rhs } => Expr::Binary {
             op,
-            lhs: Box::new(rename(*lhs, map)),
-            rhs: Box::new(rename(*rhs, map)),
+            lhs: Box::new(rename(*lhs, scope, pool)),
+            rhs: Box::new(rename(*rhs, scope, pool)),
         },
         Expr::Assign { target, value } => Expr::Assign {
-            target: Box::new(rename(*target, map)),
-            value: Box::new(rename(*value, map)),
+            target: Box::new(rename(*target, scope, pool)),
+            value: Box::new(rename(*value, scope, pool)),
         },
         Expr::Cond { test, cons, alt } => Expr::Cond {
-            test: Box::new(rename(*test, map)),
-            cons: Box::new(rename(*cons, map)),
-            alt: Box::new(rename(*alt, map)),
+            test: Box::new(rename(*test, scope, pool)),
+            cons: Box::new(rename(*cons, scope, pool)),
+            alt: Box::new(rename(*alt, scope, pool)),
         },
         Expr::Arrow { params, body } => {
-            let mut local = map.clone();
-            let mut counter = 0usize;
-            let params: Vec<String> =
-                params.into_iter().map(|p| fresh_local(&p, &mut local, &mut counter)).collect();
-            Expr::Arrow { params, body: Box::new(rename(*body, &local)) }
+            let mut local = scope.nested();
+            let mut counter = Counter::default();
+            let params: Vec<String> = params
+                .into_iter()
+                .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
+                .collect();
+            Expr::Arrow { params, body: Box::new(rename(*body, &local, pool)) }
         }
         Expr::ArrowBlock { params, body } => {
-            let mut local = map.clone();
-            let mut counter = 0usize;
-            let params: Vec<String> =
-                params.into_iter().map(|p| fresh_local(&p, &mut local, &mut counter)).collect();
-            Expr::ArrowBlock { params, body: rename_scope(body, &mut local, &mut counter) }
+            let mut local = scope.nested();
+            let mut counter = Counter::default();
+            let params: Vec<String> = params
+                .into_iter()
+                .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
+                .collect();
+            Expr::ArrowBlock {
+                params,
+                body: rename_scope(body, &mut local, &mut counter, pool),
+            }
         }
-        Expr::Spread(x) => Expr::Spread(Box::new(rename(*x, map))),
+        Expr::Spread(x) => Expr::Spread(Box::new(rename(*x, scope, pool))),
         other => other,
     }
 }

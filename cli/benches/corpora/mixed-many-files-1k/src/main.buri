@@ -1,0 +1,51 @@
+//! The corpus entry point.
+//!
+//! It calls one exported function from every generated module, so that
+//! monomorphization reaches the whole program from `main` and the
+//! lowering benchmark is not measuring dead-code elimination.
+
+from "core/cap" import { Alloc };
+from "core/host" import * as host;
+from "//bench/m0000" import { blend0, reach0 };
+from "//bench/m0001" import { blend1, reach1 };
+from "//bench/m0002" import { blend2, reach2 };
+from "//bench/m0003" import { blend3, reach3 };
+from "//bench/m0004" import { blend4, reach4 };
+from "//bench/m0005" import { blend5, reach5 };
+from "//bench/m0006" import { blend6, reach6 };
+from "//bench/m0007" import { blend7, reach7 };
+from "//bench/m0008" import { blend8, reach8 };
+from "//bench/m0009" import { blend9, reach9 };
+from "//bench/m0010" import { blend10, reach10 };
+from "//bench/m0011" import { blend11, reach11 };
+from "//bench/m0012" import { blend12, reach12 };
+from "//bench/m0013" import { blend13, reach13 };
+from "//bench/m0014" import { blend14, reach14 };
+from "//bench/m0015" import { blend15, reach15 };
+from "//bench/m0016" import { blend16, reach16 };
+
+/// The entry point. `main` is the only module that may import
+/// `core/host`, so it is the only place the context can be built.
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc };
+  let total = 0
+    + blend0(1) + reach0(ctx)
+    + blend1(2) + reach1(ctx)
+    + blend2(3) + reach2(ctx)
+    + blend3(4) + reach3(ctx)
+    + blend4(5) + reach4(ctx)
+    + blend5(6) + reach5(ctx)
+    + blend6(7) + reach6(ctx)
+    + blend7(8) + reach7(ctx)
+    + blend8(9) + reach8(ctx)
+    + blend9(10) + reach9(ctx)
+    + blend10(11) + reach10(ctx)
+    + blend11(12) + reach11(ctx)
+    + blend12(13) + reach12(ctx)
+    + blend13(14) + reach13(ctx)
+    + blend14(15) + reach14(ctx)
+    + blend15(16) + reach15(ctx)
+    + blend16(17) + reach16(ctx)
+    ;
+  if (total == 0) { .Err("empty") } else { .Ok(()) }
+}

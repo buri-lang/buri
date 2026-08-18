@@ -372,9 +372,9 @@ fn substitute_locals(e: &mut Expr, onto: &HashMap<LocalId, LocalId>) {
         }
         _ => {}
     }
-    for child in crate::compiler::middle::inline::children_mut(e) {
+    crate::compiler::middle::inline::each_child_mut(e, &mut |child| {
         substitute_locals(child, onto);
-    }
+    });
 }
 
 /// Gives each iteration its own binding for every parameter a closure in the

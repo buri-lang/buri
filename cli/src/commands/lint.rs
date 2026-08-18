@@ -669,12 +669,15 @@ fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
     let text = s.map.text(m.file);
     let lexed = crate::parsing::lexer::lex(text, m.file);
     let mut used: BTreeSet<&str> = BTreeSet::new();
-    for t in &lexed.tokens {
-        let crate::parsing::lexer::Tok::Ident(name) = &t.tok else { continue };
-        if import_ranges.iter().any(|(a, b)| t.span.start >= *a && t.span.end <= *b) {
+    for i in 0..lexed.tokens.len() {
+        if lexed.tokens.kind(i) != crate::parsing::lexer::TokKind::Ident {
             continue;
         }
-        used.insert(name.as_str());
+        let span = lexed.tokens.span(i);
+        if import_ranges.iter().any(|(a, b)| span.start >= *a && span.end <= *b) {
+            continue;
+        }
+        used.insert(lexed.tokens.text(i));
     }
 
     for item in &m.ast.items {

@@ -557,11 +557,14 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
         if let Some(body) = f.body() {
             let mut sizes: Vec<u32> = Vec::new();
             subtree_sizes(body, &mut sizes);
+            let (child_at, child_ids) = child_index(&sizes);
             let mut scan = Scan {
                 func: f,
                 counted,
                 ownership: &ownership,
                 sizes: &sizes,
+                child_at,
+                child_ids,
                 owned: HashSet::default(),
                 sites: Vec::new(),
                 reuse: Vec::new(),
@@ -1023,6 +1026,30 @@ pub fn preorder(body: &Expr, f: &mut impl FnMut(NodeId, &Expr)) {
 
 /// The number of nodes in each subtree, in pre-order — so that a node's `k`th
 /// child's id is computable from its own without a second traversal.
+/// Every node's children, as one flat array with a start index per node.
+///
+/// The preorder array `subtree_sizes` builds says how big a subtree is, which
+/// is enough to find the next sibling and not enough to find the `k`th child
+/// without walking to it. This walks each node's children once — the total is
+/// one entry per edge, so it is linear — and [`Scan::child`] is then a lookup.
+fn child_index(sizes: &[u32]) -> (Vec<u32>, Vec<u32>) {
+    let n = sizes.len();
+    let mut at: Vec<u32> = Vec::with_capacity(n.saturating_add(1));
+    let mut ids: Vec<u32> = Vec::with_capacity(n);
+    for (i, size) in sizes.iter().enumerate() {
+        at.push(u32::try_from(ids.len()).unwrap_or(u32::MAX));
+        let node = u32::try_from(i).unwrap_or(u32::MAX);
+        let end = node.saturating_add(*size);
+        let mut cur = node.saturating_add(1);
+        while cur < end {
+            ids.push(cur);
+            cur = cur.saturating_add(sizes.get(cur as usize).copied().unwrap_or(1));
+        }
+    }
+    at.push(u32::try_from(ids.len()).unwrap_or(u32::MAX));
+    (at, ids)
+}
+
 fn subtree_sizes(e: &Expr, out: &mut Vec<u32>) -> u32 {
     let me = out.len();
     out.push(0);
@@ -1055,6 +1082,10 @@ struct Scan<'a> {
     counted: &'a mut dyn Counted,
     ownership: &'a [Vec<ir::Ownership>],
     sizes: &'a [u32],
+    /// Where node `i`'s children start in `child_ids`, by node id.
+    child_at: Vec<u32>,
+    /// Every node's children, in order, flattened. See [`child_index`].
+    child_ids: Vec<u32>,
     /// Locals this function has an obligation to drop.
     owned: HashSet<LocalId>,
     sites: Vec<Site>,
@@ -1182,8 +1213,26 @@ impl Scan<'_> {
     }
 
     /// The id of the `k`th child of the node at `id`, from the subtree sizes —
-    /// which is why the numbering needs no second traversal.
+    /// the same preorder numbering `walk` assigns, so a site recorded here and
+    /// a site read there name the same node.
+    ///
+    /// A lookup, not a walk. A preorder array records a subtree's size and not
+    /// where its siblings start, so finding the `k`th child by walking is
+    /// `O(k)` — and every caller asks for `k = 0, 1, 2, …` in turn, which makes
+    /// the pass quadratic in the width of the widest node. A `match` is as wide
+    /// as its enum: `wide-match/20k` is one 10,000-arm match and that was 50 M
+    /// steps of the walk. [`child_index`] pays for all of them once.
+    ///
+    /// Out of range falls back to the walk, which is what the array cannot
+    /// answer and what the walk used to do.
     fn child(&self, id: NodeId, k: usize) -> NodeId {
+        let first = self.child_at.get(id.0 as usize).copied().unwrap_or(0) as usize;
+        let end = self.child_at.get(id.0 as usize + 1).copied().unwrap_or(0) as usize;
+        if let Some(found) = first.checked_add(k).filter(|i| *i < end) {
+            if let Some(c) = self.child_ids.get(found) {
+                return NodeId(*c);
+            }
+        }
         let mut cur = id.0 + 1;
         for _ in 0..k {
             cur += self.sizes.get(cur as usize).copied().unwrap_or(1);

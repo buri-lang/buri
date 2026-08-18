@@ -1,0 +1,12 @@
+# Provenance for a checked-in benchmark corpus. See
+# cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.
+name = mixed-few-files-1k
+profile = mixed-few-files
+generator_revision = 1
+revision = 1
+recorded = 2026-08-18
+params = fanout=1..2 lines=1000 lines_per_module=5000
+lines = 1085
+bytes = 37505
+modules = 2
+digest = 461203927903a895eda7e31beee5a1e17861bb87644ee249f08b047da41599bf

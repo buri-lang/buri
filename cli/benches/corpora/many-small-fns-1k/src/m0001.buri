@@ -1,0 +1,305 @@
+//! Stress shape: many small functions, module 1.
+
+export fn tiny400(x: Int): Int { x + 149 }
+
+export fn tiny401(x: Int): Int { x + 150 }
+
+export fn tiny402(x: Int): Int { x + 151 }
+
+export fn tiny403(x: Int): Int { x + 152 }
+
+export fn tiny404(x: Int): Int { x + 153 }
+
+export fn tiny405(x: Int): Int { x + 154 }
+
+export fn tiny406(x: Int): Int { x + 155 }
+
+export fn tiny407(x: Int): Int { x + 156 }
+
+export fn tiny408(x: Int): Int { x + 157 }
+
+export fn tiny409(x: Int): Int { x + 158 }
+
+export fn tiny410(x: Int): Int { x + 159 }
+
+export fn tiny411(x: Int): Int { x + 160 }
+
+export fn tiny412(x: Int): Int { x + 161 }
+
+export fn tiny413(x: Int): Int { x + 162 }
+
+export fn tiny414(x: Int): Int { x + 163 }
+
+export fn tiny415(x: Int): Int { x + 164 }
+
+export fn tiny416(x: Int): Int { x + 165 }
+
+export fn tiny417(x: Int): Int { x + 166 }
+
+export fn tiny418(x: Int): Int { x + 167 }
+
+export fn tiny419(x: Int): Int { x + 168 }
+
+export fn tiny420(x: Int): Int { x + 169 }
+
+export fn tiny421(x: Int): Int { x + 170 }
+
+export fn tiny422(x: Int): Int { x + 171 }
+
+export fn tiny423(x: Int): Int { x + 172 }
+
+export fn tiny424(x: Int): Int { x + 173 }
+
+export fn tiny425(x: Int): Int { x + 174 }
+
+export fn tiny426(x: Int): Int { x + 175 }
+
+export fn tiny427(x: Int): Int { x + 176 }
+
+export fn tiny428(x: Int): Int { x + 177 }
+
+export fn tiny429(x: Int): Int { x + 178 }
+
+export fn tiny430(x: Int): Int { x + 179 }
+
+export fn tiny431(x: Int): Int { x + 180 }
+
+export fn tiny432(x: Int): Int { x + 181 }
+
+export fn tiny433(x: Int): Int { x + 182 }
+
+export fn tiny434(x: Int): Int { x + 183 }
+
+export fn tiny435(x: Int): Int { x + 184 }
+
+export fn tiny436(x: Int): Int { x + 185 }
+
+export fn tiny437(x: Int): Int { x + 186 }
+
+export fn tiny438(x: Int): Int { x + 187 }
+
+export fn tiny439(x: Int): Int { x + 188 }
+
+export fn tiny440(x: Int): Int { x + 189 }
+
+export fn tiny441(x: Int): Int { x + 190 }
+
+export fn tiny442(x: Int): Int { x + 191 }
+
+export fn tiny443(x: Int): Int { x + 192 }
+
+export fn tiny444(x: Int): Int { x + 193 }
+
+export fn tiny445(x: Int): Int { x + 194 }
+
+export fn tiny446(x: Int): Int { x + 195 }
+
+export fn tiny447(x: Int): Int { x + 196 }
+
+export fn tiny448(x: Int): Int { x + 197 }
+
+export fn tiny449(x: Int): Int { x + 198 }
+
+export fn tiny450(x: Int): Int { x + 199 }
+
+export fn tiny451(x: Int): Int { x + 200 }
+
+export fn tiny452(x: Int): Int { x + 201 }
+
+export fn tiny453(x: Int): Int { x + 202 }
+
+export fn tiny454(x: Int): Int { x + 203 }
+
+export fn tiny455(x: Int): Int { x + 204 }
+
+export fn tiny456(x: Int): Int { x + 205 }
+
+export fn tiny457(x: Int): Int { x + 206 }
+
+export fn tiny458(x: Int): Int { x + 207 }
+
+export fn tiny459(x: Int): Int { x + 208 }
+
+export fn tiny460(x: Int): Int { x + 209 }
+
+export fn tiny461(x: Int): Int { x + 210 }
+
+export fn tiny462(x: Int): Int { x + 211 }
+
+export fn tiny463(x: Int): Int { x + 212 }
+
+export fn tiny464(x: Int): Int { x + 213 }
+
+export fn tiny465(x: Int): Int { x + 214 }
+
+export fn tiny466(x: Int): Int { x + 215 }
+
+export fn tiny467(x: Int): Int { x + 216 }
+
+export fn tiny468(x: Int): Int { x + 217 }
+
+export fn tiny469(x: Int): Int { x + 218 }
+
+export fn tiny470(x: Int): Int { x + 219 }
+
+export fn tiny471(x: Int): Int { x + 220 }
+
+export fn tiny472(x: Int): Int { x + 221 }
+
+export fn tiny473(x: Int): Int { x + 222 }
+
+export fn tiny474(x: Int): Int { x + 223 }
+
+export fn tiny475(x: Int): Int { x + 224 }
+
+export fn tiny476(x: Int): Int { x + 225 }
+
+export fn tiny477(x: Int): Int { x + 226 }
+
+export fn tiny478(x: Int): Int { x + 227 }
+
+export fn tiny479(x: Int): Int { x + 228 }
+
+export fn tiny480(x: Int): Int { x + 229 }
+
+export fn tiny481(x: Int): Int { x + 230 }
+
+export fn tiny482(x: Int): Int { x + 231 }
+
+export fn tiny483(x: Int): Int { x + 232 }
+
+export fn tiny484(x: Int): Int { x + 233 }
+
+export fn tiny485(x: Int): Int { x + 234 }
+
+export fn tiny486(x: Int): Int { x + 235 }
+
+export fn tiny487(x: Int): Int { x + 236 }
+
+export fn tiny488(x: Int): Int { x + 237 }
+
+export fn tiny489(x: Int): Int { x + 238 }
+
+export fn tiny490(x: Int): Int { x + 239 }
+
+export fn tiny491(x: Int): Int { x + 240 }
+
+export fn tiny492(x: Int): Int { x + 241 }
+
+export fn tiny493(x: Int): Int { x + 242 }
+
+export fn tiny494(x: Int): Int { x + 243 }
+
+export fn tiny495(x: Int): Int { x + 244 }
+
+export fn tiny496(x: Int): Int { x + 245 }
+
+export fn tiny497(x: Int): Int { x + 246 }
+
+export fn tiny498(x: Int): Int { x + 247 }
+
+export fn tiny499(x: Int): Int { x + 248 }
+
+export fn all1(x: Int): Int {
+  0
+    + tiny400(x)
+    + tiny401(x)
+    + tiny402(x)
+    + tiny403(x)
+    + tiny404(x)
+    + tiny405(x)
+    + tiny406(x)
+    + tiny407(x)
+    + tiny408(x)
+    + tiny409(x)
+    + tiny410(x)
+    + tiny411(x)
+    + tiny412(x)
+    + tiny413(x)
+    + tiny414(x)
+    + tiny415(x)
+    + tiny416(x)
+    + tiny417(x)
+    + tiny418(x)
+    + tiny419(x)
+    + tiny420(x)
+    + tiny421(x)
+    + tiny422(x)
+    + tiny423(x)
+    + tiny424(x)
+    + tiny425(x)
+    + tiny426(x)
+    + tiny427(x)
+    + tiny428(x)
+    + tiny429(x)
+    + tiny430(x)
+    + tiny431(x)
+    + tiny432(x)
+    + tiny433(x)
+    + tiny434(x)
+    + tiny435(x)
+    + tiny436(x)
+    + tiny437(x)
+    + tiny438(x)
+    + tiny439(x)
+    + tiny440(x)
+    + tiny441(x)
+    + tiny442(x)
+    + tiny443(x)
+    + tiny444(x)
+    + tiny445(x)
+    + tiny446(x)
+    + tiny447(x)
+    + tiny448(x)
+    + tiny449(x)
+    + tiny450(x)
+    + tiny451(x)
+    + tiny452(x)
+    + tiny453(x)
+    + tiny454(x)
+    + tiny455(x)
+    + tiny456(x)
+    + tiny457(x)
+    + tiny458(x)
+    + tiny459(x)
+    + tiny460(x)
+    + tiny461(x)
+    + tiny462(x)
+    + tiny463(x)
+    + tiny464(x)
+    + tiny465(x)
+    + tiny466(x)
+    + tiny467(x)
+    + tiny468(x)
+    + tiny469(x)
+    + tiny470(x)
+    + tiny471(x)
+    + tiny472(x)
+    + tiny473(x)
+    + tiny474(x)
+    + tiny475(x)
+    + tiny476(x)
+    + tiny477(x)
+    + tiny478(x)
+    + tiny479(x)
+    + tiny480(x)
+    + tiny481(x)
+    + tiny482(x)
+    + tiny483(x)
+    + tiny484(x)
+    + tiny485(x)
+    + tiny486(x)
+    + tiny487(x)
+    + tiny488(x)
+    + tiny489(x)
+    + tiny490(x)
+    + tiny491(x)
+    + tiny492(x)
+    + tiny493(x)
+    + tiny494(x)
+    + tiny495(x)
+    + tiny496(x)
+    + tiny497(x)
+    + tiny498(x)
+    + tiny499(x)
+}

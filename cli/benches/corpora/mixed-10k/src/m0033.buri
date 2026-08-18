@@ -1,0 +1,323 @@
+//! Generated module 33 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0011" import { Node11, seed11, blend11, reach11 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node33 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node33;
+
+export fn seed33(): Int { 1328 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend33(base: Int): Int {
+  let d0 = blend11(base) + seed11();
+  d0 + seed33()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift33(n: Node11): Node33 {
+  Node33 { label: n.label, value: n.value + seed33(), weight: n.weight }
+}
+
+/// A record with 2 fields, derived comparisons and two methods.
+export struct Rec33_0 {
+  export f0: Int,
+  export f1: Str,
+}
+
+derive Eq, Show for Rec33_0;
+
+impl Rec33_0 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec33_0, factor: Int): Int {
+    self.f0 * factor + 808
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec33_0, ctx: C): Str {
+    str.format(ctx, "rec33_0: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_0<C: Alloc>(ctx: C): Int {
+  let r = Rec33_0 { f0: 7, f1: "probe" };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// An enum of 4 variants, matched exhaustively below.
+export enum State33_1 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+}
+
+derive Eq, Show for State33_1;
+
+/// The match every enum in a real program has somewhere.
+export fn rank33_1(state: State33_1): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start33_1(ticks: Int): State33_1 {
+  if (ticks == 0) { .Idle } else if (ticks < 96) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_1<C: Alloc>(ctx: C): Int {
+  let s = start33_1(5);
+  rank33_1(s) + s.show(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr33_2<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll33_2<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric33_2(ns: [Int], ss: [Str]): Int {
+  firstOr33_2<Int>(ns, 0) + firstOr33_2<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_2<C: Alloc>(ctx: C): Int {
+  useGeneric33_2([1, 2], ["a"]) + describeAll33_2(ctx, [1, 2]).len()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State33_3 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State33_3;
+
+/// The match every enum in a real program has somewhere.
+export fn rank33_3(state: State33_3): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start33_3(ticks: Int): State33_3 {
+  if (ticks == 0) { .Idle } else if (ticks < 58) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_3<C: Alloc>(ctx: C): Int {
+  let s = start33_3(5);
+  rank33_3(s) + s.show(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr33_4<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll33_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric33_4(ns: [Int], ss: [Str]): Int {
+  firstOr33_4<Int>(ns, 0) + firstOr33_4<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_4<C: Alloc>(ctx: C): Int {
+  useGeneric33_4([1, 2], ["a"]) + describeAll33_4(ctx, [1, 2]).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose33_5(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth33_5(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_5<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth33_5("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose33_5(.Some(3), .None) + extra
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose33_6(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth33_6(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_6<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth33_6("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose33_6(.Some(3), .None) + extra
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label33_7<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "delta" } else { "echo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants33_7(): (Int, Int, Float, Char, Str) {
+  (925606, 0x71AD, 65.625, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_7<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants33_7();
+  label33_7(ctx, a, e).len() + b
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose33_8(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth33_8(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_8<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth33_8("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose33_8(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest33_9<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [7650, 6049, 9087, 3174, 5695, 5028, 9848, 9352, 5245, 3180];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain33_9(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe33_9<C: Alloc>(ctx: C): Int {
+  digest33_9(ctx) + drain33_9()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach33<C: Alloc>(ctx: C): Int {
+  0
+    + probe33_0(ctx)
+    + probe33_1(ctx)
+    + probe33_2(ctx)
+    + probe33_3(ctx)
+    + probe33_4(ctx)
+    + probe33_5(ctx)
+    + probe33_6(ctx)
+    + probe33_7(ctx)
+    + probe33_8(ctx)
+    + probe33_9(ctx)
+    + reach11(ctx)
+}

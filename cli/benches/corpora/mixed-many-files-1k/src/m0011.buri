@@ -1,0 +1,80 @@
+//! Generated module 11 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+from "//bench/m0007" import { Node7, seed7, blend7, reach7 };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+from "//bench/m0010" import { Node10, seed10, blend10, reach10 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node11 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node11;
+
+export fn seed11(): Int { 7110 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend11(base: Int): Int {
+  let d0 = blend4(base) + seed4();
+  let d1 = blend7(base) + seed7();
+  let d2 = blend0(base) + seed0();
+  let d3 = blend10(base) + seed10();
+  d0 + d1 + d2 + d3 + seed11()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift11(n: Node4): Node11 {
+  Node11 { label: n.label, value: n.value + seed11(), weight: n.weight }
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose11_0(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth11_0(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe11_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth11_0("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose11_0(.Some(3), .None) + extra
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach11<C: Alloc>(ctx: C): Int {
+  0
+    + probe11_0(ctx)
+    + reach4(ctx)
+    + reach7(ctx)
+    + reach0(ctx)
+    + reach10(ctx)
+}

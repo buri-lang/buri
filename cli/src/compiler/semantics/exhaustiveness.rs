@@ -13,13 +13,21 @@
 //! It is Maranget's, from *Warnings for pattern matching* (JFP 2007), vendored
 //! at `reference/maranget-warnings-for-pattern-matching.pdf`.
 
+use std::borrow::Cow;
+
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
 use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef};
 use crate::diagnostics::{Diagnostic, Span};
+use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// The head constructor of a pattern.
-#[derive(Clone, PartialEq, Eq, Debug)]
+///
+/// `Hash` as well as `Eq` because the matrix below is indexed by it and the
+/// set of constructors a column mentions is a set: with `Vec::contains` in
+/// their place, a `match` over N variants spent N²/2 comparisons deciding
+/// whether the column was complete.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum Ctor {
     Variant(TyConId, usize),
     /// Structs, tuples and unit: exactly one constructor.
@@ -43,7 +51,7 @@ enum Ctor {
 /// `0.0` formatted to `"f-0"` and `"f0"` and were treated as two distinct
 /// constructors even though they are the same value, and an integer and a
 /// float were kept apart only by a prefix the producer had to remember.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum LitValue {
     /// Magnitude and sign, as the pattern spells them.
     Int(u128, bool),
@@ -255,17 +263,159 @@ fn distribute(alts: &[Pat], rest: &[Pat]) -> Vec<Vec<Pat>> {
 /// The constructors a row's head can start with. An or-pattern contributes
 /// every constructor any of its alternatives does, so that a column covered by
 /// `true | false` counts as complete.
-fn collect_head_ctors(p: &Pat, out: &mut Vec<Ctor>) {
+fn collect_head_ctors(p: &Pat, out: &mut HashSet<Ctor>) {
     match p {
         Pat::Wild => {}
         Pat::Ctor(c, _) => {
             if !out.contains(c) {
-                out.push(c.clone());
+                out.insert(c.clone());
             }
         }
         Pat::Or(alts) => {
             for a in alts {
                 collect_head_ctors(a, out);
+            }
+        }
+    }
+}
+
+/// Past this many rows a matrix carries a head-constructor index. Below it the
+/// scan the index replaces is faster than building one, and almost every
+/// `match` in real source is a handful of arms.
+const INDEX_THRESHOLD: usize = 16;
+
+/// The pattern matrix the usefulness algorithm works over.
+///
+/// Its two operations both keep a subset of the rows chosen by the head of
+/// each: `specialize` keeps the rows headed by one constructor, plus the
+/// wildcards and or-patterns, and `default_matrix` keeps only the latter. Done
+/// by scanning, each visits every row — so a `match` over N variants, which
+/// has N rows and asks about N constructors, does N² row visits, and that is
+/// the whole of why a wide `match` was quadratic.
+///
+/// The index says which rows a constructor can reach without looking at the
+/// others. Row numbers are kept ascending in each bucket and merged ascending
+/// on the way out, so both operations produce their rows in exactly the order
+/// the scan did — the witness a non-exhaustive `match` names and the order
+/// unreachable arms are reported in both depend on it.
+#[derive(Default)]
+struct Matrix {
+    rows: Vec<Vec<Pat>>,
+    index: Option<Index>,
+}
+
+#[derive(Default)]
+struct Index {
+    /// Rows headed by each constructor, ascending.
+    by_ctor: HashMap<Ctor, Vec<usize>>,
+    /// Rows headed by a wildcard or an or-pattern, ascending. Every
+    /// specialization visits these, and they are the whole default matrix.
+    open: Vec<usize>,
+    /// Every constructor any row's head can start with.
+    heads: HashSet<Ctor>,
+}
+
+impl Index {
+    /// The rows `specialize` must visit for `ctor`, ascending. Two sorted
+    /// lists merged rather than concatenated and sorted, so this allocates
+    /// nothing.
+    fn rows_for<'i>(&'i self, ctor: &Ctor) -> Merge<'i> {
+        Merge {
+            a: self.by_ctor.get(ctor).map_or(&[][..], Vec::as_slice),
+            b: &self.open,
+        }
+    }
+}
+
+/// The ascending merge of two ascending row lists.
+struct Merge<'i> {
+    a: &'i [usize],
+    b: &'i [usize],
+}
+
+impl Iterator for Merge<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        match (self.a.split_first(), self.b.split_first()) {
+            (Some((&x, rest_a)), Some((&y, rest_b))) => {
+                if x <= y {
+                    self.a = rest_a;
+                    Some(x)
+                } else {
+                    self.b = rest_b;
+                    Some(y)
+                }
+            }
+            (Some((&x, rest_a)), None) => {
+                self.a = rest_a;
+                Some(x)
+            }
+            (None, Some((&y, rest_b))) => {
+                self.b = rest_b;
+                Some(y)
+            }
+            (None, None) => None,
+        }
+    }
+}
+
+impl Matrix {
+    fn new(rows: Vec<Vec<Pat>>) -> Self {
+        let mut m = Matrix { rows, index: None };
+        if m.rows.len() >= INDEX_THRESHOLD {
+            m.build_index();
+        }
+        m
+    }
+
+    fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// Appends a row, keeping the index in step. The reachability loop grows
+    /// one matrix arm by arm, so rebuilding the index per arm would put the
+    /// square back.
+    fn push(&mut self, row: Vec<Pat>) {
+        let at = self.rows.len();
+        self.rows.push(row);
+        if self.index.is_some() {
+            self.index_row(at);
+        } else if self.rows.len() >= INDEX_THRESHOLD {
+            self.build_index();
+        }
+    }
+
+    fn build_index(&mut self) {
+        self.index = Some(Index::default());
+        for at in 0..self.rows.len() {
+            self.index_row(at);
+        }
+    }
+
+    fn index_row(&mut self, at: usize) {
+        let Some(row) = self.rows.get(at) else { return };
+        let Some(head) = row.first() else { return };
+        let Some(ix) = self.index.as_mut() else { return };
+        match head {
+            Pat::Wild | Pat::Or(_) => ix.open.push(at),
+            Pat::Ctor(c, _) => ix.by_ctor.entry(c.clone()).or_default().push(at),
+        }
+        collect_head_ctors(head, &mut ix.heads);
+    }
+
+    /// Every constructor the first column mentions.
+    fn head_ctors(&self) -> Cow<'_, HashSet<Ctor>> {
+        match self.index.as_ref() {
+            Some(ix) => Cow::Borrowed(&ix.heads),
+            None => {
+                let mut out = HashSet::default();
+                for row in &self.rows {
+                    if let Some(head) = row.first() {
+                        collect_head_ctors(head, &mut out);
+                    }
+                }
+                Cow::Owned(out)
             }
         }
     }
@@ -301,70 +451,96 @@ impl<'a> Ctx<'a> {
 
     /// Rows of the matrix whose first pattern is `ctor`, with that pattern's
     /// sub-patterns spliced in.
-    fn specialize(&self, matrix: &[Vec<Pat>], ctor: &Ctor, arity: usize) -> Vec<Vec<Pat>> {
+    fn specialize(&self, matrix: &Matrix, ctor: &Ctor, arity: usize) -> Matrix {
         let mut out = Vec::new();
-        for row in matrix {
-            let Some((head, rest)) = row.split_first() else { continue };
-            match head {
-                Pat::Wild => {
-                    let mut next = vec![Pat::Wild; arity];
-                    next.extend_from_slice(rest);
-                    out.push(next);
-                }
-                Pat::Ctor(c, subs) if c == ctor => {
-                    let mut next = subs.clone();
-                    while next.len() < arity {
-                        next.push(Pat::Wild);
+        match matrix.index.as_ref() {
+            Some(ix) => {
+                for at in ix.rows_for(ctor) {
+                    if let Some(row) = matrix.rows.get(at) {
+                        self.specialize_row(row, ctor, arity, &mut out);
                     }
-                    next.truncate(arity);
-                    next.extend_from_slice(rest);
-                    out.push(next);
                 }
-                // An alternation `expand` left nested, now exposed by peeling
-                // its constructor off. Distribute: each alternative is a row of
-                // its own, and the coverage of all of them is the row's.
-                // Dropping the row instead would lose that coverage and make a
-                // wildcard look useful — the false rejection of `.Some(true |
-                // false)`.
-                Pat::Or(alts) => {
-                    out.extend(self.specialize(&distribute(alts, rest), ctor, arity));
+            }
+            None => {
+                for row in &matrix.rows {
+                    self.specialize_row(row, ctor, arity, &mut out);
                 }
-                _ => {}
             }
         }
-        out
+        Matrix::new(out)
+    }
+
+    fn specialize_row(&self, row: &[Pat], ctor: &Ctor, arity: usize, out: &mut Vec<Vec<Pat>>) {
+        let Some((head, rest)) = row.split_first() else { return };
+        match head {
+            Pat::Wild => {
+                let mut next = vec![Pat::Wild; arity];
+                next.extend_from_slice(rest);
+                out.push(next);
+            }
+            Pat::Ctor(c, subs) if c == ctor => {
+                let mut next = subs.clone();
+                while next.len() < arity {
+                    next.push(Pat::Wild);
+                }
+                next.truncate(arity);
+                next.extend_from_slice(rest);
+                out.push(next);
+            }
+            // An alternation `expand` left nested, now exposed by peeling
+            // its constructor off. Distribute: each alternative is a row of
+            // its own, and the coverage of all of them is the row's.
+            // Dropping the row instead would lose that coverage and make a
+            // wildcard look useful — the false rejection of `.Some(true |
+            // false)`.
+            Pat::Or(alts) => {
+                for next in distribute(alts, rest) {
+                    self.specialize_row(&next, ctor, arity, out);
+                }
+            }
+            Pat::Ctor(..) => {}
+        }
     }
 
     /// Rows whose first pattern is a wildcard, with that column dropped.
-    fn default_matrix(&self, matrix: &[Vec<Pat>]) -> Vec<Vec<Pat>> {
+    fn default_matrix(&self, matrix: &Matrix) -> Matrix {
         let mut out = Vec::new();
-        for row in matrix {
-            let Some((head, rest)) = row.split_first() else { continue };
-            match head {
-                Pat::Wild => out.push(rest.to_vec()),
-                // Distribute, for the same reason `specialize` does. An
-                // alternative that is a wildcard makes the whole row a default
-                // row.
-                Pat::Or(alts) => out.extend(self.default_matrix(&distribute(alts, rest))),
-                Pat::Ctor(..) => {}
+        match matrix.index.as_ref() {
+            Some(ix) => {
+                for &at in &ix.open {
+                    if let Some(row) = matrix.rows.get(at) {
+                        self.default_row(row, &mut out);
+                    }
+                }
+            }
+            None => {
+                for row in &matrix.rows {
+                    self.default_row(row, &mut out);
+                }
             }
         }
-        out
+        Matrix::new(out)
     }
 
-    fn head_ctors(&self, matrix: &[Vec<Pat>]) -> Vec<Ctor> {
-        let mut out: Vec<Ctor> = Vec::new();
-        for row in matrix {
-            if let Some(head) = row.first() {
-                collect_head_ctors(head, &mut out);
+    fn default_row(&self, row: &[Pat], out: &mut Vec<Vec<Pat>>) {
+        let Some((head, rest)) = row.split_first() else { return };
+        match head {
+            Pat::Wild => out.push(rest.to_vec()),
+            // Distribute, for the same reason `specialize` does. An
+            // alternative that is a wildcard makes the whole row a default
+            // row.
+            Pat::Or(alts) => {
+                for next in distribute(alts, rest) {
+                    self.default_row(&next, out);
+                }
             }
+            Pat::Ctor(..) => {}
         }
-        out
     }
 
     /// Whether `v` matches a value the matrix does not. Returns a witness when
     /// it does, so a diagnostic can name the missing case.
-    fn useful(&self, matrix: &[Vec<Pat>], v: &[Pat], types: &[Ty]) -> Option<Vec<Witness>> {
+    fn useful(&self, matrix: &Matrix, v: &[Pat], types: &[Ty]) -> Option<Vec<Witness>> {
         let Some((head, tail)) = v.split_first() else {
             return matrix.is_empty().then(Vec::new);
         };
@@ -406,13 +582,17 @@ impl<'a> Ctx<'a> {
                 })
             }
             Pat::Wild => {
-                let used = self.head_ctors(matrix);
-                let complete = match self.all_ctors(&head_ty) {
+                let used = matrix.head_ctors();
+                // Once, not once per branch: it allocates one `Ctor` per
+                // variant, and both branches below want the same list.
+                let all_ctors = self.all_ctors(&head_ty);
+                let complete = match &all_ctors {
                     Some(all) => all.iter().all(|c| used.contains(c)),
                     None => false,
                 };
                 if complete {
-                    let all = self.all_ctors(&head_ty).unwrap_or_else(|| used.clone());
+                    // `complete` implies the list is there.
+                    let all = all_ctors.unwrap_or_default();
                     for c in all {
                         let arity = c.arity(self.tables, &head_ty);
                         let specialized = self.specialize(matrix, &c, arity);
@@ -434,8 +614,7 @@ impl<'a> Ctx<'a> {
                     self.useful(&default, tail, rest_types).map(|w| {
                         // Name a constructor the match does not mention, when
                         // there is one to name.
-                        let missing = self
-                            .all_ctors(&head_ty)
+                        let missing = all_ctors
                             .and_then(|all| all.into_iter().find(|c| !used.contains(c)))
                             .map(|c| {
                                 let arity = c.arity(self.tables, &head_ty);
@@ -538,7 +717,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     // Arms are tried in order and the first matching arm wins, so an arm is
     // unreachable when the arms before it already cover it. A guarded arm
     // covers nothing, because its guard may fail.
-    let mut covering: Vec<Vec<Pat>> = Vec::new();
+    let mut covering = Matrix::default();
     let mut reported = Vec::new();
     for (arm, low) in arms.iter().zip(&lowered) {
         let rows = expand(vec![expand_lengths(low.clone(), limit)]);
@@ -547,7 +726,9 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
             reported.push(arm.span);
         }
         if arm.guard.is_none() {
-            covering.extend(rows);
+            for r in rows {
+                covering.push(r);
+            }
         }
     }
     for s in reported {

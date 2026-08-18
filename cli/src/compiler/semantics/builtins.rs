@@ -117,7 +117,7 @@ impl<'a> Checker<'a> {
             ast: AstRef::Builtin,
             intrinsic: true,
         });
-        self.tables.methods.entry((con, "toJson".into())).or_insert(fid);
+        self.tables.add_method(con, "toJson", fid);
         fid
     }
 
@@ -231,7 +231,7 @@ impl<'a> Checker<'a> {
             ast: AstRef::Builtin,
             intrinsic: true,
         });
-        self.tables.methods.entry((con, name.to_string())).or_insert(fid);
+        self.tables.add_method(con, name, fid);
         fid
     }
 
@@ -391,7 +391,7 @@ impl<'a> Checker<'a> {
             ast: AstRef::Builtin,
             intrinsic: true,
         });
-        self.tables.methods.entry((con, "show".into())).or_insert(fid);
+        self.tables.add_method(con, "show", fid);
         fid
     }
 
@@ -477,7 +477,7 @@ impl<'a> Checker<'a> {
         for (slot, fid) in slots.iter_mut().zip(methods) {
             *slot = Some(fid);
         }
-        self.tables.impls.entry((trait_id, con)).or_insert(ImplInfo {
+        self.tables.add_impl(ImplInfo {
             trait_id,
             self_con: con,
             body: ImplBody::Written(slots),
@@ -490,7 +490,7 @@ impl<'a> Checker<'a> {
     /// `satisfies` recurses into the payload before answering.
     fn add_derived_impl(&mut self, trait_name: &str, con: TyConId) {
         let Some(&trait_id) = self.known_traits.get(trait_name) else { return };
-        self.tables.impls.entry((trait_id, con)).or_insert(ImplInfo {
+        self.tables.add_impl(ImplInfo {
             trait_id,
             self_con: con,
             body: ImplBody::Derived,

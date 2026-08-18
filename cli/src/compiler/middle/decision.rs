@@ -70,6 +70,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern,
 };
 use crate::compiler::semantics::types::{LocalId, TyConId};
+use crate::hash::Map;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
 /// of discriminant tests.
@@ -85,9 +86,7 @@ pub fn run(program: &mut Program) {
 /// holding it becomes one — and so the nested matches this pass *creates* are
 /// visited by the explicit call in [`group`] rather than being missed.
 fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
-    for child in crate::compiler::middle::inline::children_mut(e) {
-        rewrite(locals, child);
-    }
+    crate::compiler::middle::inline::each_child_mut(e, &mut |child| rewrite(locals, child));
     let ty = e.ty.clone();
     if let ExprKind::Match { arms, .. } = &mut e.kind {
         if let Some(grouped) = group(locals, arms, &ty) {
@@ -101,7 +100,7 @@ fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
 /// Two arms with equal heads are two arms one value can reach, in the order
 /// they were written; two arms with different constructor heads are two arms no
 /// value can both reach.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 enum Head {
     /// A variant of an enum, by its index and the type it belongs to.
     Tag(TyConId, usize),
@@ -174,11 +173,28 @@ fn group(
     // First-appearance order, so the emitted tests are in the order they were
     // written wherever the writer's order was already a partition — which
     // keeps the diff of this pass readable and the output stable.
+    //
+    // One pass, with the group each head names looked up rather than scanned
+    // for. A scan per head is quadratic in the arm count, and a match is as
+    // wide as its enum: `wide-match/20k` is one 10,000-arm match, and this was
+    // 100 M head comparisons in a pass whose output is linear.
     let tested = heads.len().checked_sub(usize::from(default))?;
-    let mut order: Vec<Head> = Vec::new();
-    for h in heads.get(..tested)? {
-        if !order.contains(h) {
-            order.push(h.clone());
+    let mut order: Vec<usize> = Vec::new();
+    let mut group_of: Map<&Head, usize> = Map::default();
+    let mut groups: Vec<Vec<&Arm>> = Vec::new();
+    for (arm, h) in arms.iter().zip(&heads).take(tested) {
+        let slot = match group_of.get(h) {
+            Some(slot) => *slot,
+            None => {
+                let slot = groups.len();
+                group_of.insert(h, slot);
+                groups.push(Vec::new());
+                order.push(slot);
+                slot
+            }
+        };
+        if let Some(rows) = groups.get_mut(slot) {
+            rows.push(arm);
         }
     }
     // Nothing to hoist: one test is one test however it is emitted.
@@ -187,13 +203,7 @@ fn group(
     }
 
     let mut out: Vec<Arm> = Vec::new();
-    for h in &order {
-        let rows: Vec<&Arm> = arms
-            .iter()
-            .zip(&heads)
-            .filter(|(_, at)| *at == h)
-            .map(|(a, _)| a)
-            .collect();
+    for rows in &groups {
         out.push(match rows.as_slice() {
             // One arm tests this constructor, so it is already the group.
             // Whether it can fail still matters: a value that reaches it and

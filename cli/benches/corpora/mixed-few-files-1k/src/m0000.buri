@@ -1,0 +1,1247 @@
+//! Generated module 0 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node0 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node0;
+
+export fn seed0(): Int { 1 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend0(base: Int): Int {
+  base + seed0()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State0_0 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State0_0;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_0(state: State0_0): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_0(ticks: Int): State0_0 {
+  if (ticks == 0) { .Idle } else if (ticks < 97) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_0<C: Alloc>(ctx: C): Int {
+  let s = start0_0(5);
+  rank0_0(s) + s.show(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_1<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_1(ns: [Int], ss: [Str]): Int {
+  firstOr0_1<Int>(ns, 0) + firstOr0_1<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_1<C: Alloc>(ctx: C): Int {
+  useGeneric0_1([1, 2], ["a"]) + describeAll0_1(ctx, [1, 2]).len()
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest0_2<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [6360, 8582, 2304, 8893, 7779];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain0_2(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_2<C: Alloc>(ctx: C): Int {
+  digest0_2(ctx) + drain0_2()
+}
+
+/// An enum of 6 variants, matched exhaustively below.
+export enum State0_3 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+}
+
+derive Eq, Show for State0_3;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_3(state: State0_3): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_3(ticks: Int): State0_3 {
+  if (ticks == 0) { .Idle } else if (ticks < 88) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_3<C: Alloc>(ctx: C): Int {
+  let s = start0_3(5);
+  rank0_3(s) + s.show(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose0_4(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth0_4(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_4<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth0_4("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose0_4(.Some(3), .None) + extra
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_5<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_5<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_5(ns: [Int], ss: [Str]): Int {
+  firstOr0_5<Int>(ns, 0) + firstOr0_5<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_5<C: Alloc>(ctx: C): Int {
+  useGeneric0_5([1, 2], ["a"]) + describeAll0_5(ctx, [1, 2]).len()
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest0_6<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [4743, 7983, 5845, 5469, 3033, 5568, 6759, 5963, 1878, 3878, 9911];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain0_6(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_6<C: Alloc>(ctx: C): Int {
+  digest0_6(ctx) + drain0_6()
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec0_7 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show for Rec0_7;
+
+impl Rec0_7 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_7, factor: Int): Int {
+    self.f0 * factor + 858
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_7, ctx: C): Str {
+    str.format(ctx, "rec0_7: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_7<C: Alloc>(ctx: C): Int {
+  let r = Rec0_7 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State0_8 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State0_8;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_8(state: State0_8): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_8(ticks: Int): State0_8 {
+  if (ticks == 0) { .Idle } else if (ticks < 88) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_8<C: Alloc>(ctx: C): Int {
+  let s = start0_8(5);
+  rank0_8(s) + s.show(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label0_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "echo" } else { "delta" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants0_9(): (Int, Int, Float, Char, Str) {
+  (880051, 0xB61D, 308.379, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_9<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants0_9();
+  label0_9(ctx, a, e).len() + b
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest0_10<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [8784, 2362, 4866, 3203, 1680, 7185, 3352, 1561, 2024];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain0_10(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_10<C: Alloc>(ctx: C): Int {
+  digest0_10(ctx) + drain0_10()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_11<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_11<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_11(ns: [Int], ss: [Str]): Int {
+  firstOr0_11<Int>(ns, 0) + firstOr0_11<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_11<C: Alloc>(ctx: C): Int {
+  useGeneric0_11([1, 2], ["a"]) + describeAll0_11(ctx, [1, 2]).len()
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec0_12 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec0_12;
+
+impl Rec0_12 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_12, factor: Int): Int {
+    self.f0 * factor + 663
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_12, ctx: C): Str {
+    str.format(ctx, "rec0_12: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_12<C: Alloc>(ctx: C): Int {
+  let r = Rec0_12 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose0_13(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth0_13(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_13<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth0_13("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose0_13(.Some(3), .None) + extra
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_14<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_14<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_14(ns: [Int], ss: [Str]): Int {
+  firstOr0_14<Int>(ns, 0) + firstOr0_14<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_14<C: Alloc>(ctx: C): Int {
+  useGeneric0_14([1, 2], ["a"]) + describeAll0_14(ctx, [1, 2]).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose0_15(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth0_15(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_15<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth0_15("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose0_15(.Some(3), .None) + extra
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_16<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_16<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_16(ns: [Int], ss: [Str]): Int {
+  firstOr0_16<Int>(ns, 0) + firstOr0_16<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_16<C: Alloc>(ctx: C): Int {
+  useGeneric0_16([1, 2], ["a"]) + describeAll0_16(ctx, [1, 2]).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_17<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_17<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_17(ns: [Int], ss: [Str]): Int {
+  firstOr0_17<Int>(ns, 0) + firstOr0_17<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_17<C: Alloc>(ctx: C): Int {
+  useGeneric0_17([1, 2], ["a"]) + describeAll0_17(ctx, [1, 2]).len()
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec0_18 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show for Rec0_18;
+
+impl Rec0_18 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_18, factor: Int): Int {
+    self.f0 * factor + 53
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_18, ctx: C): Str {
+    str.format(ctx, "rec0_18: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_18<C: Alloc>(ctx: C): Int {
+  let r = Rec0_18 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec0_19 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show for Rec0_19;
+
+impl Rec0_19 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_19, factor: Int): Int {
+    self.f0 * factor + 701
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_19, ctx: C): Str {
+    str.format(ctx, "rec0_19: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_19<C: Alloc>(ctx: C): Int {
+  let r = Rec0_19 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State0_20 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State0_20;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_20(state: State0_20): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_20(ticks: Int): State0_20 {
+  if (ticks == 0) { .Idle } else if (ticks < 13) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_20<C: Alloc>(ctx: C): Int {
+  let s = start0_20(5);
+  rank0_20(s) + s.show(ctx).len()
+}
+
+/// A body of 10 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute0_21(input: Int): Int {
+  let a0 = input * 7 + 261;
+  let a1 = a0 * 33;
+  let a2 = a1 * 20;
+  let a3 = a2 + 71;
+  let a4 = a3 - 33;
+  let a5 = a4 - 84;
+  let a6 = a5 - 24;
+  let a7 = a6 + 5;
+  let a8 = a7 + 59;
+  let a9 = a8 - 57;
+  if (a9 > 8782) { a9 } else { a9 - 88 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_21<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute0_21(7)
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label0_22<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "delta" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants0_22(): (Int, Int, Float, Char, Str) {
+  (546841, 0x714B, 679.822, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_22<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants0_22();
+  label0_22(ctx, a, e).len() + b
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose0_23(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth0_23(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_23<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth0_23("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose0_23(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest0_24<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [6228, 2679, 3193, 8003, 5867, 478, 2483, 9997, 3209, 8644];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain0_24(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_24<C: Alloc>(ctx: C): Int {
+  digest0_24(ctx) + drain0_24()
+}
+
+/// A record with 2 fields, derived comparisons and two methods.
+export struct Rec0_25 {
+  export f0: Int,
+  export f1: Str,
+}
+
+derive Eq, Show for Rec0_25;
+
+impl Rec0_25 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_25, factor: Int): Int {
+    self.f0 * factor + 962
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_25, ctx: C): Str {
+    str.format(ctx, "rec0_25: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_25<C: Alloc>(ctx: C): Int {
+  let r = Rec0_25 { f0: 7, f1: "probe" };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose0_26(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth0_26(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_26<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth0_26("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose0_26(.Some(3), .None) + extra
+}
+
+/// A body of 7 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute0_27(input: Int): Int {
+  let a0 = input * 4 + 747;
+  let a1 = a0 * 40;
+  let a2 = a1 * 53;
+  let a3 = a2 - 86;
+  let a4 = a3 * 96;
+  let a5 = a4 - 21;
+  let a6 = a5 * 40;
+  if (a6 > 5439) { a6 } else { a6 - 3 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_27<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute0_27(7)
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose0_28(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth0_28(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_28<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth0_28("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose0_28(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest0_29<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [4713, 6013, 1107, 8949, 5606, 3497];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain0_29(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_29<C: Alloc>(ctx: C): Int {
+  digest0_29(ctx) + drain0_29()
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec0_30 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show for Rec0_30;
+
+impl Rec0_30 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_30, factor: Int): Int {
+    self.f0 * factor + 2
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_30, ctx: C): Str {
+    str.format(ctx, "rec0_30: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_30<C: Alloc>(ctx: C): Int {
+  let r = Rec0_30 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_31<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_31<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_31(ns: [Int], ss: [Str]): Int {
+  firstOr0_31<Int>(ns, 0) + firstOr0_31<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_31<C: Alloc>(ctx: C): Int {
+  useGeneric0_31([1, 2], ["a"]) + describeAll0_31(ctx, [1, 2]).len()
+}
+
+/// An enum of 4 variants, matched exhaustively below.
+export enum State0_32 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+}
+
+derive Eq, Show for State0_32;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_32(state: State0_32): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_32(ticks: Int): State0_32 {
+  if (ticks == 0) { .Idle } else if (ticks < 63) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_32<C: Alloc>(ctx: C): Int {
+  let s = start0_32(5);
+  rank0_32(s) + s.show(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label0_33<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "golf" } else { "delta" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants0_33(): (Int, Int, Float, Char, Str) {
+  (919874, 0x7011, 160.465, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_33<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants0_33();
+  label0_33(ctx, a, e).len() + b
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec0_34 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec0_34;
+
+impl Rec0_34 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_34, factor: Int): Int {
+    self.f0 * factor + 504
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_34, ctx: C): Str {
+    str.format(ctx, "rec0_34: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_34<C: Alloc>(ctx: C): Int {
+  let r = Rec0_34 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_35<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_35<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_35(ns: [Int], ss: [Str]): Int {
+  firstOr0_35<Int>(ns, 0) + firstOr0_35<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_35<C: Alloc>(ctx: C): Int {
+  useGeneric0_35([1, 2], ["a"]) + describeAll0_35(ctx, [1, 2]).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label0_36<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "delta" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants0_36(): (Int, Int, Float, Char, Str) {
+  (186004, 0x7510, 924.890, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_36<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants0_36();
+  label0_36(ctx, a, e).len() + b
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label0_37<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "charlie" } else { "hotel" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants0_37(): (Int, Int, Float, Char, Str) {
+  (236903, 0x2E71, 903.484, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_37<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants0_37();
+  label0_37(ctx, a, e).len() + b
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr0_38<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll0_38<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric0_38(ns: [Int], ss: [Str]): Int {
+  firstOr0_38<Int>(ns, 0) + firstOr0_38<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_38<C: Alloc>(ctx: C): Int {
+  useGeneric0_38([1, 2], ["a"]) + describeAll0_38(ctx, [1, 2]).len()
+}
+
+/// A body of 10 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute0_39(input: Int): Int {
+  let a0 = input * 4 + 451;
+  let a1 = a0 * 53;
+  let a2 = a1 - 7;
+  let a3 = a2 * 53;
+  let a4 = a3 - 16;
+  let a5 = a4 * 34;
+  let a6 = a5 - 80;
+  let a7 = a6 - 73;
+  let a8 = a7 * 79;
+  let a9 = a8 + 44;
+  if (a9 > 9777) { a9 } else { a9 - 86 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_39<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute0_39(7)
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label0_40<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "echo" } else { "bravo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants0_40(): (Int, Int, Float, Char, Str) {
+  (672032, 0x1136, 269.076, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_40<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants0_40();
+  label0_40(ctx, a, e).len() + b
+}
+
+/// An enum of 5 variants, matched exhaustively below.
+export enum State0_41 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+}
+
+derive Eq, Show for State0_41;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_41(state: State0_41): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_41(ticks: Int): State0_41 {
+  if (ticks == 0) { .Idle } else if (ticks < 86) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_41<C: Alloc>(ctx: C): Int {
+  let s = start0_41(5);
+  rank0_41(s) + s.show(ctx).len()
+}
+
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec0_42 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+  export f4: Int,
+}
+
+derive Eq, Show for Rec0_42;
+
+impl Rec0_42 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec0_42, factor: Int): Int {
+    self.f0 * factor + 370
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec0_42, ctx: C): Str {
+    str.format(ctx, "rec0_42: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_42<C: Alloc>(ctx: C): Int {
+  let r = Rec0_42 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A body of 9 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute0_43(input: Int): Int {
+  let a0 = input * 4 + 886;
+  let a1 = a0 * 62;
+  let a2 = a1 - 85;
+  let a3 = a2 * 51;
+  let a4 = a3 - 42;
+  let a5 = a4 + 27;
+  let a6 = a5 * 44;
+  let a7 = a6 + 97;
+  let a8 = a7 - 12;
+  if (a8 > 7565) { a8 } else { a8 - 94 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_43<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute0_43(7)
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State0_44 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State0_44;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_44(state: State0_44): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_44(ticks: Int): State0_44 {
+  if (ticks == 0) { .Idle } else if (ticks < 20) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_44<C: Alloc>(ctx: C): Int {
+  let s = start0_44(5);
+  rank0_44(s) + s.show(ctx).len()
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest0_45<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [7091, 9310, 6941, 4612, 2527, 607];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain0_45(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_45<C: Alloc>(ctx: C): Int {
+  digest0_45(ctx) + drain0_45()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach0<C: Alloc>(ctx: C): Int {
+  0
+    + probe0_0(ctx)
+    + probe0_1(ctx)
+    + probe0_2(ctx)
+    + probe0_3(ctx)
+    + probe0_4(ctx)
+    + probe0_5(ctx)
+    + probe0_6(ctx)
+    + probe0_7(ctx)
+    + probe0_8(ctx)
+    + probe0_9(ctx)
+    + probe0_10(ctx)
+    + probe0_11(ctx)
+    + probe0_12(ctx)
+    + probe0_13(ctx)
+    + probe0_14(ctx)
+    + probe0_15(ctx)
+    + probe0_16(ctx)
+    + probe0_17(ctx)
+    + probe0_18(ctx)
+    + probe0_19(ctx)
+    + probe0_20(ctx)
+    + probe0_21(ctx)
+    + probe0_22(ctx)
+    + probe0_23(ctx)
+    + probe0_24(ctx)
+    + probe0_25(ctx)
+    + probe0_26(ctx)
+    + probe0_27(ctx)
+    + probe0_28(ctx)
+    + probe0_29(ctx)
+    + probe0_30(ctx)
+    + probe0_31(ctx)
+    + probe0_32(ctx)
+    + probe0_33(ctx)
+    + probe0_34(ctx)
+    + probe0_35(ctx)
+    + probe0_36(ctx)
+    + probe0_37(ctx)
+    + probe0_38(ctx)
+    + probe0_39(ctx)
+    + probe0_40(ctx)
+    + probe0_41(ctx)
+    + probe0_42(ctx)
+    + probe0_43(ctx)
+    + probe0_44(ctx)
+    + probe0_45(ctx)
+}

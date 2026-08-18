@@ -1,0 +1,59 @@
+//! Generated module 4 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node4 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node4;
+
+export fn seed4(): Int { 1677 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend4(base: Int): Int {
+  let d0 = blend1(base) + seed1();
+  d0 + seed4()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift4(n: Node1): Node4 {
+  Node4 { label: n.label, value: n.value + seed4(), weight: n.weight }
+}
+
+/// A body of 5 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute4_0(input: Int): Int {
+  let a0 = input * 3 + 494;
+  let a1 = a0 + 79;
+  let a2 = a1 * 33;
+  let a3 = a2 * 20;
+  let a4 = a3 + 71;
+  if (a4 > 1007) { a4 } else { a4 - 81 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute4_0(7)
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach4<C: Alloc>(ctx: C): Int {
+  0
+    + probe4_0(ctx)
+    + reach1(ctx)
+}

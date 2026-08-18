@@ -11,85 +11,85 @@ use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Invariant as _, Span};
-use crate::parsing::tree;
+use crate::parsing::flat::{Loc, PatId, PatPayloadData, PatView as P};
 
 impl<'a, 'b> Infer<'a, 'b> {
-    pub(crate) fn check_pattern(&mut self, p: &tree::Pattern, ty: &Ty) -> typed::Pattern {
+    pub(crate) fn check_pattern(&mut self, p: PatId, ty: &Ty) -> typed::Pattern {
         let ty = self.resolve(ty);
-        let span = p.span();
-        let kind = match p {
-            tree::Pattern::Wild { .. } => typed::PatKind::Wild,
+        let t = self.tree();
+        let span = t.pspan(p);
+        let kind = match t.pat(p) {
+            P::Wild { .. } => typed::PatKind::Wild,
 
-            tree::Pattern::Bind { name, sub, .. } => {
+            P::Bind { name, name_span, sub, .. } => {
                 // Each name a pattern binds is bound once. `(a, a)` is a
                 // mistake, not a shorthand for "equal".
-                if self.or_scope.is_none() && self.pattern_names.contains(&name.name) {
-                    let n = name.name.clone();
-                    self.err(name.span, format!("`{n}` is bound twice in this pattern")).code("duplicate-bound")
+                if self.or_scope.is_none() && self.bound_already(name) {
+                    self.err(name_span, format!("`{name}` is bound twice in this pattern")).code("duplicate-bound")
                         .fix("rename one of them, or bind one and compare the other in a guard")
                         .note("a name a pattern binds is bound once; to require two positions to be equal, match one and test the other in a guard");
                 }
-                self.pattern_names.push(name.name.clone());
-                let local = match self.or_alternative_local(&name.name) {
+                self.pattern_names.push(name.to_string());
+                let local = match self.or_alternative_local(name) {
                     // Or-pattern alternatives must bind identical names at
                     // identical types, so the second alternative reuses the
                     // first's binding rather than shadowing it.
                     Some(existing) => {
                         let existing_ty = self.local_ty(existing);
-                        self.unify_at(name.span, &ty, &existing_ty, "the other alternative");
+                        self.unify_at(name_span, &ty, &existing_ty, "the other alternative");
                         existing
                     }
                     None => {
-                        let l = self.new_local(&name.name, ty.clone(), name.span);
-                        self.record_or_binding(&name.name, l);
+                        let l = self.new_local(name, ty.clone(), name_span);
+                        self.record_or_binding(name, l);
                         l
                     }
                 };
-                self.bind(&name.name, local);
+                self.bind(name, local);
                 self.note_capture_risk(local, &ty);
-                let sub = sub.as_ref().map(|s| Box::new(self.check_pattern(s, &ty)));
+                let sub = sub.map(|s| Box::new(self.check_pattern(s, &ty)));
                 typed::PatKind::Bind { local, sub }
             }
 
-            tree::Pattern::LitInt { value, negative, raw, .. } => {
+            P::LitInt { value, negative, raw, .. } => {
                 let lit = self.subst.fresh_num(NumClass::Int, span);
                 self.unify_at(span, &lit, &ty, "the scrutinee");
                 self.lit_checks.push(LitCheck {
-                    value: *value,
-                    negative: *negative,
-                    raw: raw.clone(),
+                    value,
+                    negative,
+                    raw: raw.to_string(),
                     ty: lit,
                     span,
                 });
-                typed::PatKind::Int(*value, *negative)
+                typed::PatKind::Int(value, negative)
             }
-            tree::Pattern::LitFloat { value, negative, .. } => {
+            P::LitFloat { value, negative, .. } => {
                 let lit = self.subst.fresh_num(NumClass::Float, span);
                 self.unify_at(span, &lit, &ty, "the scrutinee");
-                typed::PatKind::Float(if *negative { -*value } else { *value })
+                typed::PatKind::Float(if negative { -value } else { value })
             }
-            tree::Pattern::LitStr { value, .. } => {
+            P::LitStr { value, .. } => {
                 let s = self.prim(Prim::Str);
                 self.unify_at(span, &s, &ty, "the scrutinee");
-                typed::PatKind::Str(value.clone())
+                typed::PatKind::Str(value.to_string())
             }
-            tree::Pattern::LitChar { value, .. } => {
+            P::LitChar { value, .. } => {
                 let c = self.prim(Prim::Char);
                 self.unify_at(span, &c, &ty, "the scrutinee");
-                typed::PatKind::Char(*value)
+                typed::PatKind::Char(value)
             }
-            tree::Pattern::LitBool { value, .. } => {
+            P::LitBool { value, .. } => {
                 let b = self.prim(Prim::Bool);
                 self.unify_at(span, &b, &ty, "the scrutinee");
-                typed::PatKind::Bool(*value)
+                typed::PatKind::Bool(value)
             }
 
-            tree::Pattern::Unit { .. } => {
+            P::Unit { .. } => {
                 self.unify_at(span, &Ty::Unit, &ty, "the scrutinee");
                 typed::PatKind::Unit
             }
 
-            tree::Pattern::Tuple { elems, .. } => {
+            P::Tuple { elems, .. } => {
                 let elem_types = match &ty {
                     Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
                     Ty::Error => vec![Ty::Error; elems.len()],
@@ -105,12 +105,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                     elems
                         .iter()
                         .zip(&elem_types)
-                        .map(|(e, t)| self.check_pattern(e, t))
+                        .map(|(e, t)| self.check_pattern(*e, t))
                         .collect(),
                 )
             }
 
-            tree::Pattern::Array { elems, rest, .. } => {
+            P::Array { elems, rest, .. } => {
                 let elem_ty = match &ty {
                     Ty::Array(e) => (**e).clone(),
                     Ty::Error => Ty::Error,
@@ -122,27 +122,28 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                 };
                 let checked: Vec<typed::Pattern> =
-                    elems.iter().map(|e| self.check_pattern(e, &elem_ty)).collect();
-                let rest_local = match rest.as_ref() {
+                    elems.iter().map(|e| self.check_pattern(*e, &elem_ty)).collect();
+                let rest_local = match rest {
                     None => typed::ArrayRest::None,
                     Some(None) => typed::ArrayRest::Ignored,
                     Some(Some(n)) => {
-                        if self.or_scope.is_none() && self.pattern_names.contains(&n.name) {
-                            let dup = n.name.clone();
-                            self.err(n.span, format!("`{dup}` is bound twice in this pattern")).code("duplicate-bound")
+                        let dup = t.text(n);
+                        let dup_span = t.span_of(n);
+                        if self.or_scope.is_none() && self.bound_already(dup) {
+                            self.err(dup_span, format!("`{dup}` is bound twice in this pattern")).code("duplicate-bound")
                                 .fix("rename one of them");
                         }
-                        self.pattern_names.push(n.name.clone());
+                        self.pattern_names.push(dup.to_string());
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
-                        let l = self.new_local(&n.name, arr, n.span);
-                        self.bind(&n.name, l);
+                        let l = self.new_local(dup, arr, dup_span);
+                        self.bind(dup, l);
                         typed::ArrayRest::Bound(l)
                     }
                 };
                 typed::PatKind::Array { elems: checked, rest: rest_local }
             }
 
-            tree::Pattern::Or { alts, .. } => {
+            P::Or { alts, .. } => {
                 let mut out = Vec::new();
                 // Entered and left as one value, so a nested or-pattern
                 // restores everything the outer one had.
@@ -154,7 +155,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     if let Some(scope) = self.or_scope.as_mut() {
                         scope.current = scope.first.clone().unwrap_or_default();
                     }
-                    let checked = self.check_pattern(alt, &ty);
+                    let checked = self.check_pattern(*alt, &ty);
                     let bound = self
                         .or_scope
                         .as_ref()
@@ -195,7 +196,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 ));
                             }
                             self.err(
-                                alt.span(),
+                                t.pspan(*alt),
                                 "or-pattern alternatives must bind the same names",
                             ).code("or-pattern-bindings")
                             .fix(
@@ -214,11 +215,19 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::PatKind::Or(out)
             }
 
-            tree::Pattern::Path { path, dotted, payload, .. } => {
-                self.check_path_pattern(path, *dotted, payload.as_ref(), &ty, span)
+            P::Path { path, dotted, payload, .. } => {
+                self.check_path_pattern(path, dotted, payload, &ty, span)
             }
         };
         typed::Pattern { kind, ty, span }
+    }
+
+    /// Whether the pattern being checked has already bound this name.
+    ///
+    /// `pattern_names` holds `String`s and the name is now a slice of the
+    /// source, so the comparison is on the text rather than on the container.
+    fn bound_already(&self, name: &str) -> bool {
+        self.pattern_names.iter().any(|n| n == name)
     }
 
     fn or_alternative_local(&self, name: &str) -> Option<LocalId> {
@@ -233,15 +242,17 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_path_pattern(
         &mut self,
-        path: &[tree::Ident],
+        path: &[Loc],
         dotted: bool,
-        payload: Option<&tree::PatPayload>,
+        payload: Option<PatPayloadData>,
         ty: &Ty,
         span: Span,
     ) -> typed::PatKind {
+        let t = self.tree();
         let [head, rest @ ..] = path else {
             crate::ice!("the parser builds every path pattern from at least one identifier")
         };
+        let head = t.text(*head);
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
             let Ty::Con(con, args) = ty else {
@@ -252,9 +263,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 return typed::PatKind::Error;
             };
-            let name = &head.name;
-            let Some(index) = self.c.tables.tycon(*con).variant_index(name) else {
-                self.report_no_variant(*con, name, span);
+            let Some(index) = self.c.tables.variant_index(*con, head) else {
+                self.report_no_variant(*con, head, span);
                 return typed::PatKind::Error;
             };
             return self.variant_pattern(*con, index, args.clone(), payload, span);
@@ -263,18 +273,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
         let module = self.module;
         let resolved = match rest.first() {
-            None => self.c.scope(module).names.get(&head.name).cloned(),
+            None => self.c.scope(module).names.get(head).cloned(),
             Some(second) => {
-                match self.c.scope(module).namespaces.get(&head.name).copied() {
-                    Some(ns) => self.c.lookup_export_pub(ns, &second.name),
-                    None => self.c.scope(module).names.get(&head.name).cloned(),
+                match self.c.scope(module).namespaces.get(head).copied() {
+                    Some(ns) => self.c.lookup_export_pub(ns, t.text(*second)),
+                    None => self.c.scope(module).names.get(head).cloned(),
                 }
             }
         };
 
         match resolved {
             Some(Sym::Ty(con)) => {
-                let variant_name = rest.last().map(|last| &last.name);
+                let variant_name = rest.last().map(|last| t.text(*last));
                 let is_enum = matches!(self.c.tables.tycon(con).def, TyDef::Enum { .. });
                 let args = match ty {
                     Ty::Con(c, a) if *c == con => a.clone(),
@@ -295,7 +305,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                             .fix(format!("write `{n}.Variant` or `.Variant`"));
                         return typed::PatKind::Error;
                     };
-                    let Some(index) = self.c.tables.tycon(con).variant_index(vname) else {
+                    let Some(index) = self.c.tables.variant_index(con, vname) else {
                         self.report_no_variant(con, vname, span);
                         return typed::PatKind::Error;
                     };
@@ -306,7 +316,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             _ => {
-                let shown = path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+                let shown = path.iter().map(|i| t.text(*i)).collect::<Vec<_>>().join(".");
                 self.err(span, format!("there is no type `{shown}`")).code("unresolved-type")
                     .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value")
                     .notes
@@ -342,7 +352,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         con: TyConId,
         index: usize,
         args: Vec<Ty>,
-        payload: Option<&tree::PatPayload>,
+        payload: Option<PatPayloadData>,
         span: Span,
     ) -> typed::PatKind {
         let variant = self
@@ -370,7 +380,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         con: TyConId,
         args: &[Ty],
-        payload: Option<&tree::PatPayload>,
+        payload: Option<PatPayloadData>,
         span: Span,
     ) -> Vec<typed::FieldPat> {
         let decl = self.c.tables.tycon(con).fields().to_vec();
@@ -395,7 +405,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         decl: &[FieldInfo],
         args: &[Ty],
-        payload: Option<&tree::PatPayload>,
+        payload: Option<PatPayloadData>,
         span: Span,
         what: &str,
     ) -> Vec<typed::FieldPat> {
@@ -407,7 +417,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 Vec::new()
             }
-            Some(tree::PatPayload::Tuple(ps)) => {
+            Some(p) if !p.record => {
+                let ps = self.tree().pkids_at(p.start, p.len);
                 if ps.len() != decl.len() {
                     let want = decl.len();
                     let have = ps.len();
@@ -426,42 +437,43 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .enumerate()
                     .map(|(i, (p, d))| {
                         let ty = substitute(&d.ty, args, None);
-                        typed::FieldPat { index: i, pattern: self.check_pattern(p, &ty) }
+                        typed::FieldPat { index: i, pattern: self.check_pattern(*p, &ty) }
                     })
                     .collect()
             }
-            Some(tree::PatPayload::Record { fields, rest }) => {
+            Some(p) => {
+                let t = self.tree();
+                let fields = t.fpats_at(p.start, p.len);
+                let rest = p.rest;
                 let mut out = Vec::new();
                 let mut seen = Vec::new();
                 for f in fields {
-                    let Some((i, d)) = decl.iter().enumerate().find(|(_, d)| d.name == f.name.name)
+                    let fname = t.text(f.name);
+                    let fspan = t.span_of(f.name);
+                    let Some((i, d)) = decl.iter().enumerate().find(|(_, d)| d.name == fname)
                     else {
-                        let n = f.name.name.clone();
-                        self.err(f.name.span, format!("`{what}` has no field `{n}`"))
+                        self.err(fspan, format!("`{what}` has no field `{fname}`"))
                             .fix("check the spelling, or name a field it declares");
                         continue;
                     };
                     seen.push(i);
                     let ty = substitute(&d.ty, args, None);
-                    let pattern = match &f.pattern {
+                    let pattern = match t.opt_pat(f.pattern) {
                         Some(p) => self.check_pattern(p, &ty),
                         // Field shorthand: `User { id, name }` binds both.
                         None => {
-                            if self.or_scope.is_none()
-                                && self.pattern_names.contains(&f.name.name)
-                            {
-                                let n = f.name.name.clone();
-                                self.err(f.name.span, format!("`{n}` is bound twice in this pattern")).code("duplicate-bound")
+                            if self.or_scope.is_none() && self.bound_already(fname) {
+                                self.err(fspan, format!("`{fname}` is bound twice in this pattern")).code("duplicate-bound")
                                     .fix("rename one of them");
                             }
-                            self.pattern_names.push(f.name.name.clone());
-                            let local = self.new_local(&f.name.name, ty.clone(), f.name.span);
-                            self.bind(&f.name.name, local);
-                            self.record_or_binding(&f.name.name, local);
+                            self.pattern_names.push(fname.to_string());
+                            let local = self.new_local(fname, ty.clone(), fspan);
+                            self.bind(fname, local);
+                            self.record_or_binding(fname, local);
                             typed::Pattern {
                                 kind: typed::PatKind::Bind { local, sub: None },
                                 ty,
-                                span: f.name.span,
+                                span: fspan,
                             }
                         }
                     };

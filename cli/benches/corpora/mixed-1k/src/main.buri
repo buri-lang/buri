@@ -1,0 +1,25 @@
+//! The corpus entry point.
+//!
+//! It calls one exported function from every generated module, so that
+//! monomorphization reaches the whole program from `main` and the
+//! lowering benchmark is not measuring dead-code elimination.
+
+from "core/cap" import { Alloc };
+from "core/host" import * as host;
+from "//bench/m0000" import { blend0, reach0 };
+from "//bench/m0001" import { blend1, reach1 };
+from "//bench/m0002" import { blend2, reach2 };
+from "//bench/m0003" import { blend3, reach3 };
+
+/// The entry point. `main` is the only module that may import
+/// `core/host`, so it is the only place the context can be built.
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc };
+  let total = 0
+    + blend0(1) + reach0(ctx)
+    + blend1(2) + reach1(ctx)
+    + blend2(3) + reach2(ctx)
+    + blend3(4) + reach3(ctx)
+    ;
+  if (total == 0) { .Err("empty") } else { .Ok(()) }
+}

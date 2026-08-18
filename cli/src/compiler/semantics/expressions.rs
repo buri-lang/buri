@@ -12,6 +12,10 @@ use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{self, Diagnostic, Invariant as _, Span};
+use crate::parsing::flat::{
+    self, ArmData, BlockId, CtxBodyId, ExprId, ExprView as V, InitData, LambdaParamData, PartData,
+    PartView, TypeId,
+};
 use crate::parsing::tree;
 
 /// What a callee names, when it names something statically.
@@ -37,29 +41,38 @@ impl<'a, 'b> Infer<'a, 'b> {
     // Blocks
     // -----------------------------------------------------------------------
 
-    pub(crate) fn check_block(&mut self, b: &tree::Block, expected: Option<&Ty>) -> typed::Expr {
+    pub(crate) fn check_block(&mut self, b: BlockId, expected: Option<&Ty>) -> typed::Expr {
+        let t = self.tree();
+        let block = t.block(b);
         self.push_scope();
         let mut stmts = Vec::new();
-        for s in &b.stmts {
-            match s {
-                tree::Stmt::Let { pattern, ty, value, is_ctx, span } => {
-                    let stmt = self.check_let(pattern, ty.as_ref(), value, *is_ctx, *span);
+        for s in t.stmts_at(block.stmts_start, block.stmts_len) {
+            let span = t.span_of(s.span);
+            match s.kind {
+                flat::StmtKind::Let => {
+                    let stmt = self.check_let(
+                        flat::PatId(s.pattern),
+                        t.opt_type(s.ty),
+                        ExprId(s.value),
+                        s.is_ctx,
+                        span,
+                    );
                     stmts.push(stmt);
                 }
-                tree::Stmt::Expr { expr, span } => {
+                flat::StmtKind::Expr => {
                     // An expression statement is legal only in a test source,
                     // and only when its type is `()`.
                     if self.role != Role::TestSource {
-                        self.err(*span, "an expression statement is legal only in a test source").code("expression-statement")
+                        self.err(span, "an expression statement is legal only in a test source").code("expression-statement")
                             .fix("bind it: `let _ = ...;`, or make it the block's result expression")
                             .notes
                             .push("a block is `let`s followed by a result expression".into());
                     }
-                    let e = self.check_expr(expr, None);
+                    let e = self.check_expr(ExprId(s.value), None);
                     let ty = self.resolve(&e.ty);
                     if !matches!(ty, Ty::Unit | Ty::Error) {
                         let shown = self.show_ty(&ty);
-                        self.err(*span, format!("this statement has type `{shown}`, not `()`"))
+                        self.err(span, format!("this statement has type `{shown}`, not `()`"))
                             .fix("bind it with `let _ = ...;`")
                             .notes
                             .push(
@@ -72,7 +85,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
         }
-        let (tail, ty) = match &b.tail {
+        let (tail, ty) = match t.opt(block.tail) {
             Some(e) => {
                 let checked = self.check_expr(e, expected);
                 let ty = checked.ty.clone();
@@ -82,14 +95,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => (None, Ty::Unit),
         };
         self.pop_scope();
-        typed::Expr::new(typed::ExprKind::Block { stmts, tail }, ty, b.span)
+        typed::Expr::new(typed::ExprKind::Block { stmts, tail }, ty, t.span_of(block.span))
     }
 
     fn check_let(
         &mut self,
-        pattern: &tree::Pattern,
-        ann: Option<&tree::TypeExpr>,
-        value: &tree::Expr,
+        pattern: flat::PatId,
+        ann: Option<TypeId>,
+        value: ExprId,
         is_ctx: bool,
         span: Span,
     ) -> typed::Stmt {
@@ -102,20 +115,21 @@ impl<'a, 'b> Infer<'a, 'b> {
                 "that is `main`'s body, a test source, or a test-only module (SPEC 11.3)".into(),
             );
         }
-        let expected = ann.map(|t| {
-            let generics = self.generics.clone();
-            self.c.elaborate(self.module, &generics, t)
+        let expected = ann.map(|id| {
+            let ann = self.tree().ty(id);
+            self.c.elaborate(self.module, &self.generics, ann)
         });
+        let value_span = self.tree().span(value);
         let value_hir = self.check_expr(value, expected.as_ref());
         if let Some(exp) = &expected {
-            self.unify_at(value.span(), &value_hir.ty.clone(), exp, "the annotation");
+            self.unify_at(value_span, &value_hir.ty.clone(), exp, "the annotation");
         }
         let ty = expected.unwrap_or_else(|| value_hir.ty.clone());
 
         // A value of type `Result<T, E>` may not be discarded by a `_`
         // pattern. Since `let _ =` is the only place a value can be thrown
         // away, the rule has no holes (SPEC 5.7.1).
-        if matches!(pattern, tree::Pattern::Wild { .. }) && self.is_result(&ty) {
+        if self.tree().pkind(pattern) == flat::PKind::Wild && self.is_result(&ty) {
             self.err(span, "a `Result` may not be discarded").code("result-discarded")
                 .fix(
                     "consume it: `?` to propagate, `match` to handle both cases, \
@@ -129,7 +143,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The pattern in a `let` must be irrefutable. Use `match` for anything
         // else.
         if !pat.is_irrefutable(&self.c.tables) {
-            self.err(pattern.span(), "this pattern does not match every value of its type").code("refutable-pattern")
+            let pspan = self.tree().pspan(pattern);
+            self.err(pspan, "this pattern does not match every value of its type").code("refutable-pattern")
                 .fix("use `match`, which makes you say what the other cases do")
                 .notes
                 .push("a `let` binds unconditionally, so its pattern has to be irrefutable".into());
@@ -167,11 +182,11 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn is_result(&self, ty: &Ty) -> bool {
-        matches!(self.resolve(ty), Ty::Con(id, _) if self.c.known_types.get("Result") == Some(&id))
+        matches!(self.resolve_ref(ty), Ty::Con(id, _) if self.c.result_con.as_ref() == Some(id))
     }
 
     fn is_option(&self, ty: &Ty) -> bool {
-        matches!(self.resolve(ty), Ty::Con(id, _) if self.c.known_types.get("Option") == Some(&id))
+        matches!(self.resolve_ref(ty), Ty::Con(id, _) if self.c.option_con.as_ref() == Some(id))
     }
 
     /// `T`, when `ty` is `Option<T>`. Asking the question and reading the
@@ -179,7 +194,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// relied on in another.
     fn option_payload<'t>(&self, ty: &'t Ty) -> Option<&'t Ty> {
         match ty {
-            Ty::Con(id, args) if self.c.known_types.get("Option") == Some(id) => {
+            Ty::Con(id, args) if self.c.option_con.as_ref() == Some(id) => {
                 match args.as_slice() {
                     [inner] => Some(inner),
                     _ => None,
@@ -192,7 +207,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// `(T, E)`, when `ty` is `Result<T, E>`.
     fn result_payload<'t>(&self, ty: &'t Ty) -> Option<(&'t Ty, &'t Ty)> {
         match ty {
-            Ty::Con(id, args) if self.c.known_types.get("Result") == Some(id) => {
+            Ty::Con(id, args) if self.c.result_con.as_ref() == Some(id) => {
                 match args.as_slice() {
                     [ok, err] => Some((ok, err)),
                     _ => None,
@@ -206,7 +221,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     // Expressions
     // -----------------------------------------------------------------------
 
-    pub(crate) fn check_expr(&mut self, e: &tree::Expr, expected: Option<&Ty>) -> typed::Expr {
+    pub(crate) fn check_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> typed::Expr {
         let out = self.check_expr_inner(e, expected);
         self.coerce(out, expected)
     }
@@ -233,58 +248,58 @@ impl<'a, 'b> Infer<'a, 'b> {
         e
     }
 
-    fn check_expr_inner(&mut self, e: &tree::Expr, expected: Option<&Ty>) -> typed::Expr {
-        match e {
-            tree::Expr::Int { value, raw, span } => {
+    fn check_expr_inner(&mut self, e: ExprId, expected: Option<&Ty>) -> typed::Expr {
+        match self.tree().expr(e) {
+            V::Int { value, raw, span } => {
                 // A numeric literal gets a fresh type variable constrained to
                 // the integer types; ordinary unification then decides.
-                let ty = self.subst.fresh_num(NumClass::Int, *span);
+                let ty = self.subst.fresh_num(NumClass::Int, span);
                 if let Some(exp) = expected {
                     let _ = self.subst.unify(&self.c.tables, &ty, exp);
                 }
                 self.lit_checks.push(LitCheck {
-                    value: *value,
+                    value,
                     negative: false,
-                    raw: raw.clone(),
+                    raw: raw.to_string(),
                     ty: ty.clone(),
-                    span: *span,
+                    span,
                 });
-                typed::Expr::new(typed::ExprKind::Int(*value, false), ty, *span)
+                typed::Expr::new(typed::ExprKind::Int(value, false), ty, span)
             }
-            tree::Expr::Float { value, span, .. } => {
-                let ty = self.subst.fresh_num(NumClass::Float, *span);
+            V::Float { value, span, .. } => {
+                let ty = self.subst.fresh_num(NumClass::Float, span);
                 if let Some(exp) = expected {
                     let _ = self.subst.unify(&self.c.tables, &ty, exp);
                 }
-                typed::Expr::new(typed::ExprKind::Float(*value), ty, *span)
+                typed::Expr::new(typed::ExprKind::Float(value), ty, span)
             }
-            tree::Expr::Str { value, span } => {
+            V::Str { value, span } => {
                 let ty = self.prim(Prim::Str);
-                typed::Expr::new(typed::ExprKind::Str(value.clone()), ty, *span)
+                typed::Expr::new(typed::ExprKind::Str(value.to_string()), ty, span)
             }
-            tree::Expr::Char { value, span } => {
+            V::Char { value, span } => {
                 let ty = self.prim(Prim::Char);
-                typed::Expr::new(typed::ExprKind::Char(*value), ty, *span)
+                typed::Expr::new(typed::ExprKind::Char(value), ty, span)
             }
-            tree::Expr::Bool { value, span } => {
+            V::Bool { value, span } => {
                 let ty = self.prim(Prim::Bool);
-                typed::Expr::new(typed::ExprKind::Bool(*value), ty, *span)
+                typed::Expr::new(typed::ExprKind::Bool(value), ty, span)
             }
-            tree::Expr::Unit { span } => typed::Expr::new(typed::ExprKind::Unit, Ty::Unit, *span),
-            tree::Expr::Template { parts, span } => self.check_template(parts, *span),
-            tree::Expr::Ident { name, span } => self.check_ident(name, *span, expected),
-            tree::Expr::SelfValue { span } => match self.lookup_local("self") {
-                Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), *span),
+            V::Unit { span } => typed::Expr::new(typed::ExprKind::Unit, Ty::Unit, span),
+            V::Template { parts, span } => self.check_template(parts, span),
+            V::Ident { name, span } => self.check_ident(name, span, expected),
+            V::SelfValue { span } => match self.lookup_local("self") {
+                Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), span),
                 None => {
-                    self.err(*span, "`self` is legal only in a method body")
+                    self.err(span, "`self` is legal only in a method body")
                         .fix("name a parameter instead, or move this into an `impl` block");
-                    self.error_expr(*span)
+                    self.error_expr(span)
                 }
             },
-            tree::Expr::Ctx { span } => match self.lookup_local("ctx") {
-                Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), *span),
+            V::Ctx { span } => match self.lookup_local("ctx") {
+                Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), span),
                 None => {
-                    self.err(*span, "there is no `ctx` in scope")
+                    self.err(span, "there is no `ctx` in scope")
                         .fix("add a `ctx` parameter bounded by the effects this function needs")
                         .notes
                         .push(
@@ -292,14 +307,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                          the effects it needs"
                             .into(),
                     );
-                    self.error_expr(*span)
+                    self.error_expr(span)
                 }
             },
-            tree::Expr::DotVariant { name, span } => {
-                self.check_dot_variant(name, &[], *span, expected)
+            V::DotVariant { name, span, .. } => {
+                self.check_dot_variant(name, &[], span, expected)
             }
-            tree::Expr::Array { elems, span } => self.check_array(elems, *span, expected),
-            tree::Expr::Tuple { elems, span } => {
+            V::Array { elems, span } => self.check_array(elems, span, expected),
+            V::Tuple { elems, span } => {
                 let want: Vec<Option<Ty>> = match expected.map(|t| self.resolve(t)) {
                     Some(Ty::Tuple(ts)) if ts.len() == elems.len() => {
                         ts.into_iter().map(Some).collect()
@@ -309,104 +324,109 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let checked: Vec<typed::Expr> = elems
                     .iter()
                     .zip(want)
-                    .map(|(x, w)| self.check_expr(x, w.as_ref()))
+                    .map(|(x, w)| self.check_expr(*x, w.as_ref()))
                     .collect();
                 let ty = Ty::Tuple(checked.iter().map(|c| c.ty.clone()).collect());
-                typed::Expr::new(typed::ExprKind::Tuple(checked), ty, *span)
+                typed::Expr::new(typed::ExprKind::Tuple(checked), ty, span)
             }
-            tree::Expr::Block(b) => self.check_block(b, expected),
-            tree::Expr::If { cond, then, else_, span } => {
+            V::Block { block, .. } => self.check_block(block, expected),
+            V::If { cond, then, else_, span } => {
                 let bool_ty = self.prim(Prim::Bool);
                 let c = self.check_expr(cond, Some(&bool_ty));
                 // The condition must have type `Bool`. There is no truthiness.
-                self.unify_at(cond.span(), &c.ty.clone(), &bool_ty, "an `if` condition");
+                let cond_span = self.tree().span(cond);
+                self.unify_at(cond_span, &c.ty.clone(), &bool_ty, "an `if` condition");
                 let t = self.check_block(then, expected);
                 let f = self.check_expr(else_, expected.or(Some(&t.ty.clone())));
                 // Both branches must have the same type.
-                self.unify_at(else_.span(), &f.ty.clone(), &t.ty.clone(), "the other branch");
+                let else_span = self.tree().span(else_);
+                self.unify_at(else_span, &f.ty.clone(), &t.ty.clone(), "the other branch");
                 let ty = t.ty.clone();
                 typed::Expr::new(
                     typed::ExprKind::If { cond: Box::new(c), then: Box::new(t), else_: Box::new(f) },
                     ty,
-                    *span,
+                    span,
                 )
             }
-            tree::Expr::Match { scrutinee, arms, span } => {
-                self.check_match(scrutinee, arms, *span, expected)
+            V::Match { scrutinee, arms, span } => {
+                self.check_match(scrutinee, arms, span, expected)
             }
-            tree::Expr::ContextExpr { body, span } => self.check_context_body(body, *span),
-            tree::Expr::Lambda { params, ret, body, span } => {
-                self.check_lambda(params, ret.as_ref(), body, *span, expected)
+            V::ContextExpr { body, span } => self.check_context_body(body, span),
+            V::Lambda { params, ret, body, span } => {
+                self.check_lambda(params, ret, body, span, expected)
             }
-            tree::Expr::Unary { op, operand, span } => self.check_unary(*op, operand, *span, expected),
-            tree::Expr::Binary { op, lhs, rhs, op_span, span } => {
-                self.check_binary(*op, lhs, rhs, *op_span, *span, expected)
+            V::Unary { op, operand, span } => self.check_unary(op, operand, span, expected),
+            V::Binary { op, lhs, rhs, op_span, span } => {
+                self.check_binary(op, lhs, rhs, op_span, span, expected)
             }
-            tree::Expr::Field { base, name, span } => self.check_field(base, name, *span, expected),
-            tree::Expr::TupleIndex { base, index, index_span, span } => {
+            V::Field { base, name, name_span, span } => {
+                self.check_field(base, name, name_span, span, expected)
+            }
+            V::TupleIndex { base, index, index_span, span } => {
                 let b = self.check_expr(base, None);
                 let bty = self.resolve(&b.ty);
                 match &bty {
-                    Ty::Tuple(elems) => match elems.get(*index as usize) {
+                    Ty::Tuple(elems) => match elems.get(index as usize) {
                         Some(t) => typed::Expr::new(
-                            typed::ExprKind::TupleIndex { base: Box::new(b), index: *index as usize },
+                            typed::ExprKind::TupleIndex { base: Box::new(b), index: index as usize },
                             t.clone(),
-                            *span,
+                            span,
                         ),
                         None => {
                             let n = elems.len();
-                            self.err(*index_span, format!("a {n}-tuple has no element {index}"))
+                            self.err(index_span, format!("a {n}-tuple has no element {index}"))
                                 .fix(format!(
                                     "the elements are `.0` through `.{}`",
                                     n.saturating_sub(1)
                                 ));
-                            self.error_expr(*span)
+                            self.error_expr(span)
                         }
                     },
                     // A tuple struct's fields are `.0`, `.1`, ...
                     Ty::Con(con, args) => {
                         let fields = self.c.tables.tycon(*con).fields().to_vec();
-                        match fields.get(*index as usize) {
+                        match fields.get(index as usize) {
                             Some(f) => {
-                                self.check_field_visible(*con, f, *index_span);
+                                self.check_field_visible(*con, index as usize, index_span);
                                 let ty = substitute(&f.ty, args, None);
                                 typed::Expr::new(
-                                    typed::ExprKind::Field { base: Box::new(b), index: *index as usize },
+                                    typed::ExprKind::Field { base: Box::new(b), index: index as usize },
                                     ty,
-                                    *span,
+                                    span,
                                 )
                             }
                             None => {
                                 let n = self.c.tables.tycon(*con).name.clone();
-                                self.err(*index_span, format!("`{n}` has no field {index}"))
+                                self.err(index_span, format!("`{n}` has no field {index}"))
                                     .fix(format!("`{n}` has {} fields", fields.len()));
-                                self.error_expr(*span)
+                                self.error_expr(span)
                             }
                         }
                     }
                     _ => {
                         if !bty.is_error() {
                             let shown = self.show_ty(&bty);
-                            self.err(*span, format!("`{shown}` is not a tuple"))
+                            self.err(span, format!("`{shown}` is not a tuple"))
                                 .fix("index a tuple or a tuple struct; name a field otherwise");
                         }
-                        self.error_expr(*span)
+                        self.error_expr(span)
                     }
                 }
             }
-            tree::Expr::Call { callee, args, span } => self.check_call(callee, args, *span, expected),
-            tree::Expr::Index { base, index, span } => {
+            V::Call { callee, args, span } => self.check_call(callee, args, span, expected),
+            V::Index { base, index, span } => {
                 let b = self.check_expr(base, None);
                 let int_ty = self.prim(Prim::I64);
                 let i = self.check_expr(index, Some(&int_ty));
-                self.unify_at(index.span(), &i.ty.clone(), &int_ty, "an index");
+                let index_span = self.tree().span(index);
+                self.unify_at(index_span, &i.ty.clone(), &int_ty, "an index");
                 let bty = self.resolve(&b.ty);
                 let elem = match &bty {
                     Ty::Array(e) => (**e).clone(),
                     Ty::Error => Ty::Error,
                     other => {
                         let shown = self.show_ty(other);
-                        self.err(*span, format!("`{shown}` cannot be indexed"))
+                        self.err(span, format!("`{shown}` cannot be indexed"))
                             .fix("index an array; for a tuple, write `.0`")
                             .notes
                             .push("indexing is defined on `[T]`, and yields `Option<T>`".into());
@@ -419,38 +439,37 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(
                     typed::ExprKind::Index { base: Box::new(b), index: Box::new(i), elem },
                     ty,
-                    *span,
+                    span,
                 )
             }
-            tree::Expr::Try { base, span } => self.check_try(base, *span),
-            tree::Expr::Generic { base, args, span } => {
+            V::Try { base, span } => self.check_try(base, span),
+            V::Generic { base, args, span } => {
                 // Type arguments only ever qualify a callee; on their own
                 // they are a function reference.
                 let targs = self.elaborate_all(args);
                 match self.static_ref(base) {
-                    Some(Static::Fn(f)) => self.fn_ref(f, Some(targs), *span),
+                    Some(Static::Fn(f)) => self.fn_ref(f, Some(targs), span),
                     _ => {
-                        self.err(*span, "explicit type arguments qualify a function or a call")
+                        self.err(span, "explicit type arguments qualify a function or a call")
                         .code("type-args-on-a-value")
                         .fix("attach the type arguments to the call, as in `f<Str>(x)`");
-                        self.error_expr(*span)
+                        self.error_expr(span)
                     }
                 }
             }
-            tree::Expr::StructLit { head, spread, fields, span } => {
-                self.check_struct_lit(head, spread.as_deref(), fields, *span, expected)
+            V::StructLit { head, spread, fields, span } => {
+                self.check_struct_lit(head, spread, fields, span, expected)
             }
         }
     }
 
-    fn elaborate_all(&mut self, args: &[tree::TypeExpr]) -> Vec<Ty> {
-        let generics = self.generics.clone();
-        args.iter().map(|a| self.c.elaborate(self.module, &generics, a)).collect()
+    fn elaborate_all(&mut self, args: &'b [tree::TypeExpr]) -> Vec<Ty> {
+        args.iter().map(|a| self.c.elaborate(self.module, &self.generics, a)).collect()
     }
 
     fn option_of(&self, t: Ty) -> Ty {
-        match self.c.known_types.get("Option") {
-            Some(id) => Ty::Con(*id, vec![t]),
+        match self.c.option_con {
+            Some(id) => Ty::Con(id, vec![t]),
             None => Ty::Error,
         }
     }
@@ -548,8 +567,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn fn_ref(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> typed::Expr {
-        let info = self.c.tables.fun(f).clone();
-        let targs = self.instantiate(&info.generics, explicit, span);
+        // Only the generics are copied, and a function usually has none.
+        // `instantiate` is the one step that needs `&mut self`; everything
+        // after it reads the declaration in place.
+        let generics = self.c.tables.fun(f).generics.clone();
+        let targs = self.instantiate(&generics, explicit, span);
+        let info = self.c.tables.fun(f);
         let params: Vec<Ty> =
             info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
         let ret = substitute(&info.ret, &targs, None);
@@ -587,9 +610,9 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Resolves a callee that names something statically: a function, an enum
     /// variant, a named context, or a constant.
-    fn static_ref(&mut self, e: &tree::Expr) -> Option<Static> {
-        match e {
-            tree::Expr::Ident { name, .. } => {
+    fn static_ref(&mut self, e: ExprId) -> Option<Static> {
+        match self.tree().expr(e) {
+            V::Ident { name, .. } => {
                 if self.lookup_local(name).is_some() {
                     return None;
                 }
@@ -601,33 +624,37 @@ impl<'a, 'b> Infer<'a, 'b> {
                     _ => None,
                 }
             }
-            tree::Expr::Field { base, name, .. } => {
-                let tree::Expr::Ident { name: head, .. } = &**base else { return None };
-                if self.lookup_local(head).is_some() {
-                    return None;
-                }
-                // `list.map` — a member of a namespace import.
-                if let Some(ns) = self.c.scope(self.module).namespaces.get(head).copied() {
-                    return match self.c.lookup_export_pub(ns, &name.name)? {
-                        Sym::Fn(f) => Some(Static::Fn(f)),
-                        Sym::Context(c) => Some(Static::Context(c)),
-                        Sym::Const(c) => Some(Static::Const(c)),
-                        Sym::Ty(con) => self.tuple_struct(con),
-                        _ => None,
-                    };
-                }
-                // `Shape.Circle` — a qualified variant.
-                if let Some(Sym::Ty(con)) =
-                    self.c.scope(self.module).names.get(head).cloned()
-                {
-                    let index = self.c.tables.tycon(con).variant_index(&name.name)?;
-                    return Some(Static::Variant(con, index));
-                }
-                None
-            }
-            tree::Expr::Generic { base, .. } => self.static_ref(base),
+            V::Field { base, name, .. } => self.static_ref_field(base, name),
+            V::Generic { base, .. } => self.static_ref(base),
             _ => None,
         }
+    }
+
+    /// The `Field` case on its own, so that `check_field` can ask the question
+    /// without building the field node it would otherwise have to hand
+    /// `static_ref` — its first act is to require the base to be an identifier
+    /// and give up otherwise.
+    fn static_ref_field(&mut self, base: ExprId, name: &str) -> Option<Static> {
+        let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
+        if self.lookup_local(head).is_some() {
+            return None;
+        }
+        // `list.map` — a member of a namespace import.
+        if let Some(ns) = self.c.scope(self.module).namespaces.get(head).copied() {
+            return match self.c.lookup_export_pub(ns, name)? {
+                Sym::Fn(f) => Some(Static::Fn(f)),
+                Sym::Context(c) => Some(Static::Context(c)),
+                Sym::Const(c) => Some(Static::Const(c)),
+                Sym::Ty(con) => self.tuple_struct(con),
+                _ => None,
+            };
+        }
+        // `Shape.Circle` — a qualified variant.
+        if let Some(Sym::Ty(con)) = self.c.scope(self.module).names.get(head).cloned() {
+            let index = self.c.tables.variant_index(con, name)?;
+            return Some(Static::Variant(con, index));
+        }
+        None
     }
 
     /// A tuple struct's name is also its constructor, and `struct Meters(F64)`
@@ -642,18 +669,20 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn construct_tuple_struct(
         &mut self,
         con: TyConId,
-        args: &[tree::Expr],
+        args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        let tycon = self.c.tables.tycon(con).clone();
-        let fields = tycon.fields().to_vec();
+        let (arity, fields) = {
+            let tycon = self.c.tables.tycon(con);
+            (tycon.arity(), tycon.fields().to_vec())
+        };
         let targs: Vec<Ty> = match expected.map(|t| self.resolve(t)) {
             Some(Ty::Con(c, ts)) if c == con => ts,
-            _ => (0..tycon.arity()).map(|_| self.fresh(span)).collect(),
+            _ => (0..arity).map(|_| self.fresh(span)).collect(),
         };
         if args.len() != fields.len() {
-            let n = tycon.name.clone();
+            let n = self.c.tables.tycon(con).name.clone();
             let have = args.len();
             let want = fields.len();
             self.err(
@@ -665,8 +694,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         // A struct with any private field cannot be constructed from scratch
         // outside its module.
-        for f in &fields {
-            self.check_field_visible(con, f, span);
+        for i in 0..fields.len() {
+            self.check_field_visible(con, i, span);
         }
         let param_types: Vec<Ty> =
             fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
@@ -681,33 +710,38 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_call(
         &mut self,
-        callee: &tree::Expr,
-        args: &[tree::Expr],
+        callee: ExprId,
+        args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
         // `.Some(x)` — the inferred-type dot form as a constructor.
-        if let tree::Expr::DotVariant { name, span: dspan } = callee {
-            return self.check_dot_variant_call(name, args, *dspan, span, expected);
+        if let V::DotVariant { name, span: dspan, .. } = self.tree().expr(callee) {
+            return self.check_dot_variant_call(name, args, dspan, span, expected);
         }
 
-        let explicit = match callee {
-            tree::Expr::Generic { args: targs, .. } => Some(self.elaborate_all(targs)),
+        let explicit = match self.tree().expr(callee) {
+            V::Generic { args: targs, .. } => Some(self.elaborate_all(targs)),
             _ => None,
         };
 
         // A method call has no production of its own: it is a `Field` whose
         // base is a value.
-        if let tree::Expr::Field { base, name, .. } = strip_type_args(callee) {
-            if self.static_ref(callee).is_none() {
-                return self.check_method_call(base, name, args, explicit, span, expected);
+        // Once: `static_ref` walks the callee and hashes a name or two, and a
+        // namespaced call asked it the same question twice.
+        let statically = self.static_ref(callee);
+        if statically.is_none() {
+            let bare = self.tree().strip_type_args(callee);
+            if matches!(self.tree().expr(bare), V::Field { .. }) {
+                return self.check_method_call(bare, args, explicit, span, expected);
             }
         }
 
-        match self.static_ref(callee) {
+        match statically {
             Some(Static::Fn(f)) => self.call_fn(f, explicit, args, span, None, expected),
             Some(Static::Variant(con, index)) => {
-                self.construct_variant(con, index, args, span, expected, callee.span())
+                let head_span = self.tree().span(callee);
+                self.construct_variant(con, index, args, span, expected, head_span)
             }
             Some(Static::TupleStruct(con)) => {
                 self.construct_tuple_struct(con, args, span, expected)
@@ -765,7 +799,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Ty::Error => self.error_expr(span),
                     other => {
                         let shown = self.show_ty(&other);
-                        self.err(callee.span(), format!("`{shown}` is not callable"))
+                        let callee_span = self.tree().span(callee);
+                        self.err(callee_span, format!("`{shown}` is not callable"))
                             .fix("call a function, a lambda, or a field holding one — `(x.f)(...)` for a field");
                         self.error_expr(span)
                     }
@@ -776,14 +811,15 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Arguments are evaluated left to right before the call, and each is
     /// checked against its parameter's type so that a literal is pinned by it.
-    fn check_args(&mut self, args: &[tree::Expr], params: &[Ty]) -> Vec<typed::Expr> {
+    fn check_args(&mut self, args: &[ExprId], params: &[Ty]) -> Vec<typed::Expr> {
         args.iter()
             .enumerate()
             .map(|(i, a)| {
                 let want = params.get(i).cloned();
-                let checked = self.check_expr(a, want.as_ref());
+                let checked = self.check_expr(*a, want.as_ref());
                 if let Some(w) = &want {
-                    self.unify_at(a.span(), &checked.ty.clone(), w, "the parameter type");
+                    let aspan = self.tree().span(*a);
+                    self.unify_at(aspan, &checked.ty.clone(), w, "the parameter type");
                 }
                 checked
             })
@@ -794,20 +830,27 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         f: FnId,
         explicit: Option<Vec<Ty>>,
-        args: &[tree::Expr],
+        args: &[ExprId],
         span: Span,
         receiver: Option<typed::Expr>,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        let info = self.c.tables.fun(f).clone();
-        let targs = self.instantiate(&info.generics, explicit, span);
+        // The declaration is read, not owned: copying `FnInfo` here copied the
+        // name, every parameter's name, and every parameter's type tree, once
+        // per call site in the program. Only the generics are taken, because
+        // `instantiate` wants `&mut self`, and a function usually has none.
+        let generics = self.c.tables.fun(f).generics.clone();
+        let targs = self.instantiate(&generics, explicit, span);
         let self_ty = receiver.as_ref().map(|r| self.resolve(&r.ty));
-        let params: Vec<Ty> = info
-            .params
-            .iter()
-            .map(|p| substitute(&p.ty, &targs, self_ty.as_ref()))
-            .collect();
-        let ret = substitute(&info.ret, &targs, self_ty.as_ref());
+        let (params, ret) = {
+            let info = self.c.tables.fun(f);
+            let params: Vec<Ty> = info
+                .params
+                .iter()
+                .map(|p| substitute(&p.ty, &targs, self_ty.as_ref()))
+                .collect();
+            (params, substitute(&info.ret, &targs, self_ty.as_ref()))
+        };
 
         // Type information flows outside-in: unifying the return type with
         // what the call site wants *before* visiting the arguments is what
@@ -824,7 +867,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         let expected_args =
             if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
         if args.len() != expected_args {
-            let name = info.name.clone();
+            let (name, takes_ctx) = {
+                let info = self.c.tables.fun(f);
+                (info.name.clone(), info.params.iter().any(|p| p.role == ParamRole::Ctx))
+            };
             let have = args.len();
             let mut d = Diagnostic::error(
                 span,
@@ -834,24 +880,25 @@ impl<'a, 'b> Infer<'a, 'b> {
             .with_fix(format!("pass exactly {expected_args}"));
             // The most common cause is forgetting the context, which is always
             // the parameter right after the receiver.
-            if info.params.iter().any(|p| p.role == ParamRole::Ctx)
-                && have.saturating_add(1) == expected_args
-            {
+            if takes_ctx && have.saturating_add(1) == expected_args {
                 d = d.with_fix("pass the context: the convention is receiver first, context second, everything else after");
             }
             self.c.diags.push(d);
         }
 
         let mut hir_args = Vec::new();
-        let mut param_types = params.clone();
+        // The receiver takes the first slot and the arguments are checked
+        // against what is left, which is a subslice rather than a copy of the
+        // list with its head removed.
+        let mut param_types: &[Ty] = &params;
         if let Some(r) = receiver {
-            if !param_types.is_empty() {
-                let want = param_types.remove(0);
-                self.unify_at(r.span, &r.ty.clone(), &want, "the receiver");
+            if let Some((want, rest)) = params.split_first() {
+                self.unify_at(r.span, &r.ty.clone(), want, "the receiver");
+                param_types = rest;
             }
             hir_args.push(r);
         }
-        hir_args.extend(self.check_args(args, &param_types));
+        hir_args.extend(self.check_args(args, param_types));
         typed::Expr::new(
             typed::ExprKind::CallFn {
                 func: typed::Callee::Decl { id: f, targs },
@@ -866,15 +913,21 @@ impl<'a, 'b> Infer<'a, 'b> {
     // Method calls
     // -----------------------------------------------------------------------
 
+    /// `field` is the `x.f` node, not the receiver: a method call has no
+    /// production of its own, and taking the one id rather than the receiver
+    /// and the name separately keeps the receiver, the name and the name's
+    /// span from being able to disagree.
     fn check_method_call(
         &mut self,
-        base: &tree::Expr,
-        name: &tree::Ident,
-        args: &[tree::Expr],
+        field: ExprId,
+        args: &[ExprId],
         explicit: Option<Vec<Ty>>,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        let V::Field { base, name, name_span, .. } = self.tree().expr(field) else {
+            crate::ice!("a method call is a field access, which is what the caller matched on")
+        };
         let recv = self.check_expr(base, None);
         // A literal that reaches a method call with nothing else constraining
         // it takes its default — `Int` for an integer literal, `Float` for a
@@ -883,18 +936,12 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         // A field of function type is called as `(x.f)(...)`.
         if let Ty::Con(con, targs) = &recv_ty {
-            let found = self
-                .c
-                .tables
-                .tycon(*con)
-                .fields()
-                .iter()
-                .enumerate()
-                .find(|(_, f)| f.name == name.name)
-                .map(|(i, f)| (i, f.clone()));
-            if let Some((i, f)) = found {
-                self.check_field_visible(*con, &f, name.span);
-                let fty = substitute(&f.ty, targs, None);
+            let found = self.c.tables.field_index(*con, name).and_then(|i| {
+                self.c.tables.tycon(*con).fields().get(i).map(|f| (i, f.ty.clone()))
+            });
+            if let Some((i, decl_ty)) = found {
+                self.check_field_visible(*con, i, name_span);
+                let fty = substitute(&decl_ty, targs, None);
                 let base_hir =
                     typed::Expr::new(typed::ExprKind::Field { base: Box::new(recv), index: i }, fty.clone(), span);
                 return match self.resolve(&fty) {
@@ -908,7 +955,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                     other => {
                         let shown = self.show_ty(&other);
-                        self.err(span, format!("field `{}` has type `{shown}`, which is not callable", name.name))
+                        self.err(span, format!("field `{name}` has type `{shown}`, which is not callable"))
                             .fix("this is a field access, not a method call");
                         self.error_expr(span)
                     }
@@ -916,7 +963,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
         }
 
-        match self.resolve_method(&recv_ty, &name.name, name.span) {
+        match self.resolve_method(&recv_ty, name, name_span) {
             Some(MethodTarget::Direct(f)) => {
                 self.call_fn(f, explicit, args, span, Some(recv), expected)
             }
@@ -924,7 +971,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.call_trait_method(tid, index, recv, args, span, expected)
             }
             None => {
-                self.report_no_method(&recv_ty, &name.name, name.span);
+                self.report_no_method(&recv_ty, name, name_span);
                 self.error_expr(span)
             }
         }
@@ -951,24 +998,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             // If the receiver's type is concrete, the method is in that type's
             // defining module.
             Ty::Con(con, _) => {
-                if let Some(f) = self.c.tables.methods.get(&(*con, name.to_string())).copied() {
+                if let Some(f) = self.c.tables.method(*con, name) {
                     self.check_method_visible(f, span);
                     return Some(MethodTarget::Direct(f));
                 }
                 // Methods supplied by an `impl` land in the type's ordinary
                 // method namespace — including the ones `derive` generates,
                 // which have no function of their own to point at.
-                let traits: Vec<TraitId> = self
-                    .c
-                    .tables
-                    .impls
-                    .keys()
-                    .filter(|(_, c)| c == con)
-                    .map(|(t, _)| *t)
-                    .collect();
-                let mut sorted = traits;
-                sorted.sort();
-                self.find_in_bounds(&sorted, name, span)
+                let traits = self.c.tables.traits_of_con(*con).to_vec();
+                self.find_in_bounds(&traits, name, span)
             }
             // The defining module of `[T]` is `core/list`.
             Ty::Array(_) => self
@@ -1029,7 +1067,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         tid: TraitId,
         index: usize,
         recv: typed::Expr,
-        args: &[tree::Expr],
+        args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
@@ -1080,23 +1118,28 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// surface. Resolution itself does not change — one type, one module, one
     /// lookup — with a visibility filter applied after it.
     fn check_method_visible(&mut self, f: FnId, span: Span) {
-        let info = self.c.tables.fun(f).clone();
-        if info.module.0 == u32::MAX || info.module == self.module {
+        // Four scalars, on the path every method call takes. Copying the whole
+        // `FnInfo` to read them copied the parameter list and its types too.
+        let (module, exported, from_impl) = {
+            let info = self.c.tables.fun(f);
+            (info.module, info.exported, info.impl_of.is_some())
+        };
+        if module.0 == u32::MAX || module == self.module {
             return;
         }
         // A method supplied by an `impl` is visible wherever the type is:
         // conformance is a property of the type.
-        if info.impl_of.is_some() {
+        if from_impl {
             return;
         }
-        if !info.exported {
-            let name = info.name.clone();
+        if !exported {
+            let name = self.c.tables.fun(f).name.clone();
             self.err(span, format!("`{name}` is private to its module"))
                 .fix(format!("add `export` to `{name}`'s declaration, if it is meant to be part of the API"));
             return;
         }
         let (Some(here), Some(there)) =
-            (self.c.module(self.module).pkg, self.c.module(info.module).pkg)
+            (self.c.module(self.module).pkg, self.c.module(module).pkg)
         else {
             return;
         };
@@ -1104,8 +1147,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             return;
         }
         if let Some(surface) = self.c.surfaces.get(&there) {
-            if !surface.contains(&info.name) {
-                let name = info.name.clone();
+            if !surface.contains(&self.c.tables.fun(f).name) {
+                let name = self.c.tables.fun(f).name.clone();
                 let label =
                     self.c.ws.map(|w| w.pkg(there).label()).unwrap_or_default();
                 self.err(span, format!("`{name}` is not on {label}'s surface"))
@@ -1120,13 +1163,20 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    fn check_field_visible(&mut self, con: TyConId, f: &FieldInfo, span: Span) {
+    /// The field is named by its position rather than handed over, so that a
+    /// caller on the field-access path need not own a copy of it — the check
+    /// reads two fields of it and only on the error path.
+    fn check_field_visible(&mut self, con: TyConId, index: usize, span: Span) {
         let owner = self.c.tables.tycon(con).module;
-        if owner == self.module || owner.0 == u32::MAX || f.exported {
+        if owner == self.module || owner.0 == u32::MAX {
             return;
         }
-        let ty = self.c.tables.tycon(con).name.clone();
+        let Some(f) = self.c.tables.tycon(con).fields().get(index) else { return };
+        if f.exported {
+            return;
+        }
         let name = f.name.clone();
+        let ty = self.c.tables.tycon(con).name.clone();
         self.err(span, format!("field `{name}` of `{ty}` is private to its module"))
             .fix(format!("add `export` to the field, or go through a method `{ty}` provides"))
             .notes
@@ -1167,19 +1217,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             Ty::Con(con, _) => {
-                let names: Vec<String> = self
-                    .c
-                    .tables
-                    .methods
-                    .keys()
-                    .filter(|(c, _)| c == con)
-                    .map(|(_, n)| n.clone())
-                    .collect();
-                let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+                let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
                 if let Some(near) = nearest(name, &refs) {
                     notes.push(format!("did you mean `{near}`?"));
                 }
-                if self.c.tables.tycon(*con).field_index(name).is_some() {
+                if self.c.tables.field_index(*con, name).is_some() {
                     notes.push(format!("`{name}` is a field; a field is not called"));
                 }
             }
@@ -1206,17 +1248,14 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_field(
         &mut self,
-        base: &tree::Expr,
-        name: &tree::Ident,
+        base: ExprId,
+        name: &str,
+        name_span: Span,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
         // A namespace member, a qualified variant, or a constant.
-        if let Some(s) = self.static_ref(&tree::Expr::Field {
-            base: Box::new(base.clone()),
-            name: name.clone(),
-            span,
-        }) {
+        if let Some(s) = self.static_ref_field(base, name) {
             return match s {
                 Static::Fn(f) => self.fn_ref(f, None, span),
                 Static::Const(c) => {
@@ -1243,18 +1282,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         let bty = self.resolve(&b.ty);
         match &bty {
             Ty::Con(con, targs) => {
-                let found = self
-                    .c
-                    .tables
-                    .tycon(*con)
-                    .fields()
-                    .iter()
-                    .enumerate()
-                    .find(|(_, f)| f.name == name.name)
-                    .map(|(i, f)| (i, f.clone()));
-                if let Some((i, f)) = found {
-                    self.check_field_visible(*con, &f, name.span);
-                    let ty = substitute(&f.ty, targs, None);
+                let found = self.c.tables.field_index(*con, name).and_then(|i| {
+                    self.c.tables.tycon(*con).fields().get(i).map(|f| (i, f.ty.clone()))
+                });
+                if let Some((i, decl_ty)) = found {
+                    self.check_field_visible(*con, i, name_span);
+                    let ty = substitute(&decl_ty, targs, None);
                     return typed::Expr::new(
                         typed::ExprKind::Field { base: Box::new(b), index: i },
                         ty,
@@ -1262,8 +1295,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     );
                 }
                 // A method is not a value: `x.f` must be immediately called.
-                if self.c.tables.methods.contains_key(&(*con, name.name.clone())) {
-                    let n = name.name.clone();
+                if self.c.tables.method(*con, name).is_some() {
+                    let n = name;
                     self.err(span, format!("`{n}` is a method, and a method is not a value")).code("method-not-a-value")
                         .fix(format!(
                             "call it on a receiver: `x.{n}()`; to pass it on, wrap it in a \
@@ -1271,12 +1304,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                         ));
                     return self.error_expr(span);
                 }
-                self.report_no_field(&bty, &name.name, name.span);
+                self.report_no_field(&bty, name, name_span);
                 self.error_expr(span)
             }
             Ty::Error => self.error_expr(span),
             _ => {
-                self.report_no_field(&bty, &name.name, name.span);
+                self.report_no_field(&bty, name, name_span);
                 self.error_expr(span)
             }
         }
@@ -1300,8 +1333,8 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_dot_variant(
         &mut self,
-        name: &tree::Ident,
-        args: &[tree::Expr],
+        name: &str,
+        args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
@@ -1312,14 +1345,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// (SPEC 14.12).
     fn check_dot_variant_call(
         &mut self,
-        name: &tree::Ident,
-        args: &[tree::Expr],
+        name: &str,
+        args: &[ExprId],
         dot_span: Span,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
         let Some(exp) = expected.map(|t| self.resolve(t)) else {
-            let n = name.name.clone();
+            let n = name;
             self.err(dot_span, format!("`.{n}` needs a known expected type")).code("unannotated-variant")
                 .fix(format!(
                     "write the qualified form, as in `Option.{n}(...)`, or annotate what this \
@@ -1335,13 +1368,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             return self.error_expr(span);
         };
-        let Some(index) = self.c.tables.tycon(*con).variant_index(&name.name) else {
+        let Some(index) = self.c.tables.variant_index(*con, name) else {
             let ty = self.c.tables.tycon(*con).name.clone();
             let variants: Vec<String> =
                 self.c.tables.tycon(*con).variants().iter().map(|v| v.name.clone()).collect();
             let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
-            let near = nearest(&name.name, &refs).map(|s| s.to_string());
-            let n = name.name.clone();
+            let near = nearest(name, &refs).map(|s| s.to_string());
+            let n = name;
             let d = self.err(dot_span, format!("`{ty}` has no variant `{n}`"));
             d.fix("name a variant the enum declares");
             match near {
@@ -1360,22 +1393,31 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         con: TyConId,
         index: usize,
-        args: &[tree::Expr],
+        args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
         head_span: Span,
     ) -> typed::Expr {
-        let tycon = self.c.tables.tycon(con).clone();
-        let variant = tycon
-            .variants()
-            .get(index)
-            .or_ice("the variant index came from this same type's variant list")
-            .clone();
+        // One variant, not the type: copying the `TyCon` copied every variant
+        // of the enum and every field of each of them, to write one of them
+        // down.
+        let (owner, arity, variant) = {
+            let tycon = self.c.tables.tycon(con);
+            (
+                tycon.module,
+                tycon.arity(),
+                tycon
+                    .variants()
+                    .get(index)
+                    .or_ice("the variant index came from this same type's variant list")
+                    .clone(),
+            )
+        };
 
         // A type with any unexported variant cannot be constructed outside its
         // module.
-        if tycon.module != self.module && !variant.exported && tycon.module.0 != u32::MAX {
-            let t = tycon.name.clone();
+        if owner != self.module && !variant.exported && owner.0 != u32::MAX {
+            let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.err(head_span, format!("variant `{v}` of `{t}` is private to its module"))
                 .fix(format!("add `export` to `{v}`, or build the value through a function `{t}`'s module provides"));
@@ -1385,7 +1427,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // from the payload otherwise.
         let targs: Vec<Ty> = match expected.map(|t| self.resolve(t)) {
             Some(Ty::Con(c, ts)) if c == con => ts,
-            _ => (0..tycon.arity()).map(|_| self.fresh(span)).collect(),
+            _ => (0..arity).map(|_| self.fresh(span)).collect(),
         };
 
         let param_types: Vec<Ty> =
@@ -1409,7 +1451,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_array(
         &mut self,
-        elems: &[tree::Expr],
+        elems: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
@@ -1422,8 +1464,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         let checked: Vec<typed::Expr> = elems
             .iter()
             .map(|e| {
-                let c = self.check_expr(e, Some(&elem_ty));
-                self.unify_at(e.span(), &c.ty.clone(), &elem_ty, "the element type");
+                let c = self.check_expr(*e, Some(&elem_ty));
+                let espan = self.tree().span(*e);
+                self.unify_at(espan, &c.ty.clone(), &elem_ty, "the element type");
                 c
             })
             .collect();
@@ -1434,16 +1477,17 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_struct_lit(
         &mut self,
-        head: &tree::Expr,
-        spread: Option<&tree::Expr>,
-        fields: &[tree::FieldInit],
+        head: ExprId,
+        spread: Option<ExprId>,
+        fields: &[InitData],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        let head_span = self.tree().span(head);
         // The head must be a type path, optionally with type arguments, or the
         // dot form (SPEC 14.1).
-        if !head.is_type_path() {
-            self.err(head.span(), "the head of a struct literal must be a type").code("struct-literal-head")
+        if !self.tree().is_type_path(head) {
+            self.err(head_span, "the head of a struct literal must be a type").code("struct-literal-head")
                 .fix("name the type, as in `Point { x: 1, y: 2 }`, or `.Variant { ... }` where the expected type is known")
                 .notes
                 .push("the grammar permits `f(x) { a: 1 }`; the checker does not".into());
@@ -1452,69 +1496,76 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         // A record-like enum variant: `.Rect { width, height }`.
         if let Some((con, index)) = self.struct_lit_variant(head, expected) {
-            return self.build_record_variant(con, index, fields, span, expected, head.span());
+            return self.build_record_variant(con, index, fields, span, expected, head_span);
         }
 
-        let explicit = match head {
-            tree::Expr::Generic { args, .. } => Some(self.elaborate_all(args)),
+        let explicit = match self.tree().expr(head) {
+            V::Generic { args, .. } => Some(self.elaborate_all(args)),
             _ => None,
         };
         let Some(con) = self.struct_lit_head(head) else {
-            self.err(head.span(), "this is not a struct or an enum variant")
+            self.err(head_span, "this is not a struct or an enum variant")
                 .fix("name a struct, or an enum variant that has fields");
             return self.error_expr(span);
         };
-        let tycon = self.c.tables.tycon(con).clone();
-        if !matches!(tycon.def, TyDef::Struct { .. }) {
-            let n = tycon.name.clone();
-            self.err(head.span(), format!("`{n}` is an enum; name a variant"))
+        // The fields are what this needs; copying the `TyCon` for them copied
+        // its name and its generics too, per literal.
+        let (is_struct, arity) = {
+            let tycon = self.c.tables.tycon(con);
+            (matches!(tycon.def, TyDef::Struct { .. }), tycon.arity())
+        };
+        if !is_struct {
+            let n = self.c.tables.tycon(con).name.clone();
+            self.err(head_span, format!("`{n}` is an enum; name a variant"))
                 .fix(format!("write `{n}.Variant {{ ... }}`"));
             return self.error_expr(span);
         }
 
         let targs: Vec<Ty> = match explicit {
-            Some(ts) if ts.len() == tycon.arity() => ts,
+            Some(ts) if ts.len() == arity => ts,
             _ => match expected.map(|t| self.resolve(t)) {
                 Some(Ty::Con(c, ts)) if c == con => ts,
-                _ => (0..tycon.arity()).map(|_| self.fresh(span)).collect(),
+                _ => (0..arity).map(|_| self.fresh(span)).collect(),
             },
         };
         let ty = Ty::Con(con, targs.clone());
-        let decl_fields = tycon.fields().to_vec();
+        let decl_fields = self.c.tables.tycon(con).fields().to_vec();
 
         let mut values: Vec<Option<typed::Expr>> = vec![None; decl_fields.len()];
         let mut seen: Vec<&str> = Vec::new();
         for init in fields {
+            let t = self.tree();
+            let iname = t.text(init.name);
+            let ispan = t.span_of(init.name);
             let found = decl_fields
                 .iter()
                 .enumerate()
-                .find(|(_, f)| f.name == init.name.name)
+                .find(|(_, f)| f.name == iname)
                 .map(|(i, f)| (i, f.clone()));
             let Some((i, decl)) = found else {
-                let t = tycon.name.clone();
-                let n = init.name.name.clone();
-                self.err(init.name.span, format!("`{t}` has no field `{n}`"))
+                let t = self.c.tables.tycon(con).name.clone();
+                self.err(ispan, format!("`{t}` has no field `{iname}`"))
                     .fix("check the spelling, or name a field the struct declares");
                 continue;
             };
-            if seen.contains(&init.name.name.as_str()) {
-                let n = init.name.name.clone();
-                self.err(init.name.span, format!("field `{n}` is given twice"))
+            if seen.contains(&iname) {
+                self.err(ispan, format!("field `{iname}` is given twice"))
                     .fix("delete one of the two");
             }
-            seen.push(&init.name.name);
-            self.check_field_visible(con, &decl, init.name.span);
+            seen.push(iname);
+            self.check_field_visible(con, i, ispan);
             let want = substitute(&decl.ty, &targs, None);
-            let value = match &init.value {
+            let value = match t.opt(init.value) {
                 Some(v) => {
                     let c = self.check_expr(v, Some(&want));
-                    self.unify_at(v.span(), &c.ty.clone(), &want, "the field type");
+                    let vspan = t.span(v);
+                    self.unify_at(vspan, &c.ty.clone(), &want, "the field type");
                     c
                 }
                 // Field shorthand: `Point { x, y }` binds `x: x`.
                 None => {
-                    let c = self.check_ident(&init.name.name, init.name.span, Some(&want));
-                    self.unify_at(init.name.span, &c.ty.clone(), &want, "the field type");
+                    let c = self.check_ident(iname, ispan, Some(&want));
+                    self.unify_at(ispan, &c.ty.clone(), &want, "the field type");
                     c
                 }
             };
@@ -1528,7 +1579,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // Functional update never names the hidden fields, so it works
                 // anywhere the type is visible.
                 let b = self.check_expr(base, Some(&ty));
-                self.unify_at(base.span(), &b.ty.clone(), &ty, "the base of the update");
+                let base_span = self.tree().span(base);
+                self.unify_at(base_span, &b.ty.clone(), &ty, "the base of the update");
                 let updates: Vec<(usize, typed::Expr)> = values
                     .into_iter()
                     .enumerate()
@@ -1548,7 +1600,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .map(|(f, _)| f.name.clone())
                     .collect();
                 if !missing.is_empty() {
-                    let t = tycon.name.clone();
+                    let t = self.c.tables.tycon(con).name.clone();
                     let missing = diagnostics::names(&missing);
                     self.err(span, format!("`{t}` is missing {missing}"))
                         .fix(format!(
@@ -1574,19 +1626,19 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    fn struct_lit_head(&mut self, head: &tree::Expr) -> Option<TyConId> {
-        match head {
-            tree::Expr::Ident { name, .. } => {
+    fn struct_lit_head(&mut self, head: ExprId) -> Option<TyConId> {
+        match self.tree().expr(head) {
+            V::Ident { name, .. } => {
                 match self.c.scope(self.module).names.get(name)? {
                     Sym::Ty(c) => Some(*c),
                     _ => None,
                 }
             }
-            tree::Expr::Generic { base, .. } => self.struct_lit_head(base),
-            tree::Expr::Field { base, name, .. } => {
-                let tree::Expr::Ident { name: head, .. } = &**base else { return None };
+            V::Generic { base, .. } => self.struct_lit_head(base),
+            V::Field { base, name, .. } => {
+                let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
                 let ns = self.c.scope(self.module).namespaces.get(head).copied()?;
-                match self.c.lookup_export_pub(ns, &name.name)? {
+                match self.c.lookup_export_pub(ns, name)? {
                     Sym::Ty(c) => Some(c),
                     _ => None,
                 }
@@ -1597,16 +1649,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn struct_lit_variant(
         &mut self,
-        head: &tree::Expr,
+        head: ExprId,
         expected: Option<&Ty>,
     ) -> Option<(TyConId, usize)> {
-        match head {
-            tree::Expr::DotVariant { name, .. } => {
+        match self.tree().expr(head) {
+            V::DotVariant { name, .. } => {
                 let Ty::Con(con, _) = self.resolve(expected?) else { return None };
-                let index = self.c.tables.tycon(con).variant_index(&name.name)?;
+                let index = self.c.tables.variant_index(con, name)?;
                 Some((con, index))
             }
-            tree::Expr::Field { .. } => match self.static_ref(head) {
+            V::Field { .. } => match self.static_ref(head) {
                 Some(Static::Variant(con, index)) => Some((con, index)),
                 _ => None,
             },
@@ -1618,52 +1670,62 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         con: TyConId,
         index: usize,
-        fields: &[tree::FieldInit],
+        fields: &[InitData],
         span: Span,
         expected: Option<&Ty>,
         head_span: Span,
     ) -> typed::Expr {
-        let tycon = self.c.tables.tycon(con).clone();
-        let variant = tycon
-            .variants()
-            .get(index)
-            .or_ice("the variant index came from this same type's variant list")
-            .clone();
-        if tycon.module != self.module && !variant.exported && tycon.module.0 != u32::MAX {
-            let t = tycon.name.clone();
+        // The one variant, for the reason `construct_variant` gives.
+        let (owner, arity, variant) = {
+            let tycon = self.c.tables.tycon(con);
+            (
+                tycon.module,
+                tycon.arity(),
+                tycon
+                    .variants()
+                    .get(index)
+                    .or_ice("the variant index came from this same type's variant list")
+                    .clone(),
+            )
+        };
+        if owner != self.module && !variant.exported && owner.0 != u32::MAX {
+            let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.err(head_span, format!("variant `{v}` of `{t}` is private to its module"))
                 .fix(format!("add `export` to `{v}`, or build the value through a function `{t}`'s module provides"));
         }
         let targs: Vec<Ty> = match expected.map(|t| self.resolve(t)) {
             Some(Ty::Con(c, ts)) if c == con => ts,
-            _ => (0..tycon.arity()).map(|_| self.fresh(span)).collect(),
+            _ => (0..arity).map(|_| self.fresh(span)).collect(),
         };
         let mut values: Vec<Option<typed::Expr>> = vec![None; variant.fields.len()];
         for init in fields {
+            let t = self.tree();
+            let iname = t.text(init.name);
+            let ispan = t.span_of(init.name);
             let found = variant
                 .fields
                 .iter()
                 .enumerate()
-                .find(|(_, f)| f.name == init.name.name)
+                .find(|(_, f)| f.name == iname)
                 .map(|(i, f)| (i, f.ty.clone()));
             let Some((i, decl_ty)) = found else {
                 let v = variant.name.clone();
-                let n = init.name.name.clone();
-                self.err(init.name.span, format!("`{v}` has no field `{n}`"))
+                self.err(ispan, format!("`{v}` has no field `{iname}`"))
                     .fix("check the spelling, or name a field the variant declares");
                 continue;
             };
             let want = substitute(&decl_ty, &targs, None);
-            let value = match &init.value {
+            let value = match t.opt(init.value) {
                 Some(v) => {
                     let c = self.check_expr(v, Some(&want));
-                    self.unify_at(v.span(), &c.ty.clone(), &want, "the field type");
+                    let vspan = t.span(v);
+                    self.unify_at(vspan, &c.ty.clone(), &want, "the field type");
                     c
                 }
                 None => {
-                    let c = self.check_ident(&init.name.name, init.name.span, Some(&want));
-                    self.unify_at(init.name.span, &c.ty.clone(), &want, "the field type");
+                    let c = self.check_ident(iname, ispan, Some(&want));
+                    self.unify_at(ispan, &c.ty.clone(), &want, "the field type");
                     c
                 }
             };
@@ -1712,7 +1774,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_unary(
         &mut self,
         op: tree::UnOp,
-        operand: &tree::Expr,
+        operand: ExprId,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
@@ -1720,33 +1782,34 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `let y: I8 = -129;` as the error, which makes `-128` legal, and it
         // is not if the magnitude is range-checked on its own.
         if op == tree::UnOp::Neg {
-            if let tree::Expr::Int { value, raw, .. } = operand {
+            if let V::Int { value, raw, .. } = self.tree().expr(operand) {
                 let ty = self.subst.fresh_num(NumClass::Int, span);
                 if let Some(exp) = expected {
                     let _ = self.subst.unify(&self.c.tables, &ty, exp);
                 }
                 self.lit_checks.push(LitCheck {
-                    value: *value,
+                    value,
                     negative: true,
-                    raw: raw.clone(),
+                    raw: raw.to_string(),
                     ty: ty.clone(),
                     span,
                 });
-                return typed::Expr::new(typed::ExprKind::Int(*value, true), ty, span);
+                return typed::Expr::new(typed::ExprKind::Int(value, true), ty, span);
             }
-            if let tree::Expr::Float { value, span: fspan, .. } = operand {
-                let ty = self.subst.fresh_num(NumClass::Float, *fspan);
+            if let V::Float { value, span: fspan, .. } = self.tree().expr(operand) {
+                let ty = self.subst.fresh_num(NumClass::Float, fspan);
                 if let Some(exp) = expected {
                     let _ = self.subst.unify(&self.c.tables, &ty, exp);
                 }
-                return typed::Expr::new(typed::ExprKind::Float(-*value), ty, span);
+                return typed::Expr::new(typed::ExprKind::Float(-value), ty, span);
             }
         }
         let e = match op {
             tree::UnOp::Not => {
                 let b = self.prim(Prim::Bool);
                 let e = self.check_expr(operand, Some(&b));
-                self.unify_at(operand.span(), &e.ty.clone(), &b, "`!` takes a `Bool`");
+                let ospan = self.tree().span(operand);
+                self.unify_at(ospan, &e.ty.clone(), &b, "`!` takes a `Bool`");
                 return typed::Expr::new(
                     typed::ExprKind::Prim { op: typed::PrimOp::Not, prim: Prim::Bool, args: vec![e] },
                     b,
@@ -1793,8 +1856,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_binary(
         &mut self,
         op: tree::BinOp,
-        lhs: &tree::Expr,
-        rhs: &tree::Expr,
+        lhs: ExprId,
+        rhs: ExprId,
         op_span: Span,
         span: Span,
         expected: Option<&Ty>,
@@ -1804,9 +1867,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             B::And | B::Or => {
                 let b = self.prim(Prim::Bool);
                 let l = self.check_expr(lhs, Some(&b));
-                self.unify_at(lhs.span(), &l.ty.clone(), &b, "a logical operand");
+                let lspan = self.tree().span(lhs);
+                self.unify_at(lspan, &l.ty.clone(), &b, "a logical operand");
                 let r = self.check_expr(rhs, Some(&b));
-                self.unify_at(rhs.span(), &r.ty.clone(), &b, "a logical operand");
+                let rspan = self.tree().span(rhs);
+                self.unify_at(rspan, &r.ty.clone(), &b, "a logical operand");
                 let kind = if op == B::And {
                     typed::ExprKind::And { lhs: Box::new(l), rhs: Box::new(r) }
                 } else {
@@ -1836,7 +1901,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                 };
                 let r = self.check_expr(rhs, Some(&inner));
-                self.unify_at(rhs.span(), &r.ty.clone(), &inner, "the default");
+                let rspan = self.tree().span(rhs);
+                self.unify_at(rspan, &r.ty.clone(), &inner, "the default");
                 return typed::Expr::new(
                     typed::ExprKind::Coalesce { lhs: Box::new(l), rhs: Box::new(r), kind },
                     inner,
@@ -1852,7 +1918,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         // operands of the *same* type; passing the left type as the right's
         // expectation is what pins a literal on either side.
         let r = self.check_expr(rhs, Some(&lty));
-        self.unify_at(rhs.span(), &r.ty.clone(), &lty, "the left operand's type");
+        let rspan = self.tree().span(rhs);
+        self.unify_at(rspan, &r.ty.clone(), &lty, "the left operand's type");
         let ty = self.resolve(&l.ty);
         let prim = self.as_prim(&ty);
         let _ = expected;
@@ -2028,7 +2095,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// produced.
     fn order_test(&mut self, cmp: typed::Expr, op: tree::BinOp, span: Span) -> typed::Expr {
         use tree::BinOp as B;
-        let Some(&order) = self.c.known_types.get("Order") else {
+        let Some(order) = self.c.order_con else {
             return self.error_expr(span);
         };
         let bool_ty = self.prim(Prim::Bool);
@@ -2038,7 +2105,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             B::Gt => ("Greater", true),
             _ => ("Greater", false),
         };
-        let index = self.c.tables.tycon(order).variant_index(target).unwrap_or(0);
+        let index = self.c.tables.variant_index(order, target).unwrap_or(0);
         let order_ty = Ty::Con(order, Vec::new());
         let arms = vec![
             typed::Arm {
@@ -2070,7 +2137,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     // -----------------------------------------------------------------------
 
     /// `?` is the only early exit in the language. There is no `return`.
-    fn check_try(&mut self, base: &tree::Expr, span: Span) -> typed::Expr {
+    fn check_try(&mut self, base: ExprId, span: Span) -> typed::Expr {
         let b = self.check_expr(base, None);
         let bty = self.resolve(&b.ty);
         let ret = self.resolve(&self.ret.clone());
@@ -2127,16 +2194,17 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Hole expressions must have type `Int` (any width), `Float` (any width),
     /// `Bool`, `Char`, or `Str`. There is no user-extensible display mechanism
     /// in v0.3; convert explicitly.
-    fn check_template(&mut self, parts: &[tree::TemplatePart], span: Span) -> typed::Expr {
+    fn check_template(&mut self, parts: &[PartData], span: Span) -> typed::Expr {
         let mut out = Vec::new();
         for p in parts {
-            match p {
-                tree::TemplatePart::Text(t) => out.push(typed::TemplatePart::Text(t.clone())),
-                tree::TemplatePart::Hole(e) => {
+            match self.tree().part(*p) {
+                PartView::Text(t) => out.push(typed::TemplatePart::Text(t.to_string())),
+                PartView::Hole(e) => {
                     let checked = self.check_expr(e, None);
                     // Deferred: a hole holding `1 + 1` has an unresolved
                     // literal type until defaulting has run.
-                    self.hole_checks.push((checked.ty.clone(), e.span()));
+                    let espan = self.tree().span(e);
+                    self.hole_checks.push((checked.ty.clone(), espan));
                     out.push(typed::TemplatePart::Hole(checked));
                 }
             }
@@ -2149,9 +2217,9 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_lambda(
         &mut self,
-        params: &[tree::LambdaParam],
-        ret: Option<&tree::TypeExpr>,
-        body: &tree::Expr,
+        params: &[LambdaParamData],
+        ret: Option<TypeId>,
+        body: ExprId,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
@@ -2173,18 +2241,21 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut locals = Vec::new();
         let mut ptypes = Vec::new();
         for (i, p) in params.iter().enumerate() {
-            let ty = match &p.ty {
-                Some(t) => {
-                    let generics = self.generics.clone();
-                    self.c.elaborate(self.module, &generics, t)
+            let t = self.tree();
+            let pname = t.text(p.name);
+            let pspan = t.span_of(p.span);
+            let ty = match t.opt_type(p.ty) {
+                Some(id) => {
+                    let ann = t.ty(id);
+                    self.c.elaborate(self.module, &self.generics, ann)
                 }
                 None => match want_params.get(i) {
                     Some(t) if !t.is_error() => t.clone(),
-                    _ => self.fresh(p.span),
+                    _ => self.fresh(pspan),
                 },
             };
-            let local = self.new_local(&p.name.name, ty.clone(), p.span);
-            self.bind(&p.name.name, local);
+            let local = self.new_local(pname, ty.clone(), pspan);
+            self.bind(pname, local);
             // A lambda's parameter is a binding like any other, so a lambda
             // *inside* it may not close over one that carries authority. This
             // is the `fn(c, p) => { let g = fn() => fs.exists(c, p); g() }`
@@ -2194,9 +2265,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             locals.push(local);
             ptypes.push(ty);
         }
-        let declared_ret = ret.map(|t| {
-            let generics = self.generics.clone();
-            self.c.elaborate(self.module, &generics, t)
+        let declared_ret = ret.map(|id| {
+            let ann = self.tree().ty(id);
+            self.c.elaborate(self.module, &self.generics, ann)
         });
         let expect_ret = declared_ret.clone().or(want_ret);
         // `?` is the only early exit, and it returns from the *enclosing
@@ -2210,7 +2281,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         let body_hir = self.check_expr(body, expect_ret.as_ref());
         let lambda_ret = std::mem::replace(&mut self.ret, outer_ret);
         if let Some(r) = &declared_ret {
-            self.unify_at(body.span(), &body_hir.ty.clone(), r, "the declared return type");
+            let body_span = self.tree().span(body);
+            self.unify_at(body_span, &body_hir.ty.clone(), r, "the declared return type");
         }
         // A lambda with no annotation gets its type from its body, but if `?`
         // pinned the placeholder, that is what it is.
@@ -2291,7 +2363,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn check_context_body(
         &mut self,
-        body: &tree::ContextBody,
+        body: CtxBodyId,
         span: Span,
     ) -> typed::Expr {
         if !self.may_build_context() {
@@ -2315,9 +2387,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         // spread.
         let mut explicit: Vec<TraitId> = Vec::new();
 
+        let t = self.tree();
+        let ctx = t.ctx_body(body);
+
         // Either form may begin with a spread, which takes every binding from
         // another context and lets the ones that follow replace them.
-        if let Some(base) = &body.spread {
+        if let Some(base) = t.opt(ctx.spread) {
+            let base_span = t.span(base);
             let b = self.check_expr(base, None);
             match self.resolve(&b.ty) {
                 Ty::Ctx(id) => {
@@ -2326,34 +2402,37 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // to dispatch on, and every effect a spread supplies is
                     // unusable.
                     let base_bindings = self.c.tables.ctx_type(id).bindings.clone();
-                    for (t, impl_ty) in base_bindings {
+                    for (tr, impl_ty) in base_bindings {
                         let e = typed::Expr::new(
-                            typed::ExprKind::CtxGet { base: Box::new(b.clone()), trait_id: t },
+                            typed::ExprKind::CtxGet { base: Box::new(b.clone()), trait_id: tr },
                             impl_ty,
-                            base.span(),
+                            base_span,
                         );
-                        bindings.push((t, e));
-                        spans.push((t, base.span()));
+                        bindings.push((tr, e));
+                        spans.push((tr, base_span));
                     }
                 }
                 Ty::Error => {}
                 other => {
                     let shown = self.show_ty(&other);
-                    self.err(base.span(), format!("a spread takes another context, found `{shown}`"))
+                    self.err(base_span, format!("a spread takes another context, found `{shown}`"))
                         .fix("spread a value built by a `context` expression or a context declaration");
                 }
             }
         }
 
-        for binding in &body.bindings {
-            let tree::TypeExpr::Named { path, .. } = &binding.effect else {
-                self.err(binding.effect.span(), "a context binding names an effect")
+        for binding in t.bindings_at(ctx.bind_start, ctx.bind_len) {
+            let effect = t.ty(TypeId(binding.effect));
+            let binding_span = t.span_of(binding.span);
+            let value_span = t.span(ExprId(binding.value));
+            let tree::TypeExpr::Named { path, .. } = effect else {
+                self.err(effect.span(), "a context binding names an effect")
                     .fix("write `Effect: implementation`, as in `Alloc: host.alloc`");
                 continue;
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
-                let shown = binding.effect.head_name().unwrap_or("?").to_string();
-                self.err(binding.effect.span(), format!("`{shown}` is not a declared effect")).code("not-an-effect")
+                let shown = effect.head_name().unwrap_or("?").to_string();
+                self.err(effect.span(), format!("`{shown}` is not a declared effect")).code("not-an-effect")
                     .fix(format!(
                         "name an effect the platform declares, as in `Alloc` or `Stdout`; \
                          `{shown}` is not one"
@@ -2362,20 +2441,20 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !self.c.tables.trait_(tid).is_effect {
                 let shown = self.c.tables.trait_(tid).name.clone();
-                self.err(binding.effect.span(), format!("`{shown}` is a trait, not an effect"))
+                self.err(effect.span(), format!("`{shown}` is a trait, not an effect"))
                     .fix("bind an effect here; pass a plain trait's implementations as ordinary arguments")
                     .notes
                     .push("a context binds effects; a trait is not one".into());
                 continue;
             }
-            let value = self.check_expr(&binding.value, None);
+            let value = self.check_expr(ExprId(binding.value), None);
             let vty = self.resolve(&value.ty);
             // Every binding's right side is a value whose type implements that
             // effect — ordinary nominal conformance.
             if !self.satisfies(&vty, tid) && !vty.is_error() {
                 let shown = self.show_ty(&vty);
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.err(binding.value.span(), format!("`{shown}` does not implement `{eff}`")).code("missing-conformance")
+                self.err(value_span, format!("`{shown}` does not implement `{eff}`")).code("missing-conformance")
                     .fix(format!(
                         "bind a value whose type has `impl {eff} for ...`; an effect is an \
                          ordinary interface, so a test double is a struct with those methods"
@@ -2385,7 +2464,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             // it; two explicit bindings of one effect is an error.
             if explicit.contains(&tid) {
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.err(binding.span, format!("`{eff}` is bound twice")).code("duplicate-bound")
+                self.err(binding_span, format!("`{eff}` is bound twice")).code("duplicate-bound")
                     .fix("delete one of the two bindings")
                     .note("a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake");
             }
@@ -2394,7 +2473,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 *slot = (tid, value);
             } else {
                 bindings.push((tid, value));
-                spans.push((tid, binding.span));
+                spans.push((tid, binding_span));
             }
         }
 
@@ -2409,15 +2488,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_match(
         &mut self,
-        scrutinee: &tree::Expr,
-        arms: &[tree::MatchArm],
+        scrutinee: ExprId,
+        arms: &[ArmData],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        let t = self.tree();
         let s = self.check_expr(scrutinee, None);
         let sty = self.resolve(&s.ty);
         let result = match expected {
-            Some(t) => t.clone(),
+            Some(ty) => ty.clone(),
             None => self.fresh(span),
         };
         let bool_ty = self.prim(Prim::Bool);
@@ -2425,16 +2505,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         for arm in arms {
             self.push_scope();
             self.pattern_names.clear();
-            let pat = self.check_pattern(&arm.pattern, &sty);
-            let guard = arm.guard.as_ref().map(|g| {
+            let pat = self.check_pattern(flat::PatId(arm.pattern), &sty);
+            let guard = t.opt(arm.guard).map(|g| {
                 let e = self.check_expr(g, Some(&bool_ty));
-                self.unify_at(g.span(), &e.ty.clone(), &bool_ty, "a guard");
+                let gspan = t.span(g);
+                self.unify_at(gspan, &e.ty.clone(), &bool_ty, "a guard");
                 e
             });
-            let body = self.check_expr(&arm.body, Some(&result));
-            self.unify_at(arm.body.span(), &body.ty.clone(), &result, "the other arms");
+            let body = self.check_expr(ExprId(arm.body), Some(&result));
+            let body_span = t.span(ExprId(arm.body));
+            self.unify_at(body_span, &body.ty.clone(), &result, "the other arms");
             self.pop_scope();
-            checked.push(typed::Arm { pattern: pat, guard, body, span: arm.span });
+            checked.push(typed::Arm { pattern: pat, guard, body, span: t.span_of(arm.span) });
         }
         // The match must be exhaustive, and no arm may be unreachable.
         crate::compiler::semantics::exhaustiveness::check(self, &sty, &checked, span);
@@ -2443,13 +2525,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             result,
             span,
         )
-    }
-}
-
-fn strip_type_args(e: &tree::Expr) -> &tree::Expr {
-    match e {
-        tree::Expr::Generic { base, .. } => strip_type_args(base),
-        other => other,
     }
 }
 

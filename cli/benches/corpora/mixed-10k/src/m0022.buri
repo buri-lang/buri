@@ -1,0 +1,313 @@
+//! Generated module 22 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0010" import { Node10, seed10, blend10, reach10 };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+from "//bench/m0003" import { Node3, seed3, blend3, reach3 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node22 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node22;
+
+export fn seed22(): Int { 4219 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend22(base: Int): Int {
+  let d0 = blend10(base) + seed10();
+  let d1 = blend4(base) + seed4();
+  let d2 = blend3(base) + seed3();
+  d0 + d1 + d2 + seed22()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift22(n: Node10): Node22 {
+  Node22 { label: n.label, value: n.value + seed22(), weight: n.weight }
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label22_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "alpha" } else { "echo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants22_0(): (Int, Int, Float, Char, Str) {
+  (729885, 0x9BE8, 915.737, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_0<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants22_0();
+  label22_0(ctx, a, e).len() + b
+}
+
+/// An enum of 5 variants, matched exhaustively below.
+export enum State22_1 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+}
+
+derive Eq, Show for State22_1;
+
+/// The match every enum in a real program has somewhere.
+export fn rank22_1(state: State22_1): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start22_1(ticks: Int): State22_1 {
+  if (ticks == 0) { .Idle } else if (ticks < 16) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_1<C: Alloc>(ctx: C): Int {
+  let s = start22_1(5);
+  rank22_1(s) + s.show(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label22_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "delta" } else { "charlie" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants22_2(): (Int, Int, Float, Char, Str) {
+  (103293, 0xD76C, 213.876, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_2<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants22_2();
+  label22_2(ctx, a, e).len() + b
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec22_3 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show for Rec22_3;
+
+impl Rec22_3 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec22_3, factor: Int): Int {
+    self.f0 * factor + 595
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec22_3, ctx: C): Str {
+    str.format(ctx, "rec22_3: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_3<C: Alloc>(ctx: C): Int {
+  let r = Rec22_3 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose22_4(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth22_4(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_4<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth22_4("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose22_4(.Some(3), .None) + extra
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose22_5(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth22_5(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_5<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth22_5("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose22_5(.Some(3), .None) + extra
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec22_6 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec22_6;
+
+impl Rec22_6 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec22_6, factor: Int): Int {
+    self.f0 * factor + 543
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec22_6, ctx: C): Str {
+    str.format(ctx, "rec22_6: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_6<C: Alloc>(ctx: C): Int {
+  let r = Rec22_6 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A record with 2 fields, derived comparisons and two methods.
+export struct Rec22_7 {
+  export f0: Int,
+  export f1: Str,
+}
+
+derive Eq, Show for Rec22_7;
+
+impl Rec22_7 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec22_7, factor: Int): Int {
+    self.f0 * factor + 520
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec22_7, ctx: C): Str {
+    str.format(ctx, "rec22_7: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_7<C: Alloc>(ctx: C): Int {
+  let r = Rec22_7 { f0: 7, f1: "probe" };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr22_8<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll22_8<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric22_8(ns: [Int], ss: [Str]): Int {
+  firstOr22_8<Int>(ns, 0) + firstOr22_8<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_8<C: Alloc>(ctx: C): Int {
+  useGeneric22_8([1, 2], ["a"]) + describeAll22_8(ctx, [1, 2]).len()
+}
+
+/// A body of 7 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute22_9(input: Int): Int {
+  let a0 = input * 6 + 796;
+  let a1 = a0 * 1;
+  let a2 = a1 - 37;
+  let a3 = a2 * 73;
+  let a4 = a3 * 21;
+  let a5 = a4 + 50;
+  let a6 = a5 * 22;
+  if (a6 > 7579) { a6 } else { a6 - 71 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe22_9<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute22_9(7)
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach22<C: Alloc>(ctx: C): Int {
+  0
+    + probe22_0(ctx)
+    + probe22_1(ctx)
+    + probe22_2(ctx)
+    + probe22_3(ctx)
+    + probe22_4(ctx)
+    + probe22_5(ctx)
+    + probe22_6(ctx)
+    + probe22_7(ctx)
+    + probe22_8(ctx)
+    + probe22_9(ctx)
+    + reach10(ctx)
+    + reach4(ctx)
+    + reach3(ctx)
+}

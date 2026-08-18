@@ -1,0 +1,85 @@
+//! Generated module 12 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0009" import { Node9, seed9, blend9, reach9 };
+from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node12 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node12;
+
+export fn seed12(): Int { 5029 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend12(base: Int): Int {
+  let d0 = blend9(base) + seed9();
+  let d1 = blend2(base) + seed2();
+  let d2 = blend1(base) + seed1();
+  let d3 = blend0(base) + seed0();
+  d0 + d1 + d2 + d3 + seed12()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift12(n: Node9): Node12 {
+  Node12 { label: n.label, value: n.value + seed12(), weight: n.weight }
+}
+
+/// An enum of 5 variants, matched exhaustively below.
+export enum State12_0 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+}
+
+derive Eq, Show for State12_0;
+
+/// The match every enum in a real program has somewhere.
+export fn rank12_0(state: State12_0): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start12_0(ticks: Int): State12_0 {
+  if (ticks == 0) { .Idle } else if (ticks < 14) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe12_0<C: Alloc>(ctx: C): Int {
+  let s = start12_0(5);
+  rank12_0(s) + s.show(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach12<C: Alloc>(ctx: C): Int {
+  0
+    + probe12_0(ctx)
+    + reach9(ctx)
+    + reach2(ctx)
+    + reach1(ctx)
+    + reach0(ctx)
+}

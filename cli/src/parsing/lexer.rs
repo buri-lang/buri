@@ -12,7 +12,7 @@
 //!   resumes template text by which of the two is on top.
 
 use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
-use std::fmt;
+use crate::parsing::flat::Loc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kw {
@@ -106,8 +106,18 @@ impl Kw {
         }
     }
 
-    fn from_str(s: &str) -> Option<Kw> {
-        Some(match s {
+    /// What an identifier-shaped word is.
+    ///
+    /// One `match` over the keywords *and* the reserved words rather than a
+    /// keyword lookup followed by a scan of [`RESERVED`]: the scan ran for
+    /// every ordinary identifier, which is most words in a file, and rustc
+    /// lowers a single `match` on a `&str` to a switch on the length and a
+    /// short chain of comparisons within it.
+    fn from_str(s: &str) -> Option<Word> {
+        Some(Word::Kw(match s {
+            "async" | "await" | "break" | "continue" | "do" | "in" | "is" | "loop" | "module"
+            | "mut" | "opaque" | "panic" | "pub" | "return" | "unreachable" | "use" | "when"
+            | "where" | "while" | "with" | "yield" => return Some(Word::Reserved),
             "as" => Kw::As,
             "const" => Kw::Const,
             "context" => Kw::Context,
@@ -134,16 +144,17 @@ impl Kw {
             "true" => Kw::True,
             "type" => Kw::Type,
             _ => return None,
-        })
+        }))
     }
 }
 
-/// Reserved but unused in v0.3, rejected by the lexer so that later versions can
-/// claim them without breaking source compatibility.
-const RESERVED: &[&str] = &[
-    "async", "await", "break", "continue", "do", "in", "is", "loop", "module", "mut", "opaque",
-    "panic", "pub", "return", "unreachable", "use", "when", "where", "while", "with", "yield",
-];
+/// What [`Kw::from_str`] found: a keyword, or a word reserved but unused in
+/// v0.3 and rejected by the lexer so that later versions can claim it without
+/// breaking source compatibility.
+enum Word {
+    Kw(Kw),
+    Reserved,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Punct {
@@ -228,14 +239,221 @@ impl Punct {
     }
 }
 
+/// What a token is, with the keyword and the punctuator folded into the byte.
+///
+/// The parser asks "is this a `,`" several times per token, and against a
+/// tagged union each question was a load of the discriminant followed by a
+/// load of the payload beside it. Here it is one byte against a constant, and
+/// the kind column is a dense `u8` stream the parser walks in order — which is
+/// the whole reason the token buffer is columns rather than records.
+///
+/// `Kw` and `Punct` survive as public enums, and [`TokKind::as_kw`] and
+/// [`TokKind::as_punct`] hand one back, so the formatter's tables and every
+/// diagnostic that spells a token are untouched.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum TokKind {
+    Ident,
+    Int,
+    Float,
+    Str,
+    Char,
+    TemplateHead,
+    TemplateSpan,
+    TemplateTail,
+    Eof,
+    // `Kw`, in its own order.
+    KwAs,
+    KwConst,
+    KwContext,
+    KwCtx,
+    KwDerive,
+    KwEffect,
+    KwElse,
+    KwEnum,
+    KwExport,
+    KwFalse,
+    KwFn,
+    KwFor,
+    KwFrom,
+    KwIf,
+    KwImpl,
+    KwImport,
+    KwLet,
+    KwMatch,
+    KwSelfValue,
+    KwSelfType,
+    KwStruct,
+    KwTest,
+    KwTrait,
+    KwTrue,
+    KwType,
+    // `Punct`, in its own order.
+    LBrace,
+    RBrace,
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+    Comma,
+    Semi,
+    Colon,
+    ColonColon,
+    Dot,
+    DotDot,
+    At,
+    Underscore,
+    Eq,
+    FatArrow,
+    EqEq,
+    BangEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    AndAnd,
+    OrOr,
+    Bang,
+    QuestionQuestion,
+    And,
+    Or,
+    Caret,
+    Tilde,
+    Question,
+}
+
+/// The keyword and punctuator tables, written once and expanded in both
+/// directions.
+///
+/// A token's kind has to become a `Kw` or a `Punct` again — the formatter's
+/// tables and every "expected `,`" message are written against those — so the
+/// mapping is needed forwards and backwards. Written as two hand-kept matches
+/// they could disagree, and a disagreement is a keyword that lexes as another
+/// keyword: not a compile error, not obviously a bug in a diff. One list
+/// generating both makes that unrepresentable, and the forward arm is
+/// exhaustive over the source enum, so a new keyword or punctuator is a build
+/// error here rather than a token nothing produces.
+macro_rules! kind_tables {
+    (kw: $($k:ident => $kt:ident),* $(,)?; punct: $($p:ident => $pt:ident),* $(,)?) => {
+        impl TokKind {
+            /// The kind a keyword lexes to.
+            pub fn of_kw(k: Kw) -> TokKind {
+                match k { $(Kw::$k => TokKind::$kt),* }
+            }
+
+            /// The kind a punctuator lexes to.
+            pub fn of_punct(p: Punct) -> TokKind {
+                match p { $(Punct::$p => TokKind::$pt),* }
+            }
+
+            /// The keyword this kind is, if it is one.
+            pub fn as_kw(self) -> Option<Kw> {
+                Some(match self { $(TokKind::$kt => Kw::$k,)* _ => return None })
+            }
+
+            /// The punctuator this kind is, if it is one.
+            pub fn as_punct(self) -> Option<Punct> {
+                Some(match self { $(TokKind::$pt => Punct::$p,)* _ => return None })
+            }
+        }
+    };
+}
+
+kind_tables! {
+    kw:
+        As => KwAs,
+        Const => KwConst,
+        Context => KwContext,
+        Ctx => KwCtx,
+        Derive => KwDerive,
+        Effect => KwEffect,
+        Else => KwElse,
+        Enum => KwEnum,
+        Export => KwExport,
+        False => KwFalse,
+        Fn => KwFn,
+        For => KwFor,
+        From => KwFrom,
+        If => KwIf,
+        Impl => KwImpl,
+        Import => KwImport,
+        Let => KwLet,
+        Match => KwMatch,
+        SelfValue => KwSelfValue,
+        SelfType => KwSelfType,
+        Struct => KwStruct,
+        Test => KwTest,
+        Trait => KwTrait,
+        True => KwTrue,
+        Type => KwType;
+    punct:
+        LBrace => LBrace,
+        RBrace => RBrace,
+        LParen => LParen,
+        RParen => RParen,
+        LBracket => LBracket,
+        RBracket => RBracket,
+        Comma => Comma,
+        Semi => Semi,
+        Colon => Colon,
+        ColonColon => ColonColon,
+        Dot => Dot,
+        DotDot => DotDot,
+        At => At,
+        Underscore => Underscore,
+        Eq => Eq,
+        FatArrow => FatArrow,
+        EqEq => EqEq,
+        BangEq => BangEq,
+        Lt => Lt,
+        LtEq => LtEq,
+        Gt => Gt,
+        GtEq => GtEq,
+        Plus => Plus,
+        Minus => Minus,
+        Star => Star,
+        Slash => Slash,
+        Percent => Percent,
+        AndAnd => AndAnd,
+        OrOr => OrOr,
+        Bang => Bang,
+        QuestionQuestion => QuestionQuestion,
+        And => And,
+        Or => Or,
+        Caret => Caret,
+        Tilde => Tilde,
+        Question => Question,
+}
+
+/// One token, decoded.
+///
+/// This is a *view* on [`Tokens`], not what the buffer holds: a token is
+/// stored as a byte in the kind column, a span in the location column and at
+/// most one index in the payload column, and [`Tokens::tok`] puts one of these
+/// back together on demand. Every reader of it is cold — a diagnostic that
+/// spells the token it found, the formatter's shape check, the lexer's own
+/// tests — and the parser, which is not, reads the kind column directly.
 #[derive(Clone, PartialEq, Debug)]
-pub enum Tok {
-    Ident(String),
+pub enum Tok<'a> {
+    /// Borrowed from the source rather than copied out of it. An identifier is
+    /// about a third of the tokens in a file and its text is exactly the
+    /// bytes under the token's span, so a `String` here was one allocation per
+    /// identifier — the largest single line of the front end's allocation
+    /// budget — buying nothing the source did not already hold.
+    Ident(&'a str),
     Kw(Kw),
     Punct(Punct),
-    /// Value plus the raw spelling, so diagnostics can quote what was written.
-    Int(u128, String),
-    Float(f64, String),
+    /// The value only. What was *written* — `0xFF` rather than `255` — is the
+    /// source under the token's span, which every reader of a token already
+    /// has; carrying a second copy of it cost a `String` per literal, and made
+    /// every token in the file wide enough to hold one.
+    Int(u128),
+    Float(f64),
     Str(String),
     Char(char),
     /// `"head${`
@@ -247,20 +465,26 @@ pub enum Tok {
     Eof,
 }
 
-impl fmt::Display for Tok {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Tok<'_> {
+    /// How this token reads in a message, given the source under its span.
+    ///
+    /// `raw` is a parameter rather than something the token carries because a
+    /// numeric literal has to be quoted as it was spelled — `0xFF` and `255`
+    /// are one value and two messages — and the spelling is in the source that
+    /// every caller already holds. Every other token either spells itself or
+    /// is named by its kind, and ignores it.
+    pub fn describe(&self, raw: &str) -> String {
         match self {
-            Tok::Ident(s) => write!(f, "`{s}`"),
-            Tok::Kw(k) => write!(f, "`{}`", k.text()),
-            Tok::Punct(p) => write!(f, "`{}`", p.text()),
-            Tok::Int(_, raw) => write!(f, "`{raw}`"),
-            Tok::Float(_, raw) => write!(f, "`{raw}`"),
-            Tok::Str(_) => write!(f, "a string literal"),
-            Tok::Char(_) => write!(f, "a character literal"),
+            Tok::Ident(s) => format!("`{s}`"),
+            Tok::Kw(k) => format!("`{}`", k.text()),
+            Tok::Punct(p) => format!("`{}`", p.text()),
+            Tok::Int(_) | Tok::Float(_) => format!("`{raw}`"),
+            Tok::Str(_) => "a string literal".to_string(),
+            Tok::Char(_) => "a character literal".to_string(),
             Tok::TemplateHead(_) | Tok::TemplateSpan(_) | Tok::TemplateTail(_) => {
-                write!(f, "an interpolated string")
+                "an interpolated string".to_string()
             }
-            Tok::Eof => write!(f, "end of file"),
+            Tok::Eof => "end of file".to_string(),
         }
     }
 }
@@ -281,10 +505,20 @@ pub struct Comment {
     pub column: u32,
 }
 
-#[derive(Clone, Debug)]
-pub struct Token {
-    pub tok: Tok,
-    pub span: Span,
+/// What was written above one token: its documentation, the comments above
+/// it, and the blank lines around them.
+///
+/// This is a side table on [`Lexed`] rather than five fields on a token
+/// because almost no token has any of it — a run of comments belongs to a
+/// declaration, not to the hundreds of tokens inside one — and carrying the
+/// fields on the token made every token in the file pay for it. Entries are
+/// keyed by token index and pushed in source order, so the table is sorted.
+///
+/// A token with nothing above it has no entry at all, which is what makes
+/// "empty" unrepresentable: `detached` says nothing when there is no run, and
+/// `docs_blank` says nothing when there is no documentation.
+#[derive(Clone, Debug, Default)]
+pub struct Trivia {
     /// Doc comment lines (`///`) immediately preceding this token.
     pub docs: Vec<String>,
     /// Whether a blank line sat above the doc-comment run. It matters only
@@ -307,6 +541,177 @@ pub struct Token {
     /// independent answers to "is there a blank line here" — this one, counted
     /// while lexing, and that one — that could disagree about the same gap.
     pub detached: bool,
+}
+
+/// The token buffer: three parallel columns and three sparse side tables.
+///
+/// A token used to be a forty-eight-byte record — a tagged union wide enough
+/// for a `u128` beside a `Span` — and the buffer is the largest thing the
+/// front end builds, written once by the lexer and read once by the parser. Of
+/// those forty-eight bytes the parser reads one for almost every token it
+/// looks at, so the buffer is columns: the kind stream it walks is dense, the
+/// spans it takes on a `bump` are their own array, and the value of a literal
+/// — which fewer than one token in ten has — is an index into a table beside
+/// them rather than a hole in every token that is not one.
+///
+/// Two consequences beyond the width. Nothing in the three columns owns
+/// anything, so dropping the buffer is three `free`s rather than a walk over
+/// every token asking whether it holds a `String`; and an identifier is not in
+/// the buffer at all, because its text is the source under its own span.
+///
+/// The widths are pinned here rather than left to whatever a new field happens
+/// to cost. A field that is empty on almost every token belongs in a side
+/// table keyed by token index, not in a fourth column.
+pub struct Tokens<'a> {
+    src: &'a str,
+    file: FileId,
+    kinds: Vec<TokKind>,
+    locs: Vec<Loc>,
+    /// Decoded by kind: an index into `ints`, `floats` or `strs`, the scalar
+    /// value of a character literal, and unread for every other kind.
+    pays: Vec<u32>,
+    ints: Vec<u128>,
+    floats: Vec<f64>,
+    /// Cooked text — a string literal's contents, a template segment's. The
+    /// only owned text the buffer holds, and the only reason it is not `Copy`
+    /// throughout.
+    strs: Vec<String>,
+}
+
+/// What one token costs in the three columns.
+const BYTES_PER_TOKEN: usize = std::mem::size_of::<TokKind>()
+    .saturating_add(std::mem::size_of::<Loc>())
+    .saturating_add(std::mem::size_of::<u32>());
+
+const _: () = assert!(std::mem::size_of::<TokKind>() == 1);
+const _: () = assert!(std::mem::size_of::<Loc>() == 8);
+const _: () = assert!(BYTES_PER_TOKEN == 13);
+/// `Tok` is a view built on demand and never stored, so its width is a
+/// register-allocation question rather than a memory one. It is pinned anyway,
+/// because a variant that grew past this would mean somebody had put owned
+/// data on a token again.
+const _: () = assert!(std::mem::size_of::<Tok<'_>>() == 32);
+
+impl<'a> Tokens<'a> {
+    fn new(src: &'a str, file: FileId) -> Tokens<'a> {
+        // Buri source runs about four bytes to the token, comments included,
+        // so this is the buffer the file needs rather than the first of a
+        // dozen doublings — each of which copied everything written so far.
+        let n = src.len().wrapping_div(4).saturating_add(1);
+        Tokens {
+            src,
+            file,
+            kinds: Vec::with_capacity(n),
+            locs: Vec::with_capacity(n),
+            pays: Vec::with_capacity(n),
+            ints: Vec::new(),
+            floats: Vec::new(),
+            strs: Vec::new(),
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, kind: TokKind, pay: u32, loc: Loc) {
+        self.kinds.push(kind);
+        self.locs.push(loc);
+        self.pays.push(pay);
+    }
+
+    pub fn len(&self) -> usize {
+        self.kinds.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.kinds.is_empty()
+    }
+
+    /// The kind at `i`, or `Eof` past the end.
+    ///
+    /// Reading off the end as end-of-file rather than as a missing token is
+    /// what lets the parser peek unconditionally; `lex` finishes by pushing an
+    /// `Eof` on every path, so in a correct front end the fallback is
+    /// unreachable and this is the one place that has to know it.
+    pub fn kind(&self, i: usize) -> TokKind {
+        self.kinds.get(i).copied().unwrap_or(TokKind::Eof)
+    }
+
+    pub fn loc(&self, i: usize) -> Loc {
+        self.locs.get(i).copied().unwrap_or_default()
+    }
+
+    pub fn span(&self, i: usize) -> Span {
+        let l = self.loc(i);
+        Span { file: self.file, start: l.start, end: l.end }
+    }
+
+    /// The source under the token at `i`: an identifier's text, and a numeric
+    /// literal's spelling.
+    pub fn text(&self, i: usize) -> &'a str {
+        let l = self.loc(i);
+        self.src.get(l.start as usize..l.end as usize).unwrap_or("")
+    }
+
+    fn pay(&self, i: usize) -> usize {
+        self.pays.get(i).copied().unwrap_or(0) as usize
+    }
+
+    pub fn int(&self, i: usize) -> u128 {
+        self.ints.get(self.pay(i)).copied().unwrap_or(0)
+    }
+
+    pub fn float(&self, i: usize) -> f64 {
+        self.floats.get(self.pay(i)).copied().unwrap_or(0.0)
+    }
+
+    /// The cooked text of a string literal or template segment.
+    pub fn str_at(&self, i: usize) -> &str {
+        self.strs.get(self.pay(i)).map_or("", String::as_str)
+    }
+
+    /// The same, moved out of the buffer.
+    ///
+    /// The parser owns the stream outright and no consumed token's text is
+    /// read twice, so the copy the lexer already made is the one the tree
+    /// keeps. See `Parser::take_text` for the one case — a speculative parse —
+    /// where that is not true.
+    pub fn take_str(&mut self, i: usize) -> String {
+        let at = self.pay(i);
+        self.strs.get_mut(at).map(std::mem::take).unwrap_or_default()
+    }
+
+    pub fn ch(&self, i: usize) -> char {
+        char::from_u32(self.pays.get(i).copied().unwrap_or(0)).unwrap_or('\0')
+    }
+
+    /// The token at `i`, decoded. See [`Tok`].
+    pub fn tok(&self, i: usize) -> Tok<'a> {
+        match self.kind(i) {
+            TokKind::Ident => Tok::Ident(self.text(i)),
+            TokKind::Int => Tok::Int(self.int(i)),
+            TokKind::Float => Tok::Float(self.float(i)),
+            TokKind::Str => Tok::Str(self.str_at(i).to_string()),
+            TokKind::Char => Tok::Char(self.ch(i)),
+            TokKind::TemplateHead => Tok::TemplateHead(self.str_at(i).to_string()),
+            TokKind::TemplateSpan => Tok::TemplateSpan(self.str_at(i).to_string()),
+            TokKind::TemplateTail => Tok::TemplateTail(self.str_at(i).to_string()),
+            TokKind::Eof => Tok::Eof,
+            k => match (k.as_kw(), k.as_punct()) {
+                (Some(kw), _) => Tok::Kw(kw),
+                (_, Some(p)) => Tok::Punct(p),
+                _ => Tok::Eof,
+            },
+        }
+    }
+
+    /// Every token, decoded, in source order.
+    pub fn toks(&self) -> impl Iterator<Item = Tok<'a>> + '_ {
+        (0..self.len()).map(|i| self.tok(i))
+    }
+
+    /// How a message names the token at `i` — see [`Tok::describe`].
+    pub fn describe(&self, i: usize) -> String {
+        self.tok(i).describe(self.text(i))
+    }
 }
 
 /// One thing a `}` could be closing, innermost last.
@@ -334,10 +739,21 @@ pub struct Lexer<'a> {
     text: &'a str,
     pos: usize,
     file: FileId,
-    tokens: Vec<Token>,
+    tokens: Tokens<'a>,
+    trivia: Vec<(u32, Trivia)>,
     errors: Vec<Diagnostic>,
     /// What is currently open, innermost last.
     modes: Vec<LexMode>,
+    /// Whether anything is waiting to be attached to the next token: a
+    /// documentation line, a comment, or a blank line above it.
+    ///
+    /// It is exactly `!pending_docs.is_empty() || !pending_comments.is_empty()
+    /// || blank_before`, kept as one byte so that the test [`Lexer::push`]
+    /// makes for every token in the file is one load rather than three. Every
+    /// site that can make it true goes through [`Lexer::hold_blank`] or pushes
+    /// onto a pending list beside a `self.has_trivia = true;`, and
+    /// [`Lexer::attach_trivia`] is the only place that clears it.
+    has_trivia: bool,
     pending_docs: Vec<String>,
     pending_docs_blank: bool,
     pending_comments: Vec<Comment>,
@@ -346,23 +762,29 @@ pub struct Lexer<'a> {
     detached: bool,
 }
 
-pub struct Lexed {
-    pub tokens: Vec<Token>,
+pub struct Lexed<'a> {
+    pub tokens: Tokens<'a>,
+    /// What was written above a token, keyed by its index in `tokens` and in
+    /// ascending order of that index. Only tokens that have something above
+    /// them appear.
+    pub trivia: Vec<(u32, Trivia)>,
     pub errors: Vec<Diagnostic>,
     /// `//!` lines, with the span of each, in source order. The parser keeps
     /// the ones before the first item and reports the rest.
     pub module_docs: Vec<(String, Span)>,
 }
 
-pub fn lex(text: &str, file: FileId) -> Lexed {
+pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
     let mut l = Lexer {
         src: text.as_bytes(),
         text,
         pos: 0,
         file,
-        tokens: Vec::new(),
+        tokens: Tokens::new(text, file),
+        trivia: Vec::new(),
         errors: Vec::new(),
         modes: Vec::new(),
+        has_trivia: false,
         pending_docs: Vec::new(),
         pending_docs_blank: false,
         pending_comments: Vec::new(),
@@ -371,7 +793,12 @@ pub fn lex(text: &str, file: FileId) -> Lexed {
         detached: false,
     };
     l.run();
-    Lexed { tokens: l.tokens, errors: l.errors, module_docs: l.module_docs }
+    Lexed {
+        tokens: l.tokens,
+        trivia: l.trivia,
+        errors: l.errors,
+        module_docs: l.module_docs,
+    }
 }
 
 impl<'a> Lexer<'a> {
@@ -420,22 +847,73 @@ impl<'a> Lexer<'a> {
         self.errors.last_mut().or_ice("the diagnostic just pushed is still there")
     }
 
-    fn push(&mut self, tok: Tok, start: usize) {
-        let span = self.span(start);
-        let docs = std::mem::take(&mut self.pending_docs);
-        let docs_blank = std::mem::take(&mut self.pending_docs_blank);
-        let comments = std::mem::take(&mut self.pending_comments);
-        let blank = std::mem::take(&mut self.blank_before);
-        let detached = std::mem::take(&mut self.detached);
-        self.tokens.push(Token {
-            tok,
-            span,
-            docs,
-            docs_blank,
-            comments,
-            blank_before: blank,
-            detached,
-        });
+    /// Append one token.
+    ///
+    /// This runs once per token in the file and is the lexer's whole write
+    /// side, so it is three stores and one predictable branch: everything
+    /// about the rare token that has something written above it is behind
+    /// [`Lexer::has_trivia`] and outlined, because a body large enough to be
+    /// worth a call is a body the ten call sites pay a call for.
+    #[inline]
+    fn push(&mut self, kind: TokKind, pay: u32, start: usize) {
+        if self.has_trivia {
+            self.attach_trivia();
+        }
+        self.tokens.push(kind, pay, Loc { start: start as u32, end: self.pos as u32 });
+    }
+
+    /// Hand what was written above the next token to the trivia table.
+    ///
+    /// Almost no token has any of this — a run of comments belongs to a
+    /// declaration, not to the hundreds of tokens inside one — so the
+    /// arithmetic on five fields lives here rather than in [`Lexer::push`].
+    #[cold]
+    #[inline(never)]
+    fn attach_trivia(&mut self) {
+        let at = self.tokens.len() as u32;
+        self.trivia.push((
+            at,
+            Trivia {
+                docs: std::mem::take(&mut self.pending_docs),
+                docs_blank: self.pending_docs_blank,
+                comments: std::mem::take(&mut self.pending_comments),
+                blank_before: self.blank_before,
+                detached: self.detached,
+            },
+        ));
+        self.pending_docs_blank = false;
+        self.blank_before = false;
+        self.detached = false;
+        self.has_trivia = false;
+    }
+
+    /// Record that a blank line sat above whatever comes next.
+    ///
+    /// The one way `blank_before` is set, so that it cannot be set without
+    /// [`Lexer::has_trivia`] learning about it.
+    fn hold_blank(&mut self, blank: bool) {
+        self.blank_before = blank;
+        self.has_trivia |= blank;
+    }
+
+    /// A token whose value lives in a side table: the payload column holds the
+    /// index the value was appended at.
+    fn push_int(&mut self, v: u128, start: usize) {
+        let at = self.tokens.ints.len() as u32;
+        self.tokens.ints.push(v);
+        self.push(TokKind::Int, at, start);
+    }
+
+    fn push_float(&mut self, v: f64, start: usize) {
+        let at = self.tokens.floats.len() as u32;
+        self.tokens.floats.push(v);
+        self.push(TokKind::Float, at, start);
+    }
+
+    fn push_text(&mut self, kind: TokKind, body: String, start: usize) {
+        let at = self.tokens.strs.len() as u32;
+        self.tokens.strs.push(body);
+        self.push(kind, at, start);
     }
 
     fn run(&mut self) {
@@ -443,7 +921,7 @@ impl<'a> Lexer<'a> {
             self.skip_trivia();
             if self.pos >= self.src.len() {
                 let start = self.pos;
-                self.push(Tok::Eof, start);
+                self.push(TokKind::Eof, 0, start);
                 return;
             }
             let start = self.pos;
@@ -503,19 +981,21 @@ impl<'a> Lexer<'a> {
                         self.module_docs.push((doc_body(raw.get(3..).unwrap_or("")), span));
                     } else if is_doc {
                         if self.run_empty() {
-                            self.blank_before = blank;
+                            self.hold_blank(blank);
                         }
                         if self.pending_docs.is_empty() {
                             self.pending_docs_blank = blank;
                         }
                         self.pending_docs.push(doc_body(raw.get(3..).unwrap_or("")));
+                        self.has_trivia = true;
                     } else {
                         if self.run_empty() {
-                            self.blank_before = blank;
+                            self.hold_blank(blank);
                         }
                         let text = raw.trim_end().to_string();
                         let column = self.column(start);
                         self.pending_comments.push(Comment { text, blank_before: blank, column });
+                        self.has_trivia = true;
                     }
                     newlines = 0;
                 }
@@ -541,11 +1021,12 @@ impl<'a> Lexer<'a> {
                     }
                     let blank = newlines >= 2;
                     if self.run_empty() {
-                        self.blank_before = blank;
+                        self.hold_blank(blank);
                     }
                     let text = self.slice(start, self.pos).to_string();
                     let column = self.column(start);
                     self.pending_comments.push(Comment { text, blank_before: blank, column });
+                    self.has_trivia = true;
                     newlines = 0;
                 }
                 _ => {
@@ -555,7 +1036,7 @@ impl<'a> Lexer<'a> {
                     // is what makes a file header a header rather than a
                     // comment about the first declaration.
                     if self.run_empty() {
-                        self.blank_before = newlines >= 2;
+                        self.hold_blank(newlines >= 2);
                     } else {
                         self.detached = newlines >= 2;
                     }
@@ -571,31 +1052,28 @@ impl<'a> Lexer<'a> {
         }
         let s = self.slice(start, self.pos);
         if s == "_" {
-            self.push(Tok::Punct(Punct::Underscore), start);
+            self.push(TokKind::Underscore, 0, start);
             return;
         }
-        if let Some(kw) = Kw::from_str(s) {
-            self.push(Tok::Kw(kw), start);
-            return;
-        }
-        if RESERVED.contains(&s) {
-            let span = self.span(start);
-            let s = s.to_string();
-            self.err(
-                span,
-                format!("`{s}` is a reserved word and may not be used as an identifier"),
-                format!("pick another name; `{s}` is not available"),
-            ).code("reserved-word");
-            if let Some(d) = self.errors.last_mut() {
-                d.notes.push(
-                    "reserved for a future version of Buri; see grammar.ebnf, ReservedWord".into(),
-                );
+        match Kw::from_str(s) {
+            Some(Word::Kw(kw)) => self.push(TokKind::of_kw(kw), 0, start),
+            Some(Word::Reserved) => {
+                let span = self.span(start);
+                self.err(
+                    span,
+                    format!("`{s}` is a reserved word and may not be used as an identifier"),
+                    format!("pick another name; `{s}` is not available"),
+                ).code("reserved-word");
+                if let Some(d) = self.errors.last_mut() {
+                    d.notes.push(
+                        "reserved for a future version of Buri; see grammar.ebnf, ReservedWord"
+                            .into(),
+                    );
+                }
+                self.push(TokKind::Ident, 0, start);
             }
-            self.push(Tok::Ident(s), start);
-            return;
+            None => self.push(TokKind::Ident, 0, start),
         }
-        let s = s.to_string();
-        self.push(Tok::Ident(s), start);
     }
 
     fn number(&mut self, start: usize) {
@@ -613,17 +1091,16 @@ impl<'a> Lexer<'a> {
             while self.peek().is_ascii_alphanumeric() || self.peek() == b'_' {
                 self.pos = self.pos.saturating_add(1);
             }
-            let raw = self.slice(start, self.pos).to_string();
-            let digits: String =
-                self.slice(digits_start, self.pos).chars().filter(|c| *c != '_').collect();
+            let raw = self.slice(start, self.pos);
+            let digits = without_underscores(self.slice(digits_start, self.pos));
             if digits.is_empty() {
                 let span = self.span(start);
                 self.err(span, format!("`{raw}` has no digits"), "write at least one digit after the base prefix, as in `0x1F`");
-                self.push(Tok::Int(0, raw), start);
+                self.push_int(0, start);
                 return;
             }
             match u128::from_str_radix(&digits, radix) {
-                Ok(v) => self.push(Tok::Int(v, raw), start),
+                Ok(v) => self.push_int(v, start),
                 Err(_) => {
                     let span = self.span(start);
                     self.err(
@@ -631,7 +1108,7 @@ impl<'a> Lexer<'a> {
                 format!("`{raw}` is not a valid base-{radix} integer, or does not fit in 128 bits"),
                 format!("use digits base-{radix} admits, and a value inside 128 bits"),
             );
-                    self.push(Tok::Int(0, raw), start);
+                    self.push_int(0, start);
                 }
             }
             return;
@@ -667,11 +1144,11 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let raw = self.slice(start, self.pos).to_string();
-        let clean: String = raw.chars().filter(|c| *c != '_').collect();
+        let raw = self.slice(start, self.pos);
+        let clean = without_underscores(raw);
         if is_float {
             match clean.parse::<f64>() {
-                Ok(v) => self.push(Tok::Float(v, raw), start),
+                Ok(v) => self.push_float(v, start),
                 Err(_) => {
                     let span = self.span(start);
                     self.err(
@@ -679,16 +1156,16 @@ impl<'a> Lexer<'a> {
                 format!("`{raw}` is not a valid float literal"),
                 "a float needs a digit on each side of the point, as in `0.5`, and at most one exponent",
             );
-                    self.push(Tok::Float(0.0, raw), start);
+                    self.push_float(0.0, start);
                 }
             }
         } else {
             match clean.parse::<u128>() {
-                Ok(v) => self.push(Tok::Int(v, raw), start),
+                Ok(v) => self.push_int(v, start),
                 Err(_) => {
                     let span = self.span(start);
                     self.err(span, format!("`{raw}` does not fit in 128 bits"), "write a smaller value; 128 bits is the widest integer type");
-                    self.push(Tok::Int(0, raw), start);
+                    self.push_int(0, start);
                 }
             }
         }
@@ -696,38 +1173,69 @@ impl<'a> Lexer<'a> {
 
     /// Scans string body text, stopping at `"` or at an unescaped `${`.
     /// Returns (contents, ended_with_hole).
+    /// The four bytes that end a run of ordinary string content. None of them
+    /// can appear inside a multi-byte UTF-8 sequence, which is what lets the
+    /// run be found by scanning bytes and copied without decoding.
+    fn plain_str_byte(c: u8) -> bool {
+        !matches!(c, b'"' | b'\\' | b'$' | b'\n')
+    }
+
     fn scan_str_body(&mut self) -> (String, bool) {
+        // `chunk` is the start of the run of source that belongs in the result
+        // verbatim. A string with no escape is one such run, so the common
+        // literal is copied once rather than a character at a time through a
+        // fresh UTF-8 decode per character.
         let mut out = String::new();
+        let mut chunk = self.pos;
         loop {
             if self.pos >= self.src.len() {
+                out.push_str(self.slice(chunk, self.pos));
                 let span = Span::new(self.file, self.pos, self.pos);
                 self.err(span, "unterminated string literal", "close it with `\"`; a string literal does not span a line break");
                 return (out, false);
             }
             match self.peek() {
                 b'"' => {
+                    let text = self.slice(chunk, self.pos);
                     self.pos = self.pos.saturating_add(1);
+                    if out.is_empty() {
+                        return (text.to_string(), false);
+                    }
+                    out.push_str(text);
                     return (out, false);
                 }
                 b'$' if self.peek_at(1) == b'{' => {
+                    let text = self.slice(chunk, self.pos);
                     self.pos = self.pos.saturating_add(2);
+                    if out.is_empty() {
+                        return (text.to_string(), true);
+                    }
+                    out.push_str(text);
                     return (out, true);
                 }
                 b'\\' => {
+                    out.push_str(self.slice(chunk, self.pos));
                     let start = self.pos;
                     self.pos = self.pos.saturating_add(1);
                     if let Some(c) = self.escape(start) {
                         out.push(c);
                     }
+                    chunk = self.pos;
                 }
                 b'\n' => {
+                    out.push_str(self.slice(chunk, self.pos));
                     let span = Span::new(self.file, self.pos, self.pos.saturating_add(1));
                     self.err(span, "unterminated string literal", "close it with `\"`; a string literal does not span a line break");
                     return (out, false);
                 }
                 _ => {
-                    let ch = self.next_char();
-                    out.push(ch);
+                    // A `$` with no `{` after it is content, so the first step
+                    // is unconditional: without it this would stop on the same
+                    // byte forever.
+                    self.pos = self.pos.saturating_add(1);
+                    while matches!(self.src.get(self.pos), Some(c) if Lexer::plain_str_byte(*c)) {
+                        self.pos = self.pos.saturating_add(1);
+                    }
                 }
             }
         }
@@ -807,10 +1315,10 @@ impl<'a> Lexer<'a> {
         self.pos = self.pos.saturating_add(1); // the opening quote
         let (body, hole) = self.scan_str_body();
         if hole {
-            self.push(Tok::TemplateHead(body), start);
+            self.push_text(TokKind::TemplateHead, body, start);
             self.modes.push(LexMode::Interpolation);
         } else {
-            self.push(Tok::Str(body), start);
+            self.push_text(TokKind::Str, body, start);
         }
     }
 
@@ -818,9 +1326,9 @@ impl<'a> Lexer<'a> {
     fn resume_template(&mut self, start: usize) {
         let (body, hole) = self.scan_str_body();
         if hole {
-            self.push(Tok::TemplateSpan(body), start);
+            self.push_text(TokKind::TemplateSpan, body, start);
         } else {
-            self.push(Tok::TemplateTail(body), start);
+            self.push_text(TokKind::TemplateTail, body, start);
             debug_assert_eq!(self.modes.last(), Some(&LexMode::Interpolation));
             self.modes.pop();
         }
@@ -835,7 +1343,7 @@ impl<'a> Lexer<'a> {
         } else if self.pos >= self.src.len() || self.peek() == b'\n' {
             let span = self.span(start);
             self.err(span, "unterminated character literal", "close it with `\'`");
-            self.push(Tok::Char('\0'), start);
+            self.push(TokKind::Char, 0, start);
             return;
         } else {
             self.next_char()
@@ -855,7 +1363,7 @@ impl<'a> Lexer<'a> {
         if self.peek() == b'\'' {
             self.pos = self.pos.saturating_add(1);
         }
-        self.push(Tok::Char(c), start);
+        self.push(TokKind::Char, c as u32, start);
     }
 
     /// A two-character token, the first character of which `bump` has already
@@ -949,7 +1457,19 @@ impl<'a> Lexer<'a> {
                 return;
             }
         };
-        self.push(Tok::Punct(p), start);
+        self.push(TokKind::of_punct(p), 0, start);
+    }
+}
+
+/// A numeric literal's digits with the group separators taken out.
+///
+/// Borrowed when there are none, which is nearly every literal written: the
+/// copy used to be made whether or not there was anything to take out.
+fn without_underscores(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.contains('_') {
+        std::borrow::Cow::Owned(s.chars().filter(|c| *c != '_').collect())
+    } else {
+        std::borrow::Cow::Borrowed(s)
     }
 }
 
@@ -1014,13 +1534,13 @@ mod tests {
         let text = "×÷≠🙂\u{a0}\u{200f}—“”";
         let l = lex(text, FileId(0));
         assert_eq!(l.errors.len(), text.chars().count(), "one per character");
-        assert_eq!(l.tokens.last().map(|t| t.tok.clone()), Some(Tok::Eof));
+        assert_eq!(l.tokens.toks().last(), Some(Tok::Eof));
     }
 
-    fn toks(src: &str) -> Vec<Tok> {
+    fn toks(src: &str) -> Vec<Tok<'_>> {
         let l = lex(src, FileId(0));
         assert!(l.errors.is_empty(), "unexpected errors: {:?}", l.errors);
-        l.tokens.into_iter().map(|t| t.tok).collect()
+        l.tokens.toks().collect()
     }
 
     #[test]
@@ -1030,9 +1550,9 @@ mod tests {
         assert_eq!(
             toks("pair.0"),
             vec![
-                Tok::Ident("pair".into()),
+                Tok::Ident("pair"),
                 Tok::Punct(Punct::Dot),
-                Tok::Int(0, "0".into()),
+                Tok::Int(0),
                 Tok::Eof
             ]
         );
@@ -1053,7 +1573,7 @@ mod tests {
 
     #[test]
     fn block_comments_nest() {
-        assert_eq!(toks("/* a /* b */ c */ x"), vec![Tok::Ident("x".into()), Tok::Eof]);
+        assert_eq!(toks("/* a /* b */ c */ x"), vec![Tok::Ident("x"), Tok::Eof]);
     }
 
     #[test]
@@ -1098,16 +1618,16 @@ mod tests {
 
     #[test]
     fn radix_and_separators() {
-        assert_eq!(toks("0xFF"), vec![Tok::Int(255, "0xFF".into()), Tok::Eof]);
-        assert_eq!(toks("0o755"), vec![Tok::Int(0o755, "0o755".into()), Tok::Eof]);
-        assert_eq!(toks("0b1010_0110"), vec![Tok::Int(0b1010_0110, "0b1010_0110".into()), Tok::Eof]);
-        assert_eq!(toks("1_000_000"), vec![Tok::Int(1_000_000, "1_000_000".into()), Tok::Eof]);
+        assert_eq!(toks("0xFF"), vec![Tok::Int(255), Tok::Eof]);
+        assert_eq!(toks("0o755"), vec![Tok::Int(0o755), Tok::Eof]);
+        assert_eq!(toks("0b1010_0110"), vec![Tok::Int(0b1010_0110), Tok::Eof]);
+        assert_eq!(toks("1_000_000"), vec![Tok::Int(1_000_000), Tok::Eof]);
     }
 
     #[test]
     fn floats_need_a_leading_digit() {
-        assert_eq!(toks("1.0e-9"), vec![Tok::Float(1.0e-9, "1.0e-9".into()), Tok::Eof]);
-        assert_eq!(toks("6.02e23"), vec![Tok::Float(6.02e23, "6.02e23".into()), Tok::Eof]);
+        assert_eq!(toks("1.0e-9"), vec![Tok::Float(1.0e-9), Tok::Eof]);
+        assert_eq!(toks("6.02e23"), vec![Tok::Float(6.02e23), Tok::Eof]);
     }
 
     #[test]
@@ -1119,7 +1639,7 @@ mod tests {
     #[test]
     fn underscore_is_its_own_token() {
         assert_eq!(toks("_"), vec![Tok::Punct(Punct::Underscore), Tok::Eof]);
-        assert_eq!(toks("_x"), vec![Tok::Ident("_x".into()), Tok::Eof]);
+        assert_eq!(toks("_x"), vec![Tok::Ident("_x"), Tok::Eof]);
     }
 
     #[test]
@@ -1127,10 +1647,10 @@ mod tests {
         assert_eq!(
             toks("x?.f"),
             vec![
-                Tok::Ident("x".into()),
+                Tok::Ident("x"),
                 Tok::Punct(Punct::Question),
                 Tok::Punct(Punct::Dot),
-                Tok::Ident("f".into()),
+                Tok::Ident("f"),
                 Tok::Eof
             ]
         );

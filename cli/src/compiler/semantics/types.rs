@@ -563,15 +563,44 @@ pub struct Tables {
     /// Exactly one candidate per `(trait, type)`. Coherence, orphan rules, and
     /// instance search are not restricted here — they are unrepresentable.
     pub impls: HashMap<(TraitId, TyConId), ImplInfo>,
-    /// `(defining type, method name) -> function`. Methods supplied by an
+    /// The traits each type implements, ascending.
+    ///
+    /// The same argument `effect_traits` makes below, for the other question
+    /// `impls` was scanned to answer: `resolve_method` asks "which traits does
+    /// this type implement?" on every method call that is not already in the
+    /// method table, and answering it by walking `impls` made resolving one
+    /// method cost as much as the whole compilation declares, the standard
+    /// library included. `add_impl` is the only way a conformance comes into
+    /// existence, so this cannot fall out of step, and the list is kept sorted
+    /// where the scan sorted afterwards, so the answer is the same one.
+    traits_by_con: HashMap<TyConId, Vec<TraitId>>,
+    /// `defining type -> method name -> function`. Methods supplied by an
     /// `impl` live in the same namespace and are found here too, so an `impl`
     /// introduces no second resolution path.
-    pub methods: HashMap<(TyConId, String), FnId>,
+    ///
+    /// Nested rather than keyed by `(TyConId, String)`: a tuple key cannot be
+    /// borrowed, so every lookup — one per method call in the program — had to
+    /// allocate a `String` to ask. The inner map's key is `Borrow<str>`, and
+    /// the outer one is `Copy`.
+    methods: HashMap<TyConId, HashMap<String, FnId>>,
     /// `[T]` has no type constructor of its own; its defining module is
     /// `core/list`.
     pub array_methods: HashMap<String, FnId>,
     pub ctx_decls: Vec<ContextDeclInfo>,
     prim_ids: HashMap<Prim, TyConId>,
+    /// `member name -> position` for the types whose variant or field list is
+    /// long enough that `TyCon::variant_index`'s scan is the cost of checking
+    /// them. One `match` arm per variant means one scan per arm, so an enum
+    /// with N variants was N²/2 string comparisons before any pattern was
+    /// looked at.
+    ///
+    /// A side table rather than a member of `TyCon`, because a `TyCon` is
+    /// built by several phases and finished by `elaborate_signatures`; here
+    /// there is one place that fills it, `index_members`, and a type whose
+    /// index was never built falls back to the scan rather than answering
+    /// wrongly. Sparse: only the types past the threshold have an entry, and
+    /// the vector may be shorter than `tycons`.
+    member_index: Vec<Option<Box<HashMap<String, usize>>>>,
     /// Which traits are effects, kept as a list because the effect predicates
     /// below ask "does this type constructor implement *any* effect?" once per
     /// type-constructor node they walk.
@@ -668,6 +697,106 @@ impl Tables {
         let id = TyConId(self.tycons.len() as u32);
         self.tycons.push(c);
         id
+    }
+
+    /// Builds `id`'s member-name index, once its `def` is settled. Below the
+    /// threshold the scan is faster than the hash, so nothing is stored and
+    /// the lookups below fall back to it.
+    pub fn index_members(&mut self, id: TyConId) {
+        /// A list shorter than this is quicker to walk than to hash.
+        const THRESHOLD: usize = 8;
+
+        let members: Vec<&str> = match &self.tycon(id).def {
+            TyDef::Enum { variants } => variants.iter().map(|v| v.name.as_str()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.name.as_str()).collect(),
+            TyDef::Prim(_) => return,
+        };
+        if members.len() < THRESHOLD {
+            return;
+        }
+        let mut map: HashMap<String, usize> = HashMap::default();
+        // First wins, so that a duplicate name resolves to the same member the
+        // scan found. `resolve` reports the duplicate separately.
+        for (i, name) in members.iter().enumerate() {
+            map.entry((*name).to_owned()).or_insert(i);
+        }
+        if self.member_index.len() <= id.index() {
+            self.member_index.resize_with(id.index().saturating_add(1), || None);
+        }
+        if let Some(slot) = self.member_index.get_mut(id.index()) {
+            *slot = Some(Box::new(map));
+        }
+    }
+
+    /// The index for `id`, when there is one and it is the list the caller
+    /// means. A type's members are its variants or its fields, never both, so
+    /// asking for the other list must miss rather than find a member of this
+    /// one.
+    fn member_map(&self, id: TyConId, enums: bool) -> Option<&HashMap<String, usize>> {
+        if matches!(self.tycon(id).def, TyDef::Enum { .. }) != enums {
+            return None;
+        }
+        self.member_index.get(id.index())?.as_deref()
+    }
+
+    /// The position of a variant in `id`'s variant list.
+    pub fn variant_index(&self, id: TyConId, name: &str) -> Option<usize> {
+        match self.member_map(id, true) {
+            Some(map) => map.get(name).copied(),
+            None => self.tycon(id).variant_index(name),
+        }
+    }
+
+    /// The position of a field in `id`'s field list.
+    pub fn field_index(&self, id: TyConId, name: &str) -> Option<usize> {
+        match self.member_map(id, false) {
+            Some(map) => map.get(name).copied(),
+            None => self.tycon(id).field_index(name),
+        }
+    }
+
+    /// Records a conformance, unless there is one already. Returns whether it
+    /// was recorded, so a caller that wants `entry().or_insert()`'s behaviour
+    /// gets it and one that has already reported the duplicate can ignore it.
+    pub fn add_impl(&mut self, info: ImplInfo) -> bool {
+        let key = (info.trait_id, info.self_con);
+        if self.impls.contains_key(&key) {
+            return false;
+        }
+        let list = self.traits_by_con.entry(info.self_con).or_default();
+        if let Err(at) = list.binary_search(&info.trait_id) {
+            list.insert(at, info.trait_id);
+        }
+        self.impls.insert(key, info);
+        true
+    }
+
+    /// The method `name` on `con`, whether declared there or supplied by an
+    /// `impl`.
+    pub fn method(&self, con: TyConId, name: &str) -> Option<FnId> {
+        self.methods.get(&con)?.get(name).copied()
+    }
+
+    /// Records a method, unless `con` already has one by that name. Returns
+    /// whether it was recorded.
+    pub fn add_method(&mut self, con: TyConId, name: &str, f: FnId) -> bool {
+        let by_name = self.methods.entry(con).or_default();
+        if by_name.contains_key(name) {
+            return false;
+        }
+        by_name.insert(name.to_owned(), f);
+        true
+    }
+
+    /// Every method name `con` has, for the "did you mean" a failed lookup
+    /// offers. Unordered, and `nearest` is order-independent.
+    pub fn method_names(&self, con: TyConId) -> impl Iterator<Item = &str> {
+        self.methods.get(&con).into_iter().flat_map(|m| m.keys().map(String::as_str))
+    }
+
+    /// The traits `con` implements, ascending.
+    pub fn traits_of_con(&self, con: TyConId) -> &[TraitId] {
+        self.traits_by_con.get(&con).map_or(&[][..], Vec::as_slice)
     }
 
     pub fn add_fn(&mut self, f: FnInfo) -> FnId {
@@ -931,15 +1060,22 @@ impl Subst {
     }
 
     /// Applies the substitution everywhere.
+    ///
+    /// `shallow_ref` rather than `shallow`: this rebuilds the type from its
+    /// parts, so the copy `shallow` made at every level of the recursion was
+    /// dropped again immediately, and this runs over every type of every node
+    /// of every checked body.
     pub fn resolve(&self, ty: &Ty) -> Ty {
-        match self.shallow(ty) {
-            Ty::Con(id, args) => Ty::Con(id, args.iter().map(|a| self.resolve(a)).collect()),
-            Ty::Array(e) => Ty::Array(Box::new(self.resolve(&e))),
+        match self.shallow_ref(ty) {
+            Ty::Con(id, args) => {
+                Ty::Con(*id, args.iter().map(|a| self.resolve(a)).collect())
+            }
+            Ty::Array(e) => Ty::Array(Box::new(self.resolve(e))),
             Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| self.resolve(e)).collect()),
             Ty::Fn(ps, r) => {
-                Ty::Fn(ps.iter().map(|p| self.resolve(p)).collect(), Box::new(self.resolve(&r)))
+                Ty::Fn(ps.iter().map(|p| self.resolve(p)).collect(), Box::new(self.resolve(r)))
             }
-            other => other,
+            other => other.clone(),
         }
     }
 

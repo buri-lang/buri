@@ -45,7 +45,7 @@
 //!
 //! Design: `design/native/ARCHITECTURE.md` §2.2, §2.3, `VALUE-MODEL.md` §7.
 
-use crate::compiler::middle::inline::children_mut;
+use crate::compiler::middle::inline::each_child_mut;
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{
     self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
@@ -86,9 +86,7 @@ struct Parent {
 /// the inner one's captures resolvable: a nested lambda's parameters are
 /// locals of the same table as everything else it mentions.
 fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
-    for child in children_mut(e) {
-        convert(child, parent, base, lifted);
-    }
+    each_child_mut(e, &mut |child| convert(child, parent, base, lifted));
     let ExprKind::Lambda { params, body, captures } = &mut e.kind else { return };
 
     let func = FuncIdx(base.saturating_add(lifted.len()) as u32);

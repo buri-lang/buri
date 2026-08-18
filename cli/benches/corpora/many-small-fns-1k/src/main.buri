@@ -1,0 +1,12 @@
+//! Stress shape entry point.
+
+from "//bench/m0000" import { all0 };
+from "//bench/m0001" import { all1 };
+
+export fn main(): Result<(), Str> {
+  let total = 0
+    + all0(1)
+    + all1(1)
+    ;
+  if (total == 0) { .Err("zero") } else { .Ok(()) }
+}

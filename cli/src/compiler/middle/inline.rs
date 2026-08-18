@@ -128,9 +128,7 @@ fn discardable(e: &Expr) -> bool {
 /// are what inlining a one-line accessor or constructor produces.
 fn fold_expr(e: &mut Expr) -> usize {
     let mut n = 0;
-    for child in children_mut(e) {
-        n += fold_expr(child);
-    }
+    each_child_mut(e, &mut |child| n += fold_expr(child));
 
     let replacement = match &mut e.kind {
         // `S { a: x, b: y }.a` is `x`, as long as `y` had nothing to do.
@@ -222,14 +220,11 @@ impl Facts {
     pub fn collect(program: &Program, limits: &[usize]) -> Facts {
         let n = program.funcs.len();
         let mut f = Facts {
-            per_func: program
-                .funcs
-                .iter()
-                .enumerate()
-                .map(|(i, func)| FuncFacts {
+            per_func: (0..n)
+                .map(|i| FuncFacts {
                     calls: 0,
                     refs: 0,
-                    size: body_size(func),
+                    size: 0,
                     limit: limits.get(i).copied().unwrap_or(0),
                     recursive: false,
                     has_try: false,
@@ -240,29 +235,40 @@ impl Facts {
         // The whole call graph, not the tail-call subset `tail_calls` builds.
         // A callee outside the table is dropped rather than recorded: the row
         // it would need is the bounds check.
+        //
+        // The node count comes out of this same walk. Measuring it separately
+        // would be a second traversal of every body, and this runs once per
+        // inlining round.
         let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
         for ((i, func), es) in program.funcs.iter().enumerate().zip(edges.iter_mut()) {
             let Some(body) = func.body() else { continue };
-            typed::walk(body, &mut |e| match &e.kind {
-                ExprKind::CallFn { func, .. } => {
-                    let Some(j) = func.func().map(|c| c.index()) else { return };
-                    let Some(row) = f.per_func.get_mut(j) else { return };
-                    row.calls += 1;
-                    es.push(j);
-                }
-                ExprKind::FnRef(func) => {
-                    let Some(j) = func.func().map(|c| c.index()) else { return };
-                    let Some(row) = f.per_func.get_mut(j) else { return };
-                    row.refs += 1;
-                    es.push(j);
-                }
-                ExprKind::Try { .. } => {
-                    if let Some(row) = f.per_func.get_mut(i) {
-                        row.has_try = true;
+            let mut size = 0;
+            typed::walk(body, &mut |e| {
+                size += 1;
+                match &e.kind {
+                    ExprKind::CallFn { func, .. } => {
+                        let Some(j) = func.func().map(|c| c.index()) else { return };
+                        let Some(row) = f.per_func.get_mut(j) else { return };
+                        row.calls += 1;
+                        es.push(j);
                     }
+                    ExprKind::FnRef(func) => {
+                        let Some(j) = func.func().map(|c| c.index()) else { return };
+                        let Some(row) = f.per_func.get_mut(j) else { return };
+                        row.refs += 1;
+                        es.push(j);
+                    }
+                    ExprKind::Try { .. } => {
+                        if let Some(row) = f.per_func.get_mut(i) {
+                            row.has_try = true;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             });
+            if let Some(row) = f.per_func.get_mut(i) {
+                row.size = size;
+            }
         }
         for (i, (row, es)) in f.per_func.iter_mut().zip(edges.iter()).enumerate() {
             if es.contains(&i) {
@@ -355,9 +361,9 @@ fn inline_expr(
 ) {
     // Children first, so a call that only becomes visible after its own
     // arguments are rewritten is still seen this round.
-    for child in children_mut(e) {
+    each_child_mut(e, &mut |child| {
         inline_expr(child, caller, program, facts, limit, locals, size, done);
-    }
+    });
 
     let ExprKind::CallFn { func, args } = &mut e.kind else { return };
     let Some(callee) = func.func().map(|i| i.index()) else { return };
@@ -436,9 +442,7 @@ pub(crate) fn shift_expr(e: &mut Expr, offset: u32) {
         }
         _ => {}
     }
-    for child in children_mut(e) {
-        shift_expr(child, offset);
-    }
+    each_child_mut(e, &mut |child| shift_expr(child, offset));
 }
 
 fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
@@ -470,12 +474,17 @@ fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
 /// Shared with the rest of the middle end — `tail_calls`, `decision` and
 /// `closures` all rewrite what they visit too, and a second copy of this match
 /// is a second chance to forget a form and silently skip the tree under it.
-pub(crate) fn children_mut(e: &mut Expr) -> Vec<&mut Expr> {
-    let mut out: Vec<&mut Expr> = Vec::new();
+///
+/// A callback rather than a `Vec<&mut Expr>` for the same reason `typed::walk`
+/// takes one: a vector here is a heap allocation at *every node of every body*,
+/// paid again by each of the four passes that walk the tree and again by each
+/// of the inliner's rounds. The borrow checker admits it because no two
+/// children are live at once.
+pub(crate) fn each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
     match &mut e.kind {
         ExprKind::CallValue { callee, args } => {
-            out.push(callee);
-            out.extend(args.iter_mut());
+            f(callee);
+            args.iter_mut().for_each(f);
         }
         ExprKind::CallFn { args, .. }
         | ExprKind::CallTrait { args, .. }
@@ -489,59 +498,61 @@ pub(crate) fn children_mut(e: &mut Expr) -> Vec<&mut Expr> {
         | ExprKind::Intrinsic { args, .. }
         | ExprKind::Continue { args, .. }
         | ExprKind::Closure { env: args, .. }
-        | ExprKind::Loop { entries: args } => out.extend(args.iter_mut()),
+        | ExprKind::Loop { entries: args } => args.iter_mut().for_each(f),
         ExprKind::StructUpdate { base, updates, .. } => {
-            out.push(base);
-            out.extend(updates.iter_mut().map(|(_, e)| e));
+            f(base);
+            updates.iter_mut().for_each(|(_, e)| f(e));
         }
         ExprKind::Field { base, .. }
         | ExprKind::TupleIndex { base, .. }
         | ExprKind::CtxGet { base, .. }
-        | ExprKind::Try { base, .. } => out.push(base),
+        | ExprKind::Try { base, .. } => f(base),
         ExprKind::Index { base, index, .. } => {
-            out.push(base);
-            out.push(index);
+            f(base);
+            f(index);
         }
         ExprKind::Block { stmts, tail } => {
             for s in stmts.iter_mut() {
                 match s {
-                    Stmt::Let { value, .. } => out.push(value),
-                    Stmt::Expr(e) => out.push(e),
+                    Stmt::Let { value, .. } => f(value),
+                    Stmt::Expr(e) => f(e),
                 }
             }
             if let Some(t) = tail {
-                out.push(t);
+                f(t);
             }
         }
         ExprKind::If { cond, then, else_ } => {
-            out.push(cond);
-            out.push(then);
-            out.push(else_);
+            f(cond);
+            f(then);
+            f(else_);
         }
         ExprKind::Match { scrutinee, arms } => {
-            out.push(scrutinee);
+            f(scrutinee);
             for a in arms.iter_mut() {
                 if let Some(g) = &mut a.guard {
-                    out.push(g);
+                    f(g);
                 }
-                out.push(&mut a.body);
+                f(&mut a.body);
             }
         }
-        ExprKind::Lambda { body, .. } => out.push(body),
+        ExprKind::Lambda { body, .. } => f(body),
         ExprKind::And { lhs, rhs }
         | ExprKind::Or { lhs, rhs }
         | ExprKind::Coalesce { lhs, rhs, .. } => {
-            out.push(lhs);
-            out.push(rhs);
+            f(lhs);
+            f(rhs);
         }
-        ExprKind::Template { parts } => out.extend(parts.iter_mut().filter_map(|p| match p {
-            typed::TemplatePart::Text(_) => None,
-            typed::TemplatePart::Hole(h) => Some(h),
-        })),
-        ExprKind::CtxLit { bindings } => out.extend(bindings.iter_mut().map(|(_, e)| e)),
+        ExprKind::Template { parts } => parts
+            .iter_mut()
+            .filter_map(|p| match p {
+                typed::TemplatePart::Text(_) => None,
+                typed::TemplatePart::Hole(h) => Some(h),
+            })
+            .for_each(f),
+        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| f(e)),
         _ => {}
     }
-    out
 }
 
 /// Every local id an expression mentions, for the tests below.

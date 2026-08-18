@@ -15,8 +15,13 @@
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (SPEC 12.7).
 
-use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
-use crate::parsing::lexer::{lex, Kw, Punct, Tok, Token};
+use crate::diagnostics::{Diagnostic, FileId, Span};
+use crate::parsing::flat::{
+    ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, ExprId, FieldPatData,
+    InitData, Kind, LambdaParamData, Loc, PKind, PartData, PatId, PatPayloadData, StmtData,
+    StmtKind, Tree, NONE,
+};
+use crate::parsing::lexer::{lex, Kw, Punct, TokKind, Tokens, Trivia};
 use crate::parsing::tree::*;
 
 pub struct Parsed {
@@ -87,9 +92,14 @@ pub fn parse_stdlib(text: &str, file: FileId) -> Parsed {
 
 fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
     let lexed = lex(text, file);
-    let first_item = lexed.tokens.first().map(|t| t.span.start).unwrap_or(0);
+    let first_item = lexed.tokens.span(0).start;
     let mut p = Parser {
+        src: text,
+        tree: Tree::new(file, text),
+        scratch: Scratch::default(),
+        last: lexed.tokens.len().saturating_sub(1),
         toks: lexed.tokens,
+        trivia: lexed.trivia,
         pos: 0,
         reported: lexed.errors.iter().map(|e| (e.span.start, e.span.end)).collect(),
         errors: lexed.errors,
@@ -124,47 +134,218 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
 /// first set of `primary_expr` and the prefixes that reach it — kept beside
 /// them rather than derived, because a new way to begin an expression is a new
 /// arm there and a new line here, and the parser's own tests cover the pair.
-fn starts_expr(t: &Tok) -> bool {
+fn starts_expr(t: TokKind) -> bool {
     match t {
-        Tok::Ident(_)
-        | Tok::Int(..)
-        | Tok::Float(..)
-        | Tok::Str(_)
-        | Tok::Char(_)
-        | Tok::TemplateHead(_) => true,
-        Tok::Kw(k) => matches!(
-            k,
-            Kw::True
-                | Kw::False
-                | Kw::SelfValue
-                | Kw::Ctx
-                | Kw::If
-                | Kw::Match
-                | Kw::Context
-                | Kw::Fn
-        ),
-        Tok::Punct(p) => matches!(
-            p,
-            // `.Variant`, an array, a tuple or grouping, a block, and the
-            // three prefix operators.
-            Punct::Dot
-                | Punct::LBracket
-                | Punct::LParen
-                | Punct::LBrace
-                | Punct::Minus
-                | Punct::Bang
-                | Punct::Tilde
-        ),
-        Tok::TemplateSpan(_) | Tok::TemplateTail(_) | Tok::Eof => false,
+        TokKind::Ident
+        | TokKind::Int
+        | TokKind::Float
+        | TokKind::Str
+        | TokKind::Char
+        | TokKind::TemplateHead
+        | TokKind::KwTrue
+        | TokKind::KwFalse
+        | TokKind::KwSelfValue
+        | TokKind::KwCtx
+        | TokKind::KwIf
+        | TokKind::KwMatch
+        | TokKind::KwContext
+        | TokKind::KwFn
+        // `.Variant`, an array, a tuple or grouping, a block, and the three
+        // prefix operators.
+        | TokKind::Dot
+        | TokKind::LBracket
+        | TokKind::LParen
+        | TokKind::LBrace
+        | TokKind::Minus
+        | TokKind::Bang
+        | TokKind::Tilde => true,
+        TokKind::TemplateSpan
+        | TokKind::TemplateTail
+        | TokKind::Eof
+        | TokKind::KwAs
+        | TokKind::KwConst
+        | TokKind::KwDerive
+        | TokKind::KwEffect
+        | TokKind::KwElse
+        | TokKind::KwEnum
+        | TokKind::KwExport
+        | TokKind::KwFor
+        | TokKind::KwFrom
+        | TokKind::KwImpl
+        | TokKind::KwImport
+        | TokKind::KwLet
+        | TokKind::KwSelfType
+        | TokKind::KwStruct
+        | TokKind::KwTest
+        | TokKind::KwTrait
+        | TokKind::KwType
+        | TokKind::RBrace
+        | TokKind::RParen
+        | TokKind::RBracket
+        | TokKind::Comma
+        | TokKind::Semi
+        | TokKind::Colon
+        | TokKind::ColonColon
+        | TokKind::DotDot
+        | TokKind::At
+        | TokKind::Underscore
+        | TokKind::Eq
+        | TokKind::FatArrow
+        | TokKind::EqEq
+        | TokKind::BangEq
+        | TokKind::Lt
+        | TokKind::LtEq
+        | TokKind::Gt
+        | TokKind::GtEq
+        | TokKind::Plus
+        | TokKind::Star
+        | TokKind::Slash
+        | TokKind::Percent
+        | TokKind::AndAnd
+        | TokKind::OrOr
+        | TokKind::QuestionQuestion
+        | TokKind::And
+        | TokKind::Or
+        | TokKind::Caret
+        | TokKind::Question => false,
     }
+}
+
+/// The rung comparison sits on, which is the one rung that is neither left-
+/// nor right-associative and so cannot be expressed as a binding power alone.
+const CMP_LEVEL: usize = 4;
+
+/// The rung `??` sits on, which is the one rung that builds its chain by
+/// recursing and so spends [`Parser::chain_in`] rather than a loop counter.
+const COALESCE_LEVEL: usize = 2;
+
+/// Where a binary operator sits in the grammar's precedence order, as the
+/// rung it is on and the `(left, right)` binding powers a precedence-climbing
+/// loop compares against.
+///
+/// A rung is two binding powers apart from its neighbours, so associativity is
+/// which of the pair is the larger: a left-associative rung is `(2n, 2n+1)`,
+/// which stops its own operator from being re-consumed by the right-hand side,
+/// and the one right-associative rung — `??` — is `(2n+1, 2n)`, which is what
+/// makes `a ?? b ?? c` group to the right. Comparison is neither, and
+/// [`Parser::binary_expr`] rejects a second one rather than grouping it
+/// (SPEC 6.1).
+///
+/// This is the whole of the operator table. `starts_expr` and the postfix
+/// chain are the other two places a new operator would have to be named.
+fn binding_power(p: Punct) -> Option<(BinOp, u8, u8, usize)> {
+    let (op, level) = match p {
+        Punct::OrOr => (BinOp::Or, 1),
+        Punct::QuestionQuestion => (BinOp::Coalesce, COALESCE_LEVEL),
+        Punct::AndAnd => (BinOp::And, 3),
+        Punct::EqEq => (BinOp::Eq, CMP_LEVEL),
+        Punct::BangEq => (BinOp::Ne, CMP_LEVEL),
+        Punct::Lt => (BinOp::Lt, CMP_LEVEL),
+        Punct::LtEq => (BinOp::Le, CMP_LEVEL),
+        Punct::Gt => (BinOp::Gt, CMP_LEVEL),
+        Punct::GtEq => (BinOp::Ge, CMP_LEVEL),
+        Punct::Or => (BinOp::BitOr, 5),
+        Punct::Caret => (BinOp::BitXor, 6),
+        Punct::And => (BinOp::BitAnd, 7),
+        Punct::Plus => (BinOp::Add, 8),
+        Punct::Minus => (BinOp::Sub, 8),
+        Punct::Star => (BinOp::Mul, 9),
+        Punct::Slash => (BinOp::Div, 9),
+        Punct::Percent => (BinOp::Rem, 9),
+        _ => return None,
+    };
+    let base = (level as u8).saturating_mul(2);
+    let (lbp, rbp) = if level == COALESCE_LEVEL {
+        (base.saturating_add(1), base)
+    } else {
+        (base, base.saturating_add(1))
+    };
+    Some((op, lbp, rbp, level))
 }
 
 /// Bail-out for error recovery: unwinds to the nearest item or statement.
 struct Bail;
 type PResult<T> = Result<T, Bail>;
 
-struct Parser {
-    toks: Vec<Token>,
+/// Where a child list is accumulated before it is copied into the tree.
+///
+/// A variadic list — a call's arguments, a block's statements, a match's arms
+/// — is contiguous in the tree, but its elements are parsed one at a time and
+/// each of them may itself contain a list, so the elements cannot be appended
+/// to the arena as they arrive. They go on a stack instead, and the enclosing
+/// production copies its own tail of it into the arena and truncates.
+///
+/// One stack per kind, owned by the parser and reused for the whole file, so a
+/// nested list costs a `push` rather than the `Vec` per child list the owned
+/// tree allocated — about a thousand allocations per thousand lines.
+#[derive(Default)]
+struct Scratch {
+    exprs: Vec<ExprId>,
+    pats: Vec<PatId>,
+    stmts: Vec<StmtData>,
+    arms: Vec<ArmData>,
+    inits: Vec<InitData>,
+    fpats: Vec<FieldPatData>,
+    lparams: Vec<LambdaParamData>,
+    parts: Vec<PartData>,
+    binds: Vec<CtxBindData>,
+    names: Vec<Loc>,
+}
+
+/// What a production pushed onto a scratch stack: everything from `base` on.
+///
+/// A total accessor rather than `&v[base..]`, because `base` is a length this
+/// file recorded and the slice is therefore always in range — and because the
+/// panic-free lint set in the workspace manifest is a promise about the
+/// toolchain rather than a style rule, so "in range by construction" has to be
+/// spelled rather than argued.
+fn since<T>(v: &[T], base: usize) -> &[T] {
+    v.get(base..).unwrap_or(&[])
+}
+
+/// Every arena length and every scratch depth at one point in time.
+///
+/// A production that fails leaves both partly written, and the six sites that
+/// catch [`Bail`] and carry on — `module`, `block_inner` twice, `match_expr`,
+/// `trait_decl` and `impl_decl` — restore both rather than stepping over the
+/// wreckage. Nothing abandoned is reachable, so a rollback is always safe;
+/// what it buys is that `subtree` stays exact on a file with a syntax error in
+/// it, and that a half-built argument list cannot be adopted by whichever list
+/// is still open outside it.
+#[derive(Clone, Copy)]
+struct Save {
+    tree: crate::parsing::flat::Mark,
+    exprs: usize,
+    pats: usize,
+    stmts: usize,
+    arms: usize,
+    inits: usize,
+    fpats: usize,
+    lparams: usize,
+    parts: usize,
+    binds: usize,
+    names: usize,
+}
+
+struct Parser<'a> {
+    /// The source the tokens were read from. A token records where it is, not
+    /// what was written there, so this is where a literal's spelling and the
+    /// text a message quotes come from.
+    src: &'a str,
+    /// The flat tree being built. Everything below the declaration level goes
+    /// in here as it is parsed; a declaration holds the id of its body — see
+    /// [`Parser::block`] and [`crate::parsing::flat`].
+    tree: Tree,
+    scratch: Scratch,
+    toks: Tokens<'a>,
+    /// What was written above a token, by token index, ascending — see
+    /// [`Trivia`]. Only declarations read it, so it is searched rather than
+    /// indexed.
+    trivia: Vec<(u32, Trivia)>,
+    /// The index of the `Eof` every stream ends with, so that clamping a read
+    /// to the end of the stream is one comparison rather than a length
+    /// lookup and a subtraction on every token access.
+    last: usize,
     pos: usize,
     errors: Vec<Diagnostic>,
     /// The spans already reported, so that "one syntax error per location" is
@@ -191,9 +372,9 @@ struct Parser {
 /// How deep the grammar may nest a production inside itself: an expression
 /// inside parentheses, a block inside a block, a type argument inside a type.
 ///
-/// Each level costs a dozen frames on the way down through the precedence
-/// ladder, and nesting this deep is a thing a person wrote rather than a thing
-/// a generator emitted, so the budget is small.
+/// Each level costs several frames on the way down through the expression
+/// grammar, and nesting this deep is a thing a person wrote rather than a
+/// thing a generator emitted, so the budget is small.
 const MAX_DEPTH: u32 = 256;
 
 /// How long a chain the parser may build while looping.
@@ -221,10 +402,10 @@ const MAX_CHAIN: u32 = 2048;
 /// nesting long before the length becomes reachable.
 const MAX_TYPE_ARG_LOOKAHEAD: usize = 256;
 
-impl Parser {
+impl<'a> Parser<'a> {
     // -- token access -------------------------------------------------------
 
-    /// The token at `i`, or the last one.
+    /// The index of the token at `i`, or of the last one.
     ///
     /// Clamping rather than returning an `Option` is what lets every `peek` in
     /// the parser below be unconditional: the stream always ends with `Eof`,
@@ -232,47 +413,148 @@ impl Parser {
     /// reads as end-of-file rather than as a missing token. `lex` finishes by
     /// pushing that `Eof` on every path, which is what makes the stream
     /// non-empty and this the only place that has to know it.
-    fn at(&self, i: usize) -> &Token {
-        let last = self.toks.len().saturating_sub(1);
-        self.toks
-            .get(i.min(last))
-            .or_ice("`lex` ends every token stream with `Eof`, so there is always a last token")
+    fn at(&self, i: usize) -> usize {
+        i.min(self.last)
     }
 
-    fn peek(&self) -> &Tok {
-        &self.at(self.pos).tok
+    /// What the parser is standing on, as the byte the kind column holds.
+    ///
+    /// One load and one comparison per question asked of it, against a
+    /// forty-eight-byte record's discriminant and payload — which is the
+    /// reason the token buffer is columns. See [`crate::parsing::lexer::Tokens`].
+    fn peek(&self) -> TokKind {
+        self.toks.kind(self.at(self.pos))
+    }
+
+    fn kind_at(&self, i: usize) -> TokKind {
+        self.toks.kind(self.at(i))
     }
 
     fn span(&self) -> Span {
-        self.at(self.pos).span
+        self.toks.span(self.at(self.pos))
     }
 
     fn prev_span(&self) -> Span {
-        self.at(self.pos.saturating_sub(1)).span
+        self.toks.span(self.at(self.pos.saturating_sub(1)))
     }
 
-    fn docs(&self) -> Vec<String> {
-        self.at(self.pos).docs.clone()
+    /// The doc lines attached to the token about to be read, moved out of the
+    /// trivia table.
+    ///
+    /// Moving rather than copying is safe because a token's documentation is
+    /// read once: the production that reads it is the one that owns the
+    /// declaration, and a speculative parse — see [`Parser::type_args_in_expr`]
+    /// — never reaches a declaration.
+    ///
+    /// A binary search rather than an index because the table holds only the
+    /// tokens that have something above them, which is a small fraction of the
+    /// file — and this is called once per declaration, not once per token.
+    fn docs(&mut self) -> Vec<String> {
+        let at = self.pos as u32;
+        let Ok(i) = self.trivia.binary_search_by_key(&at, |(a, _)| *a) else {
+            return Vec::new();
+        };
+        match self.trivia.get_mut(i) {
+            Some((_, t)) => std::mem::take(&mut t.docs),
+            None => Vec::new(),
+        }
+    }
+
+    /// The source under a span, empty if it does not describe one.
+    ///
+    /// Every offset here came from the lexer, so in a correct front end this
+    /// is `&self.src[..]` — but that spelling panics on the one arrangement of
+    /// bytes where it is wrong, and a total accessor makes that a short
+    /// message rather than a crash.
+    fn slice(&self, span: Span) -> &'a str {
+        self.src.get(span.start as usize..span.end as usize).unwrap_or("")
+    }
+
+    /// What was written where the parser is standing.
+    ///
+    /// This is where a numeric literal's spelling comes from: `0xFF` and `255`
+    /// are one value and two literals, and the token carries only the value.
+    fn raw(&self) -> &'a str {
+        self.toks.text(self.at(self.pos))
+    }
+
+    /// The same, as a message names it — see
+    /// [`crate::parsing::lexer::Tok::describe`]. Every "expected …, found …"
+    /// goes through this.
+    fn found(&self) -> String {
+        self.toks.describe(self.at(self.pos))
     }
 
     fn at_eof(&self) -> bool {
-        matches!(self.peek(), Tok::Eof)
+        self.peek() == TokKind::Eof
     }
 
-    fn bump(&mut self) -> Token {
-        let t = self.at(self.pos).clone();
-        if self.pos < self.toks.len().saturating_sub(1) {
+    /// The value of the literal the parser is standing on.
+    ///
+    /// A literal's value is in a side table beside the token columns rather
+    /// than in the token, because fewer than one token in ten has one and a
+    /// column wide enough for a `u128` would have been paid for by all of
+    /// them. Each of these is reached only from the arm that has already read
+    /// the kind, so a token that is not a literal of that kind cannot get here.
+    fn int_value(&self) -> u128 {
+        self.toks.int(self.at(self.pos))
+    }
+
+    fn float_value(&self) -> f64 {
+        self.toks.float(self.at(self.pos))
+    }
+
+    fn char_value(&self) -> u32 {
+        self.toks.ch(self.at(self.pos)) as u32
+    }
+
+    /// Consume the current token and hand back its span.
+    ///
+    /// A `Span` rather than the `Token`, because a `Token` carries a `String`
+    /// and two `Vec`s and every caller wants the span: returning the token
+    /// deep-copied a hundred and twenty-eight bytes, and allocated, for every
+    /// token the parser read.
+    fn bump(&mut self) -> Span {
+        let span = self.span();
+        if self.pos < self.last {
             self.pos = self.pos.saturating_add(1);
         }
-        t
+        span
+    }
+
+    /// The text a token carries — a string's contents, a template segment's —
+    /// moved out of it when that is safe.
+    ///
+    /// An identifier is not one of these: its text is the source under its
+    /// span, so it is borrowed rather than owned and there is nothing to move.
+    /// See [`Parser::expect_name`].
+    ///
+    /// A failed trial rewinds `pos` and the tokens it walked are read again by
+    /// whichever reading wins, so while `trial` is set the payload is copied
+    /// instead. Outside a trial the parser owns the stream outright and no
+    /// consumed token's text is read twice, so the copy the lexer already made
+    /// is the one the tree keeps.
+    fn take_text(&mut self) -> String {
+        let pos = self.at(self.pos);
+        if !matches!(
+            self.toks.kind(pos),
+            TokKind::Str | TokKind::TemplateHead | TokKind::TemplateSpan | TokKind::TemplateTail
+        ) {
+            return String::new();
+        }
+        if self.trial > 0 {
+            self.toks.str_at(pos).to_string()
+        } else {
+            self.toks.take_str(pos)
+        }
     }
 
     fn is(&self, p: Punct) -> bool {
-        matches!(self.peek(), Tok::Punct(q) if *q == p)
+        self.peek() == TokKind::of_punct(p)
     }
 
     fn is_kw(&self, k: Kw) -> bool {
-        matches!(self.peek(), Tok::Kw(q) if *q == k)
+        self.peek() == TokKind::of_kw(k)
     }
 
     fn eat(&mut self, p: Punct) -> bool {
@@ -339,9 +621,9 @@ impl Parser {
 
     fn expect(&mut self, p: Punct) -> PResult<Span> {
         if self.is(p) {
-            Ok(self.bump().span)
+            Ok(self.bump())
         } else {
-            let found = self.peek().clone();
+            let found = self.found();
             let span = self.span();
             let want = format!("`{}`", p.text());
             self.expected(span, &want, &found, format!("write {want} here"));
@@ -351,9 +633,9 @@ impl Parser {
 
     fn expect_kw(&mut self, k: Kw) -> PResult<Span> {
         if self.is_kw(k) {
-            Ok(self.bump().span)
+            Ok(self.bump())
         } else {
-            let found = self.peek().clone();
+            let found = self.found();
             let span = self.span();
             let want = format!("`{}`", k.text());
             self.expected(span, &want, &found, format!("write {want} here"));
@@ -361,37 +643,80 @@ impl Parser {
         }
     }
 
+    /// An identifier, as the span it was written at.
+    ///
+    /// Inside the flat tree a name *is* its span: the text is `src[span]` for
+    /// every identifier the parser has ever built, so storing it costs
+    /// nothing and reading it allocates nothing. This is what deletes the
+    /// largest single line of the allocation budget — one `String` per
+    /// identifier token, about thirty-five percent of all tokens — without
+    /// interning and without hashing.
+    fn expect_name(&mut self) -> PResult<Span> {
+        if self.peek() == TokKind::Ident {
+            return Ok(self.bump());
+        }
+        let found = self.found();
+        let span = self.span();
+        self.expected(
+            span,
+            "an identifier",
+            &found,
+            "name it: a lowerCamelCase binding, or an UpperCamelCase type",
+        );
+        Err(Bail)
+    }
+
+    /// The same, as the owned [`Ident`] the declaration structs still hold.
+    ///
+    /// This is the one place left that copies an identifier's text, and it is
+    /// reached only by a declaration — a few hundred per thousand lines
+    /// against the token stream's several thousand.
     fn expect_ident(&mut self) -> PResult<Ident> {
-        match self.peek().clone() {
-            Tok::Ident(name) => {
-                let span = self.bump().span;
-                Ok(Ident::new(name, span))
-            }
-            other => {
-                let span = self.span();
-                self.expected(
-                    span,
-                    "an identifier",
-                    &other,
-                    "name it: a lowerCamelCase binding, or an UpperCamelCase type",
-                );
-                Err(Bail)
-            }
+        let span = self.expect_name()?;
+        Ok(Ident::new(self.slice(span), span))
+    }
+
+    /// Every arena length and scratch depth, for a rollback.
+    fn save(&self) -> Save {
+        Save {
+            tree: self.tree.mark(),
+            exprs: self.scratch.exprs.len(),
+            pats: self.scratch.pats.len(),
+            stmts: self.scratch.stmts.len(),
+            arms: self.scratch.arms.len(),
+            inits: self.scratch.inits.len(),
+            fpats: self.scratch.fpats.len(),
+            lparams: self.scratch.lparams.len(),
+            parts: self.scratch.parts.len(),
+            binds: self.scratch.binds.len(),
+            names: self.scratch.names.len(),
         }
     }
 
+    fn restore(&mut self, s: Save) {
+        self.tree.rewind(s.tree);
+        self.scratch.exprs.truncate(s.exprs);
+        self.scratch.pats.truncate(s.pats);
+        self.scratch.stmts.truncate(s.stmts);
+        self.scratch.arms.truncate(s.arms);
+        self.scratch.inits.truncate(s.inits);
+        self.scratch.fpats.truncate(s.fpats);
+        self.scratch.lparams.truncate(s.lparams);
+        self.scratch.parts.truncate(s.parts);
+        self.scratch.binds.truncate(s.binds);
+        self.scratch.names.truncate(s.names);
+    }
+
     fn expect_string(&mut self) -> PResult<(String, Span)> {
-        match self.peek().clone() {
-            Tok::Str(s) => {
-                let span = self.bump().span;
-                Ok((s, span))
-            }
-            other => {
-                let span = self.span();
-                self.expected(span, "a string literal", &other, "quote it, as in `\"core/list\"`");
-                Err(Bail)
-            }
+        if matches!(self.peek(), TokKind::Str) {
+            let s = self.take_text();
+            let span = self.bump();
+            return Ok((s, span));
         }
+        let found = self.found();
+        let span = self.span();
+        self.expected(span, "a string literal", &found, "quote it, as in `\"core/list\"`");
+        Err(Bail)
     }
 
     fn enter(&mut self) -> PResult<()> {
@@ -446,36 +771,23 @@ impl Parser {
         let mut depth = 0i32;
         loop {
             match self.peek() {
-                Tok::Eof => return,
-                Tok::Punct(Punct::LBrace) => {
+                TokKind::Eof => return,
+                TokKind::LBrace => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                Tok::Punct(Punct::RBrace) => {
+                TokKind::RBrace => {
                     depth = depth.saturating_sub(1);
                     self.bump();
                     if depth <= 0 {
                         return;
                     }
                 }
-                Tok::Punct(Punct::Semi) if depth <= 0 => {
+                TokKind::Semi if depth <= 0 => {
                     self.bump();
                     return;
                 }
-                Tok::Kw(
-                    Kw::From
-                    | Kw::Export
-                    | Kw::Fn
-                    | Kw::Struct
-                    | Kw::Enum
-                    | Kw::Type
-                    | Kw::Const
-                    | Kw::Trait
-                    | Kw::Effect
-                    | Kw::Impl
-                    | Kw::Derive
-                    | Kw::Test,
-                ) if depth <= 0 => return,
+                TokKind::KwFrom | TokKind::KwExport | TokKind::KwFn | TokKind::KwStruct | TokKind::KwEnum | TokKind::KwType | TokKind::KwConst | TokKind::KwTrait | TokKind::KwEffect | TokKind::KwImpl | TokKind::KwDerive | TokKind::KwTest if depth <= 0 => return,
                 _ => {
                     self.bump();
                 }
@@ -488,17 +800,17 @@ impl Parser {
         let mut depth = 0i32;
         loop {
             match self.peek() {
-                Tok::Eof => return,
-                Tok::Punct(Punct::Semi) if depth <= 0 => {
+                TokKind::Eof => return,
+                TokKind::Semi if depth <= 0 => {
                     self.bump();
                     return;
                 }
-                Tok::Punct(Punct::LBrace | Punct::LParen | Punct::LBracket) => {
+                TokKind::LBrace | TokKind::LParen | TokKind::LBracket => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                Tok::Punct(Punct::RBrace) if depth <= 0 => return,
-                Tok::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => {
+                TokKind::RBrace if depth <= 0 => return,
+                TokKind::RBrace | TokKind::RParen | TokKind::RBracket => {
                     depth = depth.saturating_sub(1);
                     self.bump();
                 }
@@ -515,17 +827,21 @@ impl Parser {
         let mut items = Vec::new();
         while !self.at_eof() {
             let before = self.pos;
+            let save = self.save();
             match self.item() {
                 Ok(Some(item)) => items.push(item),
                 Ok(None) => {}
-                Err(Bail) => self.sync_item(),
+                Err(Bail) => {
+                    self.restore(save);
+                    self.sync_item();
+                }
             }
             // Guarantee progress even if a sub-parser consumed nothing.
             if self.pos == before {
                 self.bump();
             }
         }
-        Module { items, docs: Vec::new() }
+        Module { items, docs: Vec::new(), tree: std::mem::take(&mut self.tree) }
     }
 
     fn item(&mut self) -> PResult<Option<Item>> {
@@ -536,27 +852,28 @@ impl Parser {
             return Ok(Some(self.import_or_reexport()?));
         }
         if self.is_kw(Kw::Impl) {
-            return Ok(Some(Item::Impl(self.impl_decl(docs)?)));
+            return Ok(Some(Item::Impl(Box::new(self.impl_decl(docs)?))));
         }
         if self.is_kw(Kw::Derive) {
-            return Ok(Some(Item::Derive(self.derive_decl()?)));
+            return Ok(Some(Item::Derive(Box::new(self.derive_decl()?))));
         }
         if self.is_kw(Kw::Test) {
-            return Ok(Some(Item::Test(self.test_decl(docs)?)));
+            return Ok(Some(Item::Test(Box::new(self.test_decl(docs)?))));
         }
 
         let exported = self.eat_kw(Kw::Export);
-        let item = match self.peek().clone() {
-            Tok::Kw(Kw::Fn) => Item::Fn(self.fn_decl(exported, docs, start)?),
-            Tok::Kw(Kw::Struct) => Item::Struct(self.struct_decl(exported, docs, start)?),
-            Tok::Kw(Kw::Enum) => Item::Enum(self.enum_decl(exported, docs, start)?),
-            Tok::Kw(Kw::Type) => Item::TypeAlias(self.type_alias(exported, docs, start)?),
-            Tok::Kw(Kw::Const) => Item::Const(self.const_decl(exported, docs, start)?),
-            Tok::Kw(Kw::Trait) => Item::Trait(self.trait_decl(exported, docs, start, false)?),
-            Tok::Kw(Kw::Effect) => Item::Trait(self.trait_decl(exported, docs, start, true)?),
-            Tok::Kw(Kw::Context) => Item::Context(self.context_decl(exported, docs, start)?),
+        let kw = self.peek().as_kw();
+        let item = match kw {
+            Some(Kw::Fn) => Item::Fn(Box::new(self.fn_decl(exported, docs, start)?)),
+            Some(Kw::Struct) => Item::Struct(Box::new(self.struct_decl(exported, docs, start)?)),
+            Some(Kw::Enum) => Item::Enum(Box::new(self.enum_decl(exported, docs, start)?)),
+            Some(Kw::Type) => Item::TypeAlias(Box::new(self.type_alias(exported, docs, start)?)),
+            Some(Kw::Const) => Item::Const(Box::new(self.const_decl(exported, docs, start)?)),
+            Some(Kw::Trait) => Item::Trait(Box::new(self.trait_decl(exported, docs, start, false)?)),
+            Some(Kw::Effect) => Item::Trait(Box::new(self.trait_decl(exported, docs, start, true)?)),
+            Some(Kw::Context) => Item::Context(Box::new(self.context_decl(exported, docs, start)?)),
             // `from "..." export { ... }` after a stray `export`.
-            Tok::Kw(Kw::From) if exported => {
+            Some(Kw::From) if exported => {
                 let span = self.span();
                 self.error(
                     span,
@@ -566,12 +883,13 @@ impl Parser {
                 );
                 return Err(Bail);
             }
-            other => {
+            _ => {
+                let found = self.found();
                 let span = self.span();
                 self.expected(
                     span,
                     "a declaration",
-                    &other,
+                    &found,
                     "start it with one of `from` `export` `fn` `struct` `enum` `type` `const` \
                      `trait` `effect` `impl` `derive` `context` `test` — a module is a list of \
                      declarations, with no statements between them",
@@ -591,7 +909,7 @@ impl Parser {
             let specs = self.import_specs(Punct::RBrace)?;
             self.expect(Punct::RBrace)?;
             let end = self.expect(Punct::Semi)?;
-            return Ok(Item::ReExport(ReExport { path, path_span, specs, span: start.to(end) }));
+            return Ok(Item::ReExport(Box::new(ReExport { path, path_span, specs, span: start.to(end) })));
         }
 
         self.expect_kw(Kw::Import)?;
@@ -623,7 +941,7 @@ impl Parser {
             ImportClause::Named(specs)
         };
         let end = self.expect(Punct::Semi)?;
-        Ok(Item::Import(Import { path, path_span, clause, span: start.to(end) }))
+        Ok(Item::Import(Box::new(Import { path, path_span, clause, span: start.to(end) })))
     }
 
     fn import_specs(&mut self, close: Punct) -> PResult<Vec<ImportSpec>> {
@@ -675,10 +993,10 @@ impl Parser {
         while !self.is(Punct::RParen) && !self.at_eof() {
             let start = self.span();
             let (kind, name) = if self.is_kw(Kw::SelfValue) {
-                let span = self.bump().span;
+                let span = self.bump();
                 (ParamKind::SelfParam, Ident::new("self", span))
             } else if self.is_kw(Kw::Ctx) {
-                let span = self.bump().span;
+                let span = self.bump();
                 (ParamKind::CtxParam, Ident::new("ctx", span))
             } else {
                 (ParamKind::Normal, self.expect_ident()?)
@@ -733,7 +1051,7 @@ impl Parser {
             self.bump();
             None
         } else {
-            let found = self.peek().clone();
+            let found = self.found();
             let span = self.span();
             self.expected(span, "a function body", &found, "write `{ ... }` after the return type");
             return Err(Bail);
@@ -895,9 +1213,11 @@ impl Parser {
         let mut methods = Vec::new();
         while !self.is(Punct::RBrace) && !self.at_eof() {
             let before = self.pos;
+            let save = self.save();
             match self.method_sig() {
                 Ok(m) => methods.push(m),
                 Err(Bail) => {
+                    self.restore(save);
                     self.sync_stmt();
                     if self.is(Punct::RBrace) || self.pos == before {
                         break;
@@ -930,6 +1250,7 @@ impl Parser {
         let mut escaped = false;
         while !self.is(Punct::RBrace) && !self.at_eof() {
             let before = self.pos;
+            let save = self.save();
             let docs = self.docs();
             let mstart = self.span();
             // A method of the type's own is exported on its own terms. A
@@ -964,6 +1285,7 @@ impl Parser {
                     // not be, so the loop resynchronized to the same token
                     // forever. `impl V { ... }` followed by any declaration
                     // used to hang the compiler outright.
+                    self.restore(save);
                     self.sync_stmt();
                     if self.is(Punct::RBrace) {
                         break;
@@ -1012,29 +1334,38 @@ impl Parser {
         Ok(ContextDecl { name, body, exported, span, docs })
     }
 
-    fn context_body(&mut self) -> PResult<ContextBody> {
+    fn context_body(&mut self) -> PResult<CtxBodyId> {
         let start = self.expect(Punct::LBrace)?;
         let spread = if self.is(Punct::DotDot) {
             self.bump();
             let e = self.expr()?;
             self.eat(Punct::Comma);
-            Some(Box::new(e))
+            e.0
         } else {
-            None
+            NONE
         };
-        let mut bindings = Vec::new();
+        let base = self.scratch.binds.len();
         while !self.is(Punct::RBrace) && !self.at_eof() {
             let bstart = self.span();
             let effect = self.named_type()?;
             self.expect(Punct::Colon)?;
             let value = self.expr()?;
-            bindings.push(ContextBinding { effect, value, span: bstart.to(self.prev_span()) });
+            let effect = self.tree.push_type(effect);
+            let span = Loc::of(bstart.to(self.prev_span()));
+            self.scratch.binds.push(CtxBindData { effect: effect.0, value: value.0, span });
             if !self.eat(Punct::Comma) {
                 break;
             }
         }
         let end = self.expect(Punct::RBrace)?;
-        Ok(ContextBody { spread, bindings, span: start.to(end) })
+        let (bs, bl) = self.tree.push_bindings(since(&self.scratch.binds, base));
+        self.scratch.binds.truncate(base);
+        Ok(self.tree.push_ctx_body(CtxBodyData {
+            spread,
+            bind_start: bs,
+            bind_len: bl,
+            span: Loc::of(start.to(end)),
+        }))
     }
 
     fn test_decl(&mut self, docs: Vec<String>) -> PResult<TestDecl> {
@@ -1050,7 +1381,7 @@ impl Parser {
         let start = self.span();
         // `Self` is a legal bound position spelling in an impl's type list.
         if self.is_kw(Kw::SelfType) {
-            let span = self.bump().span;
+            let span = self.bump();
             return Ok(TypeExpr::SelfType { span });
         }
         let mut path = vec![self.expect_ident()?];
@@ -1143,7 +1474,7 @@ impl Parser {
     ///   rather than a type error about `a` not being generic.
     fn commits_to_type_args(&self) -> bool {
         match self.peek() {
-            Tok::Punct(Punct::LParen | Punct::LBrace) => true,
+            TokKind::LParen | TokKind::LBrace => true,
             other => !starts_expr(other),
         }
     }
@@ -1159,25 +1490,24 @@ impl Parser {
     fn scan_for_type_args(&self) -> bool {
         let mut depth = 0u32;
         for i in 0..MAX_TYPE_ARG_LOOKAHEAD {
-            match &self.at(self.pos.saturating_add(i)).tok {
-                Tok::Punct(Punct::Lt) => depth = depth.saturating_add(1),
-                Tok::Punct(Punct::Gt) => {
+            match self.kind_at(self.pos.saturating_add(i)) {
+                TokKind::Lt => depth = depth.saturating_add(1),
+                TokKind::Gt => {
                     depth = depth.saturating_sub(1);
                     if depth == 0 {
                         return true;
                     }
                 }
-                Tok::Ident(_)
-                | Tok::Kw(Kw::SelfType | Kw::Fn)
-                | Tok::Punct(
-                    Punct::Dot
-                    | Punct::Comma
-                    | Punct::LParen
-                    | Punct::RParen
-                    | Punct::LBracket
-                    | Punct::RBracket
-                    | Punct::FatArrow,
-                ) => {}
+                TokKind::Ident
+                | TokKind::KwSelfType
+                | TokKind::KwFn
+                | TokKind::Dot
+                | TokKind::Comma
+                | TokKind::LParen
+                | TokKind::RParen
+                | TokKind::LBracket
+                | TokKind::RBracket
+                | TokKind::FatArrow => {}
                 _ => return false,
             }
         }
@@ -1212,7 +1542,7 @@ impl Parser {
         }
 
         if self.is_kw(Kw::SelfType) {
-            let span = self.bump().span;
+            let span = self.bump();
             return Ok(TypeExpr::SelfType { span });
         }
 
@@ -1227,7 +1557,7 @@ impl Parser {
             self.bump();
             // `()` is unit, `(T)` is grouping, `(T, U)` is a tuple.
             if self.is(Punct::RParen) {
-                let end = self.bump().span;
+                let end = self.bump();
                 return Ok(TypeExpr::Unit { span: start.to(end) });
             }
             let first = self.ty()?;
@@ -1256,11 +1586,11 @@ impl Parser {
         }
 
         match self.peek() {
-            Tok::Ident(_) => self.named_type(),
-            other => {
-                let other = other.clone();
+            TokKind::Ident => self.named_type(),
+            _ => {
+                let found = self.found();
                 let span = self.span();
-                self.expected(span, "a type", &other, "name a type here, as in `Int` or `[Str]`");
+                self.expected(span, "a type", &found, "name a type here, as in `Int` or `[Str]`");
                 Err(Bail)
             }
         }
@@ -1268,41 +1598,55 @@ impl Parser {
 
     // -- blocks and statements ---------------------------------------------
 
-    fn block(&mut self) -> PResult<Block> {
+    fn block(&mut self) -> PResult<BlockId> {
         self.enter()?;
         let r = self.block_inner();
         self.leave();
         r
     }
 
-    fn block_inner(&mut self) -> PResult<Block> {
+    fn block_inner(&mut self) -> PResult<BlockId> {
         let start = self.expect(Punct::LBrace)?;
-        let mut stmts = Vec::new();
-        let mut tail = None;
+        let base = self.scratch.stmts.len();
+        let mut tail = NONE;
 
         while !self.is(Punct::RBrace) && !self.at_eof() {
             let before = self.pos;
+            let save = self.save();
             if self.is_kw(Kw::Let) {
                 match self.let_stmt() {
-                    Ok(s) => stmts.push(s),
-                    Err(Bail) => self.sync_stmt(),
+                    Ok(s) => self.scratch.stmts.push(s),
+                    Err(Bail) => {
+                        self.restore(save);
+                        self.sync_stmt();
+                    }
                 }
             } else {
                 let estart = self.span();
                 match self.expr() {
                     Ok(e) => {
                         if self.is(Punct::Semi) {
-                            let end = self.bump().span;
+                            let end = self.bump();
                             // An expression statement is legal only in a test
                             // source and only when its type is `()`; both are
                             // static rules, so the grammar admits it here.
-                            stmts.push(Stmt::Expr { expr: e, span: estart.to(end) });
+                            self.scratch.stmts.push(StmtData {
+                                kind: StmtKind::Expr,
+                                is_ctx: false,
+                                pattern: NONE,
+                                ty: NONE,
+                                value: e.0,
+                                span: Loc::of(estart.to(end)),
+                            });
                         } else {
-                            tail = Some(Box::new(e));
+                            tail = e.0;
                             break;
                         }
                     }
-                    Err(Bail) => self.sync_stmt(),
+                    Err(Bail) => {
+                        self.restore(save);
+                        self.sync_stmt();
+                    }
                 }
             }
             if self.pos == before {
@@ -1311,273 +1655,230 @@ impl Parser {
         }
 
         let end = self.expect(Punct::RBrace)?;
-        Ok(Block { stmts, tail, span: start.to(end) })
+        let (ss, sl) = self.tree.push_stmts(since(&self.scratch.stmts, base));
+        self.scratch.stmts.truncate(base);
+        Ok(self.tree.push_block(BlockData {
+            stmts_start: ss,
+            stmts_len: sl,
+            tail,
+            span: Loc::of(start.to(end)),
+        }))
     }
 
-    fn let_stmt(&mut self) -> PResult<Stmt> {
+    fn let_stmt(&mut self) -> PResult<StmtData> {
         let start = self.expect_kw(Kw::Let)?;
         // After `let`, one token of lookahead decides which form this is: the
         // `ctx` keyword takes no pattern and no annotation, because a context's
         // type is generated and never written.
         if self.is_kw(Kw::Ctx) {
-            let name_span = self.bump().span;
+            let name_span = self.bump();
             self.expect(Punct::Eq)?;
             let value = self.expr()?;
             let end = self.expect(Punct::Semi)?;
-            return Ok(Stmt::Let {
-                pattern: Pattern::Bind { name: Ident::new("ctx", name_span), sub: None, span: name_span },
-                ty: None,
-                value,
+            // The binding is spelled `ctx` at the keyword's own span, so the
+            // source under the span *is* the name — as it is for every other
+            // name in the flat tree.
+            let at = self.tree.next_pat();
+            let pattern =
+                self.tree.ppush(PKind::Bind, [name_span.start, name_span.end, NONE, 0], name_span, at);
+            return Ok(StmtData {
+                kind: StmtKind::Let,
                 is_ctx: true,
-                span: start.to(end),
+                pattern: pattern.0,
+                ty: NONE,
+                value: value.0,
+                span: Loc::of(start.to(end)),
             });
         }
         let pattern = self.pattern()?;
-        let ty = if self.eat(Punct::Colon) { Some(self.ty()?) } else { None };
+        let ty = if self.eat(Punct::Colon) {
+            let t = self.ty()?;
+            self.tree.push_type(t).0
+        } else {
+            NONE
+        };
         self.expect(Punct::Eq)?;
         let value = self.expr()?;
         let end = self.expect(Punct::Semi)?;
-        Ok(Stmt::Let { pattern, ty, value, is_ctx: false, span: start.to(end) })
+        Ok(StmtData {
+            kind: StmtKind::Let,
+            is_ctx: false,
+            pattern: pattern.0,
+            ty,
+            value: value.0,
+            span: Loc::of(start.to(end)),
+        })
     }
 
     // -- expressions --------------------------------------------------------
 
-    fn expr(&mut self) -> PResult<Expr> {
+    fn expr(&mut self) -> PResult<ExprId> {
         self.enter()?;
         let r = self.expr_inner();
         self.leave();
         r
     }
 
-    fn expr_inner(&mut self) -> PResult<Expr> {
+    fn expr_inner(&mut self) -> PResult<ExprId> {
         // A lambda is top-level-only: its body extends as far right as
         // possible, so allowing it as an operand would make
         // `2 * fn(x) => x + 1` ambiguous (SPEC 12.11).
         if self.is_kw(Kw::Fn) {
             return self.lambda();
         }
-        self.or_expr()
+        self.binary_expr(0)
     }
 
-    fn lambda(&mut self) -> PResult<Expr> {
+    fn lambda(&mut self) -> PResult<ExprId> {
+        let at = self.tree.next_node();
         let start = self.expect_kw(Kw::Fn)?;
         self.expect(Punct::LParen)?;
-        let mut params = Vec::new();
+        let base = self.scratch.lparams.len();
         while !self.is(Punct::RParen) && !self.at_eof() {
-            let name = self.expect_ident()?;
-            let ty = if self.eat(Punct::Colon) { Some(self.ty()?) } else { None };
-            let span = name.span.to(self.prev_span());
-            params.push(LambdaParam { name, ty, span });
+            let name = self.expect_name()?;
+            let ty = if self.eat(Punct::Colon) {
+                let t = self.ty()?;
+                self.tree.push_type(t).0
+            } else {
+                NONE
+            };
+            let span = name.to(self.prev_span());
+            self.scratch.lparams.push(LambdaParamData {
+                name: Loc::of(name),
+                ty,
+                span: Loc::of(span),
+            });
             if !self.eat(Punct::Comma) {
                 break;
             }
         }
         self.expect(Punct::RParen)?;
-        let ret = if self.eat(Punct::Colon) { Some(self.ty()?) } else { None };
-        self.expect(Punct::FatArrow)?;
-        let body = Box::new(self.expr()?);
-        let span = start.to(body.span());
-        Ok(Expr::Lambda { params, ret, body, span })
-    }
-
-    fn or_expr(&mut self) -> PResult<Expr> {
-        let mut lhs = self.coalesce_expr()?;
-        let mut links = 0u32;
-        while self.is(Punct::OrOr) {
-            links = links.saturating_add(1);
-            self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.coalesce_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs), op_span, span };
-        }
-        Ok(lhs)
-    }
-
-    /// `??` is right-associative, so `a ?? b ?? c` works.
-    fn coalesce_expr(&mut self) -> PResult<Expr> {
-        let lhs = self.and_expr()?;
-        if self.is(Punct::QuestionQuestion) {
-            let op_span = self.bump().span;
-            self.chain_in()?;
-            let rhs = self.coalesce_expr();
-            self.chain_out();
-            let rhs = rhs?;
-            let span = lhs.span().to(rhs.span());
-            return Ok(Expr::Binary {
-                op: BinOp::Coalesce,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                op_span,
-                span,
-            });
-        }
-        Ok(lhs)
-    }
-
-    fn and_expr(&mut self) -> PResult<Expr> {
-        let mut lhs = self.cmp_expr()?;
-        let mut links = 0u32;
-        while self.is(Punct::AndAnd) {
-            links = links.saturating_add(1);
-            self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.cmp_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs =
-                Expr::Binary { op: BinOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs), op_span, span };
-        }
-        Ok(lhs)
-    }
-
-    /// Comparison is non-associative: `a < b < c` is a parse error, not a bug
-    /// waiting to happen (SPEC 6.1).
-    fn cmp_expr(&mut self) -> PResult<Expr> {
-        let lhs = self.bitor_expr()?;
-        let op = match self.peek() {
-            Tok::Punct(Punct::EqEq) => BinOp::Eq,
-            Tok::Punct(Punct::BangEq) => BinOp::Ne,
-            Tok::Punct(Punct::Lt) => BinOp::Lt,
-            Tok::Punct(Punct::LtEq) => BinOp::Le,
-            Tok::Punct(Punct::Gt) => BinOp::Gt,
-            Tok::Punct(Punct::GtEq) => BinOp::Ge,
-            _ => return Ok(lhs),
+        let ret = if self.eat(Punct::Colon) {
+            let t = self.ty()?;
+            self.tree.push_type(t).0
+        } else {
+            NONE
         };
-        let op_span = self.bump().span;
-        let rhs = self.bitor_expr()?;
-        let span = lhs.span().to(rhs.span());
-        let result = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), op_span, span };
-
-        if matches!(
-            self.peek(),
-            Tok::Punct(
-                Punct::EqEq | Punct::BangEq | Punct::Lt | Punct::LtEq | Punct::Gt | Punct::GtEq
-            )
-        ) {
-            let span = self.span();
-            self.error(
-                span,
-                "comparison operators are non-associative",
-                "write `a < b && b < c` rather than `a < b < c`",
-            )
-            .map(|d| {
-                d.code("chained-comparison")
-                    .note("write `a < b && b < c` rather than `a < b < c`")
-            });
-            // Consume the rest of the chain and hand back what was parsed, so
-            // this one diagnostic is not followed by a cascade of type errors
-            // about the recovered shape.
-            while matches!(
-                self.peek(),
-                Tok::Punct(
-                    Punct::EqEq | Punct::BangEq | Punct::Lt | Punct::LtEq | Punct::Gt | Punct::GtEq
-                )
-            ) {
-                self.bump();
-                let _ = self.bitor_expr()?;
-            }
-            return Ok(result);
-        }
-        Ok(result)
+        self.expect(Punct::FatArrow)?;
+        let body = self.expr()?;
+        let span = start.to(self.tree.span(body));
+        let (ps, pl) = self.tree.push_lparams(since(&self.scratch.lparams, base));
+        self.scratch.lparams.truncate(base);
+        Ok(self.tree.push(Kind::Lambda, [ps, pl, ret, body.0], span, at))
     }
 
-    fn bitor_expr(&mut self) -> PResult<Expr> {
-        let mut lhs = self.bitxor_expr()?;
-        let mut links = 0u32;
-        while self.is(Punct::Or) {
-            links = links.saturating_add(1);
-            self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.bitxor_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op: BinOp::BitOr,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                op_span,
-                span,
-            };
-        }
-        Ok(lhs)
-    }
-
-    fn bitxor_expr(&mut self) -> PResult<Expr> {
-        let mut lhs = self.bitand_expr()?;
-        let mut links = 0u32;
-        while self.is(Punct::Caret) {
-            links = links.saturating_add(1);
-            self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.bitand_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op: BinOp::BitXor,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                op_span,
-                span,
-            };
-        }
-        Ok(lhs)
-    }
-
-    fn bitand_expr(&mut self) -> PResult<Expr> {
-        let mut lhs = self.add_expr()?;
-        let mut links = 0u32;
-        while self.is(Punct::And) {
-            links = links.saturating_add(1);
-            self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.add_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op: BinOp::BitAnd,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                op_span,
-                span,
-            };
-        }
-        Ok(lhs)
-    }
-
-    fn add_expr(&mut self) -> PResult<Expr> {
-        let mut lhs = self.mul_expr()?;
-        let mut links = 0u32;
-        loop {
-            let op = match self.peek() {
-                Tok::Punct(Punct::Plus) => BinOp::Add,
-                Tok::Punct(Punct::Minus) => BinOp::Sub,
-                _ => break,
-            };
-            links = links.saturating_add(1);
-            self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.mul_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), op_span, span };
-        }
-        Ok(lhs)
-    }
-
-    fn mul_expr(&mut self) -> PResult<Expr> {
+    /// Precedence climbing over the binary operators.
+    ///
+    /// `min_bp` is the loosest operator this call may consume; anything looser
+    /// belongs to the caller's loop. See [`binding_power`] for the rungs and
+    /// what the two halves of a binding power mean.
+    ///
+    /// One loop rather than the eight functions the ladder used to be. The
+    /// functions held nothing but the order of the rungs, and charged every
+    /// expression — `1` included — eight calls down and eight moves of a
+    /// hundred-and-twenty-eight-byte `Expr` back up for it.
+    fn binary_expr(&mut self, min_bp: u8) -> PResult<ExprId> {
+        // Recorded before the left operand, so every node this call appends —
+        // the whole left-leaning chain — has the same subtree start.
+        let at = self.tree.next_node();
         let mut lhs = self.unary_expr()?;
+        // The chain budget is counted per rung, as it was when each rung was
+        // its own function: a run of `+` and a run of `||` in one expression
+        // are two chains. Tracking the current rung is enough to do that with
+        // one counter, because each right-hand side consumes everything that
+        // binds tighter than the operator above it — so within one call the
+        // rungs only ever loosen, and a rung never comes back.
         let mut links = 0u32;
+        let mut rung = usize::MAX;
         loop {
-            let op = match self.peek() {
-                Tok::Punct(Punct::Star) => BinOp::Mul,
-                Tok::Punct(Punct::Slash) => BinOp::Div,
-                Tok::Punct(Punct::Percent) => BinOp::Rem,
-                _ => break,
-            };
+            let Some(p) = self.peek().as_punct() else { return Ok(lhs) };
+            let Some((op, lbp, rbp, level)) = binding_power(p) else { return Ok(lhs) };
+            if lbp < min_bp {
+                return Ok(lhs);
+            }
+
+            if level == CMP_LEVEL {
+                let op_span = self.bump();
+                let rhs = self.binary_expr(rbp)?;
+                let span = self.tree.span(lhs).to(self.tree.span(rhs));
+                lhs = self.tree.push(
+                    Kind::of_binop(op),
+                    [lhs.0, rhs.0, op_span.start, op_span.end],
+                    span,
+                    at,
+                );
+                // Comparison is non-associative: `a < b < c` is a parse error,
+                // not a bug waiting to happen (SPEC 6.1).
+                if self.at_cmp_op() {
+                    let span = self.span();
+                    self.error(
+                        span,
+                        "comparison operators are non-associative",
+                        "write `a < b && b < c` rather than `a < b < c`",
+                    )
+                    .map(|d| {
+                        d.code("chained-comparison")
+                            .note("write `a < b && b < c` rather than `a < b < c`")
+                    });
+                    // Consume the rest of the chain and hand back what was
+                    // parsed, so this one diagnostic is not followed by a
+                    // cascade of type errors about the recovered shape.
+                    // What the recovery parses is thrown away, so the arena is
+                    // wound back over it: an abandoned operand nothing
+                    // references would otherwise sit inside the `subtree`
+                    // count of every node still open above it.
+                    while self.at_cmp_op() {
+                        self.bump();
+                        let mark = self.tree.mark();
+                        let _ = self.binary_expr(rbp)?;
+                        self.tree.rewind(mark);
+                    }
+                }
+                continue;
+            }
+
+            if level == COALESCE_LEVEL {
+                // `??` is right-associative, so `a ?? b ?? c` works — and it
+                // builds its chain by recursing, so it spends the budget
+                // through `chain_in` rather than through a loop counter.
+                let op_span = self.bump();
+                self.chain_in()?;
+                let rhs = self.binary_expr(rbp);
+                self.chain_out();
+                let rhs = rhs?;
+                let span = self.tree.span(lhs).to(self.tree.span(rhs));
+                lhs = self.tree.push(
+                    Kind::of_binop(op),
+                    [lhs.0, rhs.0, op_span.start, op_span.end],
+                    span,
+                    at,
+                );
+                continue;
+            }
+
+            if rung != level {
+                rung = level;
+                links = 0;
+            }
             links = links.saturating_add(1);
             self.link(links)?;
-            let op_span = self.bump().span;
-            let rhs = self.unary_expr()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), op_span, span };
+            let op_span = self.bump();
+            let rhs = self.binary_expr(rbp)?;
+            let span = self.tree.span(lhs).to(self.tree.span(rhs));
+            lhs = self.tree.push(
+                Kind::of_binop(op),
+                [lhs.0, rhs.0, op_span.start, op_span.end],
+                span,
+                at,
+            );
         }
-        Ok(lhs)
+    }
+
+    fn at_cmp_op(&self) -> bool {
+        matches!(
+            self.peek(),
+            TokKind::EqEq | TokKind::BangEq | TokKind::Lt | TokKind::LtEq | TokKind::Gt | TokKind::GtEq
+        )
     }
 
     /// A prefix operator's operand is another unary expression, so this is the
@@ -1585,25 +1886,26 @@ impl Parser {
     /// [`Parser::expr`] — `!!!!…true` and `----…1` are one production deep in
     /// the reader's eyes and a hundred thousand frames deep in the parser's.
     /// It costs one unit of the same budget the other four spend.
-    fn unary_expr(&mut self) -> PResult<Expr> {
+    fn unary_expr(&mut self) -> PResult<ExprId> {
         self.enter()?;
         let r = self.unary_inner();
         self.leave();
         r
     }
 
-    fn unary_inner(&mut self) -> PResult<Expr> {
+    fn unary_inner(&mut self) -> PResult<ExprId> {
+        let at = self.tree.next_node();
         let op = match self.peek() {
-            Tok::Punct(Punct::Minus) => Some(UnOp::Neg),
-            Tok::Punct(Punct::Bang) => Some(UnOp::Not),
-            Tok::Punct(Punct::Tilde) => Some(UnOp::BitNot),
+            TokKind::Minus => Some(UnOp::Neg),
+            TokKind::Bang => Some(UnOp::Not),
+            TokKind::Tilde => Some(UnOp::BitNot),
             _ => None,
         };
         if let Some(op) = op {
-            let start = self.bump().span;
-            let operand = Box::new(self.unary_expr()?);
-            let span = start.to(operand.span());
-            return Ok(Expr::Unary { op, operand, span });
+            let start = self.bump();
+            let operand = self.unary_expr()?;
+            let span = start.to(self.tree.span(operand));
+            return Ok(self.tree.push(Kind::of_unop(op), [operand.0, 0, 0, 0], span, at));
         }
 
         // Block-like expressions are operands but never postfix-chain heads,
@@ -1611,7 +1913,9 @@ impl Parser {
         // two parses (SPEC 12.13). They are returned without entering
         // `postfix_ops`.
         if self.is(Punct::LBrace) {
-            return Ok(Expr::Block(self.block()?));
+            let b = self.block()?;
+            let span = self.tree.span_of(self.tree.block(b).span);
+            return Ok(self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, at));
         }
         if self.is_kw(Kw::If) {
             return self.if_expr();
@@ -1620,28 +1924,29 @@ impl Parser {
             return self.match_expr();
         }
         if self.is_kw(Kw::Context) {
-            let start = self.bump().span;
+            let start = self.bump();
             let body = self.context_body()?;
-            let span = start.to(body.span);
-            return Ok(Expr::ContextExpr { body, span });
+            let span = start.to(self.tree.span_of(self.tree.ctx_body(body).span));
+            return Ok(self.tree.push(Kind::ContextExpr, [body.0, 0, 0, 0], span, at));
         }
 
         let primary = self.primary_expr()?;
         self.postfix_ops(primary)
     }
 
-    fn if_expr(&mut self) -> PResult<Expr> {
+    fn if_expr(&mut self) -> PResult<ExprId> {
+        let at = self.tree.next_node();
         let start = self.expect_kw(Kw::If)?;
         // The condition is parenthesized, so the `{` that follows is always a
         // block (SPEC 12.1).
         self.expect(Punct::LParen)?;
-        let cond = Box::new(self.expr()?);
+        let cond = self.expr()?;
         self.expect(Punct::RParen)?;
         let then = self.block()?;
         // `else` is mandatory. There is nothing sensible for a missing branch
         // to produce in a language where `if` is an expression.
         if !self.is_kw(Kw::Else) {
-            let span = then.span;
+            let span = self.tree.span_of(self.tree.block(then).span);
             self.error(
                 span,
                 "`if` requires an `else` branch",
@@ -1662,34 +1967,33 @@ impl Parser {
             self.chain_in()?;
             let nested = self.if_expr();
             self.chain_out();
-            Box::new(nested?)
+            nested?
         } else {
-            Box::new(Expr::Block(self.block()?))
+            let bat = self.tree.next_node();
+            let b = self.block()?;
+            let span = self.tree.span_of(self.tree.block(b).span);
+            self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, bat)
         };
-        let span = start.to(else_.span());
-        Ok(Expr::If { cond, then, else_, span })
+        let span = start.to(self.tree.span(else_));
+        Ok(self.tree.push(Kind::If, [cond.0, then.0, else_.0, 0], span, at))
     }
 
-    fn match_expr(&mut self) -> PResult<Expr> {
+    fn match_expr(&mut self) -> PResult<ExprId> {
+        let at = self.tree.next_node();
         let start = self.expect_kw(Kw::Match)?;
         self.expect(Punct::LParen)?;
-        let scrutinee = Box::new(self.expr()?);
+        let scrutinee = self.expr()?;
         self.expect(Punct::RParen)?;
         self.expect(Punct::LBrace)?;
-        let mut arms = Vec::new();
+        let base = self.scratch.arms.len();
         while !self.is(Punct::RBrace) && !self.at_eof() {
             let before = self.pos;
             let astart = self.span();
-            let arm = (|| -> PResult<MatchArm> {
-                let pattern = self.pattern()?;
-                let guard = if self.eat_kw(Kw::If) { Some(self.expr()?) } else { None };
-                self.expect(Punct::FatArrow)?;
-                let body = self.expr()?;
-                Ok(MatchArm { pattern, guard, body, span: astart.to(self.prev_span()) })
-            })();
-            match arm {
-                Ok(a) => arms.push(a),
+            let save = self.save();
+            match self.match_arm(astart) {
+                Ok(a) => self.scratch.arms.push(a),
                 Err(Bail) => {
+                    self.restore(save);
                     self.sync_match_arm();
                     if self.is(Punct::RBrace) {
                         break;
@@ -1707,21 +2011,39 @@ impl Parser {
             }
         }
         let end = self.expect(Punct::RBrace)?;
-        Ok(Expr::Match { scrutinee, arms, span: start.to(end) })
+        let (as_, al) = self.tree.push_arms(since(&self.scratch.arms, base));
+        self.scratch.arms.truncate(base);
+        Ok(self.tree.push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at))
+    }
+
+    /// One arm. A method rather than the closure it used to be, because the
+    /// closure would have to borrow the parser mutably while the loop around
+    /// it holds the arm stack.
+    fn match_arm(&mut self, astart: Span) -> PResult<ArmData> {
+        let pattern = self.pattern()?;
+        let guard = if self.eat_kw(Kw::If) { self.expr()?.0 } else { NONE };
+        self.expect(Punct::FatArrow)?;
+        let body = self.expr()?;
+        Ok(ArmData {
+            pattern: pattern.0,
+            guard,
+            body: body.0,
+            span: Loc::of(astart.to(self.prev_span())),
+        })
     }
 
     fn sync_match_arm(&mut self) {
         let mut depth = 0i32;
         loop {
             match self.peek() {
-                Tok::Eof => return,
-                Tok::Punct(Punct::Comma) if depth <= 0 => return,
-                Tok::Punct(Punct::RBrace) if depth <= 0 => return,
-                Tok::Punct(Punct::LBrace | Punct::LParen | Punct::LBracket) => {
+                TokKind::Eof => return,
+                TokKind::Comma if depth <= 0 => return,
+                TokKind::RBrace if depth <= 0 => return,
+                TokKind::LBrace | TokKind::LParen | TokKind::LBracket => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                Tok::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => {
+                TokKind::RBrace | TokKind::RParen | TokKind::RBracket => {
                     depth = depth.saturating_sub(1);
                     self.bump();
                 }
@@ -1732,85 +2054,109 @@ impl Parser {
         }
     }
 
-    fn primary_expr(&mut self) -> PResult<Expr> {
+    fn primary_expr(&mut self) -> PResult<ExprId> {
+        let at = self.tree.next_node();
         let start = self.span();
-        match self.peek().clone() {
-            Tok::Int(value, raw) => {
-                let span = self.bump().span;
-                Ok(Expr::Int { value, raw, span })
+        match self.peek() {
+            // A numeric literal's spelling is the source under the literal
+            // token, which is *not* always the source under the node's span —
+            // see `pattern_primary`, where `-1` spans the `-` as well. The two
+            // are carried separately for that reason, here as well as there,
+            // so that there is one rule rather than two.
+            TokKind::Int => {
+                let value = self.int_value();
+                let span = self.bump();
+                let ix = self.tree.push_int(value);
+                Ok(self.tree.push(Kind::Int, [ix, span.start, span.end, 0], span, at))
             }
-            Tok::Float(value, raw) => {
-                let span = self.bump().span;
-                Ok(Expr::Float { value, raw, span })
+            TokKind::Float => {
+                let value = self.float_value();
+                let span = self.bump();
+                let ix = self.tree.push_float(value);
+                Ok(self.tree.push(Kind::Float, [ix, span.start, span.end, 0], span, at))
             }
-            Tok::Str(value) => {
-                let span = self.bump().span;
-                Ok(Expr::Str { value, span })
+            TokKind::Str => {
+                let value = self.take_text();
+                let span = self.bump();
+                let ix = self.tree.push_str(value);
+                Ok(self.tree.push(Kind::Str, [ix, 0, 0, 0], span, at))
             }
-            Tok::Char(value) => {
-                let span = self.bump().span;
-                Ok(Expr::Char { value, span })
+            TokKind::Char => {
+                let value = self.char_value();
+                let span = self.bump();
+                Ok(self.tree.push(Kind::Char, [value, 0, 0, 0], span, at))
             }
-            Tok::Kw(Kw::True) => {
-                let span = self.bump().span;
-                Ok(Expr::Bool { value: true, span })
+            TokKind::KwTrue => {
+                let span = self.bump();
+                Ok(self.tree.push(Kind::True, [0; 4], span, at))
             }
-            Tok::Kw(Kw::False) => {
-                let span = self.bump().span;
-                Ok(Expr::Bool { value: false, span })
+            TokKind::KwFalse => {
+                let span = self.bump();
+                Ok(self.tree.push(Kind::False, [0; 4], span, at))
             }
-            Tok::TemplateHead(head) => self.template(head, start),
-            Tok::Ident(name) => {
-                let span = self.bump().span;
-                Ok(Expr::Ident { name, span })
+            TokKind::TemplateHead => {
+                let head = self.take_text();
+                self.template(head, start)
             }
-            Tok::Kw(Kw::SelfValue) => {
-                let span = self.bump().span;
-                Ok(Expr::SelfValue { span })
+            TokKind::Ident => {
+                let span = self.bump();
+                Ok(self.tree.push(Kind::Ident, [0; 4], span, at))
             }
-            Tok::Kw(Kw::Ctx) => {
-                let span = self.bump().span;
-                Ok(Expr::Ctx { span })
+            TokKind::KwSelfValue => {
+                let span = self.bump();
+                Ok(self.tree.push(Kind::SelfValue, [0; 4], span, at))
+            }
+            TokKind::KwCtx => {
+                let span = self.bump();
+                Ok(self.tree.push(Kind::Ctx, [0; 4], span, at))
             }
             // `.Variant` — the inferred-type dot form.
-            Tok::Punct(Punct::Dot) => {
+            TokKind::Dot => {
                 self.bump();
-                let name = self.expect_ident()?;
-                let span = start.to(name.span);
-                Ok(Expr::DotVariant { name, span })
+                let name = self.expect_name()?;
+                let span = start.to(name);
+                Ok(self.tree.push(Kind::DotVariant, [name.start, name.end, 0, 0], span, at))
             }
-            Tok::Punct(Punct::LBracket) => {
+            TokKind::LBracket => {
                 self.bump();
-                let mut elems = Vec::new();
+                let base = self.scratch.exprs.len();
                 while !self.is(Punct::RBracket) && !self.at_eof() {
-                    elems.push(self.expr()?);
+                    let e = self.expr()?;
+                    self.scratch.exprs.push(e);
                     if !self.eat(Punct::Comma) {
                         break;
                     }
                 }
                 let end = self.expect(Punct::RBracket)?;
-                Ok(Expr::Array { elems, span: start.to(end) })
+                let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
+                self.scratch.exprs.truncate(base);
+                Ok(self.tree.push(Kind::Array, [ks, kl, 0, 0], start.to(end), at))
             }
-            Tok::Punct(Punct::LParen) => {
+            TokKind::LParen => {
                 self.bump();
                 if self.is(Punct::RParen) {
-                    let end = self.bump().span;
-                    return Ok(Expr::Unit { span: start.to(end) });
+                    let end = self.bump();
+                    return Ok(self.tree.push(Kind::Unit, [0; 4], start.to(end), at));
                 }
                 let first = self.expr()?;
+                // Grouping hands back the inner expression, so `(e)` keeps
+                // `e`'s span and not the parentheses'. Several golden
+                // diagnostics are pinned to that.
                 if self.is(Punct::RParen) {
                     self.bump();
                     return Ok(first);
                 }
-                let mut elems = vec![first];
+                let base = self.scratch.exprs.len();
+                self.scratch.exprs.push(first);
                 while self.eat(Punct::Comma) {
                     if self.is(Punct::RParen) {
                         break;
                     }
-                    elems.push(self.expr()?);
+                    let e = self.expr()?;
+                    self.scratch.exprs.push(e);
                 }
                 let end = self.expect(Punct::RParen)?;
-                if elems.len() < 2 {
+                if self.scratch.exprs.len().saturating_sub(base) < 2 {
                     self.error(
                         start.to(end),
                         "a tuple has arity 2 or more",
@@ -1818,45 +2164,62 @@ impl Parser {
                     )
                     .map(|d| d.note("`(e)` is grouping and `()` is the unit value"));
                 }
-                Ok(Expr::Tuple { elems, span: start.to(end) })
+                let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
+                self.scratch.exprs.truncate(base);
+                Ok(self.tree.push(Kind::Tuple, [ks, kl, 0, 0], start.to(end), at))
             }
-            other => {
+            _ => {
+                let found = self.found();
                 let span = self.span();
-                self.expected(span, "an expression", &other, "write a value here");
+                self.expected(span, "an expression", &found, "write a value here");
                 Err(Bail)
             }
         }
     }
 
-    fn template(&mut self, head: String, start: Span) -> PResult<Expr> {
+    fn template(&mut self, head: String, start: Span) -> PResult<ExprId> {
+        let at = self.tree.next_node();
         self.bump();
-        let mut parts = Vec::new();
+        let base = self.scratch.parts.len();
         if !head.is_empty() {
-            parts.push(TemplatePart::Text(head));
+            let ix = self.tree.push_str(head);
+            self.scratch.parts.push(PartData { text: ix, hole: NONE });
         }
         loop {
             let hole = self.expr()?;
-            parts.push(TemplatePart::Hole(hole));
-            match self.peek().clone() {
-                Tok::TemplateSpan(text) => {
+            self.scratch.parts.push(PartData { text: NONE, hole: hole.0 });
+            match self.peek() {
+                TokKind::TemplateSpan => {
+                    let text = self.take_text();
                     self.bump();
                     if !text.is_empty() {
-                        parts.push(TemplatePart::Text(text));
+                        let ix = self.tree.push_str(text);
+                        self.scratch.parts.push(PartData { text: ix, hole: NONE });
                     }
                 }
-                Tok::TemplateTail(text) => {
-                    let end = self.bump().span;
+                TokKind::TemplateTail => {
+                    let text = self.take_text();
+                    let end = self.bump();
                     if !text.is_empty() {
-                        parts.push(TemplatePart::Text(text));
+                        let ix = self.tree.push_str(text);
+                        self.scratch.parts.push(PartData { text: ix, hole: NONE });
                     }
-                    return Ok(Expr::Template { parts, span: start.to(end) });
+                    let (ps, pl) = self.tree.push_parts(since(&self.scratch.parts, base));
+                    self.scratch.parts.truncate(base);
+                    return Ok(self.tree.push(
+                        Kind::Template,
+                        [ps, pl, 0, 0],
+                        start.to(end),
+                        at,
+                    ));
                 }
-                other => {
+                _ => {
+                    let found = self.found();
                     let span = self.span();
                     self.expected(
                         span,
                         "the rest of the string",
-                        &other,
+                        &found,
                         "close the template: every `${` needs a `}` and the string needs a \
                          closing quote",
                     );
@@ -1866,35 +2229,43 @@ impl Parser {
         }
     }
 
-    fn postfix_ops(&mut self, mut base: Expr) -> PResult<Expr> {
+    fn postfix_ops(&mut self, mut base: ExprId) -> PResult<ExprId> {
+        // Every link of the chain replaces `base` with a node whose subtree
+        // covers everything from here, so the start is read once from the head
+        // rather than threaded down from `unary_inner`.
+        let at = self.tree.subtree_start(base);
         let mut links = 0u32;
         loop {
             links = links.saturating_add(1);
             self.link(links)?;
-            let start = base.span();
-            match self.peek().clone() {
-                Tok::Punct(Punct::Dot) => {
+            let start = self.tree.span(base);
+            match self.peek() {
+                TokKind::Dot => {
                     self.bump();
-                    match self.peek().clone() {
+                    match self.peek() {
                         // Tuple element access. `t.0.1` lexes as `t` `.` `0.1`,
                         // a known wart; write `(t.0).1`.
-                        Tok::Int(value, raw) => {
-                            let index_span = self.bump().span;
+                        TokKind::Int => {
+                            let value = self.int_value();
                             if value > u32::MAX as u128 {
+                                let raw = self.raw();
+                                let span = self.span();
                                 self.error(
-                                index_span,
+                                span,
                                 format!("`{raw}` is not a tuple index"),
                                 "a tuple index is a plain decimal number, as in `pair.0`",
                             );
                             }
-                            base = Expr::TupleIndex {
-                                base: Box::new(base),
-                                index: value as u32,
-                                index_span,
-                                span: start.to(index_span),
-                            };
+                            let index_span = self.bump();
+                            base = self.tree.push(
+                                Kind::TupleIndex,
+                                [base.0, value as u32, index_span.start, index_span.end],
+                                start.to(index_span),
+                                at,
+                            );
                         }
-                        Tok::Float(_, raw) => {
+                        TokKind::Float => {
+                            let raw = self.raw();
                             let span = self.span();
                             self.error(
                                 span,
@@ -1904,44 +2275,60 @@ impl Parser {
                             return Err(Bail);
                         }
                         _ => {
-                            let name = self.expect_ident()?;
-                            let span = start.to(name.span);
-                            base = Expr::Field { base: Box::new(base), name, span };
+                            let name = self.expect_name()?;
+                            let span = start.to(name);
+                            base = self.tree.push(
+                                Kind::Field,
+                                [base.0, name.start, name.end, 0],
+                                span,
+                                at,
+                            );
                         }
                     }
                 }
-                Tok::Punct(Punct::LParen) => {
+                TokKind::LParen => {
                     self.bump();
-                    let mut args = Vec::new();
+                    let abase = self.scratch.exprs.len();
                     while !self.is(Punct::RParen) && !self.at_eof() {
-                        args.push(self.expr()?);
+                        let e = self.expr()?;
+                        self.scratch.exprs.push(e);
                         if !self.eat(Punct::Comma) {
                             break;
                         }
                     }
                     let end = self.expect(Punct::RParen)?;
-                    base = Expr::Call { callee: Box::new(base), args, span: start.to(end) };
+                    let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, abase));
+                    self.scratch.exprs.truncate(abase);
+                    base =
+                        self.tree.push(Kind::Call, [base.0, ks, kl, 0], start.to(end), at);
                 }
-                Tok::Punct(Punct::LBracket) => {
+                TokKind::LBracket => {
                     self.bump();
-                    let index = Box::new(self.expr()?);
+                    let index = self.expr()?;
                     let end = self.expect(Punct::RBracket)?;
-                    base = Expr::Index { base: Box::new(base), index, span: start.to(end) };
+                    base = self.tree.push(
+                        Kind::Index,
+                        [base.0, index.0, 0, 0],
+                        start.to(end),
+                        at,
+                    );
                 }
-                Tok::Punct(Punct::Question) => {
-                    let end = self.bump().span;
-                    base = Expr::Try { base: Box::new(base), span: start.to(end) };
+                TokKind::Question => {
+                    let end = self.bump();
+                    base = self.tree.push(Kind::Try, [base.0, 0, 0, 0], start.to(end), at);
                 }
                 // Type arguments, or the comparison operator that is spelled
                 // the same. `type_args_in_expr` decides and rewinds if it is
                 // the latter, leaving the `<` for the binary parser above.
-                Tok::Punct(Punct::Lt) => match self.type_args_in_expr() {
+                TokKind::Lt => match self.type_args_in_expr() {
                     Some(args) => {
-                        base = Expr::Generic {
-                            base: Box::new(base),
-                            args,
-                            span: start.to(self.prev_span()),
-                        };
+                        let (ts, tl) = self.tree.push_types(args);
+                        base = self.tree.push(
+                            Kind::Generic,
+                            [base.0, ts, tl, 0],
+                            start.to(self.prev_span()),
+                            at,
+                        );
                     }
                     None => return Ok(base),
                 },
@@ -1956,8 +2343,8 @@ impl Parser {
                 // one error names the whole mistake, and everything after it
                 // in the file is read for what it says rather than through a
                 // recovery.
-                Tok::Punct(Punct::ColonColon) => {
-                    let colons = self.bump().span;
+                TokKind::ColonColon => {
+                    let colons = self.bump();
                     if !self.is(Punct::Lt) {
                         // `::` is not an operator at all any more.
                         self.error(
@@ -1979,41 +2366,50 @@ impl Parser {
                         )
                     });
                     let args = self.type_args()?;
-                    base = Expr::Generic {
-                        base: Box::new(base),
-                        args,
-                        span: start.to(self.prev_span()),
-                    };
+                    let (ts, tl) = self.tree.push_types(args);
+                    base = self.tree.push(
+                        Kind::Generic,
+                        [base.0, ts, tl, 0],
+                        start.to(self.prev_span()),
+                        at,
+                    );
                 }
                 // With records gone, a `{` following a path is always a struct
                 // literal. Nothing competes, so field shorthand is unambiguous.
-                Tok::Punct(Punct::LBrace) => {
+                TokKind::LBrace => {
                     self.bump();
                     let spread = if self.is(Punct::DotDot) {
                         self.bump();
                         let e = self.expr()?;
                         self.eat(Punct::Comma);
-                        Some(Box::new(e))
+                        e.0
                     } else {
-                        None
+                        NONE
                     };
-                    let mut fields = Vec::new();
+                    let fbase = self.scratch.inits.len();
                     while !self.is(Punct::RBrace) && !self.at_eof() {
-                        let fname = self.expect_ident()?;
-                        let value = if self.eat(Punct::Colon) { Some(self.expr()?) } else { None };
-                        let fspan = fname.span.to(self.prev_span());
-                        fields.push(FieldInit { name: fname, value, span: fspan });
+                        let fname = self.expect_name()?;
+                        let value =
+                            if self.eat(Punct::Colon) { self.expr()?.0 } else { NONE };
+                        let fspan = fname.to(self.prev_span());
+                        self.scratch.inits.push(InitData {
+                            name: Loc::of(fname),
+                            value,
+                            span: Loc::of(fspan),
+                        });
                         if !self.eat(Punct::Comma) {
                             break;
                         }
                     }
                     let end = self.expect(Punct::RBrace)?;
-                    base = Expr::StructLit {
-                        head: Box::new(base),
-                        spread,
-                        fields,
-                        span: start.to(end),
-                    };
+                    let (is, il) = self.tree.push_inits(since(&self.scratch.inits, fbase));
+                    self.scratch.inits.truncate(fbase);
+                    base = self.tree.push(
+                        Kind::StructLit,
+                        [base.0, spread, is, il],
+                        start.to(end),
+                        at,
+                    );
                 }
                 _ => return Ok(base),
             }
@@ -2022,156 +2418,197 @@ impl Parser {
 
     // -- patterns -----------------------------------------------------------
 
-    fn pattern(&mut self) -> PResult<Pattern> {
+    fn pattern(&mut self) -> PResult<PatId> {
         self.enter()?;
         let r = self.pattern_or();
         self.leave();
         r
     }
 
-    fn pattern_or(&mut self) -> PResult<Pattern> {
+    fn pattern_or(&mut self) -> PResult<PatId> {
+        let at = self.tree.next_pat();
         let first = self.pattern_primary()?;
         if !self.is(Punct::Or) {
             return Ok(first);
         }
-        let start = first.span();
-        let mut alts = vec![first];
+        let start = self.tree.pspan(first);
+        let base = self.scratch.pats.len();
+        self.scratch.pats.push(first);
         while self.eat(Punct::Or) {
-            alts.push(self.pattern_primary()?);
+            let p = self.pattern_primary()?;
+            self.scratch.pats.push(p);
         }
-        let end = alts.last().map_or(start, |p| p.span());
-        Ok(Pattern::Or { alts, span: start.to(end) })
+        let last = self.scratch.pats.last().copied();
+        let end = last.map_or(start, |p| self.tree.pspan(p));
+        let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
+        self.scratch.pats.truncate(base);
+        Ok(self.tree.ppush(PKind::Or, [ks, kl, 0, 0], start.to(end), at))
     }
 
-    fn pattern_primary(&mut self) -> PResult<Pattern> {
+    fn pattern_primary(&mut self) -> PResult<PatId> {
+        let at = self.tree.next_pat();
         let start = self.span();
-        match self.peek().clone() {
-            Tok::Punct(Punct::Underscore) => {
-                let span = self.bump().span;
-                Ok(Pattern::Wild { span })
+        match self.peek() {
+            TokKind::Underscore => {
+                let span = self.bump();
+                Ok(self.tree.ppush(PKind::Wild, [0; 4], span, at))
             }
-            Tok::Punct(Punct::Minus) => {
+            // The trap this whole layout exists for: a negative literal's
+            // *span* starts at the `-` and its *spelling* does not. `-1` has
+            // `raw == "1"`, and a formatter that derived the spelling from the
+            // span would print `--1`. So the literal's own extent is carried
+            // in the payload, separately from the node's span.
+            TokKind::Minus => {
                 self.bump();
-                match self.peek().clone() {
-                    Tok::Int(value, raw) => {
-                        let end = self.bump().span;
-                        Ok(Pattern::LitInt { value, negative: true, raw, span: start.to(end) })
+                match self.peek() {
+                    TokKind::Int => {
+                        let value = self.int_value();
+                        let end = self.bump();
+                        let ix = self.tree.push_int(value);
+                        Ok(self.tree.ppush(
+                            PKind::LitInt,
+                            [ix, end.start, end.end, 1],
+                            start.to(end),
+                            at,
+                        ))
                     }
-                    Tok::Float(value, raw) => {
-                        let end = self.bump().span;
-                        Ok(Pattern::LitFloat { value, negative: true, raw, span: start.to(end) })
+                    TokKind::Float => {
+                        let value = self.float_value();
+                        let end = self.bump();
+                        let ix = self.tree.push_float(value);
+                        Ok(self.tree.ppush(
+                            PKind::LitFloat,
+                            [ix, end.start, end.end, 1],
+                            start.to(end),
+                            at,
+                        ))
                     }
-                    other => {
+                    _ => {
+                        let found = self.found();
                         let span = self.span();
                         self.expected(
                             span,
                             "a number after `-`",
-                            &other,
+                            &found,
                             "negation applies to a numeric literal here",
                         );
                         Err(Bail)
                     }
                 }
             }
-            Tok::Int(value, raw) => {
-                let span = self.bump().span;
-                Ok(Pattern::LitInt { value, negative: false, raw, span })
+            TokKind::Int => {
+                let value = self.int_value();
+                let span = self.bump();
+                let ix = self.tree.push_int(value);
+                Ok(self.tree.ppush(PKind::LitInt, [ix, span.start, span.end, 0], span, at))
             }
-            Tok::Float(value, raw) => {
-                let span = self.bump().span;
-                Ok(Pattern::LitFloat { value, negative: false, raw, span })
+            TokKind::Float => {
+                let value = self.float_value();
+                let span = self.bump();
+                let ix = self.tree.push_float(value);
+                Ok(self.tree.ppush(PKind::LitFloat, [ix, span.start, span.end, 0], span, at))
             }
-            Tok::Str(value) => {
-                let span = self.bump().span;
-                Ok(Pattern::LitStr { value, span })
+            TokKind::Str => {
+                let value = self.take_text();
+                let span = self.bump();
+                let ix = self.tree.push_str(value);
+                Ok(self.tree.ppush(PKind::LitStr, [ix, 0, 0, 0], span, at))
             }
-            Tok::Char(value) => {
-                let span = self.bump().span;
-                Ok(Pattern::LitChar { value, span })
+            TokKind::Char => {
+                let value = self.char_value();
+                let span = self.bump();
+                Ok(self.tree.ppush(PKind::LitChar, [value, 0, 0, 0], span, at))
             }
-            Tok::Kw(Kw::True) => {
-                let span = self.bump().span;
-                Ok(Pattern::LitBool { value: true, span })
+            TokKind::KwTrue => {
+                let span = self.bump();
+                Ok(self.tree.ppush(PKind::LitTrue, [0; 4], span, at))
             }
-            Tok::Kw(Kw::False) => {
-                let span = self.bump().span;
-                Ok(Pattern::LitBool { value: false, span })
+            TokKind::KwFalse => {
+                let span = self.bump();
+                Ok(self.tree.ppush(PKind::LitFalse, [0; 4], span, at))
             }
             // `.Variant`, with or without a payload.
-            Tok::Punct(Punct::Dot) => {
+            TokKind::Dot => {
                 self.bump();
-                let name = self.expect_ident()?;
+                let name = self.expect_name()?;
                 let payload = self.pattern_payload()?;
-                Ok(Pattern::Path {
-                    path: vec![name],
-                    dotted: true,
-                    payload,
-                    span: start.to(self.prev_span()),
-                })
+                let (ns, nl) = self.tree.push_names(&[Loc::of(name)]);
+                Ok(self.tree.ppush(
+                    PKind::Path,
+                    [ns, nl, payload, 1],
+                    start.to(self.prev_span()),
+                    at,
+                ))
             }
-            Tok::Punct(Punct::LBracket) => self.array_pattern(),
-            Tok::Punct(Punct::LParen) => {
+            TokKind::LBracket => self.array_pattern(),
+            TokKind::LParen => {
                 self.bump();
                 if self.is(Punct::RParen) {
-                    let end = self.bump().span;
-                    return Ok(Pattern::Unit { span: start.to(end) });
+                    let end = self.bump();
+                    return Ok(self.tree.ppush(PKind::Unit, [0; 4], start.to(end), at));
                 }
                 let first = self.pattern()?;
                 if self.is(Punct::RParen) {
                     self.bump();
                     return Ok(first);
                 }
-                let mut elems = vec![first];
+                let base = self.scratch.pats.len();
+                self.scratch.pats.push(first);
                 while self.eat(Punct::Comma) {
                     if self.is(Punct::RParen) {
                         break;
                     }
-                    elems.push(self.pattern()?);
+                    let p = self.pattern()?;
+                    self.scratch.pats.push(p);
                 }
                 let end = self.expect(Punct::RParen)?;
-                Ok(Pattern::Tuple { elems, span: start.to(end) })
+                let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
+                self.scratch.pats.truncate(base);
+                Ok(self.tree.ppush(PKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
             }
-            Tok::Ident(_) => {
-                let first = self.expect_ident()?;
+            TokKind::Ident => {
+                let first = self.expect_name()?;
                 // The token *after* the identifier decides what this is, never
                 // what the identifier means (SPEC 12.7).
                 if self.is(Punct::Dot) {
-                    let mut path = vec![first];
+                    let nbase = self.scratch.names.len();
+                    self.scratch.names.push(Loc::of(first));
                     while self.eat(Punct::Dot) {
-                        path.push(self.expect_ident()?);
+                        let n = self.expect_name()?;
+                        self.scratch.names.push(Loc::of(n));
                     }
                     let payload = self.pattern_payload()?;
-                    return Ok(Pattern::Path {
-                        path,
-                        dotted: false,
-                        payload,
-                        span: start.to(self.prev_span()),
-                    });
+                    let (ns, nl) = self.tree.push_names(since(&self.scratch.names, nbase));
+                    self.scratch.names.truncate(nbase);
+                    return Ok(self.tree.ppush(
+                        PKind::Path,
+                        [ns, nl, payload, 0],
+                        start.to(self.prev_span()),
+                        at,
+                    ));
                 }
                 if self.is(Punct::LParen) || self.is(Punct::LBrace) {
                     let payload = self.pattern_payload()?;
-                    return Ok(Pattern::Path {
-                        path: vec![first],
-                        dotted: false,
-                        payload,
-                        span: start.to(self.prev_span()),
-                    });
+                    let (ns, nl) = self.tree.push_names(&[Loc::of(first)]);
+                    return Ok(self.tree.ppush(
+                        PKind::Path,
+                        [ns, nl, payload, 0],
+                        start.to(self.prev_span()),
+                        at,
+                    ));
                 }
                 // A bare identifier is ALWAYS a binding.
-                let sub = if self.eat(Punct::At) {
-                    Some(Box::new(self.pattern_primary()?))
-                } else {
-                    None
-                };
+                let sub = if self.eat(Punct::At) { self.pattern_primary()?.0 } else { NONE };
                 let span = start.to(self.prev_span());
-                Ok(Pattern::Bind { name: first, sub, span })
+                Ok(self.tree.ppush(PKind::Bind, [first.start, first.end, sub, 0], span, at))
             }
-            other => {
+            _ => {
+                let found = self.found();
                 let span = self.span();
                 self.expected(
                     span,
                     "a pattern",
-                    &other,
+                    &found,
                     "write a pattern: a binding, a literal, `.Variant`, or `_`",
                 );
                 Err(Bail)
@@ -2179,20 +2616,30 @@ impl Parser {
         }
     }
 
-    fn pattern_payload(&mut self) -> PResult<Option<PatPayload>> {
+    /// A variant pattern's payload, as an index into the payload table or
+    /// [`NONE`].
+    fn pattern_payload(&mut self) -> PResult<u32> {
         if self.eat(Punct::LParen) {
-            let mut ps = Vec::new();
+            let base = self.scratch.pats.len();
             while !self.is(Punct::RParen) && !self.at_eof() {
-                ps.push(self.pattern()?);
+                let p = self.pattern()?;
+                self.scratch.pats.push(p);
                 if !self.eat(Punct::Comma) {
                     break;
                 }
             }
             self.expect(Punct::RParen)?;
-            return Ok(Some(PatPayload::Tuple(ps)));
+            let (s, l) = self.tree.push_pkids(since(&self.scratch.pats, base));
+            self.scratch.pats.truncate(base);
+            return Ok(self.tree.push_payload(PatPayloadData {
+                record: false,
+                rest: false,
+                start: s,
+                len: l,
+            }));
         }
         if self.eat(Punct::LBrace) {
-            let mut fields = Vec::new();
+            let base = self.scratch.fpats.len();
             let mut rest = false;
             while !self.is(Punct::RBrace) && !self.at_eof() {
                 if self.is(Punct::DotDot) {
@@ -2201,40 +2648,61 @@ impl Parser {
                     self.eat(Punct::Comma);
                     break;
                 }
-                let name = self.expect_ident()?;
-                let pattern = if self.eat(Punct::Colon) { Some(self.pattern()?) } else { None };
-                let span = name.span.to(self.prev_span());
-                fields.push(FieldPat { name, pattern, span });
+                let name = self.expect_name()?;
+                let pattern = if self.eat(Punct::Colon) { self.pattern()?.0 } else { NONE };
+                let span = name.to(self.prev_span());
+                self.scratch.fpats.push(FieldPatData {
+                    name: Loc::of(name),
+                    pattern,
+                    span: Loc::of(span),
+                });
                 if !self.eat(Punct::Comma) {
                     break;
                 }
             }
             self.expect(Punct::RBrace)?;
-            return Ok(Some(PatPayload::Record { fields, rest }));
+            let (s, l) = self.tree.push_fpats(since(&self.scratch.fpats, base));
+            self.scratch.fpats.truncate(base);
+            return Ok(self.tree.push_payload(PatPayloadData {
+                record: true,
+                rest,
+                start: s,
+                len: l,
+            }));
         }
-        Ok(None)
+        Ok(NONE)
     }
 
-    fn array_pattern(&mut self) -> PResult<Pattern> {
+    fn array_pattern(&mut self) -> PResult<PatId> {
+        let at = self.tree.next_pat();
         let start = self.expect(Punct::LBracket)?;
-        let mut elems = Vec::new();
-        let mut rest = None;
+        let base = self.scratch.pats.len();
+        // `Option<Option<Ident>>` in three states: absent, present and
+        // anonymous, present and named.
+        let mut rest_kind = 0u32;
+        let mut rest_name = 0u32;
         while !self.is(Punct::RBracket) && !self.at_eof() {
             if self.is(Punct::DotDot) {
-                let dd = self.bump().span;
-                let name = if matches!(self.peek(), Tok::Ident(_)) {
-                    Some(self.expect_ident()?)
+                let dd = self.bump();
+                let name = if matches!(self.peek(), TokKind::Ident) {
+                    Some(self.expect_name()?)
                 } else {
                     None
                 };
-                if rest.is_some() {
+                if rest_kind != 0 {
                     self.error(
                         dd,
                         "an array pattern may have at most one rest pattern",
                         "keep one `..` and match the other elements by position",
                     );
                 }
-                rest = Some(name);
+                match name {
+                    Some(n) => {
+                        rest_kind = 2;
+                        rest_name = self.tree.push_name(Loc::of(n));
+                    }
+                    None => rest_kind = 1,
+                }
                 self.eat(Punct::Comma);
                 // Rest patterns bind only at the end: `[first, ..rest]` is
                 // legal, `[..init, last]` is not.
@@ -2254,13 +2722,16 @@ impl Parser {
                 }
                 break;
             }
-            elems.push(self.pattern()?);
+            let p = self.pattern()?;
+            self.scratch.pats.push(p);
             if !self.eat(Punct::Comma) {
                 break;
             }
         }
         let end = self.expect(Punct::RBracket)?;
-        Ok(Pattern::Array { elems, rest, span: start.to(end) })
+        let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
+        self.scratch.pats.truncate(base);
+        Ok(self.tree.ppush(PKind::Array, [ks, kl, rest_kind, rest_name], start.to(end), at))
     }
 }
 

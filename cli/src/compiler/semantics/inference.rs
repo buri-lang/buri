@@ -13,6 +13,7 @@ use crate::compiler::semantics::resolve::Checker;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
+use crate::parsing::flat;
 use crate::parsing::tree;
 use crate::hash::Map as HashMap;
 
@@ -55,7 +56,7 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
 fn check_fn(c: &mut Checker, fid: FnId) {
     let info = c.tables.fun(fid).clone();
     let Some(decl) = body_ast(c, info.ast) else { return };
-    let Some(body) = decl.body.as_ref() else { return };
+    let Some(body) = decl.body else { return };
 
     let mut inf = Infer::new(c, info.module, info.generics.clone(), info.ret.clone());
     inf.self_con = info.self_ty;
@@ -79,8 +80,9 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         }
     }
     let expected = info.ret.clone();
+    let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
-    inf.unify_at(body.span, &expr.ty.clone(), &expected, "the declared return type");
+    inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
     let hir_body = inf.finish(expr);
     c.bodies.insert(fid, hir_body);
 }
@@ -94,8 +96,9 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let mut inf = Infer::new(c, info.module, Vec::new(), info.ty.clone());
     inf.push_scope();
     let ty = info.ty.clone();
-    let value = inf.check_expr(&decl.value, Some(&ty));
-    inf.unify_at(decl.value.span(), &value.ty.clone(), &ty, "the declared type");
+    let value_span = inf.t.span(decl.value);
+    let value = inf.check_expr(decl.value, Some(&ty));
+    inf.unify_at(value_span, &value.ty.clone(), &ty, "the declared type");
     let body = inf.finish(value);
     c.const_values.insert(cid, body.expr);
 }
@@ -110,7 +113,7 @@ fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     let mut inf = Infer::new(c, info.module, Vec::new(), Ty::Unit);
     inf.in_main = true;
     inf.push_scope();
-    let expr = inf.check_context_body(&decl.body, decl.span);
+    let expr = inf.check_context_body(decl.body, decl.span);
     // A body that did not evaluate to a context type has no generated type,
     // and then its constructor is not usable either — so neither is recorded.
     let ctx_ty = match &expr.ty {
@@ -168,7 +171,7 @@ fn check_tests(c: &mut Checker) {
             let mut inf = Infer::new(c, module, Vec::new(), Ty::Unit);
             inf.in_main = true;
             inf.push_scope();
-            let expr = inf.check_block(&t.body, None);
+            let expr = inf.check_block(t.body, None);
             let body = inf.finish(expr);
             c.bodies.insert(fid, body);
             cases.push(crate::compiler::semantics::resolve::TestCase {
@@ -213,6 +216,20 @@ pub(crate) struct OrScope {
 
 pub struct Infer<'a, 'b> {
     pub c: &'a mut Checker<'b>,
+    /// The flat parse tree the body being checked lives in.
+    ///
+    /// It is `module`'s, and that is the module the body was written in: every
+    /// `FnInfo`, `ConstInfo` and `ContextDeclInfo` is registered with the same
+    /// `module` its `AstRef` names, so an id taken out of a declaration indexes
+    /// this tree and no other. A body never reaches into another module's.
+    ///
+    /// Borrowed for `'b` — the modules live in `Checker::loaded`, which the
+    /// checker only reads — so every id resolved through it is independent of
+    /// the `&mut Checker` this holds, and a `match` arm may bind a name, a
+    /// child list or a type expression out of the tree while the arm's body
+    /// calls a `&mut self` method. That is the same reason `Checker::module`
+    /// returns `&'a` rather than a `&self` borrow.
+    pub(crate) t: &'b flat::Tree,
     pub(crate) module: ModuleId,
     pub(crate) generics: Vec<GenericInfo>,
     pub(crate) ret: Ty,
@@ -249,8 +266,10 @@ pub struct Infer<'a, 'b> {
 impl<'a, 'b> Infer<'a, 'b> {
     fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: Vec<GenericInfo>, ret: Ty) -> Self {
         let role = c.module(module).role;
+        let t = &c.module(module).ast.tree;
         Infer {
             c,
+            t,
             module,
             generics,
             ret,
@@ -272,6 +291,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
+    /// The tree, detached from the `&self` borrow.
+    ///
+    /// `t` is a `&'b` reference and therefore `Copy`, so what comes back
+    /// outlives this call and a checking method may hold a view, a child list
+    /// or a name from it across its own `&mut self` recursion. Reading the
+    /// field directly would reborrow `self`.
+    pub(crate) fn tree(&self) -> &'b flat::Tree {
+        self.t
+    }
+
     /// Records what the capture rule needs to know about a newly bound local:
     /// whether it holds an effect, and — the part `is_effect_carrying` cannot
     /// see — whether it *would* hold one at some instantiation of the enclosing
@@ -281,11 +310,13 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// parameter, a `let`, a pattern binding, and a lambda's own parameters are
     /// all bindings an inner lambda could close over.
     pub(crate) fn note_capture_risk(&mut self, local: LocalId, ty: &Ty) {
-        let generics = self.generics.clone();
+        // `generics` and `c` are different fields, so neither predicate needs
+        // a copy of the list — and this runs for every parameter, every `let`
+        // and every pattern binding.
         let resolved = self.resolve(ty);
-        if self.c.tables.is_effect_carrying(&resolved, &generics) {
+        if self.c.tables.is_effect_carrying(&resolved, &self.generics) {
             self.effect_locals.insert(local);
-        } else if self.c.tables.may_carry_effect(&resolved, &generics) {
+        } else if self.c.tables.may_carry_effect(&resolved, &self.generics) {
             self.poly_locals.insert(local);
         }
     }
@@ -560,12 +591,20 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.subst.shallow(t)
     }
 
+    /// The same, without the copy, for the callers that only look at the head.
+    pub(crate) fn resolve_ref<'t>(&'t self, t: &'t Ty) -> &'t Ty {
+        self.subst.shallow_ref(t)
+    }
+
     pub(crate) fn prim(&self, p: Prim) -> Ty {
         self.c.tables.prim(p)
     }
 
+    /// `as_prim` reads the head constructor and nothing else, and it runs
+    /// twice per expression node through `coerce`, so it must not copy the
+    /// type to ask.
     pub(crate) fn as_prim(&self, t: &Ty) -> Option<Prim> {
-        self.c.tables.as_prim(&self.resolve(t))
+        self.c.tables.as_prim(self.resolve_ref(t))
     }
 
     pub(crate) fn show_ty(&self, t: &Ty) -> String {
@@ -601,9 +640,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             // The one failure that is about the *kind* of type rather than a
             // missing implementation. Saying "add `derive Eq`" here would be
             // advice that cannot be taken.
-            let generics = self.generics.clone();
             if !self.c.tables.trait_(tr).is_effect
-                && self.c.tables.is_effect_carrying(&ty, &generics)
+                && self.c.tables.is_effect_carrying(&ty, &self.generics)
             {
                 let d = self.err(
                     span,

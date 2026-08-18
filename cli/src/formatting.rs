@@ -59,7 +59,11 @@
 //! conditional on the answer the propagation is trying to compute.
 
 use crate::diagnostics::{FileId, Span};
-use crate::parsing::lexer::{lex, Comment, Tok};
+use crate::parsing::flat::{
+    ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, PartView, PatId,
+    PatView, StmtKind, Tree, TypeId,
+};
+use crate::parsing::lexer::{lex, Comment, TokKind};
 use crate::parsing::tree::*;
 use std::fmt::Write as _;
 
@@ -73,7 +77,7 @@ const INDENT: usize = 4;
 pub fn source_unchecked(text: &str) -> String {
     let parsed = crate::parsing::parser::parse(text, FileId(0));
     let mut tv = Comments::read(text);
-    render(&Build { tv: &mut tv }.module(&parsed.module))
+    render(&Build { tv: &mut tv, t: &parsed.module.tree }.module(&parsed.module))
 }
 
 /// Returns `None` when the file does not parse, in which case it is left
@@ -84,7 +88,7 @@ pub fn source(text: &str) -> Option<String> {
         return None;
     }
     let mut tv = Comments::read(text);
-    let out = render(&Build { tv: &mut tv }.module(&parsed.module));
+    let out = render(&Build { tv: &mut tv, t: &parsed.module.tree }.module(&parsed.module));
 
     // A formatter that produces something that does not parse is worse than no
     // formatter, so the output is checked before it is offered.
@@ -706,15 +710,18 @@ impl Trivia {
     /// The only constructor, which is what makes `Run` non-empty: with nothing
     /// written above the token there is no run for the rest of the fields to
     /// describe, so there is no `Run` either.
-    fn read(t: &crate::parsing::lexer::Token) -> Trivia {
-        let at = t.span.start;
-        let docs = Docs::read(t.docs.clone(), t.docs_blank);
+    ///
+    /// `at` is the token's offset, which the lexer's trivia table does not
+    /// carry: it is keyed by token index, and the caller is the one holding
+    /// the tokens.
+    fn read(at: u32, t: crate::parsing::lexer::Trivia) -> Trivia {
+        let docs = Docs::read(t.docs, t.docs_blank);
         if t.comments.is_empty() && matches!(docs, Docs::None) {
             return Trivia::Blank { at };
         }
         Trivia::Run {
             at,
-            comments: t.comments.clone(),
+            comments: t.comments,
             docs,
             blank: t.blank_before,
             detached: t.detached,
@@ -773,11 +780,18 @@ struct Comments {
 impl Comments {
     fn read(text: &str) -> Comments {
         let lexed = lex(text, FileId(0));
+        let tokens = lexed.tokens;
         let entries = lexed
-            .tokens
-            .iter()
-            .filter(|t| !t.comments.is_empty() || !t.docs.is_empty() || t.blank_before)
-            .map(|t| Entry { trivia: Trivia::read(t), claimed: false })
+            .trivia
+            .into_iter()
+            .filter_map(|(at, t)| {
+                let at = at as usize;
+                if at >= tokens.len() {
+                    return None;
+                }
+                let start = tokens.span(at).start;
+                Some(Entry { trivia: Trivia::read(start, t), claimed: false })
+            })
             .collect();
         Comments { entries }
     }
@@ -846,6 +860,14 @@ impl Comments {
 
 struct Build<'t> {
     tv: &'t mut Comments,
+    /// The arenas everything below the declaration level lives in.
+    ///
+    /// Held rather than passed, because every printer is a method and the tree
+    /// is the same one for the whole module. It is read through [`Build::tree`]
+    /// and never through the field: `self.t` behind `&self` reborrows `self`,
+    /// which a printer that binds a child list and then calls `&mut self` may
+    /// not do.
+    t: &'t Tree,
 }
 
 /// Which half of the run an import belongs to. The standard library comes
@@ -893,7 +915,15 @@ fn spec_list(specs: &[ImportSpec]) -> Vec<String> {
     out
 }
 
-impl Build<'_> {
+impl<'t> Build<'t> {
+    /// The tree, borrowed for as long as the module rather than for as long as
+    /// this call. A printer binds a child list or a name out of it and then
+    /// calls another printer through `&mut self`, which is only possible
+    /// because what comes back here does not borrow `self`.
+    fn tree(&self) -> &'t Tree {
+        self.t
+    }
+
     // -- comments ----------------------------------------------------------
 
     /// Comment and doc lines, as lines of a document.
@@ -1157,7 +1187,7 @@ impl Build<'_> {
                 let ex = if d.exported { "export " } else { "" };
                 self.assign(
                     &format!("{ex}const {}: {} = ", d.name.name, ty(&d.ty)),
-                    &d.value,
+                    d.value,
                     ";",
                 )
             }
@@ -1223,11 +1253,11 @@ impl Build<'_> {
             }
             Item::Context(d) => {
                 let ex = if d.exported { "export " } else { "" };
-                let body = self.context_body(&d.body);
+                let body = self.context_body(d.body);
                 braced(&format!("{ex}context {} {{", d.name.name), body)
             }
             Item::Test(d) => {
-                let body = self.block_lines(&d.body);
+                let body = self.block_lines(d.body);
                 braced(&format!("test {} {{", quote(&d.name)), body)
             }
         }
@@ -1256,11 +1286,12 @@ impl Build<'_> {
         ]))
     }
 
-    fn context_body(&mut self, body: &ContextBody) -> Doc {
+    fn context_body(&mut self, id: CtxBodyId) -> Doc {
+        let body = self.tree().ctx_body(id);
         let lo = body.span.start;
         let mut lines = Vec::new();
-        if let Some(s) = &body.spread {
-            if let Some(c) = self.flush(lo, s.span().start) {
+        if let Some(s) = self.tree().opt(body.spread) {
+            if let Some(c) = self.flush(lo, self.tree().span(s).start) {
                 lines.push(c);
             }
             lines.push(self.assign("..", s, ","));
@@ -1268,11 +1299,12 @@ impl Build<'_> {
         // No alignment. A column of padding is a column that moves every time
         // the longest name in the block changes, so one binding renamed is a
         // diff on every line around it.
-        for b in &body.bindings {
+        for b in self.tree().bindings_at(body.bind_start, body.bind_len) {
             if let Some(c) = self.flush(lo, b.span.start) {
                 lines.push(c);
             }
-            lines.push(self.assign(&format!("{}: ", ty(&b.effect)), &b.value, ","));
+            let head = format!("{}: ", ty(self.tree().ty(TypeId(b.effect))));
+            lines.push(self.assign(&head, ExprId(b.value), ","));
         }
         if let Some(c) = self.flush(lo, body.span.end.saturating_sub(1)) {
             lines.push(c);
@@ -1327,9 +1359,10 @@ impl Build<'_> {
         // written among its parameters, and only what is left over — a comment
         // above the return type, say, which has no line of its own — comes
         // back above the declaration.
-        let sig_end = d.body.as_ref().map(|b| b.span.start).unwrap_or(d.span.end);
+        let sig_end =
+            d.body.map(|b| self.tree().block_span(b).start).unwrap_or(d.span.end);
         let ex = if exported { "export " } else { "" };
-        let decl = match &d.body {
+        let decl = match d.body {
             None => self.signature_doc(d, ex, ";"),
             Some(b) => {
                 // The block is read first only to learn whether it has
@@ -1407,33 +1440,43 @@ impl Build<'_> {
     /// The lines of a block: its statements, its tail, and every comment
     /// written among them. Joined with `HardLine`, and with no break of its
     /// own at either end, so the block that holds it decides its braces.
-    fn block_lines(&mut self, b: &Block) -> Doc {
+    fn block_lines(&mut self, id: BlockId) -> Doc {
+        let b = self.tree().block(id);
         let lo = b.span.start;
         let mut lines: Vec<Doc> = Vec::new();
-        for s in &b.stmts {
+        for s in self.tree().stmts_at(b.stmts_start, b.stmts_len) {
             // A blank line between two statements is a paragraph break inside
             // a function, and grouping the steps of a long one is what it is
             // for. One of them, however many were typed.
-            let gap = self.tv.blank_at(s.span().start);
+            let gap = self.tv.blank_at(s.span.start);
             // Everything written above this statement, including anything
             // stranded inside the statement before it.
-            match self.flush(lo, s.span().start) {
+            match self.flush(lo, s.span.start) {
                 Some(c) => lines.push(c),
                 None if gap => lines.push(Doc::Blank),
                 None => {}
             }
-            lines.push(match s {
-                Stmt::Let { pattern, ty: t, value, is_ctx, .. } => {
-                    let name = if *is_ctx { "ctx".to_string() } else { pattern_str(pattern) };
-                    let ann = t.as_ref().map(|x| format!(": {}", ty(x))).unwrap_or_default();
-                    self.assign(&format!("let {name}{ann} = "), value, ";")
+            lines.push(match s.kind {
+                StmtKind::Let => {
+                    let name = if s.is_ctx {
+                        "ctx".to_string()
+                    } else {
+                        pattern_str(self.tree(), PatId(s.pattern))
+                    };
+                    let ann = self
+                        .tree()
+                        .opt_type(s.ty)
+                        .map(|x| format!(": {}", ty(self.tree().ty(x))))
+                        .unwrap_or_default();
+                    self.assign(&format!("let {name}{ann} = "), ExprId(s.value), ";")
                 }
-                Stmt::Expr { expr: e, .. } => self.assign("", e, ";"),
+                StmtKind::Expr => self.assign("", ExprId(s.value), ";"),
             });
         }
-        if let Some(t) = &b.tail {
-            let gap = self.tv.blank_at(t.span().start);
-            match self.flush(lo, t.span().start) {
+        if let Some(t) = self.tree().opt(b.tail) {
+            let at = self.tree().span(t).start;
+            let gap = self.tv.blank_at(at);
+            match self.flush(lo, at) {
                 Some(c) => lines.push(c),
                 None if gap => lines.push(Doc::Blank),
                 None => {}
@@ -1455,10 +1498,10 @@ impl Build<'_> {
     /// columns of room. That is a `group` around the space before it, and it is
     /// the only place the printer looks at the *shape* of an expression rather
     /// than at its width.
-    fn assign(&mut self, prefix: &str, e: &Expr, suffix: &str) -> Doc {
+    fn assign(&mut self, prefix: &str, e: ExprId, suffix: &str) -> Doc {
         let d = self.expr(e);
         match prefix.strip_suffix(' ') {
-            Some(head) if !breakable(e) => group(cat(vec![
+            Some(head) if !breakable(self.tree(), e) => group(cat(vec![
                 text(head.to_string()),
                 nest(cat(vec![Doc::Line, d])),
                 text(suffix.to_string()),
@@ -1469,23 +1512,23 @@ impl Build<'_> {
 
     // -- expressions -------------------------------------------------------
 
-    fn expr(&mut self, e: &Expr) -> Doc {
-        match e {
-            Expr::Int { raw, .. } | Expr::Float { raw, .. } => text(raw.clone()),
-            Expr::Str { value, .. } => text(quote(value)),
-            Expr::Char { value, .. } => text(quote_char(*value)),
-            Expr::Bool { value, .. } => text(value.to_string()),
-            Expr::Unit { .. } => text("()"),
-            Expr::Ident { name, .. } => text(name.clone()),
-            Expr::SelfValue { .. } => text("self"),
-            Expr::Ctx { .. } => text("ctx"),
-            Expr::DotVariant { name, .. } => text(format!(".{}", name.name)),
-            Expr::Template { parts, .. } => {
+    fn expr(&mut self, e: ExprId) -> Doc {
+        match self.tree().expr(e) {
+            ExprView::Int { raw, .. } | ExprView::Float { raw, .. } => text(raw),
+            ExprView::Str { value, .. } => text(quote(value)),
+            ExprView::Char { value, .. } => text(quote_char(value)),
+            ExprView::Bool { value, .. } => text(value.to_string()),
+            ExprView::Unit { .. } => text("()"),
+            ExprView::Ident { name, .. } => text(name),
+            ExprView::SelfValue { .. } => text("self"),
+            ExprView::Ctx { .. } => text("ctx"),
+            ExprView::DotVariant { name, .. } => text(format!(".{name}")),
+            ExprView::Template { parts, .. } => {
                 let mut v = vec![text("\"")];
                 for p in parts {
-                    match p {
-                        TemplatePart::Text(t) => v.push(text(template_text(t))),
-                        TemplatePart::Hole(h) => {
+                    match self.tree().part(*p) {
+                        PartView::Text(t) => v.push(text(template_text(t))),
+                        PartView::Hole(h) => {
                             v.push(text("${"));
                             let d = self.expr(h);
                             v.push(d);
@@ -1496,7 +1539,7 @@ impl Build<'_> {
                 v.push(text("\""));
                 cat(v)
             }
-            Expr::Array { elems, .. } => {
+            ExprView::Array { elems, .. } => {
                 if elems.is_empty() {
                     return text("[]");
                 }
@@ -1505,32 +1548,32 @@ impl Build<'_> {
                 // reflow the ones after it; a list that reads down does not.
                 // The clause of an import is the exception, and it is one
                 // because a name there is not an element of anything.
-                let items: Vec<Doc> = elems.iter().map(|x| self.expr(x)).collect();
+                let items: Vec<Doc> = elems.iter().map(|x| self.expr(*x)).collect();
                 bracketed("[", items, "]")
             }
-            Expr::Tuple { elems, .. } => {
-                let items: Vec<Doc> = elems.iter().map(|x| self.expr(x)).collect();
+            ExprView::Tuple { elems, .. } => {
+                let items: Vec<Doc> = elems.iter().map(|x| self.expr(*x)).collect();
                 bracketed("(", items, ")")
             }
-            Expr::Block(b) => {
-                let inner = self.block_lines(b);
+            ExprView::Block { block, .. } => {
+                let inner = self.block_lines(block);
                 block_doc(inner)
             }
-            Expr::If { .. } => self.if_chain(e),
-            Expr::Match { scrutinee, arms, span } => self.match_expr(scrutinee, arms, *span),
-            Expr::ContextExpr { body, .. } => {
+            ExprView::If { .. } => self.if_chain(e),
+            ExprView::Match { scrutinee, arms, span } => self.match_expr(scrutinee, arms, span),
+            ExprView::ContextExpr { body, .. } => {
                 let body = self.context_body(body);
                 braced("context {", body)
             }
-            Expr::Lambda { params, ret, body, .. } => {
+            ExprView::Lambda { params, ret, body, .. } => {
                 // Braces, unless the body fits beside the parameter list. A
                 // body hanging under a bare `=>` reads as a continuation of
                 // nothing; the braced form is the block body the grammar
                 // already has (`fn(x) => { … }`), so this costs the parser
                 // nothing and the reader a delimiter they can find.
-                let head = lambda_head(params, ret);
+                let head = lambda_head(self.tree(), params, ret);
                 let d = self.expr(body);
-                if matches!(&**body, Expr::Block(_)) {
+                if self.tree().kind(body) == Kind::Block {
                     return cat(vec![text(format!("{head} ")), d]);
                 }
                 alt(
@@ -1543,34 +1586,34 @@ impl Build<'_> {
                     ]),
                 )
             }
-            Expr::Unary { op, operand, .. } => {
+            ExprView::Unary { op, operand, .. } => {
                 let d = self.at(operand, 10);
                 cat(vec![text(op.text()), d])
             }
-            Expr::Binary { op, .. } => {
+            ExprView::Binary { op, .. } => {
                 // The whole run of one precedence breaks together: a chain of
                 // `&&` reads as a list of conditions, and a list reads down.
-                let p = binop_prec(*op);
+                let p = binop_prec(op);
                 let mut parts = Vec::new();
-                let head = spine(e, p, &mut parts);
+                let head = spine(self.tree(), e, p, &mut parts);
                 let first = self.at(head, p);
                 let mut rest = Vec::new();
-                for (operand, op) in &parts {
+                for (operand, op) in parts {
                     let d = self.at(operand, p.saturating_add(1));
                     rest.push(cat(vec![Doc::Line, text(format!("{} ", op.text())), d]));
                 }
                 group(cat(vec![first, nest(cat(rest))]))
             }
-            Expr::Field { .. }
-            | Expr::Call { .. }
-            | Expr::Index { .. }
-            | Expr::Try { .. }
-            | Expr::Generic { .. } => self.chain_expr(e),
-            Expr::TupleIndex { base, index, .. } => {
+            ExprView::Field { .. }
+            | ExprView::Call { .. }
+            | ExprView::Index { .. }
+            | ExprView::Try { .. }
+            | ExprView::Generic { .. } => self.chain_expr(e),
+            ExprView::TupleIndex { base, index, .. } => {
                 // `t.0.1` lexes as `t` `.` `0.1`, so a nested tuple index keeps
                 // its parentheses: `(t.0).1`. A known lexical wart, accepted
                 // because it is what lets `pair.0` lex at all (grammar.ebnf).
-                let b = if matches!(&**base, Expr::TupleIndex { .. }) {
+                let b = if self.tree().kind(base) == Kind::TupleIndex {
                     let d = self.expr(base);
                     cat(vec![text("("), d, text(")")])
                 } else {
@@ -1578,7 +1621,7 @@ impl Build<'_> {
                 };
                 cat(vec![b, text(format!(".{index}"))])
             }
-            Expr::StructLit { head, spread, fields, .. } => {
+            ExprView::StructLit { head, spread, fields, .. } => {
                 let h = self.operand(head);
                 if spread.is_none() && fields.is_empty() {
                     return cat(vec![h, text(" { }")]);
@@ -1589,12 +1632,13 @@ impl Build<'_> {
                     items.push(cat(vec![text(".."), d]));
                 }
                 for f in fields {
-                    items.push(match &f.value {
+                    let name = self.tree().text(f.name);
+                    items.push(match self.tree().opt(f.value) {
                         Some(v) => {
                             let d = self.expr(v);
-                            cat(vec![text(format!("{}: ", f.name.name)), d])
+                            cat(vec![text(format!("{name}: ")), d])
                         }
-                        None => text(f.name.name.clone()),
+                        None => text(name),
                     });
                 }
                 group(cat(vec![
@@ -1613,9 +1657,9 @@ impl Build<'_> {
     }
 
     /// Parenthesizes only where precedence requires it.
-    fn at(&mut self, e: &Expr, parent: u8) -> Doc {
+    fn at(&mut self, e: ExprId, parent: u8) -> Doc {
         let d = self.expr(e);
-        if expr_prec(e) < parent {
+        if expr_prec(self.tree(), e) < parent {
             cat(vec![text("("), d, text(")")])
         } else {
             d
@@ -1623,9 +1667,9 @@ impl Build<'_> {
     }
 
     /// The head of a postfix chain.
-    fn operand(&mut self, e: &Expr) -> Doc {
+    fn operand(&mut self, e: ExprId) -> Doc {
         let d = self.expr(e);
-        if needs_parens(e) {
+        if needs_parens(self.tree(), e) {
             cat(vec![text("("), d, text(")")])
         } else {
             d
@@ -1636,13 +1680,13 @@ impl Build<'_> {
     /// moment any of it breaks all of it does. Keeping `{ a }` beside the
     /// condition and breaking only the tail gives a shape that depends on
     /// which branch happened to be longest.
-    fn if_chain(&mut self, e: &Expr) -> Doc {
+    fn if_chain(&mut self, e: ExprId) -> Doc {
         let mut v = Vec::new();
         let mut node = e;
         let mut lead = "if (";
         loop {
-            match node {
-                Expr::If { cond, then, else_, .. } => {
+            match self.tree().expr(node) {
+                ExprView::If { cond, then, else_, .. } => {
                     let c = self.expr(cond);
                     // The condition is its own group: a wide `if` need not mean
                     // a condition that did not fit.
@@ -1658,16 +1702,16 @@ impl Build<'_> {
                     lead = "} else if (";
                     node = else_;
                 }
-                Expr::Block(b) => {
-                    let body = self.block_lines(b);
+                ExprView::Block { block, .. } => {
+                    let body = self.block_lines(block);
                     v.push(text("} else {"));
                     v.push(nest(cat(vec![Doc::Line, body])));
                     v.push(Doc::Line);
                     v.push(text("}"));
                     break;
                 }
-                other => {
-                    let d = self.expr(other);
+                _ => {
+                    let d = self.expr(node);
                     v.push(text("} else "));
                     v.push(d);
                     break;
@@ -1677,7 +1721,7 @@ impl Build<'_> {
         group(cat(v))
     }
 
-    fn match_expr(&mut self, scrutinee: &Expr, arms: &[MatchArm], span: Span) -> Doc {
+    fn match_expr(&mut self, scrutinee: ExprId, arms: &[ArmData], span: Span) -> Doc {
         let s = self.expr(scrutinee);
         let head = group(cat(vec![
             text("match ("),
@@ -1692,8 +1736,8 @@ impl Build<'_> {
             if let Some(c) = self.flush(span.start, a.span.start) {
                 lines.push(c);
             }
-            let mut v = vec![text(pattern_str(&a.pattern))];
-            if let Some(g) = &a.guard {
+            let mut v = vec![text(pattern_str(self.tree(), PatId(a.pattern)))];
+            if let Some(g) = self.tree().opt(a.guard) {
                 let d = self.expr(g);
                 v.push(text(" if "));
                 v.push(d);
@@ -1702,8 +1746,8 @@ impl Build<'_> {
             // a lambda body gets, and for the same reason. An arm body is an
             // expression, so the braced form is a block expression, which is
             // what the arm would have held anyway.
-            let body = self.expr(&a.body);
-            if matches!(&a.body, Expr::Block(_)) {
+            let body = self.expr(ExprId(a.body));
+            if self.tree().kind(ExprId(a.body)) == Kind::Block {
                 v.push(text(" => "));
                 v.push(body);
             } else {
@@ -1751,9 +1795,9 @@ impl Build<'_> {
     /// arguments between the name and the call do not stop `.parse<T>()`
     /// being one. What makes a link a break point is that it starts with `.`,
     /// which is also what makes it readable at the start of a line.
-    fn chain_expr(&mut self, e: &Expr) -> Doc {
+    fn chain_expr(&mut self, e: ExprId) -> Doc {
         let mut links = Vec::new();
-        let base = chain(e, &mut links);
+        let base = chain(self.tree(), e, &mut links);
         let base_doc = self.operand(base);
 
         // Each link is built once and cloned into every candidate: building it
@@ -1761,11 +1805,12 @@ impl Build<'_> {
         // none of them.
         let mut assembled: Vec<Doc> = Vec::new();
         for l in &links {
-            match l {
+            match *l {
                 Link::Field(name) => assembled.push(text(format!(".{name}"))),
                 Link::Call(xs) => {
-                    let ds: Vec<Doc> = xs.iter().map(|x| self.expr(x)).collect();
-                    assembled.push(args_doc(ds, xs.last().is_some_and(huggable)));
+                    let ds: Vec<Doc> = xs.iter().map(|x| self.expr(*x)).collect();
+                    let hug = xs.last().is_some_and(|x| huggable(self.tree(), *x));
+                    assembled.push(args_doc(ds, hug));
                 }
                 Link::Index(x) => {
                     let d = self.expr(x);
@@ -1966,12 +2011,18 @@ fn block_doc(inner: Doc) -> Doc {
 // -- the shape of an expression --------------------------------------------
 
 /// One postfix operator applied to whatever is to its left.
-enum Link<'a> {
-    Field(&'a str),
-    Call(&'a [Expr]),
-    Index(&'a Expr),
+///
+/// `Copy`, because every field is an id or a slice of the tree rather than a
+/// borrow of a node: the three passes `chain_expr` makes over a `Vec<Link>`
+/// while calling `&mut self` printers are no longer a borrow-checker
+/// negotiation.
+#[derive(Clone, Copy)]
+enum Link<'t> {
+    Field(&'t str),
+    Call(&'t [ExprId]),
+    Index(ExprId),
     Try,
-    TypeArgs(&'a [TypeExpr]),
+    TypeArgs(&'t [TypeExpr]),
 }
 
 /// Splits a postfix chain into the thing it starts from and the operators
@@ -1980,30 +2031,30 @@ enum Link<'a> {
 /// `TupleIndex` is not one of them: `(t.0).1` needs parentheses that a chain
 /// printed left to right has no way to put back, so a tuple index ends the
 /// chain and is printed as the base.
-fn chain<'a>(e: &'a Expr, links: &mut Vec<Link<'a>>) -> &'a Expr {
-    match e {
-        Expr::Field { base, name, .. } => {
-            let b = chain(base, links);
-            links.push(Link::Field(&name.name));
+fn chain<'t>(t: &'t Tree, e: ExprId, links: &mut Vec<Link<'t>>) -> ExprId {
+    match t.expr(e) {
+        ExprView::Field { base, name, .. } => {
+            let b = chain(t, base, links);
+            links.push(Link::Field(name));
             b
         }
-        Expr::Call { callee, args, .. } => {
-            let b = chain(callee, links);
+        ExprView::Call { callee, args, .. } => {
+            let b = chain(t, callee, links);
             links.push(Link::Call(args));
             b
         }
-        Expr::Index { base, index, .. } => {
-            let b = chain(base, links);
+        ExprView::Index { base, index, .. } => {
+            let b = chain(t, base, links);
             links.push(Link::Index(index));
             b
         }
-        Expr::Try { base, .. } => {
-            let b = chain(base, links);
+        ExprView::Try { base, .. } => {
+            let b = chain(t, base, links);
             links.push(Link::Try);
             b
         }
-        Expr::Generic { base, args, .. } => {
-            let b = chain(base, links);
+        ExprView::Generic { base, args, .. } => {
+            let b = chain(t, base, links);
             links.push(Link::TypeArgs(args));
             b
         }
@@ -2014,32 +2065,37 @@ fn chain<'a>(e: &'a Expr, links: &mut Vec<Link<'a>>) -> &'a Expr {
 
 /// Whether a trailing argument has a shape of its own that a wide call can
 /// spill into, rather than one that would have to be indented as a unit.
-fn huggable(e: &Expr) -> bool {
-    match e {
-        Expr::Lambda { .. } | Expr::Array { .. } | Expr::StructLit { .. } => true,
-        e => e.is_block_like(),
+fn huggable(t: &Tree, e: ExprId) -> bool {
+    match t.kind(e) {
+        Kind::Lambda | Kind::Array | Kind::StructLit => true,
+        k => k.is_block_like(),
     }
 }
 
 /// Whether the broken form of an expression is narrower than its one-line
 /// form — that is, whether there is anything inside it to break.
-fn breakable(e: &Expr) -> bool {
-    match e {
-        Expr::Array { .. }
-        | Expr::Tuple { .. }
-        | Expr::Call { .. }
-        | Expr::StructLit { .. }
-        | Expr::Binary { .. }
-        | Expr::Lambda { .. } => true,
-        Expr::Field { .. } | Expr::Index { .. } | Expr::Try { .. } | Expr::Generic { .. } => {
+fn breakable(t: &Tree, e: ExprId) -> bool {
+    match t.expr(e) {
+        ExprView::Array { .. }
+        | ExprView::Tuple { .. }
+        | ExprView::Call { .. }
+        | ExprView::StructLit { .. }
+        | ExprView::Binary { .. }
+        | ExprView::Lambda { .. } => true,
+        ExprView::Field { .. }
+        | ExprView::Index { .. }
+        | ExprView::Try { .. }
+        | ExprView::Generic { .. } => {
             let mut links = Vec::new();
-            let base = chain(e, &mut links);
+            let base = chain(t, e, &mut links);
             links.iter().filter(|l| matches!(l, Link::Field(_))).count() >= 2
                 || links.iter().any(|l| matches!(l, Link::Call(a) if !a.is_empty()))
-                || breakable(base)
+                || breakable(t, base)
         }
-        Expr::TupleIndex { base, .. } | Expr::Unary { operand: base, .. } => breakable(base),
-        e => e.is_block_like(),
+        ExprView::TupleIndex { base, .. } | ExprView::Unary { operand: base, .. } => {
+            breakable(t, base)
+        }
+        _ => t.kind(e).is_block_like(),
     }
 }
 
@@ -2047,8 +2103,9 @@ fn breakable(e: &Expr) -> bool {
 /// A block-like expression may not head a postfix chain (SPEC 12.13), so it
 /// gets parentheses; so does anything that binds looser than a postfix
 /// operator.
-fn needs_parens(e: &Expr) -> bool {
-    expr_prec(e) < 11 || (e.is_block_like() && !matches!(e, Expr::Block(_)))
+fn needs_parens(t: &Tree, e: ExprId) -> bool {
+    let k = t.kind(e);
+    expr_prec(t, e) < 11 || (k.is_block_like() && k != Kind::Block)
 }
 
 /// The operands of one precedence level, left to right. The first carries no
@@ -2057,31 +2114,31 @@ fn needs_parens(e: &Expr) -> bool {
 /// is returned rather than pushed, because it is the one operand with no
 /// operator in front of it and a caller that had to remember that was a caller
 /// that could forget.
-fn spine<'a>(e: &'a Expr, p: u8, out: &mut Vec<(&'a Expr, BinOp)>) -> &'a Expr {
-    if let Expr::Binary { op, lhs, rhs, .. } = e {
-        if binop_prec(*op) == p {
-            let head = spine(lhs, p, out);
-            out.push((rhs, *op));
+fn spine(t: &Tree, e: ExprId, p: u8, out: &mut Vec<(ExprId, BinOp)>) -> ExprId {
+    if let ExprView::Binary { op, lhs, rhs, .. } = t.expr(e) {
+        if binop_prec(op) == p {
+            let head = spine(t, lhs, p, out);
+            out.push((rhs, op));
             return head;
         }
     }
     e
 }
 
-fn lambda_head(params: &[LambdaParam], ret: &Option<TypeExpr>) -> String {
+fn lambda_head(t: &Tree, params: &[LambdaParamData], ret: Option<TypeId>) -> String {
     let mut out = String::from("fn(");
     for (i, p) in params.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
         }
-        out.push_str(&p.name.name);
-        if let Some(t) = &p.ty {
-            let _ = write!(out, ": {}", ty(t));
+        out.push_str(t.text(p.name));
+        if let Some(a) = t.opt_type(p.ty) {
+            let _ = write!(out, ": {}", ty(t.ty(a)));
         }
     }
     out.push(')');
     if let Some(r) = ret {
-        let _ = write!(out, ": {}", ty(r));
+        let _ = write!(out, ": {}", ty(t.ty(r)));
     }
     out.push_str(" =>");
     out
@@ -2120,13 +2177,13 @@ fn binop_prec(op: BinOp) -> u8 {
     }
 }
 
-fn expr_prec(e: &Expr) -> u8 {
-    match e {
+fn expr_prec(t: &Tree, e: ExprId) -> u8 {
+    match t.expr(e) {
         // A lambda's body extends maximally to the right, so it is never a
         // bare operand (SPEC 12.11).
-        Expr::Lambda { .. } => 0,
-        Expr::Binary { op, .. } => binop_prec(*op),
-        Expr::Unary { .. } => 10,
+        ExprView::Lambda { .. } => 0,
+        ExprView::Binary { op, .. } => binop_prec(op),
+        ExprView::Unary { .. } => 10,
         _ => 11,
     }
 }
@@ -2248,66 +2305,69 @@ fn quote(s: &str) -> String {
     out
 }
 
-pub fn pattern_str(p: &Pattern) -> String {
-    match p {
-        Pattern::Wild { .. } => "_".into(),
-        Pattern::Bind { name, sub, .. } => match sub {
-            Some(s) => format!("{} @ {}", name.name, pattern_str(s)),
-            None => name.name.clone(),
+pub fn pattern_str(t: &Tree, p: PatId) -> String {
+    match t.pat(p) {
+        PatView::Wild { .. } => "_".into(),
+        PatView::Bind { name, sub, .. } => match sub {
+            Some(s) => format!("{name} @ {}", pattern_str(t, s)),
+            None => name.to_string(),
         },
-        Pattern::LitInt { raw, negative, .. } => {
-            format!("{}{raw}", if *negative { "-" } else { "" })
+        // `raw` is the literal token's own text, which for `-1` is `"1"`: the
+        // node's span starts at the `-` and the sign is the `negative` flag.
+        PatView::LitInt { raw, negative, .. } => {
+            format!("{}{raw}", if negative { "-" } else { "" })
         }
-        Pattern::LitFloat { raw, negative, .. } => {
-            format!("{}{raw}", if *negative { "-" } else { "" })
+        PatView::LitFloat { raw, negative, .. } => {
+            format!("{}{raw}", if negative { "-" } else { "" })
         }
-        Pattern::LitStr { value, .. } => quote(value),
-        Pattern::LitChar { value, .. } => quote_char(*value),
-        Pattern::LitBool { value, .. } => value.to_string(),
-        Pattern::Unit { .. } => "()".into(),
-        Pattern::Tuple { elems, .. } => {
-            format!("({})", elems.iter().map(pattern_str).collect::<Vec<_>>().join(", "))
+        PatView::LitStr { value, .. } => quote(value),
+        PatView::LitChar { value, .. } => quote_char(value),
+        PatView::LitBool { value, .. } => value.to_string(),
+        PatView::Unit { .. } => "()".into(),
+        PatView::Tuple { elems, .. } => {
+            format!("({})", pattern_list(t, elems))
         }
-        Pattern::Array { elems, rest, .. } => {
-            let mut parts: Vec<String> = elems.iter().map(pattern_str).collect();
+        PatView::Array { elems, rest, .. } => {
+            let mut parts: Vec<String> =
+                elems.iter().map(|e| pattern_str(t, *e)).collect();
             if let Some(r) = rest {
                 parts.push(match r {
-                    Some(n) => format!("..{}", n.name),
+                    Some(n) => format!("..{}", t.text(n)),
                     None => "..".into(),
                 });
             }
             format!("[{}]", parts.join(", "))
         }
-        Pattern::Or { alts, .. } => {
-            alts.iter().map(pattern_str).collect::<Vec<_>>().join(" | ")
+        PatView::Or { alts, .. } => {
+            alts.iter().map(|a| pattern_str(t, *a)).collect::<Vec<_>>().join(" | ")
         }
-        Pattern::Path { path, dotted, payload, .. } => {
-            let joined = path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+        PatView::Path { path, dotted, payload, .. } => {
+            let joined = path.iter().map(|s| t.text(*s)).collect::<Vec<_>>().join(".");
             // A dotted path is `.Variant`, so the one segment and the join of
             // one segment are the same string.
-            let base = if *dotted { format!(".{joined}") } else { joined };
-            match payload {
-                None => base,
-                Some(PatPayload::Tuple(ps)) => format!(
-                    "{base}({})",
-                    ps.iter().map(pattern_str).collect::<Vec<_>>().join(", ")
-                ),
-                Some(PatPayload::Record { fields, rest }) => {
-                    let mut parts: Vec<String> = fields
-                        .iter()
-                        .map(|f| match &f.pattern {
-                            Some(p) => format!("{}: {}", f.name.name, pattern_str(p)),
-                            None => f.name.name.clone(),
-                        })
-                        .collect();
-                    if *rest {
-                        parts.push("..".into());
-                    }
-                    format!("{base} {{ {} }}", parts.join(", "))
-                }
+            let base = if dotted { format!(".{joined}") } else { joined };
+            let Some(pay) = payload else { return base };
+            if !pay.record {
+                return format!("{base}({})", pattern_list(t, t.pkids_at(pay.start, pay.len)));
             }
+            let mut parts: Vec<String> = t
+                .fpats_at(pay.start, pay.len)
+                .iter()
+                .map(|f| match t.opt_pat(f.pattern) {
+                    Some(q) => format!("{}: {}", t.text(f.name), pattern_str(t, q)),
+                    None => t.text(f.name).to_string(),
+                })
+                .collect();
+            if pay.rest {
+                parts.push("..".into());
+            }
+            format!("{base} {{ {} }}", parts.join(", "))
         }
     }
+}
+
+fn pattern_list(t: &Tree, ps: &[PatId]) -> String {
+    ps.iter().map(|p| pattern_str(t, *p)).collect::<Vec<_>>().join(", ")
 }
 
 // -- what formatting must not change ---------------------------------------
@@ -2349,15 +2409,21 @@ fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
     for (line, _) in &lexed.module_docs {
         out.push(Shape::ModuleDoc(line.trim().to_string()));
     }
-    for t in &lexed.tokens {
-        for c in &t.comments {
-            out.push(Shape::Comment(trim_lines(&c.text)));
+    // The trivia table is keyed by token index and in ascending order of it,
+    // so one cursor walks it beside the tokens and the shape stays in source
+    // order without a search per token.
+    let mut trivia = lexed.trivia.iter().peekable();
+    for i in 0..lexed.tokens.len() {
+        if let Some((_, tv)) = trivia.next_if(|(at, _)| *at as usize == i) {
+            for c in &tv.comments {
+                out.push(Shape::Comment(trim_lines(&c.text)));
+            }
+            for d in &tv.docs {
+                out.push(Shape::Doc(d.trim().to_string()));
+            }
         }
-        for d in &t.docs {
-            out.push(Shape::Doc(d.trim().to_string()));
-        }
-        if tokens && !matches!(t.tok, Tok::Eof) {
-            out.push(Shape::Token(t.tok.to_string()));
+        if tokens && lexed.tokens.kind(i) != TokKind::Eof {
+            out.push(Shape::Token(lexed.tokens.describe(i)));
         }
     }
     out

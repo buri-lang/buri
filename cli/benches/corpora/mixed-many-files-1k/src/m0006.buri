@@ -1,0 +1,68 @@
+//! Generated module 6 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node6 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node6;
+
+export fn seed6(): Int { 7515 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend6(base: Int): Int {
+  let d0 = blend1(base) + seed1();
+  let d1 = blend4(base) + seed4();
+  let d2 = blend2(base) + seed2();
+  d0 + d1 + d2 + seed6()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift6(n: Node1): Node6 {
+  Node6 { label: n.label, value: n.value + seed6(), weight: n.weight }
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label6_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "delta" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants6_0(): (Int, Int, Float, Char, Str) {
+  (546841, 0x714B, 679.822, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe6_0<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants6_0();
+  label6_0(ctx, a, e).len() + b
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach6<C: Alloc>(ctx: C): Int {
+  0
+    + probe6_0(ctx)
+    + reach1(ctx)
+    + reach4(ctx)
+    + reach2(ctx)
+}

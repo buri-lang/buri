@@ -1,0 +1,337 @@
+//! Generated module 15 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+from "//bench/m0014" import { Node14, seed14, blend14, reach14 };
+from "//bench/m0009" import { Node9, seed9, blend9, reach9 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node15 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node15;
+
+export fn seed15(): Int { 8786 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend15(base: Int): Int {
+  let d0 = blend1(base) + seed1();
+  let d1 = blend14(base) + seed14();
+  let d2 = blend9(base) + seed9();
+  d0 + d1 + d2 + seed15()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift15(n: Node1): Node15 {
+  Node15 { label: n.label, value: n.value + seed15(), weight: n.weight }
+}
+
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec15_0 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+  export f4: Int,
+}
+
+derive Eq, Show for Rec15_0;
+
+impl Rec15_0 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec15_0, factor: Int): Int {
+    self.f0 * factor + 753
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec15_0, ctx: C): Str {
+    str.format(ctx, "rec15_0: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_0<C: Alloc>(ctx: C): Int {
+  let r = Rec15_0 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// An enum of 5 variants, matched exhaustively below.
+export enum State15_1 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+}
+
+derive Eq, Show for State15_1;
+
+/// The match every enum in a real program has somewhere.
+export fn rank15_1(state: State15_1): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start15_1(ticks: Int): State15_1 {
+  if (ticks == 0) { .Idle } else if (ticks < 72) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_1<C: Alloc>(ctx: C): Int {
+  let s = start15_1(5);
+  rank15_1(s) + s.show(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label15_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "charlie" } else { "delta" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants15_2(): (Int, Int, Float, Char, Str) {
+  (753774, 0x6C32, 81.959, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_2<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants15_2();
+  label15_2(ctx, a, e).len() + b
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose15_3(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth15_3(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_3<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth15_3("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose15_3(.Some(3), .None) + extra
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label15_4<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "alpha" } else { "bravo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants15_4(): (Int, Int, Float, Char, Str) {
+  (400178, 0x9C0D, 768.601, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_4<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants15_4();
+  label15_4(ctx, a, e).len() + b
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr15_5<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll15_5<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric15_5(ns: [Int], ss: [Str]): Int {
+  firstOr15_5<Int>(ns, 0) + firstOr15_5<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_5<C: Alloc>(ctx: C): Int {
+  useGeneric15_5([1, 2], ["a"]) + describeAll15_5(ctx, [1, 2]).len()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State15_6 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State15_6;
+
+/// The match every enum in a real program has somewhere.
+export fn rank15_6(state: State15_6): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start15_6(ticks: Int): State15_6 {
+  if (ticks == 0) { .Idle } else if (ticks < 43) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_6<C: Alloc>(ctx: C): Int {
+  let s = start15_6(5);
+  rank15_6(s) + s.show(ctx).len()
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec15_7 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec15_7;
+
+impl Rec15_7 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec15_7, factor: Int): Int {
+    self.f0 * factor + 547
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec15_7, ctx: C): Str {
+    str.format(ctx, "rec15_7: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_7<C: Alloc>(ctx: C): Int {
+  let r = Rec15_7 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec15_8 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+  export f4: Int,
+}
+
+derive Eq, Show for Rec15_8;
+
+impl Rec15_8 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec15_8, factor: Int): Int {
+    self.f0 * factor + 563
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec15_8, ctx: C): Str {
+    str.format(ctx, "rec15_8: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_8<C: Alloc>(ctx: C): Int {
+  let r = Rec15_8 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose15_9(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth15_9(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe15_9<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth15_9("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose15_9(.Some(3), .None) + extra
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach15<C: Alloc>(ctx: C): Int {
+  0
+    + probe15_0(ctx)
+    + probe15_1(ctx)
+    + probe15_2(ctx)
+    + probe15_3(ctx)
+    + probe15_4(ctx)
+    + probe15_5(ctx)
+    + probe15_6(ctx)
+    + probe15_7(ctx)
+    + probe15_8(ctx)
+    + probe15_9(ctx)
+    + reach1(ctx)
+    + reach14(ctx)
+    + reach9(ctx)
+}

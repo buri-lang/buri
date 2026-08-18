@@ -1,0 +1,71 @@
+//! Generated module 0 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node0 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node0;
+
+export fn seed0(): Int { 1 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend0(base: Int): Int {
+  base + seed0()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State0_0 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State0_0;
+
+/// The match every enum in a real program has somewhere.
+export fn rank0_0(state: State0_0): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start0_0(ticks: Int): State0_0 {
+  if (ticks == 0) { .Idle } else if (ticks < 97) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe0_0<C: Alloc>(ctx: C): Int {
+  let s = start0_0(5);
+  rank0_0(s) + s.show(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach0<C: Alloc>(ctx: C): Int {
+  0
+    + probe0_0(ctx)
+}

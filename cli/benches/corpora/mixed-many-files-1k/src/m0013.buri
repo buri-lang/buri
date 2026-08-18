@@ -1,0 +1,74 @@
+//! Generated module 13 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+from "//bench/m0012" import { Node12, seed12, blend12, reach12 };
+from "//bench/m0006" import { Node6, seed6, blend6, reach6 };
+from "//bench/m0010" import { Node10, seed10, blend10, reach10 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node13 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node13;
+
+export fn seed13(): Int { 2948 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend13(base: Int): Int {
+  let d0 = blend4(base) + seed4();
+  let d1 = blend0(base) + seed0();
+  let d2 = blend12(base) + seed12();
+  let d3 = blend6(base) + seed6();
+  let d4 = blend10(base) + seed10();
+  d0 + d1 + d2 + d3 + d4 + seed13()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift13(n: Node4): Node13 {
+  Node13 { label: n.label, value: n.value + seed13(), weight: n.weight }
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label13_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "alpha" } else { "bravo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants13_0(): (Int, Int, Float, Char, Str) {
+  (368019, 0x5670, 504.063, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe13_0<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants13_0();
+  label13_0(ctx, a, e).len() + b
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach13<C: Alloc>(ctx: C): Int {
+  0
+    + probe13_0(ctx)
+    + reach4(ctx)
+    + reach0(ctx)
+    + reach12(ctx)
+    + reach6(ctx)
+    + reach10(ctx)
+}

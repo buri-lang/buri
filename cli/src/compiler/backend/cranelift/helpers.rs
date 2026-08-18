@@ -5,7 +5,7 @@
 //!
 //! | Helper | Why it is generated rather than called |
 //! |---|---|
-//! | [`Helper::Thunk`] | A closure's `code` takes its environment as a pointer; a lifted lambda takes it as leaves. Something has to convert. |
+//! | [`Helper::Thunk`] | A closure's `code` takes its environment as a pointer; a lifted lambda takes it as leaves. Something has to convert — and it is also the one place the indirect-call ownership convention meets the callee's own (see [`thunk`]). |
 //! | [`Helper::Concat`] | `str.concat` has no `buri_rt_*` entry, and the sequence is a uniqueness test, a copy, and an allocation on the path that needs one (MEMORY.md §5.3). |
 //! | [`Helper::ShowInt`] | `derivePrimShow`'s integer arm (`middle/derives.rs`). |
 //! | [`Helper::ShowBool`] | The same, for `Bool`. |
@@ -17,17 +17,21 @@
 //! Every one is `Linkage::Local`, so a unit that needs `str.concat` has its
 //! own and no two units collide.
 
+use std::rc::Rc;
+
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, Value};
 use cranelift_frontend::FunctionBuilder;
 use cranelift_module::Module;
 
-use crate::compiler::backend::cranelift::abi::PTR;
+use crate::compiler::backend::cranelift::abi::{Leaf, PTR};
 use crate::compiler::backend::cranelift::emit::{
-    mem, Cx, Helper, Pending, Unit, ENV_FIELDS,
+    mem, word, Cx, Helper, Pending, Unit, ENV_FIELDS,
 };
+use crate::compiler::middle::ir::Ownership;
 use crate::compiler::middle::layout::{
-    GROWTH_FLOOR, HEADER_CAP_OFFSET, HEADER_RC_OFFSET, STR_ASCII_FLAG, STR_LEN_MASK,
+    GROWTH_FLOOR, HEADER_CAP_OFFSET, HEADER_RC_OFFSET, STR_ASCII_FLAG, STR_BASE, STR_LEN,
+    STR_LEN_MASK, STR_PTR,
 };
 use crate::compiler::semantics::types::Ty;
 
@@ -41,7 +45,7 @@ pub fn define(unit: &mut Unit<'_>, job: Pending) {
     let key = job.key.clone();
     let ty = job.ty.clone();
     unit.build_function(job.id, sig, &what, move |unit, b| {
-        let cx = Cx { unit, b };
+        let cx = Cx::new(unit, b);
         match key {
             Helper::Thunk { func, env } => thunk(cx, func, env),
             Helper::Concat => concat(cx),
@@ -66,6 +70,21 @@ fn entry(b: &mut FunctionBuilder<'_>) -> Vec<Value> {
     b.block_params(block).to_vec()
 }
 
+/// Answer a `Str` through the out-pointer, which is the last parameter of
+/// every helper that produces one (`abi.rs`'s header).
+///
+/// The three words go to the offsets the layout names rather than to 0, 8 and
+/// 16, so this is the same statement `Lower::gather` makes about a returned
+/// aggregate and not a second opinion about where a `Str`'s fields are.
+fn return_str(cx: &mut Cx<'_, '_, '_>, out: Option<Value>, base: Value, ptr: Value, len: Value) {
+    if let Some(out) = out {
+        cx.store_at(out, word(STR_BASE), base);
+        cx.store_at(out, word(STR_PTR), ptr);
+        cx.store_at(out, word(STR_LEN), len);
+    }
+    cx.b.ins().return_(&[]);
+}
+
 /// `code(env, args...)`, forwarding to the function the closure names.
 ///
 /// With an environment, the record's leaves are loaded out of the block at
@@ -73,32 +92,101 @@ fn entry(b: &mut FunctionBuilder<'_>) -> Vec<Value> {
 /// the lifted lambda declares. Without one, the environment is ignored: a
 /// capture-free lambda is an ordinary `FnRef` by the time it reaches here
 /// (`middle::closures`), and its callee has no environment parameter at all.
+///
+/// # This is where the two ownership conventions meet
+///
+/// `middle/rc.rs` states one of them as an assumption: *"a call through a
+/// function value **owns** its arguments, because a code pointer cannot carry
+/// a per-callee convention"*. The callee has the other one — `ir::Facts`'s
+/// ownership column, inferred per parameter, where a `Str` a lambda only reads
+/// is `Borrow` and is never released by the body.
+///
+/// A thunk is the only thing a code pointer ever points at, so it is the only
+/// place the two can be reconciled, and reconciling them is two rules:
+///
+///  * **An argument the callee borrows is released here, after the call.** The
+///    caller handed over a count and the callee will not consume it, so
+///    without this every step of a `list.map` over a `[Str]` leaks one block
+///    per element — which is exactly what it did.
+///
+///    "Borrows" is `ir::Facts`'s column *and* [`Cx::rc_counted`], because
+///    `Own` has two meanings: a parameter rc promoted because the body
+///    consumes it, and a parameter whose type rc could not see was counted at
+///    all. Only the first releases anything, and only the second is a type the
+///    caller never retained — so both are left alone here, and the question
+///    that separates them is the one rc asked itself.
+///  * **The environment record is retained where the callee *owns* it.** Those
+///    bytes belong to the closure's block, which already holds a count of each
+///    capture (`middle/rc.rs`'s loop tests), so handing them to a body that
+///    will release them would free what the closure still points at.
+///
+/// Both are conditional on the type holding a count at all, so a thunk over
+/// `fn(Int) => Int` is the same three instructions it always was.
 fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
     let params = entry(cx.b);
-    let Some(f) = cx.unit.program.funcs.get(func as usize) else {
+    let program = cx.unit.program;
+    let Some(f) = program.funcs.get(func as usize) else {
         cx.b.ins().trap(super::emit::UNREACHABLE);
         return;
     };
     let sig = f.sig.params.clone();
+    let own = f.facts.params.clone();
     let mut args = Vec::new();
+    // An argument the callee borrows: its type, where its leaves live, and
+    // the values themselves, kept until after the call.
+    let mut borrowed: Vec<(Ty, Rc<[Leaf]>, Vec<Value>)> = Vec::new();
     if env {
         let Some(env_ptr) = params.first().copied() else { return };
         let record = cx.offset(env_ptr, ENV_FIELDS);
         if let Some(first) = sig.first().copied() {
-            let program = cx.unit.program;
-            for leaf in cx.unit.abi.leaves(program, first) {
+            if own.first() == Some(&Ownership::Own) {
+                if let Some(ty) = cx.unit.abi.source_ty(program, first) {
+                    if cx.rc_counted(&ty) {
+                        cx.walk_rc(&ty, record, true, 0);
+                    }
+                }
+            }
+            for leaf in cx.unit.abi.leaves(program, first).iter() {
                 let v = cx.load_at(leaf.ty, record, leaf.offset);
                 args.push(v);
             }
         }
     }
-    args.extend(params.iter().skip(1).copied());
+    // The thunk's own parameters, after the environment pointer, are the
+    // arguments flattened — and then, where the callee answers through one,
+    // the out-pointer, which is forwarded unchanged because it is last in
+    // both signatures (`abi.rs`'s header).
+    let mut at = 1usize;
+    for (j, p) in sig.iter().enumerate().skip(usize::from(env)) {
+        let leaves = cx.unit.abi.leaves(program, *p);
+        let taken: Vec<Value> =
+            params.get(at..at.saturating_add(leaves.len())).unwrap_or_default().to_vec();
+        at = at.saturating_add(leaves.len());
+        args.extend(taken.iter().copied());
+        if own.get(j) != Some(&Ownership::Borrow) {
+            continue;
+        }
+        if let Some(ty) = cx.unit.abi.source_ty(program, *p) {
+            if cx.rc_counted(&ty) {
+                borrowed.push((ty, leaves, taken));
+            }
+        }
+    }
+    args.extend(params.get(at..).unwrap_or_default().iter().copied());
     let Some(r) = cx.func_ref(func as usize) else {
         cx.b.ins().trap(super::emit::UNREACHABLE);
         return;
     };
     let inst = cx.b.ins().call(r, &args);
     let results = cx.b.inst_results(inst).to_vec();
+    for (ty, leaves, vals) in borrowed {
+        let l = cx.unit.abi.layouts.shared(&ty);
+        let slot = cx.slot(l.size, l.align);
+        for (leaf, v) in leaves.iter().zip(vals) {
+            cx.store_at(slot, leaf.offset, v);
+        }
+        cx.walk_rc(&ty, slot, false, 0);
+    }
     cx.b.ins().return_(&results);
 }
 
@@ -142,6 +230,7 @@ fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
 /// and removes the case from the argument entirely.
 fn concat(mut cx: Cx<'_, '_, '_>) {
     let p = entry(cx.b);
+    let out = p.get(6).copied();
     let (Some(a_base), Some(a_ptr), Some(a_len), Some(b_ptr), Some(b_len)) = (
         p.first().copied(),
         p.get(1).copied(),
@@ -165,7 +254,7 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
     let zero = cx.iconst(PTR, 0);
     let flag = cx.iconst(types::I64, STR_ASCII_FLAG as i64);
     let blank = empty_str(&mut cx);
-    cx.b.ins().return_(&[zero, blank, flag]);
+    return_str(&mut cx, out, zero, blank, flag);
 
     // `probe` reads the header, which is only there when there is a base;
     // `check` is reached from both sides with the answer as a block parameter,
@@ -240,7 +329,7 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
     let both = cx.b.ins().band(a_len, b_len);
     let ascii = cx.b.ins().band_imm(both, STR_ASCII_FLAG as i64);
     let len = cx.b.ins().bor(n, ascii);
-    cx.b.ins().return_(&[base, ptr, len]);
+    return_str(&mut cx, out, base, ptr, len);
 }
 
 /// The address of a byte that is not a string, for the empty `Str`.
@@ -270,6 +359,7 @@ fn empty_str(cx: &mut Cx<'_, '_, '_>) -> Value {
 /// which is exactly `9223372036854775808`.
 fn show_int(mut cx: Cx<'_, '_, '_>, signed: bool) {
     let p = entry(cx.b);
+    let out = p.get(1).copied();
     let Some(v) = p.first().copied() else { return };
     let buf = cx.slot(DIGITS, 1);
 
@@ -336,12 +426,13 @@ fn show_int(mut cx: Cx<'_, '_, '_>, signed: bool) {
     // ASCII by construction and `str.len()` on it is a mask
     // (VALUE-MODEL.md §3.1).
     let len = cx.b.ins().bor_imm(n, STR_ASCII_FLAG as i64);
-    cx.b.ins().return_(&[block, block, len]);
+    return_str(&mut cx, out, block, block, len);
 }
 
 /// `true` and `false`, as literals: two statics and a branch.
 fn show_bool(mut cx: Cx<'_, '_, '_>) {
     let p = entry(cx.b);
+    let out = p.get(1).copied();
     let Some(v) = p.first().copied() else { return };
     let yes = cx.b.create_block();
     let no = cx.b.create_block();
@@ -353,7 +444,7 @@ fn show_bool(mut cx: Cx<'_, '_, '_>) {
         let ptr = cx.b.ins().symbol_value(PTR, gv);
         let zero = cx.iconst(PTR, 0);
         let len = cx.iconst(types::I64, (text.len() as u64 | STR_ASCII_FLAG) as i64);
-        cx.b.ins().return_(&[zero, ptr, len]);
+        return_str(&mut cx, out, zero, ptr, len);
     }
 }
 
@@ -397,7 +488,7 @@ fn release_elems(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
     let p = entry(cx.b);
     let Some(addr) = p.first().copied() else { return };
     if let Some(elem) = ty {
-        let stride = cx.unit.abi.layouts.of(elem.clone()).stride.max(1);
+        let stride = cx.unit.abi.layouts.shared(&elem).stride.max(1);
         let cap = cx.b.ins().load(types::I64, mem(), addr, HEADER_CAP_OFFSET);
         let count = cx.b.ins().udiv_imm(cap, i64::from(stride));
         cx.each_element(addr, count, stride, &elem, false);

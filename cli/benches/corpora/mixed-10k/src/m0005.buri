@@ -1,0 +1,315 @@
+//! Generated module 5 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node5 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node5;
+
+export fn seed5(): Int { 9596 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend5(base: Int): Int {
+  let d0 = blend4(base) + seed4();
+  let d1 = blend0(base) + seed0();
+  let d2 = blend1(base) + seed1();
+  d0 + d1 + d2 + seed5()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift5(n: Node4): Node5 {
+  Node5 { label: n.label, value: n.value + seed5(), weight: n.weight }
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose5_0(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth5_0(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth5_0("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose5_0(.Some(3), .None) + extra
+}
+
+/// A body of 4 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute5_1(input: Int): Int {
+  let a0 = input * 3 + 566;
+  let a1 = a0 - 55;
+  let a2 = a1 * 57;
+  let a3 = a2 + 41;
+  if (a3 > 1038) { a3 } else { a3 - 24 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_1<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute5_1(7)
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose5_2(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth5_2(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_2<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth5_2("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose5_2(.Some(3), .None) + extra
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose5_3(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth5_3(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_3<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth5_3("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose5_3(.Some(3), .None) + extra
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label5_4<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "charlie" } else { "charlie" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants5_4(): (Int, Int, Float, Char, Str) {
+  (398013, 0xEEF6, 828.872, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_4<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants5_4();
+  label5_4(ctx, a, e).len() + b
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec5_5 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec5_5;
+
+impl Rec5_5 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec5_5, factor: Int): Int {
+    self.f0 * factor + 278
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec5_5, ctx: C): Str {
+    str.format(ctx, "rec5_5: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_5<C: Alloc>(ctx: C): Int {
+  let r = Rec5_5 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label5_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "alpha" } else { "charlie" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants5_6(): (Int, Int, Float, Char, Str) {
+  (273180, 0x3207, 91.250, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_6<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants5_6();
+  label5_6(ctx, a, e).len() + b
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose5_7(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth5_7(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_7<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth5_7("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose5_7(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest5_8<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [7196, 7732, 9383, 2836];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain5_8(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_8<C: Alloc>(ctx: C): Int {
+  digest5_8(ctx) + drain5_8()
+}
+
+/// A body of 8 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute5_9(input: Int): Int {
+  let a0 = input * 2 + 368;
+  let a1 = a0 + 52;
+  let a2 = a1 - 74;
+  let a3 = a2 - 10;
+  let a4 = a3 * 20;
+  let a5 = a4 + 20;
+  let a6 = a5 + 59;
+  let a7 = a6 * 59;
+  if (a7 > 4377) { a7 } else { a7 - 83 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_9<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute5_9(7)
+}
+
+/// A body of 4 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute5_10(input: Int): Int {
+  let a0 = input * 2 + 753;
+  let a1 = a0 - 16;
+  let a2 = a1 - 37;
+  let a3 = a2 + 51;
+  if (a3 > 3414) { a3 } else { a3 - 21 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe5_10<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute5_10(7)
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach5<C: Alloc>(ctx: C): Int {
+  0
+    + probe5_0(ctx)
+    + probe5_1(ctx)
+    + probe5_2(ctx)
+    + probe5_3(ctx)
+    + probe5_4(ctx)
+    + probe5_5(ctx)
+    + probe5_6(ctx)
+    + probe5_7(ctx)
+    + probe5_8(ctx)
+    + probe5_9(ctx)
+    + probe5_10(ctx)
+    + reach4(ctx)
+    + reach0(ctx)
+    + reach1(ctx)
+}

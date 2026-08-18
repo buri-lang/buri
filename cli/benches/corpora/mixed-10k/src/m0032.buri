@@ -1,0 +1,307 @@
+//! Generated module 32 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0030" import { Node30, seed30, blend30, reach30 };
+from "//bench/m0003" import { Node3, seed3, blend3, reach3 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node32 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node32;
+
+export fn seed32(): Int { 3409 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend32(base: Int): Int {
+  let d0 = blend30(base) + seed30();
+  let d1 = blend3(base) + seed3();
+  d0 + d1 + seed32()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift32(n: Node30): Node32 {
+  Node32 { label: n.label, value: n.value + seed32(), weight: n.weight }
+}
+
+/// A body of 8 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute32_0(input: Int): Int {
+  let a0 = input * 2 + 403;
+  let a1 = a0 - 2;
+  let a2 = a1 * 35;
+  let a3 = a2 - 92;
+  let a4 = a3 - 35;
+  let a5 = a4 - 5;
+  let a6 = a5 + 17;
+  let a7 = a6 - 9;
+  if (a7 > 6555) { a7 } else { a7 - 82 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute32_0(7)
+}
+
+/// An enum of 4 variants, matched exhaustively below.
+export enum State32_1 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+}
+
+derive Eq, Show for State32_1;
+
+/// The match every enum in a real program has somewhere.
+export fn rank32_1(state: State32_1): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start32_1(ticks: Int): State32_1 {
+  if (ticks == 0) { .Idle } else if (ticks < 90) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_1<C: Alloc>(ctx: C): Int {
+  let s = start32_1(5);
+  rank32_1(s) + s.show(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label32_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "golf" } else { "alpha" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants32_2(): (Int, Int, Float, Char, Str) {
+  (788145, 0xCFC6, 724.879, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_2<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants32_2();
+  label32_2(ctx, a, e).len() + b
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State32_3 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State32_3;
+
+/// The match every enum in a real program has somewhere.
+export fn rank32_3(state: State32_3): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start32_3(ticks: Int): State32_3 {
+  if (ticks == 0) { .Idle } else if (ticks < 80) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_3<C: Alloc>(ctx: C): Int {
+  let s = start32_3(5);
+  rank32_3(s) + s.show(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr32_4<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll32_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric32_4(ns: [Int], ss: [Str]): Int {
+  firstOr32_4<Int>(ns, 0) + firstOr32_4<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_4<C: Alloc>(ctx: C): Int {
+  useGeneric32_4([1, 2], ["a"]) + describeAll32_4(ctx, [1, 2]).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose32_5(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth32_5(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_5<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth32_5("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose32_5(.Some(3), .None) + extra
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr32_6<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll32_6<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric32_6(ns: [Int], ss: [Str]): Int {
+  firstOr32_6<Int>(ns, 0) + firstOr32_6<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_6<C: Alloc>(ctx: C): Int {
+  useGeneric32_6([1, 2], ["a"]) + describeAll32_6(ctx, [1, 2]).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose32_7(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth32_7(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_7<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth32_7("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose32_7(.Some(3), .None) + extra
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State32_8 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State32_8;
+
+/// The match every enum in a real program has somewhere.
+export fn rank32_8(state: State32_8): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start32_8(ticks: Int): State32_8 {
+  if (ticks == 0) { .Idle } else if (ticks < 27) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe32_8<C: Alloc>(ctx: C): Int {
+  let s = start32_8(5);
+  rank32_8(s) + s.show(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach32<C: Alloc>(ctx: C): Int {
+  0
+    + probe32_0(ctx)
+    + probe32_1(ctx)
+    + probe32_2(ctx)
+    + probe32_3(ctx)
+    + probe32_4(ctx)
+    + probe32_5(ctx)
+    + probe32_6(ctx)
+    + probe32_7(ctx)
+    + probe32_8(ctx)
+    + reach30(ctx)
+    + reach3(ctx)
+}

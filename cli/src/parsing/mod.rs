@@ -5,6 +5,7 @@
 //! `BUILD.buri` generator, and the language server's keystroke path use this
 //! module without any of the stages in `compiler`.
 
+pub mod flat;
 pub mod lexer;
 pub mod parser;
 pub mod tree;

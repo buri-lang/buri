@@ -1,0 +1,329 @@
+//! Generated module 29 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0023" import { Node23, seed23, blend23, reach23 };
+from "//bench/m0014" import { Node14, seed14, blend14, reach14 };
+from "//bench/m0027" import { Node27, seed27, blend27, reach27 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node29 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node29;
+
+export fn seed29(): Int { 9652 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend29(base: Int): Int {
+  let d0 = blend23(base) + seed23();
+  let d1 = blend14(base) + seed14();
+  let d2 = blend27(base) + seed27();
+  d0 + d1 + d2 + seed29()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift29(n: Node23): Node29 {
+  Node29 { label: n.label, value: n.value + seed29(), weight: n.weight }
+}
+
+/// A body of 7 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute29_0(input: Int): Int {
+  let a0 = input * 3 + 188;
+  let a1 = a0 * 69;
+  let a2 = a1 * 74;
+  let a3 = a2 - 52;
+  let a4 = a3 + 45;
+  let a5 = a4 - 48;
+  let a6 = a5 - 11;
+  if (a6 > 8584) { a6 } else { a6 - 14 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute29_0(7)
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose29_1(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth29_1(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_1<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth29_1("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose29_1(.Some(3), .None) + extra
+}
+
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec29_2 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+  export f4: Int,
+}
+
+derive Eq, Show for Rec29_2;
+
+impl Rec29_2 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec29_2, factor: Int): Int {
+    self.f0 * factor + 357
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec29_2, ctx: C): Str {
+    str.format(ctx, "rec29_2: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_2<C: Alloc>(ctx: C): Int {
+  let r = Rec29_2 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest29_3<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [8326, 2497, 1820, 3308, 2187, 4833, 9815, 8798, 771, 7880];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain29_3(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_3<C: Alloc>(ctx: C): Int {
+  digest29_3(ctx) + drain29_3()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr29_4<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll29_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric29_4(ns: [Int], ss: [Str]): Int {
+  firstOr29_4<Int>(ns, 0) + firstOr29_4<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_4<C: Alloc>(ctx: C): Int {
+  useGeneric29_4([1, 2], ["a"]) + describeAll29_4(ctx, [1, 2]).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label29_5<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "golf" } else { "echo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants29_5(): (Int, Int, Float, Char, Str) {
+  (616145, 0x4593, 117.588, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_5<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants29_5();
+  label29_5(ctx, a, e).len() + b
+}
+
+/// A record with 2 fields, derived comparisons and two methods.
+export struct Rec29_6 {
+  export f0: Int,
+  export f1: Str,
+}
+
+derive Eq, Show for Rec29_6;
+
+impl Rec29_6 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec29_6, factor: Int): Int {
+    self.f0 * factor + 73
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec29_6, ctx: C): Str {
+    str.format(ctx, "rec29_6: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_6<C: Alloc>(ctx: C): Int {
+  let r = Rec29_6 { f0: 7, f1: "probe" };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr29_7<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll29_7<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric29_7(ns: [Int], ss: [Str]): Int {
+  firstOr29_7<Int>(ns, 0) + firstOr29_7<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_7<C: Alloc>(ctx: C): Int {
+  useGeneric29_7([1, 2], ["a"]) + describeAll29_7(ctx, [1, 2]).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose29_8(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth29_8(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_8<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth29_8("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose29_8(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest29_9<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [8048, 9739, 4889, 7807, 8539, 5344, 7213, 3977, 4985, 6115, 8161];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain29_9(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_9<C: Alloc>(ctx: C): Int {
+  digest29_9(ctx) + drain29_9()
+}
+
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec29_10 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+  export f4: Int,
+}
+
+derive Eq, Show for Rec29_10;
+
+impl Rec29_10 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec29_10, factor: Int): Int {
+    self.f0 * factor + 656
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec29_10, ctx: C): Str {
+    str.format(ctx, "rec29_10: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe29_10<C: Alloc>(ctx: C): Int {
+  let r = Rec29_10 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach29<C: Alloc>(ctx: C): Int {
+  0
+    + probe29_0(ctx)
+    + probe29_1(ctx)
+    + probe29_2(ctx)
+    + probe29_3(ctx)
+    + probe29_4(ctx)
+    + probe29_5(ctx)
+    + probe29_6(ctx)
+    + probe29_7(ctx)
+    + probe29_8(ctx)
+    + probe29_9(ctx)
+    + probe29_10(ctx)
+    + reach23(ctx)
+    + reach14(ctx)
+    + reach27(ctx)
+}

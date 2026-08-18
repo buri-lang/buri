@@ -1,0 +1,12 @@
+# Provenance for a checked-in benchmark corpus. See
+# cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.
+name = few-large-fns-1k
+profile = few-large-fns
+generator_revision = 1
+revision = 1
+recorded = 2026-08-18
+params = lines=1000
+lines = 1010
+bytes = 23867
+modules = 1
+digest = 14be1d03485d37b29fc6c8cb105d38cac4d9f544e7b7897875945324ef9b3192

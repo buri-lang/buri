@@ -1,0 +1,64 @@
+//! Generated module 1 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node1 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node1;
+
+export fn seed1(): Int { 7920 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend1(base: Int): Int {
+  let d0 = blend0(base) + seed0();
+  d0 + seed1()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift1(n: Node0): Node1 {
+  Node1 { label: n.label, value: n.value + seed1(), weight: n.weight }
+}
+
+/// A body of 10 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute1_0(input: Int): Int {
+  let a0 = input * 3 + 893;
+  let a1 = a0 * 11;
+  let a2 = a1 - 71;
+  let a3 = a2 * 30;
+  let a4 = a3 * 10;
+  let a5 = a4 + 18;
+  let a6 = a5 - 69;
+  let a7 = a6 + 42;
+  let a8 = a7 + 31;
+  let a9 = a8 * 29;
+  if (a9 > 9911) { a9 } else { a9 - 63 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe1_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute1_0(7)
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach1<C: Alloc>(ctx: C): Int {
+  0
+    + probe1_0(ctx)
+    + reach0(ctx)
+}

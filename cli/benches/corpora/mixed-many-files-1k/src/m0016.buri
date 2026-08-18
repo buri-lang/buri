@@ -1,0 +1,79 @@
+//! Generated module 16 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0011" import { Node11, seed11, blend11, reach11 };
+from "//bench/m0012" import { Node12, seed12, blend12, reach12 };
+from "//bench/m0013" import { Node13, seed13, blend13, reach13 };
+from "//bench/m0004" import { Node4, seed4, blend4, reach4 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node16 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node16;
+
+export fn seed16(): Int { 6705 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend16(base: Int): Int {
+  let d0 = blend11(base) + seed11();
+  let d1 = blend12(base) + seed12();
+  let d2 = blend13(base) + seed13();
+  let d3 = blend4(base) + seed4();
+  d0 + d1 + d2 + d3 + seed16()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift16(n: Node11): Node16 {
+  Node16 { label: n.label, value: n.value + seed16(), weight: n.weight }
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec16_0 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec16_0;
+
+impl Rec16_0 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec16_0, factor: Int): Int {
+    self.f0 * factor + 708
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec16_0, ctx: C): Str {
+    str.format(ctx, "rec16_0: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe16_0<C: Alloc>(ctx: C): Int {
+  let r = Rec16_0 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach16<C: Alloc>(ctx: C): Int {
+  0
+    + probe16_0(ctx)
+    + reach11(ctx)
+    + reach12(ctx)
+    + reach13(ctx)
+    + reach4(ctx)
+}

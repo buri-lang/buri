@@ -1,0 +1,337 @@
+//! Generated module 4 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node4 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node4;
+
+export fn seed4(): Int { 1677 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend4(base: Int): Int {
+  let d0 = blend2(base) + seed2();
+  d0 + seed4()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift4(n: Node2): Node4 {
+  Node4 { label: n.label, value: n.value + seed4(), weight: n.weight }
+}
+
+/// A body of 7 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute4_0(input: Int): Int {
+  let a0 = input * 1 + 370;
+  let a1 = a0 - 89;
+  let a2 = a1 + 14;
+  let a3 = a2 * 62;
+  let a4 = a3 - 85;
+  let a5 = a4 * 51;
+  let a6 = a5 - 42;
+  if (a6 > 968) { a6 } else { a6 - 8 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_0<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute4_0(7)
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose4_1(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth4_1(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_1<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth4_1("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose4_1(.Some(3), .None) + extra
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label4_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "bravo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants4_2(): (Int, Int, Float, Char, Str) {
+  (316083, 0x9EAB, 565.194, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_2<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants4_2();
+  label4_2(ctx, a, e).len() + b
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State4_3 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State4_3;
+
+/// The match every enum in a real program has somewhere.
+export fn rank4_3(state: State4_3): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start4_3(ticks: Int): State4_3 {
+  if (ticks == 0) { .Idle } else if (ticks < 20) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_3<C: Alloc>(ctx: C): Int {
+  let s = start4_3(5);
+  rank4_3(s) + s.show(ctx).len()
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest4_4<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [7091, 9310, 6941, 4612, 2527, 607];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain4_4(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_4<C: Alloc>(ctx: C): Int {
+  digest4_4(ctx) + drain4_4()
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State4_5 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State4_5;
+
+/// The match every enum in a real program has somewhere.
+export fn rank4_5(state: State4_5): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start4_5(ticks: Int): State4_5 {
+  if (ticks == 0) { .Idle } else if (ticks < 12) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_5<C: Alloc>(ctx: C): Int {
+  let s = start4_5(5);
+  rank4_5(s) + s.show(ctx).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose4_6(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth4_6(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_6<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth4_6("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose4_6(.Some(3), .None) + extra
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest4_7<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [3612, 1804, 3877, 7110, 4365];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain4_7(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_7<C: Alloc>(ctx: C): Int {
+  digest4_7(ctx) + drain4_7()
+}
+
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec4_8 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+  export f3: Bool,
+}
+
+derive Eq, Show for Rec4_8;
+
+impl Rec4_8 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec4_8, factor: Int): Int {
+    self.f0 * factor + 594
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec4_8, ctx: C): Str {
+    str.format(ctx, "rec4_8: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_8<C: Alloc>(ctx: C): Int {
+  let r = Rec4_8 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label4_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "alpha" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants4_9(): (Int, Int, Float, Char, Str) {
+  (373441, 0x37FD, 545.982, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_9<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants4_9();
+  label4_9(ctx, a, e).len() + b
+}
+
+/// An enum of 3 variants, matched exhaustively below.
+export enum State4_10 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+}
+
+derive Eq, Show for State4_10;
+
+/// The match every enum in a real program has somewhere.
+export fn rank4_10(state: State4_10): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start4_10(ticks: Int): State4_10 {
+  if (ticks == 0) { .Idle } else if (ticks < 60) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe4_10<C: Alloc>(ctx: C): Int {
+  let s = start4_10(5);
+  rank4_10(s) + s.show(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach4<C: Alloc>(ctx: C): Int {
+  0
+    + probe4_0(ctx)
+    + probe4_1(ctx)
+    + probe4_2(ctx)
+    + probe4_3(ctx)
+    + probe4_4(ctx)
+    + probe4_5(ctx)
+    + probe4_6(ctx)
+    + probe4_7(ctx)
+    + probe4_8(ctx)
+    + probe4_9(ctx)
+    + probe4_10(ctx)
+    + reach2(ctx)
+}

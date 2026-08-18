@@ -1,0 +1,75 @@
+//! Generated module 3 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
+from "//bench/m0000" import { Node0, seed0, blend0, reach0 };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node3 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node3;
+
+export fn seed3(): Int { 3758 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend3(base: Int): Int {
+  let d0 = blend2(base) + seed2();
+  let d1 = blend0(base) + seed0();
+  let d2 = blend1(base) + seed1();
+  d0 + d1 + d2 + seed3()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift3(n: Node2): Node3 {
+  Node3 { label: n.label, value: n.value + seed3(), weight: n.weight }
+}
+
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec3_0 {
+  export f0: Int,
+  export f1: Str,
+  export f2: Float,
+}
+
+derive Eq, Show for Rec3_0;
+
+impl Rec3_0 {
+  /// A pure accessor, of the kind that is most of a real impl block.
+  export fn scaled(self: Rec3_0, factor: Int): Int {
+    self.f0 * factor + 53
+  }
+
+  /// Allocates, and says so with `C: Alloc`.
+  export fn render<C: Alloc>(self: Rec3_0, ctx: C): Str {
+    str.format(ctx, "rec3_0: ${self.f0}/${self.f1}")
+  }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe3_0<C: Alloc>(ctx: C): Int {
+  let r = Rec3_0 { f0: 7, f1: "probe", f2: 1.5 };
+  r.scaled(3) + r.render(ctx).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach3<C: Alloc>(ctx: C): Int {
+  0
+    + probe3_0(ctx)
+    + reach2(ctx)
+    + reach0(ctx)
+    + reach1(ctx)
+}

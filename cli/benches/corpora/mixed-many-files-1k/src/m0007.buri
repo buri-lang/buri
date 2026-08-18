@@ -1,0 +1,69 @@
+//! Generated module 7 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0006" import { Node6, seed6, blend6, reach6 };
+from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+from "//bench/m0003" import { Node3, seed3, blend3, reach3 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node7 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node7;
+
+export fn seed7(): Int { 5434 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend7(base: Int): Int {
+  let d0 = blend6(base) + seed6();
+  let d1 = blend1(base) + seed1();
+  let d2 = blend3(base) + seed3();
+  d0 + d1 + d2 + seed7()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift7(n: Node6): Node7 {
+  Node7 { label: n.label, value: n.value + seed7(), weight: n.weight }
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest7_0<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [8003, 5867, 478, 2483, 9997];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain7_0(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe7_0<C: Alloc>(ctx: C): Int {
+  digest7_0(ctx) + drain7_0()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach7<C: Alloc>(ctx: C): Int {
+  0
+    + probe7_0(ctx)
+    + reach6(ctx)
+    + reach1(ctx)
+    + reach3(ctx)
+}

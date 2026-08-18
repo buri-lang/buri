@@ -72,6 +72,7 @@ use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyConId, TyDef};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map;
 use std::fmt::Write as _;
+use std::rc::Rc;
 
 // ---------------------------------------------------------------------------
 // The constants the model pins
@@ -314,7 +315,12 @@ impl Layout {
 pub struct Layouts<'a> {
     tables: &'a Tables,
     memo: Map<Ty, usize>,
-    table: Vec<Layout>,
+    /// The memoised layouts, behind a handle. An enum's [`Repr::Enum`] carries
+    /// one `Vec<u32>` per variant, so a `Layout` is O(variants) to copy and a
+    /// caller that asks per instruction would be quadratic in the width of the
+    /// widest enum it touches; [`Layouts::shared`] is what makes an answer
+    /// O(1) to hand out.
+    table: Vec<Rc<Layout>>,
     /// Recursion group per type constructor, by `TyConId` index: the strongly
     /// connected components of "mentions, in a position that would be stored
     /// inline". Two constructors share a group exactly when laying either out
@@ -330,6 +336,7 @@ pub struct Layouts<'a> {
     /// its parameter, so it mentions nothing and its group is not a cycle.
     recursive: Vec<bool>,
     depth: u32,
+    descriptions: Map<Ty, Rc<str>>,
 }
 
 impl<'a> Layouts<'a> {
@@ -366,13 +373,31 @@ impl<'a> Layouts<'a> {
                 }
             }
         }
-        Layouts { tables, memo: Map::default(), table: Vec::new(), groups, recursive, depth: 0 }
+        Layouts {
+            tables,
+            memo: Map::default(),
+            table: Vec::new(),
+            groups,
+            recursive,
+            depth: 0,
+            descriptions: Map::default(),
+        }
     }
 
     /// The layout of a type. Memoised; infallible.
     pub fn of(&mut self, ty: Ty) -> Layout {
         let id = self.compute(&ty);
         self.at(id).clone()
+    }
+
+    /// The same answer, shared rather than copied.
+    ///
+    /// Every caller in a loop over instructions must use this: copying a
+    /// `Layout` copies one `Vec<u32>` per variant, and an enum with a thousand
+    /// variants makes a per-instruction copy a thousand allocations.
+    pub fn shared(&mut self, ty: &Ty) -> Rc<Layout> {
+        let id = self.compute(ty);
+        Rc::clone(self.table.get(id).or_ice("every layout id was minted by compute on this table"))
     }
 
     /// Whether a value of this type occupies nothing, and so is dropped from
@@ -433,7 +458,10 @@ impl<'a> Layouts<'a> {
     }
 
     fn at(&self, id: usize) -> &Layout {
-        self.table.get(id).or_ice("every layout id was minted by compute on this table")
+        self.table
+            .get(id)
+            .map(Rc::as_ref)
+            .or_ice("every layout id was minted by compute on this table")
     }
 
     fn compute(&mut self, ty: &Ty) -> usize {
@@ -450,7 +478,7 @@ impl<'a> Layouts<'a> {
         let layout = self.build(ty);
         self.depth = self.depth.saturating_sub(1);
         let id = self.table.len();
-        self.table.push(layout);
+        self.table.push(Rc::new(layout));
         self.memo.insert(ty.clone(), id);
         id
     }
@@ -710,6 +738,21 @@ impl<'a> Layouts<'a> {
         let mut out = String::new();
         self.write_description(&mut out, ty);
         out
+    }
+
+    /// The same text, memoised and shared.
+    ///
+    /// A backend that identifies a per-type helper by its layout description
+    /// asks this once per reference operation, and the description of an enum
+    /// is a line per variant over a cloned [`Layout`] — so building it each
+    /// time is quadratic in the width of the widest enum in the program.
+    pub fn description(&mut self, ty: &Ty) -> Rc<str> {
+        if let Some(known) = self.descriptions.get(ty) {
+            return Rc::clone(known);
+        }
+        let text: Rc<str> = Rc::from(self.describe(ty).as_str());
+        self.descriptions.insert(ty.clone(), Rc::clone(&text));
+        text
     }
 
     /// Several types, one block each, newline separated and with no trailing

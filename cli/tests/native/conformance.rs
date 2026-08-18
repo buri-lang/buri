@@ -40,13 +40,20 @@
 //!     them or not. This is the single most common exclusion and it is what the
 //!     mission expected: effects and the testing-context machinery are a wave
 //!     of their own.
-//!  3. **The closure surface.** Every `list.*` entry taking a function —
-//!     `map`, `filter`, `fold`, `any`, `all`, `find`, `sortBy` and their `Ctx`
-//!     variants — is a backend's loop to emit and `cli/runtime/list.rs`'s
-//!     header says why. `core/map`, `core/queue`, `core/bitset`, `core/crypto`
-//!     and `core/date` are all built on it, which is why **maps are deferred**:
-//!     not for want of hashing, which landed this wave and agrees with `$hash`
-//!     byte for byte, but for want of `list.fold`.
+//!  3. **The closure surface**, which is now most of the way in. A `list.*`
+//!     entry taking a function is a backend's loop to emit
+//!     (`cli/runtime/list.rs`'s header says why it cannot be a runtime call),
+//!     and `cranelift/emit.rs`'s `list_closure` emits nine of them: `map`,
+//!     `mapCtx`, `filter`, `filterCtx`, `fold`, `foldCtx`, `any`, `all` and
+//!     `count`. That is what moved `canary/canary.buri` into the native set,
+//!     and it is why no file below is excluded for a *plain* fold or map any
+//!     more. What is left is the entries that are not a loop over one list:
+//!     `find` and `findIndex` (they build an `Option`), `foldResult` and
+//!     `foldResultCtx` (a `Result`, with an early exit), `sortBy` (a
+//!     comparison sort), and `zip` and `flatten` (a second element layout).
+//!     `core/map`, `core/queue`, `core/bitset` and `core/date` are now held
+//!     out by the *testing context* rather than by the closure surface —
+//!     `queue` and `bitset` by nothing else at all.
 //!
 //! Everything else — `json.*`, `core/proto`, `core/simd`, `core/math`,
 //! `core/char`, `core/bytes` — is named against the file that needs it. Every
@@ -133,6 +140,11 @@ const PACKAGES: &[Case] = &[
     // identical integers. A backend that disagreed would be wrong, not
     // merely different.
     included("memory/allocators.buri"),
+    // It was excluded for `list.fold` until the backend grew the loop
+    // (`cranelift/emit.rs`'s `list_closure`), and
+    // `the_excluded_packages_are_excluded_for_the_stated_reason` is what
+    // said so on the day it stopped being true.
+    included("canary/canary.buri"),
     // -- out: the harness cannot reach the package's own library --------
     //
     // These import `//lib/<package>`, and this harness compiles one file at
@@ -167,41 +179,37 @@ const PACKAGES: &[Case] = &[
     // checks that the reason is still true.
     excluded(
         "calendar/date.buri",
-        "core/date sorts and maps over closures (`list.sortBy`, \
-             `list.all`, `list.mapCtx`), and the file builds a `Hermetic` \
-             testing context",
-    ),
-    excluded(
-        "canary/canary.buri",
-        "`list.fold`, which is the closure surface `cli/runtime/list.rs` \
-             names as a backend's job",
+        "`list.sortBy` — the one closure entry that is a sort rather than a \
+             loop — and the file builds a `Hermetic` testing context",
     ),
     excluded(
         "collections/bitset.buri",
-        "core/bitset folds and filters over closures, and the file builds \
-             a `Hermetic` context",
+        "the `Hermetic` testing context, and nothing else: the folds and \
+             filters that used to hold it out are emitted now",
     ),
     excluded(
         "collections/map.buri",
-        "core/map is `list.fold`, `list.filterCtx` and `list.sortBy` over \
-             closures. The hashing half is *done* — `deriveHash` at every \
+        "`list.find`, `list.flatten` and `list.sortBy`, plus a `Hermetic` \
+             context. The hashing half is *done* — `deriveHash` at every \
              primitive landed in wave 3d and agrees with `$hash` byte for byte \
-             (`native/cranelift.rs`) — so what defers maps is the closure walk \
-             and nothing about hashing",
+             (`native/cranelift.rs`) — and so is the fold half, so what defers \
+             maps is three closure entries and the context",
     ),
-    excluded("collections/queue.buri", "as `collections/map.buri`"),
+    excluded("collections/queue.buri", "the `Hermetic` context alone, as `collections/bitset.buri`"),
     excluded(
         "crypto/sha256.buri",
-        "core/crypto is `list.map` and `list.flatten` over closures, plus \
-             `bytes.toUtf8`",
+        "`list.flatten`, `bytes.toUtf8` and a `Hermetic` context: \
+             `list.map` is emitted now",
     ),
     excluded(
         "data/lists.buri",
-        "eighteen closure-taking `list.*` entries: this is the file the \
-             closure surface exists for",
+        "the seven closure entries that are not a loop over one list — \
+             `find`, `findIndex`, `flatten`, `foldResult`, `foldResultCtx`, \
+             `sortBy`, `zip` — and a `Hermetic` context. The other eleven \
+             compile: this is the file the closure surface exists for",
     ),
-    excluded("data/optionresult.buri", "as `data/lists.buri`, plus a testing context"),
-    excluded("data/patterns.buri", "as `data/lists.buri`"),
+    excluded("data/optionresult.buri", "`list.find` and `list.foldResult`, plus a testing context"),
+    excluded("data/patterns.buri", "`list.sortBy`, plus a testing context"),
     excluded(
         "data/strings.buri",
         "core/char's eight *classification* entries — `isAlpha` is \
@@ -483,10 +491,11 @@ fn the_native_set_passes() {
 /// The harness has to be able to fail.
 ///
 /// `language/conformance.rs` has the same test for the same reason: a suite that
-/// cannot fail proves nothing. The canary package is not in the native set
-/// — it uses `list.fold` — so this breaks an assertion in a file that is,
-/// and checks that the native binary exits non-zero and says which
-/// assertion it was.
+/// cannot fail proves nothing. It breaks one assertion in a file that is in
+/// the native set and checks that the native binary exits non-zero and says
+/// which assertion it was. `numbers/bits.buri` rather than the canary
+/// package, which is in the set itself now and whose own failure would be a
+/// second thing to explain.
 #[test]
 fn the_native_set_can_fail() {
     if !supported() {

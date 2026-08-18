@@ -1,0 +1,330 @@
+//! Generated module 21 of the compiler benchmark corpus.
+//!
+//! Emitted by `cli/benches/generate.rs` from a fixed seed. Nothing in
+//! here is meant to be read; it is meant to be *compiled*, at a
+//! controlled size and with the construct mix of real source.
+
+from "core/str" import * as str;
+from "core/list" import * as list;
+from "core/cap" import { Alloc };
+from "//bench/m0016" import { Node16, seed16, blend16, reach16 };
+
+/// The record every module in this corpus exports, so that an import
+/// of any module resolves to a known shape.
+export struct Node21 {
+  export label: Str,
+  export value: Int,
+  export weight: Float,
+}
+
+derive Eq, Show for Node21;
+
+export fn seed21(): Int { 6300 }
+
+/// Folds this module's seed together with its dependencies'.
+export fn blend21(base: Int): Int {
+  let d0 = blend16(base) + seed16();
+  d0 + seed21()
+}
+
+/// Reads a dependency's record, so the import carries a type as
+/// well as a function.
+export fn lift21(n: Node16): Node21 {
+  Node21 { label: n.label, value: n.value + seed21(), weight: n.weight }
+}
+
+/// An enum of 7 variants, matched exhaustively below.
+export enum State21_0 {
+  export Idle,
+  export Running(Int),
+  export Failed { code: Int, message: Str },
+  export Step3(Int, Str),
+  export Step4(Int, Str),
+  export Step5(Int, Str),
+  export Step6(Int, Str),
+}
+
+derive Eq, Show for State21_0;
+
+/// The match every enum in a real program has somewhere.
+export fn rank21_0(state: State21_0): Int {
+  match (state) {
+    .Idle => 0,
+    .Running(ticks) => ticks + 1,
+    .Failed { code, .. } => code * -1,
+    .Step3(k, _) => k + 3,
+    .Step4(k, _) => k + 4,
+    .Step5(k, _) => k + 5,
+    .Step6(k, _) => k + 6,
+  }
+}
+
+/// Construction, so the variants are reachable from a root.
+export fn start21_0(ticks: Int): State21_0 {
+  if (ticks == 0) { .Idle } else if (ticks < 67) { .Running(ticks) }
+  else { .Failed { code: ticks, message: "overrun" } }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_0<C: Alloc>(ctx: C): Int {
+  let s = start21_0(5);
+  rank21_0(s) + s.show(ctx).len()
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr21_1<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll21_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric21_1(ns: [Int], ss: [Str]): Int {
+  firstOr21_1<Int>(ns, 0) + firstOr21_1<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_1<C: Alloc>(ctx: C): Int {
+  useGeneric21_1([1, 2], ["a"]) + describeAll21_1(ctx, [1, 2]).len()
+}
+
+/// Nested matching over `Option` and a tuple, with a guard — the
+/// three things a decision tree has to merge.
+export fn choose21_2(a: Option<Int>, b: Option<Int>): Int {
+  match ((a, b)) {
+    (.Some(x), .Some(y)) if x > y => x - y,
+    (.Some(x), .Some(y)) => y - x,
+    (.Some(x), .None) => x,
+    (.None, .Some(y)) => y,
+    (.None, .None) => 0,
+  }
+}
+
+/// A `?` chain, which is the other half of how errors move.
+export fn parseBoth21_2(left: Str, right: Str): Option<Int> {
+  let a = left.toInt()?;
+  let b = right.toInt()?;
+  .Some(a + b)
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_2<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  let extra = match (parseBoth21_2("1", "2")) {
+    .Some(v) => v,
+    .None => 0,
+  };
+  choose21_2(.Some(3), .None) + extra
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label21_3<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "bravo" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants21_3(): (Int, Int, Float, Char, Str) {
+  (419054, 0xEAD2, 490.345, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_3<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants21_3();
+  label21_3(ctx, a, e).len() + b
+}
+
+/// A fold and a filter over a literal list, with lambdas — closures
+/// are their own path in both the checker and the backend.
+export fn digest21_4<C: Alloc>(ctx: C): Int {
+  let xs: [Int] = [1369, 8272, 4205, 6661, 6600, 9595, 9959];
+  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+  let total = kept.fold(fn(acc, x) => acc + x, 0);
+  total + xs.len()
+}
+
+/// An empty list of an explicit type, which is the other side of
+/// inference: nothing constrains the element type but the annotation.
+export fn drain21_4(): Int {
+  let empty: [Int] = list.empty<Int>();
+  empty.len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_4<C: Alloc>(ctx: C): Int {
+  digest21_4(ctx) + drain21_4()
+}
+
+/// A body of 11 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute21_5(input: Int): Int {
+  let a0 = input * 3 + 925;
+  let a1 = a0 - 17;
+  let a2 = a1 - 5;
+  let a3 = a2 + 83;
+  let a4 = a3 + 46;
+  let a5 = a4 + 71;
+  let a6 = a5 * 85;
+  let a7 = a6 * 21;
+  let a8 = a7 * 79;
+  let a9 = a8 - 38;
+  let a10 = a9 - 37;
+  if (a10 > 8497) { a10 } else { a10 - 84 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_5<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute21_5(7)
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label21_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "echo" } else { "hotel" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants21_6(): (Int, Int, Float, Char, Str) {
+  (577994, 0xE736, 74.177, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_6<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants21_6();
+  label21_6(ctx, a, e).len() + b
+}
+
+/// A body of 10 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute21_7(input: Int): Int {
+  let a0 = input * 5 + 795;
+  let a1 = a0 + 46;
+  let a2 = a1 * 44;
+  let a3 = a2 * 58;
+  let a4 = a3 + 42;
+  let a5 = a4 * 52;
+  let a6 = a5 + 97;
+  let a7 = a6 - 28;
+  let a8 = a7 * 8;
+  let a9 = a8 + 34;
+  if (a9 > 2047) { a9 } else { a9 - 74 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_7<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute21_7(7)
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label21_8<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "alpha" } else { "golf" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants21_8(): (Int, Int, Float, Char, Str) {
+  (473852, 0xB822, 454.161, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_8<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants21_8();
+  label21_8(ctx, a, e).len() + b
+}
+
+/// String building through interpolation, which is a template
+/// literal in the lexer and a `format` call in the backend.
+export fn label21_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+  let prefix = if (id < 0) { "foxtrot" } else { "alpha" };
+  let body = str.format(ctx, "${prefix}-${name}-${id}");
+  body.toUpper(ctx)
+}
+
+/// Literals of the kinds the lexer has separate paths for: decimal,
+/// hexadecimal, float, char, escaped string.
+export fn constants21_9(): (Int, Int, Float, Char, Str) {
+  (862261, 0x095A, 442.396, 'q', "a\ttab and a \"quote\"")
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_9<C: Alloc>(ctx: C): Int {
+  let (a, b, _, _, e) = constants21_9();
+  label21_9(ctx, a, e).len() + b
+}
+
+/// A body of 4 bindings over integer arithmetic — the shape most
+/// lines in most programs actually have.
+export fn compute21_10(input: Int): Int {
+  let a0 = input * 1 + 308;
+  let a1 = a0 + 92;
+  let a2 = a1 - 47;
+  let a3 = a2 * 6;
+  if (a3 > 6232) { a3 } else { a3 - 35 }
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_10<C: Alloc>(ctx: C): Int {
+  let _ = ctx;
+  compute21_10(7)
+}
+
+/// A generic over an unconstrained parameter, instantiated below.
+export fn firstOr21_11<T>(xs: [T], fallback: T): T {
+  match (xs.first()) {
+    .Some(v) => v,
+    .None => fallback,
+  }
+}
+
+/// A generic with a bound, which is the case the checker does real
+/// work for: the bound has to be discharged at each instantiation.
+export fn describeAll21_11<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+}
+
+/// Two instantiations, so monomorphization has copies to make.
+export fn useGeneric21_11(ns: [Int], ss: [Str]): Int {
+  firstOr21_11<Int>(ns, 0) + firstOr21_11<Str>(ss, "").len()
+}
+
+/// Reaches everything above from one call. See `reach` below.
+export fn probe21_11<C: Alloc>(ctx: C): Int {
+  useGeneric21_11([1, 2], ["a"]) + describeAll21_11(ctx, [1, 2]).len()
+}
+
+/// Every declaration in this module, reachable from one call, so that
+/// monomorphization has to visit the whole of it.
+export fn reach21<C: Alloc>(ctx: C): Int {
+  0
+    + probe21_0(ctx)
+    + probe21_1(ctx)
+    + probe21_2(ctx)
+    + probe21_3(ctx)
+    + probe21_4(ctx)
+    + probe21_5(ctx)
+    + probe21_6(ctx)
+    + probe21_7(ctx)
+    + probe21_8(ctx)
+    + probe21_9(ctx)
+    + probe21_10(ctx)
+    + probe21_11(ctx)
+    + reach16(ctx)
+}

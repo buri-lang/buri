@@ -15,7 +15,7 @@
 //! ```text
 //! cranelift/
 //!   mod.rs      this file: settings, the ISA, one module per unit, the entry point
-//!   abi.rs      the value model at the machine boundary
+//!   abi.rs      the value model at the machine boundary, and where a wide result lives
 //!   emit.rs     middle::ir into CLIF
 //!   helpers.rs  the eight functions this backend generates for itself
 //!   runtime.rs  which intrinsic keys have a `buri_rt_*` symbol, and its shape
@@ -23,7 +23,7 @@
 //!
 //! # Where an intrinsic goes, and why
 //!
-//! Six routes, tried in this order by `emit::Lower::intrinsic`, and the order
+//! Seven routes, tried in this order by `emit::Lower::intrinsic`, and the order
 //! is the reasoning: everything that is *instructions* is asked before the
 //! arguments are spread for a call that is not going to happen.
 //!
@@ -33,6 +33,7 @@
 //! | `bits` | all fourteen of `core/bits` | Each is one machine instruction behind `$shiftCount`'s range check |
 //! | `prim_trait` | `Eq`/`Ord`/`Hash`/`Show` at `Bool` and `Char`, `str.show`, `Char::toU32` | A compare, a select, or the identity |
 //! | `open_coded` | `str.concat`, `str.format`, `str.len`, `list.len`, `list.empty`, the three `core/testing/assert` bodies, the test allocator | A load, a copy, or an allocation and two copies |
+//! | `list_closure` | `list.map`, `mapCtx`, `filter`, `filterCtx`, `fold`, `foldCtx`, `any`, `all`, `count` | The step is a closure whose signature is the element type flattened, so calling one from C would mean synthesizing a parameter list per `T` (`cli/runtime/list.rs`'s header) |
 //! | `derived` | `derivePrimShow.<T>`, `derivePrimHash.<T>` | Dispatches on a type, then calls |
 //! | *table* | everything in `runtime.rs`'s `ENTRIES` | The work is in `cli/runtime`, shared with the LLVM backend so the two cannot answer differently |
 //!
@@ -70,12 +71,18 @@
 //!    an error *payload* to build as well as a tag, and `IoError` is a
 //!    `core/cap` type the intrinsic table does not name. One `Ret::Result` and
 //!    that type's layout away.
-//!  * **Every `list.*` entry taking a closure** — `map`, `filter`, `fold`,
-//!    `any`, `all`, `find`, `findIndex`, `count`, `sortBy` and the `Ctx`
-//!    variants — plus `zip` and `flatten`. `cli/runtime/list.rs`'s header says
-//!    why each is a backend's loop rather than a runtime call. This is the
-//!    single largest remaining gap, and it is what defers `core/map`,
-//!    `core/queue`, `core/bitset`, `core/crypto` and `core/date`.
+//!  * **The rest of the closure surface of `core/list`.** Nine of them are
+//!    emitted now (`emit::Lower::list_closure`), which is what moved
+//!    `canary/canary.buri` into `cli/tests/native/conformance.rs`'s native set
+//!    and what makes the realistic half of `design/PERFORMANCE.md`'s native
+//!    rows measurable at all. What is left is the entries that are not a loop
+//!    over one list: `find` and `findIndex`, which build an `Option` around
+//!    the answer; `foldResult` and `foldResultCtx`, which build a `Result` and
+//!    leave early; `sortBy`, which is a comparison sort; and `zip` and
+//!    `flatten`, which need a second element layout
+//!    (`cli/runtime/list.rs`'s header). `core/queue` and `core/bitset` are now
+//!    held out only by the stateful testing context, and `core/map` by
+//!    `find`, `flatten` and `sortBy`.
 //!  * **`json.*`**, and with it `deriveArrayEq`, `deriveArrayCompare`,
 //!    `deriveArrayShow`, `deriveArrayJson` and `deriveArrayHash`, which are the
 //!    same loop over a code pointer that the closure surface needs.
@@ -102,20 +109,22 @@ pub mod emit;
 pub mod helpers;
 pub mod runtime;
 
-use cranelift_codegen::isa::TargetIsa;
+use cranelift_codegen::isa::{self, TargetIsa};
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
+use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::build::buildfile::Platform;
+use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
 use crate::compiler::backend::cranelift::abi::{Abi, PTR};
 use crate::compiler::backend::{Backend, Emitted, Options};
 use crate::compiler::middle::ir as mir;
 use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::middle::lower;
+use crate::compiler::middle::rc;
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -165,11 +174,17 @@ impl Backend for Cranelift {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let isa = match host_isa(opts) {
+        let isa = match isa_for(opts) {
             Ok(isa) => isa,
             Err(message) => return Err(one(message)),
         };
         let lowered = lower::run(program, tables);
+        // The oracle `middle::rc` used, rebuilt over the same program it ran
+        // on, so the reference operations this backend adds around the calls
+        // it invents are the ones rc would have added (`emit::Cx::rc_counted`).
+        // One for the whole emission rather than one per unit: it memoises,
+        // and building it is a walk of every body.
+        let counted = RefCell::new(rc::Syntactic::new(program));
         // The verifier the design asks for is Cranelift's, over *our* output
         // (§4); this one is the middle end's, over its own. Both are on in a
         // toolchain built with assertions and off in a release one, for the
@@ -194,7 +209,7 @@ impl Backend for Cranelift {
         let mut errors: Vec<String> = Vec::new();
         for (index, name) in lowered.units.iter().enumerate() {
             let unit = u32::try_from(index).unwrap_or(0);
-            match compile_unit(&lowered, tables, opts, &isa, unit, name, &entry) {
+            match compile_unit(&lowered, tables, opts, &isa, unit, name, &entry, &counted) {
                 Ok(emitted) => out.push(emitted),
                 Err(mut e) => errors.append(&mut e),
             }
@@ -230,30 +245,33 @@ fn one(message: String) -> Diagnostics {
 /// | `preserve_frame_pointers` | `false` | `true` | Backtraces come from frame pointers, because there is no DWARF (§5). |
 /// | `unwind_info` | `true` | `false` | There is nothing to unwind: an abort is a write and an `_exit` (SPEC 6.10). |
 ///
-/// `regalloc_algorithm = single_pass` is the compile-speed dial that actually
-/// moves at `opt_level = none`, and it is the one knob whose value should be
-/// re-measured rather than assumed.
-fn host_isa(opts: &Options<'_>) -> Result<Arc<dyn TargetIsa>, String> {
-    // ARCHITECTURE.md §9: no cross-compilation, because the runtime archive is
-    // built for the host and for nothing else. The refusal is here, where the
-    // triple is chosen, rather than in the build system, so that it cannot be
-    // routed around.
-    let host = target_lexicon::Triple::host();
-    let wanted = match opts.target.platform {
-        Platform::Linux => "linux",
-        Platform::Macos => "macos",
-        Platform::Js => return Err(String::from("the Cranelift backend does not target JavaScript")),
-    };
-    let have = match host.operating_system {
-        target_lexicon::OperatingSystem::Darwin(_) => "macos",
-        target_lexicon::OperatingSystem::Linux => "linux",
-        other => return Err(format!("no native backend for a host running {other}")),
-    };
-    if wanted != have {
-        return Err(format!(
-            "cannot build for {wanted} on a {have} host: the native runtime archive is built for the host and for nothing else"
-        ));
-    }
+/// `regalloc_algorithm` is set and has no effect: the pinned Cranelift's enum
+/// has only `backtracking` in it — 0.123 withdrew `single_pass` because it
+/// cannot allocate for exception handling — so `set` rejects the value and the
+/// line is a statement of intent for the version that has it back. The dial
+/// that does move was measured rather than assumed: `opt_level = "speed"`
+/// costs `enum-heavy/10k` 20 % (455 ms to 547 ms), because the egraph pass is
+/// more than the register allocation it saves.
+///
+/// # The ISA need not be the host's
+///
+/// This function used to refuse any target platform that was not the host's,
+/// with a message about the runtime archive. The reason was true and the place
+/// was wrong: the archive is a **link** input, and that refusal already lives
+/// where it belongs — [`crate::build::link::can_link`] checks the host platform
+/// and architecture, and [`crate::build::actions::native_ready`] is what
+/// `commands/build.rs`, `commands/run.rs`, `commands/test.rs` and `driver.rs`
+/// all consult before a native build is attempted. Cross-*codegen* is fine and
+/// cross-*linking* is not, so `buri build --output=linux/x86_64` on a mac still
+/// fails with exactly the diagnostic it failed with before, from `native_ready`.
+///
+/// What removing the duplicate buys: `cranelift-codegen` is compiled with
+/// `all-arch` (deliberately — see `cli/Cargo.toml`), so an ISA for any
+/// supported triple costs nothing, and `cli/benches/compiler.rs` can measure
+/// native lowering for both of the triples `design/PERFORMANCE.md` names on
+/// whichever machine the suite is run on.
+fn isa_for(opts: &Options<'_>) -> Result<Arc<dyn TargetIsa>, String> {
+    let triple = triple_of(opts.target)?;
 
     let mut flags = settings::builder();
     let mut set = |name: &str, value: &str| {
@@ -269,11 +287,46 @@ fn host_isa(opts: &Options<'_>) -> Result<Arc<dyn TargetIsa>, String> {
     set("regalloc_algorithm", "single_pass");
     let flags = settings::Flags::new(flags);
 
-    let builder = cranelift_native::builder().map_err(|e| format!("no ISA for this host: {e}"))?;
-    builder.finish(flags).map_err(|e| format!("cannot build an ISA: {e}"))
+    // The host gets `cranelift_native`, which infers the running CPU's
+    // features; any other triple gets the baseline ISA `all-arch` already
+    // carries. That asymmetry is deliberate and it is the right way round: the
+    // host build is the one that gets to use the machine it is running on, and
+    // a cross build is the one that has to be reproducible on any machine.
+    let builder = if triple == target_lexicon::Triple::host() {
+        cranelift_native::builder().map_err(|e| format!("no ISA for this host: {e}"))?
+    } else {
+        isa::lookup(triple.clone())
+            .map_err(|e| format!("no Cranelift backend for `{triple}`: {e}"))?
+    };
+    builder.finish(flags).map_err(|e| format!("cannot build an ISA for `{triple}`: {e}"))
+}
+
+/// The triple a [`Target`](crate::compiler::backend::Target) names.
+///
+/// `arch: None` means the host's architecture, which is the same rule
+/// `backend/llvm/target.rs::triple` uses — named rather than linked, because
+/// that module is behind `backend-llvm` and a doc link into it would break on
+/// the default build — so the two backends visibly agree about what an
+/// unqualified `--output=linux` means.
+fn triple_of(target: crate::compiler::backend::Target) -> Result<target_lexicon::Triple, String> {
+    let arch = match target.arch {
+        Some(Arch::X86_64) => "x86_64",
+        Some(Arch::Arm64) => "aarch64",
+        None if cfg!(target_arch = "aarch64") => "aarch64",
+        None => "x86_64",
+    };
+    let text = match target.platform {
+        Platform::Macos => format!("{arch}-apple-darwin"),
+        Platform::Linux => format!("{arch}-unknown-linux-gnu"),
+        Platform::Js => {
+            return Err(String::from("the Cranelift backend does not target JavaScript"))
+        }
+    };
+    text.parse().map_err(|e| format!("`{text}` is not a target triple: {e}"))
 }
 
 /// One codegen unit, from IR to object bytes.
+#[allow(clippy::too_many_arguments, reason = "one unit's inputs, each of which it needs")]
 fn compile_unit(
     program: &mir::Program,
     tables: &Tables,
@@ -282,6 +335,7 @@ fn compile_unit(
     unit: u32,
     name: &str,
     entry: &Root,
+    counted: &RefCell<rc::Syntactic>,
 ) -> Result<Emitted, Vec<String>> {
     let mut builder = match ObjectBuilder::new(isa.clone(), name, default_libcall_names()) {
         Ok(b) => b,
@@ -293,7 +347,7 @@ fn compile_unit(
     builder.per_data_object_section(true);
     let module = ObjectModule::new(builder);
     let abi = Abi::new(tables, isa.default_call_conv());
-    let mut u = emit::Unit::new(module, abi, program, opts.profile, unit);
+    let mut u = emit::Unit::new(module, abi, program, opts.profile, unit, counted);
     u.define_all();
 
     // The entry point goes in the unit that owns `main`, so that a program is
@@ -370,7 +424,7 @@ fn test_entry_point(u: &mut emit::Unit<'_>, tests: &[usize]) {
     };
     let tests = tests.to_vec();
     u.build_function(id, sig, "the test entry point", |unit, b| {
-        let mut cx = emit::Cx { unit, b };
+        let mut cx = emit::Cx::new(unit, b);
         let block = cx.b.create_block();
         cx.b.append_block_params_for_function_params(block);
         cx.b.switch_to_block(block);
@@ -426,9 +480,14 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
     let program = u.program;
     let layout = ret.map(|t| u.abi.layout(program, t));
     let leaves = ret.map(|t| u.abi.leaves(program, t)).unwrap_or_default();
+    // `main` answers `Result<(), Str>` on every program that can fail, which is
+    // three words and therefore the out-pointer form (`abi.rs`'s header). The
+    // shim asks the same question the compiled call sites ask rather than
+    // knowing the answer for that one type.
+    let indirect = u.abi.rets_indirect(program, &f.sig.rets);
 
     u.build_function(id, sig, "the entry point", |unit, b| {
-        let mut cx = emit::Cx { unit, b };
+        let mut cx = emit::Cx::new(unit, b);
         let block = cx.b.create_block();
         cx.b.append_block_params_for_function_params(block);
         cx.b.switch_to_block(block);
@@ -439,20 +498,26 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
         let init = cx.rt_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
         cx.b.ins().call(init, &[argc, argv]);
 
-        let Some(callee) = cx.func_ref(idx) else { return };
-        let call = cx.b.ins().call(callee, &[]);
-        let results = cx.b.inst_results(call).to_vec();
-
         let flush = cx.rt_ref("buri_rt_flush", &[], &[]);
         let Some(l) = layout.filter(|l| l.size > 0) else {
+            if let Some(callee) = cx.func_ref(idx) {
+                cx.b.ins().call(callee, &[]);
+            }
             cx.b.ins().call(flush, &[]);
             let zero = cx.iconst(types::I32, 0);
             cx.b.ins().return_(&[zero]);
             return;
         };
         let slot = cx.slot(l.size, l.align);
-        for (leaf, v) in leaves.iter().zip(results) {
-            cx.store_at(slot, leaf.offset, v);
+        let Some(callee) = cx.func_ref(idx) else { return };
+        if indirect {
+            cx.b.ins().call(callee, &[slot]);
+        } else {
+            let call = cx.b.ins().call(callee, &[]);
+            let results = cx.b.inst_results(call).to_vec();
+            for (leaf, v) in leaves.iter().zip(results) {
+                cx.store_at(slot, leaf.offset, v);
+            }
         }
         // The tag, by the same rule `GetTag` uses. Anything that is not an
         // enum — a `main` returning `()` — is a success.

@@ -4,6 +4,13 @@ version = "0.3.0"
 edition = "2021"
 description = "The Buri toolchain: compiler, build system, test runner, formatter, and linter."
 
+# `benches/generate.rs` and `benches/corpus.rs` are *modules* of the `compiler`
+# bench target, not bench targets. Cargo infers a target from every `.rs` file
+# directly under `benches/`, so without this a plain `cargo bench -p buri`
+# builds two more binaries that have no `main` and measure nothing. The
+# `[[bench]]` stanza at the bottom of this file names the one real target.
+autobenches = false
+
 # The dependency bar is stated in the workspace manifest, and these are the
 # only things that clear it. Every one is optional, so the *dependency-free*
 # build is still `cargo build -p buri --no-default-features`, and every one is a
@@ -90,6 +97,14 @@ backend-cranelift = [
 # Cranelift.
 backend-llvm = ["dep:inkwell"]
 
+# The benchmark's counting global allocator. Off by default and not referenced
+# by the library at all: the counter is two atomic increments on every
+# allocation in the process, so a timed row taken with it on is not comparable
+# with one taken without it. `benches/compiler.rs --alloc` reads it, and the
+# figure it produces — allocations per line, per phase — is the one number in
+# the whole benchmark with no measurement noise in it.
+alloc-counter = []
+
 # The panic-free lint set, in the workspace manifest with the reasoning.
 [lints]
 workspace = true
@@ -101,3 +116,24 @@ path = "src/lib.rs"
 [[bin]]
 name = "buri"
 path = "src/main.rs"
+
+# The compiler throughput benchmark. `design/PERFORMANCE.md` states the three
+# goals it measures against and the methodology it implements.
+#
+# `harness = false` because there is no benchmark harness to link: `criterion`
+# is not admissible under the dependency bar in the workspace manifest — it is
+# neither a code generator nor a platform interface — and what a harness has to
+# do here is warm up, repeat, and report a median with its spread, which is a
+# hundred and fifty lines. The target owns its own `main`, and takes its own
+# flags: `--json`, `--quick`, `--validate`, `--split`.
+#
+# `cargo bench` builds this under `[profile.bench]`, which inherits
+# `[profile.release]` — opt-level 3, LTO, one codegen unit. The
+# `[profile.test] opt-level = 1` in the workspace manifest does *not* reach it:
+# that profile applies to test targets, and a bench target is not one. The
+# header the benchmark prints says which build it is, so a number taken from an
+# unoptimized binary announces itself rather than being quietly filed.
+[[bench]]
+name = "compiler"
+path = "benches/compiler.rs"
+harness = false
