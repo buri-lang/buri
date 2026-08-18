@@ -144,9 +144,12 @@ fn options(profile: Profile) -> Options<'static> {
 // ---------------------------------------------------------------------------
 
 /// A per-run directory under `CARGO_TARGET_TMPDIR`, so nothing is written
-/// inside a checked-in tree — the same rule `tests/native/runtime.rs` follows.
+/// inside a checked-in tree, and named by the process id so that two
+/// `cargo test` runs in two shells do not share it — the same rule
+/// `tests/native/runtime.rs` follows, for the reason written there.
 fn workspace() -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("native-llvm");
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("native-llvm-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

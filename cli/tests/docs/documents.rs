@@ -23,6 +23,8 @@
 )]
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is <root>/cli.
@@ -241,17 +243,34 @@ fn every_manifest_id_is_fetchable() {
     }
     assert!(ids.len() > 30, "the manifest advertises only {} pages", ids.len());
 
-    let mut broken = Vec::new();
-    for id in &ids {
-        let got = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-            .args(["docs", id, "--format=json"])
-            .current_dir(std::env::temp_dir())
-            .output()
-            .expect("the buri binary runs");
-        if !got.status.success() {
-            broken.push(id.clone());
+    // One process per id, as a user's agent would ask — but not one *at a
+    // time*. The manifest advertises some seven hundred pages and a debug
+    // `buri docs` takes fifty milliseconds, so a sequential loop is over half
+    // a minute and is the whole cost of this binary. The work is independent
+    // and the assertion is per-id, so the loop is fanned out over the cores
+    // rather than batched into one invocation: what is being checked is that
+    // *a fresh process* answers, and a batched form would no longer check it.
+    let next = AtomicUsize::new(0);
+    let broken = Mutex::new(Vec::new());
+    let workers = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(id) = ids.get(i) else { return };
+                let got = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+                    .args(["docs", id, "--format=json"])
+                    .current_dir(std::env::temp_dir())
+                    .output()
+                    .expect("the buri binary runs");
+                if !got.status.success() {
+                    broken.lock().unwrap().push(id.clone());
+                }
+            });
         }
-    }
+    });
+    let mut broken = broken.into_inner().unwrap();
+    broken.sort();
     assert!(broken.is_empty(), "the manifest advertises pages that do not exist: {broken:?}");
 }
 

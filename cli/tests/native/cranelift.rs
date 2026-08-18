@@ -40,6 +40,7 @@ use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// Whether this host can build and run a native artifact at all.
 ///
@@ -72,6 +73,27 @@ fn workspace(name: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+/// The runtime archive, written once for the process rather than once per
+/// test.
+///
+/// It is six megabytes and it is the same six megabytes every time, so a copy
+/// per workspace is a quarter of a gigabyte written and then left behind under
+/// `CARGO_TARGET_TMPDIR`. Immutable once written and named by the process id,
+/// so `#[test]`s running concurrently share it safely and two `cargo test`
+/// runs in two shells still do not — `native/llvm.rs::archive` is the same
+/// lock for the same reason.
+fn archive() -> &'static Path {
+    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
+    WRITTEN.get_or_init(|| {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("native-cranelift-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(ARCHIVE_NAME);
+        std::fs::write(&path, ARCHIVE).unwrap();
+        path
+    })
 }
 
 /// What running one program produced.
@@ -174,8 +196,6 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
         );
         objects.push(o);
     }
-    let archive = dir.join(ARCHIVE_NAME);
-    std::fs::write(&archive, ARCHIVE).unwrap();
     let binary = dir.join("program");
 
     let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
@@ -183,7 +203,7 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     for o in &objects {
         cc.arg(o);
     }
-    cc.arg(&archive);
+    cc.arg(archive());
     if cfg!(target_os = "linux") {
         cc.args(["-lpthread", "-ldl", "-lm"]);
     }

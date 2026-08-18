@@ -95,6 +95,23 @@ checked-in tree, so the suites hold no lock, run in parallel, and two
 scratch directories behind, and a panicking test leaves its own regardless —
 a failing test's evidence is the directory it failed in.
 
+### What the run costs
+
+Everything but the unit tests drives the real `buri`, so **the toolchain
+compiles itself out of a `cargo test` run**, and an unoptimized compiler is a
+slow suite rather than merely a slow build. `Cargo.toml` therefore puts `buri`
+and the test binaries at `opt-level = 1` in the `dev` and `test` profiles —
+worth about fifteen seconds a run and costing nothing measurable to build, with
+`debug-assertions` still on. Cranelift is deliberately left unoptimized: no
+suite is waiting on it, and optimizing it is a two-minute rebuild.
+
+What is left is `native`, and it is bound by the host rather than by the
+toolchain: it links and executes about a hundred and twenty freshly built
+binaries, and macOS charges roughly 200 ms to execute a binary that was
+written a moment ago, however small it is. That is most of the domain's wall
+time on a mac and almost none of it on Linux. `--skip float_parity` is not
+where the time is.
+
 ## Why each shape exists
 
 **The conformance repository** is ordinary Buri. Its packages are libraries

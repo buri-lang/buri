@@ -47,8 +47,15 @@ const DRIVER: &str = include_str!("driver.c");
 
 /// A per-run directory under `CARGO_TARGET_TMPDIR`, so nothing is written
 /// inside a checked-in tree.
+///
+/// Named by the process id, because the driver below is built once and then
+/// executed by every test in this file: two `cargo test` runs in two shells
+/// sharing the path would have one `cc` overwriting the binary the other is
+/// executing, which on macOS is a child that never returns rather than an
+/// error.
 fn workspace() -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("runtime-native");
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("runtime-native-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

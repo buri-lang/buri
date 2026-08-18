@@ -82,6 +82,7 @@ use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// One conformance file, and whether the native backend is expected to
 /// compile it.
@@ -249,6 +250,20 @@ fn workspace(name: &str) -> PathBuf {
     dir
 }
 
+/// The runtime archive, written once for the process rather than once per
+/// case, for the reason `native/cranelift.rs::archive` gives.
+fn archive() -> &'static Path {
+    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
+    WRITTEN.get_or_init(|| {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("native-conformance-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(ARCHIVE_NAME);
+        std::fs::write(&path, ARCHIVE).unwrap();
+        path
+    })
+}
+
 /// Compile one conformance file as a **test binary**, link it, run it.
 ///
 /// Answers `(status, stdout, stderr, blocks)`, where `blocks` is how many
@@ -289,15 +304,13 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
         std::fs::write(&path, &unit.bytes).unwrap();
         objects.push(path);
     }
-    let archive = dir.join(ARCHIVE_NAME);
-    std::fs::write(&archive, ARCHIVE).unwrap();
     let binary = dir.join("program");
     let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
     cc.arg("-o").arg(&binary);
     for o in &objects {
         cc.arg(o);
     }
-    cc.arg(&archive);
+    cc.arg(archive());
     if cfg!(target_os = "linux") {
         cc.args(["-lpthread", "-ldl", "-lm"]);
     }

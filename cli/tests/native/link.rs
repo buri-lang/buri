@@ -58,11 +58,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // ---------------------------------------------------------------------------
 
 /// A per-test directory under `CARGO_TARGET_TMPDIR`, so nothing is written
-/// inside a checked-in tree and two tests never share a link directory.
+/// inside a checked-in tree, and neither two tests nor two `cargo test` runs
+/// in two shells ever share a link directory.
 fn workspace(name: &str) -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("native-link/{name}-{n}"));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("native-link-{}", std::process::id()))
+        .join(format!("{name}-{n}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir

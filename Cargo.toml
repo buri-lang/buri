@@ -94,6 +94,32 @@ dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 
+# The toolchain compiles itself out of a `cargo test` run: every suite but the
+# unit tests drives the real `buri` binary, so an unoptimized compiler is a slow
+# *suite* rather than merely a slow build. `buri docs <topic>` is 54 ms at
+# `opt-level = 0` and 13 ms at 1, and `cli/tests/docs` alone spawns it seven
+# hundred times.
+#
+# `1` rather than `2` or `3` because it is where the curve turns: it buys the
+# obvious wins (no debug-build call overhead on every accessor, real register
+# allocation) for a few seconds of compile time, and the rest costs minutes of
+# it. `debug-assertions` stays on, so overflow is still a panic in a test run
+# and `arithmetic_side_effects` still means what it says.
+#
+# Scoped to `buri` rather than written as a bare `[profile.dev]` so that
+# Cranelift is left alone. Optimizing it is a two-minute rebuild that no suite
+# is waiting on: `native` is bound by the hundred and twenty binaries it links
+# and executes rather than by the code that emits them, and measures the same
+# either way.
+[profile.dev.package.buri]
+opt-level = 1
+
+# The integration tests are their own crates, so the line above does not reach
+# them: the corpus walkers, the formatter fixed-point check and the reject
+# harness all run in *these* binaries rather than in the library.
+[profile.test]
+opt-level = 1
+
 [profile.release]
 opt-level = 3
 lto = true
