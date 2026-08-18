@@ -28,8 +28,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 use buri::build::session::{Rendering, Session};
 use buri::build::workspace::Workspace;
@@ -399,7 +398,7 @@ fn a_broken_build_file_keeps_the_loop_watching() {
 }
 
 /// What `--explain` said about one action, as `run` / `cached` / `keyed`.
-/// The same reader `incrementality.rs` uses; the claim there is about two
+/// The same reader `build/incrementality.rs` uses; the claim there is about two
 /// invocations and here it is about two passes of one loop.
 fn status(text: &str, action_and_label: &str) -> String {
     for line in text.lines() {

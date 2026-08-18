@@ -52,7 +52,7 @@
    `cli/src/documentation/grammar.rs`; a test regenerates it and fails on any
    difference, so the two cannot drift:
 
-       BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar
+       BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 
    And `cli/src/parsing/parser.rs` is the hand-written implementation, held to
    this file by the corpus: every source the compiler parses, the generated

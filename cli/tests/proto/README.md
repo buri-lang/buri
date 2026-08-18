@@ -150,7 +150,7 @@ classification. `./run.sh --record` re-records `vectors.txt`.
 
 **This is not part of `cargo test`, on purpose** — the same reasoning as
 `editors/tree-sitter-buri/check.sh`. A suite that cannot run without a C++ build
-of another project is a suite that does not run. `cli/tests/proto_vectors.rs` is
+of another project is a suite that does not run. `cli/tests/vectors/proto.rs` is
 the half that does run under cargo: it replays `vectors.txt` through the same
 testee, needing only a Buri toolchain and a JavaScript runtime.
 

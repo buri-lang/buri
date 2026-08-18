@@ -261,7 +261,7 @@ six that went are exactly the parameters of the three functions with a
 reference-counting plan — and no function lost its `memory(...)` attribute
 outright.
 
-`cli/tests/native_llvm.rs` holds the two tests that keep this true. One scans
+`cli/tests/native/llvm.rs` holds the two tests that keep this true. One scans
 *every* emitted function for the pattern rather than asserting on one of them:
 a store to `p - 16` for a `p` the define line marks `readonly`, or under a
 `memory(...)` whose `argmem` is not writable. The other runs one program

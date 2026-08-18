@@ -665,7 +665,7 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 /// rather than a claim about a call it happened not to make — a test can pass a
 /// closure that panics and watch nothing happen. And it is what lets the whole
 /// of this be tested before either native backend exists, which is what
-/// `tests/native_link.rs` does.
+/// `tests/native/link.rs` does.
 ///
 /// What is honest about the result, and what is not yet:
 ///

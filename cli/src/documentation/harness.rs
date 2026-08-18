@@ -6,7 +6,7 @@
 //! third option: real Buri, in a real file, spliced ahead of any block whose
 //! fence says `use=shapes`.
 //!
-//! These files are part of the parse-and-format corpus (`cli/tests/corpus.rs`
+//! These files are part of the parse-and-format corpus (`cli/tests/language/corpus.rs`
 //! walks this directory), so a harness that stops compiling — or stops being
 //! formatted the way `buri format` formats it — fails the build like any other
 //! source.

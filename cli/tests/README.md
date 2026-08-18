@@ -3,21 +3,74 @@
 A compiler that exits 0 has proved nothing. These suites are arranged so that a
 wrong *answer* fails, not merely a program that fails to run.
 
-| Suite | Where | What it proves |
-|---|---|---|
-| Unit tests | `cli/src/**` (`#[cfg(test)]`) | The lexer, parser, textproto reader, type unifier, JS printer, minifier, SHA-256, and SCC finder do what they claim in isolation. |
-| Corpus | `cli/tests/corpus.rs` | Every `.buri` file in the repository that is meant to compile parses; every build file reads; formatting is a fixed point. |
-| Standard library | `cli/tests/standard_library.rs` | `core/*` typechecks against itself — the first program the compiler ever sees. |
-| Conformance | `cli/tests/conformance/` | A Buri repository whose `test/` directories assert on language semantics, run through the real `buri test`. |
-| Rejection | `cli/tests/reject/` | Programs that must **not** compile, one directory each, holding the diagnostics exactly as the terminal and `--error-format=json` print them. |
-| Abort | `cli/tests/crash/` | Programs that must compile, then abort, saying why. Division by zero, a shift past the width of its type, an empty random range. |
-| Repositories | `cli/tests/repositories/` | Whole repositories, one per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
-| Native runtime | `cli/tests/runtime_native.rs` | The `buri_rt_*` C ABI, from C: that the archive links, that the 16-byte reference-count header and drop-glue dispatch behave and leak nothing, that every abort message is byte-identical to the JavaScript backend's, and that each host capability — the two output streams and their interleaving, standard input's two forms, the filesystem, the environment, the clock, randomness, and an HTTP fetch against a socket the test owns — answers what `core/cap` declares. |
-| Incrementality | `cli/tests/incrementality.rs` | What the cache may and may not do, read off the `--explain` transcript. |
-| Hermeticity | `cli/tests/hermeticity.rs` | That an action's spawn is deterministic and a perturbed parent environment changes neither an artifact's bytes nor a suite's verdict; what two builds of one tree have to agree about; and that four concurrent builds leave the cache intact. |
-| Emitted JavaScript | `cli/tests/golden_javascript/` | What the backend *compiles to*, one construct per case: the generated code, what it prints, and the release size of the whole corpus. |
-| Golden | `WEB_STDOUT` in `conformance.rs` | The exact stdout of the worked monorepo's JS binary. |
-| Protobuf conformance | `cli/tests/proto/` | Protobuf's own conformance suite against the codecs generated from a `.proto` schema — the one test here whose ground truth comes from another project. Driven by a C++ runner, so it lives outside `cargo test`; `cli/tests/proto_vectors.rs` replays recorded exchanges without it. |
+## The tree
+
+Two kinds of thing live here and the difference is visible from the listing: a
+**directory holding a `main.rs` is a test binary**, and everything else is a
+**corpus** that one or more of them reads. Cargo discovers `tests/<name>/main.rs`
+on its own, so a domain is a directory and needs no entry in `Cargo.toml`.
+
+```
+cli/tests/
+  harness/              shared machinery, not a binary: the CLI runner, the
+                        scratch repository, the bless-or-compare loop
+
+  language/  main.rs    WHAT THE LANGUAGE DOES, on the reference backend
+    conformance.rs        the conformance repository, the reject corpus
+    standard_library.rs   core/* against itself
+    corpus.rs             every source in the repository, as a corpus
+    golden_javascript.rs  what the JavaScript backend emits
+  build/     main.rs    THE BUILD SYSTEM, driven as a user drives it
+    repositories.rs       one repository per build-system rule
+    example.rs            the worked monorepo
+    incrementality.rs     what the cache may and may not do
+    hermeticity.rs        spawn determinism, concurrency, reproducibility
+    watch.rs              the input set, and what an edit re-runs
+  native/    main.rs    THE NATIVE BACKENDS, and the runtime they link
+    link.rs               bytes in, an executable out
+    runtime.rs            the buri_rt_* C ABI, driven from C
+    driver.c              …the C it is driven from
+    float_parity.rs       3.8 million doubles, native `show` against JS
+    cranelift.rs          gated on `backend-cranelift`
+    conformance.rs        gated on `backend-cranelift`
+    llvm.rs               gated on `backend-llvm`
+    agreement.rs          gated on either: VALUE-MODEL.md §12, both backends
+  docs/      main.rs    THE DOCUMENTATION, held to the bar the code is
+    documents.rs          what the documents are: fences, links, staleness
+    examples.rs           what the documents show: every example compiles
+  vectors/   main.rs    GROUND TRUTH FROM OUTSIDE, replayed offline
+    lean.rs               the Lean model's exhaustiveness verdicts
+    proto.rs              protobuf's own conformance exchanges
+  formatting.rs         THE FORMATTER — a domain of one, its own binary
+  adversarial.rs        HOSTILE INPUT — deliberately its own process
+
+  conformance/          a Buri repository: `test/` blocks on language semantics
+  reject/               programs that must not compile, with their diagnostics
+  crash/                programs that compile, then abort, saying why
+  example/              the worked monorepo, and the largest Buri here to read
+  repositories/         whole repositories, one per build-system rule
+  golden_javascript/    one construct per case, with the code it emits
+  formatting/           an `input.buri` and the one `expected.buri` allowed
+  proto/                vendored schemas, a testee, and the recorded exchanges
+```
+
+Seven binaries, so a full run links seven times. A corpus is shared — the
+`conformance/` repository is read by `language::conformance` on the JavaScript
+backend and by `native::conformance` on Cranelift, `crash/` by four suites — so
+corpora sit at the top level rather than inside any one suite's directory.
+
+## The suites
+
+| Binary | What it proves |
+|---|---|
+| Unit tests (`cli/src/**`, `#[cfg(test)]`) | The lexer, parser, textproto reader, type unifier, JS printer, minifier, SHA-256, and SCC finder do what they claim in isolation. |
+| `language` | That a program means what SPEC says: the conformance repository run through the real `buri test`, the reject corpus with its diagnostics recorded exactly, `core/*` typechecking against itself, every source in the repository parsing and formatting to a fixed point, and what the JavaScript backend compiles each construct to. |
+| `build` | What the build system does: one repository per rule with a manifest of what the CLI does in it, the worked monorepo, what the cache may and may not do read off `--explain`, that an action's spawn is deterministic and a perturbed environment changes neither bytes nor verdicts, and what `buri watch` declares and re-runs. |
+| `native` | That the native backends agree with the reference one, and that the runtime under them holds: bytes in and an executable out, the `buri_rt_*` C ABI driven from C, 3.8 million doubles of float rendering, whole programs through Cranelift and LLVM, and VALUE-MODEL.md §12 row by row under both. |
+| `docs` | That every fence is scannable and tagged, every link resolves, the assembled `SPEC.md` and `README.md` are not stale, and every example in every topic compiles. |
+| `vectors` | That the Lean formalisation and protobuf's own conformance runner still agree with this toolchain — replayed from checked-in vectors, so neither tool is needed to run the suite. |
+| `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
+| `adversarial` | That no input panics the toolchain. Malformed sources, build files, schemas, flags and language-server messages, through the binary, asserting on *how* it stops rather than on what it says. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
 what a user runs.
@@ -25,10 +78,16 @@ what a user runs.
 ## Running them
 
 ```
-cargo test -p buri                       # everything
-cargo test -p buri --test conformance    # the language suites
-cargo test -p buri --test repositories          # the build-system suites
+cargo test -p buri                                    # everything
+cargo test -p buri --test language                    # one domain
+cargo test -p buri --test language conformance::      # one suite in it
+cargo test -p buri --test native -- --skip float_parity
+cargo test -p buri --features backend-llvm --test native
 ```
+
+A merged domain costs nothing in selection: a module is a name prefix, so
+`--test language conformance::` runs exactly what `--test conformance` used to,
+and `--skip` takes a module out of a run the same way.
 
 Every suite works on a copy under `CARGO_TARGET_TMPDIR`. Nothing writes into a
 checked-in tree, so the suites hold no lock, run in parallel, and two
@@ -106,7 +165,7 @@ pass silently because a substring happened to survive. After a deliberate
 change:
 
 ```
-BURI_BLESS=1 cargo test -p buri --test conformance rejected_programs
+BURI_BLESS=1 cargo test -p buri --test language conformance::rejected_programs
 ```
 
 The JSON file is also where the four-part contract is enforced: **every
@@ -247,14 +306,14 @@ this corpus was the only thing that saw it — and had `expected.out` been
 blessable, blessing would have recorded the wrong answer and moved on.
 
 ```
-BURI_BLESS=1 cargo test -p buri --test golden_javascript
+BURI_BLESS=1 cargo test -p buri --test language golden_javascript::
 ```
 
 Blessing without reading the diff is the one way this suite proves nothing.
 
 ## Properties pinned outside the corpora
 
-`conformance.rs` also holds the checks that are about the toolchain rather than
+`language/conformance.rs` also holds the checks that are about the toolchain rather than
 the language:
 
 - **Tail calls run in constant stack on V8.** Ten million bounces through a
@@ -278,7 +337,7 @@ the language:
 - **`format --check` reports without rewriting**, and formatting is a fixed
   point.
 
-`backend_agreement.rs` is the one outside `conformance.rs`, and it is about the
+`native/agreement.rs` is the one outside `language/conformance.rs`, and it is about the
 *pair* of backends rather than about either: one `.buri` source compiled through
 `actions::prepare` and `backend::select` twice — JavaScript under `bun`, native
 through Cranelift or LLVM and `cc` — with the two outputs compared byte for byte.

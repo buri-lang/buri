@@ -1,6 +1,6 @@
 //! The documentation's own tests.
 //!
-//! `documentation_examples.rs` compiles what the documents *show*. This file
+//! `docs/examples.rs` compiles what the documents *show*. This file
 //! checks what the documents *are*: that every fence is scannable and tagged,
 //! that every link resolves, and that the checked-in `cli/src/docs/SPEC.md`
 //! and `README.md` still match what `buri docs assemble` produces.

@@ -5,7 +5,7 @@
 //! noticed when they stopped agreeing. This reads the EBNF and emits the
 //! tree-sitter grammar from it, so there is one declarative source and the
 //! editor artifact is a build product with a test holding it in place
-//! (`cli/tests/corpus.rs::the_tree_sitter_grammar_is_generated`).
+//! (`cli/tests/language/corpus.rs::the_tree_sitter_grammar_is_generated`).
 //!
 //! ## What the EBNF has to carry beyond a context-free grammar
 //!
@@ -1588,7 +1588,7 @@ const HEADER: &str = "\
 //
 // To change the grammar, edit the EBNF and run:
 //
-//   BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar
+//   BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 //
 // `src/scanner.c` is hand-written and stays that way: string interpolation and
 // nestable block comments need a lexer with state, which no declarative

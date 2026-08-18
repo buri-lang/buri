@@ -41,7 +41,7 @@
 //! This tree is deliberately not part of the repository-wide corpus. An
 //! `input.buri` is misformatted on purpose, so a suite that asked "is every
 //! source in the repository already formatted" would be asking these files a
-//! question they exist to answer no to. `corpus.rs` reaches its files through
+//! question they exist to answer no to. `language/corpus.rs` reaches its files through
 //! two explicit lists of directories rather than by walking `cli/tests`, and
 //! neither names this one — which is also why the guards those suites apply to
 //! the corpus are applied here, per case, rather than assumed.

@@ -246,7 +246,7 @@ fn lean_and_rust_agree_on_exhaustiveness() {
     );
 }
 
-/// The formal analogue of `conformance.rs`'s canary: agreement is evidence only
+/// The formal analogue of `language/conformance.rs`'s canary: agreement is evidence only
 /// if disagreement would be *visible*. This drives two `match` statements whose
 /// answers are not in doubt through the same observation path the comparison
 /// uses — compile, read the diagnostics, attribute them by byte range — and

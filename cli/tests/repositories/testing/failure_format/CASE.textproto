@@ -2,7 +2,7 @@
 # test's name, the assertion that failed, both values, and a source location —
 # and then the summary line, with the count of tests a `--filter` left out.
 #
-# The canary in `conformance.rs` asserts only that the output contains `FAIL`,
+# The canary in `language/conformance.rs` asserts only that the output contains `FAIL`,
 # which is a check that the runner noticed rather than a check on what it said.
 # This records every character of it, so a reworded failure turns up as a diff
 # and gets looked at.

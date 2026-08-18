@@ -23,7 +23,7 @@ decision, so Stage 5 is now worth starting; it is not started here.
 
 **Nothing here is on the path to building a `buri` binary.** `formal/` is not a
 Cargo workspace member and the toolchain never invokes Lake. The one place the
-two meet is `cli/tests/lean_vectors.rs`, which reads checked-in vectors and
+two meet is `cli/tests/vectors/lean.rs`, which reads checked-in vectors and
 needs no Lean.
 
 ## Running it
@@ -36,7 +36,7 @@ lake env lean Audit.lean          # must print no `sorryAx`
 grep -rn 'sorry\|admit' Buri/     # must find nothing outside doc comments
 
 lake env lean --run Vectors.lean  # regenerates vectors/exhaustiveness.txt
-cd ../cli && cargo test --test lean_vectors
+cd ../cli && cargo test --test vectors lean::
 ```
 
 The toolchain is pinned in `lean-toolchain` (Lean 4.33.0). `elan` reads that
@@ -56,7 +56,7 @@ rule (SPEC §14 rule 33), and `List` + `Nodup` is what the Rust
 
 Everything below is machine-checked and depends on nothing but Lean's three
 standard axioms (`propext`, `Quot.sound`, `Classical.choice`). `Audit.lean`
-checks that for 57 results, and is the formal analogue of `conformance.rs`'s
+checks that for 57 results, and is the formal analogue of `language/conformance.rs`'s
 canary: a proof development that cannot be caught cheating is not evidence.
 
 ### The headline
@@ -181,7 +181,7 @@ then enumerates every ordered selection of one, two or three distinct pool
 entries, runs `isExhaustive` and the per-arm reachability loop on each, and
 writes `(program, verdict)` lines to `vectors/exhaustiveness.txt`.
 
-`cli/tests/lean_vectors.rs` reads that file, assembles the vectors into modules
+`cli/tests/vectors/lean.rs` reads that file, assembles the vectors into modules
 of 64 functions, compiles each module through `driver::analyze_snippet` — the
 same entry point the documentation harness uses — and attributes every
 `match-not-exhaustive` and `unreachable-arm` diagnostic back to its vector and

@@ -574,7 +574,7 @@ test "checkedAdd at the I32 and U32 boundaries" {
 // Everything below is on the same side of *both* bounds, so it is the same
 // answer everywhere: a sum inside 2^53, or one that leaves the type itself. The
 // band between the two bounds is a documented divergence and belongs to
-// `cli/tests/backend_agreement.rs`'s row 2, not here.
+// `cli/tests/native/agreement.rs`'s row 2, not here.
 test "checkedAdd at the largest I64 and U64 sums every backend can name" {
   let a: I64 = 9007199254740990;
   assert.eq(assert.some(a.checkedAdd(1)), 9007199254740991);
@@ -637,7 +637,7 @@ test "checkedMul at the widest types" {
   // 2^32 * 2^32 is 2^64, which is past `U64` and past `I64` — so `.None` on
   // every backend, rather than only on the one that cannot name the product.
   // A product that fits its type but not a `number` is row 2's divergence and
-  // is asserted in `cli/tests/backend_agreement.rs` instead.
+  // is asserted in `cli/tests/native/agreement.rs` instead.
   let c: U64 = 4294967296;
   assert.none(c.checkedMul(4294967296));
   let d: I64 = 4294967296;

@@ -4,7 +4,7 @@
 //! `cli/tests/proto/` holds a testee that speaks the runner's protocol, and
 //! `run.sh` drives it with the real C++ `conformance_test_runner`. That tool is
 //! not something `cargo test` can depend on — it is a C++ build of another
-//! project — so this is the other half of the `lean_vectors` arrangement: the
+//! project — so this is the other half of the `vectors::lean` arrangement: the
 //! external tool generates, a checked-in file replays, and the replay needs
 //! nothing but a Buri toolchain and a JavaScript runtime.
 //!
@@ -14,7 +14,7 @@
 //! chain changes an answer here.
 //!
 //! ```text
-//! BURI_KEEP=1 cargo test -p buri --test proto_vectors    # keep the scratch tree
+//! BURI_KEEP=1 cargo test -p buri --test vectors proto::    # keep the scratch tree
 //! ```
 
 #![allow(
@@ -33,8 +33,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 use std::io::Write;
 use std::path::PathBuf;

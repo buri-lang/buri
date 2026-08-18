@@ -5,7 +5,7 @@ import Buri
 
 Runs the Lean exhaustiveness algorithm over an enumerated corpus of `match`
 statements and writes the verdicts to `formal/vectors/exhaustiveness.txt`, where
-`cli/tests/lean_vectors.rs` replays them against the Rust checker.
+`cli/tests/vectors/lean.rs` replays them against the Rust checker.
 
 Regenerate with:
 
@@ -207,7 +207,7 @@ def allVectors : List String :=
   (scenarios.foldl step (0, [])).2
 
 def header : List String :=
-  [ "# Lean-generated exhaustiveness vectors for cli/tests/lean_vectors.rs.",
+  [ "# Lean-generated exhaustiveness vectors for cli/tests/vectors/lean.rs.",
     "# Regenerate: cd formal && lake env lean --run Vectors.lean",
     "# P<TAB>line                 a prelude declaration, in order",
     "# id<TAB>E|N<TAB>unreachable<TAB>scrutinee-type<TAB>arm...",

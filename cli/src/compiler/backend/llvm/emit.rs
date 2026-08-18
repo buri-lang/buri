@@ -4184,7 +4184,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// backends keep, at different widths (SPEC 6.2.2,
     /// `design/native/VALUE-MODEL.md` §12 row 2). The band between `2^53` and
     /// the type's own maximum is a documented divergence and
-    /// `cli/tests/backend_agreement.rs`'s row 2 pins both answers.
+    /// `cli/tests/native/agreement.rs`'s row 2 pins both answers.
     ///
     /// The arithmetic is done in 128 bits rather than with
     /// `llvm.*.with.overflow`, which is both simpler and *more* correct here:

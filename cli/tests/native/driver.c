@@ -9,7 +9,7 @@
  * contract and the runtime disagree, this file fails to link or prints the
  * wrong answer, and both are what the suite is for.
  *
- * `argv[1]` selects a mode; `cli/tests/runtime_native.rs` owns the expected
+ * `argv[1]` selects a mode; `cli/tests/native/runtime.rs` owns the expected
  * output of each one. */
 
 #include <stdint.h>
@@ -462,7 +462,7 @@ static int mode_net(const char *url) {
 
 /* Rendering and hashing: the two places VALUE-MODEL.md §12 asks for the *same
  * bytes* as JavaScript rather than for a defensible answer. The float corpus
- * lives in `cli/tests/native_float_parity.rs`, which checks four million values
+ * lives in `cli/tests/native/float_parity.rs`, which checks four million values
  * against a JavaScript engine; this checks that the symbols exist, have the
  * arity the contract states, and answer the handful of cases a reader would
  * look up. */

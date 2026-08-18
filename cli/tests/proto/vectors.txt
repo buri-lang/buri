@@ -2,10 +2,10 @@
 # Buri testee gave it.
 #
 # One exchange per line, as `request response`, both hex, both the *body* of a
-# frame with its four-byte length prefix removed. `cli/tests/proto_vectors.rs`
+# frame with its four-byte length prefix removed. `cli/tests/vectors/proto.rs`
 # replays them through the same testee, which is the whole of the conformance
 # pipeline -- vendored schema, generated module, generated codecs, framing --
-# with the C++ runner absent. The `lean_vectors` arrangement: an external tool
+# with the C++ runner absent. The `vectors::lean` arrangement: an external tool
 # generates, a checked-in file replays, and `cargo test` needs neither.
 #
 # **What these pin, exactly.** They were recorded from a run the reference

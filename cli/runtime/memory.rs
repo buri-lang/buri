@@ -35,7 +35,7 @@ struct Header {
 // The one place this runtime is atomic, and it is not on the reference-count
 // path: the counts themselves are open-coded plain loads and stores, because
 // the language has no threads (MEMORY.md §1). These four are here so that
-// `cli/tests/memory.rs` can assert "every allocation is freed at exit" — the
+// `cli/tests/native/memory.rs` can assert "every allocation is freed at exit" — the
 // test MEMORY.md §2 asks for to defend the acyclicity lemma — and a relaxed
 // add next to a `malloc` is not a cost anybody can measure.
 static LIVE_BLOCKS: AtomicU64 = AtomicU64::new(0);
@@ -291,7 +291,7 @@ pub unsafe extern "C" fn buri_rt_cap(p: *mut u8) -> u64 {
     unsafe { (*header(p)).cap }
 }
 
-/// Heap accounting, for `cli/tests/memory.rs` and for `--explain`.
+/// Heap accounting, for `cli/tests/native/memory.rs` and for `--explain`.
 ///
 /// # Safety
 /// `out` must be non-null and aligned for [`BuriHeapStats`].

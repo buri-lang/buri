@@ -62,7 +62,7 @@ stdout corrupts the stream in a way that presents as the editor being broken.
 
 **Requests are handled one at a time**, in the order they arrive. That costs
 some latency on a slow analysis and buys determinism: a session is reproducible,
-which is what lets `cli/tests/repos/lsp/` record one as a golden file.
+which is what lets `cli/tests/repositories/lsp/` record one as a golden file.
 
 ## Editors
 

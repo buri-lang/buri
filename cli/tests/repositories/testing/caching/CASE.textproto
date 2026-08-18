@@ -4,7 +4,7 @@
 # rather than something a user cannot get out from under.
 #
 # The count is in the summary rather than in a transcript, because it is the
-# thing a person reads. `incrementality.rs` reads the same fact off `--explain`
+# thing a person reads. `build/incrementality.rs` reads the same fact off `--explain`
 # and asks the sharper question — which key moved, and which did not.
 #
 # Every step is a whole-summary recording, so a suite that stopped running at

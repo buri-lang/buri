@@ -454,7 +454,7 @@ right about their own schema, and the difference is the one this page is mostly
 about.
 
 It is not part of `cargo test`, because a suite that needs a C++ build of
-another project is a suite that does not run. `cli/tests/proto_vectors.rs`
+another project is a suite that does not run. `cli/tests/vectors/proto.rs`
 replays recorded exchanges through the same testee under cargo, which is the
 half that can be hermetic.
 

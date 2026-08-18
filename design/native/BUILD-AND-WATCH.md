@@ -266,7 +266,7 @@ it is the state a contributor is in unless they go looking for the other one.
 
 `cc` is the one thing that is not optional, and it is not new either: the link
 step drives the platform C compiler (CODEGEN-CRANELIFT.md §7.3) and
-`cli/tests/runtime_native.rs` already compiled a C driver against the runtime
+`cli/tests/native/runtime.rs` already compiled a C driver against the runtime
 archive before this wave. It is Xcode's command-line tools on macOS
 (`xcode-select --install`) and `build-essential` on Debian-likes.
 

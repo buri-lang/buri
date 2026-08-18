@@ -20,7 +20,7 @@
 //!   and is mostly runtime, and the generated code, which is what the backend
 //!   emitted and where a pass either shows up or did not land.
 //!
-//! `BURI_BLESS=1 cargo test -p buri --test golden_javascript` records. Read the diff:
+//! `BURI_BLESS=1 cargo test -p buri --test language golden_javascript::` records. Read the diff:
 //! blessing without reading it is the one way this suite proves nothing.
 
 #![allow(
@@ -39,8 +39,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 /// The generated half of an artifact.
 ///

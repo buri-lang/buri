@@ -9,12 +9,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The whole Rust suite: unit tests plus every integration binary
-  # (conformance, repositories, golden_javascript, hermeticity, formatting,
-  # lean_vectors replay, ...). Compiled programs are executed with `bun`;
-  # the constant-stack tail-call tests additionally run under `node`
-  # (JavaScriptCore has proper tail calls, V8 does not — the tests exist
-  # because of that difference, so both runtimes must be present).
+  # The whole Rust suite: unit tests plus every integration binary. There are
+  # seven, one per domain, and `cli/tests/README.md` is the map: `language`,
+  # `build`, `native`, `docs`, `vectors`, `formatting`, `adversarial`.
+  # Compiled programs are executed with `bun`; the constant-stack tail-call
+  # tests additionally run under `node` (JavaScriptCore has proper tail calls,
+  # V8 does not — the tests exist because of that difference, so both runtimes
+  # must be present).
   test:
     strategy:
       fail-fast: false
@@ -36,7 +37,7 @@ jobs:
       # asserted.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y mold
-      # `cc` is what the native link step and `tests/runtime_native.rs` drive.
+      # `cc` is what the native link step and `tests/native/runtime.rs` drive.
       # Both runners have one; assert rather than assume, because its absence
       # would present as a link failure inside a test rather than as a missing
       # tool.

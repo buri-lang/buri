@@ -8,7 +8,7 @@
 //
 // To change the grammar, edit the EBNF and run:
 //
-//   BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar
+//   BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 //
 // `src/scanner.c` is hand-written and stays that way: string interpolation and
 // nestable block comments need a lexer with state, which no declarative

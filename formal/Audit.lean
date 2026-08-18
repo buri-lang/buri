@@ -8,9 +8,9 @@ Run with `lake env lean formal/Audit.lean`. Every line must print exactly
 appears anywhere, something in this development is admitted rather than proved
 and every claim resting on it is void.
 
-This is the formal analogue of `conformance.rs`'s `conformance_suite_can_fail`:
+This is the formal analogue of `language/conformance.rs`'s `conformance_suite_can_fail`:
 a proof development that cannot be caught cheating is not evidence. The Rust
-side of the same idea is `cli/tests/lean_vectors.rs`, which replays this
+side of the same idea is `cli/tests/vectors/lean.rs`, which replays this
 development's exhaustiveness verdicts against the real checker.
 
 57 results, in the order the development builds them.

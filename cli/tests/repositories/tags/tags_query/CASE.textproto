@@ -1,4 +1,4 @@
-# The two questions `conformance.rs` used to ask with `.contains()`, asked
+# The two questions `language/conformance.rs` used to ask with `.contains()`, asked
 # properly. A substring check passes on output that has changed shape entirely,
 # and `query` output is the toolchain's answer to "what does the graph say" —
 # the thing most worth recording exactly.

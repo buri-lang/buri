@@ -39,7 +39,7 @@ resolver = "2"
 #
 # All of them are in the lockfile as of wave 2a, and all of them are optional,
 # so `cargo build -p buri --no-default-features` still resolves nothing and the
-# gates are still compiled both ways. `cli/tests/corpus.rs`'s
+# gates are still compiled both ways. `cli/tests/language/corpus.rs`'s
 # `dependencies_stay_behind_the_bar` is what holds the paragraph above to a
 # closed set rather than to a habit.
 

@@ -25,7 +25,7 @@
 //!   `repositories/cli/output_selection` pinned.
 //!
 //! A machine with no C compiler, or one that is neither macOS nor Linux, skips
-//! rather than fails: `cc` is not a new requirement — `tests/runtime_native.rs`
+//! rather than fails: `cc` is not a new requirement — `tests/native/runtime.rs`
 //! already needs it, and the link step is driven through it — but a suite that
 //! cannot run is not a suite that failed.
 

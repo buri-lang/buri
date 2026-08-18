@@ -59,10 +59,10 @@ behaviour depends on which answer it gets is relying on a `Checked` method to
   divergence again and row 3 records that `Wrapping` was checked against the
   ruling and did not move.
 - Tests: the divergent band left the shared conformance corpus, which
-  `native_conformance.rs` runs natively and which may therefore only assert what
+  `native/conformance.rs` runs natively and which may therefore only assert what
   both backends answer. `conformance/lib/numbers/test/integers.buri` keeps the
   agreeing halves — sums inside 2^53, and overflow of the type itself — and
-  `cli/tests/backend_agreement.rs`'s `row_02_checked_above_the_exact_range` is a
+  `cli/tests/native/agreement.rs`'s `row_02_checked_above_the_exact_range` is a
   `diverge()` row pinning both answers, with the agreeing cases either side of
   the band asserted in the same program.
 

@@ -394,7 +394,7 @@ impl Cc {
                 flags.push("-Wl,--gc-sections".into());
                 // What `std` reaches for. Harmless where glibc has folded them
                 // in, and required where it has not — the same three
-                // `tests/runtime_native.rs` passes for the same archive.
+                // `tests/native/runtime.rs` passes for the same archive.
                 flags.push("-lpthread".into());
                 flags.push("-ldl".into());
                 flags.push("-lm".into());

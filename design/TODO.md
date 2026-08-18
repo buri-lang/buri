@@ -58,9 +58,9 @@ holds what it holds, and what the deliberate absences would cost to close.
   the widest line drops from 309 columns to 180. What is left is the
   coordinated pass that writes it to the checked-in files.
 
-- **The `cli/tests/repositories/` fixtures are not walked by `corpus.rs`,** so
+- **The `cli/tests/repositories/` fixtures are not walked by `language/corpus.rs`,** so
   the sources there are held neither to "every source parses" nor to the
-  formatting fixed point. That is deliberate — `repos/cli/format_check` checks in a
+  formatting fixed point. That is deliberate — `repositories/cli/format_check` checks in a
   deliberately misformatted file, and future cases will check in ones that must
   not compile — but it means a typo in a fixture is caught only by the case
   that runs it.
@@ -184,12 +184,12 @@ and the answer is not obvious from the code.
 
 - **There is no `--shuffle`, and there must not be.** The runner may run a
   suite's tests in any order, and there is no knob to turn that off. A flag
-  nothing reads cannot be listed; `repos/testing/filter` pins that `--shuffle`
+  nothing reads cannot be listed; `repositories/testing/filter` pins that `--shuffle`
   and `--shuffle=off` are both exit 2.
 
 - **There is no `buri query --output=proto`.** It was documented once and
   rejected by the parser, and the disagreement was ended by deleting the
-  documentation. `repos/query/graph_queries` records the refusal so a reader
+  documentation. `repositories/query/graph_queries` records the refusal so a reader
   who finds the old claim finds the answer with it.
 
 - **No operating-system sandbox, on any platform.** One was built and removed.

@@ -76,7 +76,7 @@ here.
 ## 5. Two rules for anything added to `core/*`
 
 1. **Every body-less declaration needs a conformance test that calls it.**
-   `cli/tests/stdlib.rs` stops after type checking, so a declaration with no
+   `cli/tests/language/standard_library.rs` stops after type checking, so a declaration with no
    runtime function behind it passes that suite silently and fails only when a
    real program reaches it. The suites under `cli/tests/conformance/lib/` are
    what actually run the code.

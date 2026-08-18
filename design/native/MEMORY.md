@@ -56,7 +56,7 @@ mutation is a memory leak with extra steps; in this language it is a complete
 collector.
 
 It is worth defending the lemma with a test rather than only with an argument.
-`cli/tests/memory.rs` runs a corpus of the shapes that would break it — a
+`cli/tests/native/memory.rs` runs a corpus of the shapes that would break it — a
 recursive enum, a rose tree, a closure over a closure, a context stored in a
 struct — and asserts that every allocation is freed at exit. A future language
 feature that introduces a cycle will fail there rather than in production.
@@ -67,8 +67,8 @@ because a relaxed add beside a `malloc` is not a cost anybody can measure and a
 diagnostic that only exists in a special build is a diagnostic nobody runs. An
 immortal block is removed from the live count when it is marked
 (`buri_rt_make_immortal`), so a leak check does not report every string literal.
-`cli/tests/runtime_native.rs` already asserts the property on a corpus of one,
-from C; `cli/tests/memory.rs` is the same assertion over Buri programs.
+`cli/tests/native/runtime.rs` already asserts the property on a corpus of one,
+from C; `cli/tests/native/memory.rs` is the same assertion over Buri programs.
 
 ## 3. Why not a tracing GC
 
@@ -307,7 +307,7 @@ disagreement between them costs a reallocation rather than an answer.
   ```
 
   compiles to a stack slot and a store, not to a heap cell and a `decref`.
-  `cli/tests/native_cranelift.rs`'s
+  `cli/tests/native/cranelift.rs`'s
   `a_struct_update_loop_allocates_nothing_per_iteration` is the measurement
   rather than the claim: a thousand struct updates allocate exactly as many
   blocks as ten. Emitting the conditional form — a `rc == 1` branch, a write,

@@ -1,4 +1,4 @@
-// The canary suite. `tests/conformance.rs::conformance_suite_can_fail` edits
+// The canary suite. `tests/language/conformance.rs::conformance_suite_can_fail` edits
 // the CANARY marker below and asserts the runner reports a failure — a suite
 // that cannot fail is not evidence of anything.
 //

@@ -2631,7 +2631,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     ///
     /// The two agree on every operand inside `±2^53` and on every overflow of
     /// the type itself; the band between them is a documented divergence, and
-    /// `cli/tests/backend_agreement.rs`'s row 2 pins both answers. The shared
+    /// `cli/tests/native/agreement.rs`'s row 2 pins both answers. The shared
     /// conformance corpus deliberately stays out of that band.
     ///
     /// `Div` is where "the type's own range" is not the same statement as "the

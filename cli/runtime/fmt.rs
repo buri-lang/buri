@@ -36,7 +36,7 @@
 //! answer: if some `k`-digit decimal is within half an ulp of `x`, the *closest*
 //! `k`-digit decimal is too.
 //!
-//! The evidence is `cli/tests/native_float_parity.rs`, which renders a corpus of
+//! The evidence is `cli/tests/native/float_parity.rs`, which renders a corpus of
 //! **3,807,072** doubles — every corner case named in this file, a strided sweep
 //! of the entire `f32` domain widened to `f64`, two million xorshift bit
 //! patterns, every power of ten from `1e-320` to `1e308`, and the subnormals at

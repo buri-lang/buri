@@ -502,7 +502,7 @@ mod tests {
         // the first allocation. A linear implementation would report 1000.
         assert!(allocations <= 12, "one push per element allocated {allocations} times");
         // SAFETY: the last reference. Whether the *process* leaked is
-        // `cli/tests/runtime_native.rs`'s question and not this one: the
+        // `cli/tests/native/runtime.rs`'s question and not this one: the
         // counters are global and `cargo test` runs these in parallel, so a
         // reading taken here would be a reading of every other test as well.
         unsafe { crate::memory::buri_rt_free(acc.ptr) };

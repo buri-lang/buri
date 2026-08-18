@@ -8,7 +8,7 @@ normative grammar and the only place Buri's syntax is written down. Do not edit
 it: edit the EBNF and run
 
 ```
-BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar
+BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 ```
 
 The EBNF carries what tree-sitter needs beyond a context-free grammar — node

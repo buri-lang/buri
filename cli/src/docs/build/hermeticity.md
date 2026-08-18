@@ -100,7 +100,7 @@ catch late and unevenly. That is not what catches this class of bug here.
 | A library or test reaching for ambient state | The type system, at compile time. `host-import` and the effect bounds on `ctx`; the reject corpus pins both. |
 | A test depending on a real clock, a real `Rand`, or a real filesystem | It cannot: those capabilities are injected fakes, and a suite that wanted a real one would have to be handed it. |
 | A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing — `buri build --check-reproducible`, and `builds_are_reproducible` in the toolchain's own suite. This is the check the model rests on. |
-| A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock, checked by building and testing under a perturbed parent environment (`hermeticity.rs`). |
+| A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock, checked by building and testing under a perturbed parent environment (`build/hermeticity.rs`). |
 | A stale cache entry | The key: content, never timestamps, and every input in it. |
 
 The honest summary is one sentence: **hermeticity is enforced by the language and

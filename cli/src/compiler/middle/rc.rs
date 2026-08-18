@@ -95,7 +95,7 @@
 //! an enum and a closure record are register or stack values in both backends
 //! (`cranelift/emit.rs`'s `make_struct` is a stack slot), so
 //! `.Cons(f(h), t)` writing into the matched cell has no cell to write into.
-//! `cli/tests/native_cranelift.rs`'s
+//! `cli/tests/native/cranelift.rs`'s
 //! `a_struct_update_loop_allocates_nothing_per_iteration` measures it: a
 //! thousand functional record updates allocate exactly as many blocks as ten.
 //!

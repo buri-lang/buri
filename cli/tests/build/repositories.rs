@@ -10,8 +10,8 @@
 //! and a failure names the document to open.
 //!
 //! ```text
-//! BURI_BLESS=1 cargo test -p buri --test repositories    # record the goldens
-//! BURI_KEEP=1  cargo test -p buri --test repositories    # keep the scratch trees
+//! BURI_BLESS=1 cargo test -p buri --test build repositories::    # record the goldens
+//! BURI_KEEP=1  cargo test -p buri --test build repositories::    # keep the scratch trees
 //! ```
 
 #![allow(
@@ -30,8 +30,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 /// BUILD-FILES.md: what a rule declares, and the diagnostics that fire when
 /// the declaration and the code disagree.

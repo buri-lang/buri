@@ -288,7 +288,7 @@ pub const GUIDE_FRONT: &str = include_str!("../docs/guide/_front.md");
 /// from (`documentation::grammar`). It is hand-written because it is the
 /// declaration and `parsing/parser.rs` is the implementation, but it is not
 /// inert: `every_grammar_keyword_is_a_keyword` holds it against `lexer::Kw`,
-/// `corpus.rs::the_tree_sitter_grammar_is_generated_from_the_ebnf` regenerates
+/// `language/corpus.rs::the_tree_sitter_grammar_is_generated_from_the_ebnf` regenerates
 /// the editor grammar from it, and `editors/tree-sitter-buri/check.sh` holds
 /// the result to what the parser accepts and rejects.
 pub const GRAMMAR: &str = include_str!("../docs/grammar.ebnf");

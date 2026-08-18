@@ -26,8 +26,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 use std::collections::BTreeMap;
 
@@ -407,7 +406,7 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
         indent(&edited.all())
     );
 
-    // That the watch set holds the same file is `watch.rs`'s to assert, beside
+    // That the watch set holds the same file is `build/watch.rs`'s to assert, beside
     // the rest of the declared set: `watch::inputs` mirrors this key, and the
     // two enumerations are checked where the enumeration is.
 }
@@ -469,7 +468,7 @@ fn filtering_and_accepting_never_come_from_the_cache() {
 /// producing the transcript and the second half takes over, so this does not
 /// have to be rewritten to become the test it is meant to be.
 ///
-/// The claim itself is proved *now*, below the CLI, in `tests/native_link.rs`:
+/// The claim itself is proved *now*, below the CLI, in `tests/native/link.rs`:
 /// `editing_one_unit_re_emits_exactly_that_unit` drives the same
 /// `codegen_units` path this transcript reports, with objects a C compiler
 /// made. What is missing here is the wiring, not the behaviour.

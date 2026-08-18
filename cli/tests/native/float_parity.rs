@@ -31,11 +31,13 @@
 //!
 //! Zero disagreements.
 //!
-//! # Why this is a separate file
+//! # Why this is a module of its own
 //!
-//! It needs a JavaScript engine, which `native_cranelift.rs` does not, and it
+//! It needs a JavaScript engine, which `native/cranelift.rs` does not, and it
 //! takes seconds rather than milliseconds. Both are reasons to be skippable on
-//! their own terms rather than to make the fast suite slow.
+//! their own terms rather than to make the fast suite slow, and a module is a
+//! name prefix: `cargo test --test native -- --skip float_parity` leaves the
+//! rest of the domain fast, and `--test native float_parity` runs only this.
 
 #![allow(
     clippy::unwrap_used,
@@ -350,7 +352,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
 /// looked for in `backend/js/runtime.js` itself.
 #[test]
 fn the_javascript_side_is_the_runtimes_own() {
-    let js = include_str!("../src/compiler/backend/js/runtime.js");
+    let js = include_str!("../../src/compiler/backend/js/runtime.js");
     for clause in [
         r#"if (Number.isNaN(n)) return "NaN";"#,
         r#"if (n === Infinity) return "inf";"#,
@@ -370,7 +372,7 @@ fn the_javascript_side_is_the_runtimes_own() {
 /// until this existed they were written and never executed. One `rustc --test`
 /// costs a few seconds and turns them back into tests.
 ///
-/// It is here rather than in `runtime_native.rs` because that file's whole
+/// It is here rather than in `native/runtime.rs` because that file's whole
 /// argument is that what matters is the *C ABI*, and this is the opposite
 /// claim: the algorithms inside — the ECMA-262 presentation rule, the UTF-16
 /// hash, the JavaScript whitespace set — are worth testing in Rust, where a

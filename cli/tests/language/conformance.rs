@@ -35,8 +35,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 use std::process::Command;
 
@@ -114,7 +113,7 @@ fn conformance_suite_can_fail() {
 /// Regenerate both after a deliberate change:
 ///
 /// ```text
-/// BURI_BLESS=1 cargo test -p buri --test conformance rejected_programs
+/// BURI_BLESS=1 cargo test -p buri --test language conformance::rejected_programs
 /// ```
 #[test]
 fn rejected_programs_are_rejected() {

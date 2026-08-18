@@ -5,7 +5,7 @@
 # This is also where the non-terminal refusal is *provable*: every harness in
 # this repository pipes stdout, so a case here is a watch loop asked for in
 # exactly the situation the check exists to catch. The loop itself is driven in
-# `cli/tests/watch.rs`, headlessly, with the terminal flag injected.
+# `cli/tests/build/watch.rs`, headlessly, with the terminal flag injected.
 #
 # The order the checks are written in is part of the contract: a flag
 # combination is a mistake a person can fix by reading, so it is reported ahead

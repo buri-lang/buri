@@ -44,7 +44,7 @@
 /// `cli/runtime/lib.rs`'s `BURI_OK`, restated here because the compiler and the
 /// runtime are two crates that never link against each other — the archive is
 /// `include_bytes!`d, not depended on — so a shared constant is impossible and
-/// the two spellings are held together by `cli/tests/runtime_native.rs`'s C
+/// the two spellings are held together by `cli/tests/native/runtime.rs`'s C
 /// driver instead.
 pub const BURI_OK: i32 = -1;
 

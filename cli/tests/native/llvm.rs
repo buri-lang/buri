@@ -22,7 +22,8 @@
 //!
 //! # What is skipped, and when
 //!
-//! The whole file is behind `backend-llvm`, which is off by default. With the
+//! `main.rs` declares this module behind `backend-llvm`, which is off by
+//! default and so this module is usually not compiled at all. With the
 //! feature on, LLVM is linked into this binary, so "is LLVM installed" is not a
 //! question — but "can this host link and run what we emit" still is, and
 //! [`can_execute`] answers it: a runtime archive must have been built
@@ -30,7 +31,6 @@
 //! machine for this host's triple must be constructible. A host that fails any
 //! of those skips with a message rather than failing.
 
-#![cfg(feature = "backend-llvm")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -144,7 +144,7 @@ fn options(profile: Profile) -> Options<'static> {
 // ---------------------------------------------------------------------------
 
 /// A per-run directory under `CARGO_TARGET_TMPDIR`, so nothing is written
-/// inside a checked-in tree — the same rule `tests/runtime_native.rs` follows.
+/// inside a checked-in tree — the same rule `tests/native/runtime.rs` follows.
 fn workspace() -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("native-llvm");
     std::fs::create_dir_all(&dir).unwrap();
@@ -187,7 +187,7 @@ fn cc() -> String {
 /// Compile, link, run, and answer `(stdout, stderr, exit status)`.
 ///
 /// The link is a plain `cc` over the emitted objects and the runtime archive,
-/// which is exactly the command `runtime_native.rs`'s module comment writes
+/// which is exactly the command `native/runtime.rs`'s module comment writes
 /// out. Wave 2c owns the real `Linker`; until it lands, this is the same
 /// command line spelled in the test that needs it.
 fn build_and_run(name: &str, source: &str) -> (String, String, Option<i32>) {
@@ -2547,7 +2547,7 @@ export fn main(): Result<(), Str> {
 /// that is the type's own range, so `checkedAdd` reports two's-complement
 /// overflow and nothing else, and `(1 << 53).checkedAdd(1)` is `.Some` even
 /// though a JavaScript `number` could not name it — the JavaScript backend
-/// answers `.None` there, and `cli/tests/backend_agreement.rs`'s row 2 pins both.
+/// answers `.None` there, and `cli/tests/native/agreement.rs`'s row 2 pins both.
 /// The interesting native case is the one the machine, not the width, decides:
 /// `minValue<I64>() / -1` is `2^63`, which has no two's-complement
 /// representation, so it is `.None` alongside a zero divisor.

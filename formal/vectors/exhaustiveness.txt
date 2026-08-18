@@ -1,4 +1,4 @@
-# Lean-generated exhaustiveness vectors for cli/tests/lean_vectors.rs.
+# Lean-generated exhaustiveness vectors for cli/tests/vectors/lean.rs.
 # Regenerate: cd formal && lake env lean --run Vectors.lean
 # P<TAB>line                 a prelude declaration, in order
 # id<TAB>E|N<TAB>unreachable<TAB>scrutinee-type<TAB>arm...

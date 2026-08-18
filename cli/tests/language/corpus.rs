@@ -10,7 +10,7 @@
 //!
 //! `tests/reject/` is left out on purpose — those files are supposed to be
 //! turned away, some of them by the parser, and each one's expectation is
-//! checked exactly by the reject harness in `conformance.rs`.
+//! checked exactly by the reject harness in `language/conformance.rs`.
 
 #![allow(
     clippy::unwrap_used,
@@ -28,7 +28,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
+use crate::harness;
 
 use std::path::{Path, PathBuf};
 
@@ -209,7 +209,7 @@ fn formatting_keeps_every_comment() {
 /// Formatting preserves *meaning*: the conformance repository, formatted from
 /// end to end, still compiles and still gets the same answers.
 ///
-/// This is the property `corpus.rs` used to name a file for and never had. It
+/// This is the property `language/corpus.rs` used to name a file for and never had. It
 /// cannot be a comparison of text, because the whole point of the formatter is
 /// to change text, and it cannot be a comparison of tokens, because a
 /// redundant parenthesis and an optional trailing comma are the formatter's to
@@ -384,7 +384,7 @@ fn the_editor_integration_is_whole() {
 /// After a deliberate change to the grammar:
 ///
 /// ```text
-/// BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar
+/// BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 /// ```
 ///
 /// Then run `editors/tree-sitter-buri/check.sh`, which is the half of the
@@ -408,7 +408,7 @@ fn the_tree_sitter_grammar_is_generated_from_the_ebnf() {
         "editors/tree-sitter-buri/grammar.js is not what the EBNF generates.\n{}\n\
          Edit `cli/src/docs/grammar.ebnf`, never this file. Then record it and run\n\
          editors/tree-sitter-buri/check.sh:\n  \
-         BURI_BLESS=1 cargo test -p buri --test corpus the_tree_sitter_grammar",
+         BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar",
         first_differences(&recorded, &generated)
     );
 }

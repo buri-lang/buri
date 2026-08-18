@@ -11,7 +11,7 @@
 # release.
 #
 # `--verbose` adds the hash of the running executable, which no golden can hold
-# — it is whichever `buri` the suite just compiled. `conformance.rs`'s
+# — it is whichever `buri` the suite just compiled. `language/conformance.rs`'s
 # `version_works_outside_a_repository` asserts that line instead, along with
 # the clause that cannot be a repository case at all, since a case *is* a
 # repository.

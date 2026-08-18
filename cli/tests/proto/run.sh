@@ -4,7 +4,7 @@
 #
 # Out of `cargo test` on purpose, the way `editors/tree-sitter-buri/check.sh` is:
 # the runner is a C++ binary from another project, and a test suite that cannot
-# run without one is a test suite that does not run. `cli/tests/proto_vectors.rs`
+# run without one is a test suite that does not run. `cli/tests/vectors/proto.rs`
 # is the part that does run under cargo — it replays exchanges recorded here.
 #
 #   ./run.sh              build the testee and run the suite

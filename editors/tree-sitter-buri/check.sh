@@ -29,7 +29,7 @@
 # too permissive, which is the failure a corpus of valid programs cannot see.
 #
 # Doc-example fences are not here: they are fragments as often as modules, and
-# `cargo test -p buri --test documentation_examples` compiles every one of them
+# `cargo test -p buri --test docs examples::` compiles every one of them
 # against the real compiler, which is a stronger check than a syntax tree.
 
 set -eu

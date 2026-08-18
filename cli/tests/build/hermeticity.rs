@@ -25,7 +25,7 @@
 //! not compile belongs.
 //!
 //! ```text
-//! BURI_BLESS=1 cargo test -p buri --test hermeticity    # record the goldens
+//! BURI_BLESS=1 cargo test -p buri --test build hermeticity::    # record the goldens
 //! ```
 
 #![allow(
@@ -44,8 +44,7 @@
               `?` through an assertion buys nothing. `clippy.toml` exempts \
               `#[test]` functions already; this covers the helpers around them."
 )]
-mod harness;
-use harness::*;
+use crate::harness::*;
 
 use std::path::Path;
 use std::process::Command;

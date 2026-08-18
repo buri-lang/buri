@@ -43,7 +43,7 @@ use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-const DRIVER: &str = include_str!("runtime_native/driver.c");
+const DRIVER: &str = include_str!("driver.c");
 
 /// A per-run directory under `CARGO_TARGET_TMPDIR`, so nothing is written
 /// inside a checked-in tree.
@@ -172,7 +172,7 @@ fn the_value_contract_holds() {
 /// Every string and every number here is what the JavaScript runtime produces
 /// for the same input, which VALUE-MODEL.md §12 asks for and which nothing
 /// pinned natively until wave 3d. The float corpus lives next door in
-/// `native_float_parity.rs`, where four million values are checked against a
+/// `native/float_parity.rs`, where four million values are checked against a
 /// JavaScript engine; these are the ones a reader would look up.
 #[test]
 fn the_rendering_contract_matches_javascript() {

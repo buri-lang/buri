@@ -4,7 +4,7 @@
 //! the assembled `SPEC.md` and `README.md`, because the topic is the file
 //! somebody edits — a failure that points at a generated file points at the
 //! wrong place. Assembly is concatenation, so checking the topics checks the
-//! assembled documents exactly (`documentation.rs::the_assembled_documents_are_not_stale`
+//! assembled documents exactly (`docs/documents.rs::the_assembled_documents_are_not_stale`
 //! keeps the two in step).
 //!
 //! There is no per-document registration here: the tests walk
