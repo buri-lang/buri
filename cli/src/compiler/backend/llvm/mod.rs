@@ -61,10 +61,12 @@ pub mod runtime;
 pub mod target;
 
 use inkwell::context::Context;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::build::cache::{hash_bytes, ActionKey};
-use crate::compiler::backend::{Backend, Emitted, Options};
-use crate::compiler::middle::{ir, lower, monomorphize};
+use crate::compiler::backend::{Backend, Emitted, Options, Units};
+use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
 use crate::compiler::semantics::types::{FuncIdx, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 
@@ -164,7 +166,38 @@ impl Backend for Llvm {
             monomorphize::ProgramRoots::Tests(_) => None,
         };
         let lowered = lower::run(program, tables);
-        emit_lowered(&lowered, tables, opts, entry)
+        emit_selected(&lowered, tables, opts, entry, Units::All, Some(&oracle(program)))
+    }
+
+    /// The unit loop is already per unit; what `units` adds is the parameter
+    /// that lets the build system say which of them it still needs. Everything
+    /// above the loop — the triple, the machine, the lowering — is
+    /// whole-program and is done once either way.
+    fn emit_units(
+        &mut self,
+        program: &monomorphize::Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        units: Units<'_>,
+    ) -> Result<Vec<Emitted>, Diagnostics> {
+        let missing = self.missing_intrinsics(program, tables);
+        if !missing.is_empty() {
+            let mut diags = Diagnostics::new();
+            diags.push(
+                Diagnostic::error(
+                    Span::NONE,
+                    format!("the native runtime has no implementation of {}", missing.join(", ")),
+                )
+                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
+            );
+            return Err(diags);
+        }
+        let entry = match program.roots {
+            monomorphize::ProgramRoots::Main(idx) => Some(idx),
+            monomorphize::ProgramRoots::Tests(_) => None,
+        };
+        let lowered = lower::run(program, tables);
+        emit_selected(&lowered, tables, opts, entry, units, Some(&oracle(program)))
     }
 }
 
@@ -194,11 +227,44 @@ fn uses_template(f: &monomorphize::Func) -> bool {
 /// deterministic, and derived from the reachability walk out of the entry point
 /// rather than from a hash order, which is a free first approximation of a
 /// call-order layout (CODEGEN-LLVM.md §6).
+///
+/// It passes **no** reference-counting oracle, and cannot: [`oracle`] is built
+/// from the `monomorphize::Program` `rc::run` was handed, and this signature
+/// has only the lowered one. `emit::Unit::rc_counted` states what stands in and
+/// why the substitution is leak-safe rather than unsound.
 pub fn emit_lowered(
     program: &ir::Program,
     tables: &Tables,
     opts: &Options<'_>,
     entry: Option<FuncIdx>,
+) -> Result<Vec<Emitted>, Diagnostics> {
+    emit_selected(program, tables, opts, entry, Units::All, None)
+}
+
+/// The oracle `middle::rc` decided its own operations with, rebuilt over the
+/// same program it ran on so that the reference operations this backend adds
+/// around the calls it *invents* — the loops of `emit::Unit::list_closure` —
+/// are the ones rc would have added (`emit::Unit::rc_counted`).
+///
+/// One for the whole emission rather than one per unit: it memoises, and
+/// building it is a walk of every body.
+fn oracle(program: &monomorphize::Program) -> Rc<RefCell<rc::Syntactic>> {
+    Rc::new(RefCell::new(rc::Syntactic::new(program)))
+}
+
+/// [`emit_lowered`], for a chosen subset of the units.
+///
+/// The objects it returns are the ones asked for, in unit order, and each is
+/// byte-identical to the one a whole-program emission would have produced for
+/// it: a unit's module is built from the program and from that unit's members,
+/// and nothing in the loop carries state from one iteration to the next.
+fn emit_selected(
+    program: &ir::Program,
+    tables: &Tables,
+    opts: &Options<'_>,
+    entry: Option<FuncIdx>,
+    units: Units<'_>,
+    counted: Option<&Rc<RefCell<rc::Syntactic>>>,
 ) -> Result<Vec<Emitted>, Diagnostics> {
     let mut diags = Diagnostics::new();
     let triple = match target::triple(opts.target) {
@@ -220,26 +286,51 @@ pub fn emit_lowered(
     let data_layout = machine.get_target_data().get_data_layout();
 
     let identity = Llvm.identity();
+    // Both of these are functions of the whole program and of nothing the loop
+    // varies, so they are taken once. Computing them per unit is what
+    // `design/PERFORMANCE.md` §6.7 measured on the Cranelift side: work
+    // proportional to units × program, in a program that grows by adding units.
+    let by_unit = program.funcs_by_unit();
+    let observed = emit::observe(program, opts.profile);
+    let cycles = Rc::new(layout::Cycles::new(tables));
+    let no_members: Vec<usize> = Vec::new();
+
     let mut out = Vec::with_capacity(program.units.len());
     for (index, unit_name) in program.units.iter().enumerate() {
         let unit = index as u32;
-        let members: Vec<usize> = program
-            .funcs
+        if !units.wants(unit) {
+            continue;
+        }
+        // This unit's functions, ascending — the same list, in the same order,
+        // that a filter over the whole program yielded.
+        let all = by_unit.get(index).unwrap_or(&no_members);
+        let members: Vec<usize> = all
             .iter()
-            .enumerate()
-            .filter(|(_, f)| f.unit == unit && f.code().is_some())
-            .map(|(i, _)| i)
+            .copied()
+            .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
             .collect();
         let owns_entry = entry.is_some_and(|e| {
             program.funcs.get(e.index()).is_some_and(|f| f.unit == unit && f.code().is_some())
         });
-        if members.is_empty() && !owns_entry {
-            continue;
-        }
-
+        // One object per selected unit, including a unit with nothing in it:
+        // `actions::objects_of` pairs this vector with `unit_hashes`, which has
+        // a row per unit unconditionally, and a unit that was asked for and not
+        // returned is reported there as "the backend emitted no object for unit
+        // `x`". Cranelift's loop is over the same list for the same reason.
         let ctx = Context::create();
         let module_name = format!("{}{unit_name}", opts.unit_prefix);
-        let mut emitter = emit::Unit::new(&ctx, program, tables, &module_name, opts.profile);
+        let mut emitter = emit::Unit::new(
+            &ctx,
+            program,
+            tables,
+            &module_name,
+            opts.profile,
+            &observed,
+            Rc::clone(&cycles),
+        );
+        if let Some(counted) = counted {
+            emitter.use_rc_oracle(Rc::clone(counted));
+        }
         emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));
         emitter.module.set_data_layout(&data_layout);
         for member in &members {
@@ -288,7 +379,7 @@ pub fn emit_lowered(
         };
         out.push(Emitted {
             name: format!("{unit_name}.o"),
-            key: codegen_key(program, unit, &identity, &triple, opts),
+            key: codegen_key(program, all, &identity, &triple, opts),
             bytes,
         });
     }
@@ -321,7 +412,10 @@ pub fn emit_ir_text(
     })?;
     let ctx = Context::create();
     let name = program.unit_name(unit).to_string();
-    let mut emitter = emit::Unit::new(&ctx, program, tables, &name, opts.profile);
+    let observed = emit::observe(program, opts.profile);
+    let cycles = Rc::new(layout::Cycles::new(tables));
+    let mut emitter =
+        emit::Unit::new(&ctx, program, tables, &name, opts.profile, &observed, cycles);
     emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));
     emitter.module.set_data_layout(&machine.get_target_data().get_data_layout());
     for (i, f) in program.funcs.iter().enumerate() {
@@ -372,9 +466,12 @@ pub fn emit_ir_text(
 /// The build system's own `actions::codegen_key` wraps this with the toolchain
 /// hash and the platform; both must move when either input does, which is why
 /// the backend's identity is in *this* half rather than only in that one.
+/// `members` is the unit's function indices in ascending order, which is the
+/// order the whole-program filter this used to run yielded them in — so the
+/// bytes hashed are unchanged and no cached object is invalidated.
 fn codegen_key(
     program: &ir::Program,
-    unit: u32,
+    members: &[usize],
     identity: &str,
     triple: &str,
     opts: &Options<'_>,
@@ -387,7 +484,7 @@ fn codegen_key(
     text.push('\n');
     text.push_str(opts.profile.name());
     text.push('\n');
-    for f in program.funcs.iter().filter(|f| f.unit == unit) {
+    for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
         text.push_str(&program.render_func(f));
     }
     ActionKey::of(hash_bytes(text.as_bytes()).as_bytes())

@@ -1239,17 +1239,19 @@ export fn main(): Result<(), Str> {
     // half of it that is easiest to break by accident.
     assert!(missing.is_empty(), "an interpolation is implemented now, got {missing:?}");
 
-    // What is still outside the surface is anything taking a closure:
-    // `cli/runtime/list.rs`'s header says why the archive cannot have one, and
-    // this backend does not emit the loop for it either.
+    // What is still outside the surface is the part of the closure-taking
+    // `list.*` family that is not a loop over the block. `map` and its eight
+    // siblings are emitted now (`emit::Unit::list_closure`); `sortBy` is a
+    // comparison sort and `cli/runtime/list.rs`'s header says why the archive
+    // cannot have one either.
     let with_closure = program(
         r#"
 from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let doubled = list.range(ctx, 0, 3).map(ctx, fn(x) => x * 2);
-  let _ = ctx.println("${doubled.len()}");
+  let sorted = list.range(ctx, 0, 3).sortBy(ctx, fn(a, b) => a.compare(b));
+  let _ = ctx.println("${sorted.len()}");
   .Ok(())
 }
 "#,
@@ -1276,8 +1278,12 @@ export fn main(): Result<(), Str> {
     middle::run(&mut mono, &middle::Options::default());
     let missing = llvm::Llvm.missing_intrinsics(&mono, &analysis.checked.tables);
     assert!(
-        missing.iter().any(|m| m == "list.map"),
-        "`list.map` takes a closure and must be reported, got {missing:?}"
+        missing.iter().any(|m| m == "list.sortBy"),
+        "`list.sortBy` is a comparison sort and must be reported, got {missing:?}"
+    );
+    assert!(
+        !missing.iter().any(|m| m == "list.map"),
+        "`list.map` is emitted as a loop now and must not be reported, got {missing:?}"
     );
 }
 

@@ -1,0 +1,5 @@
+library {
+    test {
+        sources: ["test/suite.buri"]
+    }
+}

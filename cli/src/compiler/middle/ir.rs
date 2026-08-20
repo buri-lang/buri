@@ -814,6 +814,34 @@ impl Program {
     pub fn unit_name(&self, unit: u32) -> &str {
         self.units.get(unit as usize).map(String::as_str).unwrap_or("?")
     }
+
+    /// The index of every function, bucketed by the codegen unit that owns it.
+    ///
+    /// One row per entry in [`Program::units`], each row in ascending function
+    /// index — which is exactly the order and exactly the membership that
+    /// `funcs.iter().filter(|f| f.unit == u)` yields, so a caller that walked
+    /// the whole program once per unit can walk `by_unit[u]` instead and see
+    /// the same functions in the same order. That equivalence is load-bearing:
+    /// both native backends derive a `codegen` cache key by concatenating the
+    /// rendered text of a unit's functions, and a different order is a
+    /// different key.
+    ///
+    /// It exists because the per-unit scan it replaces is Θ(units × functions),
+    /// which is quadratic in a program that grows by adding modules — the
+    /// finding of `design/PERFORMANCE.md` §6.7. This is one pass, and each row
+    /// costs what the unit itself contains.
+    ///
+    /// A function whose `unit` is out of range is dropped, which is the same
+    /// answer the filter gave: no unit index in `0..units.len()` equals it.
+    pub fn funcs_by_unit(&self) -> Vec<Vec<usize>> {
+        let mut by_unit: Vec<Vec<usize>> = vec![Vec::new(); self.units.len()];
+        for (i, f) in self.funcs.iter().enumerate() {
+            if let Some(row) = by_unit.get_mut(f.unit as usize) {
+                row.push(i);
+            }
+        }
+        by_unit
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,6 +1148,16 @@ fn dominators(code: &Code) -> Vec<Vec<bool>> {
 /// of the IR — no hash order anywhere, every name derived from the program —
 /// so hashing these bytes per unit is a correct way to compute it and is the
 /// one that can be inspected when a key changes and nobody knows why.
+///
+/// A callee is named by its **symbol**, never by its `FuncIdx`. `FuncIdx` is a
+/// program-global index assigned in source order, so a declaration added
+/// anywhere shifts every later index and rewrites the text — and therefore the
+/// `codegen` key — of every unit that calls anything. The symbol is the name
+/// the linker resolves the call by, which is exactly what the object file
+/// depends on, and it is a property of the callee rather than of the program
+/// it happens to be in. Symbols are unique per function by construction
+/// (`monomorphize::Monomorphizer::name_of`), so the naming stays injective and
+/// no two distinct callees can render alike.
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for func in &self.funcs {
@@ -1180,6 +1218,16 @@ impl Program {
         }
     }
 
+    /// The symbol a callee is rendered by. A `FuncIdx` out of range renders as
+    /// itself so that a malformed program still prints rather than panicking;
+    /// `verify` is what reports it.
+    fn sym_of(&self, func: FuncIdx) -> String {
+        match self.funcs.get(func.index()) {
+            Some(f) => f.symbol.clone(),
+            None => format!("f{}", func.0),
+        }
+    }
+
     fn inst(&self, inst: &Inst) -> String {
         let vals = |vs: &[ValueId]| {
             vs.iter().map(|v| format!("v{}", v.0)).collect::<Vec<String>>().join(", ")
@@ -1204,9 +1252,9 @@ impl Program {
             }
             Inst::MakeArray { dest, elems } => format!("v{} = array {}", dest.0, wrap(vals(elems))),
             Inst::MakeClosure { dest, func, env } => format!(
-                "v{} = closure f{}, {}",
+                "v{} = closure fn {}, {}",
                 dest.0,
-                func.0,
+                self.sym_of(*func),
                 env.map(|e| format!("v{}", e.0)).unwrap_or_else(|| "null".into())
             ),
             Inst::GetField { dest, agg, index } => {
@@ -1224,7 +1272,7 @@ impl Program {
                 format!("v{} = slice v{}, v{}", dest.0, array.0, from.0)
             }
             Inst::Call { dests, func, args } => {
-                call(dests, format!("call f{}{}", func.0, wrap(vals(args))))
+                call(dests, format!("call fn {}{}", self.sym_of(*func), wrap(vals(args))))
             }
             Inst::CallIndirect { dests, callee, args } => {
                 call(dests, format!("call_indirect v{}{}", callee.0, wrap(vals(args))))
@@ -1241,7 +1289,7 @@ impl Program {
             ),
             Inst::IncRef { value } => format!("incref v{}", value.0),
             Inst::DecRef { value, drop } => match drop {
-                Some(d) => format!("decref v{}, drop f{}", value.0, d.0),
+                Some(d) => format!("decref v{}, drop fn {}", value.0, self.sym_of(*d)),
                 None => format!("decref v{}", value.0),
             },
             Inst::Abort { message } => format!("abort {message:?}"),

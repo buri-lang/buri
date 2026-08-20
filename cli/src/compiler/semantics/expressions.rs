@@ -115,10 +115,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 "that is `main`'s body, a test source, or a test-only module (SPEC 11.3)".into(),
             );
         }
-        let expected = ann.map(|id| {
-            let ann = self.tree().ty(id);
-            self.c.elaborate(self.module, &self.generics, ann)
-        });
+        let expected = ann.map(|id| self.c.elaborate(self.module, &self.generics, id));
         let value_span = self.tree().span(value);
         let value_hir = self.check_expr(value, expected.as_ref());
         if let Some(exp) = &expected {
@@ -463,8 +460,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    fn elaborate_all(&mut self, args: &'b [tree::TypeExpr]) -> Vec<Ty> {
-        args.iter().map(|a| self.c.elaborate(self.module, &self.generics, a)).collect()
+    fn elaborate_all(&mut self, args: &'b [TypeId]) -> Vec<Ty> {
+        args.iter().map(|a| self.c.elaborate(self.module, &self.generics, *a)).collect()
     }
 
     fn option_of(&self, t: Ty) -> Ty {
@@ -1224,6 +1221,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if self.c.tables.field_index(*con, name).is_some() {
                     notes.push(format!("`{name}` is a field; a field is not called"));
                 }
+                // A method that is missing because the type did not derive the
+                // trait it comes from is a different mistake from one nobody
+                // wrote, and the fix for it is a line rather than a body.
+                if let Some(t) = self.derivable_trait_declaring(name, *con) {
+                    notes.push(format!(
+                        "`{name}` comes from `{t}`, which `{shown}` does not implement; \
+                         `derive {t} for {shown};` generates it"
+                    ));
+                }
             }
             Ty::Tuple(_) | Ty::Fn(..) => {
                 notes.push(
@@ -1315,6 +1321,28 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
+    /// The derivable trait that declares `name`, when `con` does not implement
+    /// it. `None` when the method belongs to no such trait, or when the type
+    /// already implements the one it belongs to — in which case the method is
+    /// there and this is a different mistake.
+    fn derivable_trait_declaring(&self, name: &str, con: TyConId) -> Option<String> {
+        let implemented = self.c.tables.traits_of_con(con);
+        crate::compiler::semantics::resolve::DERIVABLE.iter().find_map(|t| {
+            let (id, info) = self
+                .c
+                .tables
+                .traits
+                .iter()
+                .enumerate()
+                .find(|(_, info)| info.name == **t)?;
+            let id = TraitId(id as u32);
+            if info.method_index(name).is_none() || implemented.contains(&id) {
+                return None;
+            }
+            Some(info.name.clone())
+        })
+    }
+
     fn report_no_field(&mut self, ty: &Ty, name: &str, span: Span) {
         let shown = self.show_ty(ty);
         let mut note = None;
@@ -1324,7 +1352,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
             note = nearest(name, &refs).map(|n| format!("did you mean `{n}`?"));
         }
-        let d = self.err(span, format!("`{shown}` has no field `{name}`"));
+        let d = self.err(span, format!("`{shown}` has no field `{name}`")).code("no-such-field");
         d.fix("check the spelling, or name a field the type declares");
         if let Some(n) = note {
             d.notes.push(n);
@@ -1545,6 +1573,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let Some((i, decl)) = found else {
                 let t = self.c.tables.tycon(con).name.clone();
                 self.err(ispan, format!("`{t}` has no field `{iname}`"))
+                    .code("no-such-field")
                     .fix("check the spelling, or name a field the struct declares");
                 continue;
             };
@@ -2245,10 +2274,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let pname = t.text(p.name);
             let pspan = t.span_of(p.span);
             let ty = match t.opt_type(p.ty) {
-                Some(id) => {
-                    let ann = t.ty(id);
-                    self.c.elaborate(self.module, &self.generics, ann)
-                }
+                Some(id) => self.c.elaborate(self.module, &self.generics, id),
                 None => match want_params.get(i) {
                     Some(t) if !t.is_error() => t.clone(),
                     _ => self.fresh(pspan),
@@ -2265,10 +2291,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             locals.push(local);
             ptypes.push(ty);
         }
-        let declared_ret = ret.map(|id| {
-            let ann = self.tree().ty(id);
-            self.c.elaborate(self.module, &self.generics, ann)
-        });
+        let declared_ret = ret.map(|id| self.c.elaborate(self.module, &self.generics, id));
         let expect_ret = declared_ret.clone().or(want_ret);
         // `?` is the only early exit, and it returns from the *enclosing
         // function* — a lambda is one, so its return type is what `?` is
@@ -2422,17 +2445,19 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         for binding in t.bindings_at(ctx.bind_start, ctx.bind_len) {
-            let effect = t.ty(TypeId(binding.effect));
+            let effect_id = TypeId(binding.effect);
+            let effect = t.ty(effect_id);
+            let effect_span = effect.span();
             let binding_span = t.span_of(binding.span);
             let value_span = t.span(ExprId(binding.value));
-            let tree::TypeExpr::Named { path, .. } = effect else {
-                self.err(effect.span(), "a context binding names an effect")
+            let flat::TypeView::Named { path, .. } = effect else {
+                self.err(effect_span, "a context binding names an effect")
                     .fix("write `Effect: implementation`, as in `Alloc: host.alloc`");
                 continue;
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
-                let shown = effect.head_name().unwrap_or("?").to_string();
-                self.err(effect.span(), format!("`{shown}` is not a declared effect")).code("not-an-effect")
+                let shown = t.type_head(effect_id).unwrap_or("?").to_string();
+                self.err(effect_span, format!("`{shown}` is not a declared effect")).code("not-an-effect")
                     .fix(format!(
                         "name an effect the platform declares, as in `Alloc` or `Stdout`; \
                          `{shown}` is not one"
@@ -2441,7 +2466,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !self.c.tables.trait_(tid).is_effect {
                 let shown = self.c.tables.trait_(tid).name.clone();
-                self.err(effect.span(), format!("`{shown}` is a trait, not an effect"))
+                self.err(effect_span, format!("`{shown}` is a trait, not an effect"))
                     .fix("bind an effect here; pass a plain trait's implementations as ordinary arguments")
                     .notes
                     .push("a context binds effects; a trait is not one".into());

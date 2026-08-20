@@ -1,0 +1,10 @@
+/// Deliberately wrong: it answers the fallback when the list has a head. The
+/// point is that the report names the value at the *instantiation*, not the
+/// type variable.
+export fn firstOr<T>(xs: [T], fallback: T): T {
+    fallback
+}
+
+export fn twice<T: Eq + Show>(x: T): (T, T) {
+    (x, x)
+}

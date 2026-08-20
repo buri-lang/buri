@@ -43,6 +43,8 @@ cli/tests/
     proto.rs              protobuf's own conformance exchanges
   formatting.rs         THE FORMATTER — a domain of one, its own binary
   adversarial.rs        HOSTILE INPUT — deliberately its own process
+  fuzz.rs               INPUT NOBODY CHOSE — generated and mutated, against
+                        properties, with its findings recorded as it goes
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
@@ -52,9 +54,10 @@ cli/tests/
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
   proto/                vendored schemas, a testee, and the recorded exchanges
+  fuzz/                 every finding a search has made, minimised, replayed
 ```
 
-Seven binaries, so a full run links seven times. A corpus is shared — the
+Nine binaries, so a full run links nine times. A corpus is shared — the
 `conformance/` repository is read by `language::conformance` on the JavaScript
 backend and by `native::conformance` on Cranelift, `crash/` by four suites — so
 corpora sit at the top level rather than inside any one suite's directory.
@@ -71,6 +74,8 @@ corpora sit at the top level rather than inside any one suite's directory.
 | `vectors` | That the Lean formalisation and protobuf's own conformance runner still agree with this toolchain — replayed from checked-in vectors, so neither tool is needed to run the suite. |
 | `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
 | `adversarial` | That no input panics the toolchain. Malformed sources, build files, schemas, flags and language-server messages, through the binary, asserting on *how* it stops rather than on what it says. |
+| `fuzz` | That the properties every other suite states over a corpus hold over input nobody chose: no mutation of a checked-in source panics the toolchain, the formatter is a fixed point that keeps its tokens and comments on shapes nobody wrote, the benchmark generator emits programs that compile at points in its parameter space no profile names, the same input twice says the same thing, and a generated program prints the answer the generator computed — under every backend, and with code that cannot run inserted into it. Bounded and seeded in CI; `BURI_FUZZ_SECONDS` soaks. |
+| `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
 what a user runs.
@@ -195,6 +200,39 @@ Recording these found two bugs a substring check could never have. The
 candidates, so the same compiler on the same file printed `Add`, `Ord`, or `Eq`
 depending on hash order. And the `= ...` lines sat one column right of the `|`
 gutter above them, which nobody notices until the output is a file you diff.
+
+**The fuzz corpus** is the one corpus nobody wrote. Every case in it was found
+by a search rather than by a person, minimised until nothing more would come
+out, and written down so that the finding cannot be lost:
+
+```
+cli/tests/fuzz/generated_derive_with_an_empty_trait_list/
+  CASE.textproto      doc, which oracle fires, and whether it is still open
+  input.params        the minimised input — `input.buri` for the five oracles
+                      whose input is source
+```
+
+`status` is what lets a fuzzer live in a suite that has to stay green.
+`FIXED` is the ordinary regression: the oracle must not fire. `OPEN` is the
+reverse — the oracle must **still** fire, so a known-open finding is pinned
+rather than quarantined, and the day somebody fixes it the suite fails and says
+to move the case to `FIXED`. Swift's `compiler_crashers` and
+`compiler_crashers_fixed` split is the same idea and rustc's `//@ known-bug:`
+header is the same idea; what both buy is that a bug accidentally fixed by an
+unrelated change is *noticed*.
+
+The searches skip a finding whose signature the corpus already holds, so an
+open bug does not hide every bug behind it — which is the failure mode a
+fuzzer in CI has and a corpus does not.
+
+```
+BURI_FUZZ_SECONDS=600 cargo test -p buri --test fuzz     # soak
+BURI_FUZZ_RECORD=1 …                                     # write findings down
+```
+
+Recording is opt-in because nothing else here writes into a checked-in tree,
+and a suite that silently grew a corpus on every CI run would be the loudest
+possible exception to that.
 
 **The repository corpus** exists because the two corpora above cannot hold a
 build-system test. A reject case is synthesised as a single-package binary with

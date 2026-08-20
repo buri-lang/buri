@@ -1,0 +1,20 @@
+# The failure report, once per scalar shape the runtime's `$show` renders:
+# `cli/src/compiler/backend/js/runtime.js`'s `$show` branches on a type
+# descriptor, and the `k === 0` arm is these — a JSON string for `Str`, single
+# quotes for `Char`, `$f64` for `Float`, and `String(v)` for everything else.
+#
+# `NaN`, `-0.0` and an infinity are here because they are the three doubles a
+# renderer gets wrong, and `assert.eq` on `NaN` fails for the reason the value
+# is interesting: `NaN != NaN`, so the assertion reports a value against itself.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a failing assertion on every scalar shape: the two values, as the runner renders them"
+
+run {
+  args: ["test", "//lib/scalars", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

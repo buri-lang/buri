@@ -130,6 +130,7 @@ mod tests {
             funcs,
             roots: ProgramRoots::Main(FuncIdx(0)),
             descriptors: Vec::new(),
+            desc_modules: Vec::new(),
             desc_index: HashMap::default(),
             ctx_layouts: HashMap::default(),
         }

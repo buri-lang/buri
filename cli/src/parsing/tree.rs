@@ -7,18 +7,32 @@
 //! name resolution rather than during parsing.
 
 use crate::diagnostics::Span;
+use crate::parsing::flat::{TypeId, TypeList};
 
-#[derive(Clone, Debug)]
-pub struct Ident {
-    pub name: String,
+/// A name a declaration introduces, or one segment of a written path.
+///
+/// The text is the source under the span — `Tree::name` is the only way to
+/// read it — so a name costs nothing to store and nothing to build. Every
+/// identifier the parser ever built held exactly `src[span]`, including the
+/// three synthetic ones: `self` and `ctx` are spelled at the keyword's own
+/// span.
+#[derive(Clone, Copy, Debug)]
+pub struct Name {
     pub span: Span,
 }
 
-impl Ident {
-    pub fn new(name: impl Into<String>, span: Span) -> Ident {
-        Ident { name: name.into(), span }
+impl Name {
+    pub fn new(span: Span) -> Name {
+        Name { span }
     }
 }
+
+// A name is its span and nothing else. The `String` that used to sit beside it
+// was one allocation per declared name — about four hundred and fifty per
+// thousand lines — and a name that grows storage again is a compile error here
+// rather than a number in the next wave's report.
+const _: () = assert!(std::mem::size_of::<Name>() == 12);
+const _: () = assert!(std::mem::size_of::<Param>() == 32);
 
 // ---------------------------------------------------------------------------
 // Compilation unit
@@ -31,8 +45,10 @@ pub struct Module {
     /// which is what `buri docs <module>` prints above the item list.
     pub docs: Vec<String>,
     /// Everything below the declaration level, flattened — see
-    /// [`flat`](crate::parsing::flat). A declaration holds the id of its body;
-    /// there is no other representation of one.
+    /// [`flat`](crate::parsing::flat). A declaration holds the id of its body,
+    /// of each type it names, and the span of each name it introduces; there
+    /// is no other representation of any of them, and reading one back needs
+    /// this.
     pub tree: crate::parsing::flat::Tree,
 }
 
@@ -82,15 +98,15 @@ impl Item {
     }
 
     /// The name a declaration introduces, if it introduces one.
-    pub fn declared_name(&self) -> Option<&Ident> {
+    pub fn declared_name(&self) -> Option<Name> {
         match self {
-            Item::Fn(d) => Some(&d.name),
-            Item::Struct(d) => Some(&d.name),
-            Item::Enum(d) => Some(&d.name),
-            Item::TypeAlias(d) => Some(&d.name),
-            Item::Const(d) => Some(&d.name),
-            Item::Trait(d) => Some(&d.name),
-            Item::Context(d) => Some(&d.name),
+            Item::Fn(d) => Some(d.name),
+            Item::Struct(d) => Some(d.name),
+            Item::Enum(d) => Some(d.name),
+            Item::TypeAlias(d) => Some(d.name),
+            Item::Const(d) => Some(d.name),
+            Item::Trait(d) => Some(d.name),
+            Item::Context(d) => Some(d.name),
             _ => None,
         }
     }
@@ -127,20 +143,20 @@ pub enum ImportClause {
     Named(Vec<ImportSpec>),
     /// `import * as list`. A namespace import must be named; bare `import *`
     /// is not derivable from the grammar.
-    Namespace(Ident),
+    Namespace(Name),
 }
 
 #[derive(Clone, Debug)]
 pub struct ImportSpec {
-    pub name: Ident,
-    pub alias: Option<Ident>,
+    pub name: Name,
+    pub alias: Option<Name>,
     pub span: Span,
 }
 
 impl ImportSpec {
     /// The name this specifier binds locally.
-    pub fn local(&self) -> &Ident {
-        self.alias.as_ref().unwrap_or(&self.name)
+    pub fn local(&self) -> Name {
+        self.alias.unwrap_or(self.name)
     }
 }
 
@@ -158,8 +174,8 @@ pub struct ReExport {
 
 #[derive(Clone, Debug)]
 pub struct GenericParam {
-    pub name: Ident,
-    pub bounds: Vec<TypeExpr>,
+    pub name: Name,
+    pub bounds: TypeList,
     pub span: Span,
 }
 
@@ -176,17 +192,17 @@ pub enum ParamKind {
 #[derive(Clone, Debug)]
 pub struct Param {
     pub kind: ParamKind,
-    pub name: Ident,
-    pub ty: TypeExpr,
+    pub name: Name,
+    pub ty: TypeId,
     pub span: Span,
 }
 
 #[derive(Clone, Debug)]
 pub struct FnDecl {
-    pub name: Ident,
+    pub name: Name,
     pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
-    pub ret: TypeExpr,
+    pub ret: TypeId,
     /// `None` for a trait or effect method signature, and for the
     /// signature-only declarations the embedded standard library uses for
     /// operations the backend supplies.
@@ -210,7 +226,7 @@ impl FnDecl {
 
 #[derive(Clone, Debug)]
 pub struct StructDecl {
-    pub name: Ident,
+    pub name: Name,
     pub generics: Vec<GenericParam>,
     pub body: StructBody,
     pub exported: bool,
@@ -227,8 +243,8 @@ pub enum StructBody {
 #[derive(Clone, Debug)]
 pub struct FieldDecl {
     pub exported: bool,
-    pub name: Ident,
-    pub ty: TypeExpr,
+    pub name: Name,
+    pub ty: TypeId,
     pub span: Span,
     pub docs: Vec<String>,
 }
@@ -236,13 +252,13 @@ pub struct FieldDecl {
 #[derive(Clone, Debug)]
 pub struct TupleField {
     pub exported: bool,
-    pub ty: TypeExpr,
+    pub ty: TypeId,
     pub span: Span,
 }
 
 #[derive(Clone, Debug)]
 pub struct EnumDecl {
-    pub name: Ident,
+    pub name: Name,
     pub generics: Vec<GenericParam>,
     pub variants: Vec<Variant>,
     pub exported: bool,
@@ -253,7 +269,7 @@ pub struct EnumDecl {
 #[derive(Clone, Debug)]
 pub struct Variant {
     pub exported: bool,
-    pub name: Ident,
+    pub name: Name,
     pub payload: VariantPayload,
     pub span: Span,
     pub docs: Vec<String>,
@@ -262,15 +278,15 @@ pub struct Variant {
 #[derive(Clone, Debug)]
 pub enum VariantPayload {
     None,
-    Tuple(Vec<TypeExpr>),
+    Tuple(TypeList),
     Record(Vec<FieldDecl>),
 }
 
 #[derive(Clone, Debug)]
 pub struct TypeAliasDecl {
-    pub name: Ident,
+    pub name: Name,
     pub generics: Vec<GenericParam>,
-    pub ty: TypeExpr,
+    pub ty: TypeId,
     pub exported: bool,
     pub span: Span,
     pub docs: Vec<String>,
@@ -278,8 +294,8 @@ pub struct TypeAliasDecl {
 
 #[derive(Clone, Debug)]
 pub struct ConstDecl {
-    pub name: Ident,
-    pub ty: TypeExpr,
+    pub name: Name,
+    pub ty: TypeId,
     pub value: crate::parsing::flat::ExprId,
     pub exported: bool,
     pub span: Span,
@@ -288,7 +304,7 @@ pub struct ConstDecl {
 
 #[derive(Clone, Debug)]
 pub struct TraitDecl {
-    pub name: Ident,
+    pub name: Name,
     pub generics: Vec<GenericParam>,
     pub methods: Vec<FnDecl>,
     /// Declared with `effect` rather than `trait`. The only difference is that
@@ -306,22 +322,22 @@ pub struct ImplDecl {
     /// `None` for an inherent `impl Type { ... }`, which declares the type's
     /// own methods. `Some` for `impl Trait for Type`, which declares
     /// conformance and supplies the trait's methods.
-    pub trait_ty: Option<TypeExpr>,
-    pub self_ty: TypeExpr,
+    pub trait_ty: Option<TypeId>,
+    pub self_ty: TypeId,
     pub methods: Vec<FnDecl>,
     pub span: Span,
 }
 
 #[derive(Clone, Debug)]
 pub struct DeriveDecl {
-    pub traits: Vec<TypeExpr>,
-    pub self_ty: TypeExpr,
+    pub traits: TypeList,
+    pub self_ty: TypeId,
     pub span: Span,
 }
 
 #[derive(Clone, Debug)]
 pub struct ContextDecl {
-    pub name: Ident,
+    pub name: Name,
     pub body: crate::parsing::flat::CtxBodyId,
     pub exported: bool,
     pub span: Span,
@@ -335,41 +351,6 @@ pub struct TestDecl {
     pub body: crate::parsing::flat::BlockId,
     pub span: Span,
     pub docs: Vec<String>,
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub enum TypeExpr {
-    Named { path: Vec<Ident>, args: Vec<TypeExpr>, span: Span },
-    SelfType { span: Span },
-    Unit { span: Span },
-    Tuple { elems: Vec<TypeExpr>, span: Span },
-    Array { elem: Box<TypeExpr>, span: Span },
-    Fn { params: Vec<TypeExpr>, ret: Box<TypeExpr>, span: Span },
-}
-
-impl TypeExpr {
-    pub fn span(&self) -> Span {
-        match self {
-            TypeExpr::Named { span, .. }
-            | TypeExpr::SelfType { span }
-            | TypeExpr::Unit { span }
-            | TypeExpr::Tuple { span, .. }
-            | TypeExpr::Array { span, .. }
-            | TypeExpr::Fn { span, .. } => *span,
-        }
-    }
-
-    /// The trailing segment of a named type's path — the name itself.
-    pub fn head_name(&self) -> Option<&str> {
-        match self {
-            TypeExpr::Named { path, .. } => path.last().map(|i| i.name.as_str()),
-            _ => None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

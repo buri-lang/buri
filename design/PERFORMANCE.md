@@ -121,6 +121,19 @@ Four decisions, each of which could have gone the other way:
   build it is, so a number taken from an unoptimized binary announces itself.
 - **Warm up, then repeat.** At least 10 repetitions after a warmup, and at
   least three quarters of a second of sampling per row.
+- **One documented deviation, above 500,000 lines.** The scale tier (§4) takes
+  at least **3** repetitions rather than at least 10, and one warmup call rather
+  than two. Everything else is unchanged, including the three-quarter-second
+  sampling floor — which is never the binding rule at that size, so the cheap
+  phases still take nine or ten repetitions and only the expensive ones fall to
+  three. The reason is arithmetic: native lowering at a million lines is thirty
+  seconds a repetition, so the ten-repetition rule would cost six minutes for
+  one row and about forty for the tier. Rows taken under the deviation say so,
+  in the table and in `--json`'s `protocol` field, because a deviation nobody
+  can see in the output is a deviation nobody can account for. What it costs is
+  the dispersion column: a MAD over three samples is a much weaker statement
+  than a MAD over ten, and the scale rows should be read for their order of
+  magnitude rather than their last digit.
 - **Median, with dispersion as MAD/median.** Not a mean, and not a standard
   deviation. A benchmark's distribution is one-sided — the machine can only make
   a run slower — so a symmetric summary is the wrong one and an
@@ -153,8 +166,8 @@ not do is compare a number taken today with one taken in March, because the
 generator is a program under active development and a change to it moves the
 bytes it emits without moving any code the benchmark measures.
 
-So the suite runs two kinds of corpus, and each is answerable for something the
-other cannot promise:
+So the suite runs three kinds of corpus, and each is answerable for something
+the others cannot promise:
 
 **Generated per run** — `cli/benches/generate.rs`, from a profile, a parameter
 set and a fixed seed. This is what buys *scale flexibility* (1k to 100k on one
@@ -174,39 +187,80 @@ also what makes a change to the generator reviewable, because the diff of a
 re-recorded corpus is the change's effect on the input, stated in the language
 rather than in Rust.
 
-Both kinds obey the same validity rules, without exception:
+**Digest-pinned** — `cli/benches/pinned/<name>.txt`, a manifest with no source
+beside it. It records what a saved corpus's does — profile, parameters, seed,
+generator revision, counts — and the SHA-256 of the bytes that combination
+produced; the harness regenerates the corpus on every run and checks the digest
+**before it measures anything**. This is what buys byte-stability *at a scale a
+git history cannot hold*: the 100,000-line corpus is 3.5 MB and the
+million-line one is 35 MB, against a repository whose whole history is 15 MB,
+and the manifest for either is four hundred bytes.
 
-- **Both are compiled before either is measured.** A saved corpus that has
-  stopped being valid Buri is a build failure, exactly as a drifted generator
-  is. `--validate` covers both — whatever `--set` was asked for — and CI runs it.
-- **Both are read into memory before any timer starts.** A saved corpus is
-  loaded into the same `Program` a generator returns; the harness has one
-  measurement path, and no file is read inside a timer.
-- **Both must be reachable from `main`.** `--validate` reports the monomorphized
-  function count for both, for the reason the next-but-one rule gives.
-- **Both are stress-or-realistic, never both.** The family is a property of the
-  profile and a saved corpus inherits it; the goal column is printed only for
-  the realistic family, and `Family` is a type in `generate.rs` rather than a
-  convention, so the rule is unrepresentable-to-violate rather than merely
-  written down.
-- **Neither is allowed to become the only one.** The headline scale — 100k lines
-  — is generated and cannot be saved, and the saved anchor is 10k. So §6 records
-  **both** the generated and the saved reading of `mixed`, and the two deltas are
+The reasoning is that the two properties a saved corpus bundles together are
+separable. "These are the bytes" is worth checking in; "here they are" is what
+costs the megabytes. A digest gives the first without the second, and the check
+it enables is strictly the same one — `corpus::digest` is one function and both
+kinds go through it, so pinning a corpus that is *also* checked in produces the
+same hash, which is how the generator's byte-identity across a change is
+verified in practice.
+
+What it gives up is the reviewable diff, and that is the whole of the cost.
+When a saved corpus moves, the diff says *what* moved, in Buri. When a pinned
+one moves, the failure has two hashes in it and the counts beside them — which
+is why the manifest records `lines`, `bytes` and `modules` as well, so that a
+mismatch can at least say whether the shape changed or only its contents.
+Recovering the rest means regenerating both revisions by hand. That trade is
+right for the scale tier and wrong for a 1,000-line corpus, which is why both
+kinds exist rather than one replacing the other.
+
+All three kinds obey the same validity rules, without exception:
+
+- **All are compiled before any is measured.** A saved corpus that has stopped
+  being valid Buri is a build failure, exactly as a drifted generator is.
+  `--validate` covers the saved half whatever `--set` was asked for, and CI runs
+  it; it covers the pinned half too, everywhere except under `--quick`, which is
+  the CI gate and has to stay under a second — regenerating a million lines is
+  not under a second, so a plain `--validate` is what covers the scale tier's
+  digests.
+- **All are in memory before any timer starts.** A saved corpus is loaded, and a
+  pinned one regenerated *and* digest-checked, into the same `Program` a
+  generator returns; the harness has one measurement path, and no file is read
+  inside a timer.
+- **All must be reachable from `main`.** `--validate` reports the monomorphized
+  function count for each, for the reason the next-but-one rule gives.
+- **All are stress-or-realistic, never both.** The family is a property of the
+  profile and a saved or pinned corpus inherits it; the goal column is printed
+  only for the realistic family, and `Family` is a type in `generate.rs` rather
+  than a convention, so the rule is unrepresentable-to-violate rather than
+  merely written down.
+- **None is allowed to become the only one.** The headline scale — 100k lines —
+  is generated *and* pinned, and the saved anchor is 10k. So §6 records **both**
+  the generated and the saved reading of `mixed`, and the two deltas are
   compared: when the compiler changes, both move together; when the *generator*
   changes, only the generated one moves. That pairing is what replaces the
   guarantee the old rule was reaching for, and it is stronger than either corpus
-  alone.
+  alone. The pinned 100k row is the third leg of it: it is the same bytes as the
+  generated 100k row, checked, so the two agreeing is the pinning scheme
+  reporting that it works.
 
-And one rule that applies only to the saved half, because it is the failure mode
-a checked-in corpus has and a generated one does not:
+And one rule that applies only to the two kinds with a manifest, because it is
+the failure mode a recorded corpus has and a generated one does not:
 
-- **Regeneration is a break in the series, and it is announced.** A saved corpus
-  is re-recorded only when it stops compiling or when the generator revision it
-  names is retired; the re-record bumps `revision` in the manifest, `--json`
-  carries `corpus_revision`, and §6 says which revision its numbers were taken
-  at. A corpus that cannot be regenerated is deleted, not repaired.
-  `cli/benches/corpora/README.md` is the operational form of this, with the caps
-  — 512 KiB per corpus, 2 MiB in total — that keep the saved half small.
+- **Re-recording is a break in the series, and it is announced.** A saved corpus
+  is re-recorded, and a pinned one re-pinned, only when it stops compiling or
+  when the generator revision it names is retired; it bumps `revision` in the
+  manifest, `--json` carries `corpus_revision`, and §6 says which revision its
+  numbers were taken at. A corpus that cannot be regenerated is deleted, not
+  repaired. `cli/benches/corpora/README.md` and `cli/benches/pinned/README.md`
+  are the operational form of this, with the caps — 512 KiB per corpus, 2 MiB in
+  total — that keep the saved half small. The pinned half has no cap because it
+  has no size: it is a manifest.
+- **A pinned digest that does not match stops the run.** Not a warning and not a
+  note. A generated corpus that has drifted out of the language announces itself
+  by failing to compile; a generated corpus that has drifted *within* the
+  language announces itself here, and nowhere else. The failure prints both
+  digests and both sets of counts, and the fix is either to find what moved in
+  the generator or to re-pin deliberately.
 
 **Validate before measuring.** Every generated program is compiled through the
 real front end — loader, checker, and all — and the suite exits non-zero if it
@@ -243,9 +297,13 @@ toolchain: cross-module resolution is where semantic analysis would be
 superlinear if it were superlinear anywhere, and one big file would never
 exercise it.
 
-**Three orders of magnitude.** 1k, 10k, 100k lines. A single scale point cannot
-show a cache cliff, and Carbon's numbers fall 6.70 → 5.02 M lines/s between 1k
-and 256k — the fall-off *is* the finding.
+**Three orders of magnitude in the default run, four on request.** 1k, 10k, 100k
+lines by default; the scale tier adds 1M behind `--set=scale` (§4). A single
+scale point cannot show a cache cliff, and Carbon's numbers fall 6.70 → 5.02 M
+lines/s between 1k and 256k — the fall-off *is* the finding. The default run
+stops at 100k for wall time and not for principle, which is why the fourth
+order of magnitude is a flag rather than an absence; §6.7 is what it found the
+first time it was taken.
 
 **Phase isolation at the compiler's own seams.** Not a reimplementation of the
 phases in the harness: each timer wraps the same function the driver calls. The
@@ -334,9 +392,10 @@ Three files and a directory, no dependencies, one bench target:
 | File | What it is |
 |---|---|
 | `cli/benches/generate.rs` | The source generator: the parameter space, the profiles, the seeded PRNG. |
-| `cli/benches/corpus.rs` | Saved corpora: the manifest, the digest, discovery, `--record`, the size cap. |
+| `cli/benches/corpus.rs` | Saved and pinned corpora: the manifest, the digest, discovery, `--record`, `--pin`, the size cap. |
 | `cli/benches/compiler.rs` | The harness: warmup, repetition, median/MAD, the phase timers, the report. |
 | `cli/benches/corpora/` | Eight checked-in corpora, 0.55 MB, capped at 2 MiB. |
+| `cli/benches/pinned/` | Two digest-pinned manifests — `mixed-100k`, `mixed-1M` — and no source. |
 
 `autobenches = false` in `cli/Cargo.toml` is what keeps the first two *modules*
 of the `compiler` target rather than bench targets of their own: Cargo infers a
@@ -358,7 +417,8 @@ cargo bench -p buri --bench compiler -- --list        # the profile table, and t
 and the flags that select what runs:
 
 ```text
-  --set=<name>      core | realistic | stress | native | saved | full   (default: core)
+  --set=<name>      core | realistic | stress | native | saved | scale | full
+                    (default: core)
   --only=<text>     keep corpora whose label contains it
   --shape=<profile> one profile ad hoc, instead of a set
   --param <k>=<v>   override a dimension (repeatable; with --shape)
@@ -366,7 +426,60 @@ and the flags that select what runs:
   --seed=<hex>      seed for --shape
   --targets=<list>  js,macos-arm64,macos-x86_64,linux-x86_64,linux-arm64
   --record[=<name>] write the corpus into cli/benches/corpora/ and exit
+  --pin[=<name>]    write a digest-pinned manifest into cli/benches/pinned/
+  --rss             peak resident set size per phase, untimed
 ```
+
+### The scale tier
+
+```text
+cargo bench -p buri --bench compiler -- --set=scale         # 100k and 1M
+cargo bench -p buri --bench compiler -- --set=scale --rss   # and peak memory
+```
+
+Four orders of magnitude is what says whether a rate is a property of the code
+or of the cache, and the fourth one costs minutes. So it is opt-in, and it is
+**not** in `core` and not in `full`: a default run has to stay something a
+contributor takes before a commit. Four things about it are deliberate.
+
+**The corpora are digest-pinned** (§3.1). `pinned:mixed-100k` and
+`pinned:mixed-1M` are manifests in `cli/benches/pinned/`, regenerated per run
+and checked against their recorded SHA-256 before any timer starts. A mismatch
+stops the run.
+
+**A new scale point is a new manifest and nothing else.** The tier is every
+`.txt` in that directory, so a 10M row is a `--pin=mixed-10M` away and no code
+change. It is deliberately absent: at the rates §6.7 records, one repetition of
+a 10M native row is about five minutes, and the question it would answer —
+whether anything is superlinear — the 100k/1M pair already answers.
+
+**The protocol deviation is §2's, printed beside the rows it applies to.** Above
+500,000 lines: at least 3 repetitions rather than 10, one warmup call rather
+than two.
+
+**Native rows at 1M are the host triple only.** The cross triples earn their
+seat where they cost two seconds a repetition and settle whether a gap is
+codegen or cross-compilation; at a million lines they cost thirty, and the
+question has already been answered at 100k over the same corpus. `--targets=`
+overrides it.
+
+### Peak memory
+
+`--rss` reports the peak resident set size of each phase, and it is the first
+data behind §1's note that peak memory is the obvious fourth column. It is an
+**untimed pass**, taken before the timers and never beside them.
+
+The figure comes from a subprocess: `--rss` re-runs this same binary once per
+phase under `/usr/bin/time -l` and reads the maximum resident set size back.
+There is no dependency-free way to ask in-process — Linux has `/proc/self/status`
+and macOS has no `/proc`, `getrusage` is behind `libc`, which is not in this
+tree and is not worth buying for a column, and `ps -o rss` requires an
+entitlement on current macOS. One phase per process is not a workaround but the
+measurement: a peak is monotonic, so the peak of a process that stopped after
+`sema` *is* the cost of everything up to and including `sema`, and the
+difference between two of them is what a phase added. Sampling the current
+figure instead would miss whatever a phase allocates and frees inside itself,
+which at these scales is most of the question.
 
 `--validate` is the one to run in a hurry: it is what proves the corpus is still
 valid Buri after a language change, and it is fast because it compiles each
@@ -718,6 +831,271 @@ Where the remaining gaps actually live, measured rather than suspected:
   `opt_level = "speed"` (+20%), `regalloc_algorithm = "single_pass"`
   (silently inert since Cranelift 0.123).
 
+### 6.5 Round three: the declaration unpin, and the backend question settled, 2026-08-19
+
+The last owned strings left the tree: `Ident` became a 12-byte span-based
+`Name`, `TypeExpr` a fourth arena. The one test that had pinned both
+(`standard_library.rs`) turned out to pin only its own accessor mechanics —
+two lines changed, policy and assertions byte-identical.
+
+| Corpus | Phase | Lines/s | Gap | Movement |
+|---|---|---:|---:|---|
+| mixed/100k | lex+parse | **5.92 M** | **1.7×** | 1.45 M at baseline — 4.1× total |
+| mixed/100k | sema | 1.00 M | 1.0× | holds |
+| mixed/100k | lower+js | 279 k | 0.36× | holds |
+| mixed/100k | lower+native ×3 | 51–55 k | 1.8–2.0× | holds |
+
+Allocations per token through lex+parse: 0.88 at baseline → **0.18**. What
+remains of goal 1 is C3 plus ~7% of declaration `Vec`s and genuinely-owned
+text.
+
+**The dev-backend question is settled by measurement.** LLVM at `-O0` is
+2.1–4.9× *slower* than Cranelift at 10k lines on the shapes that decide it,
+and slowest exactly where Cranelift already misses — switching would take
+`enum-heavy` from 21 k to 4 k lines/s. LLVM at `-O2` is 2.4–15× slower.
+Cranelift stays the Debug backend; LLVM is now wired as the Release backend
+(`select` maps native Release to it under `backend-llvm`, 759 tests green
+with the feature, outputs byte-identical to Cranelift and JS on real
+programs). Open against it: LLVM lacks the nine open-coded list loops, so
+the realistic release rows skip; and Cranelift's `wide-match` has a
+linux-x86_64-only superlinear cliff (159 k → 25 k, 1k → 10k) that arm64
+does not share.
+
+**The dev-loop question was settled the other way.** Erasing generics in a
+dev profile (2–10× measured runtime cost, a second value model through both
+backends) and moving instantiation placement (worth exactly one unit of
+blast radius, and weak symbols would cost the direct branches) were both
+refuted by measurement: a one-line edit at 118 k lines costs 2,622 ms, of
+which 64% is `Backend::emit` re-emitting 364 already-cached units for want
+of a per-unit parameter, and the 362-of-365-unit invalidation is the IR
+renderer printing callees as dense global indices — three lines from being
+2 of 365. Monomorphization itself is 41 ms of the loop. The fix wave
+(symbol-keyed rendering, per-unit emit, derives out of the root unit) is
+~60 lines against a projected 2,622 → ~940 ms.
+
+### 6.6 Round four: the platform cliff, the honest cache, and the fuzz net, 2026-08-19
+
+Three waves closed the round. The incremental-build fixes (symbol-keyed IR
+rendering, per-unit `Backend::emit`, derives out of the root unit) took a
+one-line edit at 117k lines from **2,434 ms to 949 ms** and the blast radius
+from 37 of 41 units to 1 — and found that index-keyed rendering had been a
+latent *miscompile* (a stale cached object could survive a callee rename into
+an undefined-symbol link). The backend wave killed the linux-x86_64
+`wide-match` cliff — a regalloc2 bundle-merge re-sort that x86-64's
+two-address `Reuse` constraint always triggered and three-address AArch64
+never did — taking that row **26 k → 308 k lines/s** and arm64 to 319 k with
+target-neutral emission changes. And two new test binaries joined the suite:
+`failing` (84 pinned failure reports — the runner's failure path held to the
+success path's standard) and `fuzz` (six oracles, nine searches, 8 s
+deterministic in CI, soak mode unbounded), bringing the suite to **718
+tests**. The soak's seven minimized findings sit in `cli/tests/fuzz/` as
+`OPEN` cases that flip red when fixed; none is a crash, hang, miscompile or
+nondeterminism — 1.7 M inputs, 557 k parameter points and 2,547 differential
+programs found the front end and all three backends sound.
+
+**Where every goal stands (mixed/100k, authoritative run):**
+
+| Phase | Goal | Measured | Gap |
+|---|---:|---:|---:|
+| lex | (10 M shared) | 11.3 M | **MET** |
+| lex+parse | 10 M | 6.10 M | 1.64× |
+| sema | 1 M | 1.04 M | **MET** |
+| lower+js | 100 k | 271 k | **MET** |
+| lower+native (3 triples) | 100 k | 51–54 k | 1.85–1.95× |
+
+**The dev/release configuration question, settled by measurement:**
+
+- **Dev: Cranelift, whole-binary link, per-unit emit.** LLVM at `-O0` is
+  2.1–4.9× slower to lower and worst exactly where Cranelift is weakest;
+  erasure and placement changes were refuted (§6.5). The incremental loop is
+  949 ms at 117 k lines — codegen now O(changed units), the residual split
+  51% whole-program analysis / 19% link / 18% process / 12% codegen.
+- **Release: LLVM at O2**, wired and verified byte-identical to the other
+  backends across 27 programs. It lowers at 3.9–6.8 k lines/s — 15–26× under
+  goal 3 — which is the price of LLVM's optimizer, not of this repository's
+  lowering; the goal is met by the dev path a developer actually iterates on.
+
+What remains open, in the order it matters: realistic native lowering at
+~1.9× (88% inside Cranelift's `define_function` — a value-model or codegen-
+strategy question, not a loop to tighten); `enum-heavy` native at ~5×;
+lex+parse's last 1.64× (C3 plus ~7% of declaration `Vec`s); the seven fuzz
+findings (one is user-visible data loss: `buri format` halves the
+backslashes in an import path on every run) and the five failure-report
+bugs, all pinned by their suites.
+
+### 6.7 The scale tier, and the first memory numbers, 2026-08-20
+
+The fourth order of magnitude, taken for the first time. `--set=scale` runs two
+digest-pinned corpora — `mixed` at 100,755 lines and at 1,007,259 lines, 3,590
+modules and 132,396 monomorphized functions — through the same phase seams as
+every other row. The 1M rows are under §2's documented deviation (≥3
+repetitions), and their dispersion is 0.2–0.4%, which is tighter than the
+default table's: at this size a repetition is long enough that the machine's
+noise averages out inside it.
+
+| Corpus | Phase | Lines/s | Gap | ±MAD | vs 100k |
+|---|---|---:|---:|---:|---:|
+| pinned/100k | lex | 11.17 M | **MET** | 1.2% | — |
+| pinned/1M | lex | 11.04 M | **MET** | 0.1% | **−1.2%** |
+| pinned/100k | lex+parse | 6.12 M | 1.6× | 0.5% | — |
+| pinned/1M | lex+parse | 6.01 M | 1.7× | 0.2% | **−1.8%** |
+| pinned/100k | sema | 1.01 M | **MET** | 1.0% | — |
+| pinned/1M | sema | 925 k | 1.08× | 1.4% | −8.4% |
+| pinned/100k | lower+js | 288 k | **MET** | 1.0% | — |
+| pinned/1M | lower+js | 264 k | **MET** | 0.0% | −8.6% |
+| pinned/100k | lower+macos-arm64 | 55.0 k | 1.8× | 1.1% | — |
+| pinned/1M | lower+macos-arm64 | **31.6 k** | **3.2×** | 0.6% | **−43%** |
+
+Two independent runs of the tier were taken; the second is the table. Between
+them the absolute rates move by up to 3% and the *deltas* by a few points —
+lexing and parsing land between −2% and +2%, sema between −5% and −8%, JS
+lowering between −6% and −9% — and the native delta is −42% in both, to the
+tenth of a percent. That stability is what makes the last row a finding rather
+than a bad afternoon.
+
+**Four of the five phases are flat across the decade.** Lexing and parsing do
+not notice the extra order of magnitude at all. Sema and JavaScript lowering
+give back 5–9%, which is inside the band a decade of scale can be expected to
+cost on a memory hierarchy and outside the band worth acting on — but they are
+the rows to re-read when the tier is next run, because 8% is not nothing and
+both of them are within a hair of their goal. The pinned 100k row agrees with
+§6.6's generated 100k row throughout, which is the §3.1 pairing check passing on
+its third leg.
+
+**Native lowering is the one row that falls, and it falls by 43%.** The cause is
+named below, and it has since been fixed: the row now reads **56.1 k lines/s**,
+and the table above is the last reading taken before the fix. What follows is
+the evidence in the order it was taken, because the method that found the axis
+is worth more than the number it produced. The suspect is not the codegen:
+
+`--split` puts the whole of the loss inside `Backend::emit`. Per line, across
+the decade: monomorphization +3%, `middle::run` +9%, `middle::native` +14%,
+`lower::run` +22% — and `emit` **+86%**. Everything above the backend is
+essentially linear.
+
+The shape of the curve says quadratic rather than cache: `mixed` native
+lowering runs at 58.5 k lines/s at 30k, 52.4 k at 100k, 46.4 k at 300k and
+30.2 k at 1M — the first run's readings at the two ends, so that the four
+points are one series — which fits `16.5 + 0.0165·(lines/1000)` nanoseconds per
+line to within a few percent at every point. That is a term which grows
+linearly *per line*, which is to say quadratically in total.
+
+And a controlled experiment names the axis. Hold the line count and the
+function count fixed and cut the *codegen unit* count tenfold —
+`--param lines_per_module=2500`, so 1M lines is ~400 units instead of 3,590 —
+and native lowering goes from 30.2 k to **52.2 k lines/s**, which is the 100k
+rate to within noise. `emit` alone falls 28.6 s → 16.1 s. The rate is a
+function of the unit count, not of the program size.
+
+That points at the two whole-program scans the Cranelift backend performs **per
+unit**:
+
+- `emit::Unit::new` (`backend/cranelift/emit.rs`) walks all of
+  `program.funcs` to collect the unit's own functions, and allocates a
+  `vec![None; program.funcs.len()]` linkage table beside it. Both are per unit.
+- `compile_unit` (`backend/cranelift/mod.rs`) walks all of `program.funcs`
+  again, filtering by unit, to build the text whose hash is the unit's
+  `codegen` cache key.
+
+Both are Θ(units × functions). At 100k that is 360 × 13,162 = 4.7 M steps and
+nobody notices; at 1M it is 3,590 × 132,396 = 475 M — a hundred times the work
+for ten times the program — over an array too large to stay in any cache, which
+is why the constant is large as well as the growth.
+
+#### The fix, and the third scan the experiment did not name
+
+`ir::Program::funcs_by_unit` buckets every function index by the unit that owns
+it, in one pass, and each unit is handed its own row. Both scans above then read
+a list of about thirty-seven entries rather than 132,396: `Unit::new` filters
+the row for the functions that have bodies, and the cache key concatenates the
+row. The linkage table becomes a map keyed on the function index instead of a
+slot per function in the program — a unit declares its own functions and the
+handful it calls across a boundary, so the array was an allocation and a memset
+per unit for a row that was almost entirely empty.
+
+**The cache key does not move, and that is a property of the row rather than a
+hope.** A row is ascending in function index, which is the order the discarded
+filter yielded, so the bytes hashed are the same bytes. It was checked as well
+as argued: a temporary assertion inside both backends' key computation compared
+the new text against the old filter's text for every unit of every program the
+two test suites compile, and a repository built by the pre-change binary is
+served entirely from its cache by the post-change one — 41 units, 41 hits, no
+misses.
+
+That bought back a third of the loss and no more, and a sampling profile found
+the rest, which the unit-count experiment had pointed at without naming:
+`Abi::new` is per unit, and building the `middle::layout::Layouts` inside it
+walks **every type constructor in the program** and runs a strongly-connected
+components pass over them, to decide which types are recursive together. That
+answer is a function of the checker's tables and of nothing else, so it is now a
+`layout::Cycles` built once and shared by every unit's memo table. Which is the
+general shape of all three: a per-unit object whose *construction* was a
+whole-program question.
+
+The LLVM backend had all three and a fourth, `emit::observe` — a whole-program
+fixpoint over every call in the program, rebuilt per unit — plus a memo table
+sized by the program's interned types. All four are hoisted or keyed there too,
+and its `codegen` key is stable by the same argument and the same check.
+
+| lines | units | before | after |
+|---|---:|---:|---:|
+| 30k | ~110 | 58.5 k | 60.4 k |
+| 100k | 360 | 54.8 k | 57.8 k |
+| 300k | ~1,080 | 46.4 k | 55.9 k |
+| 1M | 3,590 | **31.4 k** | **56.1 k** |
+
+**The rate is no longer a function of the program's size.** `16.5 + 0.0165·
+(lines/1000)` nanoseconds per line has become a constant ~17.5 ns/line across a
+33× range, and the gap to the 100,000 lines/s goal is 1.8× at every scale
+instead of 3.2× at the top. `emit` at 1M falls 32.1 s → 17.9 s. The 100k and
+1M readings are the pinned corpora; the 30k and 300k readings are the generated
+`mixed` shape at those scales, which is how the four-point series was taken
+before the fix as well.
+
+Worth saying plainly: this was a *build system* cost, not a language one. It was
+invisible to `buri build` on a warm cache — the incremental loop of §6.6 emits
+one unit — and it landed squarely on a clean build of a large program. That the
+warm loop is untouched was confirmed rather than assumed: a leaf-body edit
+re-emits one unit of forty-one before and after, at the same wall time.
+
+#### Peak memory, the first reading
+
+§1 calls peak memory the obvious fourth column and does not have a goal for it.
+Here is the first data, from `--set=scale --rss`, as the peak resident set size
+of a process that stopped after the named phase (§4):
+
+| Phase | 100k peak | B/line | 1M peak | B/line |
+|---|---:|---:|---:|---:|
+| corpus in memory | 11.6 MB | 121 | 104.5 MB | 109 |
+| lex | 28.1 MB | 293 | 236.8 MB | 246 |
+| lex+parse | 39.0 MB | 405 | 344.9 MB | 359 |
+| sema | 128.2 MB | 1,334 | 1,227.3 MB | 1,278 |
+| lower+js | 272.4 MB | 2,835 | 2,697.1 MB | 2,808 |
+| lower+macos-arm64 | 298.4 MB | 3,105 | 2,788.9 MB | 2,903 |
+
+**Memory is linear across the decade, to within a few percent per line, and
+every one of those percent points is in the cheap direction.** Semantic
+analysis costs about 1.3 KB per line at both scales; the whole compilation
+peaks at about 2.9 KB per line. The 100k and 1M columns agree more closely than
+any of the *time* columns do. Three things worth writing down before there is a
+goal to hold them to:
+
+1. **Compiling a million lines takes 2.8 GB.** A laptop can hold that and a CI
+   container often cannot, and it is the honest reason a memory goal will
+   eventually be needed — not because anything here is superlinear, but because
+   2.9 KB per line is a *choice* nobody has argued about yet.
+2. **The parse tree is ~360–400 B/line and the checker's output is ~1,300.**
+   The representation waves of §6.3 and §6.4 moved the first number; the second
+   is three times larger and has never been optimized for size at all.
+3. **Peak RSS varies by a few percent run to run**, because it is the
+   allocator's high-water mark and not a count. It is a two-significant-figure
+   measurement and should be quoted as one.
+
+And the negative result, which is the useful half: the native cliff above is
+**not** a memory blowup. Peak RSS per line is flat — very slightly *lower* at
+1M — so whatever `emit` is doing wrong, it is doing it in time and not in
+space.
+
 ---
 
 ## 7. Profiling, on this platform
@@ -734,8 +1112,27 @@ xcrun xctrace record --template 'Time Profiler' --launch <bench-binary> -- --qui
 
 `--quick` keeps the run short enough to profile; the phase timers dominate the
 samples, so the hot functions under `lex`, `parse`, `Checker::run` and the
-lowering calls are directly attributable to their rows. What a profile cannot
+lowering calls are directly attributable to their rows.
+
+**And when neither profiler is installed**, which was the case when §6.7 was
+taken, the substitute is a controlled sweep: the suite's whole parameter space
+is a command-line flag, so a suspected superlinear term can be tested by
+holding everything constant and moving the one axis it is suspected in.
+`--param lines_per_module=2500` at a fixed `--scale` changes the codegen unit
+count and nothing else that matters, and the row moving back to its old rate is
+a stronger statement than a flame graph: a profile says where the time is, and
+an experiment like that says what the time is a function of. What a profile cannot
 give here is cycles-per-line; the substitute discipline is to re-run the suite
 after every change and let §6's table, not the profile, say whether the change
 was real.
+
+The two are complements rather than alternatives, and §6.7's fix is the case
+that shows it. The sweep named the axis — the unit count — and the two suspects
+it made obvious were two thirds of the cost; the third was a
+strongly-connected-components pass inside a constructor, which nothing about the
+axis suggested and a profile pointed straight at. **macOS ships one**:
+`sample <pid> <seconds> 1 -file out.sample` needs nothing installed, and its
+"sort by top of stack" section is enough to read a self-time ranking. It is a
+poor substitute for `samply` — no inverted call tree worth the name, and
+Rust's mangled symbols come out raw — and it is much better than nothing.
 

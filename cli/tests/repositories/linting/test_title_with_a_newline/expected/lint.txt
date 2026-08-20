@@ -1,0 +1,8 @@
+warning: test "a title\nthat wraps" has a newline in its title [test-title-newline]
+  --> lib/prose/test/prose.buri:10:1
+   |
+10 | test "a title\nthat wraps" {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a failure report is one line per test, so the runner prints the title escaped — the break shows up as `\n` rather than as a line break
+   = fix: write the title on one line; a sentence is enough, and the body says the rest

@@ -528,6 +528,44 @@ fn check_hygiene(
     check_unreachable_exports(s, target, analysis, diags);
     check_discarded_results(s, own, analysis, diags);
     check_tests_assert(s, own, analysis, diags);
+    check_test_titles(s, own, analysis, diags);
+}
+
+/// `test-title-newline`. A title spanning lines is legal and reported — the
+/// runner escapes it, so the one-line-per-`FAIL` shape holds — but the report
+/// then shows `\n` where the author meant a line break, and nothing else in the
+/// output is prose that wraps.
+///
+/// A warning rather than an error, because it is a matter of taste about the
+/// text and not a rule about the program: `duplicate-test-name` is the rule.
+fn check_test_titles(
+    s: &Session,
+    own: PkgId,
+    analysis: &crate::compiler::driver::Analysis,
+    diags: &mut Diagnostics,
+) {
+    let mine: BTreeSet<crate::compiler::semantics::types::ModuleId> = analysis
+        .loaded
+        .modules
+        .iter()
+        .filter(|m| m.pkg == Some(own))
+        .map(|m| m.id)
+        .collect();
+    for case in &analysis.checked.tests {
+        if !mine.contains(&case.module) || !case.name.contains('\n') {
+            continue;
+        }
+        diags.push(
+            Diagnostic::warning(case.span, format!("test {:?} has a newline in its title", case.name))
+                .with_code("test-title-newline")
+                .with_fix("write the title on one line; a sentence is enough, and the body says the rest")
+                .with_note(
+                    "a failure report is one line per test, so the runner prints the title \
+                     escaped — the break shows up as `\\n` rather than as a line break",
+                ),
+        );
+    }
+    let _ = s;
 }
 
 /// `unreachable-export`. Inside a library, `export` means "visible to the rest
@@ -578,7 +616,7 @@ fn check_unreachable_exports(
                 continue;
             }
             for sp in specs {
-                wanted.insert(sp.name.name.as_str());
+                wanted.insert(m.ast.tree.name(sp.name));
             }
         }
     }
@@ -603,7 +641,7 @@ fn check_unreachable_exports(
             continue;
         }
         for item in &m.ast.items {
-            let Some((name, span)) = exported_name(item) else { continue };
+            let Some((name, span)) = exported_name(&m.ast.tree, item) else { continue };
             if surface.contains(name) || wanted.contains(name) {
                 continue;
             }
@@ -632,18 +670,21 @@ fn is_generated(path: &str) -> bool {
 }
 
 /// The name a module-level item exports, when it exports one.
-fn exported_name(item: &crate::parsing::tree::Item) -> Option<(&str, Span)> {
+fn exported_name<'t>(
+    t: &'t crate::parsing::flat::Tree,
+    item: &crate::parsing::tree::Item,
+) -> Option<(&'t str, Span)> {
     use crate::parsing::tree::Item;
     let (exported, name) = match item {
-        Item::Fn(d) => (d.exported, &d.name),
-        Item::Struct(d) => (d.exported, &d.name),
-        Item::Enum(d) => (d.exported, &d.name),
-        Item::TypeAlias(d) => (d.exported, &d.name),
-        Item::Const(d) => (d.exported, &d.name),
-        Item::Trait(d) => (d.exported, &d.name),
+        Item::Fn(d) => (d.exported, d.name),
+        Item::Struct(d) => (d.exported, d.name),
+        Item::Enum(d) => (d.exported, d.name),
+        Item::TypeAlias(d) => (d.exported, d.name),
+        Item::Const(d) => (d.exported, d.name),
+        Item::Trait(d) => (d.exported, d.name),
         _ => return None,
     };
-    exported.then_some((name.name.as_str(), name.span))
+    exported.then_some((t.name(name), name.span))
 }
 
 /// `unused-import`. Deliberately syntactic: a name counts as used if it appears
@@ -684,9 +725,11 @@ fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
         let crate::parsing::tree::Item::Import(i) = item else { continue };
         let specs: Vec<(&str, Span)> = match &i.clause {
             crate::parsing::tree::ImportClause::Named(specs) => {
-                specs.iter().map(|sp| (sp.local().name.as_str(), sp.span)).collect()
+                specs.iter().map(|sp| (m.ast.tree.name(sp.local()), sp.span)).collect()
             }
-            crate::parsing::tree::ImportClause::Namespace(n) => vec![(n.name.as_str(), n.span)],
+            crate::parsing::tree::ImportClause::Namespace(n) => {
+                vec![(m.ast.tree.name(*n), n.span)]
+            }
         };
         // One edit per statement, not per name. Two adjacent unused names have
         // overlapping deletions — `A, ` and `, B` share the comma — and the
@@ -695,10 +738,12 @@ fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
         let survivors: Vec<String> = match &i.clause {
             crate::parsing::tree::ImportClause::Named(specs) => specs
                 .iter()
-                .filter(|sp| used.contains(sp.local().name.as_str()))
-                .map(|sp| match &sp.alias {
-                    Some(a) => format!("{} as {}", sp.name.name, a.name),
-                    None => sp.name.name.clone(),
+                .filter(|sp| used.contains(m.ast.tree.name(sp.local())))
+                .map(|sp| match sp.alias {
+                    Some(a) => {
+                        format!("{} as {}", m.ast.tree.name(sp.name), m.ast.tree.name(a))
+                    }
+                    None => m.ast.tree.name(sp.name).to_string(),
                 })
                 .collect(),
             crate::parsing::tree::ImportClause::Namespace(_) => Vec::new(),

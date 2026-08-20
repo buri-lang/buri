@@ -1,0 +1,17 @@
+FAIL //lib/alpha  test/suite.buri  "alpha fails"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/alpha/test/suite.buri:6:1
+FAIL //lib/beta  test/suite.buri  "beta fails"
+  assert.eq failed
+    actual:   3
+    expected: 4
+  --> lib/beta/test/suite.buri:5:1
+FAIL //lib/beta  test/suite.buri  "beta fails too"
+  assert.eq failed
+    actual:   5
+    expected: 6
+  --> lib/beta/test/suite.buri:9:1
+
+1 passed, 3 failed, 0 skipped (0.0s)

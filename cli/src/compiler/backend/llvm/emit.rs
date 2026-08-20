@@ -71,6 +71,7 @@ use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
+use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
     self, EnumRepr, Repr as LayoutRepr, Scalar, HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL,
     STR_ASCII_FLAG, STR_LEN_MASK,
@@ -108,10 +109,18 @@ pub struct Unit<'ctx, 'a> {
     profile: Profile,
     /// What emission will find in each function, computed once for the whole
     /// program — see [`observe`].
-    observed: Vec<Observed>,
+    ///
+    /// Borrowed rather than owned, because "once for the whole program" is what
+    /// it has to be: it is a fixpoint over every body, and computing it inside
+    /// each unit made the emission quadratic (`design/PERFORMANCE.md` §6.7).
+    observed: &'a [Observed],
     /// The LLVM function for each `FuncIdx`, declared lazily: a unit declares
     /// only what it calls, so a module is not the whole program's symbol table.
-    funcs: Vec<Option<FunctionValue<'ctx>>>,
+    ///
+    /// Keyed rather than indexed for the same reason the table is lazy: a slot
+    /// per function in the program is an allocation and a memset per unit for a
+    /// row that holds the unit's own functions and its handful of imports.
+    funcs: Map<usize, FunctionValue<'ctx>>,
     /// `buri_rt_*` declarations, by symbol.
     runtime: Map<String, FunctionValue<'ctx>>,
     /// Interned string literal bodies, so `"hello"` twice is one global.
@@ -134,16 +143,24 @@ pub struct Unit<'ctx, 'a> {
     /// middle of another function's body and the builder is positioned there.
     pending: Vec<Job<'ctx>>,
     helpers: usize,
+    /// The oracle `middle::rc` decided its own operations with, where the
+    /// caller had the program `rc::run` was handed — see [`Unit::rc_counted`].
+    rc: Option<std::rc::Rc<std::cell::RefCell<rc::Syntactic>>>,
     pub diags: Diagnostics,
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
+    /// `observed` is [`observe`] over the same program and profile, and
+    /// `cycles` is [`layout::Cycles`] over the same tables. Both are taken once
+    /// for the whole emission and handed to every unit.
     pub fn new(
         ctx: &'ctx Context,
         program: &'a ir::Program,
         tables: &'a Tables,
         name: &str,
         profile: Profile,
+        observed: &'a [Observed],
+        cycles: std::rc::Rc<layout::Cycles>,
     ) -> Unit<'ctx, 'a> {
         Unit {
             ctx,
@@ -151,10 +168,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             builder: ctx.create_builder(),
             program,
             tables,
-            reprs: Reprs::new(tables, program.types.len()),
+            reprs: Reprs::new(tables, cycles),
             profile,
-            observed: observe(program, profile),
-            funcs: (0..program.funcs.len()).map(|_| None).collect(),
+            observed,
+            funcs: Map::default(),
             runtime: Map::default(),
             literals: Map::default(),
             thunks: Map::default(),
@@ -164,8 +181,48 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             env_glue: None,
             pending: Vec::new(),
             helpers: 0,
+            rc: None,
             diags: Diagnostics::new(),
         }
+    }
+
+    /// Hands this unit the oracle `middle::rc` ran with.
+    pub fn use_rc_oracle(&mut self, oracle: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>) {
+        self.rc = Some(oracle);
+    }
+
+    /// Whether **rc** counts a type — not whether the layout table does.
+    ///
+    /// The two are different questions and the difference is a leak. `rc` runs
+    /// on the program's own descriptors and bodies, so a `Str` is `Yes` only
+    /// where some body writes a string literal, a template, or a primitive
+    /// operation that names the type; everywhere else it is `Unknown`, which rc
+    /// reads as "not counted" and for which it emits **nothing** — no `IncRef`
+    /// at a call that owns its argument and no drop in the callee. Retaining on
+    /// the layout's answer where rc retains on nothing adds one half of a pair
+    /// nothing completes, which is one leaked block per element of a
+    /// `list.map`. The Cranelift wave measured 199 of them over a 200-element
+    /// `[Str]`.
+    ///
+    /// Without an oracle the layout answer stands in, and the direction is what
+    /// makes that safe rather than merely convenient: rc's `Yes` is a subset of
+    /// the layout's `counted_type` — every shape rc calls counted, the layout
+    /// does — so the substitution can only ever retain *more*, in a program
+    /// where rc already leaves the same blocks uncounted. It cannot release a
+    /// count that was never taken. The one entry point without an oracle is
+    /// [`super::emit_lowered`], which is handed an `ir::Program` and has no
+    /// `monomorphize::Program` to build one from.
+    ///
+    /// The **thunk's** release does not ask this at all: `ir::Ownership::Borrow`
+    /// is set only where rc's oracle answered `Yes` (`middle/rc.rs`'s
+    /// `infer_ownership`, whose other arm is `Own` "by convention" for anything
+    /// uncounted), so the ownership column already carries rc's answer exactly.
+    fn rc_counted(&mut self, ty: &Ty) -> bool {
+        if let Some(oracle) = self.rc.clone() {
+            let answer = oracle.borrow_mut().counted(ty);
+            return matches!(answer, rc::Answer::Yes);
+        }
+        self.reprs.counted_type(ty)
     }
 
     fn error(&mut self, span: Span, message: String, fix: &str) {
@@ -218,7 +275,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// [`attrs::set_convention`] so that the two cannot drift — a mismatch
     /// between them is a miscompile LLVM will not diagnose.
     pub fn declare(&mut self, idx: FuncIdx) -> Option<FunctionValue<'ctx>> {
-        if let Some(Some(f)) = self.funcs.get(idx.index()) {
+        if let Some(f) = self.funcs.get(&idx.index()) {
             return Some(*f);
         }
         let func = self.program.funcs.get(idx.index())?;
@@ -240,9 +297,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // [`observe`] is a whole-program answer for exactly that reason.
         let observed = self.observed.get(idx.index()).copied().unwrap_or_else(Observed::opaque);
         attrs::decorate(self.ctx, f, &func.facts, observed, &params, &rets, HEAP_ALIGN);
-        if let Some(slot) = self.funcs.get_mut(idx.index()) {
-            *slot = Some(f);
-        }
+        self.funcs.insert(idx.index(), f);
         Some(f)
     }
 
@@ -1587,6 +1642,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         if self.numeric(state, code, dests, key, args, span)
             || self.open_coded(state, code, dests, key, args)
+            || self.list_closure(state, code, dests, key, args)
             || self.derived(state, code, dests, key, args, span)
         {
             return;
@@ -2555,6 +2611,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let _ = self.builder.build_unreachable();
             return;
         };
+        let (sig, own) = match self.program.funcs.get(func.index()) {
+            Some(f) => (f.sig.params.clone(), f.facts.params.clone()),
+            None => (Vec::new(), Vec::new()),
+        };
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
         if env {
             if let Some(first) = first_param {
@@ -2570,12 +2630,47 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     i64::from(ENV_FIELDS),
                     "env.rec",
                 );
+                // The callee *owns* its environment record, so it drops what
+                // the record holds — and the block still holds it too, because
+                // the block's own glue releases the record when the closure
+                // dies. One of the two counts has to be taken here, or a
+                // closure that captured a `Str` and is called once frees it
+                // twice.
+                if own.first() == Some(&ir::Ownership::Own) {
+                    if let Some(ty) = self.type_of(first) {
+                        if self.rc_counted(&ty) {
+                            let place = Place::Memory { base: record, align };
+                            self.walk_rc(state, &ty, &place, 0, true, 0);
+                        }
+                    }
+                }
                 for piece in self.load_slots(record, &slots, align) {
                     argv.push(piece.into());
                 }
             }
         }
-        for i in 1..state.value.count_params() {
+        // An argument the callee only borrows, kept until after the call.
+        let mut borrowed: Vec<(Ty, Vec<Slot>, Vec<BasicValueEnum<'ctx>>)> = Vec::new();
+        let mut at = 1u32;
+        for (j, p) in sig.iter().enumerate().skip(usize::from(env)) {
+            let slots = repr::ir_slots(&mut self.reprs, self.program, *p);
+            let mut taken = Vec::with_capacity(slots.len());
+            for _ in 0..slots.len() {
+                if let Some(v) = state.value.get_nth_param(at) {
+                    taken.push(v);
+                }
+                at = at.saturating_add(1);
+            }
+            argv.extend(taken.iter().map(|v| BasicMetadataValueEnum::from(*v)));
+            if own.get(j) != Some(&ir::Ownership::Borrow) {
+                continue;
+            }
+            if let Some(ty) = self.type_of(*p) {
+                borrowed.push((ty, slots, taken));
+            }
+        }
+        // Anything the signature did not account for, forwarded verbatim.
+        for i in at..state.value.count_params() {
             if let Some(p) = state.value.get_nth_param(i) {
                 argv.push(p.into());
             }
@@ -2585,7 +2680,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return;
         };
         attrs::set_call_convention(call, attrs::FAST);
-        match call.try_as_basic_value().basic() {
+        let answer = call.try_as_basic_value().basic();
+        // The two ownership conventions meet here and nowhere else. A call
+        // through a function value **owns** its arguments — `middle/rc.rs`, and
+        // the reason is that a code pointer cannot carry a per-callee
+        // convention — so the caller took a count. The callee's own column says
+        // whether it takes one too, and where it does not, this releases the
+        // caller's. Without it a `list.map` over a `[Str]` leaks one block per
+        // element, and so does any ordinary call through a lambda that only
+        // reads its parameter.
+        for (ty, slots, pieces) in borrowed {
+            let place = Place::Registers { slots, pieces };
+            self.walk_rc(state, &ty, &place, 0, false, 0);
+        }
+        match answer {
             Some(v) => {
                 let _ = self.builder.build_return(Some(&v as &dyn BasicValue<'ctx>));
             }
@@ -4007,6 +4115,692 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 }
 
 // ---------------------------------------------------------------------------
+// The closure surface of `core/list`
+// ---------------------------------------------------------------------------
+
+/// The `[T]` a `list.*` loop walks: where the elements are, how far apart, and
+/// what one of them is.
+struct Source<'ctx> {
+    /// The block's payload pointer. Nothing is loaded out of it outside the
+    /// bound test, because `cli/runtime/list.rs` answers a null one for a list
+    /// of no elements.
+    base: PointerValue<'ctx>,
+    len: IntValue<'ctx>,
+    stride: u32,
+    size: u32,
+    align: u32,
+    elem: Ty,
+    slots: Vec<Slot>,
+}
+
+/// The closure a `list.*` loop steps with, taken apart once before the loop.
+struct StepFn<'ctx> {
+    target: PointerValue<'ctx>,
+    env: PointerValue<'ctx>,
+    /// The step's own result slots, read off the closure's `Ty::Fn` rather than
+    /// off the destination: `count`'s predicate answers `Bool` and its
+    /// destination is an `Int`, and `filter`'s answers `Bool` and its
+    /// destination is a `[T]`.
+    rets: Vec<Slot>,
+}
+
+/// Which loop a closure-taking `list.*` key is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Map,
+    Filter,
+    Fold,
+    Any,
+    All,
+    Count,
+}
+
+/// One resolved call: the block to walk, the closure to step with, and the two
+/// operands only some of the loops have.
+///
+/// A struct rather than four more parameters, for the reason [`Wide`] is one:
+/// the lint set caps a signature at seven, and these four travel together
+/// through every loop below.
+struct ListArgs<'ctx> {
+    src: Source<'ctx>,
+    step: StepFn<'ctx>,
+    ctx: Option<ir::ValueId>,
+    init: Option<ir::ValueId>,
+}
+
+/// Where the pieces of one of those calls are in its argument list.
+struct ListCall {
+    kind: Step,
+    /// The threaded context a `*Ctx` step takes first. **Not** the `C: Alloc`
+    /// bound of `map` and `filter`, which the step never sees.
+    ctx: Option<usize>,
+    func: usize,
+    init: Option<usize>,
+}
+
+/// The table, in `list.buri`'s order. Receiver first, context second,
+/// function, then `fold`'s initial accumulator.
+fn list_call(key: &str) -> Option<ListCall> {
+    let call = |kind, ctx, func, init| ListCall { kind, ctx, func, init };
+    Some(match key {
+        "list.fold" => call(Step::Fold, None, 1, Some(2)),
+        "list.foldCtx" => call(Step::Fold, Some(1), 2, Some(3)),
+        "list.any" => call(Step::Any, None, 1, None),
+        "list.all" => call(Step::All, None, 1, None),
+        "list.count" => call(Step::Count, None, 1, None),
+        "list.map" => call(Step::Map, None, 2, None),
+        "list.mapCtx" => call(Step::Map, Some(1), 2, None),
+        "list.filter" => call(Step::Filter, None, 2, None),
+        "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
+        _ => return None,
+    })
+}
+
+/// The keys [`Unit::list_closure`] emits a loop for, asked ahead of emission.
+pub fn list_closure_key(key: &str) -> bool {
+    list_call(key).is_some()
+}
+
+/// One counted loop under construction: the blocks, the index, and the value
+/// carried across iterations.
+struct Loop<'ctx> {
+    pre: BasicBlock<'ctx>,
+    header: BasicBlock<'ctx>,
+    done: BasicBlock<'ctx>,
+    index: inkwell::values::PhiValue<'ctx>,
+    i: IntValue<'ctx>,
+    /// The phi and the value it starts from, where the loop carries one.
+    carried: Option<(inkwell::values::PhiValue<'ctx>, BasicValueEnum<'ctx>)>,
+}
+
+impl<'ctx, 'a> Unit<'ctx, 'a> {
+    /// The `list.*` entries that take a function, as a loop over the block.
+    ///
+    /// `cli/runtime/list.rs`'s header says why none of these is a runtime call:
+    /// a Buri closure is `{ code, env }` where `code`'s signature is the
+    /// *flattened* one of the element type (VALUE-MODEL.md §5.1), so a C
+    /// function calling one would have to synthesize a parameter list that
+    /// depends on `T`. A backend already knows how — it is an indirect call and
+    /// nothing else — so the loop lives here. Cranelift open-codes the same
+    /// nine (`cranelift/emit.rs::list_closure`); the two agree on the
+    /// conventions below because a closure built by one is called by the other
+    /// in the same artifact's tests.
+    ///
+    /// # The counts, which is the whole of the difficulty
+    ///
+    /// Two sentences from `middle/rc.rs` decide every reference operation here,
+    /// and they point in opposite directions:
+    ///
+    ///  * **"A runtime intrinsic borrows its arguments and returns a fresh
+    ///    count."** So the source list, the closure and `fold`'s initial
+    ///    accumulator arrive borrowed: nothing here releases one, and the
+    ///    result leaves owning what it holds.
+    ///  * **"A call through a function value owns its arguments."** So every
+    ///    value handed to a step is retained first — the element, the threaded
+    ///    context, and `fold`'s accumulator on the way in — the step consumes
+    ///    that count and answers a fresh one, and [`Unit::build_thunk`]
+    ///    releases it again where the callee only borrowed it.
+    ///
+    /// The retain asks [`Unit::rc_counted`] and not the layout table, for the
+    /// reason that function states: retaining what rc does not count is one
+    /// half of a pair nothing completes, which is a leak per element. An
+    /// element type holding nothing counted — `[Int]`, `[U8]`, a struct of
+    /// scalars, which is most of them — costs no instruction at all.
+    ///
+    /// # What is still absent
+    ///
+    /// `find` and `findIndex` build an `Option` and `foldResult` a `Result`,
+    /// which is the enum construction this file does from `ir::Inst::MakeEnum`
+    /// and not from a key; `sortBy` is a comparison sort and not a loop; `zip`
+    /// and `flatten` take a second element layout. Each is reported by
+    /// `missing_intrinsics` exactly as before.
+    fn list_closure(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dests: &[ir::ValueId],
+        key: &str,
+        args: &[ir::ValueId],
+    ) -> bool {
+        let Some(call) = list_call(key) else { return false };
+        let (Some(xs), Some(f), Some(dest)) =
+            (args.first().copied(), args.get(call.func).copied(), dests.first().copied())
+        else {
+            return false;
+        };
+        let ctx = call.ctx.and_then(|i| args.get(i).copied());
+        let init = call.init.and_then(|i| args.get(i).copied());
+        let (Some(src), Some(step)) =
+            (self.list_source(state, code, xs), self.step_fn(state, code, f))
+        else {
+            return false;
+        };
+        let a = ListArgs { src, step, ctx, init };
+        match call.kind {
+            Step::Map => self.list_map(state, code, dest, &a),
+            Step::Filter => self.list_filter(state, code, dest, &a),
+            Step::Fold => self.list_fold(state, code, dest, &a),
+            kind => self.list_test(state, code, dest, &a, kind),
+        }
+        true
+    }
+
+    /// The three things every loop over a `[T]` starts from.
+    fn list_source(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        xs: ir::ValueId,
+    ) -> Option<Source<'ctx>> {
+        let ir_ty = code.ty_of(xs);
+        let elem = self.type_of(ir_ty).and_then(|t| self.reprs.element(&t))?;
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let value = self.get(state, xs);
+        let pieces = repr::disassemble(&self.builder, &slots, value);
+        let (
+            Some(BasicValueEnum::PointerValue(base)),
+            Some(BasicValueEnum::IntValue(len)),
+        ) = (pieces.get(layout::LIST_PTR).copied(), pieces.get(layout::LIST_LEN).copied())
+        else {
+            return None;
+        };
+        let r = self.reprs.of_ty(&elem);
+        let (stride, size, align, slots) =
+            (r.layout.stride, r.layout.size, r.layout.align, r.slots.clone());
+        Some(Source { base, len, stride, size, align, elem, slots })
+    }
+
+    /// The closure, taken apart once in the block before the loop so that the
+    /// two words dominate every iteration.
+    fn step_fn(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        f: ir::ValueId,
+    ) -> Option<StepFn<'ctx>> {
+        let ir_ty = code.ty_of(f);
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let value = self.get(state, f);
+        let pieces = repr::disassemble(&self.builder, &slots, value);
+        let (
+            Some(BasicValueEnum::PointerValue(target)),
+            Some(BasicValueEnum::PointerValue(env)),
+        ) = (
+            pieces.get(layout::CLOSURE_CODE).copied(),
+            pieces.get(layout::CLOSURE_ENV).copied(),
+        )
+        else {
+            return None;
+        };
+        let Some(Ty::Fn(_, ret)) = self.type_of(ir_ty) else { return None };
+        let rets = self.reprs.of_ty(&ret).slots.clone();
+        Some(StepFn { target, env, rets })
+    }
+
+    /// One step, through the closure's own two words: the same indirect call
+    /// [`Unit::call_indirect`] emits, with the environment first.
+    fn call_step(
+        &mut self,
+        state: &mut Function<'ctx>,
+        step: &StepFn<'ctx>,
+        params: &[Slot],
+        args: &[BasicMetadataValueEnum<'ctx>],
+    ) -> Option<BasicValueEnum<'ctx>> {
+        let ty = self.closure_fn_type(params, &step.rets);
+        let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![step.env.into()];
+        argv.extend_from_slice(args);
+        let call = self.builder.build_indirect_call(ty, step.target, &argv, "").ok()?;
+        attrs::set_call_convention(call, attrs::FAST);
+        // An indirect callee's effects are not known here.
+        state.observed.opaque = true;
+        call.try_as_basic_value().basic()
+    }
+
+    /// `base + i * stride`.
+    fn elem_at(
+        &self,
+        base: PointerValue<'ctx>,
+        i: IntValue<'ctx>,
+        stride: u32,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        let word = self.ctx.i64_type();
+        let scaled = self
+            .builder
+            .build_int_mul(i, word.const_int(u64::from(stride), false), "list.off")
+            .unwrap_or(i);
+        // SAFETY: inkwell marks `build_in_bounds_gep` unsafe because it cannot
+        // check the index; every one here is below the block's element count.
+        unsafe {
+            self.builder
+                .build_in_bounds_gep(self.ctx.i8_type(), base, &[scaled], name)
+                .unwrap_or(base)
+        }
+    }
+
+    /// A fresh block of `bytes` payload bytes, whose `cap` header is exactly
+    /// what was asked for — which is what makes `cap / stride` the element
+    /// count the drop glue walks (VALUE-MODEL.md §4).
+    fn heap(
+        &mut self,
+        state: &mut Function<'ctx>,
+        bytes: IntValue<'ctx>,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        let alloc = self.rt_alloc();
+        state.observed.allocates = true;
+        match self.builder.build_call(alloc, &[bytes.into()], name) {
+            Ok(call) => {
+                attrs::set_call_convention(call, attrs::C);
+                call.try_as_basic_value()
+                    .basic()
+                    .and_then(|v| v.try_into().ok())
+                    .unwrap_or_else(|| self.ptr_ty().const_null())
+            }
+            Err(_) => self.ptr_ty().const_null(),
+        }
+    }
+
+    /// The context a `*Ctx` step is threaded, retained and flattened.
+    fn pass_ctx(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        ctx: Option<ir::ValueId>,
+        params: &mut Vec<Slot>,
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        let Some(c) = ctx else { return };
+        let ir_ty = code.ty_of(c);
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let value = self.get(state, c);
+        let pieces = repr::disassemble(&self.builder, &slots, value);
+        if let Some(ty) = self.type_of(ir_ty) {
+            if self.rc_counted(&ty) {
+                let place =
+                    Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
+                self.walk_rc(state, &ty, &place, 0, true, 0);
+            }
+        }
+        params.extend_from_slice(&slots);
+        argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
+    }
+
+    /// One element, retained and flattened.
+    fn pass_elem(
+        &mut self,
+        state: &mut Function<'ctx>,
+        src: &Source<'ctx>,
+        at: PointerValue<'ctx>,
+        params: &mut Vec<Slot>,
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        if self.rc_counted(&src.elem) {
+            let elem = src.elem.clone();
+            let place = Place::Memory { base: at, align: src.align };
+            self.walk_rc(state, &elem, &place, 0, true, 0);
+        }
+        for piece in self.load_slots(at, &src.slots, src.align) {
+            argv.push(piece.into());
+        }
+        params.extend_from_slice(&src.slots);
+    }
+
+    /// An aggregate already in registers, flattened into a step's arguments.
+    fn pass_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        slots: &[Slot],
+        params: &mut Vec<Slot>,
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        for piece in repr::disassemble(&self.builder, slots, value) {
+            argv.push(piece.into());
+        }
+        params.extend_from_slice(slots);
+    }
+
+    /// Opens `for i in 0..len`, leaving the builder in the body.
+    ///
+    /// The index is a phi and not memory, which is CODEGEN-LLVM.md §2 applied
+    /// to a loop this backend generates rather than one it lowers.
+    fn open_loop(
+        &mut self,
+        state: &mut Function<'ctx>,
+        len: IntValue<'ctx>,
+        carried: Option<BasicValueEnum<'ctx>>,
+    ) -> Option<Loop<'ctx>> {
+        let word = self.ctx.i64_type();
+        let pre = self.builder.get_insert_block()?;
+        let header = self.ctx.append_basic_block(state.value, "list.head");
+        let body = self.ctx.append_basic_block(state.value, "list.body");
+        let done = self.ctx.append_basic_block(state.value, "list.done");
+        self.builder.build_unconditional_branch(header).ok()?;
+
+        self.builder.position_at_end(header);
+        let index = self.builder.build_phi(word, "list.i").ok()?;
+        let carried = match carried {
+            Some(v) => Some((self.builder.build_phi(v.get_type(), "list.acc").ok()?, v)),
+            None => None,
+        };
+        let i: IntValue<'ctx> = index.as_basic_value().try_into().ok()?;
+        let more = self.builder.build_int_compare(IntPredicate::ULT, i, len, "list.more").ok()?;
+        self.builder.build_conditional_branch(more, body, done).ok()?;
+
+        self.builder.position_at_end(body);
+        Some(Loop { pre, header, done, index, i, carried })
+    }
+
+    /// Closes the loop and leaves the builder in `done`.
+    ///
+    /// The back edge names the block the body *ended* in, not the block it
+    /// began in: a retain over a tagged enum or a niche leaves the builder in a
+    /// join block it created, and a phi whose incoming block is not a real
+    /// predecessor is the one error LLVM's verifier catches here.
+    fn close_loop(&mut self, l: &Loop<'ctx>, next: Option<BasicValueEnum<'ctx>>) {
+        let word = self.ctx.i64_type();
+        let bumped = self
+            .builder
+            .build_int_add(l.i, word.const_int(1, false), "list.next")
+            .unwrap_or(l.i);
+        let latch = self.builder.get_insert_block().unwrap_or(l.header);
+        let _ = self.builder.build_unconditional_branch(l.header);
+        l.index.add_incoming(&[
+            (&word.const_zero() as &dyn BasicValue<'ctx>, l.pre),
+            (&bumped as &dyn BasicValue<'ctx>, latch),
+        ]);
+        if let Some((phi, start)) = &l.carried {
+            let stepped = next.unwrap_or(*start);
+            phi.add_incoming(&[
+                (start as &dyn BasicValue<'ctx>, l.pre),
+                (&stepped as &dyn BasicValue<'ctx>, latch),
+            ]);
+        }
+        self.builder.position_at_end(l.done);
+    }
+
+    /// `map` and `mapCtx`: one fresh block of the same length, filled in place
+    /// by the step.
+    fn list_map(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        a: &ListArgs<'ctx>,
+    ) {
+        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
+        let ir_dest = code.ty_of(dest);
+        let Some(out_elem) = self.type_of(ir_dest).and_then(|t| self.reprs.element(&t)) else {
+            return;
+        };
+        let (out_stride, out_align, out_slots) = {
+            let r = self.reprs.of_ty(&out_elem);
+            (r.layout.stride, r.layout.align, r.slots.clone())
+        };
+        let word = self.ctx.i64_type();
+        let bytes = self
+            .builder
+            .build_int_mul(src.len, word.const_int(u64::from(out_stride), false), "map.bytes")
+            .unwrap_or(src.len);
+        let dst = self.heap(state, bytes, "map");
+        let Some(l) = self.open_loop(state, src.len, None) else { return };
+
+        let at = self.elem_at(src.base, l.i, src.stride, "map.at");
+        let mut params = Vec::new();
+        let mut argv = Vec::new();
+        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
+        self.pass_elem(state, src, at, &mut params, &mut argv);
+        let answer = self.call_step(state, step, &params, &argv);
+        // The step's answer is a fresh count and the block is where it lives
+        // from here: it moves in, so there is nothing to retain.
+        let into = self.elem_at(dst, l.i, out_stride, "map.into");
+        if let Some(v) = answer {
+            let pieces = repr::disassemble(&self.builder, &out_slots, v);
+            self.store_slots(into, &out_slots, out_align, &pieces);
+        }
+        self.close_loop(&l, None);
+
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
+        let value =
+            repr::assemble(self.ctx, &self.builder, &slots, &[dst.into(), src.len.into()]);
+        self.set(state, dest, value);
+    }
+
+    /// `filter` and `filterCtx`: kept elements into a scratch block, then one
+    /// exact block copied out of its used prefix.
+    ///
+    /// Two allocations rather than one, and the second is not avoidable: a
+    /// `[T]`'s element count is `cap / stride` ([`Job::ReleaseElems`]), so an
+    /// over-allocated block whose length is shorter than its capacity would
+    /// have its *uninitialised* tail released when it died, and shrinking `cap`
+    /// would lie to the allocator about which size class the block came from.
+    /// The predicate runs exactly once per element, which is what rules out
+    /// counting in a first pass — a `filterCtx` predicate may have effects.
+    fn list_filter(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        a: &ListArgs<'ctx>,
+    ) {
+        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
+        let word = self.ctx.i64_type();
+        let stride = word.const_int(u64::from(src.stride), false);
+        let bytes = self.builder.build_int_mul(src.len, stride, "filter.bytes").unwrap_or(src.len);
+        let scratch = self.heap(state, bytes, "filter.buf");
+        let zero = word.const_zero();
+        let Some(l) = self.open_loop(state, src.len, Some(zero.into())) else { return };
+        let kept: IntValue<'ctx> = match l.carried.map(|(p, _)| p.as_basic_value()) {
+            Some(BasicValueEnum::IntValue(v)) => v,
+            _ => zero,
+        };
+
+        let at = self.elem_at(src.base, l.i, src.stride, "filter.at");
+        let mut params = Vec::new();
+        let mut argv = Vec::new();
+        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
+        self.pass_elem(state, src, at, &mut params, &mut argv);
+        let answer = self.call_step(state, step, &params, &argv);
+        let next = match answer {
+            Some(BasicValueEnum::IntValue(b)) => {
+                let keep = self.ctx.append_basic_block(state.value, "filter.keep");
+                let skip = self.ctx.append_basic_block(state.value, "filter.skip");
+                let cont = self.ctx.append_basic_block(state.value, "filter.cont");
+                let _ = self.builder.build_conditional_branch(b, keep, skip);
+
+                self.builder.position_at_end(keep);
+                let into = self.elem_at(scratch, kept, src.stride, "filter.into");
+                let align = src.align.max(1);
+                let _ = self.builder.build_memcpy(
+                    into,
+                    align,
+                    at,
+                    align,
+                    word.const_int(u64::from(src.size), false),
+                );
+                // The copy is a second owner of whatever the element holds, and
+                // the count the predicate was handed was its own and is gone.
+                // Both halves of *this* pair are the backend's own — the retain
+                // here and the release the result list's glue does — so it asks
+                // the layout table rather than rc.
+                let elem = src.elem.clone();
+                let place = Place::Memory { base: into, align };
+                self.walk_rc(state, &elem, &place, 0, true, 0);
+                let more = self
+                    .builder
+                    .build_int_add(kept, word.const_int(1, false), "filter.kept")
+                    .unwrap_or(kept);
+                let from_keep = self.builder.get_insert_block().unwrap_or(keep);
+                let _ = self.builder.build_unconditional_branch(cont);
+
+                self.builder.position_at_end(skip);
+                let _ = self.builder.build_unconditional_branch(cont);
+
+                self.builder.position_at_end(cont);
+                match self.builder.build_phi(word, "filter.n") {
+                    Ok(phi) => {
+                        phi.add_incoming(&[
+                            (&more as &dyn BasicValue<'ctx>, from_keep),
+                            (&kept as &dyn BasicValue<'ctx>, skip),
+                        ]);
+                        phi.as_basic_value()
+                    }
+                    Err(_) => kept.into(),
+                }
+            }
+            _ => kept.into(),
+        };
+        self.close_loop(&l, Some(next));
+
+        let out_bytes = self.builder.build_int_mul(kept, stride, "filter.out").unwrap_or(kept);
+        let out = self.heap(state, out_bytes, "filter");
+        let align = src.align.max(1);
+        let _ = self.builder.build_memcpy(out, align, scratch, align, out_bytes);
+        // The elements were *moved*, so the scratch block goes back without its
+        // contents being walked: its count is the one the allocation gave it.
+        let free = self.rt_free();
+        if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
+        let value = repr::assemble(self.ctx, &self.builder, &slots, &[out.into(), kept.into()]);
+        self.set(state, dest, value);
+    }
+
+    /// `fold` and `foldCtx`: the accumulator, threaded.
+    ///
+    /// One path and not two: an accumulator of any width is a phi, because
+    /// LLVM's phi takes a first-class aggregate. The counts balance by the
+    /// retain below — the initial accumulator arrives borrowed and the first
+    /// step owns it — after which each step consumes the count it is given and
+    /// answers another, and the last one is the result's.
+    fn list_fold(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        a: &ListArgs<'ctx>,
+    ) {
+        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
+        let Some(init) = a.init else { return };
+        let ir_dest = code.ty_of(dest);
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
+        let start = self.get(state, init);
+        if let Some(ty) = self.type_of(ir_dest) {
+            if self.rc_counted(&ty) {
+                let pieces = repr::disassemble(&self.builder, &slots, start);
+                let place = Place::Registers { slots: slots.clone(), pieces };
+                self.walk_rc(state, &ty, &place, 0, true, 0);
+            }
+        }
+        let Some(l) = self.open_loop(state, src.len, Some(start)) else { return };
+        let acc = l.carried.map_or(start, |(p, _)| p.as_basic_value());
+
+        let at = self.elem_at(src.base, l.i, src.stride, "fold.at");
+        let mut params = Vec::new();
+        let mut argv = Vec::new();
+        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
+        self.pass_value(acc, &slots, &mut params, &mut argv);
+        self.pass_elem(state, src, at, &mut params, &mut argv);
+        let stepped = self.call_step(state, step, &params, &argv).unwrap_or(acc);
+        self.close_loop(&l, Some(stepped));
+
+        // The header's phi, which dominates `done`: the accumulator as it stood
+        // when the bound test last failed.
+        self.set(state, dest, acc);
+    }
+
+    /// `any`, `all` and `count`.
+    ///
+    /// `any` and `all` leave the loop at the first element that decides the
+    /// answer, which is what their `core/list` declarations promise by taking
+    /// no context: a step that cannot have an effect cannot notice.
+    fn list_test(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        a: &ListArgs<'ctx>,
+        kind: Step,
+    ) {
+        let (src, step) = (&a.src, &a.step);
+        let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
+        let BasicTypeEnum::IntType(int) = want else { return };
+        if kind == Step::Count {
+            let Some(l) = self.open_loop(state, src.len, Some(int.const_zero().into())) else {
+                return;
+            };
+            let total: IntValue<'ctx> = match l.carried.map(|(p, _)| p.as_basic_value()) {
+                Some(BasicValueEnum::IntValue(v)) => v,
+                _ => int.const_zero(),
+            };
+            let at = self.elem_at(src.base, l.i, src.stride, "count.at");
+            let mut params = Vec::new();
+            let mut argv = Vec::new();
+            self.pass_elem(state, src, at, &mut params, &mut argv);
+            let next = match self.call_step(state, step, &params, &argv) {
+                Some(BasicValueEnum::IntValue(b)) => {
+                    let one = self
+                        .builder
+                        .build_int_z_extend_or_bit_cast(b, int, "count.one")
+                        .unwrap_or_else(|_| int.const_zero());
+                    self.builder.build_int_add(total, one, "count.n").unwrap_or(total)
+                }
+                _ => total,
+            };
+            self.close_loop(&l, Some(next.into()));
+            self.set(state, dest, total.into());
+            return;
+        }
+
+        let Some(l) = self.open_loop(state, src.len, None) else { return };
+        let at = self.elem_at(src.base, l.i, src.stride, "test.at");
+        let mut params = Vec::new();
+        let mut argv = Vec::new();
+        self.pass_elem(state, src, at, &mut params, &mut argv);
+        let answer = self.call_step(state, step, &params, &argv);
+        let early = match answer {
+            Some(BasicValueEnum::IntValue(b)) => {
+                let cont = self.ctx.append_basic_block(state.value, "test.cont");
+                let from = self.builder.get_insert_block().unwrap_or(cont);
+                let _ = match kind {
+                    Step::Any => self.builder.build_conditional_branch(b, l.done, cont),
+                    _ => self.builder.build_conditional_branch(b, cont, l.done),
+                };
+                self.builder.position_at_end(cont);
+                Some(from)
+            }
+            _ => None,
+        };
+        self.close_loop(&l, None);
+
+        // `any` falls out of the loop having found nothing and leaves it having
+        // found something; `all` is the same statement with the constants
+        // swapped. The phi is the whole of the answer, so neither carries a
+        // value across the iterations.
+        let exhausted = int.const_int(u64::from(kind == Step::All), false);
+        let decided = int.const_int(u64::from(kind == Step::Any), false);
+        // The phi is built only where the early exit was, because `done` then
+        // has one predecessor and a phi with one incoming edge naming two would
+        // be the verifier error this whole comment block exists to avoid.
+        let value = match early {
+            Some(from) => match self.builder.build_phi(int, "test.answer") {
+                Ok(phi) => {
+                    phi.add_incoming(&[
+                        (&exhausted as &dyn BasicValue<'ctx>, l.header),
+                        (&decided as &dyn BasicValue<'ctx>, from),
+                    ]);
+                    phi.as_basic_value()
+                }
+                Err(_) => exhausted.into(),
+            },
+            None => exhausted.into(),
+        };
+        self.set(state, dest, value);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // `num.<T>.<op>` — the numeric surface `core/num` declares without a body
 // ---------------------------------------------------------------------------
 
@@ -4695,6 +5489,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 pub fn implemented(key: &str) -> bool {
     bits_op(key)
         || open_coded_key(key)
+        || list_closure_key(key)
         || derive_key(key).is_some()
         || runtime::entry(key).is_some()
         || numeric_op(key)

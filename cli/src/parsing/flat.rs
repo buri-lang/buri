@@ -42,7 +42,7 @@
 use std::rc::Rc;
 
 use crate::diagnostics::{FileId, Span};
-use crate::parsing::tree::{BinOp, TypeExpr, UnOp};
+use crate::parsing::tree::{BinOp, UnOp};
 
 /// The absent optional id.
 ///
@@ -78,8 +78,7 @@ id!(BlockId);
 id!(StmtId);
 id!(ArmId);
 id!(
-    /// A `TypeExpr`, which keeps its owned shape this wave — see the module
-    /// comment on [`Tree::types`].
+    /// A type expression.
     TypeId
 );
 id!(CtxBodyId);
@@ -251,6 +250,50 @@ pub enum PKind {
     Or,
 }
 
+/// What a type expression is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum TKind {
+    Named,
+    SelfType,
+    Unit,
+    Tuple,
+    Array,
+    Fn,
+}
+
+/// A range of type ids: a bound list, a tuple variant's payload, a `derive`'s
+/// trait list. A declaration holds one of these where it used to hold a
+/// `Vec<TypeExpr>`, and [`Tree::type_list`] hands back the slice.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct TypeList {
+    pub start: u32,
+    pub len: u32,
+}
+
+impl TypeList {
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub fn len(self) -> usize {
+        self.len as usize
+    }
+}
+
+/// One type node.
+///
+/// A type has no `subtree` count: nothing skips a type subtree by arithmetic,
+/// and a type is reached from a declaration field or from a child range rather
+/// than by scanning the arena. It carries its own span instead, because unlike
+/// an expression a type is not read span-first.
+#[derive(Clone, Copy, Debug)]
+pub struct TypeData {
+    pub kind: TKind,
+    pub payload: [u32; 4],
+    pub span: Loc,
+}
+
 /// One node of either arena.
 ///
 /// The width is measured and pinned. A variant that needs a fifth payload word
@@ -279,6 +322,8 @@ pub struct PNode {
 
 const _: () = assert!(std::mem::size_of::<Node>() == 24);
 const _: () = assert!(std::mem::size_of::<PNode>() == 24);
+const _: () = assert!(std::mem::size_of::<TypeData>() == 28);
+const _: () = assert!(std::mem::size_of::<TypeList>() == 8);
 const _: () = assert!(std::mem::size_of::<Loc>() == 8);
 
 // ---------------------------------------------------------------------------
@@ -396,7 +441,8 @@ const _: () = assert!(std::mem::size_of::<PatPayloadData>() == 12);
 // The arenas
 // ---------------------------------------------------------------------------
 
-/// Everything below the declaration level of one file.
+/// Everything below the declaration level of one file, plus the type
+/// expressions and the source a declaration's own fields name.
 #[derive(Clone, Debug)]
 pub struct Tree {
     /// One file per `Module`, hoisted out of every span.
@@ -425,7 +471,10 @@ pub struct Tree {
     /// Every variadic expression child list, end to end, in source order.
     kids: Vec<ExprId>,
     pkids: Vec<PatId>,
-    /// Every path — a pattern's `Vec<Ident>` — end to end.
+    tkids: Vec<TypeId>,
+    /// Every dotted path — a pattern's and a named type's — end to end. A
+    /// name is the source under its own span, so a path is a range of spans
+    /// and the segments themselves are not stored anywhere.
     names: Vec<Loc>,
 
     blocks: Vec<BlockData>,
@@ -439,12 +488,7 @@ pub struct Tree {
     ctxbind: Vec<CtxBindData>,
     ppay: Vec<PatPayloadData>,
 
-    /// `TypeExpr` keeps its owned shape this wave. `impl` blocks match on
-    /// `&d.self_ty` and clone a path segment's `name`, and four lines of
-    /// `cli/tests/language/standard_library.rs` — a file that may not be
-    /// edited — pin both. So type expressions reachable from the flat tree
-    /// live here, addressed by [`TypeId`], and flatten in a later wave.
-    types: Vec<TypeExpr>,
+    types: Vec<TypeData>,
 
     /// Wide or owned leaves, kept out of the payload. Each is a small
     /// fraction of tokens, so a side table costs an indirection on the rare
@@ -475,6 +519,7 @@ pub struct Mark {
     pspans: u32,
     kids: u32,
     pkids: u32,
+    tkids: u32,
     names: u32,
     blocks: u32,
     stmts: u32,
@@ -517,7 +562,8 @@ impl Tree {
             pspans: Vec::with_capacity(n / 8),
             kids: Vec::with_capacity(n / 4),
             pkids: Vec::new(),
-            names: Vec::new(),
+            tkids: Vec::new(),
+            names: Vec::with_capacity(n / 4),
             blocks: Vec::new(),
             stmts: Vec::with_capacity(n / 8),
             arms: Vec::new(),
@@ -598,9 +644,67 @@ impl Tree {
         }
     }
 
-    pub fn ty(&self, id: TypeId) -> &TypeExpr {
-        static UNIT: TypeExpr = TypeExpr::Unit { span: Span { file: FileId(0), start: 0, end: 0 } };
-        self.types.get(id.index()).unwrap_or(&UNIT)
+    /// The one place a type payload is decoded.
+    pub fn ty(&self, id: TypeId) -> TypeView<'_> {
+        let Some(n) = self.types.get(id.index()) else {
+            return TypeView::Unit { span: self.span_of(Loc::default()) };
+        };
+        let span = self.span_of(n.span);
+        let p = n.payload;
+        match n.kind {
+            TKind::Named => TypeView::Named {
+                path: self.slice(&self.names, p[0], p[1]),
+                args: self.slice(&self.tkids, p[2], p[3]),
+                span,
+            },
+            TKind::SelfType => TypeView::SelfType { span },
+            TKind::Unit => TypeView::Unit { span },
+            TKind::Tuple => TypeView::Tuple { elems: self.slice(&self.tkids, p[0], p[1]), span },
+            TKind::Array => TypeView::Array { elem: TypeId(p[0]), span },
+            TKind::Fn => TypeView::Fn {
+                params: self.slice(&self.tkids, p[0], p[1]),
+                ret: TypeId(p[2]),
+                span,
+            },
+        }
+    }
+
+    pub fn type_span(&self, id: TypeId) -> Span {
+        self.span_of(self.types.get(id.index()).map(|t| t.span).unwrap_or_default())
+    }
+
+    pub fn type_kind(&self, id: TypeId) -> TKind {
+        self.types.get(id.index()).map_or(TKind::Unit, |t| t.kind)
+    }
+
+    /// The trailing segment of a named type's path — the name itself.
+    pub fn type_head(&self, id: TypeId) -> Option<&str> {
+        match self.ty(id) {
+            TypeView::Named { path, .. } => path.last().map(|s| self.text(*s)),
+            _ => None,
+        }
+    }
+
+    /// A named type's path as it was written, dots and all. For the diagnostic
+    /// that quotes a type nobody declared.
+    pub fn path_text(&self, path: &[Loc]) -> String {
+        let mut out = String::new();
+        for (i, seg) in path.iter().enumerate() {
+            if i > 0 {
+                out.push('.');
+            }
+            out.push_str(self.text(*seg));
+        }
+        out
+    }
+
+    pub fn type_list(&self, l: TypeList) -> &[TypeId] {
+        self.slice(&self.tkids, l.start, l.len)
+    }
+
+    /// The text a declaration's name was written with.
+    pub fn name(&self, n: crate::parsing::tree::Name) -> &str {
+        self.text(Loc { start: n.span.start, end: n.span.end })
     }
 
     pub fn block(&self, id: BlockId) -> BlockData {
@@ -828,7 +932,7 @@ impl Tree {
             Kind::Try => ExprView::Try { base: ExprId(p[0]), span },
             Kind::Generic => ExprView::Generic {
                 base: ExprId(p[0]),
-                args: self.slice(&self.types, p[1], p[2]),
+                args: self.slice(&self.tkids, p[1], p[2]),
                 span,
             },
             Kind::StructLit => ExprView::StructLit {
@@ -1042,15 +1146,14 @@ impl Tree {
         self.ppay.len().saturating_sub(1) as u32
     }
 
-    pub fn push_types(&mut self, ts: Vec<TypeExpr>) -> (u32, u32) {
-        let at = self.types.len() as u32;
-        let n = ts.len() as u32;
-        self.types.extend(ts);
-        (at, n)
+    pub fn push_tkids(&mut self, ids: &[TypeId]) -> TypeList {
+        let at = self.tkids.len() as u32;
+        self.tkids.extend_from_slice(ids);
+        TypeList { start: at, len: ids.len() as u32 }
     }
 
-    pub fn push_type(&mut self, t: TypeExpr) -> TypeId {
-        self.types.push(t);
+    pub fn push_type(&mut self, kind: TKind, payload: [u32; 4], span: Span) -> TypeId {
+        self.types.push(TypeData { kind, payload, span: Loc::of(span) });
         TypeId(self.types.len().saturating_sub(1) as u32)
     }
 
@@ -1078,6 +1181,7 @@ impl Tree {
             pspans: self.pspans.len() as u32,
             kids: self.kids.len() as u32,
             pkids: self.pkids.len() as u32,
+            tkids: self.tkids.len() as u32,
             names: self.names.len() as u32,
             blocks: self.blocks.len() as u32,
             stmts: self.stmts.len() as u32,
@@ -1112,6 +1216,7 @@ impl Tree {
         self.pspans.truncate(m.pspans as usize);
         self.kids.truncate(m.kids as usize);
         self.pkids.truncate(m.pkids as usize);
+        self.tkids.truncate(m.tkids as usize);
         self.names.truncate(m.names as usize);
         self.blocks.truncate(m.blocks as usize);
         self.stmts.truncate(m.stmts as usize);
@@ -1168,7 +1273,7 @@ pub enum ExprView<'t> {
     Call { callee: ExprId, args: &'t [ExprId], span: Span },
     Index { base: ExprId, index: ExprId, span: Span },
     Try { base: ExprId, span: Span },
-    Generic { base: ExprId, args: &'t [TypeExpr], span: Span },
+    Generic { base: ExprId, args: &'t [TypeId], span: Span },
     StructLit { head: ExprId, spread: Option<ExprId>, fields: &'t [InitData], span: Span },
 }
 
@@ -1177,6 +1282,30 @@ pub enum ExprView<'t> {
 pub enum PartView<'t> {
     Text(&'t str),
     Hole(ExprId),
+}
+
+/// One type node, decoded.
+#[derive(Clone, Copy, Debug)]
+pub enum TypeView<'t> {
+    Named { path: &'t [Loc], args: &'t [TypeId], span: Span },
+    SelfType { span: Span },
+    Unit { span: Span },
+    Tuple { elems: &'t [TypeId], span: Span },
+    Array { elem: TypeId, span: Span },
+    Fn { params: &'t [TypeId], ret: TypeId, span: Span },
+}
+
+impl TypeView<'_> {
+    pub fn span(&self) -> Span {
+        match *self {
+            TypeView::Named { span, .. }
+            | TypeView::SelfType { span }
+            | TypeView::Unit { span }
+            | TypeView::Tuple { span, .. }
+            | TypeView::Array { span, .. }
+            | TypeView::Fn { span, .. } => span,
+        }
+    }
 }
 
 /// One pattern node, decoded.

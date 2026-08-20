@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/subject" import { answer };
+
+test "the answer" {
+    assert.eq(answer(), 42);
+}

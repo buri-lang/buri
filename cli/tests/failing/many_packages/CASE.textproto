@@ -1,0 +1,28 @@
+# `buri test //...` over two packages. The report is grouped by target and the
+# targets are in label order, which is the order `resolve_targets` produced;
+# the summary line is the whole run's, not one suite's.
+#
+# Recorded twice, because ordering across suites is the one thing in this
+# output nothing else here would catch: `commands/test.rs` says the runner is
+# free to shard and to run a suite's tests in any order, and what a golden
+# holds it to is that the *report* does not move. The second run repeats the
+# first byte for byte.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "failures across two packages are grouped by target in label order, under one summary line, the same way twice"
+
+run {
+  args: ["test", "//...", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//...", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

@@ -1,0 +1,5 @@
+/// Wrong on purpose. The edits in the case are what make it right and what
+/// break the build file, so each exit code has a state that produces it.
+export fn answer(): Int {
+    41
+}

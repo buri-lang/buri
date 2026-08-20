@@ -14,7 +14,11 @@ the benchmark measures.
 
 They are *not* the corpus. The headline scale is 100,000 lines, that is 3.5 MB of
 source, and 3.5 MB has no business in a git history whose whole size is 15 MB.
-Everything above 512 KiB and every profile not listed below is generated per run.
+Everything above 512 KiB and every profile not listed below is generated per run
+— or, where the bytes still have to be pinned, gets a manifest in
+`cli/benches/pinned/` and no source at all. That is the third corpus kind, it is
+what the scale tier runs on, and `design/PERFORMANCE.md` §3.1 says when to reach
+for which.
 The suite reports both readings of `mixed` for exactly this reason: when the
 compiler changes, the generated and the saved rows move together; when the
 *generator* changes, only the generated one moves.

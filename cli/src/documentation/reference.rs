@@ -192,8 +192,8 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
             let Item::ReExport(r) = item else { continue };
             let Some((_, from)) = owned.iter().find(|(p, _)| *p == r.path) else { continue };
             for spec in &r.specs {
-                let wanted = spec.name.name.as_str();
-                let shown = spec.alias.as_ref().unwrap_or(&spec.name).name.clone();
+                let wanted = m.ast.tree.name(spec.name);
+                let shown = m.ast.tree.name(spec.local()).to_string();
                 for found in from.iter().filter(|i| i.name == wanted) {
                     items.push(ApiItem { name: shown.clone(), ..found.clone() });
                 }
@@ -218,40 +218,41 @@ pub fn std_filter(m: &ModuleData) -> bool {
 }
 
 fn items_of(module: &tree::Module) -> Vec<ApiItem> {
+    let t = &module.tree;
     let mut out = Vec::new();
     for item in &module.items {
         match item {
-            Item::Fn(d) if d.exported => out.push(function(d, None, None)),
-            Item::Struct(d) if d.exported => out.push(structure(d)),
-            Item::Enum(d) if d.exported => out.push(enumeration(d)),
-            Item::Trait(d) if d.exported => out.push(trait_or_effect(d)),
+            Item::Fn(d) if d.exported => out.push(function(t, d, None, None)),
+            Item::Struct(d) if d.exported => out.push(structure(t, d)),
+            Item::Enum(d) if d.exported => out.push(enumeration(t, d)),
+            Item::Trait(d) if d.exported => out.push(trait_or_effect(t, d)),
             Item::TypeAlias(d) if d.exported => out.push(ApiItem {
                 api: Api::TypeAlias,
-                name: d.name.name.clone(),
-                signature: format!("type {} = {}", d.name.name, formatting::ty(&d.ty)),
+                name: t.name(d.name).to_string(),
+                signature: format!("type {} = {}", t.name(d.name), formatting::ty(t, d.ty)),
                 docs: d.docs.clone(),
             }),
             Item::Const(d) if d.exported => out.push(ApiItem {
                 api: Api::Const,
-                name: d.name.name.clone(),
-                signature: format!("const {}: {}", d.name.name, formatting::ty(&d.ty)),
+                name: t.name(d.name).to_string(),
+                signature: format!("const {}: {}", t.name(d.name), formatting::ty(t, d.ty)),
                 docs: d.docs.clone(),
             }),
             Item::Context(d) if d.exported => out.push(ApiItem {
                 api: Api::Context,
-                name: d.name.name.clone(),
-                signature: format!("context {}", d.name.name),
+                name: t.name(d.name).to_string(),
+                signature: format!("context {}", t.name(d.name)),
                 docs: d.docs.clone(),
             }),
             Item::Impl(d) => {
-                let owner = formatting::ty(&d.self_ty);
-                let via = d.trait_ty.as_ref().map(formatting::ty);
+                let owner = formatting::ty(t, d.self_ty);
+                let via = d.trait_ty.map(|x| formatting::ty(t, x));
                 for m in &d.methods {
                     // A trait's methods are visible wherever the type is, so
                     // conformance methods are listed even though they carry no
                     // `export` of their own.
                     if m.exported || via.is_some() {
-                        out.push(function(m, Some(owner.clone()), via.clone()));
+                        out.push(function(t, m, Some(owner.clone()), via.clone()));
                     }
                 }
             }
@@ -273,15 +274,20 @@ fn sort_key(i: &ApiItem) -> (u8, Option<&str>, &str) {
 /// A free function, or a method on `owner`. There is no third case: the one
 /// thing a method has that a function does not is the type it hangs off, and it
 /// is not optional.
-fn function(d: &tree::FnDecl, owner: Option<String>, via_trait: Option<String>) -> ApiItem {
-    let effects = effects_of(d);
+fn function(
+    t: &crate::parsing::flat::Tree,
+    d: &tree::FnDecl,
+    owner: Option<String>,
+    via_trait: Option<String>,
+) -> ApiItem {
+    let effects = effects_of(t, d);
     ApiItem {
         api: match owner {
             Some(owner) => Api::Method { owner, via_trait, effects },
             None => Api::Function { effects },
         },
-        name: d.name.name.clone(),
-        signature: formatting::signature(d),
+        name: t.name(d.name).to_string(),
+        signature: formatting::signature(t, d),
         docs: d.docs.clone(),
     }
 }
@@ -289,15 +295,15 @@ fn function(d: &tree::FnDecl, owner: Option<String>, via_trait: Option<String>) 
 /// The bounds on the `ctx` parameter, which is the whole of what a function
 /// may do to the world. Reading them off the signature is the point: purity is
 /// the absence of this list, not an annotation somebody had to remember.
-fn effects_of(d: &tree::FnDecl) -> Vec<String> {
+fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
     let Some(ctx) = d.params.iter().find(|p| p.kind == ParamKind::CtxParam) else {
         return Vec::new();
     };
-    let name = formatting::ty(&ctx.ty);
+    let name = formatting::ty(t, ctx.ty);
     d.generics
         .iter()
-        .find(|g| g.name.name == name)
-        .map(|g| g.bounds.iter().map(formatting::ty).collect())
+        .find(|g| t.name(g.name) == name)
+        .map(|g| t.type_list(g.bounds).iter().map(|b| formatting::ty(t, *b)).collect())
         .unwrap_or_else(|| vec![name])
 }
 
@@ -312,14 +318,14 @@ fn strip_export(sig: &str) -> String {
     out
 }
 
-fn structure(d: &tree::StructDecl) -> ApiItem {
+fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
     let fields = match &d.body {
         tree::StructBody::Record(fields) => fields
             .iter()
             .filter(|f| f.exported)
             .map(|f| Member {
-                name: f.name.name.clone(),
-                signature: strip_export(&formatting::field_decl(f)),
+                name: t.name(f.name).to_string(),
+                signature: strip_export(&formatting::field_decl(t, f)),
                 docs: f.docs.clone(),
             })
             .collect(),
@@ -329,20 +335,20 @@ fn structure(d: &tree::StructDecl) -> ApiItem {
             .filter(|(_, f)| f.exported)
             .map(|(i, f)| Member {
                 name: i.to_string(),
-                signature: format!("{i}: {}", formatting::ty(&f.ty)),
+                signature: format!("{i}: {}", formatting::ty(t, f.ty)),
                 docs: Vec::new(),
             })
             .collect(),
     };
     ApiItem {
         api: Api::Struct { fields },
-        name: d.name.name.clone(),
-        signature: format!("struct {}{}", d.name.name, formatting::generics(&d.generics)),
+        name: t.name(d.name).to_string(),
+        signature: format!("struct {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
         docs: d.docs.clone(),
     }
 }
 
-fn enumeration(d: &tree::EnumDecl) -> ApiItem {
+fn enumeration(t: &crate::parsing::flat::Tree, d: &tree::EnumDecl) -> ApiItem {
     ApiItem {
         api: Api::Enum {
             variants: d
@@ -350,36 +356,36 @@ fn enumeration(d: &tree::EnumDecl) -> ApiItem {
                 .iter()
                 .filter(|v| v.exported)
                 .map(|v| Member {
-                    name: v.name.name.clone(),
-                    signature: strip_export(&formatting::variant(v)),
+                    name: t.name(v.name).to_string(),
+                    signature: strip_export(&formatting::variant(t, v)),
                     docs: v.docs.clone(),
                 })
                 .collect(),
         },
-        name: d.name.name.clone(),
-        signature: format!("enum {}{}", d.name.name, formatting::generics(&d.generics)),
+        name: t.name(d.name).to_string(),
+        signature: format!("enum {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
         docs: d.docs.clone(),
     }
 }
 
-fn trait_or_effect(d: &tree::TraitDecl) -> ApiItem {
+fn trait_or_effect(t: &crate::parsing::flat::Tree, d: &tree::TraitDecl) -> ApiItem {
     let methods = d
         .methods
         .iter()
         .map(|m| Member {
-            name: m.name.name.clone(),
-            signature: formatting::signature(m),
+            name: t.name(m.name).to_string(),
+            signature: formatting::signature(t, m),
             docs: m.docs.clone(),
         })
         .collect();
     ApiItem {
         api: if d.is_effect { Api::Effect { methods } } else { Api::Trait { methods } },
-        name: d.name.name.clone(),
+        name: t.name(d.name).to_string(),
         signature: format!(
             "{} {}{}",
             if d.is_effect { "effect" } else { "trait" },
-            d.name.name,
-            formatting::generics(&d.generics)
+            t.name(d.name),
+            formatting::generics(t, &d.generics)
         ),
         docs: d.docs.clone(),
     }

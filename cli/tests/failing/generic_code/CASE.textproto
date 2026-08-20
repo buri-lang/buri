@@ -1,0 +1,20 @@
+# A failing assertion inside a generic function, at four instantiations. The
+# report renders the concrete value each time: `monomorphize` gives
+# `testing_assert.report` a type descriptor per instantiation
+# (`middle/lower.rs`'s `Func::desc`), so a generic assertion that printed
+# something about `T` would be a descriptor that had not been specialised.
+#
+# The same test twice at two element types is the pair that says so: `1` and
+# `"a"` are the same call and different output.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a failing assertion inside generic code renders the value at the instantiation, not the type variable"
+
+run {
+  args: ["test", "//lib/generic", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

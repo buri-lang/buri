@@ -1,0 +1,51 @@
+// Every entry point `core/testing/assert` exports, failing, in the order the
+// module declares them. Nine functions, nine reports: `eq`, `notEq`, `isTrue`,
+// `isFalse` and `fail` go through `report`/`failWith`, and `ok`, `err`, `some`
+// and `none` go through `failExpected`, which renders the *expected* side as a
+// variant name rather than as a value.
+
+from "core/testing/assert" import * as assert;
+
+test "eq" {
+    assert.eq(1, 2);
+}
+
+test "notEq" {
+    assert.notEq(5, 5);
+}
+
+test "isTrue" {
+    assert.isTrue(false);
+}
+
+test "isFalse" {
+    assert.isFalse(true);
+}
+
+test "fail" {
+    assert.fail("a message the test wrote itself");
+}
+
+test "ok" {
+    let _ = assert.ok(Result.Err("boom"));
+}
+
+test "err" {
+    let _ = assert.err(Result.Ok(7));
+}
+
+test "some" {
+    let _ = assert.some(Option.None);
+}
+
+test "none" {
+    assert.none(Option.Some(3));
+}
+
+test "eq on an Option" {
+    assert.eq(Option.Some(1), Option.None);
+}
+
+test "eq on a Result" {
+    assert.eq(Result.Ok(1), Result.Err("no"));
+}

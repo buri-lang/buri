@@ -1,0 +1,18 @@
+// EXPECT: has no field `f1`
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+
+struct Rec { export f0: Int }
+
+impl Rec {
+  fn render<C: Alloc>(self: Rec, ctx: C): Str {
+    str.format(ctx, "rec: ${self.f0}/${self.f1}")
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(Rec { f0: 1 }.render(ctx));
+  .Ok(())
+}

@@ -1,0 +1,3 @@
+doc:    "The same root cause as `roundtrip_an_import_path_loses_half_its_backslashes` — the path printer emitted the decoded string rather than the literal — with the other symptom. Here the decoded text re-lexed as `unknown escape`, so `format::source` refused its own output and the file was left alone instead of being quietly halved. Two cases rather than one because the two failures have different signatures, and a search that only knew the first would have stopped on the second forever."
+oracle: "roundtrip"
+status: FIXED

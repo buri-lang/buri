@@ -1,0 +1,25 @@
+# A failure report is rendered structurally and a hand-written `impl Show` does
+# not reach one: `testing_assert.report` is handed a type descriptor and the
+# runtime's `$show` walks that. That is the decision, not an accident — the
+# report says what the value *is*, and a type's own `show` is free to say
+# something shorter, prettier or deliberately partial.
+#
+# So `assert.eq` no longer carries a `Show` bound. It named one "for the
+# message" and the message never used it, which made `Show` a tax on being
+# assertable; a type is assertable now as soon as it is comparable.
+#
+# The two tests are the evidence — the first prints `Money { cents: 1 }` and the
+# second prints what the type's own `show` answers, from the same value in the
+# same suite.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a hand-written impl Show does not reach the failure report, which renders both sides structurally"
+
+run {
+  args: ["test", "//lib/money", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

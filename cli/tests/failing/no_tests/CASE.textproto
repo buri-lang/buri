@@ -1,0 +1,40 @@
+# The two ways a run can have nothing to report, which read differently on
+# purpose:
+#
+#   * a suite that exists and holds no `test` declaration reports zeros, because
+#     `has_tests` is true — the rule lists a source — and the runner found no
+#     roots in it;
+#   * a selection holding no suite at all prints `no test suites`, because
+#     `suites` never left zero.
+#
+# Both exit 0. A suite that asserted nothing is not a failure, and this is the
+# case that says so — which is also why every caller of the harness's
+# `tests_passed` pairs it with a floor.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite with no test declarations reports zeros; a selection with no suite at all says so"
+
+run {
+  args: ["test", "//lib/empty", "--force"]
+  exit: 0
+  golden: "zeros.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/untested", "--force"]
+  exit: 0
+  golden: "no_suites.txt"
+  stream: OUT
+}
+
+# The whole repository is one suite holding nothing and one package with none,
+# which is still zeros rather than `no test suites`.
+run {
+  args: ["test", "//...", "--force"]
+  exit: 0
+  golden: "everything.txt"
+  stream: OUT
+}

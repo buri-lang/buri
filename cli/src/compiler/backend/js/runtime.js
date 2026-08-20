@@ -236,7 +236,10 @@ function $show(v, d) {
   if (k === 2) {
     // [2, name, record, fields, types]
     const [, name, record, fields, types] = d;
-    if (!fields.length) return name;
+    // A struct with no fields is still written with its delimiters — `Hollow {}`
+    // is a value and `Hollow` is a type — so the rendering is the source syntax,
+    // the same one `middle/derives.rs` generates for `Show`.
+    if (!fields.length) return record ? name + " {}" : name + "()";
     if (record) {
       return name + " { " + $showFields(fields, types, v) + " }";
     }

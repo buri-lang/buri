@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test title with a line break in it: test-title-newline, and the title on one line beside it that must not fire"
+
+run {
+  args: ["lint", "//lib/prose"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/prose", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# The negative half of the rule, made to move: put the title on one line and
+# the corpus is clean.
+edit {
+  file: "lib/prose/test/prose.buri"
+  replace: "test \"a title\\nthat wraps\" {"
+  with: "test \"a title that does not wrap\" {"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

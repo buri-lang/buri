@@ -1,0 +1,31 @@
+derive Eq, Show for Point;
+// One type of every shape the runner's renderer folds over. They live in the
+// library rather than in the test source because a test source may not export.
+
+/// Named fields.
+export struct Point { export x: Int, export y: Int }
+
+derive Eq, Show for Pair;
+/// Positional fields.
+export struct Pair(export Int, export Str);
+
+derive Eq, Show for Hollow;
+/// No fields at all.
+export struct Hollow {}
+
+derive Eq, Show for Colour;
+/// Every variant payloadless.
+export enum Colour { export Red, export Green, export Blue }
+
+derive Eq, Show for Shape;
+/// A positional payload beside a record one.
+export enum Shape { export Circle(Float), export Rect { export w: Int, export h: Int } }
+
+derive Eq, Show for Deep;
+/// A struct whose fields are themselves every container.
+export struct Deep {
+    export inner: Point,
+    export tags: [Str],
+    export maybe: Option<Int>,
+    export both: (Int, Char),
+}

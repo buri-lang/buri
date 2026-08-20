@@ -1,0 +1,23 @@
+# There is no truncation in `report_failure` and no wrapping, which is a
+# decision worth a record: a hundred-character string is printed whole, and a
+# forty-element list is one line however wide.
+#
+# The two ways a report can meet a newline are here together, because they are
+# not the same: a *value* holding one is rendered by `$show`, which puts a
+# `Str` through `JSON.stringify`, so the newline arrives escaped and the line
+# holds. A *message* — `assert.fail`'s argument, or an abort's sentence — is
+# printed as it stands, over as many lines as it has, and *every* one of them
+# is indented under the `FAIL` line: a flush-left second line would read as
+# the report having ended.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "long values are printed whole and never truncated; a value's newline is escaped and a message's is not"
+
+run {
+  args: ["test", "//lib/wide", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

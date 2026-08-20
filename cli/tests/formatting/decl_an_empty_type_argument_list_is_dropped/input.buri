@@ -1,0 +1,2 @@
+export const one: Int<> = 1;
+export fn f<>(): Pairing<> { one }

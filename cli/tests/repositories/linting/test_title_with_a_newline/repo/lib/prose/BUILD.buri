@@ -1,0 +1,8 @@
+library {
+    sources: ["prose.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/prose.buri"]
+    }
+}

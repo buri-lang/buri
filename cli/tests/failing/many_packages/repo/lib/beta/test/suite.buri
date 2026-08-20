@@ -1,0 +1,11 @@
+// The second of two packages.
+
+from "core/testing/assert" import * as assert;
+
+test "beta fails" {
+    assert.eq(3, 4);
+}
+
+test "beta fails too" {
+    assert.eq(5, 6);
+}

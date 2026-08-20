@@ -620,6 +620,7 @@ mod tests {
             funcs,
             roots: crate::compiler::middle::monomorphize::ProgramRoots::Main(crate::compiler::semantics::types::FuncIdx(0)),
             descriptors: Vec::new(),
+            desc_modules: Vec::new(),
             desc_index: Default::default(),
             ctx_layouts: Default::default(),
         }

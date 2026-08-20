@@ -1,0 +1,7 @@
+library {
+    sources: ["noisy.buri"]
+
+    test {
+        sources: ["test/noisy.buri"]
+    }
+}

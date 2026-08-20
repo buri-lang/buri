@@ -1,0 +1,37 @@
+FAIL //lib/titled  test/titled.buri  "a title with: a colon"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:9:1
+FAIL //lib/titled  test/titled.buri  "a title with \"quotes\" in it"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:13:1
+FAIL //lib/titled  test/titled.buri  "a title with a backslash \\ and a tab \t"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:17:1
+FAIL //lib/titled  test/titled.buri  "a título with ünïcödé — 日本語 🎉"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:21:1
+FAIL //lib/titled  test/titled.buri  ""
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:25:1
+FAIL //lib/titled  test/titled.buri  "braces { } brackets [ ] and a comma , "
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:29:1
+FAIL //lib/titled  test/titled.buri  "a title with a newline \n in it"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/titled/test/titled.buri:33:1
+
+0 passed, 7 failed, 0 skipped (0.0s)

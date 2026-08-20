@@ -1,0 +1,15 @@
+// The second of two test sources in one suite.
+
+from "core/testing/assert" import * as assert;
+
+test "second: a failure" {
+    assert.eq(3, 4);
+}
+
+test "second: another failure" {
+    assert.eq(5, 6);
+}
+
+test "a title both modules use" {
+    assert.eq("second", "wrong");
+}

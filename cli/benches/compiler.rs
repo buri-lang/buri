@@ -137,8 +137,10 @@ usage: compiler [flags]
   --calibrate            speed-of-light ceilings, before the table
   --alloc                allocations per line and per token (needs the
                          `alloc-counter` feature; noise-free)
+  --rss                  peak resident set size per phase, untimed
 
-  --set=<name>           core | realistic | stress | native | saved | full   (default: core)
+  --set=<name>           core | realistic | stress | native | saved | scale | full
+                         (default: core)
   --only=<substring>     keep corpora whose label contains it
   --list                 print the profile table and exit
 
@@ -149,6 +151,7 @@ usage: compiler [flags]
 
   --targets=<list>       js,macos-arm64,macos-x86_64,linux-x86_64,linux-arm64
   --record[=<name>]      write the corpus into cli/benches/corpora/ and exit
+  --pin[=<name>]         write a digest-pinned manifest into cli/benches/pinned/
 ";
 
 // ---------------------------------------------------------------------------
@@ -167,6 +170,7 @@ enum Set {
     Stress,
     Native,
     Saved,
+    Scale,
     Full,
 }
 
@@ -178,6 +182,7 @@ impl Set {
             "stress" => Set::Stress,
             "native" => Set::Native,
             "saved" => Set::Saved,
+            "scale" => Set::Scale,
             "full" => Set::Full,
             _ => return None,
         })
@@ -190,6 +195,7 @@ impl Set {
             Set::Stress => "stress",
             Set::Native => "native",
             Set::Saved => "saved",
+            Set::Scale => "scale",
             Set::Full => "full",
         }
     }
@@ -202,6 +208,10 @@ struct Args {
     want_split: bool,
     want_calibrate: bool,
     want_alloc: bool,
+    want_rss: bool,
+    /// Set only in the child process an `--rss` run spawns: run this one phase
+    /// once, measure nothing, print nothing.
+    rss_child: Option<String>,
     list: bool,
     set: Set,
     only: Option<String>,
@@ -211,6 +221,7 @@ struct Args {
     seed: Option<u64>,
     targets: Vec<Target>,
     record: Option<String>,
+    pin: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -221,6 +232,8 @@ fn parse_args() -> Args {
         want_split: false,
         want_calibrate: false,
         want_alloc: false,
+        want_rss: false,
+        rss_child: None,
         list: false,
         set: Set::Core,
         only: None,
@@ -230,6 +243,7 @@ fn parse_args() -> Args {
         seed: None,
         targets: default_targets(),
         record: None,
+        pin: None,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -243,8 +257,10 @@ fn parse_args() -> Args {
             "--split" => a.want_split = true,
             "--calibrate" => a.want_calibrate = true,
             "--alloc" => a.want_alloc = true,
+            "--rss" => a.want_rss = true,
             "--list" => a.list = true,
             "--record" => a.record = Some(String::new()),
+            "--pin" => a.pin = Some(String::new()),
             // `cargo bench` passes `--bench` to every target it runs; ignoring
             // it is what lets this file be a bench target at all.
             "--bench" => {}
@@ -298,6 +314,10 @@ fn parse_args() -> Args {
                     a.targets = ts;
                 } else if let Some(v) = arg.strip_prefix("--record=") {
                     a.record = Some(value(v));
+                } else if let Some(v) = arg.strip_prefix("--rss-child=") {
+                    a.rss_child = Some(value(v));
+                } else if let Some(v) = arg.strip_prefix("--pin=") {
+                    a.pin = Some(value(v));
                 } else {
                     eprintln!("unknown argument {arg}");
                     eprintln!("{USAGE}");
@@ -392,10 +412,13 @@ fn phase_name(t: Target, p: Profile) -> String {
 // The work list
 // ---------------------------------------------------------------------------
 
-/// Where a corpus comes from. Both arms produce the same [`Program`].
+/// Where a corpus comes from. Every arm produces the same [`Program`].
 enum Source {
     Generated(Params),
     Saved(PathBuf),
+    /// A manifest with no source: regenerated per run and checked against its
+    /// recorded digest before anything is measured.
+    Pinned(PathBuf),
 }
 
 struct Plan {
@@ -439,6 +462,25 @@ fn saved_plans(native: bool) -> Vec<Plan> {
                 family: manifest.family(),
                 source: Source::Saved(dir),
                 native,
+            })
+        })
+        .collect()
+}
+
+/// Every pinned manifest, as a plan. The scale tier is exactly this list, so a
+/// new scale point is a new manifest and nothing else — which is how a 10M row
+/// would arrive if somebody decided the wall time was worth it.
+fn pinned_plans() -> Vec<Plan> {
+    let root = corpus::pinned_root();
+    corpus::discover_pinned(&root)
+        .into_iter()
+        .filter_map(|path| {
+            let manifest = corpus::pinned_manifest(&path).ok()?;
+            Some(Plan {
+                label: format!("pinned:{}", manifest.name),
+                family: manifest.family(),
+                source: Source::Pinned(path),
+                native: true,
             })
         })
         .collect()
@@ -520,6 +562,11 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
             }
         }
         Set::Saved => work.extend(saved_plans(true)),
+        // The scale tier is every pinned manifest and nothing else. It is
+        // deliberately not in `core` and not in `full`: a million-line row
+        // costs minutes, and the default run has to stay something a
+        // contributor takes before a commit rather than over lunch.
+        Set::Scale => work.extend(pinned_plans()),
         Set::Full => {
             for name in family_profiles(Family::Realistic) {
                 for &n in scales {
@@ -550,7 +597,11 @@ fn main() {
     let seed = args.seed.unwrap_or(SEED);
 
     if let Some(name) = &args.record {
-        do_record(&args, name, seed);
+        do_record(&args, name, seed, false);
+        return;
+    }
+    if let Some(name) = &args.pin {
+        do_record(&args, name, seed, true);
         return;
     }
 
@@ -566,6 +617,8 @@ fn main() {
         } else {
             Duration::from_millis(300)
         },
+        warm_reps: 2,
+        reduced: false,
     };
 
     let scales: Vec<usize> =
@@ -605,6 +658,19 @@ fn main() {
                 work.push(plan);
             }
         }
+        // The pinned manifests too, and for the same reason — a pinned digest
+        // that no longer matches is the staleness failure this scheme exists to
+        // produce. Not under `--quick`, which is the CI gate and has to stay a
+        // couple of seconds: regenerating and checking a million lines is not a
+        // couple of seconds, so plain `--validate` is where the scale tier's
+        // digests are covered.
+        if !args.quick {
+            for plan in pinned_plans() {
+                if !have.contains(&plan.label) {
+                    work.push(plan);
+                }
+            }
+        }
     }
 
     if let Some(filter) = &args.only {
@@ -620,14 +686,16 @@ fn main() {
     let mut calibrations: Vec<(String, usize, usize, Vec<calibrate::Ceiling>)> = Vec::new();
     let mut flat_nodes = 0usize;
     let mut alloc_rows: Vec<AllocRow> = Vec::new();
+    let mut memory_rows: Vec<MemoryRow> = Vec::new();
 
-    if !args.json && !args.validate_only {
+    if !args.json && !args.validate_only && args.rss_child.is_none() {
         header(&cfg, &scales, args.set, &args.targets);
     }
 
     // The floor, first, because every later row's net figure is relative to it.
-    let floor = if args.validate_only { Floor::zero() } else { floor_costs() };
-    if !args.json && !args.validate_only {
+    let floor =
+        if args.validate_only || args.rss_child.is_some() { Floor::zero() } else { floor_costs() };
+    if !args.json && !args.validate_only && args.rss_child.is_none() {
         println!(
             "  prelude floor  lex {:.3} ms   parse {:.3} ms   sema {:.3} ms   lower {:.3} ms",
             ms(floor.lex),
@@ -663,8 +731,39 @@ fn main() {
                     std::process::exit(1);
                 }
             },
+            // The digest is checked here, at work-list construction, which is
+            // the same place a saved corpus's is and one step before anything
+            // is timed. A mismatch is a staleness failure and stops the run.
+            Source::Pinned(path) => match corpus::load_pinned(path) {
+                Ok((manifest, program)) => {
+                    if manifest.generator_revision != generate::GENERATOR_REVISION {
+                        eprintln!(
+                            "  note: {} was pinned at generator revision {} and this \
+                             toolchain's generator is at {} — and the digest still matches, \
+                             which is the whole claim",
+                            plan.label,
+                            manifest.generator_revision,
+                            generate::GENERATOR_REVISION
+                        );
+                    }
+                    (program, manifest.revision, "pinned")
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            },
         };
         let label = &plan.label;
+
+        // The child of an `--rss` run: one phase, once, and out. Before the
+        // validation below, because a validated corpus is a checked corpus and
+        // the checker's arenas would be in every figure the parent reads.
+        if let Some(phase) = &args.rss_child {
+            let targets = lowering_targets(&args, plan, program.lines());
+            run_one_phase(&program, phase, &targets);
+            return;
+        }
 
         // Carbon's rule, and the one that makes the rest of this file mean
         // something: a benchmark over source that does not compile is a
@@ -724,7 +823,18 @@ fn main() {
             alloc_rows.push(row);
         }
 
-        let targets = lowering_targets(&args, plan);
+        let targets = lowering_targets(&args, plan, program.lines());
+        // Untimed, and before the timers rather than after: the sampler forks
+        // a process every twenty milliseconds, and a timed row must not be
+        // taken beside one that does.
+        if args.want_rss {
+            let row = memory_row(label, program.lines(), &targets);
+            if !args.json {
+                print_memory(&row);
+            }
+            memory_rows.push(row);
+        }
+        let cfg = protocol_for(&cfg, program.lines());
         let before = rows.len();
         let (new_rows, new_skips) =
             measure(&program, plan, source_kind, revision, &cfg, &floor, &targets);
@@ -772,7 +882,7 @@ fn main() {
     }
 
     if args.json {
-        print_json(&rows, &skipped, &floor, &calibrations, &alloc_rows);
+        print_json(&rows, &skipped, &floor, &calibrations, &alloc_rows, &memory_rows);
     } else {
         footer(&rows, &skipped);
     }
@@ -1012,6 +1122,174 @@ fn print_alloc(row: &AllocRow) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Peak memory
+// ---------------------------------------------------------------------------
+
+/// Peak resident set size, taken from a subprocess run of this same binary.
+///
+/// There is no dependency-free way for a process to ask for its own high-water
+/// mark here. Linux has `/proc/self/status`'s `VmHWM`; macOS has no `/proc`,
+/// `getrusage` is behind `libc` — not a dependency of this workspace, and not
+/// one a memory column is worth buying — and `ps -o rss` requires an
+/// entitlement on current macOS. What every platform does have is a program
+/// whose whole job is to report the number, so `--rss` re-runs this binary once
+/// per phase under `/usr/bin/time -l` and reads it back.
+///
+/// One phase per process is not a workaround, it is the measurement: a peak is
+/// monotonic, so the peak of a process that stopped after `sema` *is* the cost
+/// of everything up to and including `sema`, and the difference between two of
+/// them is what a phase added. Sampling the current figure instead would miss
+/// whatever a phase allocates and frees inside itself, which at these scales is
+/// most of the question.
+fn peak_rss_of_child(label: &str, phase: &str) -> Option<u64> {
+    let exe = std::env::current_exe().ok()?;
+    let mut argv: Vec<String> = vec![exe.to_string_lossy().into_owned()];
+    argv.extend(
+        std::env::args()
+            .skip(1)
+            .filter(|a| a != "--rss" && !a.starts_with("--only=") && !a.starts_with("--rss-child=")),
+    );
+    argv.push(format!("--only={label}"));
+    argv.push(format!("--rss-child={phase}"));
+
+    let out = std::process::Command::new("/usr/bin/time").arg("-l").args(&argv).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stderr);
+    for line in text.lines() {
+        let t = line.trim();
+        // BSD `time -l`: "  1289109504  maximum resident set size", in bytes.
+        if let Some(n) = t.strip_suffix("maximum resident set size") {
+            if let Ok(bytes) = n.trim().parse::<u64>() {
+                return Some(bytes);
+            }
+        }
+        // GNU `time -v`, which some Linux distributions install as
+        // /usr/bin/time: kibibytes, and after a colon.
+        if let Some(n) = t.strip_prefix("Maximum resident set size (kbytes):") {
+            if let Ok(kib) = n.trim().parse::<u64>() {
+                return Some(kib * 1024);
+            }
+        }
+    }
+    None
+}
+
+/// Peak resident set size per phase, for one corpus.
+struct MemoryRow {
+    label: String,
+    lines: usize,
+    /// `(phase, peak bytes)`, cumulative in the way a compilation is: `corpus`
+    /// is the program held in memory and nothing built, and every later phase
+    /// holds what the ones before it produced.
+    phases: Vec<(String, u64)>,
+}
+
+/// The phases an `--rss` pass takes a child process for.
+fn memory_row(label: &str, lines: usize, targets: &[(Target, Profile)]) -> MemoryRow {
+    let mut phases: Vec<(String, u64)> = Vec::new();
+    let mut names: Vec<String> =
+        vec!["corpus".to_string(), "lex".to_string(), "lex+parse".to_string(), "sema".to_string()];
+    names.extend(targets.iter().map(|&(t, p)| phase_name(t, p)));
+    for name in names {
+        if let Some(peak) = peak_rss_of_child(label, &name) {
+            phases.push((name, peak));
+        }
+    }
+    MemoryRow { label: label.to_string(), lines, phases }
+}
+
+/// One phase, once, in a child process whose peak somebody else is watching.
+///
+/// Nothing is validated and nothing is timed: the parent is measuring the high
+/// water mark of this process, so every allocation this function does not need
+/// to make is one that would be attributed to the phase.
+fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) {
+    if phase == "corpus" {
+        std::hint::black_box(program.lines());
+        return;
+    }
+    let texts: Vec<&str> = program.modules.iter().map(|m| m.text.as_str()).collect();
+    if phase == "lex" {
+        let lexed: Vec<_> = texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| lexer::lex(t, FileId(i as u32)))
+            .collect();
+        std::hint::black_box(&lexed);
+        return;
+    }
+    if phase == "lex+parse" {
+        let parsed: Vec<_> = texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| parser::parse(t, FileId(i as u32)))
+            .collect();
+        std::hint::black_box(&parsed);
+        return;
+    }
+
+    let mut map = SourceMap::new();
+    let mut cache = parser::Cache::new();
+    let mut diags = Diagnostics::new();
+    let loaded = load(program, &mut map, &mut cache, &mut diags);
+    let mut d = Diagnostics::new();
+    let checked = Checker::new(&loaded, None, &mut d).run();
+    if phase == "sema" {
+        std::hint::black_box(&checked);
+        return;
+    }
+
+    let Some(entry) = checked.entry else { return };
+    let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let flags = Flags::default();
+    for &(target, profile) in targets {
+        if phase_name(target, profile) != phase {
+            continue;
+        }
+        let mut d = Diagnostics::new();
+        let mut prog =
+            monomorphize::run(&checked, module_paths.clone(), &mut d, Roots::Main(entry));
+        if target.platform == Platform::Js {
+            let out = actions::emit(&mut prog, &checked.tables, target, &flags, &mut d);
+            std::hint::black_box(&out);
+        } else {
+            actions::prepare(&mut prog, target);
+            let Ok(mut b) = backend::select(target, profile) else { return };
+            let opts = Options { profile, target, unit_prefix: "" };
+            let out = b.emit(&prog, &checked.tables, &opts);
+            std::hint::black_box(out.is_ok());
+        }
+        return;
+    }
+}
+
+fn mb(bytes: u64) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
+
+fn print_memory(row: &MemoryRow) {
+    if row.phases.is_empty() {
+        println!(
+            "  {:<22} memory       no peak RSS on this platform: /usr/bin/time did not report one",
+            row.label
+        );
+        return;
+    }
+    let base = row.phases.first().map_or(0, |(_, n)| *n);
+    for (phase, peak) in &row.phases {
+        println!(
+            "  {:<22} {phase:<20} peak {:>8.1} MB   {:>6.0} B/line   {:>+8.1} MB over the corpus",
+            row.label,
+            mb(*peak),
+            *peak as f64 / row.lines.max(1) as f64,
+            mb(*peak) - mb(base)
+        );
+    }
+}
+
 /// Which `(target, profile)` pairs a corpus gets a lowering row for.
 ///
 /// JavaScript always. The native triples only where the plan says so, because
@@ -1019,9 +1297,46 @@ fn print_alloc(row: &AllocRow) {
 /// `(native, Release)` selects — only under `--set=native` and `--set=full`,
 /// because a `core` run must take about the same time on every contributor's
 /// machine and `backend-llvm` is not on every contributor's machine.
-fn lowering_targets(args: &Args, plan: &Plan) -> Vec<(Target, Profile)> {
+/// Beyond `REDUCED_ABOVE_LINES` the native rows are the host triple only.
+///
+/// The cross triples are worth their seat where they cost two seconds a
+/// repetition and settle whether a gap is codegen or cross-compilation; at a
+/// million lines they cost twenty, and the question they answer has already
+/// been answered at 100k on the same corpus. `--targets=` overrides this, which
+/// is how somebody who wants the cross rows at scale asks for them.
+fn scale_targets(targets: &[Target]) -> Vec<Target> {
+    let host = host_target();
+    targets
+        .iter()
+        .copied()
+        .filter(|t| t.platform == Platform::Js || Some(*t) == host)
+        .collect()
+}
+
+/// The triple this machine is, as a `Target`, or `None` where the suite has no
+/// name for it.
+fn host_target() -> Option<Target> {
+    let platform = match std::env::consts::OS {
+        "macos" => Platform::Macos,
+        "linux" => Platform::Linux,
+        _ => return None,
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => Arch::Arm64,
+        "x86_64" => Arch::X86_64,
+        _ => return None,
+    };
+    Some(Target { platform, arch: Some(arch) })
+}
+
+fn lowering_targets(args: &Args, plan: &Plan, lines: usize) -> Vec<(Target, Profile)> {
     let mut out = Vec::new();
-    for &t in &args.targets {
+    let requested = if lines > REDUCED_ABOVE_LINES {
+        scale_targets(&args.targets)
+    } else {
+        args.targets.clone()
+    };
+    for &t in &requested {
         if t.platform == Platform::Js {
             out.push((t, Profile::Debug));
         } else if plan.native {
@@ -1034,8 +1349,8 @@ fn lowering_targets(args: &Args, plan: &Plan) -> Vec<(Target, Profile)> {
     out
 }
 
-fn do_record(args: &Args, name: &str, seed: u64) {
-    let root = corpus::root();
+fn do_record(args: &Args, name: &str, seed: u64, pinned: bool) {
+    let root = if pinned { corpus::pinned_root() } else { corpus::root() };
     if let Err(e) = std::fs::create_dir_all(&root) {
         eprintln!("{}: {e}", root.display());
         std::process::exit(1);
@@ -1064,9 +1379,10 @@ fn do_record(args: &Args, name: &str, seed: u64) {
     // A `--record=<profile>-<scale>` name carries the scale.
     let scale = args.scale.or_else(|| {
         let tail = name.rsplit('-').next()?;
-        let (digits, mult) = match tail.strip_suffix('k') {
-            Some(d) => (d, 1_000usize),
-            None => (tail, 1usize),
+        let (digits, mult) = match (tail.strip_suffix('k'), tail.strip_suffix('M')) {
+            (Some(d), _) => (d, 1_000usize),
+            (_, Some(d)) => (d, 1_000_000usize),
+            _ => (tail, 1usize),
         };
         digits.parse::<usize>().ok().map(|n| n * mult)
     });
@@ -1088,9 +1404,15 @@ fn do_record(args: &Args, name: &str, seed: u64) {
         }
         std::process::exit(1);
     }
-    match corpus::record(&root, name, &profile_name, &params, &program) {
+    let written = if pinned {
+        corpus::pin(&root, name, &profile_name, &params, &program)
+    } else {
+        corpus::record(&root, name, &profile_name, &params, &program)
+    };
+    let verb = if pinned { "pinned" } else { "recorded" };
+    match written {
         Ok(m) => println!(
-            "recorded {name}: profile {} revision {} — {} lines, {} bytes, {} modules, digest {}",
+            "{verb} {name}: profile {} revision {} — {} lines, {} bytes, {} modules, digest {}",
             m.profile,
             m.revision,
             m.lines,
@@ -1135,6 +1457,20 @@ fn print_profiles() {
             }
         }
     }
+    let pinned = corpus::discover_pinned(&corpus::pinned_root());
+    if !pinned.is_empty() {
+        println!();
+        println!("digest-pinned corpora (--set=scale; regenerated per run, no source in git):");
+        for path in pinned {
+            match corpus::pinned_manifest(&path) {
+                Ok(m) => println!(
+                    "  {:<24} profile {:<18} rev {}  {} lines, {} bytes, {} modules",
+                    m.name, m.profile, m.revision, m.lines, m.bytes, m.modules
+                ),
+                Err(e) => println!("  {e}"),
+            }
+        }
+    }
 }
 
 /// Which of the requested targets this toolchain can emit for at all, asked
@@ -1169,6 +1505,51 @@ struct Config {
     min_reps: usize,
     min_time: Duration,
     warmup: Duration,
+    /// Repetitions before sampling starts, whatever the warmup clock says. Two
+    /// everywhere except the scale tier's reduced protocol, where one call is a
+    /// large fraction of a minute.
+    warm_reps: usize,
+    /// Whether this is the reduced protocol. Carried on the protocol rather
+    /// than passed beside it, so that a row cannot be labelled with one and
+    /// taken under the other.
+    reduced: bool,
+}
+
+/// Above this many lines a row is taken under the reduced protocol.
+///
+/// `design/PERFORMANCE.md` §2 asks for at least ten repetitions and at least
+/// three quarters of a second of sampling. The second half of that is never the
+/// binding one at this scale — one repetition of anything at a million lines is
+/// already past 750 ms — and the first half would put native lowering at
+/// roughly twenty seconds a repetition, which is four minutes of one row. So
+/// the deviation is exactly one rule: **at least three repetitions instead of
+/// at least ten**, plus one warmup call instead of two. Rows taken under it say
+/// so, in the table and in `--json`, because a deviation nobody can see in the
+/// output is a deviation nobody can account for.
+const REDUCED_ABOVE_LINES: usize = 500_000;
+const REDUCED_MIN_REPS: usize = 3;
+
+/// The protocol for a corpus of this size.
+fn protocol_for(base: &Config, lines: usize) -> Config {
+    if lines <= REDUCED_ABOVE_LINES || base.min_reps <= REDUCED_MIN_REPS {
+        return Config {
+            min_reps: base.min_reps,
+            min_time: base.min_time,
+            warmup: base.warmup,
+            warm_reps: base.warm_reps,
+            reduced: false,
+        };
+    }
+    Config {
+        min_reps: REDUCED_MIN_REPS,
+        // Unchanged: the sampling-time floor is the rule that still buys
+        // something here, and every cheap phase at this scale meets it with
+        // repetitions to spare.
+        min_time: base.min_time,
+        warmup: base.warmup,
+        warm_reps: 1,
+        reduced: true,
+    }
 }
 
 /// One measured phase at one scale and shape.
@@ -1197,6 +1578,11 @@ struct Row {
     dispersion: f64,
     fastest: Duration,
     reps: usize,
+    /// Whether the row was taken under the scale tier's reduced protocol
+    /// (`REDUCED_MIN_REPS` repetitions instead of ten). Printed beside the row
+    /// and carried in `--json`, so a number taken under a deviation is never
+    /// quoted as one taken under the rule.
+    reduced: bool,
     /// The phase's cost on the floor program, subtracted to give the net rate.
     floor: Duration,
     target: f64,
@@ -1264,12 +1650,12 @@ impl Row {
 fn bench<F: FnMut()>(cfg: &Config, mut f: F) -> (Duration, f64, Duration, usize) {
     let warm_start = Instant::now();
     let mut warm_reps = 0;
-    while warm_start.elapsed() < cfg.warmup || warm_reps < 2 {
+    while warm_start.elapsed() < cfg.warmup || warm_reps < cfg.warm_reps {
         f();
         warm_reps += 1;
         // A phase that takes longer than the whole warmup budget on its first
         // call has warmed up as much as it is going to.
-        if warm_reps >= 2 && warm_start.elapsed() >= cfg.warmup {
+        if warm_reps >= cfg.warm_reps && warm_start.elapsed() >= cfg.warmup {
             break;
         }
         if warm_reps > 200 {
@@ -1335,6 +1721,7 @@ fn measure(
         dispersion,
         fastest,
         reps,
+        reduced: cfg.reduced,
         floor,
         target,
     };
@@ -1674,6 +2061,8 @@ fn floor_costs() -> Floor {
         min_reps: 7,
         min_time: Duration::from_millis(400),
         warmup: Duration::from_millis(200),
+        warm_reps: 2,
+        reduced: false,
     };
     let program = Program {
         modules: vec![generate::Module {
@@ -1778,7 +2167,22 @@ fn header(cfg: &Config, scales: &[usize], set: Set, targets: &[Target]) {
         ms(cfg.min_time)
     );
     println!("  set         {}", set.name());
-    println!("  scales      {}", scales.iter().map(|s| human(*s)).collect::<Vec<_>>().join(", "));
+    if set == Set::Scale {
+        // The scale tier's corpora carry their own line counts in their
+        // manifests, so the generated scales are not what this run measures.
+        println!("  scales      the pinned manifests (--list)");
+        println!(
+            "  deviation   above {} lines: >= {} repetitions instead of >= 10, one warmup call \
+             instead of two, and the host triple only for the native rows. Affected rows say so.",
+            commas(REDUCED_ABOVE_LINES as f64),
+            REDUCED_MIN_REPS
+        );
+    } else {
+        println!(
+            "  scales      {}",
+            scales.iter().map(|s| human(*s)).collect::<Vec<_>>().join(", ")
+        );
+    }
     println!(
         "  targets     {}",
         targets.iter().map(|t| target_name(*t)).collect::<Vec<_>>().join(", ")
@@ -1802,8 +2206,12 @@ fn print_row(row: &Row) {
         Family::Realistic if row.rate() >= row.target => "  MET  ".to_string(),
         Family::Realistic => format!("{:>6.0}x", row.gap()),
     };
+    // The deviation rides on the row it applies to, not in a footnote: §2's
+    // ten-repetition rule is what the dispersion column is trustworthy under,
+    // and a row taken over three has to carry that with it.
+    let protocol = if row.reduced { format!("  [{} reps — reduced protocol]", row.reps) } else { String::new() };
     println!(
-        "  {:<22} {:<20} {:>7} {:>9.2} ms {} {} {:>8} {:>6.1}%",
+        "  {:<22} {:<20} {:>7} {:>9.2} ms {} {} {:>8} {:>6.1}%{protocol}",
         row.label,
         row.phase,
         row.lines,
@@ -1918,6 +2326,7 @@ fn print_json(
     floor: &Floor,
     calibrations: &[(String, usize, usize, Vec<calibrate::Ceiling>)],
     allocs: &[AllocRow],
+    memory: &[MemoryRow],
 ) {
     println!("{{");
     println!("  \"host\": \"{}-{}\",", std::env::consts::OS, std::env::consts::ARCH);
@@ -1941,7 +2350,7 @@ fn print_json(
              \"tokens\": {}, \"modules\": {}, \"median_ms\": {:.4}, \"fastest_ms\": {:.4}, \
              \"reps\": {}, \"dispersion\": {:.4}, \"lines_per_sec\": {:.1}, \
              \"net_lines_per_sec\": {:.1}, \"bytes_per_sec\": {:.1}, \"tokens_per_sec\": {:.1}, \
-             \"target_lines_per_sec\": {:.0}, \"gap\": {:.2} }}{comma}",
+             \"target_lines_per_sec\": {:.0}, \"gap\": {:.2}, \"protocol\": \"{}\" }}{comma}",
             row.label,
             row.phase,
             row.family.name(),
@@ -1960,7 +2369,8 @@ fn print_json(
             row.bytes_rate(),
             row.tokens_rate(),
             row.target,
-            row.gap()
+            row.gap(),
+            if row.reduced { "reduced" } else { "standard" }
         );
     }
     println!("  ],");
@@ -2015,6 +2425,24 @@ fn print_json(
                  \"per_1000_lines\": {:.1}, \"per_token\": {:.4} }}{c}",
                 *n as f64 * 1000.0 / a.lines.max(1) as f64,
                 *n as f64 / a.tokens.max(1) as f64
+            );
+        }
+        println!("] }}{comma}");
+    }
+    println!("  ],");
+    println!("  \"memory\": [");
+    for (i, m) in memory.iter().enumerate() {
+        let comma = if i + 1 == memory.len() { "" } else { "," };
+        print!(
+            "    {{ \"corpus\": \"{}\", \"lines\": {}, \"phases\": [",
+            m.label, m.lines
+        );
+        for (j, (phase, peak)) in m.phases.iter().enumerate() {
+            let c = if j + 1 == m.phases.len() { "" } else { ", " };
+            print!(
+                "{{ \"phase\": \"{phase}\", \"peak_rss_bytes\": {peak}, \
+                 \"bytes_per_line\": {:.1} }}{c}",
+                *peak as f64 / m.lines.max(1) as f64
             );
         }
         println!("] }}{comma}");

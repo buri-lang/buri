@@ -1,0 +1,14 @@
+FAIL //lib/arith  test/arith.buri  "division by zero"
+  division by zero
+  --> lib/arith/test/arith.buri:12:1
+FAIL //lib/arith  test/arith.buri  "remainder by zero"
+  division by zero
+  --> lib/arith/test/arith.buri:16:1
+FAIL //lib/arith  test/arith.buri  "a shift as wide as the type"
+  shift out of range
+  --> lib/arith/test/arith.buri:20:1
+FAIL //lib/arith  test/arith.buri  "an allocation past a fixed budget"
+  allocation budget exhausted: 40 bytes requested against a budget of 64
+  --> lib/arith/test/arith.buri:24:1
+
+1 passed, 4 failed, 0 skipped (0.0s)

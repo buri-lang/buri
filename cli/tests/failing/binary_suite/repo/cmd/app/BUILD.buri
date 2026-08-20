@@ -1,0 +1,9 @@
+binary {
+    outputs: [
+        { platform: JS },
+    ]
+
+    test {
+        sources: ["test/app.buri"]
+    }
+}

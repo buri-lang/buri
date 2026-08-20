@@ -143,7 +143,9 @@
               subtraction is a `saturating_sub` on a path depth."
 )]
 
-use crate::compiler::middle::monomorphize::{Desc, DescVariant, Func, FuncKind, Program};
+use crate::compiler::middle::monomorphize::{
+    short_hash, Desc, DescVariant, Func, FuncKind, Program,
+};
 use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
@@ -545,6 +547,10 @@ impl Frame {
 
 struct Generator {
     descs: Vec<Desc>,
+    /// The module each descriptor's type is declared in, from
+    /// [`Program::desc_modules`]. A generated function's debug name is
+    /// qualified with it, which is what puts it in that module's codegen unit.
+    modules: Vec<Option<String>>,
     env: Env,
     ok: Vec<bool>,
     /// Where the generated functions start in `Program::funcs`.
@@ -552,6 +558,9 @@ struct Generator {
     funcs: Vec<Func>,
     /// Shape key to the function that implements it.
     shared: HashMap<String, FuncIdx>,
+    /// Symbol to the shape it was minted for, so that two shapes whose hashes
+    /// collide cannot be given one symbol and one body.
+    taken: HashMap<String, String>,
     /// `(op, descriptor)` to the function that serves it.
     routed: HashMap<(Op, usize), FuncIdx>,
     /// Instances whose body is still to be built.
@@ -565,11 +574,13 @@ impl Generator {
         let ok = support(program, &env);
         Generator {
             descs: program.descriptors.clone(),
+            modules: program.desc_modules.clone(),
             env,
             ok,
             base: program.funcs.len(),
             funcs: Vec::new(),
             shared: HashMap::default(),
+            taken: HashMap::default(),
             routed: HashMap::default(),
             queue: Vec::new(),
             out: Derives::default(),
@@ -638,10 +649,19 @@ impl Generator {
         // finds itself rather than recursing forever.
         let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
         let ret = self.env.result(op).cloned().unwrap_or(Ty::Error);
-        let name = self.symbol(op, desc);
+        let name = self.symbol(op, desc, &shape);
+        // Qualified with the module that declares the type, so that
+        // `lower::unit_name` puts the function in that module's codegen unit.
+        // Unqualified, every derived function in the program is in `root`,
+        // which at 118k lines was 65x the median unit and was invalidated by
+        // any new derive anywhere.
+        let debug_name = match self.modules.get(desc).and_then(Option::as_ref) {
+            Some(module) => format!("{module}:{name}"),
+            None => name.clone(),
+        };
         self.funcs.push(Func {
             symbol: name.clone(),
-            debug_name: name,
+            debug_name,
             params: Vec::new(),
             locals: Vec::new(),
             kind: FuncKind::Unbuilt,
@@ -665,7 +685,19 @@ impl Generator {
     /// A stable, readable symbol. Two shapes that share a function share the
     /// name of whichever reached it first, which is the same rule
     /// `monomorphize` uses for an instantiation.
-    fn symbol(&self, op: Op, desc: usize) -> String {
+    ///
+    /// The tail is a hash of the *shape*, never the descriptor index. A
+    /// descriptor index is a program-global interning position, so a new type
+    /// described anywhere renamed every derived function after it — and the
+    /// symbol is what the `codegen` key renders a callee by, so that renaming
+    /// invalidated every unit that calls one. The shape is what decides which
+    /// functions are the same function, so it is the identity the name should
+    /// carry.
+    ///
+    /// A symbol names exactly one body: on the hash collision that would give
+    /// two shapes one name, the descriptor index disambiguates, and a symbol
+    /// with a fifth `$` cannot equal one with four.
+    fn symbol(&mut self, op: Op, desc: usize, shape: &str) -> String {
         let base = match self.desc(desc) {
             Some(Desc::Struct { name, .. }) | Some(Desc::Enum { name, .. }) => name.clone(),
             Some(Desc::Prim(p)) => p.name().to_string(),
@@ -679,7 +711,14 @@ impl Generator {
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
             .collect();
-        format!("$derive${}${clean}${desc}", op.tag())
+        let stem = format!("$derive${}${clean}", op.tag());
+        let hash = short_hash(shape);
+        let mut out = format!("{stem}${hash}");
+        if self.taken.get(&out).is_some_and(|s| s != shape) {
+            out = format!("{stem}${hash}${desc}");
+        }
+        self.taken.insert(out.clone(), shape.to_string());
+        out
     }
 
     /// Builds every queued body, including the ones building a body queues.
@@ -1367,8 +1406,13 @@ impl Generator {
             }
             Desc::Unit => Some(self.str_lit("()")),
             Desc::Struct { name, record, fields } => {
+                // A struct with no fields is still written with its delimiters:
+                // `Hollow {}` is a value and `Hollow` is a type. `$show` renders
+                // the same shape, because a failure report and a hand-called
+                // `show` may not disagree about one value.
                 if fields.is_empty() {
-                    return Some(self.str_lit(&name));
+                    let shown = if record { format!("{name} {{}}") } else { format!("{name}()") };
+                    return Some(self.str_lit(&shown));
                 }
                 let parts: Vec<(String, usize, usize)> = fields
                     .iter()

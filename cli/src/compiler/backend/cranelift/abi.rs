@@ -80,7 +80,7 @@ use cranelift_codegen::ir::{types, AbiParam, Signature, Type as ClifType};
 use cranelift_codegen::isa::CallConv;
 
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{Layout, Layouts, Repr, Scalar};
+use crate::compiler::middle::layout::{Cycles, Layout, Layouts, Repr, Scalar};
 use crate::compiler::semantics::types::{Tables, Ty};
 
 /// A pointer, on both targets this compiles for (ARCHITECTURE.md §9).
@@ -153,9 +153,11 @@ pub struct Abi<'a> {
 }
 
 impl<'a> Abi<'a> {
-    pub fn new(tables: &'a Tables, call_conv: CallConv) -> Abi<'a> {
+    /// `cycles` is the recursion analysis of these same `tables`, taken once
+    /// for the emission: see [`Cycles`].
+    pub fn new(tables: &'a Tables, call_conv: CallConv, cycles: Rc<Cycles>) -> Abi<'a> {
         Abi {
-            layouts: Layouts::new(tables),
+            layouts: Layouts::with_cycles(tables, cycles),
             tables,
             call_conv,
             aggs: Vec::new(),

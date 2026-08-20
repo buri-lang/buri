@@ -14,7 +14,7 @@ use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments::Flags;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{
-    self, Emitted, LinkOptions, Linker, Options as BackendOptions, Profile, Target,
+    self, Emitted, LinkOptions, Linker, Options as BackendOptions, Profile, Target, Units,
 };
 use crate::compiler::middle;
 use crate::compiler::middle::monomorphize;
@@ -22,7 +22,6 @@ use crate::compiler::middle::{ir, layout, lower};
 use crate::compiler::modules::Unit;
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
-use std::fmt::Write as _;
 use std::path::PathBuf;
 
 pub struct Artifact {
@@ -610,23 +609,41 @@ pub fn native_ready(target: Target, profile: Profile) -> bool {
 /// the hash is the *computed* one — sizes, alignments and every field offset —
 /// so a change to a field's type deep inside a record is caught without this
 /// having to walk to it.
+///
+/// The shape lines are sorted **as text**, not by `TypeId`. A `TypeId` is a
+/// program-global interning index, so ordering by it makes an unrelated unit's
+/// `shapes` string depend on which types some other module happened to name
+/// first — the same defect the IR rendering had when it named callees by
+/// `FuncIdx`. Sorting the rendered lines gives a total order derived from the
+/// content, so the string moves only when a layout this unit names moves.
 fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, String)> {
     let mut layouts = layout::Layouts::new(tables);
+    // Grouped in one pass rather than scanned once per unit: the filter was
+    // `units * funcs`, which is the whole program re-walked for every unit.
+    let mut members: Vec<Vec<usize>> = vec![Vec::new(); program.units.len()];
+    for (i, func) in program.funcs.iter().enumerate() {
+        if let Some(slot) = members.get_mut(func.unit as usize) {
+            slot.push(i);
+        }
+    }
     let mut out = Vec::with_capacity(program.units.len());
     for (u, name) in program.units.iter().enumerate() {
         let mut text = String::new();
         let mut types: Vec<usize> = Vec::new();
-        for func in program.funcs.iter().filter(|f| f.unit as usize == u) {
+        for func in members.get(u).map(Vec::as_slice).unwrap_or_default() {
+            let Some(func) = program.funcs.get(*func) else { continue };
             text.push_str(&program.render_func(func));
             collect_types(func, &mut types);
         }
         types.sort_unstable();
         types.dedup();
-        let mut shapes = String::new();
+        let mut lines: Vec<String> = Vec::with_capacity(types.len());
         for id in types {
             let Some(info) = program.types.get(id) else { continue };
-            let _ = writeln!(shapes, "{} {:?}", info.name, layouts.of(info.ty.clone()));
+            lines.push(format!("{} {:?}\n", info.name, layouts.of(info.ty.clone())));
         }
+        lines.sort();
+        let shapes: String = lines.concat();
         out.push((
             name.clone(),
             hash_bytes(text.as_bytes()),
@@ -675,14 +692,16 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 /// - When *every* unit hits, `emit` is never called at all. That is the case a
 ///   watch loop hits on every keystroke inside a comment, and it is where the
 ///   seconds are.
-/// - When any unit misses, `emit` runs once and produces every unit, because
-///   [`Backend::emit`](crate::compiler::backend::Backend::emit) takes a whole
-///   program and has no parameter for "these units only". The units that hit
-///   are still served from the cache and still
-///   report `cached`; what the fresh emission cost is codegen for units whose
-///   objects were not going to be used. Closing that is a change to the
-///   `Backend` trait rather than to this function, and it is the backends'
-///   wave to make.
+/// - When a unit misses, `emit` is called **once, with the units that missed**,
+///   and the units that hit are served from the cache and report `cached`. That
+///   parameter is [`Units`](crate::compiler::backend::Units): without it,
+///   invalidating one unit of several hundred cost exactly what `--force`
+///   costs, because the backend re-emitted every unit and every object but one
+///   was thrown away.
+/// - A backend may return more objects than were asked for — the default
+///   `emit_units` does — because the selection here is by name. It may not
+///   return fewer: a unit that missed and has no object is the internal error
+///   below.
 ///
 /// The `Emitted::key` a backend attaches is *replaced* by the one the build
 /// system computed. That is not a slight: the cache is the build system's, and
@@ -692,14 +711,14 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 /// says it is, a statement about which of the backend's inputs the bytes depend
 /// on, and that statement enters here through `Backend::identity`, which is in
 /// every `codegen` key.
-pub fn codegen_units<F>(
+pub fn codegen_units_for<F>(
     cache: &Cache,
     keys: &[(String, ActionKey)],
     force: bool,
     emit: F,
 ) -> Result<Vec<(Emitted, bool)>, Diagnostics>
 where
-    F: FnOnce() -> Result<Vec<Emitted>, Diagnostics>,
+    F: FnOnce(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
 {
     let hits: Vec<Option<Vec<u8>>> =
         keys.iter().map(|(_, k)| if force { None } else { cache.get(k) }).collect();
@@ -712,7 +731,15 @@ where
         return Ok(out);
     }
 
-    let fresh = emit()?;
+    // `keys` is in unit order, because `unit_hashes` walks `Program::units`, so
+    // a position in it is the `Func::unit` the backend selects on.
+    let wanted: Vec<u32> = hits
+        .iter()
+        .enumerate()
+        .filter(|(_, hit)| hit.is_none())
+        .filter_map(|(i, _)| u32::try_from(i).ok())
+        .collect();
+    let fresh = emit(&wanted)?;
     let mut out = Vec::with_capacity(keys.len());
     for ((name, key), hit) in keys.iter().zip(hits) {
         if let Some(bytes) = hit {
@@ -735,6 +762,23 @@ where
         ));
     }
     Ok(out)
+}
+
+/// [`codegen_units_for`], for a caller with no per-unit emission path.
+///
+/// The units the emitter is told about are dropped rather than ignored: a
+/// closure that produces the whole program produces every unit that missed, and
+/// selecting by name is what this hands back.
+pub fn codegen_units<F>(
+    cache: &Cache,
+    keys: &[(String, ActionKey)],
+    force: bool,
+    emit: F,
+) -> Result<Vec<(Emitted, bool)>, Diagnostics>
+where
+    F: FnOnce() -> Result<Vec<Emitted>, Diagnostics>,
+{
+    codegen_units_for(cache, keys, force, |_| emit())
 }
 
 /// `core_list` -> `core_list.o`. One rule, because the manifest names the unit
@@ -862,9 +906,14 @@ pub fn objects_of(
     // ARCHITECTURE.md §7 calls out by name.
     let prefix = s.ws.pkg(target.pkg).path.clone();
     let cache = Cache::open(&s.root);
-    let emitted = codegen_units(&cache, &keys, flags.force, || {
+    let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions { profile, target: back_target, unit_prefix: &prefix };
-        backend.emit(program, tables, &opts)
+        // `Units::Only` is a membership test per unit, so a build that wants
+        // every unit — a first build, or `--force` — says so rather than
+        // scanning a list of every unit once per unit.
+        let selection =
+            if wanted.len() == keys.len() { Units::All } else { Units::Only(wanted) };
+        backend.emit_units(program, tables, &opts, selection)
     })?;
 
     let label = s.ws.label(target);

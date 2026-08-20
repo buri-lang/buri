@@ -1,0 +1,31 @@
+// Six tests, three of them failing, so that every number in the summary line
+// has something to be. The failures are interleaved with the passes rather
+// than grouped, because a runner that reported the first failure and stopped
+// would still produce a plausible-looking report from a file laid out the
+// other way.
+
+from "core/testing/assert" import * as assert;
+
+test "one passes" {
+    assert.eq(1, 1);
+}
+
+test "two fails" {
+    assert.eq(2, 20);
+}
+
+test "three passes" {
+    assert.eq(3, 3);
+}
+
+test "four fails" {
+    assert.eq(4, 40);
+}
+
+test "five passes" {
+    assert.eq(5, 5);
+}
+
+test "six fails" {
+    assert.eq(6, 60);
+}

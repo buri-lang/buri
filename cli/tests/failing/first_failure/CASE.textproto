@@ -1,0 +1,24 @@
+# `core/testing/assert`'s failures are thrown, and the runner's `$run` catches
+# one per case, so the first failing assertion in a test is the last statement
+# that runs in it. Three failing assertions are one `FAIL`, and the report says
+# nothing about the two that were never reached.
+#
+# The third test is the pair that makes it a claim rather than a coincidence: a
+# division by zero sits after a failing assertion and never aborts, so what
+# ends a test is the *first* thing that fails and not the worst one.
+#
+# The fourth says the same boundary from outside: a test that failed does not
+# take the one after it with it. That is TESTING.md's "a failing assertion ends
+# that test and no other", recorded.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a failed assertion ends its own test at that statement: three failures in one test are one report"
+
+run {
+  args: ["test", "//lib/several", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

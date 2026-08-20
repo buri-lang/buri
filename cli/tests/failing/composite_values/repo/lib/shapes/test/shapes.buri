@@ -1,0 +1,68 @@
+// One failing `assert.eq` per composite shape, and one per container that can
+// be empty — an empty list, a struct with no fields, an enum variant with no
+// payload — because "no elements" is the case a renderer written for one
+// element gets wrong.
+
+from "core/testing/assert" import * as assert;
+from "//lib/shapes" import { Colour, Deep, Hollow, Pair, Point, Shape };
+
+test "a tuple" {
+    assert.eq((1, "a", true), (2, "b", false));
+}
+
+test "a list" {
+    assert.eq([1, 2, 3], [1, 2]);
+}
+
+test "an empty list" {
+    assert.eq([1], []);
+}
+
+test "a list of lists" {
+    assert.eq([[1, 2], [3]], [[9]]);
+}
+
+test "a list of strings" {
+    assert.eq(["a", "b"], ["a"]);
+}
+
+test "a struct with named fields" {
+    assert.eq(Point { x: 1, y: 2 }, Point { x: 3, y: 4 });
+}
+
+test "a struct with positional fields" {
+    assert.eq(Pair(1, "a"), Pair(2, "b"));
+}
+
+test "a struct with no fields" {
+    assert.notEq(Hollow { }, Hollow { });
+}
+
+test "an enum whose variants carry nothing" {
+    assert.eq(Colour.Red, Colour.Blue);
+}
+
+test "an enum variant with a positional payload" {
+    assert.eq(Shape.Circle(1.5), Shape.Circle(2.5));
+}
+
+test "an enum variant with named fields" {
+    assert.eq(Shape.Circle(1.5), Shape.Rect { w: 1, h: 2 });
+}
+
+test "a value nested four deep" {
+    assert.eq(
+        Deep {
+            inner: Point { x: 1, y: 2 },
+            tags: ["a", "b"],
+            maybe: Option.Some(3),
+            both: (1, 'x'),
+        },
+        Deep {
+            inner: Point { x: 0, y: 0 },
+            tags: [],
+            maybe: Option.None,
+            both: (2, 'y'),
+        },
+    );
+}

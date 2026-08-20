@@ -122,6 +122,12 @@ test names are prose, and encoding prose in an identifier produces
 takes no parameters and returns nothing: it passes unless an assertion in it
 fails.
 
+**A name is used once per file.** Two `test` declarations in one module with the
+same name are a compile error (`duplicate-test-name`): a name is how a failing
+test is reported and how `--filter` selects one, so two that share it in one
+file cannot be told apart. Two *different* files may use the same name — they
+are separate modules, and a report names the file each failure came from.
+
 A test that needs a context builds one, with the same form `main` uses (Section
 11.3). `core/testing/context` is a **platform module** — the test runner's
 platform — and it exports one implementation per effect rather than one
@@ -130,7 +136,7 @@ pre-assembled world:
 | Member | Effect | What it does |
 |---|---|---|
 | `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
-| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured. Printed only for a failing test. |
+| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
 | `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
 | `data()` | `Fs` | In-memory, rooted at the package directory, containing exactly `test { data: [...] }`. |
 | `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |

@@ -1,0 +1,24 @@
+# `report_failure` writes the title as the quoted string it was written as, so
+# every character that means something inside quotes is a character this
+# records: a `"` and a `\\` are escaped, and so are a newline and a tab, which
+# is what keeps the report at one line per `FAIL` however prose a title is.
+#
+# A newline in a title is legal and reported; `lint`'s `test-title-newline`
+# is where it is argued with, because a report that survives one is not the
+# same thing as a title anybody should write.
+#
+# The colon is the reason the case exists. A title carrying one was a codegen
+# bug, and a corpus that only ever wrote plain titles is a corpus that would
+# not have caught it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test title is arbitrary text: colons, quotes, escapes, characters outside ASCII, and the empty title"
+
+run {
+  args: ["test", "//lib/titled", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

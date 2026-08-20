@@ -3,7 +3,7 @@ arithmetic: 1351 bytes artifact, 241 generated
 array_patterns: 1682 bytes artifact, 812 generated
 bool_logic: 1431 bytes artifact, 408 generated
 closures: 1871 bytes artifact, 592 generated
-derives: 3215 bytes artifact, 911 generated
+derives: 3238 bytes artifact, 911 generated
 enum_match: 1576 bytes artifact, 826 generated
 enum_payloadless: 1458 bytes artifact, 695 generated
 enum_single_variant: 1252 bytes artifact, 131 generated
@@ -15,7 +15,7 @@ interpreter: 4034 bytes artifact, 5839 generated
 json_derive: 9142 bytes artifact, 3709 generated
 literals: 1574 bytes artifact, 362 generated
 nested_match: 1532 bytes artifact, 776 generated
-nested_option: 6002 bytes artifact, 4759 generated
+nested_option: 6025 bytes artifact, 4759 generated
 option_result: 2268 bytes artifact, 1762 generated
 or_patterns: 1466 bytes artifact, 650 generated
 rebound_scrutinee: 1370 bytes artifact, 483 generated
@@ -29,5 +29,5 @@ tail_self: 1739 bytes artifact, 1160 generated
 tail_short_circuit: 2245 bytes artifact, 1496 generated
 traits: 1338 bytes artifact, 228 generated
 
-total: 64677 bytes artifact, 33237 generated
+total: 64723 bytes artifact, 33237 generated
 largest function: 1549 bytes, json_derive/$json_into

@@ -1,0 +1,9 @@
+/* A heading.
+
+   And the paragraph under it. */
+export fn f(): Int {
+    /*
+
+    */
+    1
+}

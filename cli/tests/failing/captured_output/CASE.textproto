@@ -1,0 +1,22 @@
+# Captured output is captured and never printed. That is the contract, and
+# `core/testing/context` now says so: `captured()` is how a test reads it back,
+# which makes what a program wrote something to assert on rather than something
+# to watch scroll past. `report_failure` writes the message, the diff and the
+# location, and the runner never reads a capture handle.
+#
+# The first test writes a line and fails, and the report holds no trace of it;
+# the second reaches the same text the only way there is, by asserting on it,
+# and the failure shows it as a value. If the runner ever starts printing
+# captured output the first golden is the diff that says so.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "what a failing test wrote to a captured stdout does not appear in its report"
+
+run {
+  args: ["test", "//lib/noisy", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

@@ -1,0 +1,8 @@
+error: `Rec` has no field `f1` [no-such-field]
+  --> cmd/struct_field_that_does_not_exist/main.buri:10:45
+   |
+10 |     str.format(ctx, "rec: ${self.f0}/${self.f1}")
+   |                                             ^^
+   |
+   = did you mean `f0`?
+   = fix: check the spelling, or name a field the type declares

@@ -89,7 +89,7 @@ fn proto_schemas() {
 /// can check the fix for.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 7);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 8);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the

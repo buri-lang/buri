@@ -61,6 +61,13 @@ test "addition composes" {
 A test takes no parameters and returns nothing. It passes unless an assertion in
 it fails, and a failing assertion ends that test and no other.
 
+A title is used once per file. Two tests in one module with the same title are a
+compile error (`duplicate-test-name`), because a title is how a failure is
+reported and how `--filter` picks one out, and two that share it in one file
+cannot be told apart. Two files of one suite may share a title: they are
+separate modules, each failure names its own file, and each is reported at its
+own line.
+
 A test that needs a context builds one, with the same `context` form `main` uses
 — a test source and `main`'s body are the only places in the language where a
 context is created rather than received, which is why `core/testing/context` is
@@ -289,7 +296,7 @@ pre-assembled world. Each is real where it can be and hermetic everywhere else:
 | Member | Effect | In a test |
 |---|---|---|
 | `alloc()` | `Alloc` | Real, with a per-test arena the runner reclaims. |
-| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured. Printed only for a failing test. |
+| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
 | `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
 | `data()` | `Fs` | In-memory, rooted at the package directory, containing exactly `test.data`. Writes are visible to that test and discarded after it. |
 | `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |

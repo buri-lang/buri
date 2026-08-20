@@ -1,0 +1,10 @@
+// A test source that does not compile. The suite has no verdicts to report, so
+// what a user sees is the diagnostic on stderr and a summary line of zeros on
+// stdout — and the exit code is 1, the same as a failing test, because the
+// code is what is wrong.
+
+from "core/testing/assert" import * as assert;
+
+test "a type error inside a test" {
+    assert.eq(1, "one");
+}

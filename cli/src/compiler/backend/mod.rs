@@ -103,6 +103,36 @@ pub struct LinkOptions<'a> {
     pub unit_prefix: &'a str,
 }
 
+/// Which codegen units an emission is for.
+///
+/// The build system keys one cache entry per unit (ARCHITECTURE.md §6.2) and
+/// serves every hit from the cache, so the units it still needs after a
+/// one-line edit are usually one of several hundred. Without this the whole
+/// program is re-emitted whenever any single key misses, which is the same
+/// work `--force` does: at 118k lines that was 1680 ms of a 2622 ms rebuild,
+/// spent producing objects that were then thrown away.
+///
+/// A backend may emit *more* than it was asked for — the caller selects the
+/// objects it wanted by name — but never fewer, which is what makes
+/// [`Backend::emit_units`]'s default implementation correct for a backend that
+/// has no per-unit path.
+#[derive(Clone, Copy)]
+pub enum Units<'a> {
+    All,
+    /// Unit indices into `ir::Program::units`, which is the order
+    /// `Backend::emit` returns its objects in.
+    Only(&'a [u32]),
+}
+
+impl Units<'_> {
+    pub fn wants(self, unit: u32) -> bool {
+        match self {
+            Units::All => true,
+            Units::Only(only) => only.contains(&unit),
+        }
+    }
+}
+
 /// One codegen unit's output.
 ///
 /// `key` is the cache key the unit was produced under, and it is computed by
@@ -161,6 +191,29 @@ pub trait Backend {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics>;
+
+    /// [`Backend::emit`], restricted to the units the caller still needs.
+    ///
+    /// This is the parameter the incremental-link plan was missing: `Func::unit`
+    /// already partitions the program (ARCHITECTURE.md §5.1) and the build
+    /// system already knows which units' keys missed, so invalidating one unit
+    /// should cost one unit's codegen rather than the whole program's.
+    ///
+    /// The default emits everything and is correct rather than fast, because a
+    /// superset satisfies every caller: `build::actions::codegen_units` takes
+    /// the objects it asked for by name and serves the rest from the cache. A
+    /// backend with one unit — JavaScript, whose artifact is one file its
+    /// `Concatenate` linker takes element zero of — wants exactly that.
+    fn emit_units(
+        &mut self,
+        program: &Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        units: Units<'_>,
+    ) -> Result<Vec<Emitted>, Diagnostics> {
+        let _ = units;
+        self.emit(program, tables, opts)
+    }
 }
 
 /// Combining units into the final artifact.
@@ -196,9 +249,9 @@ pub trait Linker {
 /// (Linux | Macos,  Release)  -> llvm
 /// ```
 ///
-/// The second row arrives with wave 2a and is gated on the feature that
-/// carries it, so a toolchain built `--no-default-features` still answers the
-/// diagnostic rather than failing to compile. The third arrives with 2b.
+/// The second and third rows are each gated on the feature that carries them,
+/// so a toolchain built `--no-default-features` still answers the diagnostic
+/// rather than failing to compile.
 ///
 /// A toolchain built without `backend-llvm` refuses a native release build with
 /// a diagnostic naming the feature rather than silently falling back to
@@ -216,10 +269,18 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
         // reach is a warning rather than a safety net.
         #[cfg(not(feature = "backend-cranelift"))]
         (platform, Profile::Debug) => Err(missing_backend(platform, "backend-cranelift")),
+        #[cfg(feature = "backend-llvm")]
+        (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm)),
+        // Gated the other way for the same reason the debug arm above is: with
+        // the feature on the arm above is total for a native release build.
+        #[cfg(not(feature = "backend-llvm"))]
         (platform, Profile::Release) => Err(missing_backend(platform, "backend-llvm")),
     }
 }
 
+/// Both arms that call this are `#[cfg(not(...))]`, so a build with both
+/// backends has no caller.
+#[cfg(not(all(feature = "backend-cranelift", feature = "backend-llvm")))]
 fn missing_backend(platform: Platform, feature: &str) -> String {
     format!(
         "the {} backend is not implemented (it arrives with `{feature}`)",

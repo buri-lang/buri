@@ -1,0 +1,13 @@
+error: this file already has a test called "the same title" [duplicate-test-name]
+  --> lib/twice/test/twice.buri:17:1
+   |
+17 | test "the same title" {
+   | ^^^^^^^^^^^^^^^^^^^^^^^ declared again here
+   |
+ --> lib/twice/test/twice.buri:9:1
+  |
+9 | test "the same title" {
+  | ^^^^^^^^^^^^^^^^^^^^^^^ first declared here
+  |
+  = a title is how a failing test is named in the report and how `--filter` selects one, so two tests sharing a title in one file cannot be told apart
+  = fix: rename one of them, so each test in this file has its own title

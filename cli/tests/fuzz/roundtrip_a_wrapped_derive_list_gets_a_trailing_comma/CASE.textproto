@@ -1,0 +1,3 @@
+doc:    "A `derive` clause whose trait list did not fit on one line was wrapped, and the wrapped form got a trailing comma after the last trait — `derive\\n    A, B, C,\\nfor Meters;` — which the grammar does not allow before `for`, so the formatter's own output did not parse. `format::source` caught it and returned `None`, so nothing was corrupted; what happened instead is that the file was left alone forever, which made a long derive list silently exempt from formatting and from `format --check`. Fixed by dropping the `if_break` comma from the clause."
+oracle: "roundtrip"
+status: FIXED

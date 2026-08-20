@@ -1,0 +1,3 @@
+doc:    "`fn a(): t<> {}` formats to `fn a(): t {}` — the empty type-argument list is dropped, and so is an empty generic parameter list on a declaration. That is the printed form the product wants: `t<>` and `t` are the same type and only one of them is how anybody writes it. What the finding really caught is that the property was stated in four edits and the formatter makes five, so the fifth is now written down (`formatting.rs`'s claim 4, and `tokens_modulo_layout` here) and this case pins the behaviour rather than a suspicion about it."
+oracle: "roundtrip"
+status: FIXED

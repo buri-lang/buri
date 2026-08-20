@@ -51,9 +51,11 @@ use inkwell::context::Context;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
 
+use std::rc::Rc;
+
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
+    self, Cycles, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
 use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyDef};
 use crate::hash::Map;
@@ -144,13 +146,16 @@ impl Repr {
 
 }
 
-/// The flattening table, one per emission. Memoised on the interned
+/// The flattening table, one per unit. Memoised on the interned
 /// [`ir::TypeId`], because a unit names the same twenty types thousands of
 /// times.
 pub struct Reprs<'a> {
     tables: &'a Tables,
     layouts: Layouts<'a>,
-    memo: Vec<Option<Repr>>,
+    /// Keyed on the id rather than indexed by it: a row per type the *program*
+    /// interned, built fresh per unit, is a large allocation and a large memset
+    /// for the twenty entries a unit fills (`design/PERFORMANCE.md` §6.7).
+    memo: Map<usize, Repr>,
     by_ty: Map<Ty, usize>,
     side: Vec<Repr>,
     /// The answer for a lookup that cannot happen: every id was minted by this
@@ -161,11 +166,13 @@ pub struct Reprs<'a> {
 }
 
 impl<'a> Reprs<'a> {
-    pub fn new(tables: &'a Tables, types: usize) -> Reprs<'a> {
+    /// `cycles` is the recursion analysis of these same `tables`, taken once
+    /// for the emission rather than once per unit: see [`Cycles`].
+    pub fn new(tables: &'a Tables, cycles: Rc<Cycles>) -> Reprs<'a> {
         Reprs {
             tables,
-            layouts: Layouts::new(tables),
-            memo: (0..types).map(|_| None).collect(),
+            layouts: Layouts::with_cycles(tables, cycles),
+            memo: Map::default(),
             by_ty: Map::default(),
             side: Vec::new(),
             empty: Repr {
@@ -186,14 +193,12 @@ impl<'a> Reprs<'a> {
 
     /// The flattening of an interned IR type.
     pub fn of(&mut self, program: &ir::Program, id: ir::TypeId) -> &Repr {
-        if self.memo.get(id.index()).is_none_or(Option::is_none) {
+        if !self.memo.contains_key(&id.index()) {
             let ty = program.type_info(id).ty.clone();
             let repr = self.build(&ty);
-            if let Some(slot) = self.memo.get_mut(id.index()) {
-                *slot = Some(repr);
-            }
+            self.memo.insert(id.index(), repr);
         }
-        self.memo.get(id.index()).and_then(Option::as_ref).unwrap_or(&self.empty)
+        self.memo.get(&id.index()).unwrap_or(&self.empty)
     }
 
     /// The flattening of a type that is not interned in the IR — an enum's

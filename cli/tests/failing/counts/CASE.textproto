@@ -1,0 +1,74 @@
+# The summary line's arithmetic, with failures in it. `repositories/testing/filter`
+# already pins `--filter` over a suite that passes; this is the other half —
+# what the three counts read when some tests failed and a filter left others
+# out at the same time.
+#
+# The failures are interleaved with the passes so that a runner that stopped at
+# the first one could not produce this file, and the blank line before the
+# summary is part of the record: `one_pass` prints it only when something was
+# printed above.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the summary line's three counts with failures in them, alone and under a --filter"
+
+run {
+  args: ["test", "//lib/mixed", "--force"]
+  exit: 1
+  golden: "mixed.txt"
+  stream: OUT
+}
+
+# A filter that keeps two failures and one pass: three left out, and the
+# failures reported are only the ones the filter kept.
+run {
+  args: ["test", "//lib/mixed", "--force", "--filter=f"]
+  exit: 1
+  golden: "filtered.txt"
+  stream: OUT
+}
+
+# A filter that keeps only passing tests: nothing is reported, and the run
+# succeeds even though the suite holds failures.
+run {
+  args: ["test", "//lib/mixed", "--force", "--filter=passes"]
+  exit: 0
+  golden: "only_passes.txt"
+  stream: OUT
+}
+
+# A filter that keeps nothing at all.
+run {
+  args: ["test", "//lib/mixed", "--force", "--filter=nonesuch"]
+  exit: 0
+  golden: "nothing.txt"
+  stream: OUT
+}
+
+# The negative twin: with the three wrong constants corrected the same suite is
+# silent and exits 0, so the report above cannot go stale.
+edit {
+  file: "lib/mixed/test/mixed.buri"
+  replace: "assert.eq(2, 20);"
+  with: "assert.eq(2, 2);"
+}
+
+edit {
+  file: "lib/mixed/test/mixed.buri"
+  replace: "assert.eq(4, 40);"
+  with: "assert.eq(4, 4);"
+}
+
+edit {
+  file: "lib/mixed/test/mixed.buri"
+  replace: "assert.eq(6, 60);"
+  with: "assert.eq(6, 6);"
+}
+
+run {
+  args: ["test", "//lib/mixed", "--force"]
+  exit: 0
+  golden: "fixed.txt"
+  stream: OUT
+}

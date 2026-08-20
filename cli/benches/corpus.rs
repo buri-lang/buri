@@ -1,11 +1,13 @@
-//! Checked-in benchmark corpora: the manifest, the digest, discovery, and
-//! `--record`.
+//! Checked-in and digest-pinned benchmark corpora: the manifest, the digest,
+//! discovery, `--record` and `--pin`.
 //!
-//! `design/PERFORMANCE.md` §3.1 states the dual scheme this half implements.
-//! The short version: a generated corpus buys scale and coverage and cannot
-//! silently fall out of the language; a saved one buys **byte-stability over
-//! time**, and that is the only thing it buys. Two runs a year apart compile
-//! the same bytes, so a difference between them is a difference in the
+//! `design/PERFORMANCE.md` §3.1 states the three-kind scheme this half
+//! implements. The short version: a generated corpus buys scale and coverage
+//! and cannot silently fall out of the language; a saved one buys
+//! **byte-stability over time**, and that is the only thing it buys; a pinned
+//! one buys the same byte-stability at a scale no git history should carry,
+//! by checking in the digest instead of the bytes. Two runs a year apart
+//! compile the same bytes, so a difference between them is a difference in the
 //! compiler rather than a difference in `generate.rs`.
 //!
 //! Nothing in this file is timed and nothing in it touches the compiler, which
@@ -93,8 +95,8 @@ impl Manifest {
 
     fn render(&self) -> String {
         format!(
-            "# Provenance for a checked-in benchmark corpus. See\n\
-             # cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.\n\
+            "# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1\n\
+             # and the README beside this file.\n\
              name = {}\n\
              profile = {}\n\
              generator_revision = {}\n\
@@ -336,6 +338,151 @@ pub fn record(
     };
     let path = dir.join("manifest.txt");
     std::fs::write(&path, manifest.render()).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(manifest)
+}
+
+// ---------------------------------------------------------------------------
+// Digest-pinned corpora
+// ---------------------------------------------------------------------------
+//
+// The third corpus kind, and the one the scale tier runs on. A pinned corpus is
+// a manifest and nothing else: the same provenance a saved corpus carries, with
+// the source regenerated on every run and the digest checked *before* any timer
+// starts. It buys the byte-certainty a saved corpus buys, at a scale a saved
+// corpus cannot have — 1,000,000 lines is 35 MB, and the per-corpus cap is
+// 512 KiB for a reason. `design/PERFORMANCE.md` §3.1 states the scheme.
+
+/// Where the pinned manifests live.
+///
+/// A sibling of `corpora/` rather than a member of it, because everything
+/// `corpora/` promises is stated over bytes of checked-in `.buri`: [`discover`]
+/// finds directories with a `manifest.txt`, [`dir_bytes`] sums `src/`, and both
+/// caps are budgets against a git history. A pinned corpus has no source and
+/// spends no budget, so filing it there would mean teaching four functions to
+/// skip it.
+pub fn pinned_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("benches").join("pinned")
+}
+
+/// Every pinned manifest under `root`, in name order.
+pub fn discover_pinned(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut out: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+        .collect();
+    out.sort();
+    out
+}
+
+/// A pinned manifest, without regenerating its source.
+pub fn pinned_manifest(path: &Path) -> Result<Manifest, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Manifest::parse(&text, path)
+}
+
+/// The parameters a pinned manifest describes.
+///
+/// From [`Params::default`] plus the recorded delta rather than from the
+/// profile plus the delta: `delta` is stated against the default, so a manifest
+/// whose profile has since changed reconstructs the bytes it was pinned at
+/// rather than the bytes the profile means today. Only `shape` comes from the
+/// profile, because it is the one dimension `--param` cannot spell.
+fn pinned_params(m: &Manifest) -> Result<Params, String> {
+    let Some((_, profile)) = generate::profile(&m.profile) else {
+        return Err(format!(
+            "{}: no profile named `{}` — a pinned corpus whose profile has been \
+             deleted cannot be regenerated, so delete the manifest",
+            m.name, m.profile
+        ));
+    };
+    let mut params = Params { shape: profile.shape, ..Params::default() };
+    for pair in m.params.split_whitespace() {
+        let Some((k, v)) = pair.split_once('=') else {
+            return Err(format!("{}: `{pair}` in `params` is not `key=value`", m.name));
+        };
+        params.set(k, v).map_err(|e| format!("{}: {e}", m.name))?;
+    }
+    Ok(params)
+}
+
+/// Regenerate a pinned corpus and check it against its digest.
+///
+/// The check is the whole point, so it is loud and it is early: a mismatch
+/// means the generator has moved under the manifest, every number the series
+/// holds was taken over different bytes, and the run stops rather than
+/// reporting a rate for a corpus nobody pinned. Same policy as a hand-edited
+/// saved corpus, same place in the run — before any timer.
+pub fn load_pinned(path: &Path) -> Result<(Manifest, Program), String> {
+    let manifest = pinned_manifest(path)?;
+    let params = pinned_params(&manifest)?;
+    let program = generate::program(&params);
+
+    let found = digest(&program);
+    if !manifest.digest.is_empty() && found != manifest.digest {
+        return Err(format!(
+            "{}: the regenerated corpus does not match its pinned digest.\n  \
+             pinned      {} — {} lines, {} bytes, {} modules, generator revision {}\n  \
+             regenerated {found} — {} lines, {} bytes, {} modules, generator revision {}\n  \
+             The generator has moved under this manifest, so every number in the series it \
+             anchors was taken over different bytes. Find the change, or re-pin with \
+             `--pin={}` and bump `revision`: a re-pin is a break in the series and is \
+             announced as one.",
+            path.display(),
+            manifest.digest,
+            manifest.lines,
+            manifest.bytes,
+            manifest.modules,
+            manifest.generator_revision,
+            program.lines(),
+            program.bytes(),
+            program.modules.len(),
+            generate::GENERATOR_REVISION,
+            manifest.name
+        ));
+    }
+    Ok((manifest, program))
+}
+
+/// Write a pinned manifest: the provenance, the counts and the digest, and no
+/// source at all.
+pub fn pin(
+    root: &Path,
+    name: &str,
+    profile: &str,
+    params: &Params,
+    program: &Program,
+) -> Result<Manifest, String> {
+    let path = root.join(format!("{name}.txt"));
+    let bless = std::env::var("BURI_BLESS").is_ok_and(|v| v == "1");
+    if path.exists() && !bless {
+        return Err(format!(
+            "{} already exists; re-pinning is a break in the series, so it is deliberate: \
+             set BURI_BLESS=1 and bump `revision` in the manifest",
+            path.display()
+        ));
+    }
+    let previous = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| Manifest::parse(&t, &path).ok())
+        .map_or(0, |m| m.revision);
+
+    let manifest = Manifest {
+        name: name.to_string(),
+        profile: profile.to_string(),
+        generator_revision: generate::GENERATOR_REVISION,
+        revision: previous + 1,
+        recorded: today(),
+        params: params.delta(),
+        lines: program.lines(),
+        bytes: program.bytes(),
+        modules: program.modules.len(),
+        digest: digest(program),
+    };
+    std::fs::write(&path, manifest.render())
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(manifest)
 }
 

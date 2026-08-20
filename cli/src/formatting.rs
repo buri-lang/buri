@@ -61,7 +61,7 @@
 use crate::diagnostics::{FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, PartView, PatId,
-    PatView, StmtKind, Tree, TypeId,
+    PatView, StmtKind, Tree, TypeId, TypeView,
 };
 use crate::parsing::lexer::{lex, Comment, TokKind};
 use crate::parsing::tree::*;
@@ -77,7 +77,7 @@ const INDENT: usize = 4;
 pub fn source_unchecked(text: &str) -> String {
     let parsed = crate::parsing::parser::parse(text, FileId(0));
     let mut tv = Comments::read(text);
-    render(&Build { tv: &mut tv, t: &parsed.module.tree }.module(&parsed.module))
+    render(&Build { tv: &mut tv, t: &parsed.module.tree, src: text }.module(&parsed.module))
 }
 
 /// Returns `None` when the file does not parse, in which case it is left
@@ -88,7 +88,8 @@ pub fn source(text: &str) -> Option<String> {
         return None;
     }
     let mut tv = Comments::read(text);
-    let out = render(&Build { tv: &mut tv, t: &parsed.module.tree }.module(&parsed.module));
+    let out =
+        render(&Build { tv: &mut tv, t: &parsed.module.tree, src: text }.module(&parsed.module));
 
     // A formatter that produces something that does not parse is worse than no
     // formatter, so the output is checked before it is offered.
@@ -124,6 +125,13 @@ enum Doc {
     SoftLine,
     /// A line break in either mode, and a break every enclosing group inherits.
     HardLine,
+    /// A line break written even when the output already ends in one.
+    ///
+    /// `HardLine` collapses against the break above it, which is what keeps two
+    /// printers that each end a line from producing a blank one. Inside a block
+    /// comment that collapse deletes a line the author wrote, so the lines of
+    /// one comment are separated by this instead.
+    HardBreak,
     /// A line break with an empty line above it — at most one, and never
     /// directly under an opening brace. That is the whole of the blank-line
     /// rule, and it lives here rather than in the printers because every
@@ -226,7 +234,7 @@ fn if_break(broken: Doc, flat: Doc) -> Doc {
 /// decided until the layout pass, so neither can commit an enclosing group.
 fn breaks(d: &Doc) -> bool {
     match d {
-        Doc::HardLine | Doc::Blank | Doc::BreakParent => true,
+        Doc::HardLine | Doc::HardBreak | Doc::Blank | Doc::BreakParent => true,
         Doc::Concat(xs) | Doc::Fill(xs) => xs.iter().any(breaks),
         Doc::Nest(x) => breaks(x),
         Doc::Group(g) => g.breaks(),
@@ -425,7 +433,7 @@ fn fits(
                     return true;
                 }
             }
-            Doc::HardLine | Doc::Blank => return !strict,
+            Doc::HardLine | Doc::HardBreak | Doc::Blank => return !strict,
             Doc::IfBreak(b, f) => {
                 local.push((ind, mode, Cmd::One(if mode == Mode::Break { b } else { f })))
             }
@@ -461,6 +469,22 @@ fn newline(out: &mut String, pos: &mut usize, ind: usize) {
         out.pop();
     }
     if !fresh && !out.is_empty() {
+        out.push('\n');
+    }
+    indent_to(out, ind);
+    *pos = ind.saturating_mul(INDENT);
+}
+
+/// A line break that is written whether or not the output already ends in one.
+///
+/// [`newline`] collapses against the break above it, so a run of them is one
+/// line break. A blank line inside a block comment is a line the author wrote,
+/// and collapsing it deletes it.
+fn forced_newline(out: &mut String, pos: &mut usize, ind: usize) {
+    while out.ends_with(' ') {
+        out.pop();
+    }
+    if !out.is_empty() {
         out.push('\n');
     }
     indent_to(out, ind);
@@ -525,6 +549,7 @@ fn render(doc: &Doc) -> String {
                 }
             }
             Doc::HardLine => newline(&mut out, &mut pos, ind),
+            Doc::HardBreak => forced_newline(&mut out, &mut pos, ind),
             Doc::Blank => blank(&mut out, &mut pos, ind),
             Doc::IfBreak(b, f) => {
                 stack.push((ind, mode, Cmd::One(if mode == Mode::Break { b } else { f })))
@@ -860,6 +885,14 @@ impl Comments {
 
 struct Build<'t> {
     tv: &'t mut Comments,
+    /// The file being re-printed.
+    ///
+    /// Held for one thing: an import path is re-printed as the bytes it was
+    /// written as. The parsed `path` is the *decoded* string, and printing that
+    /// back between quotes drops every escape the author wrote — a `\\` comes
+    /// back as one backslash, which is a different string, so `format` is not a
+    /// fixed point and the file loses data on every run.
+    src: &'t str,
     /// The arenas everything below the declaration level lives in.
     ///
     /// Held rather than passed, because every printer is a method and the tree
@@ -886,13 +919,13 @@ fn import_group(path: &str) -> u8 {
 /// The clause breaks the tie between two imports of the same module — which is
 /// legal, and is how a module takes both a namespace and a name from one path.
 /// `*` sorts before `{`, so the namespace form leads.
-fn import_key(item: &&Item) -> (u8, String, String) {
+fn import_key(t: &Tree, item: &&Item) -> (u8, String, String) {
     let Item::Import(i) = item else {
         crate::ice!("import_key orders the leading import run, which `take_while` proved holds only imports")
     };
     let clause = match &i.clause {
-        ImportClause::Namespace(n) => format!("* as {}", n.name),
-        ImportClause::Named(specs) => format!("{{ {} }}", spec_list(specs).join(", ")),
+        ImportClause::Namespace(n) => format!("* as {}", t.name(*n)),
+        ImportClause::Named(specs) => format!("{{ {} }}", spec_list(t, specs).join(", ")),
     };
     (import_group(&i.path), i.path.clone(), clause)
 }
@@ -903,12 +936,12 @@ fn import_key(item: &&Item) -> (u8, String, String) {
 /// Case-insensitively, so `Zed` and `apply` sort as a reader reads them rather
 /// than as ASCII orders them, with the case-sensitive comparison breaking the
 /// tie so the order is total.
-fn spec_list(specs: &[ImportSpec]) -> Vec<String> {
+fn spec_list(t: &Tree, specs: &[ImportSpec]) -> Vec<String> {
     let mut out: Vec<String> = specs
         .iter()
-        .map(|s| match &s.alias {
-            Some(a) => format!("{} as {}", s.name.name, a.name),
-            None => s.name.name.clone(),
+        .map(|s| match s.alias {
+            Some(a) => format!("{} as {}", t.name(s.name), t.name(a)),
+            None => t.name(s.name).to_string(),
         })
         .collect();
     out.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b)));
@@ -958,11 +991,16 @@ impl<'t> Build<'t> {
                 // columns they were typed at would leave them behind the moment
                 // anything around them is re-indented. The offset is the only
                 // thing that is stable under both.
+                //
+                // The break between two of them is `HardBreak`, because a blank
+                // line inside a comment is one of its lines: `HardLine`
+                // collapses against the break above it, and an empty line is
+                // exactly the case where there is nothing between the two.
                 for (j, l) in c.text.lines().enumerate() {
                     if j > 0 {
                         let indent = l.len().saturating_sub(l.trim_start().len());
                         let rel = indent.saturating_sub(c.column as usize);
-                        lines.push(Doc::HardLine);
+                        lines.push(Doc::HardBreak);
                         lines.push(text(format!("{}{}", " ".repeat(rel), l.trim())));
                     } else {
                         lines.push(text(l.trim_end().to_string()));
@@ -1089,7 +1127,7 @@ impl<'t> Build<'t> {
         }
 
         let mut head: Vec<&Item> = imports.iter().collect();
-        head.sort_by_key(import_key);
+        head.sort_by_key(|i| import_key(self.tree(), i));
 
         for (i, item) in head.iter().enumerate() {
             let first = i == 0 && m.docs.is_empty() && !header;
@@ -1110,7 +1148,7 @@ impl<'t> Build<'t> {
         // where it *reads* is against the declaration it is about, the way an
         // attribute would.
         let rest: Vec<&Item> = declarations.iter().collect();
-        for (i, (derives, decl)) in derive_groups(&rest).into_iter().enumerate() {
+        for (i, (derives, decl)) in derive_groups(self.tree(), &rest).into_iter().enumerate() {
             // The derives lead and the declaration's own documentation stays
             // directly on the declaration. It cannot be the other way round: a
             // `///` run attaches to whatever token follows it, so documentation
@@ -1162,31 +1200,37 @@ impl<'t> Build<'t> {
 
     fn item(&mut self, item: &Item) -> Doc {
         match item {
-            Item::Import(i) => match &i.clause {
-                // A namespace import is one name, so there is nothing a width
-                // could do about it.
-                ImportClause::Namespace(n) => {
-                    text(format!("from \"{}\" import * as {};", i.path, n.name))
+            Item::Import(i) => {
+                let path = self.path_literal(i.path_span, &i.path);
+                match &i.clause {
+                    // A namespace import is one name, so there is nothing a
+                    // width could do about it.
+                    ImportClause::Namespace(n) => {
+                        text(format!("from {path} import * as {};", self.tree().name(*n)))
+                    }
+                    ImportClause::Named(specs) => {
+                        self.name_list(&format!("from {path} import"), specs)
+                    }
                 }
-                ImportClause::Named(specs) => {
-                    self.name_list(&format!("from \"{}\" import", i.path), specs)
-                }
-            },
+            }
             Item::ReExport(r) => {
-                self.name_list(&format!("from \"{}\" export", r.path), &r.specs)
+                let path = self.path_literal(r.path_span, &r.path);
+                self.name_list(&format!("from {path} export"), &r.specs)
             }
             Item::Fn(d) => self.fn_decl(d, d.exported),
             Item::Struct(d) => self.struct_decl(d),
             Item::Enum(d) => self.enum_decl(d),
             Item::TypeAlias(d) => {
                 let ex = if d.exported { "export " } else { "" };
-                let g = generics(&d.generics);
-                text(format!("{ex}type {}{g} = {};", d.name.name, ty(&d.ty)))
+                let t = self.tree();
+                let g = generics(t, &d.generics);
+                text(format!("{ex}type {}{g} = {};", t.name(d.name), ty(t, d.ty)))
             }
             Item::Const(d) => {
                 let ex = if d.exported { "export " } else { "" };
+                let t = self.tree();
                 self.assign(
-                    &format!("{ex}const {}: {} = ", d.name.name, ty(&d.ty)),
+                    &format!("{ex}const {}: {} = ", t.name(d.name), ty(t, d.ty)),
                     d.value,
                     ";",
                 )
@@ -1194,8 +1238,9 @@ impl<'t> Build<'t> {
             Item::Trait(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let kw = if d.is_effect { "effect" } else { "trait" };
-                let g = generics(&d.generics);
-                let head = format!("{ex}{kw} {}{g}", d.name.name);
+                let t = self.tree();
+                let g = generics(t, &d.generics);
+                let head = format!("{ex}{kw} {}{g}", t.name(d.name));
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
                     return text(format!("{head} {{}}"));
                 }
@@ -1215,10 +1260,11 @@ impl<'t> Build<'t> {
                 braced(&format!("{head} {{"), join(Doc::HardLine, lines))
             }
             Item::Impl(d) => {
-                let g = generics(&d.generics);
-                let head = match &d.trait_ty {
-                    Some(t) => format!("impl{g} {} for {}", ty(t), ty(&d.self_ty)),
-                    None => format!("impl{g} {}", ty(&d.self_ty)),
+                let t = self.tree();
+                let g = generics(t, &d.generics);
+                let head = match d.trait_ty {
+                    Some(tr) => format!("impl{g} {} for {}", ty(t, tr), ty(t, d.self_ty)),
+                    None => format!("impl{g} {}", ty(t, d.self_ty)),
                 };
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
                     return text(format!("{head} {{}}"));
@@ -1239,27 +1285,48 @@ impl<'t> Build<'t> {
                 braced(&format!("{head} {{"), join(Doc::HardLine, lines))
             }
             Item::Derive(d) => {
-                let traits: Vec<Doc> = d.traits.iter().map(|t| text(ty(t))).collect();
+                let t = self.tree();
+                let traits: Vec<Doc> =
+                    t.type_list(d.traits).iter().map(|x| text(ty(t, *x))).collect();
+                // No trailing comma when the list wraps: the grammar has none
+                // before `for`, so a broken clause carrying one does not parse.
                 group(cat(vec![
                     text("derive"),
-                    nest(cat(vec![
-                        Doc::Line,
-                        filled(traits),
-                        if_break(text(","), Doc::Nil),
-                    ])),
+                    nest(cat(vec![Doc::Line, filled(traits)])),
                     Doc::Line,
-                    text(format!("for {};", ty(&d.self_ty))),
+                    text(format!("for {};", ty(t, d.self_ty))),
                 ]))
             }
             Item::Context(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let body = self.context_body(d.body);
-                braced(&format!("{ex}context {} {{", d.name.name), body)
+                braced(&format!("{ex}context {} {{", self.tree().name(d.name)), body)
             }
             Item::Test(d) => {
                 let body = self.block_lines(d.body);
                 braced(&format!("test {} {{", quote(&d.name)), body)
             }
+        }
+    }
+
+    /// A module path, as the quoted literal it was written as.
+    ///
+    /// The bytes of the source rather than a re-escaping of the decoded path:
+    /// re-escaping is a normalisation — `\u{41}` becomes `A` and `\t` becomes
+    /// `\t` — and layout may not rewrite what an author wrote inside a literal.
+    /// A string literal never spans a line break, so the slice is one line.
+    ///
+    /// The fallback re-escapes, which is correct and only loses the spelling.
+    /// It is reachable only if the span does not cover a quoted literal, which
+    /// is a parser invariant rather than something this file can prove.
+    fn path_literal(&self, at: Span, decoded: &str) -> String {
+        let raw = self
+            .src
+            .get(at.start as usize..at.end as usize)
+            .filter(|s| s.starts_with('"') && s.ends_with('"') && s.len() >= 2);
+        match raw {
+            Some(s) => s.to_string(),
+            None => quote(decoded),
         }
     }
 
@@ -1270,7 +1337,7 @@ impl<'t> Build<'t> {
     /// across as many lines as they need, and a trailing comma so that adding
     /// a name is a one-line diff.
     fn name_list(&mut self, head: &str, specs: &[ImportSpec]) -> Doc {
-        let names = spec_list(specs);
+        let names = spec_list(self.tree(), specs);
         if names.is_empty() {
             return text(format!("{head} {{  }};"));
         }
@@ -1303,7 +1370,7 @@ impl<'t> Build<'t> {
             if let Some(c) = self.flush(lo, b.span.start) {
                 lines.push(c);
             }
-            let head = format!("{}: ", ty(self.tree().ty(TypeId(b.effect))));
+            let head = format!("{}: ", ty(self.tree(), TypeId(b.effect)));
             lines.push(self.assign(&head, ExprId(b.value), ","));
         }
         if let Some(c) = self.flush(lo, body.span.end.saturating_sub(1)) {
@@ -1321,20 +1388,21 @@ impl<'t> Build<'t> {
         // broken signature has a line for it to sit on. Its `BreakParent` is
         // what breaks the signature: a comment cannot share a line with the
         // list it is annotating, so a flat signature is not on offer.
+        let t = self.tree();
         let params: Vec<Doc> = d
             .params
             .iter()
             .map(|p| {
                 let c = self.flush(d.span.start, p.span.start);
-                with_comment(c, text(format!("{}: {}", p.name.name, ty(&p.ty))))
+                with_comment(c, text(format!("{}: {}", t.name(p.name), ty(t, p.ty))))
             })
             .collect();
-        let close = format!("): {}{tail}", ty(&d.ret));
+        let close = format!("): {}{tail}", ty(t, d.ret));
         if params.is_empty() {
-            return text(format!("{lead}fn {}{}({close}", d.name.name, generics(&d.generics)));
+            return text(format!("{lead}fn {}{}({close}", t.name(d.name), generics(t, &d.generics)));
         }
         group(cat(vec![
-            text(format!("{lead}fn {}{}(", d.name.name, generics(&d.generics))),
+            text(format!("{lead}fn {}{}(", t.name(d.name), generics(t, &d.generics))),
             nest(cat(vec![
                 Doc::SoftLine,
                 join(cat(vec![text(","), Doc::Line]), params),
@@ -1387,20 +1455,21 @@ impl<'t> Build<'t> {
 
     fn struct_decl(&mut self, d: &StructDecl) -> Doc {
         let ex = if d.exported { "export " } else { "" };
-        let g = generics(&d.generics);
+        let t = self.tree();
+        let g = generics(t, &d.generics);
         match &d.body {
             StructBody::Tuple(fields) => {
                 let inner = fields
                     .iter()
                     .map(|f| {
-                        format!("{}{}", if f.exported { "export " } else { "" }, ty(&f.ty))
+                        format!("{}{}", if f.exported { "export " } else { "" }, ty(t, f.ty))
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                text(format!("{ex}struct {}{g}({inner});", d.name.name))
+                text(format!("{ex}struct {}{g}({inner});", t.name(d.name)))
             }
             StructBody::Record(fields) => {
-                let head = format!("{ex}struct {}{g}", d.name.name);
+                let head = format!("{ex}struct {}{g}", t.name(d.name));
                 let inside = d.span.start.saturating_add(1);
                 if fields.is_empty() && !self.tv.any_in(inside, d.span.end) {
                     return text(format!("{head} {{}}"));
@@ -1410,7 +1479,7 @@ impl<'t> Build<'t> {
                     // A field's documentation is trivia like any other, and
                     // comes back through the same path as a comment above it.
                     let c = self.flush(inside, f.span.start);
-                    items.push(with_comment(c, text(field_decl(f))));
+                    items.push(with_comment(c, text(field_decl(t, f))));
                 }
                 let trailing = self.flush(inside, d.span.end.saturating_sub(1));
                 record(&head, items, trailing)
@@ -1420,8 +1489,9 @@ impl<'t> Build<'t> {
 
     fn enum_decl(&mut self, d: &EnumDecl) -> Doc {
         let ex = if d.exported { "export " } else { "" };
-        let g = generics(&d.generics);
-        let head = format!("{ex}enum {}{g}", d.name.name);
+        let t = self.tree();
+        let g = generics(t, &d.generics);
+        let head = format!("{ex}enum {}{g}", t.name(d.name));
         let inside = d.span.start.saturating_add(1);
         if d.variants.is_empty() && !self.tv.any_in(inside, d.span.end) {
             return text(format!("{head} {{}}"));
@@ -1429,7 +1499,7 @@ impl<'t> Build<'t> {
         let mut items = Vec::new();
         for v in &d.variants {
             let c = self.flush(inside, v.span.start);
-            items.push(with_comment(c, text(variant(v))));
+            items.push(with_comment(c, text(variant(t, v))));
         }
         let trailing = self.flush(inside, d.span.end.saturating_sub(1));
         record(&head, items, trailing)
@@ -1466,7 +1536,7 @@ impl<'t> Build<'t> {
                     let ann = self
                         .tree()
                         .opt_type(s.ty)
-                        .map(|x| format!(": {}", ty(self.tree().ty(x))))
+                        .map(|x| format!(": {}", ty(self.tree(), x)))
                         .unwrap_or_default();
                     self.assign(&format!("let {name}{ann} = "), ExprId(s.value), ";")
                 }
@@ -1736,33 +1806,45 @@ impl<'t> Build<'t> {
             if let Some(c) = self.flush(span.start, a.span.start) {
                 lines.push(c);
             }
-            let mut v = vec![text(pattern_str(self.tree(), PatId(a.pattern)))];
+            let mut h = vec![text(pattern_str(self.tree(), PatId(a.pattern)))];
             if let Some(g) = self.tree().opt(a.guard) {
                 let d = self.expr(g);
-                v.push(text(" if "));
-                v.push(d);
+                h.push(text(" if "));
+                h.push(d);
             }
             // Braces, unless the body fits beside the arrow — the same rule
             // a lambda body gets, and for the same reason. An arm body is an
             // expression, so the braced form is a block expression, which is
             // what the arm would have held anyway.
+            //
+            // The head belongs **inside** every candidate and never in front
+            // of them. A guard is a group, a group is measured against what
+            // the printer already has stacked behind it, and `fits`'s
+            // `Doc::Alt` arm reads an `Alt` behind it as its *first*
+            // candidate. A head in front is therefore measured against a body
+            // that is about to be rejected, and breaks to make room the chosen
+            // candidate does not need — while the second run, whose body is a
+            // `Kind::Block` and whose arm has no `Alt` at all, measures the
+            // head against `" => {"` and does not break it. Inside the
+            // candidates both runs ask the head the same question, which is
+            // what makes the output a fixed point.
+            let head = cat(h);
             let body = self.expr(ExprId(a.body));
-            if self.tree().kind(ExprId(a.body)) == Kind::Block {
-                v.push(text(" => "));
-                v.push(body);
+            let arm = if self.tree().kind(ExprId(a.body)) == Kind::Block {
+                cat(vec![head, text(" => "), body])
             } else {
-                v.push(alt(
-                    cat(vec![text(" => "), body.clone()]),
+                alt(
+                    cat(vec![head.clone(), text(" => "), body.clone()]),
                     cat(vec![
+                        head,
                         text(" => {"),
                         nest(cat(vec![Doc::HardLine, body])),
                         Doc::HardLine,
                         text("}"),
                     ]),
-                ));
-            }
-            v.push(text(","));
-            lines.push(cat(v));
+                )
+            };
+            lines.push(cat(vec![arm, text(",")]));
         }
         if let Some(c) = self.flush(span.start, span.end.saturating_sub(1)) {
             lines.push(c);
@@ -1818,7 +1900,7 @@ impl<'t> Build<'t> {
                 }
                 Link::Try => assembled.push(text("?")),
                 Link::TypeArgs(ts) => {
-                    let inner = ts.iter().map(ty).collect::<Vec<_>>().join(", ");
+                    let inner = type_list(self.tree(), ts);
                     assembled.push(text(format!("<{inner}>")));
                 }
             }
@@ -1933,22 +2015,25 @@ fn record(head: &str, items: Vec<Doc>, trailing: Option<Doc>) -> Doc {
 /// Each returned group is emitted with no blank line inside it and the usual
 /// paragraph break above it. The declaration is a field of its own rather than
 /// the last element of a list, so that there is no group without one.
-fn derive_groups<'a>(items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a Item)> {
-    fn declares(item: &Item) -> Option<&str> {
+fn derive_groups<'a>(t: &Tree, items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a Item)> {
+    // Matched on the text a name was written with, which is what it was when
+    // the name was a `String`: two declarations spelled the same are the same
+    // name whatever their spans are.
+    fn declares<'t>(t: &'t Tree, item: &Item) -> Option<&'t str> {
         match item {
-            Item::Struct(d) => Some(&d.name.name),
-            Item::Enum(d) => Some(&d.name.name),
-            Item::TypeAlias(d) => Some(&d.name.name),
+            Item::Struct(d) => Some(t.name(d.name)),
+            Item::Enum(d) => Some(t.name(d.name)),
+            Item::TypeAlias(d) => Some(t.name(d.name)),
             _ => None,
         }
     }
     // A `derive` may only name a type declared in the same module, so a
     // one-segment path is the whole of what can be matched here.
-    fn derives_for(item: &Item) -> Option<&str> {
+    fn derives_for<'t>(t: &'t Tree, item: &Item) -> Option<&'t str> {
         let Item::Derive(d) = item else { return None };
-        let TypeExpr::Named { path, args, .. } = &d.self_ty else { return None };
-        match path.as_slice() {
-            [only] if args.is_empty() => Some(only.name.as_str()),
+        let TypeView::Named { path, args, .. } = t.ty(d.self_ty) else { return None };
+        match path {
+            [only] if args.is_empty() => Some(t.text(*only)),
             _ => None,
         }
     }
@@ -1958,8 +2043,8 @@ fn derive_groups<'a>(items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a Item)> {
     let attach: Vec<Option<usize>> = items
         .iter()
         .map(|item| {
-            let name = derives_for(item)?;
-            items.iter().position(|t| declares(t) == Some(name))
+            let name = derives_for(t, item)?;
+            items.iter().position(|x| declares(t, x) == Some(name))
         })
         .collect();
 
@@ -2022,7 +2107,7 @@ enum Link<'t> {
     Call(&'t [ExprId]),
     Index(ExprId),
     Try,
-    TypeArgs(&'t [TypeExpr]),
+    TypeArgs(&'t [TypeId]),
 }
 
 /// Splits a postfix chain into the thing it starts from and the operators
@@ -2133,12 +2218,12 @@ fn lambda_head(t: &Tree, params: &[LambdaParamData], ret: Option<TypeId>) -> Str
         }
         out.push_str(t.text(p.name));
         if let Some(a) = t.opt_type(p.ty) {
-            let _ = write!(out, ": {}", ty(t.ty(a)));
+            let _ = write!(out, ": {}", ty(t, a));
         }
     }
     out.push(')');
     if let Some(r) = ret {
-        let _ = write!(out, ": {}", ty(t.ty(r)));
+        let _ = write!(out, ": {}", ty(t, r));
     }
     out.push_str(" =>");
     out
@@ -2190,48 +2275,46 @@ fn expr_prec(t: &Tree, e: ExprId) -> u8 {
 
 // -- the pieces that are always one line -----------------------------------
 
-pub fn field_decl(f: &FieldDecl) -> String {
+pub fn field_decl(t: &Tree, f: &FieldDecl) -> String {
     format!(
         "{}{}: {}",
         if f.exported { "export " } else { "" },
-        f.name.name,
-        ty(&f.ty)
+        t.name(f.name),
+        ty(t, f.ty)
     )
 }
 
-pub fn variant(v: &Variant) -> String {
+pub fn variant(t: &Tree, v: &Variant) -> String {
     let ex = if v.exported { "export " } else { "" };
     match &v.payload {
-        VariantPayload::None => format!("{ex}{}", v.name.name),
-        VariantPayload::Tuple(ts) => format!(
-            "{ex}{}({})",
-            v.name.name,
-            ts.iter().map(ty).collect::<Vec<_>>().join(", ")
-        ),
+        VariantPayload::None => format!("{ex}{}", t.name(v.name)),
+        VariantPayload::Tuple(ts) => {
+            format!("{ex}{}({})", t.name(v.name), type_list(t, t.type_list(*ts)))
+        }
         VariantPayload::Record(fs) => format!(
             "{ex}{} {{ {} }}",
-            v.name.name,
-            fs.iter().map(field_decl).collect::<Vec<_>>().join(", ")
+            t.name(v.name),
+            fs.iter().map(|f| field_decl(t, f)).collect::<Vec<_>>().join(", ")
         ),
     }
 }
 
-pub fn signature(d: &FnDecl) -> String {
+pub fn signature(t: &Tree, d: &FnDecl) -> String {
     let params = d
         .params
         .iter()
-        .map(|p| format!("{}: {}", p.name.name, ty(&p.ty)))
+        .map(|p| format!("{}: {}", t.name(p.name), ty(t, p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
         "fn {}{}({params}): {}",
-        d.name.name,
-        generics(&d.generics),
-        ty(&d.ret)
+        t.name(d.name),
+        generics(t, &d.generics),
+        ty(t, d.ret)
     )
 }
 
-pub fn generics(g: &[GenericParam]) -> String {
+pub fn generics(t: &Tree, g: &[GenericParam]) -> String {
     if g.is_empty() {
         return String::new();
     }
@@ -2239,12 +2322,16 @@ pub fn generics(g: &[GenericParam]) -> String {
         .iter()
         .map(|p| {
             if p.bounds.is_empty() {
-                p.name.name.clone()
+                t.name(p.name).to_string()
             } else {
                 format!(
                     "{}: {}",
-                    p.name.name,
-                    p.bounds.iter().map(ty).collect::<Vec<_>>().join(" + ")
+                    t.name(p.name),
+                    t.type_list(p.bounds)
+                        .iter()
+                        .map(|b| ty(t, *b))
+                        .collect::<Vec<_>>()
+                        .join(" + ")
                 )
             }
         })
@@ -2253,27 +2340,27 @@ pub fn generics(g: &[GenericParam]) -> String {
     format!("<{inner}>")
 }
 
-pub fn ty(t: &TypeExpr) -> String {
-    match t {
-        TypeExpr::Named { path, args, .. } => {
-            let base = path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+fn type_list(t: &Tree, ids: &[TypeId]) -> String {
+    ids.iter().map(|i| ty(t, *i)).collect::<Vec<_>>().join(", ")
+}
+
+pub fn ty(t: &Tree, id: TypeId) -> String {
+    match t.ty(id) {
+        TypeView::Named { path, args, .. } => {
+            let base = t.path_text(path);
             if args.is_empty() {
                 base
             } else {
-                format!("{base}<{}>", args.iter().map(ty).collect::<Vec<_>>().join(", "))
+                format!("{base}<{}>", type_list(t, args))
             }
         }
-        TypeExpr::SelfType { .. } => "Self".into(),
-        TypeExpr::Unit { .. } => "()".into(),
-        TypeExpr::Tuple { elems, .. } => {
-            format!("({})", elems.iter().map(ty).collect::<Vec<_>>().join(", "))
+        TypeView::SelfType { .. } => "Self".into(),
+        TypeView::Unit { .. } => "()".into(),
+        TypeView::Tuple { elems, .. } => format!("({})", type_list(t, elems)),
+        TypeView::Array { elem, .. } => format!("[{}]", ty(t, elem)),
+        TypeView::Fn { params, ret, .. } => {
+            format!("fn({}) => {}", type_list(t, params), ty(t, ret))
         }
-        TypeExpr::Array { elem, .. } => format!("[{}]", ty(elem)),
-        TypeExpr::Fn { params, ret, .. } => format!(
-            "fn({}) => {}",
-            params.iter().map(ty).collect::<Vec<_>>().join(", "),
-            ty(ret)
-        ),
     }
 }
 
@@ -2432,8 +2519,9 @@ fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
 /// The comments alone, in source order.
 ///
 /// This is the half of the shape formatting must preserve *exactly*. The token
-/// half may legally change: the formatter drops a redundant parenthesis and an
-/// optional trailing comma, and adds a required one.
+/// half may legally change: the formatter drops a redundant parenthesis, an
+/// optional trailing comma and an empty type-argument list, and adds a required
+/// comma.
 pub fn comment_shape(text: &str) -> Vec<Shape> {
     shapes(text, false)
 }

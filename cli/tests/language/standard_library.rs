@@ -66,11 +66,14 @@ fn a_lazily_loaded_module_declares_no_method_on_a_built_in_type() {
             if d.trait_ty.is_some() {
                 continue;
             }
-            let name = match &d.self_ty {
-                buri::parsing::tree::TypeExpr::Array { .. } => "[T]".to_string(),
-                buri::parsing::tree::TypeExpr::Named { path, .. } => {
-                    path.last().map(|s| s.name.clone()).unwrap_or_default()
-                }
+            // A name is the source under its span, so the tree is what reads
+            // one back.
+            let name = match parsed.module.tree.ty(d.self_ty) {
+                buri::parsing::flat::TypeView::Array { .. } => "[T]".to_string(),
+                buri::parsing::flat::TypeView::Named { path, .. } => path
+                    .last()
+                    .map(|s| parsed.module.tree.text(*s).to_string())
+                    .unwrap_or_default(),
                 _ => continue,
             };
             if name == "[T]" || BUILT_IN.contains(&name.as_str()) {

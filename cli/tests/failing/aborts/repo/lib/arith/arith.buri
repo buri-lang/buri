@@ -1,0 +1,13 @@
+from "core/bits" import * as bits;
+
+export fn ratio(a: Int, b: Int): Int {
+    a / b
+}
+
+export fn leftover(a: Int, b: Int): Int {
+    a % b
+}
+
+export fn push(x: Int, n: Int): Int {
+    bits.shl(x, n)
+}

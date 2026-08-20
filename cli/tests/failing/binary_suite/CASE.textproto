@@ -1,0 +1,16 @@
+# A `binary` rule's test suite. `commands/test.rs::has_tests` and `::suite`
+# both branch on `RuleKind`, so a binary's suite reaches the runner down a
+# different path from a library's — and the report it produces has to be the
+# same report. Recorded so that it is.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a failing test in a binary rule's suite is reported exactly as a library's is"
+
+run {
+  args: ["test", "//cmd/app", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

@@ -1,0 +1,27 @@
+// A failed assertion ends the test it is in and no other, so a test holding
+// three failing assertions is one line in the report and not three. The
+// statements after the first are never reached, which is the thing to know
+// when a report says less than the file suggests it should.
+
+from "core/testing/assert" import * as assert;
+
+test "three failing assertions, one report" {
+    assert.eq(1, 2);
+    assert.eq(3, 4);
+    assert.eq(5, 6);
+}
+
+test "a passing assertion before a failing one" {
+    assert.eq(1, 1);
+    assert.eq("second", "wrong");
+    assert.eq(9, 9);
+}
+
+test "an abort after a failed assertion never happens" {
+    assert.eq("the assertion", "fails first");
+    assert.eq(1 / 0, 0);
+}
+
+test "the next test is unaffected" {
+    assert.eq(7, 8);
+}

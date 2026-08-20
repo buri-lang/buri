@@ -658,9 +658,17 @@ fn run_native(
 }
 
 /// Attaches each case to the source location of the test it names.
+///
+/// By title *and module*. Two files of one suite may use one title — that is
+/// legal, and each reports its own failure at its own line — so a match on the
+/// title alone gives the second file's failure the first file's location, in
+/// the first file. Two tests sharing a title inside one file cannot arise:
+/// `duplicate-test-name` refuses them before anything is compiled.
 fn locate(s: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
     for c in cases.iter_mut() {
-        if let Some(t) = program.roots.tests().iter().find(|t| t.name == c.name) {
+        if let Some(t) =
+            program.roots.tests().iter().find(|t| t.name == c.name && t.module == c.module)
+        {
             if !t.span.is_none() {
                 let f = s.map.get(t.span.file);
                 let (line, col) = f.line_col(t.span.start);
@@ -966,6 +974,38 @@ fn field_raw(chunk: &str, name: &str) -> Option<String> {
     Some(rest.get(..rest.find([',', '}'])?)?.trim().to_string())
 }
 
+/// A test's title, as one quoted line.
+///
+/// The report is one line per `FAIL`, which is what makes it greppable, and a
+/// title is whatever somebody typed between the quotes. A `"` in one would
+/// close the quoting and a newline would end the line, so both are escaped —
+/// the rendering is the source syntax the title was written in.
+fn quote_title(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 2);
+    out.push('"');
+    for c in name.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A failure message, indented under the `FAIL` line it belongs to.
+///
+/// Every line, not just the first: a message spanning lines whose second line
+/// is flush left reads as the report having ended, and an `assert.fail` message
+/// and an abort message are both free to span lines.
+fn indented(message: &str) -> String {
+    message.split('\n').map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
+}
+
 /// Output names the target, the file, and the test (TESTING.md, "Running").
 fn report_failure(
     s: &Session,
@@ -979,8 +1019,8 @@ fn report_failure(
     let file = c.module.trim_start_matches("//");
     let file = file.strip_prefix(&s.ws.pkg(target.pkg).path).unwrap_or(file);
     let file = file.trim_start_matches('/');
-    out.line(&format!("FAIL {label}  {file}.buri  \"{}\"", c.name));
-    out.line(&format!("  {message}"));
+    out.line(&format!("FAIL {label}  {file}.buri  {}", quote_title(&c.name)));
+    out.line(&indented(message));
     if let Some(d) = diff {
         out.line(&format!("    actual:   {}", d.actual));
         out.line(&format!("    expected: {}", d.expected));
@@ -1004,5 +1044,26 @@ mod tests {
         // Not a string rendering: `--accept` has no opinion about these.
         assert_eq!(unquote("19"), None);
         assert_eq!(unquote(".Some(1)"), None);
+    }
+
+    /// One line per `FAIL`, whatever the title holds.
+    #[test]
+    fn a_title_is_printed_as_the_quoted_string_it_was_written_as() {
+        assert_eq!(quote_title("plain"), "\"plain\"");
+        assert_eq!(quote_title("say \"hi\""), "\"say \\\"hi\\\"\"");
+        assert_eq!(quote_title("two\nlines"), "\"two\\nlines\"");
+        assert_eq!(quote_title("a\\b\tc"), "\"a\\\\b\\tc\"");
+        for title in ["plain", "say \"hi\"", "two\nlines", "a\\b\tc"] {
+            assert_eq!(quote_title(title).lines().count(), 1, "{title:?} broke the line");
+        }
+    }
+
+    /// A message is part of the report, so all of it is indented under the
+    /// `FAIL` line — a flush-left second line reads as the report ending.
+    #[test]
+    fn every_line_of_a_message_is_indented() {
+        assert_eq!(indented("one"), "  one");
+        assert_eq!(indented("a\nb\nc"), "  a\n  b\n  c");
+        assert_eq!(indented("a\n\nb"), "  a\n  \n  b");
     }
 }

@@ -1,0 +1,72 @@
+FAIL //lib/scalars  test/scalars.buri  "Int"
+  assert.eq failed
+    actual:   1
+    expected: 2
+  --> lib/scalars/test/scalars.buri:7:1
+FAIL //lib/scalars  test/scalars.buri  "a negative Int"
+  assert.eq failed
+    actual:   -7
+    expected: 7
+  --> lib/scalars/test/scalars.buri:11:1
+FAIL //lib/scalars  test/scalars.buri  "Float"
+  assert.eq failed
+    actual:   1.5
+    expected: 2.25
+  --> lib/scalars/test/scalars.buri:15:1
+FAIL //lib/scalars  test/scalars.buri  "a Float that is a whole number"
+  assert.eq failed
+    actual:   3.0
+    expected: 4.0
+  --> lib/scalars/test/scalars.buri:19:1
+FAIL //lib/scalars  test/scalars.buri  "NaN"
+  assert.eq failed
+    actual:   NaN
+    expected: 1.0
+  --> lib/scalars/test/scalars.buri:23:1
+FAIL //lib/scalars  test/scalars.buri  "negative zero"
+  assert.eq failed
+    actual:   -0.0
+    expected: 0.5
+  --> lib/scalars/test/scalars.buri:27:1
+FAIL //lib/scalars  test/scalars.buri  "a Float infinity"
+  assert.eq failed
+    actual:   inf
+    expected: 0.5
+  --> lib/scalars/test/scalars.buri:31:1
+FAIL //lib/scalars  test/scalars.buri  "Str"
+  assert.eq failed
+    actual:   "left"
+    expected: "right"
+  --> lib/scalars/test/scalars.buri:35:1
+FAIL //lib/scalars  test/scalars.buri  "a Str holding the escapes JSON spells"
+  assert.eq failed
+    actual:   "a\tb\nc\"d\\e"
+    expected: "z"
+  --> lib/scalars/test/scalars.buri:39:1
+FAIL //lib/scalars  test/scalars.buri  "a Str holding characters outside ASCII"
+  assert.eq failed
+    actual:   "héllo — 日本語 🎉"
+    expected: "z"
+  --> lib/scalars/test/scalars.buri:43:1
+FAIL //lib/scalars  test/scalars.buri  "an empty Str"
+  assert.eq failed
+    actual:   ""
+    expected: "z"
+  --> lib/scalars/test/scalars.buri:47:1
+FAIL //lib/scalars  test/scalars.buri  "Char"
+  assert.eq failed
+    actual:   'a'
+    expected: 'b'
+  --> lib/scalars/test/scalars.buri:51:1
+FAIL //lib/scalars  test/scalars.buri  "Bool"
+  assert.eq failed
+    actual:   true
+    expected: false
+  --> lib/scalars/test/scalars.buri:55:1
+FAIL //lib/scalars  test/scalars.buri  "unit"
+  assert.notEq failed
+    actual:   ()
+    expected: ()
+  --> lib/scalars/test/scalars.buri:59:1
+
+0 passed, 14 failed, 0 skipped (0.0s)

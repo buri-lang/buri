@@ -1,0 +1,66 @@
+# CLI.md's three exit codes, asked of `buri test` rather than of `buri build`:
+# 0 the tests passed, 1 a test failed or the code is wrong, 2 the invocation is
+# wrong. `repositories/cli/exit_codes` pins the same three for `build`; the
+# distinction is worth asking of the one command whose exit code a CI job
+# actually reads.
+#
+# The order runs downhill: a failing suite, the same suite fixed, a suite that
+# does not compile, a target that does not exist, and a build file that does
+# not parse.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "buri test exits 1 for a failing test and for a test source that will not compile, 2 for a bad invocation, 0 otherwise"
+
+# 1: a test failed.
+run {
+  args: ["test", "//lib/subject", "--force"]
+  exit: 1
+  golden: "failed.txt"
+  stream: OUT
+}
+
+# 0: it passed.
+edit {
+  file: "lib/subject/subject.buri"
+  replace: "41"
+  with: "42"
+}
+
+run {
+  args: ["test", "//lib/subject", "--force"]
+  exit: 0
+  golden: "passed.txt"
+  stream: OUT
+}
+
+# 2: the target is not there. Nothing was compiled and nothing ran, so there is
+# no summary line — the message is on stderr and stdout is empty.
+run {
+  args: ["test", "//lib/nope"]
+  exit: 2
+  golden: "no_such_target.txt"
+  stream: ERR
+}
+
+run {
+  args: ["test", "//lib/nope"]
+  exit: 2
+  golden: "no_such_target_stdout.txt"
+  stream: OUT
+}
+
+# 2: the build file does not parse, so there is no graph to ask about yet.
+edit {
+  file: "lib/subject/BUILD.buri"
+  replace: "library {"
+  with: "library {\n    sources: ["
+}
+
+run {
+  args: ["test", "//lib/subject"]
+  exit: 2
+  golden: "unparseable_build_file.txt"
+  stream: ERR
+}

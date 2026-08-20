@@ -1,0 +1,3 @@
+doc:    "`--param derives=1` derives only `Eq`, and the `probe` every enum chunk emitted called `s.show(ctx)` regardless — so the corpus referred to a method the type no longer had. The second half of the same mistake as the empty trait list: `derives` moved what is derived without moving what is called. Fixed by asking `derives_trait` whether `Show` is reached, and allocating through `str.format` when it is not, so the probe still needs the `C: Alloc` its signature declares."
+oracle: "generated"
+status: FIXED

@@ -1,0 +1,22 @@
+# The four runtime aborts a test can reach, and the difference between an abort
+# and a failed assertion in the report: an abort has no `actual`/`expected`
+# pair, because there was no comparison — the runtime threw with a sentence.
+#
+# The `cli/tests/crash` corpus already holds these four as *programs*, where an
+# abort ends the process. This case is the other half: inside `buri test` the
+# JavaScript runner catches them, so an abort is one test's failure and the
+# suite carries on. The last test asserts exactly that, and would be the first
+# thing to notice if a future runner started stopping at the first abort — the
+# way the native runner has to (`commands/test.rs::run_native`).
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a runtime abort inside a test is reported with its own words and no diff, and the tests after it still run"
+
+run {
+  args: ["test", "//lib/arith", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

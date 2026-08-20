@@ -1,0 +1,16 @@
+// A report is one line per test, so the runner escapes a title's line break
+// rather than printing it — which means the break shows up as `\n` and reads
+// as noise. The rule is about the prose, not about the program: a title with a
+// newline in it still compiles and still runs.
+
+from "core/testing/assert" import * as assert;
+
+from "//lib/prose" import { shout };
+
+test "a title\nthat wraps" {
+  assert.eq(shout("hi"), "hi")
+}
+
+test "a title on one line" {
+  assert.eq(shout("ho"), "ho")
+}

@@ -19,7 +19,7 @@ use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, ExprId, FieldPatData,
     InitData, Kind, LambdaParamData, Loc, PKind, PartData, PatId, PatPayloadData, StmtData,
-    StmtKind, Tree, NONE,
+    StmtKind, TKind, Tree, TypeId, TypeList, NONE,
 };
 use crate::parsing::lexer::{lex, Kw, Punct, TokKind, Tokens, Trivia};
 use crate::parsing::tree::*;
@@ -290,6 +290,7 @@ struct Scratch {
     parts: Vec<PartData>,
     binds: Vec<CtxBindData>,
     names: Vec<Loc>,
+    tys: Vec<TypeId>,
 }
 
 /// What a production pushed onto a scratch stack: everything from `base` on.
@@ -325,6 +326,7 @@ struct Save {
     parts: usize,
     binds: usize,
     names: usize,
+    tys: usize,
 }
 
 struct Parser<'a> {
@@ -666,14 +668,9 @@ impl<'a> Parser<'a> {
         Err(Bail)
     }
 
-    /// The same, as the owned [`Ident`] the declaration structs still hold.
-    ///
-    /// This is the one place left that copies an identifier's text, and it is
-    /// reached only by a declaration — a few hundred per thousand lines
-    /// against the token stream's several thousand.
-    fn expect_ident(&mut self) -> PResult<Ident> {
-        let span = self.expect_name()?;
-        Ok(Ident::new(self.slice(span), span))
+    /// The same, as the [`Name`] a declaration holds.
+    fn expect_ident(&mut self) -> PResult<Name> {
+        Ok(Name::new(self.expect_name()?))
     }
 
     /// Every arena length and scratch depth, for a rollback.
@@ -690,6 +687,7 @@ impl<'a> Parser<'a> {
             parts: self.scratch.parts.len(),
             binds: self.scratch.binds.len(),
             names: self.scratch.names.len(),
+            tys: self.scratch.tys.len(),
         }
     }
 
@@ -704,6 +702,7 @@ impl<'a> Parser<'a> {
         self.scratch.lparams.truncate(s.lparams);
         self.scratch.parts.truncate(s.parts);
         self.scratch.binds.truncate(s.binds);
+        self.scratch.tys.truncate(s.tys);
         self.scratch.names.truncate(s.names);
     }
 
@@ -968,15 +967,18 @@ impl<'a> Parser<'a> {
         let mut params = Vec::new();
         while !self.is(Punct::Gt) && !self.at_eof() {
             let name = self.expect_ident()?;
-            let mut bounds = Vec::new();
+            let base = self.scratch.tys.len();
             if self.eat(Punct::Colon) {
                 loop {
-                    bounds.push(self.named_type()?);
+                    let b = self.named_type()?;
+                    self.scratch.tys.push(b);
                     if !self.eat(Punct::Plus) {
                         break;
                     }
                 }
             }
+            let bounds = self.tree.push_tkids(since(&self.scratch.tys, base));
+            self.scratch.tys.truncate(base);
             let span = name.span.to(self.prev_span());
             params.push(GenericParam { name, bounds, span });
             if !self.eat(Punct::Comma) {
@@ -994,10 +996,10 @@ impl<'a> Parser<'a> {
             let start = self.span();
             let (kind, name) = if self.is_kw(Kw::SelfValue) {
                 let span = self.bump();
-                (ParamKind::SelfParam, Ident::new("self", span))
+                (ParamKind::SelfParam, Name::new(span))
             } else if self.is_kw(Kw::Ctx) {
                 let span = self.bump();
-                (ParamKind::CtxParam, Ident::new("ctx", span))
+                (ParamKind::CtxParam, Name::new(span))
             } else {
                 (ParamKind::Normal, self.expect_ident()?)
             };
@@ -1010,7 +1012,7 @@ impl<'a> Parser<'a> {
             }
             self.expect(Punct::Colon)?;
             let ty = self.ty()?;
-            let span = start.to(ty.span());
+            let span = start.to(self.tree.type_span(ty));
             params.push(Param { kind, name, ty, span });
             first = false;
             if !self.eat(Punct::Comma) {
@@ -1037,7 +1039,7 @@ impl<'a> Parser<'a> {
         } else if self.is(Punct::Semi) {
             if !self.allow_bodyless {
                 let span = self.span();
-                let n = name.name.clone();
+                let n = self.slice(name.span).to_string();
                 self.error(
                     span,
                     format!("`{n}` has no body"),
@@ -1146,14 +1148,17 @@ impl<'a> Parser<'a> {
             let vexported = self.eat_kw(Kw::Export);
             let vname = self.expect_ident()?;
             let payload = if self.eat(Punct::LParen) {
-                let mut tys = Vec::new();
+                let base = self.scratch.tys.len();
                 while !self.is(Punct::RParen) && !self.at_eof() {
-                    tys.push(self.ty()?);
+                    let t = self.ty()?;
+                    self.scratch.tys.push(t);
                     if !self.eat(Punct::Comma) {
                         break;
                     }
                 }
                 self.expect(Punct::RParen)?;
+                let tys = self.tree.push_tkids(since(&self.scratch.tys, base));
+                self.scratch.tys.truncate(base);
                 VariantPayload::Tuple(tys)
             } else if self.eat(Punct::LBrace) {
                 let fields = self.field_decls(Punct::RBrace)?;
@@ -1316,10 +1321,35 @@ impl<'a> Parser<'a> {
 
     fn derive_decl(&mut self) -> PResult<DeriveDecl> {
         let start = self.expect_kw(Kw::Derive)?;
-        let mut traits = vec![self.named_type()?];
-        while self.eat(Punct::Comma) {
-            traits.push(self.named_type()?);
+        // `derive for Meters;` reaches the type-name parser at `for`, which
+        // reports "expected an identifier" and offers to name a binding. The
+        // grammar is not what is confusing here: the clause is empty, and a
+        // clause naming no traits would generate nothing.
+        if self.is_kw(Kw::For) {
+            let span = self.span();
+            self.error(
+                span,
+                "a `derive` clause names no traits",
+                "name the traits between `derive` and `for`, as in `derive Eq, Show for Meters;`",
+            )
+            .map(|d| {
+                d.code("derive-without-traits").note(
+                    "`derive` generates one implementation per trait it names, so a clause \
+                     naming none would generate nothing; delete it, or name what the type \
+                     should derive",
+                )
+            });
+            return Err(Bail);
         }
+        let base = self.scratch.tys.len();
+        let first = self.named_type()?;
+        self.scratch.tys.push(first);
+        while self.eat(Punct::Comma) {
+            let t = self.named_type()?;
+            self.scratch.tys.push(t);
+        }
+        let traits = self.tree.push_tkids(since(&self.scratch.tys, base));
+        self.scratch.tys.truncate(base);
         self.expect_kw(Kw::For)?;
         let self_ty = self.named_type()?;
         let end = self.expect(Punct::Semi)?;
@@ -1350,7 +1380,6 @@ impl<'a> Parser<'a> {
             let effect = self.named_type()?;
             self.expect(Punct::Colon)?;
             let value = self.expr()?;
-            let effect = self.tree.push_type(effect);
             let span = Loc::of(bstart.to(self.prev_span()));
             self.scratch.binds.push(CtxBindData { effect: effect.0, value: value.0, span });
             if !self.eat(Punct::Comma) {
@@ -1377,35 +1406,46 @@ impl<'a> Parser<'a> {
 
     // -- types --------------------------------------------------------------
 
-    fn named_type(&mut self) -> PResult<TypeExpr> {
+    fn named_type(&mut self) -> PResult<TypeId> {
         let start = self.span();
         // `Self` is a legal bound position spelling in an impl's type list.
         if self.is_kw(Kw::SelfType) {
             let span = self.bump();
-            return Ok(TypeExpr::SelfType { span });
+            return Ok(self.tree.push_type(TKind::SelfType, [0; 4], span));
         }
-        let mut path = vec![self.expect_ident()?];
+        let nbase = self.scratch.names.len();
+        let first = self.expect_name()?;
+        self.scratch.names.push(Loc::of(first));
         while self.is(Punct::Dot) {
             self.bump();
-            path.push(self.expect_ident()?);
+            let seg = self.expect_name()?;
+            self.scratch.names.push(Loc::of(seg));
         }
+        let (ps, pl) = self.tree.push_names(since(&self.scratch.names, nbase));
+        self.scratch.names.truncate(nbase);
         let args = self.type_args()?;
-        Ok(TypeExpr::Named { path, args, span: start.to(self.prev_span()) })
+        let span = start.to(self.prev_span());
+        Ok(self.tree.push_type(TKind::Named, [ps, pl, args.start, args.len], span))
     }
 
-    fn type_args(&mut self) -> PResult<Vec<TypeExpr>> {
+    /// A type-argument list, appended to the tree. No `<` is the empty list,
+    /// which occupies nothing.
+    fn type_args(&mut self) -> PResult<TypeList> {
         if !self.is(Punct::Lt) {
-            return Ok(Vec::new());
+            return Ok(TypeList::default());
         }
         self.bump();
-        let mut args = Vec::new();
+        let base = self.scratch.tys.len();
         while !self.is(Punct::Gt) && !self.at_eof() {
-            args.push(self.ty()?);
+            let t = self.ty()?;
+            self.scratch.tys.push(t);
             if !self.eat(Punct::Comma) {
                 break;
             }
         }
         self.expect(Punct::Gt)?;
+        let args = self.tree.push_tkids(since(&self.scratch.tys, base));
+        self.scratch.tys.truncate(base);
         Ok(args)
     }
 
@@ -1433,12 +1473,15 @@ impl<'a> Parser<'a> {
     /// A trial that fails costs the tokens it walked and nothing else: the
     /// position is restored, and `trial` kept every diagnostic it would have
     /// reported from being reported.
-    fn type_args_in_expr(&mut self) -> Option<Vec<TypeExpr>> {
+    fn type_args_in_expr(&mut self) -> Option<TypeList> {
         if !self.scan_for_type_args() {
             return None;
         }
         let pos = self.pos;
         let depth = self.depth;
+        // A trial appends type nodes. The reading that loses must leave none
+        // of them behind, or every `a < b` in the file costs an arena entry.
+        let save = self.save();
         self.trial = self.trial.saturating_add(1);
         let parsed = self.type_args();
         self.trial = self.trial.saturating_sub(1);
@@ -1449,6 +1492,7 @@ impl<'a> Parser<'a> {
         match parsed {
             Ok(args) if !args.is_empty() && self.commits_to_type_args() => Some(args),
             _ => {
+                self.restore(save);
                 self.pos = pos;
                 None
             }
@@ -1514,43 +1558,48 @@ impl<'a> Parser<'a> {
         false
     }
 
-    fn ty(&mut self) -> PResult<TypeExpr> {
+    fn ty(&mut self) -> PResult<TypeId> {
         self.enter()?;
         let r = self.ty_inner();
         self.leave();
         r
     }
 
-    fn ty_inner(&mut self) -> PResult<TypeExpr> {
+    fn ty_inner(&mut self) -> PResult<TypeId> {
         let start = self.span();
         // Function types are written with `fn` for the same reason lambdas are:
         // it makes `(A, B)` unambiguously a tuple everywhere.
         if self.is_kw(Kw::Fn) {
             self.bump();
             self.expect(Punct::LParen)?;
-            let mut params = Vec::new();
+            let base = self.scratch.tys.len();
             while !self.is(Punct::RParen) && !self.at_eof() {
-                params.push(self.ty()?);
+                let t = self.ty()?;
+                self.scratch.tys.push(t);
                 if !self.eat(Punct::Comma) {
                     break;
                 }
             }
+            let params = self.tree.push_tkids(since(&self.scratch.tys, base));
+            self.scratch.tys.truncate(base);
             self.expect(Punct::RParen)?;
             self.expect(Punct::FatArrow)?;
-            let ret = Box::new(self.ty()?);
-            return Ok(TypeExpr::Fn { params, ret, span: start.to(self.prev_span()) });
+            let ret = self.ty()?;
+            let span = start.to(self.prev_span());
+            return Ok(self.tree.push_type(TKind::Fn, [params.start, params.len, ret.0, 0], span));
         }
 
         if self.is_kw(Kw::SelfType) {
             let span = self.bump();
-            return Ok(TypeExpr::SelfType { span });
+            return Ok(self.tree.push_type(TKind::SelfType, [0; 4], span));
         }
 
         if self.is(Punct::LBracket) {
             self.bump();
-            let elem = Box::new(self.ty()?);
+            let elem = self.ty()?;
             self.expect(Punct::RBracket)?;
-            return Ok(TypeExpr::Array { elem, span: start.to(self.prev_span()) });
+            let span = start.to(self.prev_span());
+            return Ok(self.tree.push_type(TKind::Array, [elem.0, 0, 0, 0], span));
         }
 
         if self.is(Punct::LParen) {
@@ -1558,22 +1607,27 @@ impl<'a> Parser<'a> {
             // `()` is unit, `(T)` is grouping, `(T, U)` is a tuple.
             if self.is(Punct::RParen) {
                 let end = self.bump();
-                return Ok(TypeExpr::Unit { span: start.to(end) });
+                return Ok(self.tree.push_type(TKind::Unit, [0; 4], start.to(end)));
             }
             let first = self.ty()?;
             if self.is(Punct::RParen) {
                 self.bump();
                 return Ok(first);
             }
-            let mut elems = vec![first];
+            let base = self.scratch.tys.len();
+            self.scratch.tys.push(first);
             while self.eat(Punct::Comma) {
                 if self.is(Punct::RParen) {
                     break;
                 }
-                elems.push(self.ty()?);
+                let t = self.ty()?;
+                self.scratch.tys.push(t);
             }
             self.expect(Punct::RParen)?;
-            if elems.len() < 2 {
+            let n = self.scratch.tys.len().saturating_sub(base);
+            let elems = self.tree.push_tkids(since(&self.scratch.tys, base));
+            self.scratch.tys.truncate(base);
+            if n < 2 {
                 let span = start.to(self.prev_span());
                 self.error(
                     span,
@@ -1582,7 +1636,8 @@ impl<'a> Parser<'a> {
                 )
                 .map(|d| d.note("`(T)` is a parenthesized type and `()` is unit"));
             }
-            return Ok(TypeExpr::Tuple { elems, span: start.to(self.prev_span()) });
+            let span = start.to(self.prev_span());
+            return Ok(self.tree.push_type(TKind::Tuple, [elems.start, elems.len, 0, 0], span));
         }
 
         match self.peek() {
@@ -1692,8 +1747,7 @@ impl<'a> Parser<'a> {
         }
         let pattern = self.pattern()?;
         let ty = if self.eat(Punct::Colon) {
-            let t = self.ty()?;
-            self.tree.push_type(t).0
+            self.ty()?.0
         } else {
             NONE
         };
@@ -1736,12 +1790,7 @@ impl<'a> Parser<'a> {
         let base = self.scratch.lparams.len();
         while !self.is(Punct::RParen) && !self.at_eof() {
             let name = self.expect_name()?;
-            let ty = if self.eat(Punct::Colon) {
-                let t = self.ty()?;
-                self.tree.push_type(t).0
-            } else {
-                NONE
-            };
+            let ty = if self.eat(Punct::Colon) { self.ty()?.0 } else { NONE };
             let span = name.to(self.prev_span());
             self.scratch.lparams.push(LambdaParamData {
                 name: Loc::of(name),
@@ -1754,8 +1803,7 @@ impl<'a> Parser<'a> {
         }
         self.expect(Punct::RParen)?;
         let ret = if self.eat(Punct::Colon) {
-            let t = self.ty()?;
-            self.tree.push_type(t).0
+            self.ty()?.0
         } else {
             NONE
         };
@@ -2322,10 +2370,9 @@ impl<'a> Parser<'a> {
                 // the latter, leaving the `<` for the binary parser above.
                 TokKind::Lt => match self.type_args_in_expr() {
                     Some(args) => {
-                        let (ts, tl) = self.tree.push_types(args);
                         base = self.tree.push(
                             Kind::Generic,
-                            [base.0, ts, tl, 0],
+                            [base.0, args.start, args.len, 0],
                             start.to(self.prev_span()),
                             at,
                         );
@@ -2366,10 +2413,9 @@ impl<'a> Parser<'a> {
                         )
                     });
                     let args = self.type_args()?;
-                    let (ts, tl) = self.tree.push_types(args);
                     base = self.tree.push(
                         Kind::Generic,
-                        [base.0, ts, tl, 0],
+                        [base.0, args.start, args.len, 0],
                         start.to(self.prev_span()),
                         at,
                     );
@@ -2948,7 +2994,11 @@ mod tests {
         let p = parse("fn a(: Int { } \n fn b(): Int { 1 }", FileId(0));
         assert!(!p.errors.is_empty());
         // The good declaration after the bad one is still parsed.
-        assert!(p.module.items.iter().any(|i| matches!(i, Item::Fn(f) if f.name.name == "b")));
+        assert!(p
+            .module
+            .items
+            .iter()
+            .any(|i| matches!(i, Item::Fn(f) if p.module.tree.name(f.name) == "b")));
     }
 
     /// An `impl` body that holds something other than a method, followed by
@@ -2970,7 +3020,10 @@ mod tests {
         // Recovery still reaches the item after the malformed body.
         let p = parse("impl V { ... }\nfn after(): Int { 1 }", FileId(0));
         assert!(
-            p.module.items.iter().any(|i| matches!(i, Item::Fn(f) if f.name.name == "after")),
+            p.module
+                .items
+                .iter()
+                .any(|i| matches!(i, Item::Fn(f) if p.module.tree.name(f.name) == "after")),
             "the declaration after a malformed `impl` should still parse"
         );
     }

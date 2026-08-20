@@ -179,6 +179,16 @@ pub struct Program {
     pub funcs: Vec<Func>,
     pub roots: ProgramRoots,
     pub descriptors: Vec<Desc>,
+    /// The path of the module that declares each descriptor's type, at the
+    /// same index as [`Program::descriptors`]. `None` for a type with no
+    /// declaring module of its own: `[T]`, a tuple, `Option`, an opaque.
+    ///
+    /// It is recorded here because `middle::derives` runs with a `Program` and
+    /// no `Tables`, and a derived function has to be told which codegen unit it
+    /// belongs in — the unit of the type it was derived for. Without it every
+    /// derived function in the program lands in `root` (ARCHITECTURE.md §5.1),
+    /// which is then invalidated by any new derive anywhere.
+    pub desc_modules: Vec<Option<String>>,
     /// Which descriptor describes a type, so the backend can compile a
     /// structural operation *at* a type instead of calling a runtime walker
     /// that rediscovers the shape on every element.
@@ -204,6 +214,7 @@ pub struct Monomorphizer<'a> {
     index: HashMap<Key, usize>,
     queue: Vec<(Key, usize)>,
     descriptors: Vec<Desc>,
+    desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
     module_paths: Vec<String>,
@@ -222,6 +233,7 @@ pub fn run(
         index: HashMap::default(),
         queue: Vec::new(),
         descriptors: Vec::new(),
+        desc_modules: Vec::new(),
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
         module_paths,
@@ -254,6 +266,7 @@ pub fn run(
         funcs: m.funcs,
         roots: program_roots,
         descriptors: m.descriptors,
+        desc_modules: m.desc_modules,
         desc_index: m.desc_index,
         ctx_layouts: m.ctx_layouts,
     }
@@ -335,7 +348,17 @@ impl<'a> Monomorphizer<'a> {
                     .tests
                     .get(*i)
                     .or_ice("a test key holds the index `run` enumerated `checked.tests` with");
-                (format!("test${i}"), case.name.clone(), case.span)
+                // Qualified with the declaring module, because a debug name is
+                // what `lower::unit_name` reads a codegen unit out of and a
+                // test's title is arbitrary prose: `test "parses a: b"` put its
+                // body in a unit called `a`. The module prefix is the first
+                // colon, so a title's own punctuation is past the split.
+                let module = self
+                    .module_paths
+                    .get(case.module.index())
+                    .cloned()
+                    .unwrap_or_else(|| "core".into());
+                (format!("test${i}"), format!("{module}:{}", case.name), case.span)
             }
         }
     }
@@ -930,6 +953,17 @@ impl<'a> Monomorphizer<'a> {
     // Descriptors
     // -----------------------------------------------------------------------
 
+    /// The path of the module a type is declared in, where it has one.
+    ///
+    /// `[T]`, a tuple and an `Option` payload are structural rather than
+    /// declared, so they answer `None` and the functions derived for them stay
+    /// in `root`.
+    fn declaring_module(&self, ty: &Ty) -> Option<String> {
+        let con = ty.head()?;
+        let module = self.tables().tycon(con).module;
+        self.module_paths.get(module.index()).cloned()
+    }
+
     /// Interns a runtime type descriptor. Field names and variant names are
     /// what `show` needs; `eq` and `compare` need the shape.
     fn descriptor(&mut self, ty: &Ty) -> usize {
@@ -939,6 +973,7 @@ impl<'a> Monomorphizer<'a> {
         // Reserve the slot first, so a recursive type terminates.
         let slot = self.descriptors.len();
         self.descriptors.push(Desc::Reserved);
+        self.desc_modules.push(self.declaring_module(ty));
         self.desc_index.insert(ty.clone(), slot);
 
         let desc = match ty {
@@ -1055,7 +1090,7 @@ fn sanitize(s: &str) -> String {
     clippy::indexing_slicing,
     reason = "`h % 36` is a digit of a base-36 numeral and the alphabet is the 36 characters it names"
 )]
-fn short_hash(s: &str) -> String {
+pub(super) fn short_hash(s: &str) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.bytes() {
         h ^= b as u64;

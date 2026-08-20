@@ -14,18 +14,20 @@
 //!   - a failure ends that test and no other. The runner reports the file, the
 //!     line, and both values.
 
-from "core/order" import { Eq, Show };
+from "core/order" import { Eq };
 
-/// Fails unless `a == b`. Requires `Eq`, and `Show` for the message.
+/// Fails unless `a == b`. Requires `Eq`, and nothing else.
 ///
 /// The comparison goes through `Eq`, so a hand-written implementation decides
-/// what equal means here exactly as it does everywhere else. Only the
-/// *rendering* of a failure is the runner's.
-export fn eq<T: Eq + Show>(actual: T, expected: T): () {
+/// what equal means here exactly as it does everywhere else. The *rendering* of
+/// a failure is the runner's and is structural — it walks the type rather than
+/// calling `Show` — so there is no `Show` bound to satisfy: a type is
+/// assertable as soon as it is comparable.
+export fn eq<T: Eq>(actual: T, expected: T): () {
   report(actual == expected, "eq", actual, expected)
 }
 
-export fn notEq<T: Eq + Show>(actual: T, expected: T): () {
+export fn notEq<T: Eq>(actual: T, expected: T): () {
   report(actual != expected, "notEq", actual, expected)
 }
 
@@ -44,30 +46,35 @@ export fn fail(message: Str): () {
 
 /// Fails unless `r` is `.Ok`, and returns the wrapped value — which is how a
 /// `Result` is consumed in a test, since `Result` is still must-use here.
-export fn ok<T, E: Show>(r: Result<T, E>): T {
+export fn ok<T, E>(r: Result<T, E>): T {
   match (r) {
     .Ok(v) => v,
     .Err(e) => failExpected("ok", e),
   }
 }
 
-export fn err<T: Show, E>(r: Result<T, E>): E {
+export fn err<T, E>(r: Result<T, E>): E {
   match (r) {
     .Ok(v) => failExpected("err", v),
     .Err(e) => e,
   }
 }
 
+/// The value the report shows is the `Option` itself, so a failure reads
+/// `actual: .None` against `expected: .Some` — both in the syntax the value is
+/// written in. Passing the word "none" instead would be indistinguishable from
+/// a test whose value really was `.Some("none")`.
 export fn some<T>(o: Option<T>): T {
   match (o) {
     .Some(v) => v,
-    .None => failExpected("some", "none"),
+    .None => failExpected("some", o),
   }
 }
 
-export fn none<T: Show>(o: Option<T>): () {
+/// The mirror of `some`: `actual: .Some("none")` against `expected: .None`.
+export fn none<T>(o: Option<T>): () {
   match (o) {
-    .Some(v) => failExpected("none", v),
+    .Some(_) => failExpected("none", o),
     .None => (),
   }
 }

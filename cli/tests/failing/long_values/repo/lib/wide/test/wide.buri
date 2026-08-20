@@ -1,0 +1,29 @@
+// Nothing in the report is truncated and nothing is wrapped. A long value is
+// printed whole, a value holding a newline is printed with the newline in it,
+// and `assert.fail`'s message is printed with only its first line indented.
+// All three are worth recording because the alternative — an eliding
+// renderer — is the kind of thing that gets added without a test noticing.
+
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+
+test "a string far past a terminal's width" {
+    assert.eq(
+        "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
+        "short",
+    );
+}
+
+test "a list of forty elements" {
+    let ctx = Hermetic();
+    assert.eq(list.range(ctx, 1, 41), []);
+}
+
+test "a string holding newlines" {
+    assert.eq("first\nsecond\nthird", "one line");
+}
+
+test "a message of three lines" {
+    assert.fail("first line\nsecond line\nthird line");
+}

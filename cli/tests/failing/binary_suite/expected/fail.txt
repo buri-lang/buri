@@ -1,0 +1,7 @@
+FAIL //cmd/app  test/app.buri  "a binary's suite fails the same way a library's does"
+  assert.eq failed
+    actual:   "hello"
+    expected: "goodbye"
+  --> cmd/app/test/app.buri:9:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

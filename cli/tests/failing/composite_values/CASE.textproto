@@ -1,0 +1,25 @@
+# The `k === 2`, `k === 3`, `k === 4`, `k === 5` and `k === 7` arms of
+# `$show` — a struct, an enum, a list, a tuple and an `Option` — each with the
+# empty case beside the populated one, because a renderer written for one
+# element is a renderer that prints `[, ]` for none.
+#
+# A struct with no fields renders `Hollow {}` and a payloadless variant renders
+# `.Red`: each is the syntax the value is written in, which is the rule the
+# whole table is held to. `middle/derives.rs` generates the same shapes for a
+# derived `Show`, so a report and a hand-called `show` cannot disagree.
+#
+# The library carries the types because a test source may not export, which is
+# the same reason `cli/tests/conformance/lib/json/shapes.buri` is a separate
+# file from the suite that uses it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a failing assertion on every composite shape: structs, enums, lists, tuples, and the empty case of each"
+
+run {
+  args: ["test", "//lib/shapes", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

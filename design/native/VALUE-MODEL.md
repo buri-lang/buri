@@ -647,3 +647,26 @@ through this file as it stands, because every case there makes its divisor opaqu
 with `env.args(ctx).len()` and `host.HostEnv.arguments` has no native body; the
 rows here use `"".len()` instead, which is opaque to the folder and reaches no
 capability.
+
+**A third, found later, and it is a bug rather than a fifteenth row.** A struct
+holding `NaN` compared with **itself** answers `true` on JavaScript and `false`
+on both native backends. It gets no numbered row because a row is either "must
+agree" or a divergence the table endorses, and this is neither: SPEC 7.2 already
+says which answer is right, and it is the native one — "a struct with an `F64`
+field holding `NaN` is not equal to itself … derived `Eq` is not reflexive for
+every value". The same section rejects the mechanism that produces the other
+answer, and predicts exactly this: referential equality "has no stable answer …
+the result would depend on the optimization level and on the backend".
+`js/generate.rs`'s `eq_decl` and `runtime.js`'s `$eq` both open with
+`if (a === b) return true;`, so on that backend `==` is answered by identity
+whenever the operands are one object; `middle/derives.rs` emits the field walk
+with no such prelude, and `fcmp Equal` / `fcmp oeq` loses. Row 9's reason for
+grouping `Eq` with `Show` — "they are the same generator" — is what hid it:
+`derives.rs`'s header records that the pass "runs from `middle::native` and
+nowhere else", so derived equality has **two** implementations, not one. Both
+answers are pinned by
+`agreement.rs::a_struct_holding_nan_compared_with_itself_does_not_agree`, which
+fails the day either side moves — including the day the JavaScript side is
+corrected, which is the repair. `conformance/lib/codegen/test/equality.buri`'s
+"a value is equal to itself even when it holds NaN" asserts the JavaScript
+answer and runs JS-only, which is why no suite saw this.

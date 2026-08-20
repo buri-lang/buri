@@ -1308,6 +1308,52 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// Derived `Eq` over an `F64` field: the three float facts SPEC 6.2 and 7.2
+/// pin, on every backend.
+///
+/// SPEC 6.2: "`==` on floats compares numerically with `-0.0` equal to `0.0`,
+/// and `NaN != NaN`." SPEC 7.2: "a struct with an `F64` field holding `NaN` is
+/// not equal to itself", because a derived `Eq` inherits that behaviour from
+/// its components. All three hold on JavaScript and on both native backends
+/// and are asserted here together, because they are the same rule read at
+/// three depths: the bare primitive, the primitive inside an aggregate, and
+/// the sign of zero the comparison must ignore.
+///
+/// The fourth reading of the same rule — the *same* value compared with
+/// itself — is where the backends part company, and it is row 15 rather than
+/// a line here. Every value below is built by a call so that two equal values
+/// are two objects; written as literals the compiler may share one, and then
+/// the comparison would be answered by identity and would prove nothing.
+#[test]
+fn row_09_derived_eq_on_a_float_field() {
+    rows_or_skip!();
+    agree(
+        "row 9 float eq",
+        r#"
+from "core/host" import { stdout };
+
+export struct F { x: Float }
+derive Eq for F;
+
+fn mk(x: Float): F { F { x: x } }
+fn zeroF(): Float { 0.0 }
+fn negZeroF(): Float { -0.0 }
+fn notANumber(): Float { zeroF() / zeroF() }
+
+export fn main(): Result<(), Str> {
+  let n = notANumber();
+  let bare = n == n;
+  let built = mk(notANumber()) == mk(notANumber());
+  let pz = mk(zeroF()) == mk(negZeroF());
+  let nz = mk(negZeroF()) == mk(zeroF());
+  let _ = stdout.println("${bare} ${built} ${pz} ${nz}");
+  .Ok(())
+}
+"#,
+        "false false true true\n",
+    );
+}
+
 /// Derived `Hash`: the *numbers*, not merely the verdicts.
 ///
 /// A hash is the one derive whose output is a value a program can print, so
@@ -1721,6 +1767,66 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "ababab|ababab\nababab|ababab\nababab|cdcd\nefef\nmnmn\n",
+    );
+}
+
+/// A struct holding `NaN` compared with **itself**: JavaScript says `true`,
+/// both native backends say `false`.
+///
+/// Not a §12 row, and the absence is the claim. §12's rule is that "a
+/// divergence with no entry is a bug", and this one is a bug rather than a
+/// divergence the table may list, because SPEC 7.2 already says which answer
+/// is right and it is the native one:
+///
+/// > A derived `Eq` inherits IEEE-754 float behaviour. `NaN != NaN`, so a
+/// > struct with an `F64` field holding `NaN` is not equal to itself. … it
+/// > does mean derived `Eq` is not reflexive for every value.
+///
+/// The same section rejects the mechanism that produces the JavaScript
+/// answer, and predicts this outcome: "Referential equality was considered
+/// and rejected. `a === b` on ordinary values has no stable answer: the
+/// runtime may share one representation between two equal values or copy it,
+/// so the result would depend on the optimization level and on the backend."
+/// `js/generate.rs`'s `eq_decl` opens every compiled comparison with
+/// `if (a === b) return true;`, and `runtime.js`'s `$eq` opens with the same
+/// line, so on that backend `==` *is* answered by identity whenever the two
+/// operands happen to be one object. Natively there is no object to be one
+/// of: `middle/derives.rs` emits the field walk with no such prelude and
+/// `fcmp Equal` / `fcmp oeq` loses, which is what SPEC 7.2 describes.
+///
+/// §12 row 9 says derived `Eq` must agree "because they are the same
+/// generator". That premise is false: `derives.rs`'s own header records that
+/// the pass "runs from `middle::native` and nowhere else", so the two
+/// backends have two independent implementations of derived equality and
+/// this is the input on which they part.
+///
+/// Both answers are pinned rather than either being asserted as the right
+/// one, because choosing is a ruling and not a test's to make. `diverge`
+/// fails the day either side moves — including the day the JavaScript side
+/// is corrected, which is the intended repair.
+#[test]
+fn a_struct_holding_nan_compared_with_itself_does_not_agree() {
+    rows_or_skip!();
+    diverge(
+        "nan self-identity",
+        r#"
+from "core/host" import { stdout };
+
+export struct F { x: Float }
+derive Eq for F;
+
+fn mk(x: Float): F { F { x: x } }
+fn zeroF(): Float { 0.0 }
+fn notANumber(): Float { zeroF() / zeroF() }
+
+export fn main(): Result<(), Str> {
+  let f = mk(notANumber());
+  let _ = stdout.println("${f == f}");
+  .Ok(())
+}
+"#,
+        "true\n",
+        "false\n",
     );
 }
 

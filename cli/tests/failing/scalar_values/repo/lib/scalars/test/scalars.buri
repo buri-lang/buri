@@ -1,0 +1,61 @@
+// One failing `assert.eq` per scalar shape `$show` renders, so that a change
+// to any one rendering is a one-line diff rather than a suite that still
+// passes.
+
+from "core/testing/assert" import * as assert;
+
+test "Int" {
+    assert.eq(1, 2);
+}
+
+test "a negative Int" {
+    assert.eq(-7, 7);
+}
+
+test "Float" {
+    assert.eq(1.5, 2.25);
+}
+
+test "a Float that is a whole number" {
+    assert.eq(3.0, 4.0);
+}
+
+test "NaN" {
+    assert.eq(0.0 / 0.0, 1.0);
+}
+
+test "negative zero" {
+    assert.eq(-0.0, 0.5);
+}
+
+test "a Float infinity" {
+    assert.eq(1.0 / 0.0, 0.5);
+}
+
+test "Str" {
+    assert.eq("left", "right");
+}
+
+test "a Str holding the escapes JSON spells" {
+    assert.eq("a\tb\nc\"d\\e", "z");
+}
+
+test "a Str holding characters outside ASCII" {
+    assert.eq("héllo — 日本語 🎉", "z");
+}
+
+test "an empty Str" {
+    assert.eq("", "z");
+}
+
+test "Char" {
+    assert.eq('a', 'b');
+}
+
+test "Bool" {
+    assert.eq(true, false);
+}
+
+test "unit" {
+    assert.notEq((), ());
+}

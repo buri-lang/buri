@@ -1,0 +1,9 @@
+// A test source holding no `test` declaration. It is still a test source — the
+// rule lists it — so the suite exists and reports zeros, which is a different
+// thing from a package with no suite at all.
+
+from "core/testing/assert" import * as assert;
+
+fn unused(): Int {
+    0
+}

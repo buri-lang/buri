@@ -1,0 +1,8 @@
+// EXPECT: a `derive` clause names no traits
+struct Meters(export Float);
+
+derive for Meters;
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

@@ -1,0 +1,7 @@
+FAIL //lib/subject  test/subject.buri  "the answer"
+  assert.eq failed
+    actual:   41
+    expected: 42
+  --> lib/subject/test/subject.buri:4:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

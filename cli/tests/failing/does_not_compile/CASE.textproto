@@ -1,0 +1,45 @@
+# A test source that does not compile is a `buri test` failure mode, and the
+# thing worth recording about it is not the diagnostic — `cli/tests/reject`
+# holds ninety-odd of those, each with its rendered text and its JSON, and
+# duplicating one here would mean two places to update when a message is
+# reworded.
+#
+# What is recorded here is the *combination*, which no reject case can state:
+# the diagnostic goes to stderr, a summary line of zeros still goes to stdout,
+# and the exit code is 1 rather than 2 — the code is wrong, not the invocation.
+#
+# The second step is the negative twin. With the type corrected the same suite
+# compiles and the same command exits 0, so the recorded refusal cannot quietly
+# become a refusal of something else.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a test source that does not compile: the diagnostic on stderr, a summary of zeros on stdout, exit 1"
+
+run {
+  args: ["test", "//lib/broken", "--force"]
+  exit: 1
+  golden: "stderr.txt"
+  stream: ERR
+}
+
+run {
+  args: ["test", "//lib/broken", "--force"]
+  exit: 1
+  golden: "stdout.txt"
+  stream: OUT
+}
+
+edit {
+  file: "lib/broken/test/broken.buri"
+  replace: "assert.eq(1, \"one\");"
+  with: "assert.eq(1, 1);"
+}
+
+run {
+  args: ["test", "//lib/broken", "--force"]
+  exit: 0
+  golden: "fixed.txt"
+  stream: OUT
+}

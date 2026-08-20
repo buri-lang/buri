@@ -28,7 +28,10 @@ export fn alloc(): TestAlloc;
 
 // --- Output -------------------------------------------------------------------
 
-/// Captured. Printed only for a failing test.
+/// Captured, and never printed. `captured` is the only way to read it back,
+/// which is what makes a test's output something to assert on rather than
+/// something to watch scroll past — a failing test says so through its
+/// assertion.
 export struct CaptureOut(I64);
 impl Stdout for CaptureOut {
   fn print(self: CaptureOut, text: Template): ();

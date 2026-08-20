@@ -192,6 +192,7 @@ Style and hygiene rules:
 | `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](./cli/src/docs/SPEC.md) |
 | `empty-test-suite` | warn — a `test` block with no `sources` |
 | `test-without-assertion` | warn — a `test` from which nothing reachable calls `core/testing/assert` |
+| `test-title-newline` | warn — a `test` title with a line break in it, which a report has to escape |
 
 Three of these read differently than you might expect, and the reasons are the
 same reason in three shapes — a rule that fires on the wrong thing is worse

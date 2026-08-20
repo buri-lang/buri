@@ -1,0 +1,3 @@
+doc:    "An `import` path was re-printed decoded rather than as it was written, so `buri format` halved the backslashes in one on every run and was not a fixed point: 16 became 8 became 4 became 2. Unlike the other formatter findings this one *rewrote the file* — `\\u{41}` in a path became `A` and `\\t` became a raw tab, which are the same string; `\\\\` became `\\`, which is not. Fixed by printing the path as the bytes of the literal the author wrote, which preserves the spelling as well as the value."
+oracle: "roundtrip"
+status: FIXED

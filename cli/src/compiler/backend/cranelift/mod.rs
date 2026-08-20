@@ -115,14 +115,15 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
 use crate::compiler::backend::cranelift::abi::{Abi, PTR};
-use crate::compiler::backend::{Backend, Emitted, Options};
+use crate::compiler::backend::{Backend, Emitted, Options, Units};
 use crate::compiler::middle::ir as mir;
-use crate::compiler::middle::layout::{EnumRepr, Repr};
+use crate::compiler::middle::layout::{Cycles, EnumRepr, Repr};
 use crate::compiler::middle::lower;
 use crate::compiler::middle::rc;
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
@@ -174,6 +175,21 @@ impl Backend for Cranelift {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
+        self.emit_units(program, tables, opts, Units::All)
+    }
+
+    /// Every step above the per-unit loop is whole-program and stays so: the
+    /// lowering, the reference-counting oracle and the IR verifier all read the
+    /// program, and a unit's object depends on the program it was lowered from
+    /// rather than on the other units' objects. What `units` skips is
+    /// `compile_unit`, which is where the time is.
+    fn emit_units(
+        &mut self,
+        program: &Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        units: Units<'_>,
+    ) -> Result<Vec<Emitted>, Diagnostics> {
         let isa = match isa_for(opts) {
             Ok(isa) => isa,
             Err(message) => return Err(one(message)),
@@ -205,11 +221,22 @@ impl Backend for Cranelift {
             }
         };
 
+        // The partition, once. Everything below reads its own row, so no step
+        // in the loop is a function of the whole program's size — which is what
+        // `design/PERFORMANCE.md` §6.7 measured going wrong.
+        let members = lowered.funcs_by_unit();
+        let cycles = Rc::new(Cycles::new(tables));
+        let empty: Vec<usize> = Vec::new();
+
         let mut out = Vec::new();
         let mut errors: Vec<String> = Vec::new();
         for (index, name) in lowered.units.iter().enumerate() {
             let unit = u32::try_from(index).unwrap_or(0);
-            match compile_unit(&lowered, tables, opts, &isa, unit, name, &entry, &counted) {
+            if !units.wants(unit) {
+                continue;
+            }
+            let mine = members.get(index).unwrap_or(&empty);
+            match compile_unit(&lowered, tables, opts, &isa, unit, name, mine, &cycles, &entry, &counted) {
                 Ok(emitted) => out.push(emitted),
                 Err(mut e) => errors.append(&mut e),
             }
@@ -334,6 +361,8 @@ fn compile_unit(
     isa: &Arc<dyn TargetIsa>,
     unit: u32,
     name: &str,
+    members: &[usize],
+    cycles: &Rc<Cycles>,
     entry: &Root,
     counted: &RefCell<rc::Syntactic>,
 ) -> Result<Emitted, Vec<String>> {
@@ -346,8 +375,8 @@ fn compile_unit(
     builder.per_function_section(true);
     builder.per_data_object_section(true);
     let module = ObjectModule::new(builder);
-    let abi = Abi::new(tables, isa.default_call_conv());
-    let mut u = emit::Unit::new(module, abi, program, opts.profile, unit, counted);
+    let abi = Abi::new(tables, isa.default_call_conv(), Rc::clone(cycles));
+    let mut u = emit::Unit::new(module, abi, program, opts.profile, unit, members, counted);
     u.define_all();
 
     // The entry point goes in the unit that owns `main`, so that a program is
@@ -377,8 +406,13 @@ fn compile_unit(
     // function of the IR with no hash order in it — so hashing the text is a
     // correct way to compute it, and the one that can be *read* when a key
     // changes and nobody knows why.
+    //
+    // `members` is this unit's functions in ascending index — the same
+    // functions in the same order the whole-program filter yielded
+    // (`ir::Program::funcs_by_unit`), so the bytes hashed here are unchanged
+    // and no cached object is invalidated.
     let mut text = String::new();
-    for f in program.funcs.iter().filter(|f| f.unit == unit) {
+    for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
         text.push_str(&program.render_func(f));
     }
     Ok(Emitted { name: format!("{name}.o"), key: ActionKey::of(text.as_bytes()), bytes })

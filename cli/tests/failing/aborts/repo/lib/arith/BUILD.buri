@@ -1,0 +1,7 @@
+library {
+    sources: ["arith.buri"]
+
+    test {
+        sources: ["test/arith.buri"]
+    }
+}

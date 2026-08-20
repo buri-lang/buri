@@ -1,0 +1,30 @@
+# One failing test per function `core/testing/assert` exports, so that the
+# message each produces is recorded rather than assumed. The nine of them take
+# three shapes:
+#
+#   * `eq` and `notEq` render both sides;
+#   * `isTrue`, `isFalse`, `ok`, `err`, `some` and `none` render the value they
+#     got against a constant — `true`, `.Ok`, `.Some`;
+#   * `fail` carries the test's own words and has no diff at all.
+#
+# The last two runs are `eq` on an `Option` and on a `Result`, which is the
+# *value* rendering of the same two types the four unwrapping assertions name
+# — the pair is here so a change to one and not the other shows up.
+#
+# `assert.some` and `assert.none` show the `Option` itself — `.None` against
+# `.Some`, `.Some(3)` against `.None` — so both sides of the report are the
+# value in the syntax it is written in. `some` used to pass the literal string
+# `"none"`, which was indistinguishable from a test whose value really was
+# `.Some("none")`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "every assertion core/testing/assert exports, failing, with the message each produces"
+
+run {
+  args: ["test", "//lib/asserts", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

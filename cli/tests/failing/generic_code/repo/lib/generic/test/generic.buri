@@ -1,0 +1,30 @@
+// A failure inside generic code. The value in the report is the monomorphised
+// one — an `Int`, a `Str`, a struct — rather than anything about `T`, because
+// `monomorphize` hands the renderer a descriptor per instantiation.
+
+from "core/testing/assert" import * as assert;
+from "//lib/generic" import { firstOr, twice };
+
+test "instantiated at Int" {
+    assert.eq(firstOr([1, 2], 0), 1);
+}
+
+test "instantiated at Str" {
+    assert.eq(firstOr(["a", "b"], "z"), "a");
+}
+
+test "instantiated at Char" {
+    assert.eq(firstOr(['a', 'b'], 'z'), 'a');
+}
+
+test "instantiated at a list" {
+    assert.eq(firstOr([[1], [2]], []), [1]);
+}
+
+test "a generic answering a tuple" {
+    assert.eq(twice(7), (7, 8));
+}
+
+test "a generic answering a tuple of strings" {
+    assert.eq(twice("s"), ("s", "t"));
+}

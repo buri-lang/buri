@@ -1,0 +1,19 @@
+// Two tests in one file may not share a title. A title is how a failure is
+// reported and how `--filter` selects one, so two that share it inside one
+// file cannot be told apart — and the runner would have to guess which of them
+// a failure came from. `many_modules` is the other half of the rule: two
+// *files* of one suite may share a title, and each reports at its own line.
+
+from "core/testing/assert" import * as assert;
+
+test "the same title" {
+    assert.eq(1, 2);
+}
+
+test "a title in between" {
+    assert.eq(1, 1);
+}
+
+test "the same title" {
+    assert.eq(3, 4);
+}

@@ -1,0 +1,16 @@
+// The first of two test sources in one suite. Each `FAIL` names the file it
+// came from, so the pair is what says that field is read rather than assumed.
+
+from "core/testing/assert" import * as assert;
+
+test "first: a failure" {
+    assert.eq(1, 2);
+}
+
+test "first: a pass" {
+    assert.eq(1, 1);
+}
+
+test "a title both modules use" {
+    assert.eq("first", "wrong");
+}

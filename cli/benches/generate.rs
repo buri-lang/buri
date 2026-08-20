@@ -706,6 +706,28 @@ fn derive_list(n: u32) -> String {
     DERIVABLE[..(n as usize).min(DERIVABLE.len())].join(", ")
 }
 
+/// The whole `derive` declaration for one generated type, blank line included,
+/// or nothing at all.
+///
+/// `derives = 0` derives nothing, and `derive  for Rec0_0;` is not a
+/// declaration: a clause names at least one trait. The empty string is what a
+/// type that derives nothing contributes.
+fn derive_clause(n: u32, target: &str) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    format!("derive {} for {target};\n\n", derive_list(n))
+}
+
+/// Whether `derives` reaches `name`.
+///
+/// What is generated has to agree with what is derived: a probe that calls
+/// `show` on a type deriving only `Eq` is a program that does not compile, and
+/// this file's contract is that every program it emits does.
+fn derives_trait(n: u32, name: &str) -> bool {
+    DERIVABLE.iter().take(n as usize).any(|t| *t == name)
+}
+
 fn mixed(p: &Params) -> Program {
     let mut rng = Rng(p.seed ^ 0x4275_7269_0000_0001);
     // The second stream. Every dimension added after the parameter space
@@ -834,9 +856,9 @@ fn mixed_module(
          \x20 export value: Int,\n\
          \x20 export weight: Float,\n\
          }}\n\n\
-         derive {} for Node{index};\n\n\
+         {}\
          export fn seed{index}(): Int {{ {} }}\n\n",
-        derive_list(p.derives),
+        derive_clause(p.derives, &format!("Node{index}")),
         (index as i64 * 7919) % 10_000 + 1
     ));
 
@@ -952,16 +974,30 @@ fn chunk_record_struct(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut 
         s.push_str(&format!("  export f{f}: {},\n", types[f % types.len()]));
     }
     s.push_str("}\n\n");
-    s.push_str(&format!("derive {} for Rec{m}_{n};\n\n", derive_list(p.derives)));
+    s.push_str(&derive_clause(p.derives, &format!("Rec{m}_{n}")));
+    // Both bodies read fields, and the field count is a dimension: a body that
+    // names `f1` on a struct drawn with one field is a program that does not
+    // compile. Two fields is the low end of the default range, so what those
+    // draws emit is unchanged.
+    let scaled = if fields == 0 {
+        String::from("factor")
+    } else {
+        String::from("self.f0 * factor")
+    };
+    let shown: String = (0..fields.min(2))
+        .map(|f| format!("${{self.f{f}}}"))
+        .collect::<Vec<_>>()
+        .join("/");
+    let shown = if fields == 0 { String::new() } else { format!(": {shown}") };
     s.push_str(&format!(
         "impl Rec{m}_{n} {{\n\
          \x20 /// A pure accessor, of the kind that is most of a real impl block.\n\
          \x20 export fn scaled(self: Rec{m}_{n}, factor: Int): Int {{\n\
-         \x20   self.f0 * factor + {}\n\
+         \x20   {scaled} + {}\n\
          \x20 }}\n\n\
          \x20 /// Allocates, and says so with `C: Alloc`.\n\
          \x20 export fn render<C: Alloc>(self: Rec{m}_{n}, ctx: C): Str {{\n\
-         \x20   str.format(ctx, \"rec{m}_{n}: ${{self.f0}}/${{self.f1}}\")\n\
+         \x20   str.format(ctx, \"rec{m}_{n}{shown}\")\n\
          \x20 }}\n",
         rng.below(1000)
     ));
@@ -1015,7 +1051,7 @@ fn chunk_enum(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut Rng) {
         s.push_str(&format!("  export Step{v}(Int, Str),\n"));
     }
     s.push_str("}\n\n");
-    s.push_str(&format!("derive {} for State{m}_{n};\n\n", derive_list(p.derives)));
+    s.push_str(&derive_clause(p.derives, &format!("State{m}_{n}")));
     s.push_str(&format!(
         "/// The match every enum in a real program has somewhere.\n\
          export fn rank{m}_{n}(state: State{m}_{n}): Int {{\n\
@@ -1036,11 +1072,20 @@ fn chunk_enum(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut Rng) {
          }}\n\n",
         10 + rng.below(90)
     ));
+    // `show` is a method the type has only while `derives` reaches `Show`.
+    // Below that the probe allocates through `str` instead, so it still needs
+    // the `C: Alloc` its signature declares. `Show` is the second of
+    // `DERIVABLE`, so every draw at the default of 2 or above is unchanged.
+    let allocates = if derives_trait(p.derives, "Show") {
+        String::from("s.show(ctx).len()")
+    } else {
+        format!("str.format(ctx, \"state{m}_{n}\").len()")
+    };
     s.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
          export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
          \x20 let s = start{m}_{n}(5);\n\
-         \x20 rank{m}_{n}(s) + s.show(ctx).len()\n\
+         \x20 rank{m}_{n}(s) + {allocates}\n\
          }}\n\n"
     ));
 }
@@ -1249,6 +1294,20 @@ fn chunk_list_fn(s: &mut String, m: usize, n: &str, rng: &mut Rng) {
     ));
 }
 
+/// Above this many modules the entry point's sum is emitted in parts.
+///
+/// `parser::MAX_CHAIN` is 2048 links and the sum takes two per module, so one
+/// expression stops parsing at 1024 modules — which is why `mixed` at a million
+/// lines (≈3,900 modules) did not compile before the parts existed, and why
+/// `mixed-many-files/100k` (2,500 modules) did not either.
+///
+/// 512 rather than 1024 so that the gate has margin, and so that **no profile
+/// at any scale the suite measures below the scale tier reaches it**: `mixed` at
+/// 100,000 lines is 389 modules. Every corpus `design/PERFORMANCE.md` §6 quotes
+/// and every corpus under `cli/benches/corpora/` is therefore byte-identical
+/// across this change, which is why `GENERATOR_REVISION` does not move for it.
+const MODULES_PER_PART: usize = 512;
+
 /// The entry point, calling into every module so that nothing the generator
 /// emitted is dead from monomorphization's point of view.
 fn main_module(count: usize, p: &Params) -> String {
@@ -1263,6 +1322,9 @@ fn main_module(count: usize, p: &Params) -> String {
     s.push_str("from \"core/host\" import * as host;\n");
     for i in 0..count {
         s.push_str(&format!("from \"//bench/m{i:04}\" import {{ blend{i}, reach{i} }};\n"));
+    }
+    if count > MODULES_PER_PART {
+        return main_module_parts(s, count, p);
     }
     // `reach` is what makes the lowering benchmark honest: it pulls every
     // declaration of every module into the reachable set, so monomorphization
@@ -1281,6 +1343,52 @@ fn main_module(count: usize, p: &Params) -> String {
         } else {
             s.push_str(&format!("    + blend{i}({})\n", i + 1));
         }
+    }
+    s.push_str("    ;\n  if (total == 0) { .Err(\"empty\") } else { .Ok(()) }\n}\n");
+    s
+}
+
+/// The same entry point, with the sum split across [`MODULES_PER_PART`]-module
+/// helpers and `main` summing the helpers.
+///
+/// The reachability invariant is unchanged: every `blend` and every `reach` is
+/// still called exactly once, from a function `main` calls, so monomorphization
+/// still visits the whole corpus. What changes is only the shape of the
+/// expression that calls them, and it changes because the parser's chain limit
+/// is a real limit rather than one this generator may pretend does not apply.
+///
+/// The helpers are generic over the capability for the same reason `reach` is:
+/// the context is a value of an anonymous capability record and `Alloc` is the
+/// bound every module's `reach` already states.
+fn main_module_parts(mut s: String, count: usize, p: &Params) -> String {
+    let parts = count.div_ceil(MODULES_PER_PART);
+    for k in 0..parts {
+        let lo = k * MODULES_PER_PART;
+        let hi = ((k + 1) * MODULES_PER_PART).min(count);
+        s.push_str(&format!(
+            "\n/// Modules {lo} to {} of the entry point's sum. See `main`.\n\
+             fn part{k}<C: Alloc>(ctx: C): Int {{\n\
+             \x20 0\n",
+            hi - 1
+        ));
+        for i in lo..hi {
+            if p.reach {
+                s.push_str(&format!("    + blend{i}({}) + reach{i}(ctx)\n", i + 1));
+            } else {
+                s.push_str(&format!("    + blend{i}({})\n", i + 1));
+            }
+        }
+        s.push_str("}\n");
+    }
+    s.push_str(
+        "\n/// The entry point. `main` is the only module that may import\n\
+         /// `core/host`, so it is the only place the context can be built.\n\
+         export fn main(): Result<(), Str> {\n\
+         \x20 let ctx = context { Alloc: host.alloc };\n\
+         \x20 let total = 0\n",
+    );
+    for k in 0..parts {
+        s.push_str(&format!("    + part{k}(ctx)\n"));
     }
     s.push_str("    ;\n  if (total == 0) { .Err(\"empty\") } else { .Ok(()) }\n}\n");
     s

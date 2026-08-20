@@ -1,0 +1,9 @@
+error: expected `Str`, found `{integer}` [type-mismatch]
+ --> lib/broken/test/broken.buri:9:18
+  |
+9 |     assert.eq(1, "one");
+  |                  ^^^^^ the parameter type is `Str`
+  |
+  = expected: `Str`
+  = actual: `{integer}`
+  = fix: produce a `Str` here, or change what surrounds it to accept a `{integer}`

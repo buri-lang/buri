@@ -632,6 +632,7 @@ impl<'a> Loader<'a> {
             .modules
             .get(id.index())
             .or_ice("a ModuleId is minted by the loader as it pushes the module onto `modules`");
+        let t = &importer.ast.tree;
         let imports: Vec<(String, Span, Vec<String>)> = importer
             .ast
             .items
@@ -640,7 +641,7 @@ impl<'a> Loader<'a> {
                 tree::Item::Import(i) => {
                     let names = match &i.clause {
                         tree::ImportClause::Named(specs) => {
-                            specs.iter().map(|s| s.name.name.clone()).collect()
+                            specs.iter().map(|s| t.name(s.name).to_string()).collect()
                         }
                         tree::ImportClause::Namespace(_) => Vec::new(),
                     };
@@ -649,7 +650,7 @@ impl<'a> Loader<'a> {
                 tree::Item::ReExport(r) => Some((
                     r.path.clone(),
                     r.path_span,
-                    r.specs.iter().map(|s| s.name.name.clone()).collect(),
+                    r.specs.iter().map(|s| t.name(s.name).to_string()).collect(),
                 )),
                 _ => None,
             })

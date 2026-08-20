@@ -1,0 +1,23 @@
+# One suite, two test sources. Two things are recorded that a single-module
+# case cannot state: that each `FAIL` line names the module the test came from,
+# and the order the two modules' failures are reported in — which is the order
+# `test.sources` lists them, through `monomorphize`'s roots and into `$cases`.
+#
+# The title shared between the two modules is the legal half of the rule
+# `duplicate_titles` records: one title may be used once per file, and two
+# files of one suite may both use it. Each of the two failures is reported at
+# its own line in its own file, which is what `locate` matching on
+# (title, module) buys — matching on the title alone gave the second module's
+# failure the first module's location.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two test sources in one suite: each failure names its own module, in the order the rule lists them"
+
+run {
+  args: ["test", "//lib/pair", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

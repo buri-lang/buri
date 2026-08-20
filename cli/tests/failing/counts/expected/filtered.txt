@@ -1,0 +1,17 @@
+FAIL //lib/mixed  test/mixed.buri  "two fails"
+  assert.eq failed
+    actual:   2
+    expected: 20
+  --> lib/mixed/test/mixed.buri:13:1
+FAIL //lib/mixed  test/mixed.buri  "four fails"
+  assert.eq failed
+    actual:   4
+    expected: 40
+  --> lib/mixed/test/mixed.buri:21:1
+FAIL //lib/mixed  test/mixed.buri  "six fails"
+  assert.eq failed
+    actual:   6
+    expected: 60
+  --> lib/mixed/test/mixed.buri:29:1
+
+1 passed, 3 failed, 2 skipped (0.0s)

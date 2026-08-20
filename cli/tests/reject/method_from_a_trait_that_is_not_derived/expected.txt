@@ -1,0 +1,8 @@
+error: `State` has no method `show` [no-such-method]
+  --> cmd/method_from_a_trait_that_is_not_derived/main.buri:12:25
+   |
+12 |   let _ = ctx.println(s.show(ctx));
+   |                         ^^^^
+   |
+   = `show` comes from `Show`, which `State` does not implement; `derive Show for State;` generates it
+   = fix: check the spelling, or declare it in `impl State { ... }` in that type's own module — a method may not be added from anywhere else

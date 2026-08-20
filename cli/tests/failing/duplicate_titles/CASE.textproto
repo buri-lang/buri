@@ -1,0 +1,44 @@
+# Two tests with one title in one file. It is a compile error
+# (`duplicate-test-name`), so what this case records is the combination no
+# reject case can state: the diagnostic on stderr, a summary line of zeros on
+# stdout, and exit 1 — the code is wrong, not the invocation.
+#
+# The diagnostic names both declarations, because "you have written this twice"
+# is only actionable if you are told where the other one is.
+#
+# The third step is the negative twin. Renaming the second test makes the suite
+# compile, and both failures are then reported at their own lines — which is
+# what `locate` matching on (title, module) buys, and what the same-title-in-
+# one-file rule makes unambiguous.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two tests sharing a title in one file are a compile error that names both declarations, and renaming one reports each at its own line"
+
+run {
+  args: ["test", "//lib/twice", "--force"]
+  exit: 1
+  golden: "stderr.txt"
+  stream: ERR
+}
+
+run {
+  args: ["test", "//lib/twice", "--force"]
+  exit: 1
+  golden: "stdout.txt"
+  stream: OUT
+}
+
+edit {
+  file: "lib/twice/test/twice.buri"
+  replace: "test \"the same title\" {\n    assert.eq(3, 4);"
+  with: "test \"a title of its own\" {\n    assert.eq(3, 4);"
+}
+
+run {
+  args: ["test", "//lib/twice", "--force"]
+  exit: 1
+  golden: "renamed.txt"
+  stream: OUT
+}

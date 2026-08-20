@@ -1,0 +1,28 @@
+// A test that writes to a captured stdout and then fails. What the test wrote
+// is not in the report: the runner prints the message, the two values and the
+// location, and nothing else — so the only way to see captured output is to
+// assert on it, which the second test does.
+
+from "core/cap" import { Alloc, Stdout };
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { alloc, captured, captureOut };
+from "//lib/noisy" import { announce };
+
+test "what a failing test printed is not in its report" {
+    let sink = captureOut();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: sink,
+    };
+    assert.eq(announce(ctx, "alpha"), 99);
+}
+
+test "the captured text is only visible to an assertion" {
+    let sink = captureOut();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: sink,
+    };
+    let _ = announce(ctx, "beta");
+    assert.eq(sink.captured(), "nothing was written");
+}

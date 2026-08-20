@@ -77,13 +77,14 @@ fn declaration_at(
         // A function renders as its signature, which is what `buri format`
         // prints; everything else renders as the keyword and its name, because
         // a struct's whole body is not what you asked for by pointing at it.
+        let t = &m.ast.tree;
         let (name, docs, sig) = match item {
-            Item::Fn(d) => (&d.name, &d.docs, crate::formatting::signature(d)),
-            Item::Struct(d) => (&d.name, &d.docs, format!("struct {}", d.name.name)),
-            Item::Enum(d) => (&d.name, &d.docs, format!("enum {}", d.name.name)),
-            Item::TypeAlias(d) => (&d.name, &d.docs, format!("type {}", d.name.name)),
-            Item::Const(d) => (&d.name, &d.docs, format!("const {}", d.name.name)),
-            Item::Trait(d) => (&d.name, &d.docs, format!("trait {}", d.name.name)),
+            Item::Fn(d) => (d.name, &d.docs, crate::formatting::signature(t, d)),
+            Item::Struct(d) => (d.name, &d.docs, format!("struct {}", t.name(d.name))),
+            Item::Enum(d) => (d.name, &d.docs, format!("enum {}", t.name(d.name))),
+            Item::TypeAlias(d) => (d.name, &d.docs, format!("type {}", t.name(d.name))),
+            Item::Const(d) => (d.name, &d.docs, format!("const {}", t.name(d.name))),
+            Item::Trait(d) => (d.name, &d.docs, format!("trait {}", t.name(d.name))),
             _ => continue,
         };
         if name.span.start <= offset && offset <= name.span.end {
@@ -159,16 +160,16 @@ pub fn document_symbols(text: &str) -> Value {
         // 12 function, 23 struct, 10 enum, 5 class (trait), 14 constant,
         // 26 type parameter (alias) — the protocol's SymbolKind numbers.
         let (name, kind) = match item {
-            Item::Fn(d) => (&d.name, 12),
-            Item::Struct(d) => (&d.name, 23),
-            Item::Enum(d) => (&d.name, 10),
-            Item::Trait(d) => (&d.name, 5),
-            Item::Const(d) => (&d.name, 14),
-            Item::TypeAlias(d) => (&d.name, 26),
+            Item::Fn(d) => (d.name, 12),
+            Item::Struct(d) => (d.name, 23),
+            Item::Enum(d) => (d.name, 10),
+            Item::Trait(d) => (d.name, 5),
+            Item::Const(d) => (d.name, 14),
+            Item::TypeAlias(d) => (d.name, 26),
             _ => continue,
         };
         out.push(Value::obj(vec![
-            ("name", Value::str(&name.name)),
+            ("name", Value::str(parsed.module.tree.name(name))),
             ("kind", Value::num(kind)),
             ("range", convert::range(text, item.span())),
             ("selectionRange", convert::range(text, name.span)),

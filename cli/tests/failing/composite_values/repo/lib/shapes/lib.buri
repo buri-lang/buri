@@ -1,0 +1,1 @@
+from "//lib/shapes/shapes" export { Colour, Deep, Hollow, Pair, Point, Shape };

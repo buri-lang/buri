@@ -1,0 +1,36 @@
+// An abort is not an assertion. SPEC 6.10 says there is nothing to catch, and
+// the JavaScript runner catches the exception the runtime throws anyway — so a
+// test that aborts is reported with the abort's own words and no diff, and the
+// tests after it still run. That last claim is the one a native run cannot
+// make, and it is why the passing test sits at the bottom of this file.
+
+from "core/alloc" import * as alloc;
+from "core/cap" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/arith" import { leftover, push, ratio };
+
+test "division by zero" {
+    assert.eq(ratio(1, 0), 0);
+}
+
+test "remainder by zero" {
+    assert.eq(leftover(1, 0), 0);
+}
+
+test "a shift as wide as the type" {
+    assert.eq(push(1, 64), 0);
+}
+
+test "an allocation past a fixed budget" {
+    let buffer = alloc.fixedBuffer(64);
+    let ctx = context {
+        Alloc: buffer,
+    };
+    let _ = ctx.allocate(32);
+    let _ = ctx.allocate(40);
+    assert.eq(1, 1);
+}
+
+test "the test after four aborts still runs" {
+    assert.eq(1, 1);
+}

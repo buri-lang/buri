@@ -191,9 +191,17 @@ pub struct Unit<'a> {
     /// reason this is here rather than being derived from the layout table —
     /// see [`Cx::rc_counted`].
     rc: &'a RefCell<rc::Syntactic>,
-    /// The `FuncId` of every function in the program, by index. A function
-    /// this unit defines is `Hidden`; one another unit defines is an `Import`.
-    funcs: Vec<Option<FuncId>>,
+    /// Which codegen unit this is: an index into `program.units`.
+    unit: u32,
+    /// The `FuncId` of every function this unit has already declared, by index.
+    /// A function this unit defines is `Hidden`; one another unit defines is an
+    /// `Import`.
+    ///
+    /// A map rather than a slot per function in the program: a unit declares
+    /// its own functions and the handful it calls across a boundary, so a table
+    /// the size of the whole program is an allocation and a memset per unit for
+    /// a row that is almost entirely empty (`design/PERFORMANCE.md` §6.7).
+    funcs: Map<usize, FuncId>,
     /// Which of the program's functions this unit defines.
     pub owned: Vec<usize>,
     imports: BTreeMap<String, FuncId>,
@@ -214,20 +222,21 @@ pub struct Unit<'a> {
 }
 
 impl<'a> Unit<'a> {
+    /// `members` is this unit's own function indices, ascending — the row
+    /// [`mir::Program::funcs_by_unit`] built for it.
     pub fn new(
         module: ObjectModule,
         abi: Abi<'a>,
         program: &'a mir::Program,
         profile: Profile,
         unit: u32,
+        members: &[usize],
         rc: &'a RefCell<rc::Syntactic>,
     ) -> Unit<'a> {
-        let owned = program
-            .funcs
+        let owned = members
             .iter()
-            .enumerate()
-            .filter(|(_, f)| f.unit == unit && f.code().is_some())
-            .map(|(i, _)| i)
+            .copied()
+            .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
             .collect();
         Unit {
             module,
@@ -235,7 +244,8 @@ impl<'a> Unit<'a> {
             program,
             profile,
             rc,
-            funcs: vec![None; program.funcs.len()],
+            unit,
+            funcs: Map::default(),
             owned,
             imports: BTreeMap::new(),
             strings: BTreeMap::new(),
@@ -255,7 +265,7 @@ impl<'a> Unit<'a> {
     /// `Linkage::is_final()` is true for it, which is what drives `colocated`
     /// and therefore a direct rather than a GOT-indirect call.
     pub fn func(&mut self, idx: usize) -> Option<FuncId> {
-        if let Some(Some(id)) = self.funcs.get(idx) {
+        if let Some(id) = self.funcs.get(&idx) {
             return Some(*id);
         }
         let f = self.program.funcs.get(idx)?;
@@ -282,8 +292,11 @@ impl<'a> Unit<'a> {
             }
             Body::Code(_) => {
                 let sig = self.abi.signature(self.program, &f.sig);
-                let linkage =
-                    if self.owned.contains(&idx) { Linkage::Hidden } else { Linkage::Import };
+                // `owned` is every index whose function is in this unit and has
+                // a body, and this arm has already matched the body — so the
+                // unit number answers the same question a search of `owned`
+                // did, in constant time.
+                let linkage = if f.unit == self.unit { Linkage::Hidden } else { Linkage::Import };
                 match self.module.declare_function(&f.symbol, linkage, &sig) {
                     Ok(id) => id,
                     Err(e) => {
@@ -293,9 +306,7 @@ impl<'a> Unit<'a> {
                 }
             }
         };
-        if let Some(slot) = self.funcs.get_mut(idx) {
-            *slot = Some(id);
-        }
+        self.funcs.insert(idx, id);
         Some(id)
     }
 
@@ -356,7 +367,7 @@ impl<'a> Unit<'a> {
             return Some(*id);
         }
         let sig = self.helper_signature(&key)?;
-        let name = helper_name(&key, self.helpers.len());
+        let name = helper_name(self.program, &key, self.helpers.len());
         let id = self.module.declare_function(&name, Linkage::Local, &sig).ok()?;
         self.helpers.insert(key.clone(), id);
         self.pending.push(Pending { key, id, ty });
@@ -3951,12 +3962,69 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         self.blocks.get(t.block.index()).copied()
     }
 
+    /// The values to return in place of a jump, where the target is a block
+    /// that does nothing but return its own parameters.
+    ///
+    /// `middle::lower` gives every `match` a join block, and a `match` in tail
+    /// position gives that join block one statement: `return` of the parameter
+    /// every arm passes it. Jumping there is a branch to a branch, and it makes
+    /// the join a block parameter with **one predecessor per arm**.
+    ///
+    /// That second consequence is what this is for. `regalloc2` merges the
+    /// bundle of every incoming value into the block parameter's, and its merge
+    /// re-sorts the whole accumulated range list unless the incoming bundle is
+    /// a single range — so a join with *n* predecessors is O(n²·log n) as soon
+    /// as anything has already merged into an incoming bundle. On x86-64
+    /// something always has: the ISA is two-address, so every arithmetic result
+    /// carries a reuse constraint that merges its input's bundle in first. A
+    /// match as wide as its enum therefore collapsed on x86-64 (26 k lines/s at
+    /// 10 k) while aarch64, whose three-address ALU produces no such merge, held
+    /// (147 k). Threading the return removes the join, its parameter and all *n*
+    /// merges.
+    ///
+    /// The equality with `params` is what makes the substitution sound: the
+    /// returned values must be exactly the parameters, in order, so that
+    /// returning the edge's arguments returns what the join would have.
+    fn threaded_return(&self, t: &Target) -> Option<Vec<ValueId>> {
+        let block = self.code.blocks.get(t.block.index())?;
+        if !block.insts.is_empty() {
+            return None;
+        }
+        let Term::Return(vs) = &block.term else { return None };
+        if vs.len() != block.params.len() || vs.len() != t.args.len() {
+            return None;
+        }
+        if vs.iter().zip(&block.params).any(|(v, p)| v != p) {
+            return None;
+        }
+        Some(t.args.clone())
+    }
+
+    /// The block a switch case may enter without a trampoline: one whose edge
+    /// carries no arguments.
+    ///
+    /// The test is on `Target::args` and not on the spread of them, because a
+    /// zero-sized argument spreads to nothing and still has to be *evaluated*
+    /// nowhere in particular; asking the IR keeps the answer independent of the
+    /// value model.
+    fn direct_case(&self, t: &Target) -> Option<Block> {
+        if t.args.is_empty() {
+            self.block_of(t)
+        } else {
+            None
+        }
+    }
+
     fn term(&mut self, term: &Term) {
         if self.filled {
             return;
         }
         match term {
             Term::Jump(t) => {
+                if let Some(returned) = self.threaded_return(t) {
+                    self.term(&Term::Return(returned));
+                    return;
+                }
                 let args = self.edge_args(t);
                 if let Some(dest) = self.block_of(t) {
                     self.cx.jump(dest, &args);
@@ -4018,16 +4086,30 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// `cranelift-frontend`'s own `Switch` does the partitioning the design
     /// describes — `br_table` over a dense range, a balanced comparison tree
     /// over a sparse one — so it is used rather than reimplemented (§3.1). It
-    /// takes argument-less blocks, so each case gets a trampoline carrying the
-    /// edge's arguments.
+    /// takes argument-less blocks, so a case whose edge carries arguments gets
+    /// a trampoline to carry them.
+    ///
+    /// A case whose edge carries **no** arguments is entered directly, and the
+    /// distinction is not a micro-optimization: a trampoline is a block every
+    /// value live across the switch is live *through*, so an unconditional one
+    /// doubles the live-range count of every such value. In a match as wide as
+    /// its enum that is one live range per arm per value — the scrutinee's slot
+    /// address alone had two per arm — and register allocation is priced in
+    /// live ranges. Most edges out of a `match` carry nothing: `middle::lower`
+    /// binds an arm's payload inside the arm.
     fn switch(&mut self, on: ValueId, cases: &[(u64, Target)], default: Option<&Target>) {
         let Some(v) = self.get(on) else { return };
         let mut sw = Switch::new();
         let mut trampolines = Vec::new();
         for (key, target) in cases {
-            let tb = self.cx.b.create_block();
-            sw.set_entry(u128::from(*key), tb);
-            trampolines.push((tb, target.clone()));
+            match self.direct_case(target) {
+                Some(dest) => sw.set_entry(u128::from(*key), dest),
+                None => {
+                    let tb = self.cx.b.create_block();
+                    sw.set_entry(u128::from(*key), tb);
+                    trampolines.push((tb, target.clone()));
+                }
+            }
         }
         let otherwise = self.cx.b.create_block();
         sw.emit(self.cx.b, v, otherwise);
@@ -4522,9 +4604,25 @@ pub fn numeric_op(key: &str) -> bool {
     false
 }
 
-fn helper_name(key: &Helper, n: usize) -> String {
+/// A helper's local symbol.
+///
+/// A thunk is named after the **symbol** of the function it wraps, never after
+/// its `FuncIdx`: an index is a program-global position that shifts when a
+/// declaration is added anywhere, and the unit's `codegen` key is a hash of its
+/// rendered IR, which names a callee by symbol. A name derived from the index
+/// would therefore be a byte of the object that the key does not cover, and the
+/// cache would serve an object whose local symbols name the wrong index.
+fn helper_name(program: &mir::Program, key: &Helper, n: usize) -> String {
     match key {
-        Helper::Thunk { func, .. } => format!("buri$thunk{func}"),
+        Helper::Thunk { func, env } => {
+            let callee = program
+                .funcs
+                .get(*func as usize)
+                .map(|f| f.symbol.clone())
+                .unwrap_or_else(|| format!("f{func}"));
+            let shape = if *env { "" } else { "$bare" };
+            format!("buri$thunk${callee}{shape}")
+        }
         Helper::Concat => String::from("buri$concat"),
         Helper::ShowInt { signed } => {
             format!("buri$show_{}", if *signed { "int" } else { "uint" })

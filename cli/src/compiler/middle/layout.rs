@@ -311,16 +311,17 @@ impl Layout {
     }
 }
 
-/// The memo table, one per compilation.
-pub struct Layouts<'a> {
-    tables: &'a Tables,
-    memo: Map<Ty, usize>,
-    /// The memoised layouts, behind a handle. An enum's [`Repr::Enum`] carries
-    /// one `Vec<u32>` per variant, so a `Layout` is O(variants) to copy and a
-    /// caller that asks per instruction would be quadratic in the width of the
-    /// widest enum it touches; [`Layouts::shared`] is what makes an answer
-    /// O(1) to hand out.
-    table: Vec<Rc<Layout>>,
+/// Which type constructors are recursive together: a function of the checker's
+/// tables and of nothing else.
+///
+/// Separate from [`Layouts`] because the two have different lifetimes. A memo
+/// table is per compilation *unit* — it holds `Rc<Layout>` handles a unit's
+/// emission owns — but this is a walk of every constructor in the program
+/// followed by a strongly-connected-components pass, and building one per unit
+/// made a native build quadratic in the number of units
+/// (`design/PERFORMANCE.md` §6.7). Build one and hand it to every
+/// [`Layouts::with_cycles`].
+pub struct Cycles {
     /// Recursion group per type constructor, by `TyConId` index: the strongly
     /// connected components of "mentions, in a position that would be stored
     /// inline". Two constructors share a group exactly when laying either out
@@ -335,12 +336,10 @@ pub struct Layouts<'a> {
     /// strictly smaller than the one holding it. `Option`'s declared field is
     /// its parameter, so it mentions nothing and its group is not a cycle.
     recursive: Vec<bool>,
-    depth: u32,
-    descriptions: Map<Ty, Rc<str>>,
 }
 
-impl<'a> Layouts<'a> {
-    pub fn new(tables: &'a Tables) -> Layouts<'a> {
+impl Cycles {
+    pub fn new(tables: &Tables) -> Cycles {
         let mut edges: Vec<Vec<usize>> = Vec::with_capacity(tables.tycons.len());
         for con in &tables.tycons {
             let mut mentioned = Vec::new();
@@ -373,12 +372,40 @@ impl<'a> Layouts<'a> {
                 }
             }
         }
+        Cycles { groups, recursive }
+    }
+}
+
+/// The memo table, one per compilation.
+pub struct Layouts<'a> {
+    tables: &'a Tables,
+    memo: Map<Ty, usize>,
+    /// The memoised layouts, behind a handle. An enum's [`Repr::Enum`] carries
+    /// one `Vec<u32>` per variant, so a `Layout` is O(variants) to copy and a
+    /// caller that asks per instruction would be quadratic in the width of the
+    /// widest enum it touches; [`Layouts::shared`] is what makes an answer
+    /// O(1) to hand out.
+    table: Vec<Rc<Layout>>,
+    /// See [`Cycles`]. Shared, because it is the same answer for every table
+    /// built over one program's `Tables` and it is not cheap to derive.
+    cycles: Rc<Cycles>,
+    depth: u32,
+    descriptions: Map<Ty, Rc<str>>,
+}
+
+impl<'a> Layouts<'a> {
+    pub fn new(tables: &'a Tables) -> Layouts<'a> {
+        Layouts::with_cycles(tables, Rc::new(Cycles::new(tables)))
+    }
+
+    /// A fresh memo table over a recursion analysis somebody else already paid
+    /// for. What a per-unit backend wants.
+    pub fn with_cycles(tables: &'a Tables, cycles: Rc<Cycles>) -> Layouts<'a> {
         Layouts {
             tables,
             memo: Map::default(),
             table: Vec::new(),
-            groups,
-            recursive,
+            cycles,
             depth: 0,
             descriptions: Map::default(),
         }
@@ -445,7 +472,7 @@ impl<'a> Layouts<'a> {
     pub fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
         let Some(con) = owner.head() else { return false };
         let group = self.group(con);
-        if !self.recursive.get(group).copied().unwrap_or(false) {
+        if !self.cycles.recursive.get(group).copied().unwrap_or(false) {
             return false;
         }
         let mut mentioned = Vec::new();
@@ -454,7 +481,11 @@ impl<'a> Layouts<'a> {
     }
 
     fn group(&self, con: TyConId) -> usize {
-        *self.groups.get(con.index()).or_ice("every TyConId was minted by add_tycon on this table")
+        *self
+            .cycles
+            .groups
+            .get(con.index())
+            .or_ice("every TyConId was minted by add_tycon on this table")
     }
 
     fn at(&self, id: usize) -> &Layout {
