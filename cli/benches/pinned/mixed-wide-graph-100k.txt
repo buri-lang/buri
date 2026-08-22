@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = mixed-wide-graph-100k
+profile = mixed-wide-graph
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = fanout=6..12 lines=100000 seed=0x0b001a575eed0006
+lines = 100755
+bytes = 3583830
+modules = 354
+digest = bc0384cc4d1247d82f874f5f5be2ec3ba73f5762248eae507b82547c13e80c6a
+native = false

@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = match-heavy-1M
+profile = match-heavy
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = lines=1000000 match_arms=8..20 seed=0x0b001a575eed000d w_match_fn=8
+lines = 1007120
+bytes = 29637308
+modules = 3525
+digest = 1b45e7379c0e21fda11f660e1b76686dbc7928f01a01cdcd2c672c2fe317875b
+native = false

@@ -17,14 +17,14 @@
 doc: "two tests sharing a title in one file are a compile error that names both declarations, and renaming one reports each at its own line"
 
 run {
-  args: ["test", "//lib/twice", "--force"]
+  args: ["test", "//lib/twice", "--force", "--output=js"]
   exit: 1
   golden: "stderr.txt"
   stream: ERR
 }
 
 run {
-  args: ["test", "//lib/twice", "--force"]
+  args: ["test", "//lib/twice", "--force", "--output=js"]
   exit: 1
   golden: "stdout.txt"
   stream: OUT
@@ -37,7 +37,7 @@ edit {
 }
 
 run {
-  args: ["test", "//lib/twice", "--force"]
+  args: ["test", "//lib/twice", "--force", "--output=js"]
   exit: 1
   golden: "renamed.txt"
   stream: OUT

@@ -346,17 +346,29 @@ outputs. `host_platform()` reaches the language server and the documentation
 harness, where it sets a compilation's platform and where nothing varies on it.
 What *does* vary on the host is `buri run`, which prefers a declared
 host-native output and executes the artifact directly, and `buri test`, which
-runs a suite named for a native platform as a native binary.
+runs a suite as a native binary whether or not it named one.
 
-**The default output is still `JS`, and that is a decision rather than the
-remaining half of this one.** A binary that declares no outputs gets `JS`; a
-suite that names no platforms runs on JavaScript. The reason is the runtime
-surface rather than the backend: `Backend::missing_intrinsics` refuses a program
-reaching `core/fs`, `core/env`, `json.*` or any `list.*` entry taking a closure,
-which is the right refusal and the wrong default — a `buri run` that fails on a
-program `buri run` used to run is not an improvement. The condition for flipping
-it is that refusal going quiet across the conformance corpus, and when it does,
-the change is `selected_outputs`' fallback and `run_suite`'s.
+**`buri test`'s default has flipped; `selected_outputs`' has not.** A suite that
+names no platforms runs **natively**, in the dev profile, on the host it is
+already checked against. A binary that declares no outputs still gets `JS`.
+
+The two halves moved apart because the argument for waiting was never about the
+backend, it was about the refusal: `Backend::missing_intrinsics` refuses a
+program reaching something the backend has no body for, which is the right
+refusal and the wrong default — a `buri run` that fails on a program `buri run`
+used to run is not an improvement. A *test* can have it both ways, and now does.
+`run_suite` asks the same hook before it commits, and a suite whose program
+names a gap runs on JavaScript with a line on stderr saying which gap
+(`commands/test.rs`'s `native_gap`). So the refusal is still there for anyone
+who asked for a native run by name, and nobody who did not ask is refused
+anything. The measured reason for spending the fallback is
+`design/PERFORMANCE.md` §6: the native dev loop is now the faster one on both
+halves of a 104k-line edit-test cycle.
+
+`selected_outputs` has no such escape. A binary that declares no outputs is
+asked for an *artifact*, and an artifact that silently changed platform would
+change what `buri run` executes and what a release ships. That flip stays what
+it was — one line, when the refusal goes quiet across the conformance corpus.
 
 `actions.rs` and `commands/build.rs` and `commands/test.rs` each refused a non-JS
 platform with "the backend is not implemented". All three are now gated on
@@ -399,8 +411,20 @@ Three candidates were considered.
 
 The standard library is one unit per standard-library module on the same rule, so
 a program that touches two functions of `core/list` pays for one `core/list`
-object and reuses it across every build in the repository. That is a large,
+object and reuses it across every build **of that target**. That is a large,
 free win: the standard library is thirty modules that essentially never change.
+
+The reuse stops at the target rather than at the repository, and always did.
+Monomorphization makes a unit's IR a function of the whole program it is in, so
+two binaries' `core/list` objects are the same bytes only where neither
+instantiated anything the other did not. Measured on a 118k-line repository with
+two native binaries over one library: **2 of 369 codegen units** were shared
+across the pair, and the cold `buri build //...` cell does not move when they
+are not (1.46 s against 1.49, one run each, inside the noise). That is why
+`unit_prefix` being a term of the `codegen` key (§6.2) costs so little: it ends
+the cross-target sharing, and there was almost none to end. A batched test
+binary spans packages under one empty prefix and shares within itself, which is
+where the sharing that matters happens.
 
 A unit over a node budget (default 40 000 IR nodes) is split at function
 boundaries into `foo.0`, `foo.1`, ..., deterministically by the existing function
@@ -461,6 +485,7 @@ proto?   ->  compile (per closure member)  ->  codegen (per unit)  ->  link
 ```
 codegen_key(unit) = H(Codegen, toolchain, mode, platform, arch,
                       backend.name(), backend.identity(),
+                      unit_prefix,
                       H(the unit's lowered IR),
                       H(the layout of every type the unit names))
 ```
@@ -477,6 +502,16 @@ program maps over — and it is *imprecise*, because reformatting a comment in
 Hashing the IR fixes both. The IR is what codegen reads, so hashing it is hashing
 the input; and it is insensitive to everything that is not semantics, so a
 whitespace edit produces an identical key and the object is reused.
+
+The IR is not *all* codegen reads, and the rest of `Options` is in the key for
+the same reason: `profile`, `target`, and `unit_prefix`. The prefix is there
+because §7 makes it reach the object — the paths a debug section records are set
+from it — and because it already does on every ELF target, where LLVM emits a
+unit's module name as a `.file` directive and therefore as an `STT_FILE` symbol.
+It costs the cross-package reuse §5.1 counts on: two targets whose closures share
+a unit compile it twice, because they are two prefixes. A key that omits an
+input to codegen is a key that can serve bytes codegen would not have produced,
+and that is the one thing this key exists to rule out.
 
 The cost is that computing the key requires running the front end and the whole
 middle end, so `codegen` can never be skipped without doing the analysis. That is

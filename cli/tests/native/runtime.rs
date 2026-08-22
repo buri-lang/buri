@@ -54,6 +54,7 @@ const DRIVER: &str = include_str!("driver.c");
 /// executing, which on macOS is a child that never returns rather than an
 /// error.
 fn workspace() -> PathBuf {
+    crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("runtime-native-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

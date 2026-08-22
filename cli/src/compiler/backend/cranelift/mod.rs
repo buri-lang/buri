@@ -71,31 +71,38 @@
 //!    an error *payload* to build as well as a tag, and `IoError` is a
 //!    `core/cap` type the intrinsic table does not name. One `Ret::Result` and
 //!    that type's layout away.
-//!  * **The rest of the closure surface of `core/list`.** Nine of them are
+//!  * **The rest of the closure surface of `core/list`.** Ten of them are
 //!    emitted now (`emit::Lower::list_closure`), which is what moved
 //!    `canary/canary.buri` into `cli/tests/native/conformance.rs`'s native set
 //!    and what makes the realistic half of `design/PERFORMANCE.md`'s native
-//!    rows measurable at all. What is left is the entries that are not a loop
-//!    over one list: `find` and `findIndex`, which build an `Option` around
-//!    the answer; `foldResult` and `foldResultCtx`, which build a `Result` and
-//!    leave early; `sortBy`, which is a comparison sort; and `zip` and
+//!    rows measurable at all. Nine are loops and the tenth, `sortBy`, is a
+//!    stable bottom-up merge (`emit::Lower::list_sort`). What is left is the
+//!    entries that are not one walk of one block: `find` and `findIndex`,
+//!    which build an `Option` around the answer; `foldResult` and
+//!    `foldResultCtx`, which build a `Result` and leave early; and `zip` and
 //!    `flatten`, which need a second element layout
-//!    (`cli/runtime/list.rs`'s header). `core/queue` and `core/bitset` are now
-//!    held out only by the stateful testing context, and `core/map` by
-//!    `find`, `flatten` and `sortBy`.
-//!  * **`json.*`**, and with it `deriveArrayEq`, `deriveArrayCompare`,
-//!    `deriveArrayShow`, `deriveArrayJson` and `deriveArrayHash`, which are the
-//!    same loop over a code pointer that the closure surface needs.
+//!    (`cli/runtime/list.rs`'s header). `core/map` is held out by `find` and
+//!    `flatten`, and by nothing else.
+//!  * **`json.*`**, and with it `deriveArrayCompare`, `deriveArrayShow`,
+//!    `deriveArrayJson` and `deriveArrayHash`, which are the same loop over a
+//!    code pointer that the closure surface needs. `deriveArrayEq` is emitted
+//!    (`emit::Lower::derive_array`); none of the five is reported by
+//!    [`Cranelift::missing_intrinsics`], because a `deriveArray*` is an
+//!    intrinsic *expression* inside a body `middle::derives` generated rather
+//!    than a function the hook can see.
 //!  * **`core/math`'s thirteen transcendentals** and **`core/char`'s eight
 //!    classifiers**. Both are gaps for the same *kind* of reason and it is not
 //!    effort: IEEE 754 does not fix `sin`, and `\p{L}` is a General_Category
 //!    table Rust does not expose, so implementing either from what is to hand
 //!    would put a divergence into the toolchain where a named gap is honest.
 //!    `cli/runtime/math.rs` states it at length.
-//!  * **The stateful half of `core/testing/context`** — `captureOut`, `MemFs`,
-//!    `TestClock`, `TestEnv`, `TestStdin`, `TestRand`. Each is a mutable object
-//!    behind a handle table the native runtime does not have. Its *allocator*
-//!    is here, because natively that one is a no-op.
+//!  * **`MemFs`'s four methods**, which is all that is left of
+//!    `core/testing/context`. The handle table the stateful half wanted is
+//!    `cli/runtime/testing.rs` now, and `captureOut`, `captureErr`,
+//!    `TestClock`, `TestEnv`, `TestStdin` and `TestRand` are all in the
+//!    archive; that file's header says why `readFile`, `writeFile`, `readDir`
+//!    and `fileExists` stay out and why holding `fileExists` back with the
+//!    other three is the honest choice rather than the cautious one.
 //!  * **An inexact `to<T>`** (SPEC 6.2.1's `Result<T, _>` shape), for the same
 //!    reason as the host capabilities: the error payload is a type the table
 //!    does not name.
@@ -428,22 +435,25 @@ enum Root {
     Tests(Vec<usize>),
 }
 
-/// The `main` of a **test binary**: every `test` block, in order.
+/// The `main` of a **test binary**: every `test` block, in order, each behind
+/// the runner's answer about whether this process is to run it.
 ///
-/// There is no native test *runner*. On JavaScript, `buri test` catches the
-/// throw a failed assertion raises, renders both values, and goes on to the
-/// next test (`runtime.js:1643-1658`); natively a failed assertion is
-/// `buri_rt_abort_assert`, which prints and exits 1, so this process runs
-/// every block in order and the first failure is the last thing it does.
+/// A failed assertion is still an abort — SPEC 6.10 says this language has
+/// nothing to catch — so one process reports at most one failure, and the
+/// report `buri test` prints is assembled across as many processes as the suite
+/// has failures: `buri_rt_test_enter(i)` answers 0 for a block before the one
+/// the runner asked this process to start at, so a re-run skips what is already
+/// reported without re-running it. `cli/runtime/testing.rs` states the protocol
+/// and `commands/test.rs::run_native` drives it.
 ///
-/// That is a real difference and it is the right one for now: a runner that
-/// continued past a failure would need to catch something, and SPEC 6.10 says
-/// this language has nothing to catch — an abort is a write and an `_exit`.
-/// What it costs is that a failing native run names one failure rather than
-/// all of them, which is a worse report and not a wrong answer.
+/// Sharding a suite across processes is allowed by construction: `commands/
+/// test.rs`'s header is that a suite's result may not depend on the order its
+/// blocks run in, and there is no mutable global state for one to leave behind
+/// for the next.
 ///
 /// A `test` body answers `()`, so there is nothing to inspect between calls;
-/// the exit status is the whole result.
+/// which block a process was in when it aborted is what the runner needs, and
+/// `enter` is where it learns it.
 fn test_entry_point(u: &mut emit::Unit<'_>, tests: &[usize]) {
     let mut sig = Signature::new(u.abi.call_conv);
     sig.params.push(AbiParam::new(types::I32));
@@ -468,10 +478,18 @@ fn test_entry_point(u: &mut emit::Unit<'_>, tests: &[usize]) {
         };
         let init = cx.rt_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
         cx.b.ins().call(init, &[argc, argv]);
-        for idx in &tests {
-            if let Some(callee) = cx.func_ref(*idx) {
-                cx.b.ins().call(callee, &[]);
-            }
+        for (i, idx) in tests.iter().enumerate() {
+            let Some(callee) = cx.func_ref(*idx) else { continue };
+            let enter = cx.rt_ref("buri_rt_test_enter", &[types::I64], &[types::I32]);
+            let index = cx.iconst(types::I64, i as i64);
+            let Some(run) = cx.call1(enter, &[index]) else { continue };
+            let body = cx.b.create_block();
+            let next = cx.b.create_block();
+            cx.brif(run, body, &[], next, &[]);
+            cx.b.switch_to_block(body);
+            cx.b.ins().call(callee, &[]);
+            cx.jump(next, &[]);
+            cx.b.switch_to_block(next);
         }
         let flush = cx.rt_ref("buri_rt_flush", &[], &[]);
         cx.b.ins().call(flush, &[]);

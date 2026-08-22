@@ -196,6 +196,13 @@ git history cannot hold*: the 100,000-line corpus is 3.5 MB and the
 million-line one is 35 MB, against a repository whose whole history is 15 MB,
 and the manifest for either is four hundred bytes.
 
+There are forty of them, and forty is not forty arbitrary corpora: it is
+**twenty parameter points at two scales**, a point being a name and a seed and a
+delta from `Params::default()`, and its two corpora sharing that seed so that the
+only thing differing between a point's 100k row and its 1M row is the size. The
+whole set costs 17 KB of git, which is the argument for the kind stated as a
+number. §4 lists the points and what each moves.
+
 The reasoning is that the two properties a saved corpus bundles together are
 separable. "These are the bytes" is worth checking in; "here they are" is what
 costs the megabytes. A digest gives the first without the second, and the check
@@ -218,10 +225,17 @@ All three kinds obey the same validity rules, without exception:
 - **All are compiled before any is measured.** A saved corpus that has stopped
   being valid Buri is a build failure, exactly as a drifted generator is.
   `--validate` covers the saved half whatever `--set` was asked for, and CI runs
-  it; it covers the pinned half too, everywhere except under `--quick`, which is
-  the CI gate and has to stay under a second — regenerating a million lines is
-  not under a second, so a plain `--validate` is what covers the scale tier's
-  digests.
+  it. How much of the *pinned* half it covers is `--set`'s business, because
+  regenerating and digesting forty corpora, half of them a million lines, is
+  three minutes and a plain `--validate` has to stay the check somebody takes
+  before a commit. So: none under `--quick`, which is the CI gate and has to stay
+  under a second; the anchor — `mixed` at both scales — under a plain
+  `--validate`, which is what it covered when there were only two manifests and
+  is still ten seconds; the sample under `--validate --set=scale`, twenty-one
+  seconds; all forty under `--validate --set=scale-full`, two minutes and
+  forty-seven. The rule that does not bend is the last row: **the whole pinned
+  half is checkable by one documented command**, and a re-pin is what happens
+  when it fails.
 - **All are in memory before any timer starts.** A saved corpus is loaded, and a
   pinned one regenerated *and* digest-checked, into the same `Program` a
   generator returns; the harness has one measurement path, and no file is read
@@ -232,7 +246,13 @@ All three kinds obey the same validity rules, without exception:
   profile and a saved or pinned corpus inherits it; the goal column is printed
   only for the realistic family, and `Family` is a type in `generate.rs` rather
   than a convention, so the rule is unrepresentable-to-violate rather than
-  merely written down.
+  merely written down. With one derivation on top, for the parameter points the
+  scale tier introduced: a corpus whose `params` move anything its profile does
+  not **is** a stress shape, whatever family the profile it is a delta from
+  belongs to. A point is one dial pushed until it is most of the corpus, which
+  is this section's own definition of the stress family, so `mixed` with
+  `w_string_fn=8` is quoted against no goal — and that is derived from the
+  manifest rather than remembered by whoever pinned it.
 - **None is allowed to become the only one.** The headline scale — 100k lines —
   is generated *and* pinned, and the saved anchor is 10k. So §6 records **both**
   the generated and the saved reading of `mixed`, and the two deltas are
@@ -268,6 +288,20 @@ does not compile. *A benchmark over source that does not compile is a benchmark
 of the error paths.* Carbon asserts `!buffer.has_errors()` inside each lexer
 benchmark for exactly this; here the check is one level up, over the whole
 corpus, before any timer starts.
+
+**A cell that drives the binary starts from a cache no other binary wrote.**
+This one is not about the bench target — which compiles in process and keeps no
+cache — but about the end-to-end cells (§6.9) and about any harness that asks
+whether an incremental build is byte-identical to a `--force` one. A cache key
+carries `arguments::VERSION`, which is `CARGO_PKG_VERSION`: a *version*, not a
+hash of the running executable. So rebuilding `buri` at the same version moves
+no key, and the first build in a workspace whose `.buri` a previous binary wrote
+is a mix of the two compilers' objects — every unit whose IR did not move is
+served from the old one. It is a single build: the second agrees with itself,
+which is what makes the reading look like noise. Fresh tree, or `--force`, or
+`buri clean`, before a cell that spans a compiler rebuild. `buri docs
+build/hermeticity`, "The toolchain in the key", is the same warning where a user
+of the toolchain will find it.
 
 **A realistic construct mix, not a single construct.** The shape the goals are
 stated against emits what a real module contains: declarations with bodies,
@@ -395,7 +429,7 @@ Three files and a directory, no dependencies, one bench target:
 | `cli/benches/corpus.rs` | Saved and pinned corpora: the manifest, the digest, discovery, `--record`, `--pin`, the size cap. |
 | `cli/benches/compiler.rs` | The harness: warmup, repetition, median/MAD, the phase timers, the report. |
 | `cli/benches/corpora/` | Eight checked-in corpora, 0.55 MB, capped at 2 MiB. |
-| `cli/benches/pinned/` | Two digest-pinned manifests — `mixed-100k`, `mixed-1M` — and no source. |
+| `cli/benches/pinned/` | Forty digest-pinned manifests — twenty parameter points at 100k and 1M — and no source. 17 KB. |
 
 `autobenches = false` in `cli/Cargo.toml` is what keeps the first two *modules*
 of the `compiler` target rather than bench targets of their own: Cargo infers a
@@ -417,8 +451,8 @@ cargo bench -p buri --bench compiler -- --list        # the profile table, and t
 and the flags that select what runs:
 
 ```text
-  --set=<name>      core | realistic | stress | native | saved | scale | full
-                    (default: core)
+  --set=<name>      core | realistic | stress | native | saved | scale |
+                    scale-full | full                       (default: core)
   --only=<text>     keep corpora whose label contains it
   --shape=<profile> one profile ad hoc, instead of a set
   --param <k>=<v>   override a dimension (repeatable; with --shape)
@@ -433,35 +467,99 @@ and the flags that select what runs:
 ### The scale tier
 
 ```text
-cargo bench -p buri --bench compiler -- --set=scale         # 100k and 1M
+cargo bench -p buri --bench compiler -- --set=scale         # the sample
+cargo bench -p buri --bench compiler -- --set=scale-full    # all forty
 cargo bench -p buri --bench compiler -- --set=scale --rss   # and peak memory
 ```
 
 Four orders of magnitude is what says whether a rate is a property of the code
 or of the cache, and the fourth one costs minutes. So it is opt-in, and it is
 **not** in `core` and not in `full`: a default run has to stay something a
-contributor takes before a commit. Four things about it are deliberate.
+contributor takes before a commit. Six things about it are deliberate.
 
-**The corpora are digest-pinned** (§3.1). `pinned:mixed-100k` and
-`pinned:mixed-1M` are manifests in `cli/benches/pinned/`, regenerated per run
-and checked against their recorded SHA-256 before any timer starts. A mismatch
-stops the run.
+**The corpora are digest-pinned** (§3.1) — forty manifests in
+`cli/benches/pinned/`, regenerated per run and checked against their recorded
+SHA-256 before any timer starts. A mismatch stops the run.
+
+**Forty is twenty points at two scales, and the points span the generator's
+axes rather than repeating `mixed`.** A single profile measured at 1M answers
+"does the rate hold as the program grows"; it does not answer "which parameter
+the rate is a function of", and that second question is the one a scale tier is
+uniquely placed to ask, because every axis that could be superlinear is only
+visibly superlinear at the top. So the twenty are chosen to move one axis each:
+
+| Points | The axis |
+|---|---|
+| `mixed` | The anchor. Every other point is a delta from it, and shares nothing but the generator. |
+| `mixed-many-files`, `mixed-few-files` | Module count against module size: 15,640 modules at 1M against 192. |
+| `mixed-libs`, `mixed-deep-graph`, `mixed-wide-graph` | Import-graph shape: clustered, deep, wide. |
+| `struct-heavy`/`struct-light`, `enum-heavy`, `impl-heavy`, `match-heavy`, `string-heavy`, `list-heavy`, `long-bodies` | Construct-family weight — one kind turned up until it is most of the corpus. |
+| `generic-blowup`/`generic-free` | Generics density: 243k monomorphized functions at 1M against 119k. |
+| `derive-heavy` | Derive load, which only the native branch pays for. |
+| `comment-heavy`/`comment-free`, `long-idents` | Surface: 46 bytes a line against 29, and bytes per token at a fixed token count. |
+
+Sixteen of the twenty are named profiles from the table below; four —
+`string-heavy`, `list-heavy`, `long-bodies`, `generic-free` — are the `mixed`
+profile with one weight moved, recorded in the manifest's `params` as such. They
+are points and not profiles because a profile earns a row in every `--set=stress`
+run, and these had earned a scale row and no more. Each point has its own seed,
+and its two scales *share* it, so a point's 1M corpus is its 100k corpus's
+modules and then some: the only thing that differs between the two rows is the
+size, which is the whole comparison.
 
 **A new scale point is a new manifest and nothing else.** The tier is every
-`.txt` in that directory, so a 10M row is a `--pin=mixed-10M` away and no code
-change. It is deliberately absent: at the rates §6.7 records, one repetition of
-a 10M native row is about five minutes, and the question it would answer —
-whether anything is superlinear — the 100k/1M pair already answers.
+`.txt` in that directory, filtered on the manifest's own fields, so a 10M row is
+a `--pin=mixed-10M` away and no code change. It is deliberately absent: at the
+rates §6.7 records, one repetition of a 10M native row is about three minutes,
+and the question it would answer — whether anything is superlinear — the 100k/1M
+pair already answers, twenty times over.
 
 **The protocol deviation is §2's, printed beside the rows it applies to.** Above
 500,000 lines: at least 3 repetitions rather than 10, one warmup call rather
 than two.
 
-**Native rows at 1M are the host triple only.** The cross triples earn their
-seat where they cost two seconds a repetition and settle whether a gap is
-codegen or cross-compilation; at a million lines they cost thirty, and the
-question has already been answered at 100k over the same corpus. `--targets=`
-overrides it.
+**Native rows are spent, not spread.** Two rules, both about the same
+thirty-to-one cost ratio between a native row and a JavaScript one.
+
+The cross triples go to the anchor only. They earn their seat where they cost
+two seconds a repetition and settle whether a gap is codegen or
+cross-compilation; across forty corpora they are three quarters of the wall
+time, and the question has already been answered on `mixed-100k` over the same
+generator. Above 500,000 lines nothing takes them, anchor included.
+
+And a native row at all goes to **seven of the twenty points**, recorded as
+`native = false` in the other thirteen manifests. The backend is a function of
+two things this suite can move — the codegen unit count and the size of the IR
+handed to it — so the seven are chosen to span both: `mixed-many-files` (15,640
+units at 1M) and `mixed-few-files` (192) at the ends of the first,
+`generic-blowup` (243k monomorphized functions) and `enum-heavy` (59k) at the
+ends of the second, `derive-heavy` because `middle::derives` runs only on the
+native branch and is invisible in every JS row, `struct-heavy` because layout and
+the ABI are native-only questions, and `mixed` because it is the anchor. The
+other thirteen move the lexer, the parser or the checker, and `lower+js` is the
+lowering row that tracks them. This is a *sampling* decision and it is
+reversible: `--only=<point> --set=scale-full --targets=macos-arm64` takes the
+native row of any of them by hand.
+
+**The wall time is a property of the flag, not of the directory.** Forty pinned
+corpora are a parameter sweep, and a sweep at a million lines is twenty-five
+minutes — past the point where anybody runs it before a commit, which would make
+it a suite nobody runs. So:
+
+| Command | What it covers | Wall time |
+|---|---|---|
+| `--set=scale` | the sample: the whole 100k tier, plus `mixed-1M` | ~9 min |
+| `--set=scale-full` | all forty | ~25 min |
+| `--only=<text>` | either of the above, cut to a point or a scale | seconds to minutes |
+
+The sample is "every pinned corpus the standard protocol applies to, plus the
+anchor above it", and the threshold it is stated over is the same 500,000 lines
+the repetition deviation already uses, so the tier boundary is one number rather
+than two. What the sample buys is the parameter sweep at the scale where a
+sweep is affordable and the size comparison on the one point the size comparison
+is anchored on; what `scale-full` buys is the other nineteen size comparisons,
+and those are a thing somebody does deliberately, on a quiet machine, when a
+number is about to be written down.
 
 ### Peak memory
 
@@ -491,6 +589,12 @@ whatever `--set` was asked for. It also prints which backends this binary has,
 which of the requested targets each can emit for, and how much of the 2 MiB
 corpus budget is spent.
 
+How much of the *pinned* half it covers follows `--set`, for the wall-time
+reason §3.1 gives: 0.3 s under `--quick` and no digests, 10 s plain and the
+anchor's two, 21 s under `--set=scale`, and 2 min 47 s under `--set=scale-full`
+for all forty. The last one is the command that answers "is every pinned digest
+still good", and it is the one to run after touching `generate.rs`.
+
 ### The parameter space, and the profiles
 
 A profile is a point in the generator's parameter space: `Params::default()`
@@ -504,6 +608,14 @@ a promise held by regenerating and diffing rather than by intention.
 is what the suite measures by default and what §6 reports; everything else is an
 investigation, and an investigation that turns out to be worth watching becomes
 a profile.
+
+There is a step between the two, and the scale tier is where it lives: a
+**parameter point** is a `--param` delta with a name, a seed and a pinned
+digest, measured at 100k and 1M and nowhere else. Four of the twenty points
+above are that — `string-heavy`, `list-heavy`, `long-bodies`, `generic-free` —
+and the reason they are not profiles is that a profile costs a row in every
+`--set=stress` run and every `--quick` run, forever, while a point costs four
+hundred bytes and a line in one table.
 
 Two axes are deliberately *absent*. **Package structure**: the in-memory loader
 is built with `Loader::new(None, ..)` and never consults a workspace, so
@@ -660,6 +772,15 @@ That is the surface any optimization wave has to work on.
 Two snapshots, both on an M-series MacBook (macOS, aarch64, 10 cores), release
 build, seed `0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal
 is met; below 1.0 means it is beaten.
+
+**2026-08-21: `buri test` defaults to the native dev backend.** A suite that
+names no platform is compiled with Cranelift and run as a binary, and falls back
+to JavaScript per suite — out loud — where the toolchain or the suite's program
+needs it (`commands/test.rs`; `design/native/ARCHITECTURE.md` §4). The number
+that paid for the change is the incremental one: a one-line edit at 104k lines
+is 502 ms to verdict native against bun's 622 on the fast suite and 1,484
+against 1,742 on the compute suite, the first measurement in this project where
+the native compile column is itself the faster one.
 
 ### 6.1 The baseline, 2026-08-17, before any optimization
 
@@ -1096,6 +1217,529 @@ And the negative result, which is the useful half: the native cliff above is
 1M — so whatever `emit` is doing wrong, it is doing it in time and not in
 space.
 
+### 6.8 The parameter sweep at scale, 2026-08-20
+
+§6.7 asked one profile at two scales. This is twenty parameter points at the
+same two, which is a different question: not "does the rate hold as the program
+grows" but "which parameter is the rate a function of". Both tiers came off one
+build, so the 100k/1M comparison is a comparison of sizes. The 100k tier was run
+twice and agrees with itself within ±8% on all but three rows; those three were
+taken while another process was compiling, and are named as such rather than
+smoothed.
+
+Rates in lines/s, macOS aarch64, ten cores, generator revision 1, corpus
+revision 1. The two right-hand columns are the ones worth reading: **Δ100k→1M**
+is what a decade of program size costs this point, and **Δvs `mixed`** is what
+the parameter costs at a million lines.
+
+| Point | sema 1M | Δ100k→1M | Δvs `mixed` | js 1M | Δ100k→1M | Δvs `mixed` | native 1M | Δ100k→1M | Δvs `mixed` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `mixed` | 901 k | −13% | — | 252 k | −7% | — | 52.2 k | −8% | — |
+| `mixed-many-files` | 1.14 M | −9% | +27% | 402 k | −1% | +59% | 89.5 k | −5% | +71% |
+| `mixed-few-files` | 821 k | −3% | −9% | 240 k | −3% | −5% | 56.5 k | −3% | +8% |
+| `mixed-libs` | 915 k | −9% | +2% | 251 k | −10% | −0% | — | — | — |
+| `mixed-deep-graph` | 901 k | −13% | +0% | 248 k | −13% | −2% | — | — | — |
+| `mixed-wide-graph` | 899 k | −13% | −0% | 260 k | −8% | +3% | — | — | — |
+| `struct-heavy` | 1.39 M | −7% | +54% | 533 k | −2% | +111% | 83.6 k | −4% | +60% |
+| `struct-light` | 863 k | −7% | −4% | 239 k | −5% | −5% | — | — | — |
+| `enum-heavy` | 942 k | −11% | +5% | 193 k | −9% | −23% | **16.8 k** | −16% | **−68%** |
+| `generic-blowup` | **677 k** | **−29%** | −25% | 177 k | −13% | −30% | 35.2 k | −20% | −33% |
+| `generic-free` | 886 k | −16% | −2% | 264 k | −13% | +5% | — | — | — |
+| `derive-heavy` | 933 k | −11% | +4% | 286 k | −4% | +14% | 47.0 k | −6% | −10% |
+| `impl-heavy` | 893 k | −20% | −1% | 282 k | −10% | +12% | — | — | — |
+| `match-heavy` | 926 k | −14% | +3% | 242 k | −7% | −4% | — | — | — |
+| `string-heavy` | 910 k | −6% | +1% | 264 k | −4% | +5% | — | — | — |
+| `list-heavy` | 879 k | −13% | −2% | 267 k | −11% | +6% | — | — | — |
+| `long-bodies` | 1.06 M | −16% | +18% | 293 k | −10% | +16% | — | — | — |
+| `comment-heavy` | 1.67 M | −6% | +85% | 463 k | −6% | +84% | — | — | — |
+| `comment-free` | 719 k | −6% | −20% | 202 k | −5% | −20% | — | — | — |
+| `long-idents` | 871 k | −14% | −3% | 247 k | −10% | −2% | — | — | — |
+
+Lexing and parsing are omitted from the table because they have nothing to say:
+every point lexes between 7.8 and 12.4 M lines/s and parses between 5.2 and 6.6,
+and no point loses more than 7% across the decade except `mixed-few-files`
+(−21%), whose modules are 180 KB each at 1M.
+
+**Nothing new is superlinear, and that is the headline.** Twenty points, four
+phases, a tenfold change in size: the worst per-decade loss anywhere is −29%,
+and the median is −8%. §6.7 found a genuine quadratic by measuring one profile
+at two scales; twenty profiles at the same two scales find no second one. The
+sampling that would have hidden a quadratic — three repetitions instead of ten —
+is not what is holding these numbers together: the dispersions are under 2% on
+all but four rows.
+
+**The rate is a function of declarations per line before it is a function of
+anything else.** `comment-heavy` "checks" at 1.67 M lines/s and `comment-free`
+at 719 k, and the checker is identical in both. §2 counts a comment as a line on
+purpose, and the 2.3× between those two rows is the price of that honesty stated
+as a number. The same reading applies to `struct-heavy` (+54% on sema) and
+`long-bodies` (+18%): a corpus whose lines are mostly field declarations or
+`let` bindings has fewer things to resolve per line than one whose lines are
+mostly signatures. **Any goal quoted in lines/s is quoted against a corpus's
+comment and declaration density, and the twenty-point spread — 719 k to 1.67 M
+on the same phase — is the size of that dependence.** The suite already prints a
+token rate beside the line rate for lexing and parsing, for exactly this reason;
+this is the strongest argument it has produced for wanting one beside every
+phase, and for a goal that is not quoted against a single profile's density
+without saying so.
+
+**The two axes the native backend is a function of behave.** Unit count:
+`mixed-many-files` at 1M is 15,640 codegen units and runs at 89.5 k lines/s,
+**71% faster** than the anchor's 3,590 units — the opposite sign from before
+§6.7's fix, and the cleanest possible confirmation that the fix held at ten
+times the scale it was found at. Its per-decade loss is −5%. IR size:
+`generic-blowup` at 243 k monomorphized functions runs 33% below the anchor at
+1M and loses 20% across the decade, `generic-free` at 119 k loses none of it.
+Neither is a cliff.
+
+#### The outlier: a derived `Show` on a wide enum
+
+One row is more than a factor off everything around it. `enum-heavy` lowers
+natively at **16.8 k lines/s at 1M and 20.1 k at 100k**, against the anchor's
+52.2 k and 56.7 k — 3.1× slower, and **6× off goal 3**, the largest gap any row
+in this document has ever recorded. It is not the JavaScript backend's problem:
+the same corpus emits JS only 23% below the anchor.
+
+It is not a function count either, which is what makes it interesting.
+`enum-heavy` at 100k has 5,903 monomorphized functions against `mixed`'s 13,162
+— *fewer than half* — and `--split` puts the whole difference in `emit`:
+
+| 100k, `lower+macos-arm64` | mono | middle-A | middle-native | lower(IR) | emit |
+|---|---:|---:|---:|---:|---:|
+| `mixed` | 99.5 ms | 64.2 | 47.7 | 87.0 | 1,453 ms |
+| `struct-heavy` | 30.8 ms | 48.9 | 28.5 | 47.2 | 945 ms |
+| `enum-heavy` | 35.7 ms | 76.0 | 140.9 | 149.0 | **4,703 ms** |
+
+0.80 ms per monomorphized function against the anchor's 0.11.
+
+Two controlled sweeps at a fixed 30,000 lines name the cause exactly, and the
+second one names it to a single trait. Moving the enum width alone:
+
+| `variants_per_enum` | native |
+|---|---:|
+| `3..7` | 39.7 k |
+| `6..12` | 28.3 k |
+| `12..24` (the pinned point) | 16.5 k |
+| `24..48` | 16.7 k |
+
+Then holding the width at the pinned `12..24` and moving the derive load:
+
+| `derives` | traits derived | native |
+|---|---|---:|
+| 0 | none | 96.6 k |
+| 1 | `Eq` | 97.9 k |
+| **2** | `Eq, Show` | **20.8 k** |
+| 4 | `+ Ord, Hash` | 20.9 k |
+| 6 | `+ ToJson, FromJson` | 20.2 k |
+
+**The whole of it is the second derive, and the four after it are free.** A
+derived `Show` on a wide enum costs 4.7× the entire native lowering row;
+`Eq`, `Ord`, `Hash`, `ToJson` and `FromJson` together cost nothing measurable.
+That also explains why the width sweep flattens rather than continuing to fall:
+each enum costs a fixed dozen lines of surrounding functions whatever its width,
+so at a fixed line count a wider enum packs more variants into the same lines —
+until the fixed part stops mattering and the packing stops changing. A per-line
+rate falling under a per-variant cost that is constant is what that looks like.
+**It is not superlinear in anything.** It is a large constant, per variant, on
+one derived trait.
+
+##### The suspects, named
+
+`cli/src/compiler/middle/derives.rs:1454`, the `Desc::Enum` arm of `show`: one
+match arm per variant, and inside each arm a string template with a literal
+piece per field and a recursive `Show` call per field. The generated body is
+Θ(variants × fields) with a large constant, and there is one per instantiated
+type. Turning `Show` on doubles the emitted JavaScript for this corpus — 367 KB
+to 685 KB at 30k, at an unchanged 1,790 monomorphized functions — so the
+expansion is real and it is big.
+
+But the expansion is not the cost. `--split` across the same two derive
+settings:
+
+| 30k, `derives` | middle-native | lower(IR) | emit |
+|---|---:|---:|---:|
+| 1 (`Eq`) | 9.9 ms | 13.2 | 277 ms |
+| 2 (`Eq, Show`) | 38.7 ms | 44.8 | **1,498 ms** |
+
+Generating the expansion costs 29 ms. Lowering it to IR costs 32 ms more.
+**Emitting it costs 1,221 ms more** — forty times the expansion that caused it,
+and 3.85 ms per KB of generated code against the ~1.1 ms/KB the anchor's
+ordinary code costs. So the second suspect is the backend's handling of these
+bodies specifically: a `Template` of concatenations, one per arm, in a function
+with two dozen arms. Whether that is the string-building lowering, the block
+count, or register pressure across a wide switch is not something this
+measurement can distinguish, and it is where a sampling profile should start.
+
+**Not fixed in this wave, per instruction.** The shape of a fix is a choice
+between two things and should be argued rather than assumed: either the derived
+`show` for an enum stops being one inlined body — a per-variant helper, or a
+table-driven renderer that the backend emits once — or the backend gets cheaper
+on concatenation-heavy bodies. The first is a `middle::derives` change and the
+second is a backend one, and the numbers above do not yet say which is right.
+
+#### Two rows to watch, below the threshold
+
+`generic-blowup` loses **29% of its semantic-analysis rate across the decade**,
+which is more than twice the anchor's −13% and the largest per-decade loss in
+the table. It also has the table's worst dispersion (±14% MAD over three
+repetitions), so it is a candidate for a re-read before it is a candidate for an
+investigation — but generics density is the one axis where the checker has a
+plausible superlinear term, and this is the point built to find it.
+
+`mixed-few-files` lexes 21% slower at 1M than at 100k, and 26% slower than the
+anchor at 1M, on modules of 180 KB each. Every other point is within 7%. That
+one is a cache reading rather than an algorithmic one and it is the reason the
+point exists.
+
+### 6.9 The consolidated dev-mode round, 2026-08-20
+
+Everything above §6.8 measures the *compile* column. This section measures the
+whole loop — compile plus runtime, per strategy — and it exists because a wave
+of runtime work (§6.9.2) invalidated every cross-strategy number the project
+had. Those numbers had been taken in four separate sessions on four separate
+trees; this round re-took all of them **on one machine, in one session, against
+one build**, with every strategy interleaved inside every repetition so a drift
+in machine load lands on all of them. Medians of five for the whole-loop cells,
+of seven for the kernel runtimes.
+
+Two columns are carried forward rather than re-measured, and are marked `†`:
+the **tree-walking interpreter** and the **Cranelift JIT**. Neither strategy
+changed, both are scratch prototypes rather than toolchain paths, and re-wiring
+them would have measured the prototypes rather than the question. The
+interpreter's runtime is genuinely unmoved — it never ran `middle::native`, so
+none of §6.9.2 reaches it. The Cranelift JIT's runtime is by construction the
+native one, so its compute cells move with the native column and are recomputed
+rather than quoted; they are marked derived.
+
+#### 6.9.1 The whole loop, every strategy
+
+Workloads, unchanged from the strategy comparison that named them: a **fast**
+suite of 401 tests of two integer assertions each, and a **compute** suite of
+four kernels — prime counting below 4,000,000 by trial division (K1),
+n-queens 12 (K2), a 320² dense float matrix multiply (K3), and a
+`range`/`map`/`filter`/`fold` pipeline over 40,000 × 2,000 (K4). Codebases: a
+generated repository at 12,383 lines / 36 modules and the same replicated
+tenfold at 103,967 lines / 360 modules, 377 codegen units. *Incremental* is one
+line appended to a leaf module with a nonce never compiled before.
+
+**Time to verdict, 104k lines, one-line edit, milliseconds. Bold = the winner.**
+
+| | native AOT | JS (bun) | copy-and-patch | interpreter† | Cranelift JIT† |
+|---|---:|---:|---:|---:|---:|
+| compile | 1,175 | 528 | 643–653 | 313–319 | ~2,223–2,285 |
+| runtime, fast suite | 16.5 | 86.9 | 0.1 | 17.3 | ≡ 16.5 |
+| runtime, four kernels | 968.5 | 1,159.5 | 2,071 | 108,864 | ≡ 968.5 |
+| **wall, fast suite** | 1,191 | 615 | 719 *(656)* | **~331** | ~2,300 |
+| **wall, compute** | 2,144 | **1,678** | 2,780 *(2,717)* | ~109,177 | ~3,253 |
+| noop (only the first two have a cross-session cache) | **28** | **28** | 719 *(656)* | ~331 | ~2,300 |
+
+Copy-and-patch's parenthesised figures are with the stencil library preloaded.
+The 63 ms it otherwise pays is this prototype's own Mach-O parser, not the
+technique, and a shipped implementation pays zero; both are printed because
+only one of them is a measurement of copy-and-patch.
+
+**Time to verdict, 12k lines, one-line edit:**
+
+| | native AOT | JS (bun) | copy-and-patch | interpreter† | Cranelift JIT† |
+|---|---:|---:|---:|---:|---:|
+| compile | 451 | 71 | 55–72 | 27–36 | ~205–260 |
+| runtime, fast suite | 5.8 | 35.5 | 0.1 | 17.3 | ≡ 5.8 |
+| runtime, four kernels | 957.6 | 1,100.0 | 2,073 | 108,864 | ≡ 957.6 |
+| **wall, fast suite** | 457 | 106 | 139 *(75)* | **~48** | ~266 |
+| **wall, compute** | 1,414 | **1,148** | 2,196 *(2,131)* | ~108,891 | ~1,190 |
+| noop (only the first two have a cross-session cache) | **7** | **7** | 139 *(75)* | ~48 | ~266 |
+
+**Cold, for the two columns whose cold and incremental cells differ** (the other
+three have no cross-session cache, so cold ≡ incremental for them):
+
+| | native AOT, 12k | JS, 12k | native AOT, 104k | JS, 104k |
+|---|---:|---:|---:|---:|
+| fast, wall | 661 | 109 | 2,878 | 619 |
+| compute, wall | 1,568 | 1,157 | 3,798 | 1,679 |
+
+**What moved, and it is one thing.** The native compile column is where §6.7's
+and §6.8's work left it — 1,175 ms incremental at 104k against 1,199 the last
+time it was taken, 528 for JavaScript against 528. The whole of the change is
+the **runtime** column: the four kernels went from 2,567 ms to **968.5**, which
+takes the native path's compute cell from 3,766 ms to 2,144 and its gap to the
+JavaScript incumbent from **2.26× to 1.28×**. On the fast suite nothing moved at
+all, because 401 tests of two assertions do not execute anything.
+
+#### 6.9.2 What the runtime wave did — FP wave 1
+
+Four measured optimizations on the native dev path, each with its own
+verification. The whole of the change above is these four.
+
+| item | what | where |
+|---|---|---|
+| 1 | **cheap enum discrimination** — a switch of ≤ 4 cases becomes an `icmp_imm`/`brif` chain instead of a `br_table` with a Spectre `csdb` and an indirect branch, and a discriminant that was just computed is read from its register instead of from memory | `backend/cranelift/emit.rs` |
+| 2 | **list-combinator fusion** — `fold ∘ map`, `fold ∘ filter`, `map ∘ map`, `filter ∘ filter`, `count`/`any`/`all` over either, `len ∘ filter` | `middle/fuse.rs`, new |
+| 3 | **devirtualizing the known callee** — a call through a closure whose construction this body can see becomes a call by name | `backend/cranelift/emit.rs` |
+| 4 | **one shared string joiner per arity** in derived `Show` instead of a concatenation chain per rendered variant | `middle/derives.rs` |
+
+**Item 1 was the largest, and it was not on anybody's list.** Matching *any*
+enum of any arity cost **12–15 ns**, against 0.15 ns for an `if` on a `Bool` —
+a payload-free two-variant enum cost 13.6 ns, an `Option<Int>` 17.4, and a
+niche-packed `Option<Str>` 17.5, all agreeing to within 30% across every
+variation of payload, arity and representation, which is what says the cost is
+the *match* rather than anything it matches on. It is now **~0.2 ns**. Because
+`list.get` returns `Option<T>`, this sat on the inner loop of two of the four
+kernels: `list.get` fell from 15.0 ns to **3.9 ns**, and K3 — 65.5 M gets — fell
+with it.
+
+| micro-benchmark, 80 M iterations | before | after |
+|---|---:|---:|
+| payload-free two-variant enum, built and matched | 1,087.5 ms | **107.0** |
+| `Option<Int>` returned and matched | 1,393.4 | **172.1** |
+| `Option<Str>`, niche representation | 1,400.8 | **215.9** |
+| four-variant enum with payload | 1,227.3 | **275.3** |
+| 80 M `xs.get(i)` + match | 1,299.5 | **409.7** |
+| the same arithmetic with no list | 101.1 | 97.4 |
+
+Matching a payload-free enum now costs about what an `if` on a `Bool` costs:
+107.0 ms against 119.4 for a function that returns a plain `Int`.
+
+**The defect was dev-mode-only, and that was checked rather than assumed.** The
+same two shapes built as `main`-bearing binaries and run at LLVM `-O2` cost
+55.1 ms and 54.4 ms over 80 M iterations — 0.7 ns an iteration in total, which
+cannot contain a 12–15 ns match — and `otool -tv` finds no `csdb` and no
+jump-table load in either. `mem2reg` sees the tag's store-to-load pair and
+`SimplifyCFG` sees a two-destination switch, so the release path never had the
+defect. The battleground is the dev path, so it still mattered; what follows
+from it is that the *middle-end* half of the same idea (folding a match whose
+tag is statically known) is the part with long-run value, because it removes
+matches rather than cheapening them on one backend.
+
+**Item 2 runs on the native branch only, and that is a testing decision rather
+than a caution.** `cli/tests/native/agreement.rs` compares the JavaScript
+artifact's answers against both native ones, and that comparison is the only
+mechanical oracle this rewrite has. Fusing in the shared middle would fuse both
+sides identically, and **a differential test whose two sides share the
+transformation under test proves nothing about it**. Keeping the pass
+native-only makes JavaScript the reference implementation of every pipeline in
+the corpus, which the fuzz `output` oracle and the 243-block conformance corpus
+then exercise for free. The cost — JavaScript does not get faster — is the
+smaller loss: V8 allocates the intermediate array with a bump pointer in a
+generational nursery, which is a much cheaper machine than `malloc` plus a copy,
+so the same rewrite is worth less there than the oracle is worth here.
+
+The pass composes rather than fusing loops: `fold(map(xs, f), g, z)` becomes
+`fold(xs, |a, x| g(a, f(x)), z)`, which is the same combinator over a different
+list with a bigger lambda — **no new IR node, no new intrinsic key and no
+backend change at all**. Only the context-free combinators fuse, and the effect
+argument is the language's: SPEC 10.6 forbids a lambda from capturing an
+effect-carrying value, so a step is a pure function of its element and
+interleaving pure steps is unobservable. The one residual divergence is which of
+two *diverging* steps aborts first, which no terminating program can observe;
+it is the standard caveat of shortcut fusion and it is in the pass header.
+
+| pipeline shape | before | after | mallocs | bytes |
+|---|---:|---:|---|---|
+| `map \| filter \| fold` (= K4) | 335.7 ms | **139.9** | 6,205 → **205** | 1.83 GB → **334 KB** |
+| `map \| map \| fold` | 353.2 | **130.2** | 4,205 → 205 | 1.28 GB → 334 KB |
+| `range \| map \| filter \| len` | 287.5 | **115.2** | 8,204 → 2,204 | 2.43 GB → 640 MB |
+
+The first two now equal their hand-fused forms to within the noise. The third
+keeps one list because the *producer* — `range` — is not fused, and that is the
+obvious next increment: the hand-written form with no list at all is 58.5 ms.
+
+**Item 3 was fixed one level down from where it was diagnosed, and the
+correction is worth recording.** The named site was a `CallValue` whose callee is
+syntactically a `FnRef`. That is not where the thunks came from: after
+`closures::run` a capture-free lambda is an `ExprKind::FnRef`, which lowers to
+`MakeClosure{env: None}`, and the call is then made by the backend's own
+open-coded `list.*` loop rather than by `CallIndirect` at all. Fixing only the
+named site would have moved nothing. The fix is in `Lower::direct_callee`, where
+it catches both paths, under three conditions that are each one clause of the
+thunk it replaces: no environment, no borrowed counted parameter, and flattened
+arguments and results that are exactly the callee's — the last of which is what
+refuses a merged tail-recursive SCC, whose signature carries a dispatch
+discriminant no call site supplies. K4 went 559.5 → **335.9 ms** on this item
+alone, and a fold over a *named top-level function* — the one-line proof that
+passing a function by name got you no closer to a direct call — went 239.9 →
+**140.6**.
+
+**Item 4 improved its row by 13% and did not meet its target**, and what it ruled
+out is worth more than the 13%. `enum-heavy`'s native lowering went from 20.0 k
+to **22.6 k lines/s**, against §6.8's target of bringing `derives=2` within
+~1.2× of `derives=1`; the gap went from 4.7× to 4.3×. Three things are now
+known, and they eliminate two of the three candidate fixes §6.8 named:
+
+1. **It is not superlinear in function size, so a per-variant helper split will
+   not work.** At a *fixed* 512 total variants, regrouping from 128 enums × 4
+   variants to 8 × 64 costs the same to within 3%.
+2. **The cost is a constant per rendered *field*, not per variant.** At 512
+   variants, payload-free derived `Show` is free (231.0 ms against 234.9 with no
+   derive at all); one field costs 33 ms, two 72, four 163 — about **0.07 ms per
+   hole**.
+3. **65% of the row is `regalloc2`.** `regalloc2::ion::Env::init` alone is 18% of
+   the whole process, with `BTreeMap<LiveRangeKey>` traffic behind it. The lever
+   is CLIF volume and live ranges per hole; the joiner cut the first and slightly
+   raised the second.
+
+So the two routes that remain are a variadic join that takes its parts **through
+memory** (three dead stores per hole instead of three live leaves, which needs a
+runtime entry and both backends), or a descriptor-driven renderer emitted once,
+which is what the JavaScript backend already does and is a design decision about
+`derives.rs`'s premise rather than an optimization. **It needs a decision, not
+more tuning.**
+
+#### 6.9.3 The four kernels: dev, release, and bun
+
+Medians of seven, interleaved, each kernel built as its own `main`-bearing
+binary from byte-identical source and executed directly. bun 1.2.13, net of its
+own 18.3 ms empty-module floor measured in the same interleaving.
+
+| kernel | native dev (Cranelift) | **release (LLVM `-O2`)** | bun, net | dev ÷ bun | **release ÷ dev** |
+|---|---:|---:|---:|---:|---:|
+| K1 primes | 239.5 ms | 243.4 ms | 285.4 | **0.84×** | **1.02× — slower** |
+| K2 n-queens 12 | 314.7 | **239.6** | 264.6 | 1.19× | 0.76× |
+| K3 matmul 320² | 273.8 | **220.8** | 175.4 | 1.56× | 0.81× |
+| K4 pipeline | 140.3 | **75.3** | 338.8 | **0.41×** | 0.54× |
+| **total** | **968.3** | **779.1** | **1,064.2** | **0.91×** | **0.80×** |
+
+Two readings, and the second is the one nobody expected.
+
+**The native dev path now beats bun on the suite as a whole and on two of four
+kernels outright** — 0.91×, from 2.41× before the wave. What is left is K3
+(1.56×, now 65% arithmetic and 35% the out-of-line `buri_rt_list_get` call and
+its `memmove`) and K2 (1.19×, whose 566 k small allocations at ~20 ns are
+~11–17 ms and whose remainder is the recursion). Both are bounded by things the
+wave deliberately did not touch: the out-of-line `list.get` and the allocator's
+lack of size classes.
+
+**And LLVM at `-O2` buys 1.24× over the optimized dev path — not the 3–6× the
+release row's *lowering* cost would suggest.** Per kernel it is nothing at all on
+K1 (`-O2` is 1.6% *slower*, and the copy-and-patch investigation measured the
+same thing independently: this loop is latency-bound on a 64-bit signed divide,
+so there is nothing for an optimizer to shorten), 1.24–1.31× on K2 and K3, and
+1.86× on K4. On ordinary straight-line library code it is less again: the
+104k-line bulk library's entry point runs in 14.2 ms at `-O2` against 16.2 ms
+dev, a 1.15× that is mostly the 2 ms process floor. **The dev/release runtime
+band on this workload is 1.2×** — which is a different thing to reason about
+from the several-fold band the release backend's lowering rate implies.
+
+#### 6.9.4 What `--release` costs to build
+
+`buri build --release` selects LLVM (`--features backend-llvm`, LLVM 21.1.2).
+The same binary — a `main` over the whole 104k-line bulk library, 368 codegen
+units — built both ways, medians of five. The incremental edit here perturbs the
+body of a function the entry point already reaches, because a binary's codegen
+key is its rendered IR and a *dead* new function never moves it.
+
+| | 12k dev | 12k release | 104k dev | 104k release | release ÷ dev |
+|---|---:|---:|---:|---:|---:|
+| cold | 417 ms | 2,123 | 2,472 | **19,532** | 5.09× / **7.90×** |
+| incremental, one live leaf edit | 256 | 285 | 962 | 1,104 | 1.11× / **1.15×** |
+| noop | 147 | 161 | 677 | 688 | 1.09× / **1.02×** |
+| artifact bytes | 1,228,720 | 708,448 | 7,887,648 | **2,748,928** | 0.58× / **0.35×** |
+
+**The 7.9× is a cold-build number and it does not survive the action cache.** A
+one-line edit costs 15% more at `-O2` than at `opt_level=none`, because per-unit
+emit re-optimizes one unit of 368 and reads the rest out of the
+content-addressed store; a noop costs 2% more, which is to say nothing, because
+what is left is whole-program analysis that both profiles pay identically. The
+right way to state the release backend's price is therefore **"7.9× the first
+time and 1.15× every time after"**, and §6.6's "15–26× under goal 3" remains the
+right statement about its *lowering rate* and the wrong one about a developer's
+loop.
+
+**One gap found while taking this column, and it is a real one.**
+`buri test --release` cannot run a test suite at all: *"the llvm backend has no
+implementation of testing_assert.report"*. That is the third native-test gap on
+the record beside `core/testing/context` and `list.sortBy`, and it is why the
+release column above is `buri build` over a binary rather than `buri test` over
+the same suites the other columns use. Nothing about the runtime comparison
+depends on it — the kernels are byte-identical source in both — but the release
+profile cannot currently be verified by the test suite it is meant to ship.
+
+#### 6.9.5 Cranelift at `opt_level = "speed"`: refuted, on both halves
+
+§6.5 recorded `opt_level = "speed"` as costing 20% of compile time and left its
+runtime gain unmeasured; the note in `backend/cranelift/mod.rs` says the same.
+This round measured both halves against the same build behind a temporary
+env-var knob, since removed.
+
+**Compile cost**, the 97 `--quick` rows, default against `speed`:
+
+| row | default | `speed` | delta |
+|---|---:|---:|---:|
+| `many-small-fns/1k` lower+macos-arm64 | 9.01 ms | 17.56 | **+95%** |
+| `mixed/1k` lower+macos-arm64 | 18.28 | 22.03 | **+21%** |
+| `enum-heavy/1k` lower+macos-arm64 | 44.61 | 51.57 | **+16%** |
+| every non-native row | — | — | **0%** |
+| median over all 97 rows | — | — | **0.00%** |
+
+At workspace scale it is +14% on a cold 104k build (2,861 → 3,256 ms of compile)
+and **+0.6% incremental** (1,175 → 1,181), for the same reason the release
+column is cheap incrementally: one unit of 377 is re-emitted.
+
+**Runtime gain**, the four kernels, same protocol as §6.9.3:
+
+| kernel | `none` | `speed` | delta |
+|---|---:|---:|---:|
+| K1 primes | 239.5 ms | 230.8 | −3.6% |
+| K2 n-queens 12 | 314.7 | 301.2 | −4.3% |
+| K3 matmul 320² | 273.8 | 274.0 | ±0% |
+| K4 pipeline | 140.3 | **187.9** | **+34%** |
+| **total** | **968.3** | **993.9** | **+2.6%** |
+
+**The trade is not close, and it is worse than "not worth it": the suite is
+slower.** Three kernels move by less than the compile cost of moving them, and
+K4 — the one shape the wave just made fast — regresses by a third, because the
+egraph mid-end rewrites the fused loop into something its register allocator
+likes less. `opt_level = "speed"` costs 16–95% of native lowering and returns
+−2.6% of runtime. **Cranelift stays at `opt_level = "none"`, now for a measured
+reason on both sides of the trade rather than one.** The knob was removed after
+the measurement; `git diff` on `backend/cranelift/mod.rs` is empty.
+
+#### 6.9.6 Where every goal stands, mixed/100k, this build
+
+| Phase | Goal | Measured | Gap | vs §6.6 |
+|---|---:|---:|---:|---|
+| lex | (10 M shared) | 11.09 M | **MET** | holds |
+| lex+parse | 10 M | 6.02 M | 1.66× | holds |
+| sema | 1 M | 1.06 M | **MET** | +2% |
+| lower+js | 100 k | 282 k | **MET** | +4% |
+| lower+macos-arm64 | 100 k | **58.1 k** | **1.72×** | **51–54 k → 58.1 k** |
+
+Native lowering is the only row that moved, and it moved because of item 4: the
+shared joiner is worth ~9% on any corpus with derived `Show` in it, and `mixed`
+has some. It is the first time that row has been under 1.75× off goal 3.
+
+**And the dev/release configuration question, restated with both halves
+measured:**
+
+- **Dev: Cranelift at `opt_level = "none"`, whole-binary link, per-unit emit.**
+  LLVM at `-O0` is 2.1–4.9× slower to lower (§6.5); `opt_level = "speed"` costs
+  16–95% of lowering and *loses* 2.6% of runtime (§6.9.5); erasure and placement
+  changes were refuted (§6.5). The path now runs the four kernels 0.91× of bun
+  and 1.24× of its own release build.
+- **Release: LLVM at `-O2`.** 7.9× a cold dev build and **1.15× an incremental
+  one**, for 1.24× the runtime and 0.35× the artifact size. It cannot currently
+  run a test suite (§6.9.4).
+
+What remains open, in the order it matters: `buri_rt_list_get`, which is the
+whole of K3's remaining 1.56× and is an out-of-line call that bounds-checks and
+`memmove`s one element into an `Option` payload — open-coding it the way
+`list.map` already open-codes its loop is the next 2× on that shape; the
+producer half of fusion (`range` is still materialized); derived `Show`, which
+needs the design decision in §6.9.2 rather than more tuning; the LLVM backend's
+`testing_assert.report`; realistic native lowering's last 1.72×; and lex+parse's
+last 1.66×.
+
+#### 6.9.7 Verification
+
+| Check | Result |
+|---|---|
+| `cargo test -p buri` | **736 passed, 0 failed** |
+| `… --features backend-llvm` | **810 passed, 0 failed** |
+| `--quick`, 97 rows | median **0.00%** against the same build; `enum-heavy/1k` at 44.61 ms against the wave's 43.85 |
+| `--set=native`, 13 rows | `enum-heavy/10k` **444.1 ms** (485.1 before the wave), `wide-match/10k` **316.4 k lines/s**, `mixed/10k` 60.9 k — all within the ±10% run-to-run band |
+| every kernel's own assertion | K1 283,146 · K2 14,200 · K3 > 0 · K4 4,114,354,282,000, identical under dev, release, `speed` and bun |
+| temporary knob | removed; `git diff cli/src/compiler/backend/cranelift/mod.rs` is empty |
+| tree footprint | `git status --porcelain` is 73 lines at the end as at the start; no tracked file was written by this round outside this document and `blog/` |
+
 ---
 
 ## 7. Profiling, on this platform
@@ -1125,6 +1769,15 @@ an experiment like that says what the time is a function of. What a profile cann
 give here is cycles-per-line; the substitute discipline is to re-run the suite
 after every change and let §6's table, not the profile, say whether the change
 was real.
+
+**Two sweeps beat one**, which is §6.8's contribution to this section. The first
+sweep there moved enum width and produced a curve that fell and then flattened —
+suggestive, and not an answer. The second held the width and moved the derive
+load, and the answer was a step function between one derived trait and the next.
+An axis that a single sweep leaves ambiguous is often two axes, and the second
+sweep is cheap: the whole parameter space is a command-line flag, and both of
+those sweeps together were under ten minutes at a scale small enough to be
+quick and large enough to be real.
 
 The two are complements rather than alternatives, and §6.7's fix is the case
 that shows it. The sweep named the axis — the unit count — and the two suspects

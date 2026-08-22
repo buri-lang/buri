@@ -260,10 +260,152 @@ pub struct Cc {
     driver: PathBuf,
     flavour: Flavour,
     target: Target,
-    /// `<flavour>:<sha256 of the driver's and the linker's `--version`>`.
-    /// Computed once, in [`select`], because [`Linker::version`] is called per
-    /// key and shelling out per key would be a process per build.
-    version: String,
+    /// Shared with every other `Cc` this process selected for the same driver
+    /// and flavour, so the two `--version` spawns happen once (see [`PROBED`]).
+    version: std::sync::Arc<Identity>,
+}
+
+/// `<flavour>:<sha256 of the driver's and the linker's `--version`>`, probed on
+/// a thread of its own.
+///
+/// Asking two programs for their version is two process spawns, and where the
+/// driver is a wrapper script it is two shells as well: 100 ms on this
+/// toolchain. Nothing between [`select`] and
+/// [`crate::build::actions::link_key`] reads the answer, and what lies between
+/// them is the entire front and middle end — so the probe runs beside that work
+/// rather than in front of it. It is the same two commands producing the same
+/// string; only the thread it happens on is new.
+///
+/// Probed once, because [`Linker::version`] is called per key and shelling out
+/// per key would be a process per key. **Once per process**, not once per
+/// [`select`]: `buri test //...` selects a linker per suite, and on a repository
+/// of five small suites the same two `--version` banners were the largest single
+/// item in the run — 100 ms each time, against a front end that finishes in one.
+/// The registry below is what makes the count one, and the term it produces is
+/// the same string it always was.
+struct Identity {
+    flavour: &'static str,
+    /// The two programs the probe asks, kept so that the answer can always be
+    /// computed here as well.
+    programs: Vec<PathBuf>,
+    ready: std::sync::OnceLock<String>,
+    probe: std::sync::Mutex<Option<std::thread::JoinHandle<String>>>,
+}
+
+impl Identity {
+    /// The finished identity, waiting for the probe if it is still running.
+    ///
+    /// **A probe that did not run is asked here instead of being skipped.** The
+    /// hash of the two `--version` banners is the term that keeps two different
+    /// linkers out of each other's cache entries, so an empty one would be a
+    /// key that merges them — the exact shape of a stale artifact served for a
+    /// linker that never produced it. The thread is a way of paying for this
+    /// term earlier, never a way of doing without it.
+    fn get(&self) -> String {
+        if let Some(ready) = self.ready.get() {
+            return ready.clone();
+        }
+        let handle = self.probe.lock().ok().and_then(|mut slot| slot.take());
+        let hashed = handle
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_else(|| probe(&self.programs));
+        let value = format!("{}:{hashed}", self.flavour);
+        let _ = self.ready.set(value.clone());
+        self.ready.get().cloned().unwrap_or(value)
+    }
+}
+
+/// The hash of every named program's `--version`, in order.
+///
+/// One thread per program, joined in order, so the string is the concatenation
+/// it has always been while the spawns overlap: on a toolchain whose `cc` is a
+/// wrapper script the driver's banner costs twice what the linker's does, and
+/// asking them one after the other pays for both.
+fn probe(programs: &[PathBuf]) -> String {
+    let mut identity = String::new();
+    let mut started = Vec::with_capacity(programs.len());
+    for program in programs {
+        let owned = program.clone();
+        started.push(
+            std::thread::Builder::new()
+                .name("buri-linker-version".into())
+                .spawn(move || version_of(&owned))
+                .ok(),
+        );
+    }
+    // In order, and a thread that could not be started or did not return is
+    // asked for here rather than left out: a missing banner would shorten the
+    // term that keeps two linkers out of each other's cache entries.
+    for (program, handle) in programs.iter().zip(started) {
+        let banner = handle
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_else(|| version_of(program));
+        identity.push_str(&banner);
+    }
+    hash_bytes(identity.as_bytes())
+}
+
+/// The identity probes this process has already started, by the programs they
+/// ask.
+///
+/// Process-global because the answer is: two `--version` banners are a fact
+/// about the machine, and a `buri test //...` that selects a linker per suite
+/// was asking the same two programs the same question once per suite. The key is
+/// the flavour and the resolved program paths, which is everything [`probe`]
+/// reads — so two entries differ exactly when the string they produce could.
+///
+/// The scope is the process, which is the scope a `--watch` loop's passes share.
+/// A linker replaced underneath a running `buri test --watch` keeps the banner
+/// it had when the loop started; that is the same window `Identity`'s own
+/// `OnceLock` has always had within one build, widened to the process that a
+/// user would have to restart anyway to pick up a new toolchain.
+static PROBED: std::sync::Mutex<Vec<(String, std::sync::Arc<Identity>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// The shared identity for one flavour and one set of programs, starting the
+/// probe the first time it is asked for.
+fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Identity> {
+    let mut name = String::from(flavour.name());
+    for program in &programs {
+        name.push('\u{0}');
+        name.push_str(&program.to_string_lossy());
+    }
+    let fresh = || {
+        let probed = programs.clone();
+        let started = std::thread::Builder::new()
+            .name("buri-linker-version".into())
+            .spawn(move || probe(&probed))
+            .ok();
+        std::sync::Arc::new(Identity {
+            flavour: flavour.name(),
+            programs,
+            ready: std::sync::OnceLock::new(),
+            probe: std::sync::Mutex::new(started),
+        })
+    };
+    // A poisoned registry is a reason to probe again, never a reason to fail: it
+    // is a memo, and the answer it holds is one this can always compute.
+    let Ok(mut table) = PROBED.lock() else { return fresh() };
+    if let Some((_, ready)) = table.iter().find(|(key, _)| *key == name) {
+        return std::sync::Arc::clone(ready);
+    }
+    let ready = fresh();
+    table.push((name, std::sync::Arc::clone(&ready)));
+    ready
+}
+
+/// Starts the linker-identity probe for `target` without needing a link.
+///
+/// The probe runs on a thread and is joined by the first `link` key that is
+/// built. On a repository whose suites compile in a millisecond there is nothing
+/// between the two for it to hide behind, so `buri test` asks for it once before
+/// the first suite instead — the thread then runs beside the front end of the
+/// whole pass rather than beside one suite's.
+///
+/// A target this host cannot link has no probe to start, and saying so is not
+/// this function's job: the run reaches [`select`] and is refused there.
+pub fn warm(target: Target) {
+    let _ = select(target);
 }
 
 /// The driver and the linker for one target, probing `PATH`.
@@ -289,14 +431,9 @@ pub fn select(target: Target) -> Result<Cc, String> {
         return Err(format!("no C compiler on PATH to drive the link (looked for `{name}`)"));
     };
     let flavour = choose(target.platform);
-    let mut identity = String::new();
-    identity.push_str(&version_of(&driver));
-    if let Some(program) = flavour.program(Some(target.platform)) {
-        if let Some(path) = spawn::resolve(program) {
-            identity.push_str(&version_of(&path));
-        }
-    }
-    let version = format!("{}:{}", flavour.name(), hash_bytes(identity.as_bytes()));
+    let mut programs = vec![driver.clone()];
+    programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
+    let version = identity_of(flavour, programs);
     Ok(Cc { dir: PathBuf::new(), driver, flavour, target, version })
 }
 
@@ -381,6 +518,18 @@ impl Cc {
                 // LC_UUID is the one field that would differ on every link.
                 flags.push("-Wl,-no_uuid".into());
                 flags.push("-Wl,-dead_strip".into());
+                // ARCHITECTURE.md §7's third source of nondeterminism, on the
+                // linker's side of it. `ld64` records an `N_OSO` stab naming
+                // every input that carries debug information, as an absolute
+                // path — and the runtime archive carries debug information, so
+                // the artifact held `<repository>/.buri/link/<key>/libburi_rt.a`
+                // and therefore depended on where the repository was checked out
+                // and on which cache key this link had. `-oso_prefix` strips a
+                // prefix from those names, and the link runs *in* the link
+                // directory (see `Linker::link`), so `.` strips all of it: the
+                // recorded name is `libburi_rt.a(...)`, which is a fact about
+                // the link rather than about the machine.
+                flags.push("-Wl,-oso_prefix,.".into());
                 // `-platform_version` is deliberately *not* passed. The driver
                 // computes it from the selected SDK and passes its own, and a
                 // second one is an error rather than an override; pinning it
@@ -410,7 +559,7 @@ impl Linker for Cc {
     }
 
     fn version(&self) -> String {
-        self.version.clone()
+        self.version.get()
     }
 
     /// Writes the objects and the runtime archive into the link directory and
@@ -450,30 +599,58 @@ impl Linker for Cc {
             return Err(diags);
         }
 
-        let mut objects: Vec<PathBuf> = Vec::with_capacity(units.len());
-        for (i, unit) in units.iter().enumerate() {
+        // One unit per worker. Every unit writes its own file and reads nothing
+        // any other unit writes, so the only thing the division decides is
+        // which core does the `read`, and the order of `objects` — which the
+        // command line depends on, and which `parallel::map` preserves. A
+        // program of several hundred units is several hundred `open`/`read`
+        // round trips over eight megabytes.
+        let skip: std::collections::HashSet<usize> = unchanged.iter().copied().collect();
+        let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
+            let Some(unit) = units.get(i) else {
+                return Err(Diagnostic::error(
+                    Span::NONE,
+                    String::from("internal error: the unit list changed while it was being staged"),
+                ));
+            };
             let Some(path) = self.object_path(&unit.name) else {
-                diags.push(Diagnostic::error(
+                return Err(Diagnostic::error(
                     Span::NONE,
                     format!("internal error: {:?} is not a codegen unit filename", unit.name),
                 ));
-                return Err(diags);
             };
             // An unchanged unit's bytes came from the cache, so the file on
             // disk — if there is one — already holds them. Everything else is
             // written unconditionally.
-            let already = unchanged.contains(&i)
+            //
+            // The bytes are compared, not the length and not the caller's word
+            // for it: `unchanged` is a hint about work to skip and never a
+            // licence to link stale bytes, which is what
+            // `an_unchanged_object_is_left_where_it_was` holds this to. The
+            // length is checked first only so that an object that genuinely
+            // moved is not read back before being overwritten.
+            let already = skip.contains(&i)
+                && std::fs::metadata(&path).is_ok_and(|m| m.len() == unit.bytes.len() as u64)
                 && std::fs::read(&path).is_ok_and(|on_disk| on_disk == unit.bytes);
             if !already {
                 if let Err(e) = std::fs::write(&path, &unit.bytes) {
-                    diags.push(Diagnostic::error(
+                    return Err(Diagnostic::error(
                         Span::NONE,
                         format!("cannot write {}: {e}", path.display()),
                     ));
+                }
+            }
+            Ok(path)
+        });
+        let mut objects: Vec<PathBuf> = Vec::with_capacity(units.len());
+        for one in staged {
+            match one {
+                Ok(path) => objects.push(path),
+                Err(d) => {
+                    diags.push(d);
                     return Err(diags);
                 }
             }
-            objects.push(path);
         }
 
         let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
@@ -494,7 +671,37 @@ impl Linker for Cc {
         if let Some(parent) = out.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        // The driver writes inside the link directory, and the bytes are then
+        // placed at `out` through the file that is already there.
+        //
+        // macOS charges about 200 ms the first time a *newly created* file is
+        // executed, and the charge is on the file's identity rather than on its
+        // contents: a 20 KB executable pays the same as an 8 MB one, and a file
+        // that has already been executed once pays nothing when it is truncated
+        // and rewritten with different bytes. A linker given the artifact's own
+        // path unlinks it and creates a new one, so every rebuild produced a
+        // first execution. Writing over the existing file keeps the identity.
+        //
+        // A `link` cache hit has always reached the artifact this way
+        // (`actions::write_executable`), so this makes the two paths agree
+        // rather than introducing a way of writing an artifact that did not
+        // already exist.
+        //
+        // The driver is *run in* the link directory and every path it is given
+        // is relative to it, which is the other half of ARCHITECTURE.md §7's
+        // third source of nondeterminism. `ld64` records an input's path in an
+        // `N_OSO` stab for every input that carries debug information, and the
+        // runtime archive does: an artifact linked from
+        // `.buri/link/<key>/libburi_rt.a` carried that absolute path, so the
+        // same objects linked in two directories — which is exactly what
+        // `--check-reproducible` arranges — produced two different executables,
+        // and two checkouts at two paths produced two different executables for
+        // the same reason. Relative names make the recorded path
+        // `libburi_rt.a(...)`, which is a fact about the link and not about the
+        // machine.
+        let staged = self.dir.join("artifact");
         let mut cmd = Command::new(&self.driver);
+        cmd.current_dir(&self.dir);
         // The parent's environment, unlike every other action this toolchain
         // spawns (`build/spawn.rs` clears it). A C driver finds its assembler,
         // its own linker and its SDK through `PATH`, `DEVELOPER_DIR` and
@@ -508,16 +715,41 @@ impl Linker for Cc {
         if let Some(flag) = self.flavour.driver_flag() {
             cmd.arg(flag);
         }
-        cmd.arg("-o").arg(out);
-        cmd.args(&objects);
+        cmd.arg("-o").arg("artifact");
+        for path in &objects {
+            cmd.arg(path.file_name().unwrap_or(path.as_os_str()));
+        }
         if runtime_native::AVAILABLE {
-            cmd.arg(&archive);
+            cmd.arg(runtime_native::ARCHIVE_NAME);
         }
         cmd.args(self.platform_flags());
 
-        let spelled = spell(&cmd);
+        let spelled = format!("cd {} && {}", self.dir.display(), spell(&cmd));
         match cmd.output() {
-            Ok(out) if out.status.success() => Ok(()),
+            Ok(status) if status.status.success() => {
+                let bytes = match std::fs::read(&staged) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        diags.push(Diagnostic::error(
+                            Span::NONE,
+                            format!("the link produced no {}: {e}", staged.display()),
+                        ));
+                        return Err(diags);
+                    }
+                };
+                let _ = std::fs::remove_file(&staged);
+                if let Err(e) = place(out, &bytes) {
+                    diags.push(
+                        Diagnostic::error(
+                            Span::NONE,
+                            format!("cannot write {}: {e}", out.display()),
+                        )
+                        .with_fix("check the directory exists and is writable"),
+                    );
+                    return Err(diags);
+                }
+                Ok(())
+            }
             Ok(out) => {
                 let text = String::from_utf8_lossy(&out.stderr);
                 let mut d = Diagnostic::error(
@@ -545,6 +777,35 @@ impl Linker for Cc {
             }
         }
     }
+}
+
+/// Writes an executable over whatever is at `path`, keeping that file's
+/// identity, and makes it executable.
+///
+/// `File::create` truncates rather than replaces, which is the whole point: see
+/// the note in [`Linker::link`] about what macOS charges for a file that has
+/// never been executed before.
+pub fn place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    // A write the file does not need is a write worth not doing. The charge
+    // above is on the first execution *after a write*, so an artifact whose
+    // bytes did not move — every rebuild whose edit the optimiser removed, and
+    // every rebuild of a target the edit did not reach — runs for nothing. The
+    // length is checked first so that the common case of a genuinely different
+    // artifact does not read the old one back.
+    let settled = std::fs::metadata(path).is_ok_and(|m| m.len() == bytes.len() as u64)
+        && std::fs::read(path).is_ok_and(|on_disk| on_disk == bytes);
+    if !settled {
+        std::fs::write(path, bytes)?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
+        if mode != 0o755 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+        }
+    }
+    Ok(())
 }
 
 /// The command as a person would type it, for a failure to quote back.
@@ -630,6 +891,33 @@ mod tests {
         assert!(cc.object_path("../escape.o").is_none());
         assert!(cc.object_path("a/b.o").is_none());
         assert!(cc.object_path("").is_none());
+    }
+
+    /// Two selections in one process ask the linker its version once, and get
+    /// the same term.
+    ///
+    /// Two claims, and both matter. **The same string**, because it is a field
+    /// of every `link` key and a run whose second suite keyed on a different
+    /// term would store its executable somewhere the first could not find it.
+    /// **The same probe**, because that is the whole saving: `buri test //...`
+    /// selects a linker per suite, and two `--version` spawns per suite were the
+    /// largest single item in a five-suite run.
+    #[test]
+    fn a_linker_is_asked_its_version_once_per_process() {
+        let Some(host) = host_platform() else { return };
+        let target = Target { platform: host, arch: None };
+        let (Ok(first), Ok(second)) = (select(target), select(target)) else {
+            // No C compiler on this machine: there is no linker to have an
+            // identity, and `select` says so rather than inventing one.
+            return;
+        };
+        assert!(std::sync::Arc::ptr_eq(&first.version, &second.version));
+        let term = first.version();
+        assert_eq!(term, second.version());
+        assert!(term.starts_with(first.name()), "the flavour is part of the term: {term}");
+        // A term that is only the flavour is a term that does not tell two
+        // linkers apart, which is the thing it exists to do.
+        assert!(term.len() > first.name().len() + 1, "no banner hash in {term}");
     }
 
     /// mold is ELF-only and refuses macOS by name, so it must never be

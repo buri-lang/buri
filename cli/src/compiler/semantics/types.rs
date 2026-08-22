@@ -1194,6 +1194,35 @@ impl Subst {
             }
         }
     }
+
+    /// Every variable still unbound once a body has been checked stands for a
+    /// type nothing in the body constrains, and becomes `()`.
+    ///
+    /// Inference is local to one body (SPEC 13.3), so a variable left unbound
+    /// at the end of one is unbound for good: no later body can narrow it, and
+    /// no signature carries it outwards. A compiler must still name a type for
+    /// it, and `()` is the one with a single value and no structure — which is
+    /// what a value the body never inspects has.
+    ///
+    /// This costs no representation. `middle::layout` already gives `Ty::Var`
+    /// and `Ty::Unit` the same zero layout, so the artifact is the one that was
+    /// emitted before; what changes is that `monomorphize::descriptor` can
+    /// describe the type — `Desc::Unit` rather than `Desc::Opaque` — so
+    /// `middle::derives` can generate the structural operations over it.
+    /// `assert.some(Option.None)` is the shape that noticed: nothing constrains
+    /// the payload, so a native failure report had no `Show` to call and
+    /// printed neither side.
+    ///
+    /// Called after every check a body's diagnostics come from, so that a
+    /// variable no constraint reached is *reported* as unresolved exactly where
+    /// it was before and only *represented* differently.
+    pub fn default_unconstrained(&mut self) {
+        for slot in &mut self.slots {
+            if slot.is_none() {
+                *slot = Some(Ty::Unit);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1350,6 +1379,24 @@ mod tests {
         s.default_numerics(&t);
         assert_eq!(s.resolve(&i), t.prim(Prim::I64));
         assert_eq!(s.resolve(&f), t.prim(Prim::F64));
+    }
+
+    #[test]
+    fn a_variable_nothing_constrains_becomes_unit() {
+        // Including inside a type that *is* determined: `Option<_>` is not an
+        // opaque type, it is `Option<()>`, which is what lets
+        // `monomorphize::descriptor` describe it and `middle::derives` generate
+        // a `Show` for a failure report to call.
+        let t = tables_with_prims();
+        let mut s = Subst::default();
+        let free = s.fresh(Span::NONE);
+        let bound = s.fresh(Span::NONE);
+        assert!(s.unify(&t, &bound, &t.prim(Prim::Str)).is_ok());
+        let inside = Ty::Tuple(vec![free.clone(), bound.clone()]);
+        s.default_unconstrained();
+        assert_eq!(s.resolve(&free), Ty::Unit);
+        assert_eq!(s.resolve(&bound), t.prim(Prim::Str));
+        assert_eq!(s.resolve(&inside), Ty::Tuple(vec![Ty::Unit, t.prim(Prim::Str)]));
     }
 
     #[test]

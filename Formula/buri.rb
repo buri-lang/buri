@@ -34,8 +34,10 @@ class Buri < Formula
   depends_on "rust" => :build
 
   # No runtime dependency on a JavaScript runtime: `bun` is a development
-  # tool, not something an install should carry. `buri run` and `buri test`
-  # resolve a runtime from `PATH` (or `BURI_JS`) when they are used.
+  # tool, not something an install should carry. `buri test` compiles a suite
+  # to a native binary and needs only `cc` to link it; where it falls back, and
+  # for `buri run` on a binary that declares no output, a runtime is resolved
+  # from `PATH` (or `BURI_JS`) when it is used.
 
   def install
     # `std_cargo_args` supplies `--locked` and `--root #{prefix}`. The lockfile

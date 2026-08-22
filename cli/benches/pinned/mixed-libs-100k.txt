@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = mixed-libs-100k
+profile = mixed-libs
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = clusters=12 cross_cluster=8 lines=100000 seed=0x0b001a575eed0004
+lines = 100785
+bytes = 3515750
+modules = 361
+digest = a16480f481902036b0a022dc375126dcfff2bd95731e65c678eefd477e493b23
+native = false

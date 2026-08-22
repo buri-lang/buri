@@ -151,6 +151,7 @@ console.log("checked " + checked + " mismatches " + bad);
 /// that never returns, and a full-suite run that never completes. The same
 /// pattern `--check-reproducible` uses, for the same reason.
 fn workspace() -> PathBuf {
+    crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("float-parity-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -404,9 +405,21 @@ fn the_runtimes_own_unit_tests_pass() {
     let out = Command::new(&binary).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(out.status.success(), "the runtime's own tests failed:\n{text}");
+    let summary = text.lines().find(|l| l.starts_with("test result")).unwrap_or_default();
     // Zero tests would pass silently, and this file's whole point is that a
     // test nothing runs is not a test.
-    assert!(!text.contains("0 passed"), "the runtime ran no tests:\n{text}");
-    let summary = text.lines().find(|l| l.starts_with("test result")).unwrap_or_default();
+    //
+    // The **count**, parsed, and not `text.contains("0 passed")` — which is
+    // what this was and which is true of "30 passed" as well as of "0 passed".
+    // It passed for as long as the runtime had between one and nine tests and
+    // then between eleven and twenty-nine, and the tenth and the thirtieth
+    // each broke it; a substring is not a number.
+    let passed: usize = summary
+        .split_whitespace()
+        .zip(summary.split_whitespace().skip(1))
+        .find(|(_, word)| *word == "passed;")
+        .and_then(|(count, _)| count.parse().ok())
+        .unwrap_or(0);
+    assert!(passed > 0, "the runtime ran no tests:\n{text}");
     eprintln!("runtime unit tests: {summary}");
 }

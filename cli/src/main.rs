@@ -34,7 +34,7 @@ use std::process::ExitCode;
 /// they are touched, so a `buri version` that never recurses pays nothing for
 /// it. The default main-thread stack is 8 MiB, which a decoder for a schema of
 /// six hundred fields overflowed.
-const STACK: usize = 256 * 1024 * 1024;
+const STACK: usize = buri::parallel::STACK;
 
 fn main() -> ExitCode {
     // The work happens on a thread of our own, because the main thread's stack

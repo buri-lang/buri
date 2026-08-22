@@ -21,10 +21,51 @@ pub fn analyze(
     cache: &mut crate::parsing::parser::Cache,
     unit: &Unit,
 ) -> Analysis {
+    analyze_all(ws, map, cache, std::slice::from_ref(unit))
+}
+
+/// Loads and checks **several** units as one compilation.
+///
+/// One `Loader`, one `Checker`, one set of modules: a module two units both
+/// reach is loaded once, and a `test` declaration in either one is in
+/// `Checked::tests`, so `monomorphize::Roots::Tests` roots the program at every
+/// suite in the list. That is the whole of what a batched test binary needs from
+/// the front end — nothing below here knows how many targets it came from.
+///
+/// Three properties make one call the same thing as several, and all three are
+/// `Loader`'s already rather than something this adds:
+///
+/// - **Loading is idempotent.** Every entry point consults `by_path` first, so a
+///   library that two units both depend on is parsed once and gets one
+///   `ModuleId`; a second `load_unit` naming it again is a lookup.
+/// - **Nothing is granted by presence.** Whether an import is legal is decided
+///   at the import line, against the workspace — being in the same compilation
+///   as a module is not a way to reach it. Visibility is the build system's
+///   (`actions::check_visibility`) and is asked per target either way.
+/// - **A unit has one root at a time.** Two binaries batched together load two
+///   `Role::Entry` modules and the checker keeps the last one's `main` in
+///   `Checked::entry`; nothing reads it here, because a test program's roots are
+///   its `test` blocks and `main` is never instantiated.
+///
+/// The order of the list is the order the test sources load in, which is the
+/// order `Checked::tests` — and therefore the block numbering of the linked
+/// binary — comes out in. Callers that attribute a block to a suite depend on
+/// that, so it is stated here rather than assumed there.
+///
+/// A one-element list is byte-for-byte [`analyze`]: same loader, same calls,
+/// same order.
+pub fn analyze_all(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    units: &[Unit],
+) -> Analysis {
     let mut diags = Diagnostics::new();
     let loaded = {
         let mut loader = Loader::new(ws, map, &mut diags, cache);
-        loader.load_unit(unit);
+        for unit in units {
+            loader.load_unit(unit);
+        }
         loader.finish()
     };
     let checked = Checker::new(&loaded, ws, &mut diags).run();

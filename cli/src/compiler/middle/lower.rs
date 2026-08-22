@@ -109,9 +109,9 @@ pub fn run(program: &Program, tables: &Tables) -> ir::Program {
 /// `incref`/`decref` over the *tree* — where the call graph is exact and
 /// evaluation order is still stated — and this pass places them, because the
 /// tree has no statement form to hang one on and the CFG does (`rc.rs`, "where
-/// the operations go"). [`run`] asks for a plan from the oracle a `Program`
-/// alone can supply; wave 2 hands in one backed by `middle::layout`, which is
-/// what empties `FuncPlan::unclassified`.
+/// the operations go"). [`run`] asks for a plan from `rc::Syntactic`, which is
+/// the same oracle both native backends build from the same `Program` — see
+/// `rc.rs`, "which types carry a count", for why it has to be.
 pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Program {
     let mut types = Types::default();
     let units = Units::assign(program);
@@ -652,9 +652,28 @@ impl FnLower<'_> {
     fn stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Let { pattern, value, .. } => {
-                let v = self.expr(value);
+                // The value node's `After` operations are emitted once the
+                // pattern has bound, rather than where [`FnLower::expr`] would
+                // put them. `middle::rc` keys the drop of a binding nothing
+                // reads on the value's node (`Scan::expr`'s `Stmt::Let` arm)
+                // and [`FnLower::rc`] skips a site naming a local nothing has
+                // bound yet, so in the other order that drop was silently
+                // dropped itself — one leaked block per `let` whose binding is
+                // never read. `rc`'s own balance checker replays the statement
+                // in this order and says so.
+                let node = self.sites.id_of(value);
+                if let Some(n) = node {
+                    self.rc(n, false);
+                }
+                let v = self.expr_inner(value);
+                if let Some(n) = node {
+                    self.node_values.insert(n, v);
+                }
                 let fail = self.unmatched();
                 self.pattern(v, pattern, fail);
+                if let Some(n) = node {
+                    self.rc(n, true);
+                }
             }
             Stmt::Expr(e) => {
                 let _ = self.expr(e);
@@ -2231,6 +2250,41 @@ export fn step(n: Int): Int {
         // default `ir::Facts` documents.
         assert_eq!(f.facts.purity, ir::Purity::Pure);
         assert!(!f.facts.can_abort);
+    }
+
+    /// A `let` whose binding nothing reads is dropped where it was bound.
+    ///
+    /// `middle::rc` keys that drop on the *value's* node and [`FnLower::rc`]
+    /// skips a site naming a local nothing has bound yet, so emitting the
+    /// node's `After` operations before `pattern` ran threw it away — one
+    /// leaked block per unread binding, and `rc`'s own balance checker had
+    /// said all along that the binding exists first.
+    #[test]
+    fn a_binding_nothing_reads_is_still_dropped() {
+        let p = lower_plain(&program(
+            "
+from \"core/cap\" import { Alloc };
+from \"core/host\" import * as host;
+
+export fn junk<C: Alloc>(ctx: C, n: Int): Int {
+  let s = \"z\".repeat(ctx, n);
+  n
+}
+",
+            "  let _ = junk(context { Alloc: host.alloc }, 4);",
+        ));
+        assert_eq!(
+            render(&p, ":junk"),
+            "; test:junk [unit test]\n\
+             fn test$junk$72mdf3(a context, i64) -> i64 {\n\
+             \x20 b0(v0: a context, v1: i64):\n\
+             \x20   v2 = const \"z\"\n\
+             \x20   v3 = call fn core_str$Str_repeat$72mdf3(v2, v0, v1)\n\
+             \x20   decref v3\n\
+             \x20   decref v2\n\
+             \x20   return v1\n\
+             }\n"
+        );
     }
 
     /// The whole standard library a program touches, lowered and verified.

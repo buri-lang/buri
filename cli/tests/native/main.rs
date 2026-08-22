@@ -22,6 +22,13 @@
 //! cargo test -p buri --test native -- --skip float_parity           # the fast ones
 //! ```
 
+// Not the whole harness: this domain drives the backends in process rather than
+// the CLI, so the only thing it wants from `cli/tests/harness/` is the sweep of
+// the scratch root — which it wants more than any other binary does, because its
+// per-process trees are the ones nothing deletes.
+#[path = "../harness/sweep.rs"]
+mod sweep;
+
 #[cfg(any(feature = "backend-cranelift", feature = "backend-llvm"))]
 mod agreement;
 #[cfg(feature = "backend-cranelift")]

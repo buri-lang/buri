@@ -17,7 +17,7 @@
 doc: "a failed assertion ends its own test at that statement: three failures in one test are one report"
 
 run {
-  args: ["test", "//lib/several", "--force"]
+  args: ["test", "//lib/several", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = generic-free-1M
+profile = mixed
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = generic_args=1 lines=1000000 seed=0x0b001a575eed0014 w_generic_fn=0
+lines = 1007263
+bytes = 34873864
+modules = 3591
+digest = 4e66bb637840bf63c8e6ed8e7bd5cda214a0cdaf6c1142df39b46fead85bc951
+native = false

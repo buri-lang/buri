@@ -16,7 +16,7 @@
 doc: "two test sources in one suite: each failure names its own module, in the order the rule lists them"
 
 run {
-  args: ["test", "//lib/pair", "--force"]
+  args: ["test", "//lib/pair", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

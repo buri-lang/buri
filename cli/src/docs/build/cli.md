@@ -81,14 +81,27 @@ suite as a whole rather than about one test in it:
 | `test-timeout` | The suite ran past its `test { timeout_seconds }` and was killed, so no test in it has a result. |
 | `platform-not-implemented` | A platform in `test { platforms }` that this toolchain cannot produce a binary for — no backend compiled in for it, no runtime archive, or no way to link it from this host. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
 
-A suite that names a native platform this toolchain *can* build for is compiled
-and run as a native binary. There is no native test runner: a failed assertion
-aborts the process (SPEC 6.10 leaves nothing to catch), so the binary runs every
-`test` block in order and stops at the first failure. A clean native run reports
-every test in it; a failing one reports the failure and, where the suite holds
-more than one test, cannot say which block it was in. `--filter` is applied to
-the program before it is compiled, so a filtered native run does not even
-generate code for the tests it leaves out.
+A suite is compiled and run as a **native binary** for the host, whether it named
+that platform or not, in the dev profile. Three things send one to JavaScript
+instead: `test { platforms: [JS] }`, `--output=js`, and the fallback — a
+toolchain with no native backend for this host and profile, a program reaching
+something the backend has no body for yet, or `--accept`, which needs the two
+sides of a failed comparison and only the JavaScript runner reports them. The
+fallback is per suite and never silent: one line on standard error naming the
+suite and the reason.
+
+There is no native test runner: a failed assertion aborts the process (SPEC 6.10
+leaves nothing to catch), so the binary runs every `test` block in order and
+stops at the first failure. A clean native run reports every test in it; a
+failing one reports the failure and, where the suite holds more than one test,
+cannot say which block it was in — which is when `--output=js` earns its keep.
+`--filter` is applied to the program before it is compiled, so a filtered native
+run does not even generate code for the tests it leaves out.
+
+`--output` names one platform for the suites that have not named one, and takes
+the same selectors `buri build --output` takes: `js`, `macos`, `linux`. A suite
+that declares `platforms` has made the stronger statement and the flag does not
+overrule it.
 
 ## `run`
 

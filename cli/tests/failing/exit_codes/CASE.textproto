@@ -15,7 +15,7 @@ doc: "buri test exits 1 for a failing test and for a test source that will not c
 
 # 1: a test failed.
 run {
-  args: ["test", "//lib/subject", "--force"]
+  args: ["test", "//lib/subject", "--force", "--output=js"]
   exit: 1
   golden: "failed.txt"
   stream: OUT
@@ -29,7 +29,7 @@ edit {
 }
 
 run {
-  args: ["test", "//lib/subject", "--force"]
+  args: ["test", "//lib/subject", "--force", "--output=js"]
   exit: 0
   golden: "passed.txt"
   stream: OUT
@@ -38,14 +38,14 @@ run {
 # 2: the target is not there. Nothing was compiled and nothing ran, so there is
 # no summary line — the message is on stderr and stdout is empty.
 run {
-  args: ["test", "//lib/nope"]
+  args: ["test", "//lib/nope", "--output=js"]
   exit: 2
   golden: "no_such_target.txt"
   stream: ERR
 }
 
 run {
-  args: ["test", "//lib/nope"]
+  args: ["test", "//lib/nope", "--output=js"]
   exit: 2
   golden: "no_such_target_stdout.txt"
   stream: OUT
@@ -59,7 +59,7 @@ edit {
 }
 
 run {
-  args: ["test", "//lib/subject"]
+  args: ["test", "//lib/subject", "--output=js"]
   exit: 2
   golden: "unparseable_build_file.txt"
   stream: ERR

@@ -350,6 +350,35 @@ impl Pattern {
         }
     }
 
+    /// The locals this pattern binds to a **freshly allocated** value rather
+    /// than to a projection into the scrutinee.
+    ///
+    /// Only `..rest` is one. Every other binding names a piece of the value
+    /// being matched and borrows the scrutinee's allocation; a rest binding
+    /// names a tail that both native backends build with a fresh block and a
+    /// copy (VALUE-MODEL.md §4.4), so its owner is the arm, not the scrutinee.
+    pub fn fresh_binds(&self, out: &mut Vec<LocalId>) {
+        match &self.kind {
+            PatKind::Bind { sub: Some(s), .. } => s.fresh_binds(out),
+            PatKind::Tuple(ps) => ps.iter().for_each(|p| p.fresh_binds(out)),
+            PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+                fields.iter().for_each(|f| f.pattern.fresh_binds(out))
+            }
+            PatKind::Array { elems, rest } => {
+                elems.iter().for_each(|p| p.fresh_binds(out));
+                if let ArrayRest::Bound(l) = rest {
+                    out.push(*l);
+                }
+            }
+            PatKind::Or(alts) => {
+                if let Some(f) = alts.first() {
+                    f.fresh_binds(out)
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Whether this pattern matches every value of its type.
     pub fn is_irrefutable(&self, tables: &crate::compiler::semantics::types::Tables) -> bool {
         match &self.kind {

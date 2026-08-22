@@ -1003,6 +1003,7 @@ mod native {
     }
 
     fn workspace() -> PathBuf {
+        crate::harness::sweep::once();
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))

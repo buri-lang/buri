@@ -192,7 +192,7 @@ pub const FLAGS: &[Flag] = &[
         name: "output",
         value: Value::Required("<selector>"),
         choices: &[],
-        blurb: "build one declared output rather than all of them",
+        blurb: "name one output: which to build, or which a suite runs on",
         global: false,
         set: |f, v| {
             f.output = v.map(String::from);
@@ -347,7 +347,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile and run test suites",
         doc: include_str!("../docs/cli/test.md"),
-        flags: &["release", "debug", "filter", "force", "accept", "explain", "watch"],
+        flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch"],
         targets: Targets::Any,
         needs_repo: true,
         run: test::cmd_test,

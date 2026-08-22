@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = list-heavy-1M
+profile = mixed
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = lines=1000000 seed=0x0b001a575eed0012 w_list_fn=8
+lines = 1007266
+bytes = 37686388
+modules = 3596
+digest = 1efe1dd355e3ba436721d94c7bad2402d5d055b1ec306f2a520650a9165b16c4
+native = false

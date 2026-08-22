@@ -613,6 +613,99 @@ fn a_suite_naming_the_host_platform_runs_natively() {
 }
 
 // ---------------------------------------------------------------------------
+// Which backend a suite that names none runs on
+// ---------------------------------------------------------------------------
+//
+// Here rather than in a recorded repository case because the answer depends on
+// the machine and on how this binary was built — a golden would have to be one
+// of `macos`, `linux` or `js` and would be wrong on two hosts out of three —
+// and because `--explain`'s rows already name the platform every action ran
+// for, which is the evidence the question needs.
+
+/// The default, in both directions at once: **natively, or a line saying why
+/// not**.
+///
+/// Written as an equivalence rather than as an assertion that it went native,
+/// for the reason `driver.rs`'s host-platform test gives: a toolchain built
+/// with `--no-default-features`, a host outside macOS and Linux, and a machine
+/// with no C toolchain all have to fall back, and a test asserting the
+/// happy answer would pass for the wrong reason on the machine where it
+/// matters. The two failure modes this catches are the two that matter — a
+/// suite that fell back where it did not have to (silence would hide it, so
+/// the note is what is asserted) and a suite that went native without saying so
+/// where it should not have.
+#[test]
+fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
+    let scratch = Scratch::repo("default-backend");
+    scratch.write("lib/n/BUILD.buri", "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n");
+    scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
+    scratch.write(
+        "lib/n/test/n.buri",
+        "from \"//lib/n\" import { answer };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
+    );
+
+    let run = scratch.run(&["test", "//lib/n", "--explain"]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "the default backend ran no tests:\n{}", indent(&run.all()));
+    let platform = platform_of(&run, "test //lib/n");
+    if platform == "js" {
+        assert!(
+            run.stderr.contains("//lib/n runs on javascript")
+                || run.stderr.contains("names no platform runs on javascript"),
+            "a suite fell back to javascript without saying why:\n{}",
+            indent(&run.all())
+        );
+    } else {
+        assert!(
+            run.stdout.lines().any(|l| l.split_whitespace().nth(1) == Some("codegen")),
+            "a suite reported a native platform and no codegen action:\n{}",
+            indent(&run.all())
+        );
+        assert!(
+            !run.stderr.contains("runs on javascript"),
+            "a native run explained itself as a fallback:\n{}",
+            indent(&run.all())
+        );
+    }
+
+    // `--output=js` is the escape hatch, and it is not a fallback: nothing is
+    // explained, because nothing gave way.
+    let js = scratch.run(&["test", "//lib/n", "--explain", "--force", "--output=js"]);
+    js.ok();
+    assert_eq!(platform_of(&js, "test //lib/n"), "js");
+    assert!(
+        !js.stderr.contains("runs on javascript"),
+        "an asked-for JavaScript run was reported as a fallback:\n{}",
+        indent(&js.all())
+    );
+
+    // And `--accept` goes there on its own, whatever the default is: the mode
+    // rewrites a golden file from the two sides of a failed comparison, and
+    // only the JavaScript runner reports them.
+    let accepted = scratch.run(&["test", "//lib/n", "--explain", "--accept"]);
+    accepted.ok();
+    assert_eq!(
+        platform_of(&accepted, "test //lib/n"),
+        "js",
+        "--accept ran somewhere it has no diff to accept from:\n{}",
+        indent(&accepted.all())
+    );
+}
+
+/// The platform an `--explain` row names, which is its fourth field.
+fn platform_of(run: &Run, action_and_label: &str) -> String {
+    for line in run.stdout.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() == 5 && format!("{} {}", f[1], f[2]) == action_and_label {
+            return f[3].to_string();
+        }
+    }
+    panic!("no `{action_and_label}` line in:\n{}", indent(&run.all()));
+}
+
+// ---------------------------------------------------------------------------
 // What the key is made of
 // ---------------------------------------------------------------------------
 //
@@ -741,5 +834,201 @@ fn a_suite_is_keyed_on_the_key_of_what_it_tests() {
     assert_eq!(
         m_before["test //lib/m"], m_after["test //lib/m"],
         "editing //lib/n moved a suite with no path to it"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// One binary for several suites
+// ---------------------------------------------------------------------------
+//
+// A small suite's cost is a `cc` invocation and a first execution of a file the
+// operating system has never run, both of them per *binary*. So the suites that
+// name no platform are compiled into one binary per tag-compatible batch
+// (`commands/test.rs::run_batches`, and TAGS.md "One binary for several
+// suites"). What follows is the two halves of that being an optimisation and
+// nothing else: the batching is real, and the cache is still per suite.
+
+/// A helper that writes a package with one suite of one passing test, tagged as
+/// asked.
+fn suite_package(scratch: &Scratch, name: &str, tags: &str) {
+    scratch.write(
+        &format!("lib/{name}/BUILD.buri"),
+        &format!("library {{\n{tags}  test {{ sources: [\"test/{name}.buri\"] }}\n}}\n"),
+    );
+    scratch.write(&format!("lib/{name}/lib.buri"), "export fn one(): Int { 1 }\n");
+    scratch.write(
+        &format!("lib/{name}/test/{name}.buri"),
+        &format!(
+            "from \"//lib/{name}\" import {{ one }};\n\
+             from \"core/testing/assert\" import * as assert;\n\
+             \ntest \"one\" {{\n  assert.eq(one(), 1);\n}}\n"
+        ),
+    );
+}
+
+/// Every `--explain` row for one action, as `<status> <label>`.
+fn rows(run: &Run, action: &str) -> Vec<String> {
+    run.stdout
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<&str>>())
+        .filter(|f| f.len() == 5 && f[1] == action)
+        .map(|f| format!("{} {}", f[0], f[2]))
+        .collect()
+}
+
+/// Suites that may share a binary do, and suites whose tags forbid each other
+/// do not.
+///
+/// The predicate is `check_tags`' own, applied to the union: a batch is one
+/// artifact, and two tags that forbid each other may not both be in one. So a
+/// repository with an untagged pair and a `server` suite links them together —
+/// `server` forbids nothing they carry — and the `client` suite is a second
+/// artifact, which is exactly what it would have been without the tags being
+/// consulted at all.
+///
+/// Two halves, as the tests above have: a toolchain that cannot build a binary
+/// for this host runs every suite on JavaScript, where there is no link to
+/// count.
+#[test]
+fn suites_share_a_binary_only_where_their_tags_allow_it() {
+    let scratch = Scratch::repo("batch-tags");
+    scratch.write(
+        "REPO.buri",
+        "tag {\n  name: \"server\"\n  doc: \"runs on infrastructure we operate\"\n  \
+         forbids { tags: [\"client\"] }\n}\n\n\
+         tag {\n  name: \"client\"\n  doc: \"ships to a user's machine\"\n}\n",
+    );
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+    suite_package(&scratch, "c", "  tags: [\"server\"]\n");
+    suite_package(&scratch, "d", "  tags: [\"client\"]\n");
+
+    let run = scratch.run(&["test", "//...", "--explain"]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
+    // Every suite is still its own `test` action, batched or not — that is the
+    // cache statement, and it is per suite whatever produced the verdict.
+    assert_eq!(rows(&run, "test").len(), 4, "a suite lost its own action:\n{}", indent(&run.all()));
+
+    let links = rows(&run, "link");
+    if links.is_empty() {
+        // No native backend, no runtime archive, or no C toolchain: every suite
+        // ran on JavaScript, which links nothing and says so.
+        assert!(
+            run.stderr.contains("runs on javascript"),
+            "there were no links and nothing said why:\n{}",
+            indent(&run.all())
+        );
+        return;
+    }
+    let shared = links
+        .iter()
+        .find(|l| l.contains("//lib/a") && l.contains("//lib/b") && l.contains("//lib/c"))
+        .unwrap_or_else(|| {
+            panic!("three compatible suites did not share a binary:\n{}", indent(&run.all()))
+        });
+    assert!(
+        !shared.contains("//lib/d"),
+        "a `client` suite was linked with a `server` one:\n{}",
+        indent(&run.all())
+    );
+    assert_eq!(
+        links.len(),
+        2,
+        "four suites took {} links rather than two:\n{}",
+        links.len(),
+        indent(&run.all())
+    );
+}
+
+/// A batch is an execution strategy, not a cache key.
+///
+/// Two suites that ran in one binary have two verdicts under two keys, and an
+/// edit that reaches one of them re-runs one of them. The second run is where
+/// the claim is: if batching had merged anything, editing `//lib/a` would have
+/// invalidated `//lib/b` as well — and if the batch had cached under its own
+/// key, neither would have been served at all.
+#[test]
+fn a_batched_verdict_is_cached_and_invalidated_one_suite_at_a_time() {
+    let scratch = Scratch::repo("batch-cache");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+
+    let first = scratch.run(&["test", "//...", "--explain"]);
+    first.ok();
+    assert_eq!(first.tests_passed(), 2);
+    assert_eq!(status(&first, "test //lib/a"), "run");
+    assert_eq!(status(&first, "test //lib/b"), "run");
+
+    let again = scratch.run(&["test", "//...", "--explain"]);
+    again.ok();
+    assert_eq!(
+        (status(&again, "test //lib/a"), status(&again, "test //lib/b")),
+        ("cached".to_string(), "cached".to_string()),
+        "a verdict produced in a batch was not served from its suite's key:\n{}",
+        indent(&again.all())
+    );
+
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 3 - 2 }\n");
+    let edited = scratch.run(&["test", "//...", "--explain"]);
+    edited.ok();
+    assert_eq!(edited.tests_passed(), 2);
+    assert_eq!(
+        (status(&edited, "test //lib/a"), status(&edited, "test //lib/b")),
+        ("run".to_string(), "cached".to_string()),
+        "an edit to one suite reached the other's verdict:\n{}",
+        indent(&edited.all())
+    );
+}
+
+/// A failure in one suite of a batch does not cost another suite its report.
+///
+/// The whole of the isolation argument, and the thing a binary per suite was
+/// buying: a failed assertion is an abort, so the process the batch runs in
+/// stops — and the runner resumes at the block after the one that aborted, so
+/// every other block still reports. Written against three suites so that the
+/// failing one is in the middle: a report that only covered what came *before*
+/// the abort would pass a two-suite version of this.
+#[test]
+fn one_suites_failure_leaves_the_others_reported() {
+    let scratch = Scratch::repo("batch-isolation");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+    suite_package(&scratch, "c", "");
+    scratch.write("lib/b/lib.buri", "export fn one(): Int { 2 }\n");
+
+    let run = scratch.run(&["test", "//...", "--explain"]);
+    run.exits(1);
+    assert_eq!(
+        run.tests_passed(),
+        2,
+        "a failure in one suite took another suite's verdict with it:\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        run.stdout.contains("FAIL //lib/b") && run.stdout.contains("assert.eq failed"),
+        "the failing suite was not named:\n{}",
+        indent(&run.all())
+    );
+    for label in ["//lib/a", "//lib/c"] {
+        assert!(
+            !run.stdout.contains(&format!("FAIL {label}")),
+            "{label} was reported as failing:\n{}",
+            indent(&run.all())
+        );
+    }
+    // And the two that passed are cacheable on their own: a suite's verdict is
+    // its own whatever its neighbour did.
+    let again = scratch.run(&["test", "//...", "--explain"]);
+    again.exits(1);
+    assert_eq!(
+        (
+            status(&again, "test //lib/a"),
+            status(&again, "test //lib/b"),
+            status(&again, "test //lib/c")
+        ),
+        ("cached".to_string(), "run".to_string(), "cached".to_string()),
+        "a failing suite's neighbours were not cached, or the failure was:\n{}",
+        indent(&again.all())
     );
 }

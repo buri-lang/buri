@@ -1,4 +1,4 @@
-error: `buri query` does not take `--output`; `buri build`, `buri run` do
+error: `buri query` does not take `--output`; `buri build`, `buri test`, `buri run` do
 
 buri — the toolchain for the Buri language
 

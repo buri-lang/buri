@@ -234,6 +234,17 @@ impl Expr {
         )
     }
 
+    /// Whether this may be written twice rather than bound to a name: a
+    /// literal, an identifier, or a projection of one. Evaluating it a second
+    /// time costs a load and observes nothing.
+    pub fn is_duplicable(&self) -> bool {
+        match self {
+            Expr::Member { obj, .. } => obj.is_duplicable(),
+            Expr::Index { obj, index } => obj.is_duplicable() && index.is_duplicable(),
+            _ => self.is_pure_literal(),
+        }
+    }
+
     /// Whether evaluating this can be skipped: no call, no assignment, no
     /// `new`. Projections count as pure because the language has no null and
     /// no out-of-bounds index, so `x[0]` on a value the backend built cannot

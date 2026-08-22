@@ -3,5 +3,9 @@ library {
 
     test {
         sources: ["test/encoding.buri", "test/decoding.buri"]
+
+        # The reference run, on the reference backend: `native::conformance`
+        # drives these same files through Cranelift (cli/tests/README.md).
+        platforms: [JS]
     }
 }

@@ -93,8 +93,8 @@
 //!
 //! `cargo test -p buri --features backend-llvm --test native agreement::` is the
 //! second half, and it runs: LLVM 21 compiles most of the rows and refuses the
-//! rest for reasons of its own — `num.minValue`/`num.maxValue` have no body,
-//! and a `..rest` array pattern is not lowered — so it carries a
+//! rest for reasons of its own — `num.minValue`/`num.maxValue` have no body —
+//! so it carries a
 //! [`Native::partial`] note and a row it cannot compile is skipped with the
 //! reason printed. Cranelift carries no such note, so a refusal there is a
 //! failure. Where both compile a row they have never disagreed.
@@ -183,8 +183,12 @@ const NATIVES: &[Native] = &[
         profile: Profile::Release,
         partial: Some(
             "wave 2b, and its surface is narrower than Cranelift's: \
-                 `num.minValue`/`num.maxValue` have no body and a `..rest` \
-                 array pattern is refused, so some rows cannot be asked of it",
+                 `num.minValue`/`num.maxValue` have no body, so some rows \
+                 cannot be asked of it. The `..rest` array pattern that used \
+                 to be the other half of this sentence is emitted now \
+                 (`Unit::array_slice`), which is what took \
+                 `buri test --release` over the conformance corpus from 593 \
+                 blocks to all 1111",
         ),
     },
 ];
@@ -298,6 +302,7 @@ impl Ran {
 /// error. The counter is because one row runs one source through two
 /// pipelines or more.
 fn workspace(name: &str) -> PathBuf {
+    crate::sweep::once();
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -402,8 +407,8 @@ fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
 /// structural operation is an `ir::Inst::Structural`, which exists only
 /// after lowering and is therefore not in the program that hook is handed
 /// (`llvm/mod.rs` says so where the hook is implemented), so
-/// `deriveArrayShow` and `derivePrimJson` can only be discovered by asking
-/// the backend to emit and reading the diagnostic.
+/// a `deriveArray*` and `derivePrimJson` can only be discovered by asking the
+/// backend to emit and reading the diagnostic.
 fn native_refusal(row: &str, native: Native, checked: &Checked, paths: &[String]) -> String {
     let program = prepared(row, checked, paths, host_target());
     let opts = Options { profile: native.profile, target: host_target(), unit_prefix: "" };
@@ -1026,6 +1031,40 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// Row 15: `char.toUpper` where the full case mapping is not one scalar.
+///
+/// `"ß".toUpperCase()` is `"SS"`, and JavaScript hands that back as a `Char` —
+/// a value of two scalars, which the type does not have. Natively a `Char` is
+/// one scalar and there is nothing equal to `"SS"` to answer, so the answer is
+/// the **first** scalar of the full mapping, which is what `codePointAt(0)`
+/// reads out of the JavaScript one.
+///
+/// So the two agree wherever the result is read as a scalar — `toU32`, `==`,
+/// `compare` — and part company only where the whole `Char` is *rendered*,
+/// which is the case this test pins. `cli/runtime/char.rs` §3 is the argument;
+/// this is the measurement.
+#[test]
+fn row_15_char_case_of_a_multi_scalar_mapping() {
+    rows_or_skip!();
+    diverge(
+        "row 15",
+        r#"
+from "core/host" import { stdout };
+
+export fn main(): Result<(), Str> {
+  let sharp = '\u{00df}'.toUpper();
+  let scalar = sharp.toU32();
+  let ligature = '\u{fb00}'.toUpper();
+  let ordinary = 'a'.toUpper();
+  let _ = stdout.println("${sharp} ${scalar} ${ligature} ${ordinary}");
+  .Ok(())
+}
+"#,
+        "SS 83 FF A\n",
+        "S 83 F A\n",
+    );
+}
+
 /// `slice` clamps rather than aborting, at both boundaries and when the
 /// range is inverted.
 #[test]
@@ -1308,22 +1347,23 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// Derived `Eq` over an `F64` field: the three float facts SPEC 6.2 and 7.2
-/// pin, on every backend.
+/// Derived `Eq` over an `F64` field: the float facts SPEC 6.2 and 7.2 pin, on
+/// every backend.
 ///
-/// SPEC 6.2: "`==` on floats compares numerically with `-0.0` equal to `0.0`,
-/// and `NaN != NaN`." SPEC 7.2: "a struct with an `F64` field holding `NaN` is
-/// not equal to itself", because a derived `Eq` inherits that behaviour from
-/// its components. All three hold on JavaScript and on both native backends
-/// and are asserted here together, because they are the same rule read at
-/// three depths: the bare primitive, the primitive inside an aggregate, and
-/// the sign of zero the comparison must ignore.
+/// SPEC 6.2: "`==` on floats is an equivalence relation … `-0.0` equals `0.0`
+/// and `NaN` equals `NaN`." SPEC 7.2: a derived `Eq` inherits that, so it is
+/// reflexive at every value. The same rule is read here at four depths — the
+/// bare primitive, two separately built aggregates, one aggregate against
+/// itself, and the sign of zero the comparison must ignore — and the ordering
+/// operators are read beside them because they did *not* move: `NaN < NaN` is
+/// still false, which is what makes the ruling a change to `==` alone.
 ///
-/// The fourth reading of the same rule — the *same* value compared with
-/// itself — is where the backends part company, and it is row 15 rather than
-/// a line here. Every value below is built by a call so that two equal values
-/// are two objects; written as literals the compiler may share one, and then
-/// the comparison would be answered by identity and would prove nothing.
+/// Every value below is built by a call so that two equal values are two
+/// objects; written as literals the compiler may share one, and then the
+/// comparison would be answered by identity and would prove nothing. That is
+/// what `built` asks and `itself` does not: `itself` is the referential case, and
+/// the two now agree because `==` is reflexive rather than because one
+/// backend has objects and the other does not.
 #[test]
 fn row_09_derived_eq_on_a_float_field() {
     rows_or_skip!();
@@ -1344,13 +1384,18 @@ export fn main(): Result<(), Str> {
   let n = notANumber();
   let bare = n == n;
   let built = mk(notANumber()) == mk(notANumber());
+  let f = mk(notANumber());
+  let itself = f == f;
+  let mixed = mk(notANumber()) == mk(zeroF());
   let pz = mk(zeroF()) == mk(negZeroF());
   let nz = mk(negZeroF()) == mk(zeroF());
-  let _ = stdout.println("${bare} ${built} ${pz} ${nz}");
+  let lt = n < n;
+  let le = n <= n;
+  let _ = stdout.println("${bare} ${built} ${itself} ${mixed} ${pz} ${nz} ${lt} ${le}");
   .Ok(())
 }
 "#,
-        "false false true true\n",
+        "true true true false true true false false\n",
     );
 }
 
@@ -1391,24 +1436,19 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// A `[T]` inside a derived `Show` is a named gap: `deriveArrayShow` has no
-/// native body, so the backend refuses the program before emitting.
+/// A `[T]` inside a derived `Show`, which used to be a named gap.
 ///
-/// `Option` and `Result` inside one are *not* a gap and are covered by
-/// [`row_09_derived_show`]. A bare `[T]`, `Option` or `Result` cannot be
-/// shown or interpolated at all — the front end refuses it — so a derived
-/// `Show` over a field is the only way to ask this question.
+/// It was `row_09_derived_show_of_a_list_is_a_gap` beside an `#[ignore]`d
+/// version of this test, and the ignore reason said to un-ignore this one and
+/// delete that one together. `deriveArrayShow` landed — the element's generated
+/// `show` called once per element into a scratch block of `Str`s, joined by
+/// `buri_rt_show_list` — so that is what happened.
+///
+/// `Option` and `Result` inside one are covered by [`row_09_derived_show`]. A
+/// bare `[T]`, `Option` or `Result` cannot be shown or interpolated at all —
+/// the front end refuses it — so a derived `Show` over a field is the only way
+/// to ask this question.
 #[test]
-fn row_09_derived_show_of_a_list_is_a_gap() {
-    rows_or_skip!();
-    gap("row 9 lists", SHOW_A_LIST, &["deriveArrayShow"]);
-}
-
-/// The agreement test that runs the day `deriveArrayShow` lands.
-#[test]
-#[ignore = "`deriveArrayShow` has no native body: a `[T]` inside a derived \
-                `Show` is refused by `missing_intrinsics`. Un-ignore this and \
-                delete `row_09_derived_show_of_a_list_is_a_gap` together."]
 fn row_09_derived_show_of_a_list() {
     rows_or_skip!();
     agree(
@@ -1417,6 +1457,38 @@ fn row_09_derived_show_of_a_list() {
         "Bag { xs: [1, 2, 3], ss: [\"a\", \"b\"], empty: [] }\n",
     );
 }
+
+/// `deriveArrayHash`, as a **named** gap rather than a panic.
+///
+/// `deriveArrayCompare` and `deriveArrayHash` are `deriveArrayEq`'s loop with a
+/// different carried value, and neither is emitted. What this test is really
+/// about is that a gap *reads* as one: an intrinsic with no body records an
+/// error and binds nothing, and Cranelift's instruction selector then unwrapped
+/// a `None` on the next instruction rather than letting the recorded diagnostic
+/// out (`cranelift/emit.rs`'s `bind_absent`). A `derive Hash` over a `[T]`
+/// field crashed the toolchain until that bound a value.
+///
+/// This is not a §12 row and is not in the table: it is a claim about how a
+/// missing intrinsic is *reported*, which every row already assumes.
+#[test]
+fn a_derived_hash_over_a_list_is_a_named_gap() {
+    rows_or_skip!();
+    gap("derived hash over a list", HASH_A_LIST, &["deriveArrayHash"]);
+}
+
+const HASH_A_LIST: &str = r#"
+from "core/host" import { stdout };
+
+export struct Bag { xs: [Int] }
+derive Eq, Hash, Show for Bag;
+
+export fn main(): Result<(), Str> {
+  let a = Bag { xs: [1, 2] };
+  let b = Bag { xs: [1, 2] };
+  let _ = stdout.println(if (a.hash() == b.hash()) { "same" } else { "differ" });
+  .Ok(())
+}
+"#;
 
 const SHOW_A_LIST: &str = r#"
 from "core/host" import { stdout, alloc };
@@ -1770,44 +1842,37 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// A struct holding `NaN` compared with **itself**: JavaScript says `true`,
-/// both native backends say `false`.
+/// A struct holding `NaN` compared with **itself** — the case that used to
+/// divide the backends, now the case that shows they no longer are divided.
 ///
-/// Not a §12 row, and the absence is the claim. §12's rule is that "a
-/// divergence with no entry is a bug", and this one is a bug rather than a
-/// divergence the table may list, because SPEC 7.2 already says which answer
-/// is right and it is the native one:
+/// This test was written with `diverge`, pinning `true` on JavaScript and
+/// `false` natively, and its own doc said it "fails the day either side
+/// moves — including the day the JavaScript side is corrected". The day came,
+/// and the correction went the other way: SPEC 7.2 now rules `NaN == NaN`, so
+/// the native side moved to JavaScript's answer rather than JavaScript to the
+/// native one. Flipping `diverge` to `agree` is that mechanism firing exactly
+/// as it was built to, and the expected text is the single answer both sides
+/// now print.
 ///
-/// > A derived `Eq` inherits IEEE-754 float behaviour. `NaN != NaN`, so a
-/// > struct with an `F64` field holding `NaN` is not equal to itself. … it
-/// > does mean derived `Eq` is not reflexive for every value.
+/// Not a §12 row, and the absence is still the claim: there is nothing left
+/// to list, because `==` at a float is one rule with one answer everywhere.
+/// What made the old divergence possible is unchanged and worth keeping
+/// written down — derived equality has **two** implementations,
+/// `middle/derives.rs` natively and `js/generate.rs`'s `eq_decl` on
+/// JavaScript, so §12 row 9's "because they are the same generator" is false
+/// and this test is how the two are actually compared.
 ///
-/// The same section rejects the mechanism that produces the JavaScript
-/// answer, and predicts this outcome: "Referential equality was considered
-/// and rejected. `a === b` on ordinary values has no stable answer: the
-/// runtime may share one representation between two equal values or copy it,
-/// so the result would depend on the optimization level and on the backend."
-/// `js/generate.rs`'s `eq_decl` opens every compiled comparison with
-/// `if (a === b) return true;`, and `runtime.js`'s `$eq` opens with the same
-/// line, so on that backend `==` *is* answered by identity whenever the two
-/// operands happen to be one object. Natively there is no object to be one
-/// of: `middle/derives.rs` emits the field walk with no such prelude and
-/// `fcmp Equal` / `fcmp oeq` loses, which is what SPEC 7.2 describes.
-///
-/// §12 row 9 says derived `Eq` must agree "because they are the same
-/// generator". That premise is false: `derives.rs`'s own header records that
-/// the pass "runs from `middle::native` and nowhere else", so the two
-/// backends have two independent implementations of derived equality and
-/// this is the input on which they part.
-///
-/// Both answers are pinned rather than either being asserted as the right
-/// one, because choosing is a ruling and not a test's to make. `diverge`
-/// fails the day either side moves — including the day the JavaScript side
-/// is corrected, which is the intended repair.
+/// The referential fast path in `eq_decl` and in `runtime.js`'s `$eq` stays,
+/// and is now sound rather than merely convenient: an equivalence relation is
+/// reflexive, so two references to one value are equal without looking
+/// inside. SPEC 7.2's rejection of referential equality was a rejection of it
+/// as the *definition*; as a shortcut to an answer the walk would reach
+/// anyway it decides nothing, which is why the native backends need no
+/// identity notion to agree here.
 #[test]
-fn a_struct_holding_nan_compared_with_itself_does_not_agree() {
+fn a_struct_holding_nan_compared_with_itself_agrees() {
     rows_or_skip!();
-    diverge(
+    agree(
         "nan self-identity",
         r#"
 from "core/host" import { stdout };
@@ -1826,7 +1891,6 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "true\n",
-        "false\n",
     );
 }
 
@@ -1878,5 +1942,5 @@ fn every_row_of_the_table_names_a_test_that_exists() {
     }
     // A table this failed to find would "pass" having checked nothing,
     // which is the failure a self-checking document has.
-    assert_eq!(rows, 14, "§12 has {rows} numbered rows rather than fourteen");
+    assert_eq!(rows, 15, "§12 has {rows} numbered rows rather than fifteen");
 }

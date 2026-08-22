@@ -679,13 +679,25 @@ impl<'a> Layouts<'a> {
     /// The byte offset of a pointer inside `ty` that is never null, if there
     /// is one — the invariant the `Option<T>` niche spends.
     ///
-    /// Three shapes carry one directly: a `Str`'s `ptr` (non-null even for the
-    /// empty string, which points at a static), a `[T]`'s `ptr` (a payload
-    /// start, because a list is never a view), and a closure's `code`. `base`
+    /// Two shapes carry one directly: a `Str`'s `ptr` (non-null even for the
+    /// empty string, which points at a static) and a closure's `code`. `base`
     /// and `env` are nullable and so are not candidates. Structs and tuples
     /// are searched in declaration order, lowest offset wins, and a boxed
     /// field — the indirection in a recursive type — is a candidate too, which
     /// is what makes `Option<Box-shaped struct>` free.
+    ///
+    /// **A `[T]`'s `ptr` is not one, and the reason is a fact about the
+    /// runtime rather than about the model.** An empty list has no payload to
+    /// point at, and every producer of one says so with a null word:
+    /// `list.empty` is two immediates in both backends, and
+    /// `buri_rt_list_new(0, _)` answers a null block. So a `[T]` niche made
+    /// `.Some(xs)` indistinguishable from `.None` whenever `xs` was empty —
+    /// `Option<[Int]>` over `list.empty()` answered `.None`, and so did
+    /// `queue.pop` at the moment it emptied a side, because a `Queue<T>` is
+    /// two lists and the tuple it returns is niched on the first of them.
+    /// `Str` is the shape that *does* hold: `BuriStr::empty` points at a
+    /// one-byte static for exactly this reason, which is what the empty list
+    /// has no counterpart of.
     ///
     /// An enum is not searched. Which of its pointers exist depends on the
     /// tag, so none of them is unconditionally there; general niche discovery
@@ -693,7 +705,7 @@ impl<'a> Layouts<'a> {
     fn niche(&mut self, ty: &Ty) -> Option<u32> {
         let tables = self.tables;
         match ty {
-            Ty::Array(_) => Some(offset_of(LIST_PTR)),
+            Ty::Array(_) => None,
             Ty::Fn(_, _) => Some(offset_of(CLOSURE_CODE)),
             Ty::Tuple(elements) => {
                 let elements = elements.clone();
@@ -1542,14 +1554,35 @@ mod tests {
         }
     }
 
+    /// A list pointer is null when the list is empty, so it is a tag and not a
+    /// niche: `.Some(list.empty())` and `.None` would otherwise be the same
+    /// two words.
     #[test]
-    fn option_of_a_list_is_the_list() {
+    fn option_of_a_list_is_tagged_because_an_empty_list_is_a_null_pointer() {
         let mut t = tables();
         let option = add_option(&mut t);
         let mut l = Layouts::new(&t);
         let layout = l.of(at(option, &[Ty::Array(Box::new(p(Prim::I64)))]));
-        assert_eq!(layout.size, 16);
-        assert!(matches!(layout.repr, Repr::Enum { repr: EnumRepr::Niche { null_at: 0 }, .. }));
+        assert!(matches!(layout.repr, Repr::Enum { repr: EnumRepr::Tagged { .. }, .. }));
+    }
+
+    /// And a type that *holds* a list niches past it, on the next pointer that
+    /// really is unconditional — which is what keeps `Option<(Str, [Int])>`
+    /// free.
+    #[test]
+    fn a_niche_search_steps_over_a_list_and_takes_the_string(){
+        let mut t = tables();
+        let option = add_option(&mut t);
+        let mut l = Layouts::new(&t);
+        let pair = Ty::Tuple(vec![Ty::Array(Box::new(p(Prim::I64))), p(Prim::Str)]);
+        let layout = l.of(at(option, &[pair]));
+        match layout.repr {
+            Repr::Enum { repr: EnumRepr::Niche { null_at }, .. } => {
+                // 16 bytes of `[Int]`, then the `Str`'s `ptr` at its offset 8.
+                assert_eq!(null_at, 24);
+            }
+            other => panic!("expected a niche, got {other:?}"),
+        }
     }
 
     #[test]

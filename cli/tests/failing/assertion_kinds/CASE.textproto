@@ -23,7 +23,7 @@
 doc: "every assertion core/testing/assert exports, failing, with the message each produces"
 
 run {
-  args: ["test", "//lib/asserts", "--force"]
+  args: ["test", "//lib/asserts", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

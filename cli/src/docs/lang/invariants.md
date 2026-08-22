@@ -34,6 +34,14 @@ before its receiver's type constructor is determined.
 (Section 9), so no inference crosses a function boundary. Bodies check in
 parallel, and editing one body can never invalidate the check of another.
 
+A consequence: a type variable still unconstrained when a body finishes checking
+is unconstrained for good, because no other body and no signature can reach it.
+It becomes `()`. This is not the literal defaulting of Section 5.1.1, which picks
+between the types a numeric class admits; here nothing in the program picks at
+all, so the type with one value and no structure is the answer. `assert.some(o)`
+on an `Option` whose payload the program never names is the shape that reaches
+it, and the value it renders is the `Option`, not the payload.
+
 **13.4 A module's inter-module surface is exactly its exported declarations.**
 Because conformance is declared rather than inferred from shape, adding or
 removing a private function cannot change what any other module sees. Incremental

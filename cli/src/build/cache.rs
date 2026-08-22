@@ -459,10 +459,23 @@ impl KeyBuilder {
         hasher.text(action.name());
         // `--release` and `--debug` are part of the cache key.
         hasher.text(mode.name());
-        // The compiler's own identity, and the whole of it now that `REPO.buri`
-        // no longer names a toolchain: an artifact built by a different
+        // The compiler's own identity: an artifact built by a different
         // compiler is a different artifact, so a release moves every key in
         // every repository at once.
+        //
+        // It is `CARGO_PKG_VERSION` — a version, not a hash of the running
+        // executable. Two `buri` binaries built from different source at the
+        // same version therefore compute the same keys and share a cache, and
+        // nothing here can tell them apart. That is a hazard for whoever
+        // rebuilds this toolchain and then compares one repository's artifacts
+        // across the rebuild; `buri docs build/hermeticity`, "The toolchain in
+        // the key", says what to do about it. Closing it would mean hashing the
+        // binary on every key — or a build-script fingerprint over `cli/src`,
+        // which `cli/build.rs` deliberately keeps out of its rerun set so that
+        // an edit to the compiler does not re-invoke `rustc` on the runtime.
+        // What a *user* can vary is caught: `Backend::identity` carries the
+        // LLVM the binary was linked against, and `Linker::version` the linker
+        // it found.
         hasher.text(crate::commands::arguments::VERSION);
         KeyBuilder { hasher }
     }

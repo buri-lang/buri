@@ -16,7 +16,7 @@
 doc: "long values are printed whole and never truncated; a value's newline is escaped and a message's is not"
 
 run {
-  args: ["test", "//lib/wide", "--force"]
+  args: ["test", "//lib/wide", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

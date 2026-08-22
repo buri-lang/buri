@@ -92,11 +92,27 @@ test "an exponent literal is the value it spells" {
 
 // --- IEEE-754 behaviour --------------------------------------------------------------
 
-test "NaN is not equal to itself" {
+test "NaN is equal to itself and to every other NaN" {
+  // SPEC 6.2: `==` is an equivalence relation, so it is reflexive at every
+  // value including this one. IEEE-754 says otherwise and the ordering
+  // operators below still obey it; equality is the one place Buri departs.
   let x = nan();
-  assert.isFalse(x == x);
-  assert.isTrue(x != x);
-  assert.notEq(x, x);
+  assert.isTrue(x == x);
+  assert.isFalse(x != x);
+  assert.eq(x, x);
+  // A different bit pattern for the same value: negation flips the sign bit
+  // and nothing else, so an equality that compared bits would fail here.
+  let y = -x;
+  assert.isTrue(x == y);
+  assert.isTrue(math.isNan(y));
+}
+
+test "NaN is equal to no number" {
+  let x = nan();
+  assert.isFalse(x == 0.0);
+  assert.isFalse(0.0 == x);
+  assert.isTrue(x != 1.0);
+  assert.isTrue(x != inf());
 }
 
 test "NaN answers false to every comparison" {

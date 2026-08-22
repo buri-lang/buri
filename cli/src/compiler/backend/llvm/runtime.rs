@@ -131,6 +131,20 @@ pub enum Ret {
     /// `EnumRepr::Tagged`, nothing at all for `EnumRepr::Niche`, whose `.Some`
     /// is exactly "the payload with its niche pointer non-null".
     Sum,
+    /// A `Result<T, E>`: an `i32` discriminant, `.Ok`'s payload through a
+    /// trailing out-pointer, and an error variant named by its index
+    /// (`cli/runtime/lib.rs` §2.1).
+    ///
+    /// [`Ret::Sum`] with the failure side carrying information. An `Option`'s
+    /// `.None` is one value and needs no number; a `Result`'s `.Err` is a value
+    /// of `E`, and `0 ..= n` says which — of a variant §2.1 restricts to
+    /// carrying no fields, so the tag is the whole of it.
+    ///
+    /// The out-pointer is **omitted where `T` is zero-sized**
+    /// (`MemFs.writeFile`'s `Result<(), IoError>`), for the reason [`Ret::Out`]
+    /// omits it: a parameter for a value with no bytes is one the archive and
+    /// the backend can disagree about for free.
+    Res,
 }
 
 /// One runtime entry this backend can emit a call to.
@@ -180,7 +194,9 @@ pub const BURI_OK: i64 = -1;
 ///    `zip`, `flatten`. `cli/runtime/list.rs`'s header states why they are not
 ///    in the archive: a Buri closure's `code` is a thunk at the *flattened*
 ///    signature of its own element type, so calling one from C would mean
-///    synthesizing a parameter list that depends on `T`.
+///    synthesizing a parameter list that depends on `T`. Ten of the eleven are
+///    emitted by [`super::emit::Unit::list_closure`] instead, which is a
+///    different statement from being here.
 pub const ENTRIES: &[Entry] = &[
     // -- the text streams ---------------------------------------------------
     //
@@ -501,6 +517,24 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Elems, Arg::Dropped, Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
+    // `take(self, ctx, n)` and `drop(self, ctx, n)` are one `slice` each in the
+    // archive, and the same three-word shape as `slice` here. They were absent
+    // from this table and present in `cranelift/runtime.rs`, which is a
+    // disagreement between two transcriptions of one contract rather than a
+    // difference between the backends — `data/lists.buri` under
+    // `buri test --release` is what found it.
+    Entry {
+        key: "list.take",
+        symbol: "buri_rt_list_take",
+        args: &[Arg::Elems, Arg::Dropped, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "list.drop",
+        symbol: "buri_rt_list_drop",
+        args: &[Arg::Elems, Arg::Dropped, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
     Entry {
         key: "list.repeat",
         symbol: "buri_rt_list_repeat",
@@ -576,6 +610,307 @@ pub const ENTRIES: &[Entry] = &[
         key: "list.join",
         symbol: "buri_rt_list_join",
         args: &[Arg::List, Arg::Dropped, Arg::Str],
+        ret: Ret::Out,
+    },
+    // -- core/testing/context's stateful half ---------------------------------
+    //
+    // `cli/runtime/testing.rs`'s header is the argument for these being in the
+    // archive rather than open-coded: each names a slot in one mutable table,
+    // which is `runtime.js`'s `$t.h` written for a language that has statics.
+    // The rows are `cranelift/runtime.rs`'s, one for one.
+    //
+    // Two things are not obvious and are the same in both tables:
+    //
+    //  * **Every constructor is `Ret::Out`.** `struct CaptureOut(I64)` is a
+    //    struct, and `middle/layout.rs` gives every struct `Repr::Aggregate`
+    //    however few fields it has, so the result is an aggregate and §2 rule 2
+    //    puts it through an out-pointer. Declaring it as returning one word
+    //    would agree with the archive by accident on both supported targets.
+    //  * **`self` is `Arg::Scalar` and not `Arg::Dropped`.** These receivers
+    //    carry the handle; `core/host`'s are empty structs and these are not,
+    //    which is the distinction `native/llvm.rs`'s
+    //    `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
+    //
+    // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`), and
+    // `MemFs`'s four are a named gap for the reason `cli/runtime/testing.rs`'s
+    // header gives.
+    Entry {
+        key: "testing_context.captureOut",
+        symbol: "buri_rt_testing_context_capture_out",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.captureErr",
+        symbol: "buri_rt_testing_context_capture_err",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.CaptureOut.print",
+        symbol: "buri_rt_testing_context_capture_out_print",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.CaptureOut.println",
+        symbol: "buri_rt_testing_context_capture_out_println",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.CaptureOut.writeBytes",
+        symbol: "buri_rt_testing_context_capture_out_write_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.CaptureOut.captured",
+        symbol: "buri_rt_testing_context_capture_out_captured",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.CaptureErr.eprint",
+        symbol: "buri_rt_testing_context_capture_err_eprint",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.CaptureErr.eprintln",
+        symbol: "buri_rt_testing_context_capture_err_eprintln",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.CaptureErr.capturedErr",
+        symbol: "buri_rt_testing_context_capture_err_captured_err",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.stdin",
+        symbol: "buri_rt_testing_context_stdin",
+        args: &[Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.stdinBytes",
+        symbol: "buri_rt_testing_context_stdin_bytes",
+        args: &[Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.TestStdin.readLine",
+        symbol: "buri_rt_testing_context_test_stdin_read_line",
+        args: &[Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "testing_context.TestStdin.readBytes",
+        symbol: "buri_rt_testing_context_test_stdin_read_bytes",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "testing_context.data",
+        symbol: "buri_rt_testing_context_data",
+        args: &[],
+        ret: Ret::Out,
+    },
+    // -- core/bytes ---------------------------------------------------------
+    //
+    // `Arg::List` at every `[U8]` argument, and the two alternatives are both
+    // wrong in ways nothing would diagnose. `Arg::Elems` would carry a stride
+    // and a retain glue for a `T` that is fixed at `U8` and needs neither.
+    // `Arg::Bytes` is the shape a **`Str`** takes when its base is dropped —
+    // it emits `pieces.skip(1)`, so on a `[U8]`, whose two pieces are `ptr` and
+    // `len`, it passes the length alone and the callee reads a pointer out of
+    // it. That is what the first draft of these rows said, and it linked, ran,
+    // and crashed `text/bytes.buri` and `proto/binary.buri` under `--release`
+    // while Cranelift compiled both — because that backend spreads from the IR
+    // and has no per-argument table to get wrong.
+    Entry {
+        key: "bytes.toUtf8",
+        symbol: "buri_rt_bytes_to_utf8",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "bytes.fromUtf8",
+        symbol: "buri_rt_bytes_from_utf8",
+        args: &[Arg::Dropped, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "bytes.f64ToBytes",
+        symbol: "buri_rt_bytes_f64_to_bytes",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "bytes.f64FromBytes",
+        symbol: "buri_rt_bytes_f64_from_bytes",
+        args: &[Arg::List, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "bytes.f32ToBytes",
+        symbol: "buri_rt_bytes_f32_to_bytes",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "bytes.f32FromBytes",
+        symbol: "buri_rt_bytes_f32_from_bytes",
+        args: &[Arg::List, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    // -- core/char ----------------------------------------------------------
+    //
+    // Eight rows, and the five predicates are `Ret::Int(8)` rather than
+    // `Ret::Scalar`: the C boundary has no `i1`, so the archive returns `u8`
+    // and the call site narrows. `toUpper` and `toLower` *are* `Ret::Scalar`,
+    // because a `Char` is an `i32` on both sides of the boundary.
+    Entry {
+        key: "char.isDigit",
+        symbol: "buri_rt_char_is_digit",
+        args: &[Arg::Scalar],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "char.isAlpha",
+        symbol: "buri_rt_char_is_alpha",
+        args: &[Arg::Scalar],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "char.isSpace",
+        symbol: "buri_rt_char_is_space",
+        args: &[Arg::Scalar],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "char.isUpper",
+        symbol: "buri_rt_char_is_upper",
+        args: &[Arg::Scalar],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "char.isLower",
+        symbol: "buri_rt_char_is_lower",
+        args: &[Arg::Scalar],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "char.toUpper",
+        symbol: "buri_rt_char_to_upper",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "char.toLower",
+        symbol: "buri_rt_char_to_lower",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "char.toDigit",
+        symbol: "buri_rt_char_to_digit",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "testing_context.files",
+        symbol: "buri_rt_testing_context_files",
+        args: &[Arg::List],
+        ret: Ret::Out,
+    },
+    // `MemFs`'s four. `self` is `struct MemFs(I64)` and carries a handle, so it
+    // is `Arg::Scalar` and not `Arg::Dropped` — the same distinction
+    // `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
+    Entry {
+        key: "testing_context.MemFs.readFile",
+        symbol: "buri_rt_testing_context_mem_fs_read_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.writeFile",
+        symbol: "buri_rt_testing_context_mem_fs_write_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.fileExists",
+        symbol: "buri_rt_testing_context_mem_fs_file_exists",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "testing_context.MemFs.readDir",
+        symbol: "buri_rt_testing_context_mem_fs_read_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.clockAt",
+        symbol: "buri_rt_testing_context_clock_at",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.TestClock.nowMillis",
+        symbol: "buri_rt_testing_context_test_clock_now_millis",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "testing_context.TestClock.sleepMillis",
+        symbol: "buri_rt_testing_context_test_clock_sleep_millis",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.TestClock.advance",
+        symbol: "buri_rt_testing_context_test_clock_advance",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "testing_context.randSeed",
+        symbol: "buri_rt_testing_context_rand_seed",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.TestRand.nextInt",
+        symbol: "buri_rt_testing_context_test_rand_next_int",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "testing_context.TestRand.nextFloat",
+        symbol: "buri_rt_testing_context_test_rand_next_float",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "testing_context.envOf",
+        symbol: "buri_rt_testing_context_env_of",
+        args: &[Arg::List, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "testing_context.TestEnv.variable",
+        symbol: "buri_rt_testing_context_test_env_variable",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "testing_context.TestEnv.arguments",
+        symbol: "buri_rt_testing_context_test_env_arguments",
+        args: &[Arg::Scalar],
         ret: Ret::Out,
     },
 ];
@@ -657,6 +992,23 @@ pub const ABORT_DIV_ZERO: &str = "buri_rt_abort_div_zero";
 pub const ABORT_SHIFT: &str = "buri_rt_abort_shift";
 /// `buri_rt_abort_unreachable()` — `-> !`, for `Profile::defensive_aborts`.
 pub const ABORT_UNREACHABLE: &str = "buri_rt_abort_unreachable";
+/// `buri_rt_abort_assert(kind, len)` — `-> !`, a failing `core/testing/assert`.
+///
+/// `(ptr, len)` and no `base`: the assertion kind is a `Str` the entry only
+/// reads, so `lib.rs` §2 rule 1's third word is not passed and no count changes
+/// hands — the process ends before either could matter.
+pub const ABORT_ASSERT: &str = "buri_rt_abort_assert";
+/// `buri_rt_test_enter(index) -> i32` — whether this process is to run the
+/// `test` block at `index`, and a note of which one it is for the record an
+/// abort writes. `cli/runtime/testing.rs` states the protocol.
+pub const TEST_ENTER: &str = "buri_rt_test_enter";
+/// `buri_rt_test_fail_compared(kind, len, actual, len, expected, len)` — `-> !`,
+/// a failed comparison with both values already rendered by the `Show`
+/// `middle::derives` generated at their type.
+pub const TEST_FAIL_COMPARED: &str = "buri_rt_test_fail_compared";
+/// `buri_rt_test_fail_expected(kind, len, shown, len)` — `-> !`, `failExpected`
+/// with its one value rendered.
+pub const TEST_FAIL_EXPECTED: &str = "buri_rt_test_fail_expected";
 /// `buri_rt_alloc(payload) -> *mut u8`.
 pub const ALLOC: &str = "buri_rt_alloc";
 /// `buri_rt_free(p)`.
@@ -727,6 +1079,11 @@ pub const SHOW_CHAR: &str = "buri_rt_show_char";
 /// `buri_rt_show_str(ptr, len, out)` — `JSON.stringify`. `derivePrimShow` only;
 /// a template hole of a `Str` is the string itself and is not a call at all.
 pub const SHOW_STR: &str = "buri_rt_show_str";
+/// `buri_rt_show_list(xs, count, out)` — `[` + already-rendered elements joined
+/// by `, ` + `]`, for `deriveArrayShow`. No element descriptor: the backend has
+/// already turned each element into a `Str`, so the block this reads is a
+/// `[Str]` at every instantiation.
+pub const SHOW_LIST: &str = "buri_rt_show_list";
 
 // -- hashing: `derivePrimHash` ----------------------------------------------
 //
@@ -801,6 +1158,19 @@ mod tests {
             "derivePrimHash",
             "list.empty",
             "list.map",
+            "list.sortBy",
+            "json.encode",
+            // Open-coded, and named here so that "it has no symbol" and "the
+            // backend cannot compile it" stay two different statements.
+            "testing_context.alloc",
+            "testing_context.TestAlloc.allocate",
+            // The archive has no body for `core/fs`'s real filesystem past
+            // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
+            // `MemFs`'s three are the same `Result<T, IoError>` and are in the
+            // table above, under `Ret::Res`.
+            "host.HostFs.readFile",
+            "host.HostFs.writeFile",
+            "host.HostFs.readDir",
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }

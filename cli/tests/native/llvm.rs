@@ -148,6 +148,7 @@ fn options(profile: Profile) -> Options<'static> {
 /// `cargo test` runs in two shells do not share it — the same rule
 /// `tests/native/runtime.rs` follows, for the reason written there.
 fn workspace() -> PathBuf {
+    crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-llvm-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1239,19 +1240,40 @@ export fn main(): Result<(), Str> {
     // half of it that is easiest to break by accident.
     assert!(missing.is_empty(), "an interpolation is implemented now, got {missing:?}");
 
-    // What is still outside the surface is the part of the closure-taking
-    // `list.*` family that is not a loop over the block. `map` and its eight
-    // siblings are emitted now (`emit::Unit::list_closure`); `sortBy` is a
-    // comparison sort and `cli/runtime/list.rs`'s header says why the archive
-    // cannot have one either.
+    // `core/list` has no gap left: every key in `list.buri` is either a row in
+    // `llvm/runtime.rs`'s table or a loop in `emit::Unit`, and `map`, `sortBy`,
+    // `zip` and `flatten` are the three waves that closed it. So the example
+    // this test is built around moved out of `core/list`, and then twice more:
+    // to `char.isDigit`, to `bytes.toUtf8`, and now past both. `core/char` and
+    // `core/bytes` have archive bodies (`cli/runtime/char.rs`,
+    // `cli/runtime/bytes.rs`) and `data/strings.buri`, `text/bytes.buri`,
+    // `crypto/sha256.buri` and two of the three `//lib/proto` files are in the
+    // native conformance set because of them.
+    //
+    // `math.sin` is the example now, and it is a different *kind* of gap on
+    // purpose: it is refused rather than unwritten. `cli/runtime/math.rs`
+    // argues that IEEE 754 does not fix a transcendental's answer, so V8's
+    // fdlibm port and the platform libm differ in the last bit and a rendered
+    // `Float` shows seventeen digits of it. That makes it the one example that
+    // will not stop being true next wave, which is what this assertion wants:
+    // the *mechanism* is what is under test, and it has been re-pointed three
+    // times at things that were merely early.
     let with_closure = program(
         r#"
 from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/bytes" import * as bytes;
+from "core/math" import * as math;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let sorted = list.range(ctx, 0, 3).sortBy(ctx, fn(a, b) => a.compare(b));
-  let _ = ctx.println("${sorted.len()}");
+  let paired = sorted.zip(ctx, list.range(ctx, 0, 3));
+  let nested = [paired.mapCtx(ctx, fn(c, p) => p.0)].flatten(ctx);
+  let digits = "a1".chars(ctx).count(fn(c) => c.isDigit());
+  let raw = bytes.toUtf8(ctx, "hi");
+  let wave = math.sin(1.0);
+  let _ = ctx.println("${nested.len()}${digits}${raw.len()}${wave}");
   .Ok(())
 }
 "#,
@@ -1278,12 +1300,32 @@ export fn main(): Result<(), Str> {
     middle::run(&mut mono, &middle::Options::default());
     let missing = llvm::Llvm.missing_intrinsics(&mono, &analysis.checked.tables);
     assert!(
-        missing.iter().any(|m| m == "list.sortBy"),
-        "`list.sortBy` is a comparison sort and must be reported, got {missing:?}"
+        missing.iter().any(|m| m == "math.sin"),
+        "`math.sin` is refused on purpose and must be reported, got {missing:?}"
+    );
+    assert!(
+        !missing.iter().any(|m| m == "char.isDigit"),
+        "`char.isDigit` is a row in the runtime table now and must not be \
+         reported, got {missing:?}"
+    );
+    assert!(
+        !missing.iter().any(|m| m == "bytes.toUtf8"),
+        "`bytes.toUtf8` is a row in the runtime table now and must not be \
+         reported, got {missing:?}"
     );
     assert!(
         !missing.iter().any(|m| m == "list.map"),
         "`list.map` is emitted as a loop now and must not be reported, got {missing:?}"
+    );
+    assert!(
+        !missing.iter().any(|m| m == "list.sortBy"),
+        "`list.sortBy` is emitted as a merge sort now and must not be reported, \
+         got {missing:?}"
+    );
+    assert!(
+        !missing.iter().any(|m| m == "list.zip" || m == "list.flatten"),
+        "`zip` and `flatten` are emitted as loops now and must not be reported, \
+         got {missing:?}"
     );
 }
 

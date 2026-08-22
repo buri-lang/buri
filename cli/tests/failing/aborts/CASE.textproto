@@ -15,7 +15,7 @@
 doc: "a runtime abort inside a test is reported with its own words and no diff, and the tests after it still run"
 
 run {
-  args: ["test", "//lib/arith", "--force"]
+  args: ["test", "//lib/arith", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

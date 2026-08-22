@@ -17,7 +17,7 @@
 doc: "a test title is arbitrary text: colons, quotes, escapes, characters outside ASCII, and the empty title"
 
 run {
-  args: ["test", "//lib/titled", "--force"]
+  args: ["test", "//lib/titled", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

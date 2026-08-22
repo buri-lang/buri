@@ -153,14 +153,31 @@
 //! body carries no operations. While `closures` is a stub, that is a leak
 //! inside a lambda and nothing worse; it goes away when the stub does.
 //!
-//! **Deliberately incomplete, and recorded rather than guessed.** Whether a
-//! type is reference counted is a *layout* question, and the layout table needs
-//! `Tables`. [`Counted`] is the oracle interface; [`Syntactic`] is the answer
-//! this pass can give from a `Program` alone, and every type it cannot classify
-//! is listed in [`FuncPlan::unclassified`] and gets **no reference operations
-//! at all**. That direction is a leak; the other direction is an increment
-//! applied to an integer, which is a miscompile. Wave 2 passes a
-//! `Layouts`-backed [`Counted`] to [`analyze`] and the list empties.
+//! **Which types carry a count, and where the answer comes from.** Whether a
+//! type is reference counted is a question about its *fields*, and the fields
+//! of a nominal or context type are a `Tables` question that this pass cannot
+//! ask — `middle::native` is handed a `Program`. So `monomorphize` records
+//! them: [`monomorphize::Shapes`] is every declared type's field list, taken
+//! by the pass that still had a `Tables`, and [`Syntactic`] substitutes into
+//! it. [`Counted`] is the oracle interface, and a type it cannot classify is
+//! listed in [`FuncPlan::unclassified`] and gets **no reference operations at
+//! all** — that direction is a leak, and the other direction is an increment
+//! applied to an integer, which is a miscompile.
+//!
+//! Before the shapes, the answer came from the program's descriptors and its
+//! literals alone, which left two holes: a `Ty::Ctx` is written down nowhere,
+//! so no literal ever names one, and an `Option<T>` that only ever arrives
+//! *from* `list.get` or `list.find` is constructed by no `.Some(..)` either.
+//! Both were `Unknown`, so the payload `list.get` retained was released by
+//! nothing. `tests::a_context_and_an_option_no_literal_builds_are_both_counted`
+//! is that pair, and it also asserts the whole list is empty.
+//!
+//! **Both native backends build a [`Syntactic`] from the same `Program`** and
+//! ask it rather than their own layout table wherever they emit one half of a
+//! pair this pass completes (`cranelift::emit::Cx::rc_counted`). An oracle
+//! that answered differently there would be a retain with no release or a
+//! release with no retain, so the answer travelling *with* the program is what
+//! keeps the two halves from disagreeing.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -171,9 +188,9 @@
 )]
 
 use crate::compiler::middle::ir;
-use crate::compiler::middle::monomorphize::{Desc, Func, FuncKind, Program};
+use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt, TemplatePart};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty};
+use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
 // ---------------------------------------------------------------------------
@@ -341,25 +358,41 @@ impl Default for Options {
 pub enum Answer {
     Yes,
     No,
-    /// Not answerable without the layout table. Treated as `No`, and recorded.
+    /// Not answerable from anything the program carries. Treated as `No` —
+    /// which is a leak — and recorded in [`FuncPlan::unclassified`] so that it
+    /// is a list somebody can assert is empty rather than a silent one.
     Unknown,
 }
 
-/// The oracle. `Syntactic` is what a `Program` alone can answer; wave 2 passes
-/// one backed by `middle::layout` and the `Unknown`s go away.
+/// The oracle.
 pub trait Counted {
     fn counted(&mut self, ty: &Ty) -> Answer;
 }
 
-/// The answer from the descriptors a program already carries.
+/// The answer from what a program carries about its own types.
 ///
 /// A `Str` and a `[T]` are counted by construction (VALUE-MODEL.md §3, §4); a
 /// function value carries a closure environment (§7); a numeric or boolean
-/// primitive is not counted at all. Everything else is decided by its
-/// components where the program described them, and is `Unknown` where it did
-/// not — a descriptor exists only for a type some structural operation
-/// reached.
+/// primitive is not counted at all. Everything else is decided by its fields,
+/// and [`monomorphize::Shapes`] is where the fields come from — the declared
+/// ones, recorded by the pass that still had a `Tables`, so a nominal or
+/// context type is answered whether or not any body in this program happens to
+/// construct one.
+///
+/// **Both native backends build one of these from the same `Program`** and ask
+/// it rather than their own layout table wherever they emit one half of a pair
+/// this pass completes (`cranelift::emit::Cx::rc_counted`). So the shapes are
+/// the single source of the answer, and the two halves cannot disagree.
+///
+/// The descriptor and body scans below stay as the answer for a `Program` that
+/// carries no shapes — every unit test in this file builds one, and so does
+/// every caller that assembles a `Program` by hand.
+///
+/// The name is now narrower than the type: this is no longer only what syntax
+/// can say. It stays because `cranelift/mod.rs` and `llvm/emit.rs` name it, and
+/// a rename would be an edit to two files for a word.
 pub struct Syntactic {
+    shapes: monomorphize::Shapes,
     prim_of: HashMap<Ty, Prim>,
     fields_of: HashMap<Ty, Vec<Ty>>,
     memo: HashMap<Ty, Answer>,
@@ -462,7 +495,7 @@ impl Syntactic {
                 _ => {}
             });
         }
-        Syntactic { prim_of, fields_of, memo: HashMap::default() }
+        Syntactic { shapes: program.shapes.clone(), prim_of, fields_of, memo: HashMap::default() }
     }
 
     fn answer(&mut self, ty: &Ty, depth: usize) -> Answer {
@@ -482,25 +515,60 @@ impl Syntactic {
                 let parts: Vec<Answer> = ts.iter().map(|t| self.answer(t, depth - 1)).collect();
                 join(&parts)
             }
-            Ty::Con(..) => {
-                if let Some(p) = self.prim_of.get(ty).copied() {
+            // A context value is a record of the values bound to its effects
+            // (SPEC 11.3), and one of those is as often a closure as it is a
+            // zero-sized marker. Nothing writes a `Ty::Ctx` down, so no
+            // literal in any body names one and the scans below never see it:
+            // without the shapes every context in the program was `Unknown`.
+            Ty::Ctx(id) => match self.shapes.ctxs.get(id.index()) {
+                Some(bindings) => self.join_of(&bindings.clone(), depth),
+                None => Answer::Unknown,
+            },
+            Ty::Con(con, args) => match self.shapes.cons.get(con.index()) {
+                Some(monomorphize::ConShape::Prim(p)) => {
                     if matches!(p, Prim::Str | Prim::Template) {
                         Answer::Yes
                     } else {
                         Answer::No
                     }
-                } else if let Some(fields) = self.fields_of.get(ty).cloned() {
-                    let parts: Vec<Answer> =
-                        fields.iter().map(|t| self.answer(t, depth - 1)).collect();
-                    join(&parts)
-                } else {
-                    Answer::Unknown
                 }
-            }
+                Some(monomorphize::ConShape::Fields(declared)) => {
+                    // The declared fields still carry the type's own
+                    // `Ty::Param`s, so this instantiation's arguments are what
+                    // turn `Option<T>`'s payload into the `Str` it is here.
+                    let fields: Vec<Ty> = declared
+                        .clone()
+                        .iter()
+                        .map(|f| types::substitute(f, args, None))
+                        .collect();
+                    self.join_of(&fields, depth)
+                }
+                None => self.scanned(ty, depth),
+            },
             _ => Answer::Unknown,
         };
         self.memo.insert(ty.clone(), a);
         a
+    }
+
+    /// The answer for a `Ty::Con` from the descriptor graph and the bodies.
+    fn scanned(&mut self, ty: &Ty, depth: usize) -> Answer {
+        if let Some(p) = self.prim_of.get(ty).copied() {
+            if matches!(p, Prim::Str | Prim::Template) {
+                Answer::Yes
+            } else {
+                Answer::No
+            }
+        } else if let Some(fields) = self.fields_of.get(ty).cloned() {
+            self.join_of(&fields, depth)
+        } else {
+            Answer::Unknown
+        }
+    }
+
+    fn join_of(&mut self, fields: &[Ty], depth: usize) -> Answer {
+        let parts: Vec<Answer> = fields.iter().map(|t| self.answer(t, depth - 1)).collect();
+        join(&parts)
     }
 }
 
@@ -571,6 +639,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
                 unclassified: Vec::new(),
                 used: HashSet::default(),
                 pending: Vec::new(),
+                floor: 0,
                 jumps: Vec::new(),
                 diverged: false,
                 self_params: plan.params.clone(),
@@ -693,8 +762,55 @@ fn infer_ownership(program: &Program, counted: &mut dyn Counted) -> Vec<Vec<ir::
                 changed = true;
             }
         }
+        for (target, k) in loop_variables_taken(program, &own) {
+            match own.get_mut(target).and_then(|r| r.get_mut(k)) {
+                Some(o) if *o == ir::Ownership::Borrow => {
+                    *o = ir::Ownership::Own;
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
     }
     own
+}
+
+/// The loop variables a `Continue` hands a value the iteration will not
+/// outlive, as `(function, parameter)` pairs.
+///
+/// A **borrowed** parameter is one the caller keeps a count for across the
+/// whole call. That covers an argument passed straight through — the loop's
+/// `Continue(acc, xs)` with `xs` unchanged, which the module header says costs
+/// nothing — and it covers nothing else: a value this iteration built has no
+/// owner left the moment the jump is taken, and the drop the borrow convention
+/// puts before the back edge frees the next iteration's variable.
+/// `middle/rc.rs`'s own `a_jump_owns_what_it_did_not_pass_through` is that
+/// shape; `stepV` below was the program.
+fn loop_variables_taken(program: &Program, own: &[Vec<ir::Ownership>]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for (i, f) in program.funcs.iter().enumerate() {
+        let Some(body) = f.body() else { continue };
+        let row = own.get(i);
+        typed::walk(body, &mut |e| {
+            let ExprKind::Continue { func, args, .. } = &e.kind else { return };
+            let target = func.map_or(i, FuncIdx::index);
+            for (k, a) in args.iter().enumerate() {
+                let through = match &a.kind {
+                    ExprKind::Local(l) => f
+                        .params
+                        .iter()
+                        .position(|p| p == l)
+                        .and_then(|j| row.and_then(|r| r.get(j)))
+                        .is_some_and(|o| *o == ir::Ownership::Borrow),
+                    _ => false,
+                };
+                if !through {
+                    out.push((target, k));
+                }
+            }
+        });
+    }
+    out
 }
 
 /// Every local this body consumes: stores in a construction, returns, captures,
@@ -1099,6 +1215,17 @@ struct Scan<'a> {
     /// so the drop cannot go where the read is: `size(p)` has to keep `p`
     /// alive across the call and drop it after.
     pending: Vec<LocalId>,
+    /// How far into [`Scan::pending`] the expression currently being scanned
+    /// owns. Entries below it were raised by a sibling and belong to the parent
+    /// that will flush after *every* sibling has run.
+    ///
+    /// The scan runs right to left, so an entry raised before this one started
+    /// belongs to an expression that runs **later**. Without the mark,
+    /// [`Scan::flush`] drained the whole list, and the first sibling to flush
+    /// emitted a drop for a base its right-hand neighbour had not read yet —
+    /// `p.a.reverse(ctx).concat(ctx, p.b)`, where the `reverse` call's own
+    /// flush freed `p` between `p.a` and `p.b`.
+    floor: usize,
     /// Where a drop goes when the code that would have run after this
     /// expression never does, because every path out of it is a jump: one key
     /// per `Continue` reached, each of them the last point before the back
@@ -1153,12 +1280,21 @@ impl Scan<'_> {
         (out, jumps, diverged)
     }
 
+    /// The drops raised inside the expression being scanned, taken off the
+    /// list. Anything below [`Scan::floor`] stays: it belongs to a sibling that
+    /// has not run yet.
+    fn take_pending(&mut self) -> Vec<LocalId> {
+        let floor = self.floor.min(self.pending.len());
+        let mut pending = self.pending.split_off(floor);
+        pending.sort_by_key(|l| l.0);
+        pending.dedup();
+        pending
+    }
+
     /// Emits the pending drops before each of a set of jumps, rather than
     /// after a node whose "after" is unreachable.
     fn flush_at(&mut self, keys: &[(NodeId, Position)]) {
-        let mut pending = std::mem::take(&mut self.pending);
-        pending.sort_by_key(|l| l.0);
-        pending.dedup();
+        let pending = self.take_pending();
         for (node, at) in keys {
             for l in &pending {
                 self.push(*node, *at, RcOp::DecRef, Target::Local(*l));
@@ -1170,9 +1306,7 @@ impl Scan<'_> {
     /// construct with children flushes; a branching one flushes per branch, so
     /// a drop cannot end up on a path that never made the value.
     fn flush(&mut self, node: NodeId) {
-        let mut pending = std::mem::take(&mut self.pending);
-        pending.sort_by_key(|l| l.0);
-        pending.dedup();
+        let pending = self.take_pending();
         for l in pending {
             self.push(node, Position::After, RcOp::DecRef, Target::Local(l));
         }
@@ -1255,7 +1389,18 @@ impl Scan<'_> {
 
     /// Scans one expression, given what is live *after* it, and answers what is
     /// live before it. Emits every site the expression itself needs.
+    ///
+    /// The deferred drops this expression raises are its own: [`Scan::floor`]
+    /// is what stops a construct nested inside it from flushing a drop a
+    /// sibling raised, and it is restored so the parent can still flush both.
     fn expr(&mut self, e: &Expr, id: NodeId, live: &Live, mode: Mode) -> Live {
+        let outer = std::mem::replace(&mut self.floor, self.pending.len());
+        let out = self.expr_at(e, id, live, mode);
+        self.floor = outer;
+        out
+    }
+
+    fn expr_at(&mut self, e: &Expr, id: NodeId, live: &Live, mode: Mode) -> Live {
         match &e.kind {
             ExprKind::Local(l) => {
                 let mut before = live.clone();
@@ -1504,6 +1649,17 @@ impl Scan<'_> {
             let mut bound: Vec<LocalId> = Vec::new();
             a.pattern.binds(&mut bound);
             bound.sort_by_key(|l| l.0);
+            // A `..rest` binding is a block this arm allocates, not a piece of
+            // the scrutinee: both backends' `ArraySlice` calls the allocator,
+            // copies and retains every element. So the arm owns it however the
+            // scrutinee is held, and it takes no count out of the scrutinee.
+            let mut fresh_bound: Vec<LocalId> = Vec::new();
+            a.pattern.fresh_binds(&mut fresh_bound);
+            fresh_bound.retain(|b| self.is_counted(*b));
+            fresh_bound.sort_by_key(|l| l.0);
+            for b in &fresh_bound {
+                self.owned.insert(*b);
+            }
             if owns {
                 for b in &bound {
                     if self.is_counted(*b) {
@@ -1520,18 +1676,36 @@ impl Scan<'_> {
                 lb = self.expr(g, gid, &lb, Mode::Borrow);
                 self.flush(gid);
             }
+            // A fresh binding the arm never reads is dropped where it is bound,
+            // for the reason `Stmt::Let` drops one: the allocation happened
+            // whether or not a use for it did.
+            for b in &fresh_bound {
+                if !lb.contains(b) {
+                    self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*b));
+                }
+            }
             if let Some(t) = token {
-                let used: Vec<LocalId> =
-                    bound.iter().copied().filter(|b| lb.contains(b)).collect();
+                let used: Vec<LocalId> = bound
+                    .iter()
+                    .copied()
+                    .filter(|b| lb.contains(b) && !fresh_bound.contains(b))
+                    .collect();
                 for b in used {
                     if self.is_counted(b) {
                         self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
                     }
                 }
-                self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
-                if self.opts.reuse {
-                    if let Some(fields) = construction(&a.body) {
-                        self.reuse.push(Reuse { token: t, at: bid, fields });
+                // The entry drop is for an arm that is *done* with the
+                // scrutinee. An arm that still reads it — `assert.some`'s
+                // `.None => failExpected("some", o)` — has already had its own
+                // last-use drop placed after the read, and a second one here
+                // would take the count to zero before the arm ran.
+                if !lb.contains(&t) {
+                    self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
+                    if self.opts.reuse {
+                        if let Some(fields) = construction(&a.body) {
+                            self.reuse.push(Reuse { token: t, at: bid, fields });
+                        }
                     }
                 }
             }
@@ -1544,16 +1718,21 @@ impl Scan<'_> {
         let arm_jumps = std::mem::replace(&mut self.jumps, outer_jumps);
         self.jumps.extend(arm_jumps.iter().copied());
         let arms_diverged = std::mem::replace(&mut self.diverged, outer_diverged);
-        let union: Live = befores.iter().flat_map(|b| b.iter().copied()).collect();
+        let mut union: Live = befores.iter().flat_map(|b| b.iter().copied()).collect();
+        // A consumed scrutinee is disposed of by every arm — at the entry where
+        // the arm does not read it, at its own last use where it does — so it
+        // is out of the balancing question entirely. Leaving it in made
+        // `balance` add, to each arm that was done with it, the drop that arm
+        // had already been given: two decrements against one count.
+        if let Some(t) = token {
+            union.remove(&t);
+        }
         let pairs: Vec<(NodeId, Live)> =
             ids.iter().copied().zip(befores).collect();
         for (bid, b) in &pairs {
             self.balance(*bid, b, &union);
         }
-        let mut before = union;
-        if let Some(t) = token {
-            before.remove(&t);
-        }
+        let before = union;
         let sid = self.child(id, 0);
         let smode = if owns { Mode::Own } else { Mode::Borrow };
         let out = self.expr(scrutinee, sid, &before, smode);
@@ -1562,11 +1741,35 @@ impl Scan<'_> {
         // it, so dropping at an arm's entry would free what the arm is about
         // to read. Where every arm jumps there is no "after the arms", and the
         // last point before each back edge is where it goes instead.
-        if arms_diverged && !arm_jumps.is_empty() {
+        // Whether the code after the arms is reachable at all.
+        let falls_through = !arms_diverged || arm_jumps.is_empty();
+        if falls_through {
+            self.flush(id);
+        } else {
             self.flush_at(&arm_jumps);
             self.diverged = true;
-        } else {
-            self.flush(id);
+        }
+        // A scrutinee the match *built* has no binding and no owner: the arms
+        // increfed what they kept out of it (`owns` is false, so every payload
+        // use takes a count of its own), and after them nothing names it.
+        // `match (q.pop(ctx))` leaked the `Option` and, with it, the lists the
+        // queue it answered still pointed at.
+        //
+        // A path out of the arms either takes a back edge or falls through, and
+        // never both — a `Continue` is a tail call, so everything on the path
+        // that reaches one ends there. So the drop goes before *every* jump and
+        // after the arms, and exactly one of the two runs. Emitting it only
+        // after the arms when some arm jumped is what leaked one queue per
+        // iteration of `match (q.pop(ctx)) { .Some(..) => drain(..), .None => acc }`:
+        // the recursive arm is the back edge, the `.None` arm is the
+        // fall-through, and only the second was disposing of the `Option`.
+        if !owns && fresh(scrutinee) && self.counted_ty(&scrutinee.ty.clone()) {
+            for (node, at) in &arm_jumps {
+                self.push(*node, *at, RcOp::DecRef, Target::Node(sid));
+            }
+            if falls_through {
+                self.push(id, Position::After, RcOp::DecRef, Target::Node(sid));
+            }
         }
         // Deliberately *not* removed from `out`: the scrutinee is read here,
         // so it is live before this expression however the arms dispose of it.
@@ -1587,9 +1790,11 @@ impl Scan<'_> {
         // scan's sites are discarded rather than fixed up.
         let sites = self.sites.len();
         let reuse = self.reuse.len();
+        let pending = self.pending.len();
         let probe = self.expr(rhs, rid, live, Mode::Borrow);
         self.sites.truncate(sites);
         self.reuse.truncate(reuse);
+        self.pending.truncate(pending);
         let mut deferred: Vec<LocalId> =
             probe.difference(live).copied().filter(|l| self.owned.contains(l)).collect();
         deferred.sort_by_key(|l| l.0);
@@ -1633,6 +1838,11 @@ impl Scan<'_> {
     /// extra pair of operations is what it costs on the path where the local
     /// really did die inside a sibling.
     ///
+    /// **A projection of a local is the same alias one step down**, which is
+    /// what [`borrowed_root`] answers: `f(p.b, g(p))` holds two words copied
+    /// out of `p`'s block while `g(p)` runs, so `p` is what has to be kept, not
+    /// `p.b`, which has no count of its own to keep.
+    ///
     /// An *owning* child needs nothing: it increfs what it takes (a
     /// construction's field, an owned parameter), so the alias it holds carries
     /// a count and cannot be freed underneath it.
@@ -1644,13 +1854,13 @@ impl Scan<'_> {
             if modes.get(k).copied().unwrap_or(Mode::Borrow) != Mode::Borrow {
                 continue;
             }
-            let ExprKind::Local(l) = &kid.kind else { continue };
-            if self.is_counted(*l)
-                && self.owned.contains(l)
-                && !live.contains(l)
-                && !kept.contains(l)
+            let Some(l) = borrowed_root(kid) else { continue };
+            if self.is_counted(l)
+                && self.owned.contains(&l)
+                && !live.contains(&l)
+                && !kept.contains(&l)
             {
-                kept.push(*l);
+                kept.push(l);
             }
         }
         kept.sort_by_key(|l| l.0);
@@ -1702,9 +1912,38 @@ fn jump_key(id: NodeId, args: &[Expr], scan: &Scan<'_>) -> (NodeId, Position) {
     }
 }
 
+/// The local a borrowed child is an alias of: itself where it is one, and the
+/// base of a projection chain where it is words copied out of one.
+///
+/// [`Scan::project`] defers the base's drop to the parent; this is the other
+/// half of the same invariant, and it is what keeps the base alive across the
+/// siblings the parent evaluates after the projection.
+fn borrowed_root(e: &Expr) -> Option<LocalId> {
+    match &e.kind {
+        ExprKind::Local(l) => Some(*l),
+        ExprKind::Field { base, .. }
+        | ExprKind::TupleIndex { base, .. }
+        | ExprKind::CtxGet { base, .. }
+        | ExprKind::Index { base, .. } => borrowed_root(base),
+        _ => None,
+    }
+}
+
 /// Whether an expression produces a *new* reference rather than another name
 /// for one that already exists.
+///
+/// Asked of every tail, because `middle::inline` replaces a call with the
+/// callee's **body** and a body is a `Block`. `"[${show(ctx, xs)}]"` is the
+/// shape: `show` is one call, so the inliner pastes it in, the hole stops being
+/// an `ExprKind::CallFn`, and the string it returns had nobody left to drop it.
+/// All of them, so that a branch answering a borrowed alias is not dropped on
+/// the strength of a branch beside it that allocates.
 fn fresh(e: &Expr) -> bool {
+    let tails = tails(e);
+    !tails.is_empty() && tails.into_iter().all(fresh_leaf)
+}
+
+fn fresh_leaf(e: &Expr) -> bool {
     matches!(
         e.kind,
         ExprKind::CallFn { .. }
@@ -1832,6 +2071,11 @@ mod tests {
         /// What the state is when the function — and therefore the loop header
         /// — is entered: one count per owned counted parameter.
         header: State,
+        /// Arm bodies whose pattern allocated before they were entered, and
+        /// what it bound. `..rest` is the only such binding (VALUE-MODEL.md
+        /// §4.2): the count exists because the pattern called the allocator,
+        /// so there is no site to read it from and the replay has to know.
+        fresh_at: HashMap<NodeId, Vec<LocalId>>,
         errors: Vec<String>,
     }
 
@@ -1928,6 +2172,9 @@ mod tests {
         }
 
         fn walk(&mut self, e: &Expr, id: NodeId, mode: Mode, st: &mut State) {
+            for l in self.fresh_at.get(&id).cloned().unwrap_or_default() {
+                st.bump(l, 1);
+            }
             self.sites(id, Position::Before, st);
             match &e.kind {
                 ExprKind::Local(l) => {
@@ -2013,7 +2260,14 @@ mod tests {
                         if a.guard.is_some() {
                             k += 1;
                         }
-                        branches.push((&a.body, self.child(id, k), mode));
+                        let bid = self.child(id, k);
+                        let mut fresh_bound: Vec<LocalId> = Vec::new();
+                        a.pattern.fresh_binds(&mut fresh_bound);
+                        fresh_bound.retain(|b| self.counted_local(*b));
+                        if !fresh_bound.is_empty() {
+                            self.fresh_at.insert(bid, fresh_bound);
+                        }
+                        branches.push((&a.body, bid, mode));
                         k += 1;
                     }
                     self.join(branches, st);
@@ -2155,6 +2409,7 @@ mod tests {
                 own: &own,
                 suppress: None,
                 header: State::default(),
+                fresh_at: HashMap::default(),
                 errors: Vec::new(),
             };
             let mut st = State::default();
@@ -2313,6 +2568,74 @@ export fn main(): Result<(), Str> {
         assert!(loops > 0, "the snippet has a tail-recursive function");
     }
 
+    /// A tail-recursive drain: every iteration builds *both* of its loop
+    /// variables, and neither is the caller's to keep alive.
+    const DRAIN: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
+  match (xs.first()) {
+    .Some(v) => drain(ctx, xs.drop(ctx, 1), acc.push(ctx, v)),
+    .None => acc,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let out = drain(ctx, [1, 2, 3, 4], []);
+  let _ = ctx.println("${out.len()}");
+  .Ok(())
+}
+"#;
+
+    /// A loop variable a jump *rebuilds* is owned, and a borrowed parameter is
+    /// one the caller keeps alive across the whole call.
+    ///
+    /// `xs` is read and never stored, so ownership inference called it
+    /// borrowed — and a borrowed argument that is a fresh value has nobody to
+    /// drop it, so `Scan::drop_temporary` put the drop before the back edge and
+    /// the next iteration read a freed list. `drain([1, 2, 3, 4], [])` answered
+    /// `[1, 2, 3, 0]` natively and `[1, 2, 3, 4]` on JavaScript.
+    #[test]
+    fn a_jump_owns_what_it_did_not_pass_through() {
+        let program = compile_native(DRAIN);
+        let i = loop_body(&program, "drain");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        // `ctx` is handed straight through and stays the caller's; `xs` and
+        // `acc` are rebuilt, so the loop variable takes the count.
+        assert_eq!(fp.params.get(1).copied(), Some(ir::Ownership::Own));
+        assert_eq!(fp.params.get(2).copied(), Some(ir::Ownership::Own));
+        // Nothing the jump carries is dropped before the jump.
+        let f = program.funcs.get(i.index()).expect("a function");
+        let body = f.body().expect("a body");
+        let mut sizes: Vec<u32> = Vec::new();
+        subtree_sizes(body, &mut sizes);
+        let mut carried: Vec<NodeId> = Vec::new();
+        preorder(body, &mut |id, e| {
+            let ExprKind::Continue { args, .. } = &e.kind else { return };
+            let mut cur = id.0 + 1;
+            for _ in 0..args.len() {
+                carried.push(NodeId(cur));
+                cur += sizes.get(cur as usize).copied().unwrap_or(1);
+            }
+        });
+        assert!(!carried.is_empty(), "the snippet has a jump");
+        for n in carried {
+            assert!(
+                !fp.sites
+                    .iter()
+                    .any(|s| s.op == RcOp::DecRef && s.target == Target::Node(n)),
+                "n{} is carried into the next iteration and dropped before it",
+                n.0
+            );
+        }
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
     /// The leak repro, as a property of the plan: what an iteration builds and
     /// does not carry through the jump is dropped before the back edge, and the
     /// counts at the back edge are the counts at the header.
@@ -2341,6 +2664,61 @@ export fn main(): Result<(), Str> {
             })
             .collect();
         assert!(named.iter().any(|x| x == "dec row"), "{named:?}");
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// VALUE-MODEL.md §4.2: `..rest` binds a block the arm allocated, so the
+    /// arm drops it and takes no count out of the scrutinee — whether the
+    /// scrutinee is borrowed (`tell`) or consumed (`take`).
+    #[test]
+    fn a_rest_binding_is_dropped_and_never_increfed() {
+        let src = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn tell<C: Alloc>(ctx: C, xs: [Str]): Int {
+  match (xs) {
+    [] => 0,
+    [_h, ..rest] => rest.len() + xs.len(),
+  }
+}
+
+export fn take<C: Alloc>(ctx: C, xs: [Str]): [Str] {
+  match (xs) {
+    [] => [],
+    [_h, ..rest] => rest.push(ctx, "z"),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).len()}");
+  .Ok(())
+}
+"#;
+        let program = compile_native(src);
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        for name in ["tell", "take"] {
+            let i = find(&program, name);
+            let fp = plan.func(i).expect("a plan");
+            let func = program.funcs.get(i.index()).expect("a function");
+            let rest = func
+                .locals
+                .iter()
+                .position(|l| l.name == "rest")
+                .map(|k| LocalId(k as u32))
+                .unwrap_or_else(|| panic!("{name} binds a local named rest"));
+            let ops: Vec<RcOp> = fp
+                .sites
+                .iter()
+                .filter(|s| s.target == Target::Local(rest))
+                .map(|s| s.op)
+                .collect();
+            assert_eq!(ops, vec![RcOp::DecRef], "{name}: {ops:?}");
+        }
         assert_eq!(check_balance(&program), Vec::<String>::new());
     }
 
@@ -2501,21 +2879,11 @@ export fn main(): Result<(), Str> {
         assert_eq!(check_balance(&program), Vec::<String>::new());
     }
 
-    /// The placement itself, on the shape the design argues about: the payloads
-    /// that survive the arm are incremented out of the value, the value is
-    /// dropped there, a borrow across a call is dropped after the call, and the
-    /// branch that does not use a value drops it on entry.
-    #[test]
-    fn a_consuming_match_dups_what_it_keeps_and_drops_what_it_matched() {
-        let program = compile(TREE);
-        let i = find(&program, "label");
-        let mut counted = Syntactic::new(&program);
-        let plan = analyze(&program, &mut counted, &Options::default());
+    /// One plan's sites as `"<op> <what> <before|after> n<node>"`, in plan
+    /// order — a form an expectation can be written in.
+    fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
         let f = program.funcs.get(i.index()).expect("a function");
-        let fp = plan.func(i).expect("a plan");
-        assert_eq!(fp.params, vec![ir::Ownership::Own, ir::Ownership::Own]);
-        let named: Vec<String> = fp
-            .sites
+        fp.sites
             .iter()
             .map(|s| {
                 let what = match s.target {
@@ -2530,9 +2898,23 @@ export fn main(): Result<(), Str> {
                 let at = if s.at == Position::Before { "before" } else { "after" };
                 format!("{op} {what} {at} n{}", s.node.0)
             })
-            .collect();
+            .collect()
+    }
+
+    /// The placement itself, on the shape the design argues about: the payloads
+    /// that survive the arm are incremented out of the value, the value is
+    /// dropped there, a borrow across a call is dropped after the call, and the
+    /// branch that does not use a value drops it on entry.
+    #[test]
+    fn a_consuming_match_dups_what_it_keeps_and_drops_what_it_matched() {
+        let program = compile(TREE);
+        let i = find(&program, "label");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        assert_eq!(fp.params, vec![ir::Ownership::Own, ir::Ownership::Own]);
         assert_eq!(
-            named,
+            named_sites(&program, i, fp),
             vec![
                 // `.Leaf => other`: the matched value dies at the arm entry.
                 "dec t before n3",
@@ -2548,6 +2930,165 @@ export fn main(): Result<(), Str> {
                 // And the branch that returns `other` has none for `name`.
                 "dec name before n11",
             ]
+        );
+    }
+
+    /// A projection is words copied out of its base, so the base has to reach
+    /// the construct that reads them.
+    ///
+    /// `two(one(p.a), p.b)`: `p`'s last mention is `p.b`, which is evaluated
+    /// **after** `one(p.a)`. The drop belongs after `two`, and it used to land
+    /// after `one` — early enough that `p.b` read a block `p`'s drop glue had
+    /// already freed. `sortcheck/cmd/q2` is the same three lines with a
+    /// `concat` in place of `two`, and it printed `[0, 0, 0]`.
+    #[test]
+    fn a_projection_outlives_the_siblings_evaluated_after_it() {
+        const SRC: &str = r#"
+struct Pair { a: [Int], b: [Int] }
+
+fn one(xs: [Int]): Int { xs.len() }
+fn two(n: Int, ys: [Int]): Int { n + ys.len() }
+
+export fn main(): Result<(), Str> {
+  let p = Pair { a: [1], b: [2, 3] };
+  let n = two(one(p.a), p.b);
+  .Ok(())
+}
+"#;
+        let program = compile(SRC);
+        let i = find(&program, "main");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        // `n7` is the call to `two`; `n8` is the call to `one` inside it.
+        assert_eq!(named_sites(&program, i, fp), vec!["dec p after n7"]);
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// A consumed scrutinee is disposed of **once per arm**, and the arm that
+    /// still reads it does so at its own last use rather than at its entry.
+    ///
+    /// This is `core/testing/assert`'s `some` written out: the `.None` arm
+    /// hands the `Option` itself to the failure report, which is what
+    /// `assert.ok` does not do with its `Result` — and why the two behaved
+    /// differently. The `.Some` arm used to carry two drops (the match's own,
+    /// and one `Scan::balance` added because the other arm put the scrutinee in
+    /// the union), so `assert.some` freed the payload it was answering with.
+    #[test]
+    fn a_consumed_scrutinee_is_dropped_once_on_every_arm() {
+        const SRC: &str = r#"
+fn label(what: Str, got: Option<Str>): Str { what }
+
+fn make(s: Str): Option<Str> { .Some(s) }
+
+export fn some(o: Option<Str>): Str {
+  match (o) {
+    .Some(v) => v,
+    .None => label("some", o),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let _ = some(make("x"));
+  .Ok(())
+}
+"#;
+        let program = compile(SRC);
+        let i = find(&program, "some");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        assert_eq!(fp.params, vec![ir::Ownership::Own]);
+        assert_eq!(
+            named_sites(&program, i, fp),
+            vec![
+                // `.Some(v) => v`: the payload is increfed out and the value
+                // dies at the entry, because the arm is done with it.
+                "inc v before n3",
+                "dec o before n3",
+                // `.None => label("some", o)`: `label` borrows, so the drop is
+                // after the call — and there is no second one at the entry.
+                "dec o after n4",
+            ]
+        );
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// A value the match itself built has no binding and no owner.
+    ///
+    /// The arms take a count for whatever they keep out of it — `owns` is
+    /// false, so every payload use is an increment — and after the arms nothing
+    /// names it. `match (q.pop(ctx))` leaked the `Option` and the two lists the
+    /// queue it answered still pointed at, once per iteration of a drain.
+    #[test]
+    fn a_scrutinee_the_match_built_is_dropped_after_the_arms() {
+        const SRC: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+fn two<C: Alloc>(ctx: C, n: Int): ([Int], [Int]) {
+  (list.range(ctx, 0, n), list.range(ctx, 0, n + 1))
+}
+
+export fn sizes<C: Alloc>(ctx: C, n: Int): Int {
+  match (two(ctx, n)) {
+    (a, b) => a.len() + b.len(),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${sizes(ctx, 2)}");
+  .Ok(())
+}
+"#;
+        let program = compile(SRC);
+        let i = find(&program, "sizes");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        // `n1` is the `match`, `n2` its scrutinee, and the drop is after the
+        // arms have read what they keep out of it.
+        assert_eq!(named_sites(&program, i, fp), vec!["dec n2 after n1"]);
+    }
+
+    /// A fresh value reached through a branch is still fresh.
+    ///
+    /// `middle::inline` replaces a call with the callee's body, so the thing a
+    /// borrowing construct is handed stops being an `ExprKind::CallFn` — and
+    /// `fresh` said no, and nothing dropped it. `"[${show(ctx, xs)}]"` was the
+    /// program: one call, so the inliner pasted it in, and the string leaked.
+    #[test]
+    fn a_fresh_value_behind_a_branch_is_still_dropped() {
+        const SRC: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+
+fn size(s: Str): Int { s.len() }
+
+export fn shown<C: Alloc>(ctx: C, n: Int): Int {
+  size(if (n > 0) { str.format(ctx, "v${n}") } else { str.format(ctx, "z") })
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${shown(ctx, 2)}");
+  .Ok(())
+}
+"#;
+        let program = compile(SRC);
+        let i = find(&program, "shown");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        // `n1` is the call to `size`, `n2` the `if` it borrows. The rest are
+        // the two templates' own holes.
+        assert!(
+            named_sites(&program, i, fp).contains(&String::from("dec n2 after n1")),
+            "{:?}",
+            named_sites(&program, i, fp)
         );
     }
 
@@ -2801,6 +3342,113 @@ export fn main(): Result<(), Str> {
         let main = plan.func(find(&program, "main")).expect("a plan");
         assert!(main.sites.is_empty(), "nothing classified, nothing emitted");
         assert!(!main.unclassified.is_empty(), "and every type is named");
+    }
+
+    /// The two shapes [`Syntactic`] could not classify from bodies alone, and
+    /// the leak each one was.
+    ///
+    /// A `Ty::Ctx` is written down nowhere, so no literal names one; an
+    /// `Option<Str>` that only ever arrives *from* `list.get` is constructed by
+    /// no `.Some(..)` either. Both were `Answer::Unknown`, which this pass
+    /// reads as "not counted" and for which it emits nothing at all — so the
+    /// string `list.get` retained into the payload was never released.
+    /// `monomorphize::Shapes` is what answers them now.
+    #[test]
+    fn a_context_and_an_option_no_literal_builds_are_both_counted() {
+        const SRC: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn showFirst<C: Alloc>(ctx: C, o: Option<Str>): Str {
+  match (o) { .Some(v) => str.format(ctx, "S${v}"), .None => "N" }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let built = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => str.format(c, "n${i}"));
+  let _ = ctx.println(showFirst(ctx, built.get(1)));
+  .Ok(())
+}
+"#;
+        let program = compile(SRC);
+        let mut counted = Syntactic::new(&program);
+        let f = program.funcs.get(find(&program, "showFirst").index()).expect("a function");
+        let ctx_ty = f.locals.first().map(|l| l.ty.clone()).expect("the context parameter");
+        let opt_ty = f.locals.get(1).map(|l| l.ty.clone()).expect("the `Option<Str>` parameter");
+        assert!(matches!(ctx_ty, Ty::Ctx(_)), "the first parameter is the context");
+        // `host.alloc` and `host.stdout` are zero-sized markers, so the answer
+        // here is `No` — which is the point: the defect was `Unknown`, which
+        // means "no operations at all" for a type that may well hold a
+        // closure, and it was `Unknown` for *every* context in the program.
+        assert_ne!(counted.counted(&ctx_ty), Answer::Unknown);
+        assert_eq!(counted.counted(&opt_ty), Answer::Yes);
+
+        // And nothing in the whole program is left unanswered, which is the
+        // property the leak was a symptom of rather than one function's plan.
+        let plan = analyze(&program, &mut Syntactic::new(&program), &Options::default());
+        let unanswered: Vec<&Ty> = plan.funcs.iter().flat_map(|f| f.unclassified.iter()).collect();
+        assert_eq!(unanswered, Vec::<&Ty>::new());
+    }
+
+    /// A `match` on a value it built, where one arm takes the back edge and
+    /// another falls through.
+    ///
+    /// The drop of the scrutinee went either before every jump — only where
+    /// *every* arm jumped — or after the arms, and a `match` that both
+    /// continues and falls out has paths of each kind. So the recursive arm
+    /// disposed of nothing, and a drain leaked its `Option` once an iteration.
+    /// Both keys are emitted now; a path takes exactly one of them.
+    #[test]
+    fn a_fresh_scrutinee_is_dropped_on_the_arm_that_jumps_too() {
+        const SRC: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+fn takeOne<C: Alloc>(ctx: C, xs: [Int]): Option<(Int, [Int])> {
+  match (xs.first()) {
+    .Some(v) => .Some((v, xs.drop(ctx, 1))),
+    .None => .None,
+  }
+}
+
+export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
+  match (takeOne(ctx, xs)) {
+    .Some(t) => {
+      let (v, rest) = t;
+      drain(ctx, rest, acc.push(ctx, v))
+    },
+    .None => acc,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${drain(ctx, [1, 2], []).len()}");
+  .Ok(())
+}
+"#;
+        let program = compile_native(SRC);
+        let i = loop_body(&program, "drain");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        assert_eq!(
+            named_sites(&program, i, fp),
+            vec![
+                // `n3` is `takeOne(ctx, xs)`, the value the match built. It is
+                // dropped after the match — the `.None` arm's path — *and*
+                // before the back edge at `n11`, which is the `.Some` arm's.
+                // Before, only the first of the two was there.
+                "dec n3 after n2",
+                "dec xs after n3",
+                "inc t after n7",
+                "dec acc after n11",
+                "dec n3 after n11",
+            ]
+        );
     }
 
     /// This pass reads the tree and does not write it, which is the whole of

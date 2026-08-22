@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = struct-light-100k
+profile = struct-light
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = lines=100000 seed=0x0b001a575eed0008 w_struct=0
+lines = 100748
+bytes = 3549302
+modules = 361
+digest = 934e37ec62cc0611e35b005f9f0902bfb19f8adb1992fea3f17d34f5201f1da6
+native = false

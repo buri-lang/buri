@@ -16,8 +16,9 @@
 //!     serves, assembles, and compiles the examples in it.
 //!   * `language_server` — the protocol, over the analysis `build` already runs.
 //!
-//! `diagnostics`, `formatting`, and `json` are at the top level because more
-//! than one of the above depends on them and none of them owns them.
+//! `diagnostics`, `formatting`, `json` and `parallel` are at the top level
+//! because more than one of the above depends on them and none of them owns
+//! them.
 
 pub mod build;
 pub mod commands;
@@ -28,4 +29,5 @@ pub mod formatting;
 pub mod hash;
 pub mod json;
 pub mod language_server;
+pub mod parallel;
 pub mod parsing;

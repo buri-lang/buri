@@ -157,16 +157,17 @@ holds what it holds, and what the deliberate absences would cost to close.
 The design is `design/native/`; the waves it planned have landed. What is open
 is one thing:
 
-- **The default has not flipped.** A binary that declares no outputs still gets
-  `JS`, and a suite that names no platforms still runs on JavaScript, because
-  the native runtime surface is not complete: a program using `core/fs`,
-  `core/env`, `json.*`, or any `list.*` entry taking a closure is refused by
-  `Backend::missing_intrinsics` rather than mis-run — the right refusal and the
-  wrong default.
+- **Half the default has flipped.** `buri test` runs a suite that names no
+  platform natively, in the dev profile, and falls back to JavaScript per suite
+  — out loud, on stderr — where this toolchain has no native backend or where
+  the suite's program reaches something the backend has no body for
+  (`commands/test.rs`'s `default_platform` and `native_gap`).
 
-  The trigger for flipping it is that refusal going quiet across the
-  conformance corpus. At that point `selected_outputs`' fallback
-  (`build/actions.rs`) and `run_suite`'s (`commands/test.rs`) are one line each.
+  `selected_outputs`' fallback (`build/actions.rs`) has not: a binary that
+  declares no outputs still gets `JS`, because an artifact that silently
+  changed platform would change what `buri run` executes and what a release
+  ships. That one is still a line, and still waiting on the refusal going quiet
+  across the conformance corpus.
 
   `Backend::missing_intrinsics` is also the answer to "what does a second
   backend do about an intrinsic it does not have": the question is asked per

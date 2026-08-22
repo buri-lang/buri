@@ -14,7 +14,7 @@
 doc: "the summary line's three counts with failures in them, alone and under a --filter"
 
 run {
-  args: ["test", "//lib/mixed", "--force"]
+  args: ["test", "//lib/mixed", "--force", "--output=js"]
   exit: 1
   golden: "mixed.txt"
   stream: OUT
@@ -23,7 +23,7 @@ run {
 # A filter that keeps two failures and one pass: three left out, and the
 # failures reported are only the ones the filter kept.
 run {
-  args: ["test", "//lib/mixed", "--force", "--filter=f"]
+  args: ["test", "//lib/mixed", "--force", "--filter=f", "--output=js"]
   exit: 1
   golden: "filtered.txt"
   stream: OUT
@@ -32,7 +32,7 @@ run {
 # A filter that keeps only passing tests: nothing is reported, and the run
 # succeeds even though the suite holds failures.
 run {
-  args: ["test", "//lib/mixed", "--force", "--filter=passes"]
+  args: ["test", "//lib/mixed", "--force", "--filter=passes", "--output=js"]
   exit: 0
   golden: "only_passes.txt"
   stream: OUT
@@ -40,7 +40,7 @@ run {
 
 # A filter that keeps nothing at all.
 run {
-  args: ["test", "//lib/mixed", "--force", "--filter=nonesuch"]
+  args: ["test", "//lib/mixed", "--force", "--filter=nonesuch", "--output=js"]
   exit: 0
   golden: "nothing.txt"
   stream: OUT
@@ -67,7 +67,7 @@ edit {
 }
 
 run {
-  args: ["test", "//lib/mixed", "--force"]
+  args: ["test", "//lib/mixed", "--force", "--output=js"]
   exit: 0
   golden: "fixed.txt"
   stream: OUT

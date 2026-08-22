@@ -2,7 +2,10 @@
 //!
 //! One binary, one module per suite. Everything here runs on the JavaScript
 //! backend, which is the reference: `native/` asks whether the other backends
-//! agree, and `native/agreement.rs` is the bridge between the two.
+//! agree, and `native/agreement.rs` is the bridge between the two. The corpus
+//! says so itself — `conformance/lib/*/BUILD.buri` declares
+//! `test { platforms: [JS] }` — because a suite that names no platform runs
+//! natively now, and a reference that moved with the default would not be one.
 //!
 //! | Module | Corpus | Question |
 //! |---|---|---|

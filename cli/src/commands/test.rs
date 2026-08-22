@@ -97,6 +97,54 @@ struct Outcome {
     accepted: usize,
 }
 
+/// Where a run's platform came from.
+///
+/// The distinction is the whole of the fallback rule: a platform the suite
+/// wrote down, or the command line named, is a request, and a request this
+/// toolchain cannot serve is refused in so many words. A platform nobody asked
+/// for is a *preference*, and a preference gives way — to JavaScript, out loud
+/// — rather than turning a suite that used to run into a suite that does not.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Chosen {
+    /// `test { platforms: [...] }`, or `--output=`.
+    Asked,
+    /// Nobody said, so [`default_platform`] did.
+    Default,
+}
+
+/// The one-line notices a pass writes to standard error.
+///
+/// Standard error, because stdout is the record — the failures, the diffs and
+/// the summary line — and which backend ran a suite is a fact about this
+/// toolchain rather than a fact about the code. A golden that records what a
+/// suite printed is unchanged by a note about how it was printed.
+///
+/// The toolchain's reason is stated once per pass and the suite's once per
+/// suite, for the same reason: "this build has no native backend" is one fact
+/// however many suites meet it, and "this suite reaches something the backend
+/// has no body for" is a different fact about each one.
+#[derive(Default)]
+struct Notices {
+    pass: bool,
+}
+
+impl Notices {
+    /// A reason that belongs to the invocation: it is the same reason for every
+    /// suite in the pass, so it is stated once and the suites are not
+    /// enumerated.
+    fn pass(&mut self, reason: &str) {
+        if std::mem::replace(&mut self.pass, true) {
+            return;
+        }
+        eprintln!("note: {reason}, so a suite that names no platform runs on javascript");
+    }
+
+    /// This suite reaches something the native backend has no body for.
+    fn suite(&mut self, label: &str, reason: &str) {
+        eprintln!("note: {label} runs on javascript — {reason}");
+    }
+}
+
 /// Where a pass's own output goes.
 ///
 /// Without `--watch` a failure is printed the moment it is known, interleaved
@@ -134,6 +182,20 @@ impl Out {
 }
 
 pub fn cmd_test(args: &arguments::Args) -> i32 {
+    // A selector naming no platform is the thing you asked *with* being wrong,
+    // and it is refused here rather than per suite: a run that silently used
+    // the default because the selector matched nothing would report a pass for
+    // a backend nobody chose. `buri build` refuses the same mistake in the same
+    // shape, against the outputs a target declares; here the set is closed, so
+    // the fix can name all of it.
+    if args.flags.output.is_some() && selected_platform(&args.flags).is_none() {
+        let sel = args.flags.output.as_deref().unwrap_or_default();
+        let names: Vec<&str> = Platform::ALL.iter().map(|p| p.slug()).collect();
+        eprintln!("error: no platform matches `--output={sel}`");
+        eprintln!("  = a suite runs on one of: {}", names.join(", "));
+        eprintln!("  = fix: name one of them, as in `--output=js`");
+        return 2;
+    }
     if !args.flags.watch {
         return one_pass(args, false).code;
     }
@@ -190,6 +252,13 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
     }
 
     let started = Instant::now();
+    warm_linker(args);
+    let mut notices = Notices::default();
+    // One test binary per tag-compatible batch of suites, before the loop that
+    // reports them. What comes back is a verdict per suite, and a suite that is
+    // not in it — because it could not batch, or because the batch was
+    // abandoned — is run below exactly as it was before any of this existed.
+    let mut pre = run_batches(&mut s, &targets, args, &mut notices);
     let mut passed = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
@@ -203,7 +272,7 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
             continue;
         }
         suites += 1;
-        match run_suite(&mut s, target, args, &mut out) {
+        match run_suite(&mut s, target, args, &mut out, &mut notices, &mut pre) {
             Ok(outcome) => {
                 skipped += outcome.skipped;
                 printed |= outcome.accepted > 0;
@@ -278,11 +347,19 @@ fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestS
 }
 
 /// One suite, once per platform it runs on.
+///
+/// `pre` holds the verdicts a shared test binary already produced
+/// ([`run_batches`]). A suite in it has run — the policy checks below still
+/// happen, because they are checks about the *graph* rather than about the run,
+/// and they are the same pure function either way — and everything from the
+/// platform decision down is skipped, because it has already been made.
 fn run_suite(
     s: &mut Session,
     target: TargetId,
     args: &arguments::Args,
     out: &mut Out,
+    notices: &mut Notices,
+    pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
     let mut diags = Diagnostics::new();
     // A suite inherits its target's tags and platform restrictions, so a suite
@@ -305,18 +382,57 @@ fn run_suite(
     if diags.has_errors() {
         return Err(diags);
     }
+    if let Some(outcome) = pre.take(target) {
+        return Ok(outcome);
+    }
 
     // One run per declared platform. A native platform is executed natively
     // where this toolchain has a backend, a runtime archive and a linker for it
     // — the same three questions `buri build` asks — and refused in the same
-    // words as a native build where it does not. A suite that names none is
-    // checked against the host and executed as JavaScript, which is what
-    // `buri test` has always done: the default is a statement about which
-    // *runtime surface* every program can rely on, and that is still
-    // JavaScript's (`design/native/BUILD-AND-WATCH.md` §5, wave 3c).
-    let runs: Vec<Platform> = if declared.is_empty() { vec![Platform::Js] } else { declared };
+    // words as a native build where it does not.
+    //
+    // A suite that names none runs **natively**, on the host it is already
+    // checked against, and falls back to JavaScript per suite where it cannot
+    // (`default_platform`, and the gap probe in `run_on`). The default was
+    // JavaScript for as long as the native runtime surface was too small to
+    // carry an arbitrary program; it is native now because the dev loop is
+    // measurably faster on it (`design/PERFORMANCE.md` §6) and because the
+    // surface that made the old default right is now the exception rather than
+    // the rule (`design/native/ARCHITECTURE.md` §4).
+    let runs: Vec<(Platform, Chosen)> = if !declared.is_empty() {
+        declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
+    } else if let Some(p) = selected_platform(&args.flags) {
+        // `--output` names the platform for the suites that have not named
+        // one. A suite that declares `platforms` has made the stronger
+        // statement and the flag does not overrule it.
+        vec![(p, Chosen::Asked)]
+    } else {
+        // The invocation's answer first, then the suite's, so that a toolchain
+        // with no native backend states that once instead of giving every
+        // `data:` suite a reason that is not the operative one.
+        let wanted = default_platform(&args.flags, notices);
+        // The suite's own fallback is a fact about the *build file* rather than
+        // about the program, and the only one that can be answered before
+        // anything is compiled. The JavaScript runner hands the suite its
+        // `test { data: [...] }` entries as the in-memory filesystem `data()`
+        // answers; a linked test binary has no runner to be handed them by, so
+        // `data()` is empty there and every read of a declared file would
+        // answer the wrong thing — silently, since an empty filesystem is a
+        // filesystem (`cli/runtime/testing.rs`'s header states the divergence
+        // and what would close it).
+        if wanted != Platform::Js && suite(s, target).is_some_and(|x| !x.data.is_empty()) {
+            notices.suite(
+                &s.ws.label(target),
+                "a native test binary has no runner to hand it `test { data }`, so its \
+                 `data()` filesystem would be empty",
+            );
+            vec![(Platform::Js, Chosen::Default)]
+        } else {
+            vec![(wanted, Chosen::Default)]
+        }
+    };
     let mut outcome = Outcome::default();
-    for platform in runs {
+    for (platform, chosen) in runs {
         if platform != Platform::Js && !native_ready(platform, &args.flags) {
             let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
             diags.push(
@@ -333,7 +449,7 @@ fn run_suite(
             );
             continue;
         }
-        match run_on(s, target, platform, args, out) {
+        match run_on(s, target, platform, chosen, args, out, notices, pre) {
             Ok(one) => {
                 outcome.cases.extend(one.cases);
                 outcome.skipped += one.skipped;
@@ -348,47 +464,33 @@ fn run_suite(
     Ok(outcome)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the selection is four independent facts — which suite, where it runs, \
+              who asked, and what the invocation said — and the sink and the notice \
+              log are the two places output goes; none is derivable from another"
+)]
 fn run_on(
     s: &mut Session,
     target: TargetId,
-    platform: Platform,
+    mut platform: Platform,
+    chosen: Chosen,
     args: &arguments::Args,
     sink: &mut Out,
+    notices: &mut Notices,
+    pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
     let mut diags = Diagnostics::new();
 
-    // A suite whose inputs are unchanged is not re-run and reports as cached;
-    // `--force` re-runs anyway, which is the honest way to check that a suite
-    // is not accidentally depending on the cache.
-    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    let key = actions::test_key(s, target, &output, &args.flags);
-    let cache = crate::build::cache::Cache::open(&s.root);
-    let label = s.ws.label(target);
-    if !args.flags.force && args.flags.filter.is_none() && !args.flags.accept {
-        if let Some(bytes) = cache.get(&key) {
-            let text = String::from_utf8_lossy(&bytes).to_string();
-            let mut cached = parse_results(&text);
-            for c in &mut cached {
-                c.provenance = Provenance::Cache;
-            }
-            if !cached.is_empty() {
-                crate::build::cache::explain(
-                    args.flags.explain,
-                    crate::build::cache::Status::Cached,
-                    crate::build::cache::Action::Test,
-                    &label,
-                    platform,
-                    &key,
-                );
-                return Ok(Outcome { cases: cached, skipped: 0, accepted: 0 });
-            }
-        }
+    let mut key = test_key_for(s, target, platform, args, pre);
+    if let Some(cached) = served(s, target, platform, &key, args) {
+        return Ok(cached);
     }
     crate::build::cache::explain(
         args.flags.explain,
         crate::build::cache::Status::Run,
         crate::build::cache::Action::Test,
-        &label,
+        &s.ws.label(target),
         platform,
         &key,
     );
@@ -418,8 +520,58 @@ fn run_on(
         None => 0,
     };
 
+    // The fallback, asked before a second is spent on codegen and asked of the
+    // program rather than of the source: `Backend::missing_intrinsics` is the
+    // hook a native build already asks and `native/conformance.rs` already
+    // pins, so a suite falls back here exactly when a native build of it would
+    // be refused there. Nothing is remembered between runs — the answer is a
+    // function of the program and of this backend, and the day the backend
+    // grows the body the suite goes native with no cache to clear.
+    //
+    // Only a *defaulted* platform gives way. A suite that named one gets the
+    // refusal it asked for, which is what `platform-not-implemented` and
+    // `repositories/testing/suite_platforms` are for.
+    if platform != Platform::Js && chosen == Chosen::Default {
+        if let Some(reason) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
+        {
+            notices.suite(&s.ws.label(target), &reason);
+            platform = Platform::Js;
+            key = test_key_for(s, target, platform, args, pre);
+            if let Some(cached) = served(s, target, platform, &key, args) {
+                return Ok(cached);
+            }
+        }
+    }
+
     if platform != Platform::Js {
-        return run_native(s, target, platform, args, sink, &key, program, &analysis, skipped);
+        let out = run_native(s, target, platform, args, sink, &key, program, &analysis, skipped);
+        // The checked program is tens of milliseconds of `free` at a hundred
+        // thousand lines, and by here the verdict already exists. `Loaded`
+        // holds its modules behind `Rc` — shared with the session's parse
+        // cache — so it is not one of the things that can be handed over.
+        let crate::compiler::driver::Analysis { loaded, checked, diags } = analysis;
+        drop(loaded);
+        drop(diags);
+        crate::parallel::discard(checked);
+        // The second half of the same rule, for the gaps `missing_intrinsics`
+        // cannot see: a `deriveArray*` is an intrinsic *expression* inside a
+        // body `middle::derives` generated rather than a function the hook is
+        // asked about, so the backend names it while emitting instead of
+        // before. A defaulted run that failed for that reason and only that
+        // reason is a run that should not have been native, so it is taken
+        // again on JavaScript rather than reported.
+        return match out {
+            Err(diags) if chosen == Chosen::Default && is_backend_gap(&diags) => {
+                let reason = diags
+                    .items
+                    .first()
+                    .map(|d| d.message.clone())
+                    .unwrap_or_else(|| "the native backend refused it".to_string());
+                notices.suite(&s.ws.label(target), &reason);
+                run_on(s, target, Platform::Js, Chosen::Default, args, sink, notices, pre)
+            }
+            out => out,
+        };
     }
 
     let mut source = actions::emit(
@@ -461,7 +613,7 @@ fn run_on(
     }
 
     let limit = suite(s, target).and_then(|x| x.timeout_seconds);
-    let out = match execute(&js_runtime(), Some(&path), limit) {
+    let out = match execute(&js_runtime(), Some(&path), limit, &[]) {
         Ok(Execution::Finished(out)) => out,
         Ok(Execution::TimedOut) => return Err(timed_out(s, target, limit)),
         Err(e) => {
@@ -483,7 +635,7 @@ fn run_on(
         && args.flags.filter.is_none()
         && !args.flags.accept
     {
-        cache.put(&key, stdout.as_bytes());
+        crate::build::cache::Cache::open(&s.root).put(&key, stdout.as_bytes());
     }
     locate(s, &program, &mut cases);
     if cases.is_empty() && !out.status.success() {
@@ -511,24 +663,246 @@ fn run_on(
 fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     actions::native_ready(actions::target_of(&output), actions::profile_of(flags))
+        && crate::build::spawn::resolve(&linker_name()).is_some()
+}
+
+/// Starts the linker-identity probe for the platform this pass will mostly run
+/// on, before the first suite is compiled.
+///
+/// The probe is two `--version` spawns and its answer is a term in every `link`
+/// key ([`crate::build::link::warm`]). It already ran on a thread, but the
+/// thread was started inside the suite's own link step, and on a repository
+/// whose suites compile in a millisecond there is nothing between the two to
+/// hide it behind — so the whole pass paid the wait once per suite. Started
+/// here, one probe runs beside the whole pass.
+///
+/// A guess, and one that costs nothing when it is wrong: a suite that ends up on
+/// a different platform, or on JavaScript, selects its own linker and the probe
+/// that ran was for a linker nobody asked. What it must not do is *decide*
+/// anything, which is why it does not consult the fallbacks — a notice belongs
+/// to the suite that earns it.
+fn warm_linker(args: &arguments::Args) {
+    if args.flags.accept {
+        return;
+    }
+    let platform = match selected_platform(&args.flags) {
+        Some(p) => p,
+        None => crate::compiler::driver::host_native_platform(),
+    };
+    if platform == Platform::Js || !native_ready(platform, &args.flags) {
+        return;
+    }
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    crate::build::link::warm(actions::target_of(&output));
+}
+
+/// The C compiler the link is driven through, which is `cc` unless `CC` names
+/// another (`build/link.rs::select`).
+///
+/// Asked here as well as there because the two questions are different: `select`
+/// is where a link that was asked for finds its driver, and this is where a run
+/// nobody asked for decides not to need one. A machine with a backend, an
+/// archive and no C toolchain used to run its suites on JavaScript, and it still
+/// does.
+fn linker_name() -> String {
+    std::env::var("CC").unwrap_or_else(|_| String::from("cc"))
+}
+
+/// The platform `--output=` names, if it names one.
+///
+/// The same selector `buri build --output=` takes and the same matcher, so
+/// `js`, `macos` and `linux/x86_64` mean here what they mean there. A selector
+/// naming nothing is not an error at this seam: `cmd_test` refuses it once, for
+/// the invocation, rather than once per suite.
+fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
+    let sel = flags.output.as_ref()?;
+    Platform::ALL
+        .into_iter()
+        .find(|p| crate::build::buildfile::Output::for_platform(*p, Span::NONE).matches_selector(sel))
+}
+
+/// Where a suite that names no platform runs.
+///
+/// The host's own platform where this toolchain can compile, link and run a
+/// binary for it in this profile, and JavaScript where it cannot — which is
+/// `--no-default-features`, a host outside macOS and Linux, a machine with no C
+/// toolchain, and `--release` without `backend-llvm`. The last of those is why
+/// the profile comes from the flags rather than being pinned to `Debug`: the
+/// release profile routes to LLVM (`backend::select`), and a toolchain that
+/// does not have it must not be quietly handed Cranelift.
+///
+/// This is the *toolchain's* half of the answer, and it is the same for every
+/// suite in a pass. The suite's half — whether the native backend has a body
+/// for everything this program reaches — is [`native_gap`], asked once the
+/// program exists.
+fn default_platform(flags: &arguments::Flags, notices: &mut Notices) -> Platform {
+    // `--accept` rewrites a golden file from the two sides of the comparison
+    // that failed. A native run reports both now (`run_native`), so this is no
+    // longer about what the runner can see — it is the *suite* rule arrived at
+    // once for the invocation: the only file `accept_goldens` will rewrite is
+    // one the suite declared in `test { data: [...] }`, and a suite that
+    // declares any runs on JavaScript whatever else is true, because a native
+    // test binary has no runner to be handed those entries by.
+    if flags.accept {
+        notices.pass("--accept rewrites a file the suite declared in `test { data }`, which \
+                      only the JavaScript runner is handed");
+        return Platform::Js;
+    }
+    let native = crate::compiler::driver::host_native_platform();
+    if native_ready(native, flags) {
+        return native;
+    }
+    notices.pass(&format!(
+        "this toolchain cannot build a {} test binary in the {} profile",
+        native.slug(),
+        flags.mode.name()
+    ));
+    Platform::Js
+}
+
+/// What this program reaches that the native backend has no body for, in one
+/// line, or `None` when it reaches nothing of the kind.
+///
+/// The answer is the backend's own, not a list kept here: keeping one would be
+/// a second statement of the surface that drifts from the first the day a gap
+/// closes, and a gap closing is the frequent event.
+fn native_gap(
+    platform: Platform,
+    flags: &arguments::Flags,
+    program: &monomorphize::Program,
+    tables: &crate::compiler::semantics::types::Tables,
+) -> Option<String> {
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    let backend =
+        crate::compiler::backend::select(actions::target_of(&output), actions::profile_of(flags))
+            .ok()?;
+    let missing = backend.missing_intrinsics(program, tables);
+    let (first, rest) = missing.split_first()?;
+    let more = match rest.len() {
+        0 => String::new(),
+        1 => String::from(" and one more"),
+        n => format!(" and {n} more"),
+    };
+    Some(format!("the {} backend has no implementation of {first}{more}", backend.name()))
+}
+
+/// Whether a native compilation failed because this backend has no body for
+/// something, rather than because the program is wrong.
+///
+/// Matched on the sentence both spellings share — `actions::objects_of`'s, from
+/// `missing_intrinsics`, and `cranelift/emit.rs`'s, from a runtime key with no
+/// entry. A failure with anything else among its errors is a failure, and is
+/// reported: falling back on one would turn a toolchain bug into a suite that
+/// quietly passes somewhere else.
+fn is_backend_gap(diags: &Diagnostics) -> bool {
+    !diags.items.is_empty()
+        && diags.items.iter().all(|d| d.message.contains("has no implementation of"))
+}
+
+/// What the batch prepass left for the loop that reports the suites.
+///
+/// Two things, and the second is why they are one value: the verdicts a shared
+/// binary produced, and the `test` keys building them cost. A suite's key is a
+/// hash of every source in its closure, and the prepass has to ask for one to
+/// find out whether the suite needs compiling at all — so without the memo a
+/// pass that batched nothing would hash every suite's sources twice, which is
+/// the whole of what a `buri test` on an unchanged repository does.
+#[derive(Default)]
+struct Prepass {
+    done: Vec<(TargetId, Outcome)>,
+    keys: Vec<((TargetId, Platform), crate::build::cache::ActionKey)>,
+}
+
+impl Prepass {
+    /// The verdict a shared binary produced for this suite, once.
+    fn take(&mut self, target: TargetId) -> Option<Outcome> {
+        let i = self.done.iter().position(|(t, _)| *t == target)?;
+        Some(self.done.remove(i).1)
+    }
+}
+
+/// The action key for one suite on one platform.
+///
+/// Memoised for the pass. A key is a pure function of the repository's bytes and
+/// the invocation, and nothing a `buri test` pass does writes a source — with
+/// one exception, `--accept`, which rewrites a golden a suite declared in
+/// `test { data }`. That is why the memo is only ever *filled* by the batch
+/// prepass, which `--accept` returns from before it looks at a suite.
+fn test_key_for(
+    s: &Session,
+    target: TargetId,
+    platform: Platform,
+    args: &arguments::Args,
+    pre: &mut Prepass,
+) -> crate::build::cache::ActionKey {
+    if let Some((_, key)) = pre.keys.iter().find(|((t, p), _)| *t == target && *p == platform) {
+        return key.clone();
+    }
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    actions::test_key(s, target, &output, &args.flags)
+}
+
+/// The verdicts the cache holds for this key, where it may serve them.
+///
+/// A suite whose inputs are unchanged is not re-run and reports as cached;
+/// `--force` re-runs anyway, which is the honest way to check that a suite is
+/// not accidentally depending on the cache.
+fn served(
+    s: &Session,
+    target: TargetId,
+    platform: Platform,
+    key: &crate::build::cache::ActionKey,
+    args: &arguments::Args,
+) -> Option<Outcome> {
+    if args.flags.force || args.flags.filter.is_some() || args.flags.accept {
+        return None;
+    }
+    let bytes = crate::build::cache::Cache::open(&s.root).get(key)?;
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    let mut cases = parse_results(&text);
+    if cases.is_empty() {
+        return None;
+    }
+    for c in &mut cases {
+        c.provenance = Provenance::Cache;
+    }
+    crate::build::cache::explain(
+        args.flags.explain,
+        crate::build::cache::Status::Cached,
+        crate::build::cache::Action::Test,
+        &s.ws.label(target),
+        platform,
+        key,
+    );
+    Some(Outcome { cases, skipped: 0, accepted: 0 })
 }
 
 /// One suite, executed as a native binary.
 ///
-/// The differences from the JavaScript run are all consequences of one fact:
-/// **there is no native test runner.** A failed assertion is
-/// `buri_rt_abort_assert`, which prints and exits (SPEC 6.10: there is nothing
-/// to catch), so the binary runs every `test` block in order and the first
-/// failure is the last thing it does — `backend/cranelift/mod.rs`'s
-/// `test_entry_point` is where that is decided and argued.
+/// The report is the JavaScript one, to the byte, because it is assembled here
+/// from the same record: this function produces the array `$run` writes and
+/// [`report_failure`] states the format once for both backends. What differs is
+/// only how the record is collected.
+///
+/// **A failed assertion is still an abort.** SPEC 6.10 leaves nothing to catch,
+/// so one process can report one failure and no more — and the answer is not to
+/// report less but to use more processes. `BURI_TEST_FROM` names the block a
+/// process is to start at, `buri_rt_test_enter` skips the ones already
+/// reported, and a suite costs one process plus one per failure. That is the
+/// sharding this module's header already permits: a suite's result may not
+/// depend on the order its blocks run in, and there is no mutable global state
+/// for one to leave behind for the next.
 ///
 /// So:
 ///
-/// - A clean run is a verdict for **every** test in it, because every block
-///   ran and none of them aborted. Those cases are real, not assumed.
-/// - A failing run names **one** failure. In a suite of one test that is the
-///   test; in a suite of more, it says it cannot attribute it rather than
-///   guessing, which is a worse report rather than a wrong answer.
+/// - A run that ends cleanly is a verdict for **every** block from the one it
+///   started at, because each of them ran and none aborted.
+/// - A run that aborts names the block it was in — the runtime knows which,
+///   from `enter` — with the message it was going to print anyway and, where
+///   the assertion had them, both values rendered by the `Show`
+///   `middle::derives` generated at their type.
+/// - A run that ends some other way (a signal) says nothing, and the block it
+///   was told to start at is the honest attribution.
 /// - `--filter` is applied to the program's *roots* before anything is
 ///   compiled, rather than to a runner that does not exist. That is arguably
 ///   the better place for it: a filtered native run does not even codegen the
@@ -567,28 +941,26 @@ fn run_native(
     }
 
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    let path = s
-        .root
-        .join(".buri/out")
-        .join(output.dir())
-        .join(&s.ws.pkg(target.pkg).path)
-        .join("test");
-    actions::native_test_binary(
+    // The build names the file as well as writing it: which file a suite runs
+    // from is a claim on a shared one, and `binary` is that claim
+    // (`actions::test_binary_at`). It is held until this function returns,
+    // which is exactly as long as the file it names is the one being executed.
+    let binary = actions::native_test_binary(
         s,
         target,
         &output,
         &args.flags,
         &mut program,
         &analysis.checked.tables,
-        &path,
         &mut diags,
     )?;
 
     let limit = suite(s, target).and_then(|x| x.timeout_seconds);
-    let program_path = path.display().to_string();
-    let out = match execute(&program_path, None, limit) {
-        Ok(Execution::Finished(out)) => out,
-        Ok(Execution::TimedOut) => return Err(timed_out(s, target, limit)),
+    let program_path = binary.path().display().to_string();
+
+    let blocks = match run_blocks(&program_path, limit, selected.len()) {
+        Ok(Some(blocks)) => blocks,
+        Ok(None) => return Err(timed_out(s, target, limit)),
         Err(e) => {
             diags.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -597,64 +969,611 @@ fn run_native(
             return Err(diags);
         }
     };
+    let objects: Vec<String> = selected
+        .iter()
+        .zip(&blocks)
+        .map(|((name, module), block)| record_of(name, module, block))
+        .collect();
 
-    // The record is built as the same JSON a JavaScript run prints, and the
-    // cases are parsed back out of it, so that a native verdict served from the
-    // cache and a native verdict just produced are the same value by
-    // construction rather than by two functions agreeing.
-    if out.status.success() {
-        let mut record = String::from("[");
-        for (i, (name, module)) in selected.iter().enumerate() {
-            if i > 0 {
-                record.push(',');
+    // The record is the same JSON a JavaScript run prints, and the cases are
+    // parsed back out of it, so that a native verdict served from the cache and
+    // a native verdict just produced are the same value by construction rather
+    // than by two functions agreeing — and so that one `report_failure` states
+    // the format for both backends.
+    let record = format!("[{}]", objects.join(","));
+    let mut cases = parse_results(&record);
+    let clean = cases.iter().all(|c| matches!(c.verdict, Verdict::Passed));
+    if clean && args.flags.filter.is_none() && !args.flags.accept {
+        crate::build::cache::Cache::open(&s.root).put(key, record.as_bytes());
+    }
+    locate(s, &program, &mut cases);
+    let accepted = if args.flags.accept { accept_goldens(s, target, &cases, sink) } else { 0 };
+    crate::parallel::discard(program);
+    Ok(Outcome { cases, skipped, accepted })
+}
+
+/// The environment variable a native test binary reads the block to start at
+/// from. `cli/runtime/testing.rs` is the other half.
+const RESUME: &str = "BURI_TEST_FROM";
+
+/// What one numbered block of a test binary did.
+///
+/// Numbered **per binary**, which is what makes this the same value whether the
+/// binary holds one suite's tests or five: a block is a position in the entry
+/// point the backend generated, and who owns it is the caller's question rather
+/// than the runtime's.
+enum Block {
+    Passed,
+    Failed { message: String, diff: Option<Diff> },
+}
+
+/// Runs a native test binary until every one of its `count` blocks has a
+/// verdict, and says what each did.
+///
+/// One process per failure plus one. A block that aborted ended the process it
+/// was in, so the blocks after it are run by the next: `RESUME` names the one to
+/// start at and `buri_rt_test_enter` skips what is already reported. A clean run
+/// is one process, which is the case that has to stay cheap.
+///
+/// `Ok(None)` is the timeout, which belongs to whoever declared it — a limit is
+/// a suite's, and the diagnostic naming the suite is the caller's to raise.
+fn run_blocks(
+    program: &str,
+    limit: Option<u32>,
+    count: usize,
+) -> std::io::Result<Option<Vec<Block>>> {
+    let mut blocks: Vec<Block> = Vec::with_capacity(count);
+    let mut from = 0usize;
+    while from < count {
+        let start = from.to_string();
+        let out = match execute(program, None, limit, &[(RESUME, start.as_str())])? {
+            Execution::Finished(out) => out,
+            Execution::TimedOut => return Ok(None),
+        };
+        // A run that ended without aborting is a verdict for **every** block
+        // from here on, because every one of them ran and none of them stopped
+        // the process. Those verdicts are real, not assumed.
+        if out.status.success() {
+            while blocks.len() < count {
+                blocks.push(Block::Passed);
             }
-            record.push_str(&format!(
-                "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":true}}",
-                javascript::quote(name),
-                javascript::quote(module)
-            ));
+            break;
         }
-        record.push(']');
-        let mut cases = parse_results(&record);
-        if args.flags.filter.is_none() && !args.flags.accept {
-            crate::build::cache::Cache::open(&s.root).put(key, record.as_bytes());
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        // The block the process was in, from the process itself. A run that
+        // ended some other way — a signal, or a failure before the first block
+        // — said nothing, and the honest attribution is then the block it was
+        // told to start at, with whatever it wrote to standard error.
+        let noted = noted_failure(&stdout).filter(|n| (from..count).contains(&n.at));
+        let at = noted.as_ref().map_or(from, |n| n.at);
+        let message = match &noted {
+            Some(n) => n.message.clone(),
+            None => {
+                let text = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                if text.is_empty() {
+                    format!("the run exited {}", out.status.code().unwrap_or(-1))
+                } else {
+                    text
+                }
+            }
+        };
+        while blocks.len() < at {
+            blocks.push(Block::Passed);
         }
-        locate(s, &program, &mut cases);
-        let accepted = if args.flags.accept { accept_goldens(s, target, &cases, sink) } else { 0 };
-        return Ok(Outcome { cases, skipped, accepted });
+        blocks.push(Block::Failed { message, diff: noted.and_then(|n| n.diff) });
+        from = at + 1;
+    }
+    Ok(Some(blocks))
+}
+
+/// One block's verdict as the runner's JSON, which is where a native record and
+/// a JavaScript one become the same value.
+fn record_of(name: &str, module: &str, block: &Block) -> String {
+    match block {
+        Block::Passed => passing_record(name, module),
+        Block::Failed { message, diff } => failing_record(name, module, message, diff.as_ref()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// One binary for several suites
+// ---------------------------------------------------------------------------
+//
+// A native suite's cost is almost none of it compilation. On the example
+// monorepo — five suites, 19 tests, ~700 lines — the whole compiler is 1% of a
+// cold `buri test //...`, and what is left is three charges paid *per suite*:
+// one `cc` invocation (~100 ms, three quarters of it the C driver working out
+// where libc is), one macOS first execution of a file nothing has run before
+// (~200 ms, and it does not parallelise), and one front end.
+// `scratchpad/suite-cost-report.md` §1 and §6 measure all three.
+//
+// One binary for several suites collects the first two at once, and this is it.
+// It is an **execution strategy and nothing else**: the same programs, the same
+// verdicts, the same per-suite cache keys, and a suite that cannot join a batch
+// runs exactly as it did before.
+//
+// # Which suites may share a binary
+//
+// A batch is one artifact, and `check_tags` is the rule about what may be in
+// one: two tags that forbid each other may not appear anywhere in its closure
+// (TAGS.md, and `actions::check_tags`). So the predicate is that rule applied to
+// the *union* — a `client` suite and a `server` suite are two batches, however
+// convenient one would have been. [`artifact_tags`] takes the union over the
+// production closure **and** the test dependencies' closures, which is more than
+// `check_tags` asks of a single suite and is the honest set for a binary that
+// links both.
+//
+// Four more conditions, and each of them is a way for two suites to disagree
+// about what building or running them means:
+//
+// - **The same platform.** Every member runs on [`default_platform`]'s answer,
+//   which is one fact about the pass; a suite that *named* its platforms made a
+//   request, and a request is served on its own.
+// - **The same profile.** `--release` is the invocation's, so this is free — but
+//   it is named because it is in every `codegen` key and a batch has one link.
+// - **No `test { data }`.** Such a suite runs on JavaScript anyway
+//   (`default_platform`'s rule), so it is never a candidate.
+// - **No `timeout_seconds`.** A limit is a suite's own, and a shared process
+//   would make it a limit on everybody's tests together. A suite that declares
+//   one keeps its own process.
+//
+// # Isolation, and where a verdict comes from
+//
+// A failed assertion is an abort and takes its process down, so the answer is
+// the resuming runner the report-parity wave landed: blocks are numbered **per
+// binary**, `BURI_TEST_FROM` names the one to start at, and `buri_rt_test_enter`
+// skips what is already reported ([`run_blocks`]). Batching generalises the
+// attribution rather than the mechanism — a block still names itself, and this
+// maps the block to the suite that owns it through the module the test was
+// declared in. One suite aborting therefore costs one process and no suite's
+// report, which is exactly the isolation a binary per suite was buying.
+//
+// # Why no verdict can be served from the wrong place
+//
+// Nothing here is a cache key. `test_key` is unchanged, one per suite, and each
+// suite's verdict is stored under its own — so an edit invalidates the suites it
+// reaches and no others, and a suite whose verdict is already cached is not
+// compiled into the batch at all. What is stored is the same JSON array the same
+// suite would have produced alone, because it *is* the same monomorphized
+// bodies: batching adds other suites' roots to the program, and a root neither
+// changes another root's code nor can be reached from it. A suite's tests may
+// not depend on the order they run in or on anything another test left behind
+// (this module's header, TESTING.md "Running"), which is the same premise the
+// resuming runner already rests on.
+//
+// The one thing a batch does change is the `link` key, which is the ordered list
+// of the batch's `codegen` keys — so it is a different key rather than a wrong
+// one, and two runs that batch different suites simply link twice.
+//
+// # The fallback
+//
+// Any reason at all to doubt the batch abandons it, silently, and every member
+// then runs the way it would have. A failed front end, a failed monomorphization,
+// an intrinsic the backend has no body for, a failed link: all four are answered
+// per suite below, which is where the diagnostic can name one suite instead of
+// five, and where `run_on`'s two fallback steps already live.
+
+/// The suites this pass ran in shared binaries, and what each one's tests did.
+///
+/// Empty is the answer that costs nothing and changes nothing: a repository with
+/// one suite, a pass whose suites are all cached, `--accept`, `--output=`, a
+/// toolchain with no native backend. The loop below neither knows nor cares —
+/// a suite that is not in here is compiled, linked and run exactly as it was.
+fn run_batches(
+    s: &mut Session,
+    targets: &[TargetId],
+    args: &arguments::Args,
+    notices: &mut Notices,
+) -> Prepass {
+    let mut pre = Prepass::default();
+    // A batch is only ever the *default's* answer. `--accept` routes to
+    // JavaScript for the whole pass, and `--output=` is a request — served the
+    // way requests are, one suite at a time.
+    if args.flags.accept || args.flags.output.is_some() {
+        return pre;
+    }
+    // The build file's half of the question, before the platform is decided, so
+    // that a repository which was never going to batch does not cause
+    // `default_platform` to state a notice earlier than the suite that earns it.
+    let possible: Vec<TargetId> =
+        targets.iter().copied().filter(|&t| has_tests(s, t) && may_batch(s, t)).collect();
+    if possible.len() < 2 {
+        return pre;
+    }
+    let platform = default_platform(&args.flags, notices);
+    if platform == Platform::Js || !native_ready(platform, &args.flags) {
+        return pre;
+    }
+    // Two filters, and the cache goes first: it is the answer for every suite
+    // in a repository nobody has edited, and asking it first is what keeps a
+    // `buri test` with nothing to do from walking five dependency closures to
+    // find that out. The lookup is **silent** — `served` is what reports a hit,
+    // in the loop that reports every other suite, in order.
+    let cache = crate::build::cache::Cache::open(&s.root);
+    let mut fresh: Vec<TargetId> = Vec::new();
+    for target in possible {
+        if already_cached(s, &cache, target, platform, args, &mut pre) {
+            continue;
+        }
+        // The graph's own rules, asked before this suite is compiled into a
+        // shared artifact. A suite that fails one of them is reported by
+        // `run_suite` below, which checks the same three; what it must not do
+        // first is contribute its closure to a binary the rule exists to
+        // prevent.
+        let mut diags = Diagnostics::new();
+        actions::check_policy(s, target, platform, &mut diags);
+        if diags.has_errors() {
+            continue;
+        }
+        fresh.push(target);
+    }
+    for members in batches_of(s, &fresh) {
+        // A batch of one is the path that already exists, and taking it here
+        // would be a second copy of it.
+        if members.len() < 2 {
+            continue;
+        }
+        run_batch(s, &members, platform, args, &mut pre);
+    }
+    pre
+}
+
+/// Whether a suite's *build file* leaves it free to share a binary.
+///
+/// Everything here is decidable before a byte is compiled, and each condition is
+/// a way two suites would disagree about what building or running them means —
+/// a declared platform is a request rather than a preference, `data` sends the
+/// suite to JavaScript, and a declared timeout has to bound one suite's process
+/// rather than several suites'.
+fn may_batch(s: &Session, target: TargetId) -> bool {
+    let Some(suite) = suite(s, target) else { return false };
+    suite.platforms.is_empty() && suite.data.is_empty() && suite.timeout_seconds.is_none()
+}
+
+/// Whether this suite's verdict is already on disk under its own key.
+///
+/// The same three modes [`served`] refuses to serve, and the same test that its
+/// bytes are a record rather than an empty one — asked without printing
+/// anything, because printing it is the reporting loop's job and doing it twice
+/// would put a suite in the transcript before its neighbours.
+fn already_cached(
+    s: &Session,
+    cache: &crate::build::cache::Cache,
+    target: TargetId,
+    platform: Platform,
+    args: &arguments::Args,
+    pre: &mut Prepass,
+) -> bool {
+    if args.flags.force || args.flags.filter.is_some() || args.flags.accept {
+        return false;
+    }
+    // Kept, because the loop below asks for the same key again to report the
+    // suite — and building one reads every source in its closure.
+    let key = test_key_for(s, target, platform, args, pre);
+    pre.keys.push(((target, platform), key.clone()));
+    cache.get(&key).is_some_and(|bytes| !parse_results(&String::from_utf8_lossy(&bytes)).is_empty())
+}
+
+/// Every tag that would be carried by a suite's own test binary: its production
+/// closure's, and its test dependencies' closures' too.
+///
+/// Wider than [`actions::check_tags`] asks of one suite, and deliberately: that
+/// check is about what a target *ships*, and `test { dependencies }` is not
+/// shipped — but it is linked into the suite's binary, so it is part of what a
+/// shared binary would contain. A batch is refused on the wider set, which can
+/// only ever refuse more.
+fn artifact_tags(s: &Session, target: TargetId) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    let mut roots = vec![target];
+    roots.extend(s.ws.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
+    for root in roots {
+        for member in s.ws.closure(root) {
+            for tag in s.ws.tags(member) {
+                out.insert(tag.value.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Whether two tags forbid each other. `forbids` is symmetric, so it is enough
+/// for either declaration to name the other (TAGS.md).
+fn tags_forbid(s: &Session, a: &str, b: &str) -> bool {
+    s.ws.repo.tag(a).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == b))
+        || s.ws.repo.tag(b).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == a))
+}
+
+/// Partitions the candidates into batches no one of which could fail
+/// `check_tags`.
+///
+/// Greedy and first-fit, over the pass's own target order, so the partition is a
+/// function of the repository rather than of anything this run happened to do.
+/// Each candidate is already internally consistent — `check_policy` said so —
+/// so a union is consistent exactly when no tag of one member forbids a tag of
+/// another, which is what the cross product below asks.
+///
+/// First-fit rather than optimal: the packing that minimises the number of
+/// batches is the graph-colouring problem, and what this is for is turning five
+/// links into one on a repository whose tags mostly do not forbid anything.
+fn batches_of(s: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> {
+    let mut batches: Vec<(std::collections::BTreeSet<String>, Vec<TargetId>)> = Vec::new();
+    for &target in candidates {
+        let tags = artifact_tags(s, target);
+        let slot = batches.iter_mut().find(|(carried, _)| {
+            !carried.iter().any(|a| tags.iter().any(|b| tags_forbid(s, a, b)))
+        });
+        match slot {
+            Some((carried, members)) => {
+                carried.extend(tags);
+                members.push(target);
+            }
+            None => batches.push((tags, vec![target])),
+        }
+    }
+    batches.into_iter().map(|(_, members)| members).collect()
+}
+
+/// The module path each of a suite's test sources becomes.
+///
+/// The loader's own rule (`modules.rs::load_package_source`), restated here
+/// because this is the only thing that maps a block back to the suite that owns
+/// it: a root records the module its `test` block was declared in, and a module
+/// is named by its package-relative path from the repository root.
+fn test_modules_of(s: &Session, target: TargetId) -> Vec<String> {
+    let Some(suite) = suite(s, target) else { return Vec::new() };
+    let path = s.ws.pkg(target.pkg).path.clone();
+    suite
+        .sources
+        .iter()
+        .map(|src| {
+            let stem = src.value.strip_suffix(".buri").unwrap_or(&src.value);
+            if path.is_empty() {
+                format!("//{stem}")
+            } else {
+                format!("//{path}/{stem}")
+            }
+        })
+        .collect()
+}
+
+/// One batch: one front end, one link, one binary, one verdict per member.
+///
+/// Every early return abandons the batch and says nothing. That is the whole of
+/// the safety argument: a batch that is not certain is not a batch, and the
+/// suites in it are compiled and run below one at a time, where a diagnostic can
+/// name the one suite it belongs to and where `run_on`'s two fallbacks to
+/// JavaScript already live.
+fn run_batch(
+    s: &mut Session,
+    members: &[TargetId],
+    platform: Platform,
+    args: &arguments::Args,
+    pre: &mut Prepass,
+) {
+    // One unit per member, in the pass's order, which is the order their test
+    // sources load in and therefore the order the binary's blocks come out in.
+    let units: Vec<Unit> = members
+        .iter()
+        .map(|&target| Unit { target: Some(target), platform, with_tests: true })
+        .collect();
+    let analysis =
+        crate::compiler::driver::analyze_all(Some(&s.ws), &mut s.map, &mut s.parsed, &units);
+    if analysis.diags.has_errors() {
+        return;
+    }
+    let module_paths: Vec<String> =
+        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let mut diags = Diagnostics::new();
+    let mut program =
+        monomorphize::run(&analysis.checked, module_paths, &mut diags, monomorphize::Roots::Tests);
+    if diags.has_errors() || program.roots.tests().is_empty() {
+        return;
+    }
+    // The gap probe, asked of the batch. It cannot say *which* member reaches
+    // the intrinsic it names, and a notice that named the wrong suite would be
+    // worse than no batch — so a batch with a gap in it is abandoned and each
+    // member asks the same question about itself.
+    if native_gap(platform, &args.flags, &program, &analysis.checked.tables).is_some() {
+        return;
     }
 
-    let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    let message = if message.is_empty() {
-        format!("the run exited {}", out.status.code().unwrap_or(-1))
-    } else {
-        message
+    // Which suite owns each module that declares tests. Built from the build
+    // files rather than from the program, so a module the batch loaded for some
+    // other reason cannot be mistaken for a suite's.
+    let owners: Vec<(String, usize)> = members
+        .iter()
+        .enumerate()
+        .flat_map(|(i, &t)| test_modules_of(s, t).into_iter().map(move |m| (m, i)))
+        .collect();
+    let owner_of = |module: &str| -> Option<usize> {
+        owners.iter().find(|(m, _)| m == module).map(|(_, i)| *i)
     };
-    // A run with one test in it *does* know which one failed, and saying so is
-    // the difference between a report that names a test and one that names a
-    // suite. With more than one, the honest answer is the range.
-    let (name, module, note) = match selected.as_slice() {
-        [(name, module)] => (name.clone(), module.clone(), String::new()),
-        _ => (
-            format!("the {} run", platform.slug()),
-            selected.first().map(|(_, m)| m.clone()).unwrap_or_default(),
-            format!(
-                " — a native run has no runner, so it stops at the first failure and cannot say \
-                 which of the {} tests it was in",
-                selected.len()
-            ),
+
+    // What a `--filter` leaves out, per suite, counted before the roots are
+    // narrowed — the same count `run_on` takes, taken once for the batch.
+    let mut skipped = vec![0usize; members.len()];
+    if let Some(f) = &args.flags.filter {
+        for test in program.roots.tests() {
+            if !test.name.contains(f.as_str()) {
+                if let Some(i) = owner_of(&test.module) {
+                    if let Some(n) = skipped.get_mut(i) {
+                        *n += 1;
+                    }
+                }
+            }
+        }
+        if let monomorphize::ProgramRoots::Tests(tests) = &mut program.roots {
+            tests.retain(|t| t.name.contains(f.as_str()));
+        }
+    }
+    // Block index -> the suite that owns it. A root whose module belongs to no
+    // member cannot arise — only a member's test sources are loaded with
+    // `Role::TestSource` — and if it ever did, the batch is abandoned rather
+    // than a test attributed to a suite that does not own it.
+    let mut selected: Vec<(usize, String, String)> = Vec::new();
+    for test in program.roots.tests() {
+        let Some(i) = owner_of(&test.module) else { return };
+        selected.push((i, test.name.clone(), test.module.clone()));
+    }
+
+    // A `--filter` that matched nothing leaves a program with no roots. Nothing
+    // to link and nothing to run, and the report is the skipped count — which is
+    // exactly what `run_native` answers in the same position.
+    if selected.is_empty() {
+        for (i, &target) in members.iter().enumerate() {
+            pre.done.push((
+                target,
+                Outcome {
+                    cases: Vec::new(),
+                    skipped: skipped.get(i).copied().unwrap_or(0),
+                    accepted: 0,
+                },
+            ));
+        }
+        return;
+    }
+
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    // Held until this function returns, which is exactly as long as the file it
+    // names is the one being executed (`actions::claim_runner`).
+    let binary = match actions::native_test_batch(
+        s,
+        members,
+        &output,
+        &args.flags,
+        &mut program,
+        &analysis.checked.tables,
+        &mut diags,
+    ) {
+        Ok(binary) => binary,
+        Err(_) => return,
+    };
+
+    // Reported per suite, because the `test` action is per suite: the batch is
+    // how the verdicts were produced, not what they are keyed on.
+    for &target in members {
+        let key = test_key_for(s, target, platform, args, pre);
+        crate::build::cache::explain(
+            args.flags.explain,
+            crate::build::cache::Status::Run,
+            crate::build::cache::Action::Test,
+            &s.ws.label(target),
+            platform,
+            &key,
+        );
+    }
+    // No limit: a suite that declared one is not in a batch, so there is no
+    // suite here whose `timeout_seconds` a shared process could misrepresent.
+    let blocks = match run_blocks(&binary.path().display().to_string(), None, selected.len()) {
+        Ok(Some(blocks)) => blocks,
+        _ => return,
+    };
+
+    let mut records: Vec<Vec<String>> = vec![Vec::new(); members.len()];
+    for ((i, name, module), block) in selected.iter().zip(&blocks) {
+        if let Some(slot) = records.get_mut(*i) {
+            slot.push(record_of(name, module, block));
+        }
+    }
+    let cache = crate::build::cache::Cache::open(&s.root);
+    for (i, &target) in members.iter().enumerate() {
+        let record = format!("[{}]", records.get(i).map(|r| r.join(",")).unwrap_or_default());
+        let mut cases = parse_results(&record);
+        // The same rule the two runners already follow: only a clean run is
+        // worth remembering, and `--filter` and `--accept` are outside the cache
+        // in both directions.
+        if !cases.is_empty()
+            && cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))
+            && args.flags.filter.is_none()
+            && !args.flags.accept
+        {
+            cache.put(&test_key_for(s, target, platform, args, pre), record.as_bytes());
+        }
+        locate(s, &program, &mut cases);
+        pre.done.push((
+            target,
+            Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0), accepted: 0 },
+        ));
+    }
+
+    let crate::compiler::driver::Analysis { loaded, checked, diags: analysed } = analysis;
+    drop(loaded);
+    drop(analysed);
+    crate::parallel::discard(checked);
+    crate::parallel::discard(program);
+}
+
+/// One JSON string literal, escaped as `JSON.stringify` escapes it.
+///
+/// Not `javascript::quote`, which picks whichever quote character needs less
+/// escaping: a single-quoted literal is JavaScript and is not JSON, and
+/// [`parse_results`] — which reads what `$run` wrote — looks for a double one.
+fn json_quote(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// One test that ran and did not abort, in the runner's JSON.
+fn passing_record(name: &str, module: &str) -> String {
+    format!(
+        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":true}}",
+        json_quote(name),
+        json_quote(module)
+    )
+}
+
+/// One test that aborted, in the shape `$run` writes for a caught throw — the
+/// message and, where the assertion had them, both rendered values.
+fn failing_record(name: &str, module: &str, message: &str, diff: Option<&Diff>) -> String {
+    let error = match diff {
+        Some(d) => format!(
+            "{{\"message\":{},\"actual\":{},\"expected\":{}}}",
+            json_quote(message),
+            json_quote(&d.actual),
+            json_quote(&d.expected)
         ),
+        None => format!("{{\"message\":{}}}", json_quote(message)),
     };
-    let mut cases = vec![Case {
-        provenance: Provenance::Ran,
-        name,
-        module,
-        location: None,
-        ms: 0,
-        verdict: Verdict::Failed { message: format!("{message}{note}"), diff: None },
-    }];
-    locate(s, &program, &mut cases);
-    Ok(Outcome { cases, skipped, accepted: 0 })
+    format!(
+        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":false,\"error\":{error}}}",
+        json_quote(name),
+        json_quote(module)
+    )
+}
+
+/// What a native test binary said about the block that ended it.
+struct Noted {
+    at: usize,
+    message: String,
+    diff: Option<Diff>,
+}
+
+/// The line a native test binary writes when a block aborts.
+///
+/// The last object on standard output, because the process writes one and then
+/// stops; reading the last rather than the first means a suite that somehow
+/// produced two is reported by the one that ended it.
+fn noted_failure(stdout: &str) -> Option<Noted> {
+    let chunk = split_objects(stdout).pop()?;
+    let at = field_raw(&chunk, "i")?.parse().ok()?;
+    let diff = match (field(&chunk, "actual"), field(&chunk, "expected")) {
+        (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
+        _ => None,
+    };
+    Some(Noted { at, message: field(&chunk, "message").unwrap_or_default(), diff })
 }
 
 /// Attaches each case to the source location of the test it names.
@@ -722,6 +1641,7 @@ fn execute(
     program: &str,
     module: Option<&std::path::Path>,
     limit: Option<u32>,
+    env: &[(&str, &str)],
 ) -> std::io::Result<Execution> {
     use std::process::Stdio;
     let Some(mut cmd) = crate::build::spawn::command(program) else {
@@ -732,6 +1652,13 @@ fn execute(
     };
     if let Some(module) = module {
         cmd.arg(module);
+    }
+    // Added to the explicit environment `spawn::command` built rather than
+    // instead of it: what the runner tells a test binary is one more input to
+    // the action, and everything else about the process — the frozen clock, the
+    // rest of the environment — is unchanged by there being one.
+    for (name, value) in env {
+        cmd.env(name, value);
     }
     let mut child = cmd
         .stdout(Stdio::piped())
@@ -1065,5 +1992,106 @@ mod tests {
         assert_eq!(indented("one"), "  one");
         assert_eq!(indented("a\nb\nc"), "  a\n  b\n  c");
         assert_eq!(indented("a\n\nb"), "  a\n  \n  b");
+    }
+
+    /// The gap net matches both spellings the toolchain has for "no body for
+    /// this", and nothing else.
+    ///
+    /// Written against the two literal sentences rather than against a
+    /// constructed compilation, because what the net is is a claim about those
+    /// two strings: `build/actions.rs`'s, from `missing_intrinsics`, and
+    /// `backend/cranelift/emit.rs`'s, from a runtime key with no entry. The
+    /// negative cases are the ones that must never fall back — a failure that
+    /// is not a gap is a toolchain bug, and running the suite somewhere else
+    /// would bury it.
+    #[test]
+    fn only_a_backend_gap_falls_back() {
+        let of = |messages: &[&str]| {
+            let mut diags = Diagnostics::new();
+            for m in messages {
+                diags.push(Diagnostic::error(Span::NONE, (*m).to_string()));
+            }
+            is_backend_gap(&diags)
+        };
+        assert!(of(&["the cranelift backend has no implementation of char.isDigit"]));
+        assert!(of(&["the native runtime has no implementation of `json.decode`"]));
+        assert!(of(&[
+            "the llvm backend has no implementation of testing_assert.report",
+            "the native runtime has no implementation of `bytes.toUtf8`",
+        ]));
+        // Not a gap, and not a fallback: an empty failure, a failure of another
+        // kind, and a mixture with one of each.
+        assert!(!of(&[]));
+        assert!(!of(&["cannot declare the entry point: duplicate definition"]));
+        assert!(!of(&[
+            "the cranelift backend has no implementation of char.isDigit",
+            "cannot declare the entry point: duplicate definition",
+        ]));
+    }
+
+    /// A native record is read back by the parser that reads a JavaScript one.
+    ///
+    /// Written as a round trip rather than against a literal, because what has
+    /// to hold is that the two producers and the one consumer agree — a record
+    /// this file writes and cannot read is a verdict that silently becomes a
+    /// suite of no tests.
+    #[test]
+    fn a_record_this_runner_writes_is_one_it_reads() {
+        let diff = Diff { actual: String::from("\"a\\tb\""), expected: String::from("2") };
+        let record = format!(
+            "[{},{}]",
+            passing_record("a title", "//lib/x/test/x"),
+            failing_record("say \"hi\"", "//lib/x/test/x", "assert.eq failed", Some(&diff))
+        );
+        let cases = parse_results(&record);
+        assert_eq!(cases.len(), 2);
+        assert_eq!(cases[0].name, "a title");
+        assert_eq!(cases[0].module, "//lib/x/test/x");
+        assert!(matches!(cases[0].verdict, Verdict::Passed));
+        // The title's quotes survive the record, and so do the escapes inside
+        // a rendered value: `$show` already escaped them, and the record
+        // escapes what it is handed.
+        assert_eq!(cases[1].name, "say \"hi\"");
+        let Verdict::Failed { message, diff: Some(d) } = &cases[1].verdict else {
+            panic!("the failing record did not read back as a failure");
+        };
+        assert_eq!(message, "assert.eq failed");
+        assert_eq!(d.actual, "\"a\\tb\"");
+        assert_eq!(d.expected, "2");
+    }
+
+    /// The line a native test binary writes when a block aborts.
+    ///
+    /// The literal is the contract with `cli/runtime/testing.rs`, so it is
+    /// written out here rather than produced: the two are in different crates
+    /// and nothing but this test compares them.
+    #[test]
+    fn a_native_binary_says_which_block_aborted() {
+        let noted = noted_failure("{\"i\":3,\"message\":\"assert.eq failed\",\"actual\":\"1\",\"expected\":\"2\"}\n")
+            .expect("a record with an index is a record");
+        assert_eq!(noted.at, 3);
+        assert_eq!(noted.message, "assert.eq failed");
+        let diff = noted.diff.expect("both sides were there");
+        assert_eq!((diff.actual.as_str(), diff.expected.as_str()), ("1", "2"));
+        // An abort that is not an assertion has a message and no pair, and a
+        // run that said nothing at all has no record — which is the case the
+        // caller attributes to the block it asked for.
+        let plain = noted_failure("{\"i\":0,\"message\":\"division by zero\"}\n").unwrap();
+        assert!(plain.diff.is_none());
+        assert!(noted_failure("").is_none());
+        assert!(noted_failure("assert.eq failed\n").is_none());
+    }
+
+    /// A JSON string literal is JSON: the runner's own parser looks for a
+    /// double quote, and `javascript::quote` prefers whichever quote character
+    /// needs less escaping.
+    #[test]
+    fn a_record_field_is_quoted_as_json_and_not_as_javascript() {
+        assert_eq!(json_quote("it's"), "\"it's\"");
+        assert_eq!(javascript::quote("it's"), "\"it's\"");
+        assert_eq!(json_quote("plain"), "\"plain\"");
+        assert_eq!(javascript::quote("plain"), "'plain'");
+        assert_eq!(json_quote("a\tb\nc\"d\\e"), "\"a\\tb\\nc\\\"d\\\\e\"");
+        assert_eq!(json_quote("\u{1}"), "\"\\u0001\"");
     }
 }

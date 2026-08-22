@@ -327,6 +327,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.discharge_obligations();
         self.check_literal_ranges();
         self.check_template_holes();
+        // After the checks above, never before: they read an unbound variable
+        // as "not yet known" and would report a type the body never wrote.
+        self.subst.default_unconstrained();
         let expr = self.resolve_expr(expr);
         let locals = self
             .locals

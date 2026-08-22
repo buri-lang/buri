@@ -61,6 +61,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// inside a checked-in tree, and neither two tests nor two `cargo test` runs
 /// in two shells ever share a link directory.
 fn workspace(name: &str) -> PathBuf {
+    crate::sweep::once();
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))

@@ -244,10 +244,17 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
     }
     sources.sort();
     k.rule_identity(&pkg.label(), kind, &sources);
-    for rel in &sources {
-        let full = pkg.dir.join(rel);
-        let contents = std::fs::read(&full).unwrap_or_default();
-        k.input(&s.ws.rel_of(&full), &contents);
+    // Read in parallel, hashed in order. A key is a fold over the sources in
+    // sorted order and that fold stays exactly where it was, on this thread; a
+    // library of three hundred and sixty files is three hundred and sixty
+    // `open`/`read`/`close` round trips, and those are what the cores are idle
+    // for. `parallel::map` returns in index order, so the bytes reach the
+    // builder in the order `sources` is in.
+    let contents: Vec<Vec<u8>> = crate::parallel::map(sources.len(), |i| {
+        sources.get(i).map(|rel| std::fs::read(pkg.dir.join(rel)).unwrap_or_default()).unwrap_or_default()
+    });
+    for (rel, contents) in sources.iter().zip(&contents) {
+        k.input(&s.ws.rel_of(&pkg.dir.join(rel)), contents);
     }
 }
 
@@ -472,11 +479,20 @@ pub fn emit(
 ///
 /// Both profiles run the same passes, so that `release_and_debug_agree` keeps
 /// covering the middle end rather than only the part of it release turns on.
-pub fn prepare(program: &mut monomorphize::Program, target: Target) {
+///
+/// The reference-counting plan comes back out, because the native branch's last
+/// pass is the analysis [`lower::run`] would otherwise redo. `None` is the
+/// JavaScript answer and means there is no plan rather than an empty one: a
+/// garbage-collected target has no `incref` to place.
+pub fn prepare(
+    program: &mut monomorphize::Program,
+    target: Target,
+) -> Option<crate::compiler::middle::rc::Plan> {
     middle::run(program, &middle::Options::default());
     if target.platform != Platform::Js {
-        middle::native(program);
+        return Some(middle::native(program));
     }
+    None
 }
 
 /// The profile a set of flags names. One place, because `--release` decides
@@ -496,6 +512,7 @@ pub fn target_of(output: &Output) -> Target {
 /// ```text
 /// codegen_key(unit) = H(Codegen, toolchain_version, mode, platform, arch,
 ///                       backend.name(), backend.identity(),
+///                       unit_prefix,
 ///                       H(the unit's lowered IR),
 ///                       H(the layout of every type the unit names))
 /// ```
@@ -514,6 +531,43 @@ pub fn target_of(output: &Output) -> Target {
 /// the analysis. That is acceptable and nearly free here: the expensive half of
 /// a native build is the half the key is protecting.
 ///
+/// # Why the prefix is in it
+///
+/// The IR is not the whole of what a backend reads: `BackendOptions` is
+/// `profile`, `target` and `unit_prefix`, and the first two are in this key
+/// already. The third was not, and it is **observable in the emitted object**.
+/// The LLVM backend builds a unit's module name from it
+/// (`llvm/mod.rs`, `emit_selected`), and LLVM's `AsmPrinter` emits the module's
+/// source-file name as a `.file` directive wherever the target's assembly
+/// syntax has one — which is every ELF target and no Mach-O one. Two objects
+/// from one IR with prefixes `""` and `lib/money`, `llc -filetype=obj` on
+/// LLVM 21.1.2:
+///
+/// ```text
+/// x86_64-unknown-linux-gnu    differ   .symtab STT_FILE `core_list` vs `moneycore_list`
+/// aarch64-unknown-linux-gnu   differ   the same symbol
+/// aarch64-apple-darwin        identical
+/// x86_64-apple-darwin         identical
+/// ```
+///
+/// So on a Linux host `//cmd/a` and `//cmd/b` sharing one `core/list` object
+/// under one key is a hit that serves bytes codegen would not have produced —
+/// and ARCHITECTURE.md §7 makes the prefix reach *more* of the object the day
+/// debug info is emitted, since `DW_AT_comp_dir` and the Mach-O `N_OSO` stabs
+/// are to be set from it. A key that omits an input to codegen is unsound on
+/// whichever host makes the input visible, so the term is unconditional rather
+/// than per-backend or per-platform.
+///
+/// What it costs is cross-target reuse, and that was measured before it was
+/// spent: on a 118k-line repository with two native binaries over one library,
+/// **2 of 369** codegen units were shared between the pair, and the cold
+/// `buri build //...` cell does not move. Monomorphization is why — a unit's IR
+/// is a function of the whole program it is in, so two binaries agree on a unit
+/// only where neither instantiated anything the other did not. Reuse *within* a
+/// target is untouched, and so is a batch's: `native_test_batch` gives every
+/// member the same empty prefix. Adding the term does invalidate every existing
+/// `codegen` and therefore every `link` entry, once.
+///
 /// Wave 2c is what calls this, once `middle::lower` exists to produce the two
 /// hashes. It is here in wave 0 so that nothing later has to reshape the
 /// key-building surface.
@@ -522,12 +576,14 @@ pub fn codegen_key(
     flags: &Flags,
     backend_name: &str,
     backend_identity: &str,
+    unit_prefix: &str,
     ir_hash: &str,
     layout_hash: &str,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Codegen, flags.mode);
     k.platform(output.platform(), output.arch());
     k.backend(backend_name, backend_identity);
+    k.input("prefix", unit_prefix.as_bytes());
     k.input("ir", ir_hash.as_bytes());
     k.input("layout", layout_hash.as_bytes());
     k.finish()
@@ -575,8 +631,21 @@ pub fn link_key_of(
     for key in unit_keys {
         k.dependency(key);
     }
-    k.input("runtime", runtime_native::archive_hash().as_bytes());
+    k.input("runtime", runtime_archive_hash().as_bytes());
     k.finish()
+}
+
+/// The runtime archive's hash, computed once for this process.
+///
+/// SHA-256 over six megabytes of embedded archive, and the archive is a
+/// *constant of this binary* — `include_bytes!` at `runtime_native::ARCHIVE`. A
+/// `buri test //...` builds a `link` key per suite, so a five-suite repository
+/// hashed the same six megabytes five times and spent longer on it than on its
+/// own front end. The term in the key is unchanged; only the number of times it
+/// is computed is.
+fn runtime_archive_hash() -> &'static str {
+    static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HASH.get_or_init(runtime_native::archive_hash)
 }
 
 /// Whether this toolchain can produce and link a native artifact for `target`.
@@ -617,7 +686,6 @@ pub fn native_ready(target: Target, profile: Profile) -> bool {
 /// `FuncIdx`. Sorting the rendered lines gives a total order derived from the
 /// content, so the string moves only when a layout this unit names moves.
 fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, String)> {
-    let mut layouts = layout::Layouts::new(tables);
     // Grouped in one pass rather than scanned once per unit: the filter was
     // `units * funcs`, which is the whole program re-walked for every unit.
     let mut members: Vec<Vec<usize>> = vec![Vec::new(); program.units.len()];
@@ -626,31 +694,37 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             slot.push(i);
         }
     }
-    let mut out = Vec::with_capacity(program.units.len());
-    for (u, name) in program.units.iter().enumerate() {
-        let mut text = String::new();
-        let mut types: Vec<usize> = Vec::new();
-        for func in members.get(u).map(Vec::as_slice).unwrap_or_default() {
-            let Some(func) = program.funcs.get(*func) else { continue };
-            text.push_str(&program.render_func(func));
-            collect_types(func, &mut types);
-        }
-        types.sort_unstable();
-        types.dedup();
-        let mut lines: Vec<String> = Vec::with_capacity(types.len());
-        for id in types {
-            let Some(info) = program.types.get(id) else { continue };
-            lines.push(format!("{} {:?}\n", info.name, layouts.of(info.ty.clone())));
-        }
-        lines.sort();
-        let shapes: String = lines.concat();
-        out.push((
-            name.clone(),
-            hash_bytes(text.as_bytes()),
-            hash_bytes(shapes.as_bytes()),
-        ));
-    }
-    out
+    // A unit at a time, over the cores this machine has. Each unit's two hashes
+    // are a pure function of the unit's members and of `tables`, and nothing
+    // here writes to the program — so the only per-worker state is the `Layouts`
+    // memo, which is a cache of an answer rather than an answer that
+    // accumulates. `parallel::map_with` returns in index order, which is what
+    // keeps `keys` in unit order for `codegen_units_for` and in link order for
+    // `link_key`.
+    crate::parallel::map_with(
+        program.units.len(),
+        || layout::Layouts::new(tables),
+        |layouts, u| {
+            let name = program.units.get(u).cloned().unwrap_or_default();
+            let mut text = String::new();
+            let mut types: Vec<usize> = Vec::new();
+            for func in members.get(u).map(Vec::as_slice).unwrap_or_default() {
+                let Some(func) = program.funcs.get(*func) else { continue };
+                program.render_func_into(func, &mut text);
+                collect_types(func, &mut types);
+            }
+            types.sort_unstable();
+            types.dedup();
+            let mut lines: Vec<String> = Vec::with_capacity(types.len());
+            for id in types {
+                let Some(info) = program.types.get(id) else { continue };
+                lines.push(format!("{} {:?}\n", info.name, layouts.of(info.ty.clone())));
+            }
+            lines.sort();
+            let shapes: String = lines.concat();
+            (name, hash_bytes(text.as_bytes()), hash_bytes(shapes.as_bytes()))
+        },
+    )
 }
 
 /// Every aggregate type one function names, as indices into `Program::types`.
@@ -855,13 +929,45 @@ pub fn objects_of(
     tables: &Tables,
     diags: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
+    // Repository-relative, so that two checkouts in different directories put
+    // the same string in a debug section. This is the same rule `action_key`
+    // follows for input paths, and it is the source of nondeterminism
+    // ARCHITECTURE.md §7 calls out by name.
+    let prefix = s.ws.pkg(target.pkg).path.clone();
+    let label = s.ws.label(target);
+    objects_named(s, &prefix, &label, output, flags, program, tables, diags)
+}
+
+/// [`objects_of`] with the two things it takes a target for named directly: the
+/// repository-relative prefix a debug section records, and the label
+/// `--explain` reports each unit under.
+///
+/// Split out because a **batched** test binary is one program built from several
+/// suites, so neither of the two has a single target to come from. Everything
+/// else — the middle end, the keys, the per-unit cache — is a function of the
+/// program, and this is the seam that says so.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the two strings a target used to stand in for are now named, and \
+              neither is derivable from the program, the output or the flags"
+)]
+fn objects_named(
+    s: &mut Session,
+    prefix: &str,
+    label: &str,
+    output: &Output,
+    flags: &Flags,
+    program: &mut monomorphize::Program,
+    tables: &Tables,
+    diags: &mut Diagnostics,
+) -> Result<Objects, Diagnostics> {
     let platform = output.platform();
     let profile = profile_of(flags);
     let back_target = target_of(output);
     // The same composition `emit` runs, from the same function: this path
     // reaches a native backend and that one reaches JavaScript, and which
     // passes a target gets must not be a fact stated twice.
-    prepare(program, back_target);
+    let plan = prepare(program, back_target);
     // Lowered here for the *keys* only. `Backend::emit` lowers again for the
     // bytes, because `middle::lower` is deterministic and a pure function of the
     // program, so the two agree by construction. Handing the `ir::Program`
@@ -869,7 +975,14 @@ pub fn objects_of(
     // a second entry point on the trait — the backends have one (`emit_lowered`)
     // and it is deliberately not on `Backend`, so that there is one seam rather
     // than one seam and a shortcut.
-    let lowered = lower::run(program, tables);
+    // Against the plan `prepare` already produced. `lower::run` would compute
+    // an identical one — it is a pure function of the program, and nothing has
+    // taken the program by `&mut` since — so this is the same lowering with one
+    // whole-program analysis in it instead of two.
+    let lowered = match &plan {
+        Some(plan) => lower::run_with(program, tables, plan),
+        None => lower::run(program, tables),
+    };
 
     let mut backend = match backend::select(back_target, profile) {
         Ok(b) => b,
@@ -895,19 +1008,14 @@ pub fn objects_of(
     let keys: Vec<(String, ActionKey)> = unit_hashes(&lowered, tables)
         .into_iter()
         .map(|(unit, ir_hash, layout_hash)| {
-            let key = codegen_key(output, flags, &name, &identity, &ir_hash, &layout_hash);
+            let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, &layout_hash);
             (unit, key)
         })
         .collect();
 
-    // Repository-relative, so that two checkouts in different directories put
-    // the same string in a debug section. This is the same rule `action_key`
-    // follows for input paths, and it is the source of nondeterminism
-    // ARCHITECTURE.md §7 calls out by name.
-    let prefix = s.ws.pkg(target.pkg).path.clone();
     let cache = Cache::open(&s.root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
-        let opts = BackendOptions { profile, target: back_target, unit_prefix: &prefix };
+        let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
         // `Units::Only` is a membership test per unit, so a build that wants
         // every unit — a first build, or `--force` — says so rather than
         // scanning a list of every unit once per unit.
@@ -916,7 +1024,6 @@ pub fn objects_of(
         backend.emit_units(program, tables, &opts, selection)
     })?;
 
-    let label = s.ws.label(target);
     let mut units = Vec::with_capacity(emitted.len());
     let mut rows = Vec::with_capacity(emitted.len());
     for ((unit, key), (object, cached)) in keys.iter().zip(emitted) {
@@ -1007,24 +1114,128 @@ fn build_native(
     Ok(Artifact { target, path, bytes: bytes.len(), cached: false })
 }
 
+/// Where a native test binary was put, for as long as it is the one to run.
+///
+/// A value rather than a path because the shared runner file below is *claimed*,
+/// and the claim is released when the suite that took it has finished with it.
+/// Holding this is what says "this file is mine until I drop it".
+pub struct TestBinary {
+    path: PathBuf,
+    _claim: Option<Claim>,
+}
+
+impl TestBinary {
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+/// One process's hold on the shared runner file.
+struct Claim {
+    lock: PathBuf,
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock);
+    }
+}
+
+/// How long a claim may be held before it is read as a crashed process's.
+///
+/// Generous, because what is under it is a suite running to completion and a
+/// suite may declare a `timeout_seconds` of its own. Stealing early would cost
+/// exactly the thing the claim exists to prevent, and stealing late costs a
+/// slower run — so the asymmetry is resolved in the direction of the answer
+/// being right.
+const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
+
+/// The file a suite's native test binary is written to and executed from.
+///
+/// **One file per platform for the whole repository, not one per package**, and
+/// that is a measurement rather than a tidy-up. macOS charges about 200 ms the
+/// first time a *newly created* file is executed; the charge is on the file's
+/// identity, so a file that has been executed once costs about 4 ms however many
+/// times it is rewritten with different bytes afterwards
+/// (`scratchpad/suite-cost-report.md` §2, and the same effect `link::place` is
+/// written against). A test binary per package meant a cold `buri test //...`
+/// created five files that had never been executed and paid the charge five
+/// times — more than half of that run.
+///
+/// The file is shared, so it is claimed: a lock file beside it, taken with
+/// `create_new`, held for as long as the caller holds the [`TestBinary`], and
+/// **never waited on**. A suite that cannot take it writes to the per-package
+/// path instead and pays the charge, which is what every suite used to do. That
+/// is what keeps "all commands are safe to run concurrently" (CLI.md) true:
+/// two `buri test` processes in one repository do not share a file, they take
+/// turns at one and the loser is merely slower.
+///
+/// The shared file in `dir` where this process can take it, and `private` where
+/// it cannot. `private` is the caller's because a batched run has no one package
+/// to derive it from (see [`native_test_batch`]).
+fn claim_runner(dir: &std::path::Path, private: PathBuf) -> TestBinary {
+    claim_runner_after(dir, private, CLAIM_STALE)
+}
+
+/// The same, with the staleness bound named, so that "a claim this old is a
+/// crashed process's" is a rule a test can state rather than one it has to wait
+/// out.
+fn claim_runner_after(
+    dir: &std::path::Path,
+    private: PathBuf,
+    stale: std::time::Duration,
+) -> TestBinary {
+    let _ = std::fs::create_dir_all(dir);
+    let lock = dir.join(".test-runner.lock");
+    // A claim older than `stale` belongs to a process that is not running any
+    // more, and a repository that one `^C` can slow down for good is a
+    // repository nobody trusts. `cache::Lock` steals on the same argument.
+    let abandoned = std::fs::metadata(&lock)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|m| m.elapsed().ok())
+        .is_some_and(|age| age >= stale);
+    if abandoned {
+        let _ = std::fs::remove_file(&lock);
+    }
+    match std::fs::OpenOptions::new().create_new(true).write(true).open(&lock) {
+        Ok(_) => TestBinary { path: dir.join("test-runner"), _claim: Some(Claim { lock }) },
+        Err(_) => {
+            if let Some(parent) = private.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            TestBinary { path: private, _claim: None }
+        }
+    }
+}
+
 /// A native **test** binary: the same codegen and the same link, over a program
 /// rooted at the suite's tests rather than at a `main`.
 ///
-/// Written to `path` and left there, because unlike an artifact it is not
-/// something the repository asked for — it is the shape a test run takes on a
-/// native platform, and `buri test` executes it and forgets it.
+/// Written to the file [`claim_runner`] names and left there, because unlike
+/// an artifact it is not something the repository asked for — it is the shape a
+/// test run takes on a native platform, and `buri test` executes it and forgets
+/// it.
 ///
-/// There is no `link` cache entry for it, and that is a decision rather than an
-/// omission: the verdict cache in front of this (`test_key`) already skips the
-/// entire run when nothing moved, so a link cache would only ever be consulted
-/// on a run that is going to happen anyway. The *objects* are cached, which is
-/// where a suite's compile time is.
+/// The link **is** cached, and the reason is that the verdict cache in front of
+/// this and the `link` key answer two different questions. `test_key` is over
+/// the suite's *source bytes*, so it misses on every edit a reader can make;
+/// `link_key` is the ordered list of `codegen` keys, and those are over the
+/// lowered IR. Everything the front and middle end erase lies between the two —
+/// a comment, a reformatting, a renamed local, a function nothing calls, a
+/// change in a sibling module the suite does not reach — and for all of it the
+/// suite has to run again while the binary that runs is byte for byte the one
+/// that ran last time. Relinking it is 150 ms of `cc` for an answer already on
+/// disk.
+///
+/// The bytes are the artifact's, so a hit is the same executable rather than an
+/// equivalent one, and `--force` skips the lookup as it does everywhere else.
 #[allow(
     clippy::too_many_arguments,
     reason = "the session, the target, the output, the flags, the program, its \
-              tables, where to write it and where to put the diagnostics: eight \
-              things none of which is derivable from the others, and a struct \
-              bundling them would name each of them twice"
+              tables and where to put the diagnostics: seven things none of \
+              which is derivable from the others, and a struct bundling them \
+              would name each of them twice"
 )]
 pub fn native_test_binary(
     s: &mut Session,
@@ -1033,9 +1244,86 @@ pub fn native_test_binary(
     flags: &Flags,
     program: &mut monomorphize::Program,
     tables: &Tables,
-    path: &std::path::Path,
     diags: &mut Diagnostics,
-) -> Result<(), Diagnostics> {
+) -> Result<TestBinary, Diagnostics> {
+    let prefix = s.ws.pkg(target.pkg).path.clone();
+    let label = s.ws.label(target);
+    let dir = s.root.join(".buri/out").join(output.dir());
+    let private = dir.join(&s.ws.pkg(target.pkg).path).join("test");
+    test_binary_named(
+        s, &prefix, &label, private, output, flags, program, tables, diags,
+    )
+}
+
+/// A native test binary for **several** suites at once: one program, one link,
+/// one file.
+///
+/// The suites are already in `program` — `driver::analyze_all` loaded their test
+/// sources into one compilation and `monomorphize::Roots::Tests` rooted it at
+/// every `test` block it found — so nothing here is aware of how many there are.
+/// What it takes instead of a target is the two things a target stood in for:
+///
+/// - **`unit_prefix` is empty.** A batch spans packages, so no package's path is
+///   the program's; the repository root is. It is also the answer that does not
+///   depend on *which* suites are in the batch, and the batch's membership is a
+///   function of which verdicts were already cached — so any prefix taken from a
+///   member would give one batch's objects a different key on every run whose
+///   membership differed, and no two batched runs would reuse each other's.
+///   (The prefix is a term of `codegen_key`, so this is a reuse question rather
+///   than a correctness one; see the note there for why it is a term.)
+/// - **The private path** is the caller's, for the same reason [`claim_runner`]
+///   takes one: the shared runner file is claimed, and a batch that cannot take
+///   the claim needs somewhere of its own to run from.
+///
+/// Everything else is [`native_test_binary`]'s, including the `link` cache: the
+/// key is the ordered list of the batch's `codegen` keys, so two runs whose
+/// batches hold the same suites with the same IR relink nothing, and two runs
+/// whose batches differ are two different keys rather than one wrong one.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one more than `native_test_binary`, and the one more is the file to \
+              run from — which is what the target used to decide"
+)]
+pub fn native_test_batch(
+    s: &mut Session,
+    targets: &[TargetId],
+    output: &Output,
+    flags: &Flags,
+    program: &mut monomorphize::Program,
+    tables: &Tables,
+    diags: &mut Diagnostics,
+) -> Result<TestBinary, Diagnostics> {
+    let label = targets.iter().map(|t| s.ws.label(*t)).collect::<Vec<_>>().join(",");
+    // The first member's own path, so that a batch that cannot take the shared
+    // claim runs from a file some previous run has already executed rather than
+    // from a new one. Deterministic: `targets` is in the pass's order.
+    let dir = s.root.join(".buri/out").join(output.dir());
+    let private = match targets.first() {
+        Some(t) => dir.join(&s.ws.pkg(t.pkg).path).join("test"),
+        None => dir.join("test"),
+    };
+    test_binary_named(s, "", &label, private, output, flags, program, tables, diags)
+}
+
+/// The body of both: link this program, cache it, and put it where it can be
+/// run from.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the target is gone and the two things it decided — the debug prefix \
+              and the file to fall back to — are arguments, which is one more \
+              rather than a different shape"
+)]
+fn test_binary_named(
+    s: &mut Session,
+    prefix: &str,
+    label: &str,
+    private: PathBuf,
+    output: &Output,
+    flags: &Flags,
+    program: &mut monomorphize::Program,
+    tables: &Tables,
+    diags: &mut Diagnostics,
+) -> Result<TestBinary, Diagnostics> {
     let linker = match link::select(target_of(output)) {
         Ok(l) => l,
         Err(message) => {
@@ -1046,28 +1334,36 @@ pub fn native_test_binary(
             return Err(std::mem::take(diags));
         }
     };
-    let objects = objects_of(s, target, output, flags, program, tables, diags)?;
+    let objects = objects_named(s, prefix, label, output, flags, program, tables, diags)?;
     let key = link_key(output, flags, &linker, &objects.keys);
     let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
-    crate::build::cache::explain(
-        flags.explain,
-        crate::build::cache::Status::Run,
-        Action::Link,
-        &s.ws.label(target),
-        output.platform(),
-        &key,
-    );
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let explain_link = |status: crate::build::cache::Status| {
+        crate::build::cache::explain(flags.explain, status, Action::Link, label, output.platform(), &key);
+    };
+    // Claimed after the objects exist and before anything is written, so a run
+    // that fails to compile never takes the shared file at all.
+    let binary = claim_runner(&s.root.join(".buri/out").join(output.dir()), private);
+    let path = binary.path().to_path_buf();
+    let cache = Cache::open(&s.root);
+    if !flags.force {
+        if let Some(bytes) = cache.get(&key) {
+            if write_executable(&path, &bytes).is_ok() {
+                explain_link(crate::build::cache::Status::Cached);
+                return Ok(binary);
+            }
+        }
     }
-    let prefix = s.ws.pkg(target.pkg).path.clone();
+    explain_link(crate::build::cache::Status::Run);
     let opts =
-        LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: &prefix };
-    if let Err(errors) = link::run(&objects.units, &objects.rows, &linker, path, &opts) {
+        LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: prefix };
+    if let Err(errors) = link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
         diags.extend(errors.items);
         return Err(std::mem::take(diags));
     }
-    Ok(())
+    if let Ok(bytes) = std::fs::read(&path) {
+        cache.put(&key, &bytes);
+    }
+    Ok(binary)
 }
 
 /// Writes an executable, and makes it one.
@@ -1077,13 +1373,12 @@ pub fn native_test_binary(
 /// and a fresh link produce the same thing rather than a file that differs from
 /// it in the one way `ls` shows and `cmp` does not.
 fn write_executable(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
-    }
-    Ok(())
+    // Through `link::place`, which is where the rule about *not* rewriting an
+    // artifact whose bytes are already there is stated, and which is what a
+    // fresh link now reaches its output through as well. Two ways of putting an
+    // executable on disk would be two places for that rule to hold in one of
+    // them.
+    link::place(path, bytes)
 }
 
 pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf {
@@ -1339,5 +1634,95 @@ mod tests {
         assert_eq!(first_difference(b"abc", b"abcd"), Some(3));
         assert_eq!(first_difference(b"abcd", b"abc"), Some(3));
         assert_eq!(first_difference(b"", b"a"), Some(0));
+    }
+
+    /// Every field of `BackendOptions` is a term of the `codegen` key.
+    ///
+    /// `profile` and `target` were always in it. `unit_prefix` is the one that
+    /// was not, and it is observable in the object on every ELF target — see the
+    /// note on [`codegen_key`] for the measurement. So the claim this states is
+    /// the one that makes the key sound: identical IR under two prefixes is two
+    /// keys, not one entry that might hold either's bytes.
+    #[test]
+    fn the_codegen_key_carries_the_unit_prefix() {
+        let output = Output::for_platform(Platform::Macos, Span::NONE);
+        let flags = Flags::default();
+        let key = |prefix: &str| {
+            codegen_key(&output, &flags, "llvm", "llvm 21.1.2", prefix, "ir", "layout")
+        };
+        assert_ne!(key(""), key("lib/money"));
+        assert_ne!(key("lib/money"), key("cmd/server"));
+        // And it is still a *function* of its inputs: the same prefix twice is
+        // the same key, or a batch would relink on every pass.
+        assert_eq!(key("lib/money"), key("lib/money"));
+        // The term is length-prefixed like every other, so no two prefixes can
+        // collide by running into the field beside them.
+        assert_ne!(
+            codegen_key(&output, &flags, "llvm", "id", "a", "b", "layout"),
+            codegen_key(&output, &flags, "llvm", "id", "ab", "", "layout")
+        );
+    }
+
+    /// The shared runner file is one file, so two holders of it at once would be
+    /// two suites writing one executable and one of them running the other's.
+    ///
+    /// The claim is what stops that, and the fallback is what stops it from
+    /// costing anything: a caller that cannot take the shared file gets the
+    /// per-package path every suite used to have, which is correct and slower
+    /// rather than refused. Both halves are asserted, and so is the release —
+    /// a claim that outlived its holder would turn the fallback into the only
+    /// path.
+    #[test]
+    fn the_shared_runner_is_held_by_one_suite_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("buri-runner-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let private = |n: &str| dir.join(n).join("test");
+
+        let first = claim_runner(&dir, private("a"));
+        assert_eq!(first.path(), dir.join("test-runner"));
+        // A second claim while the first is held is the concurrent case, and it
+        // gets its own file rather than the shared one.
+        let second = claim_runner(&dir, private("b"));
+        assert_eq!(second.path(), private("b"));
+        // And a third, so that "the loser falls back" is not "the loser takes
+        // the loser's file".
+        let third = claim_runner(&dir, private("c"));
+        assert_eq!(third.path(), private("c"));
+
+        drop(second);
+        drop(third);
+        // Released only by the holder: dropping the two that fell back releases
+        // nothing, because they took nothing.
+        assert_eq!(claim_runner(&dir, private("d")).path(), private("d"));
+
+        drop(first);
+        let after = claim_runner(&dir, private("e"));
+        assert_eq!(after.path(), dir.join("test-runner"));
+        drop(after);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A claim left behind by a process that is not running any more is stolen
+    /// rather than waited for, on `cache::Lock`'s argument: one `^C` must not
+    /// slow a repository down for good.
+    ///
+    /// Stated as "how old is old enough" rather than by backdating a file,
+    /// because the rule is the comparison and the comparison is what a wrong
+    /// bound would get wrong. A bound of zero makes every claim abandoned, which
+    /// is the same question asked with a clock this test controls.
+    #[test]
+    fn an_abandoned_claim_is_taken_back() {
+        let dir = std::env::temp_dir().join(format!("buri-runner-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let held = claim_runner(&dir, dir.join("own/test"));
+        assert_eq!(held.path(), dir.join("test-runner"));
+        // Fresh, so it is somebody's, and this suite gets its own file.
+        assert_eq!(claim_runner(&dir, dir.join("other/test")).path(), dir.join("other/test"));
+        // Old enough, so it is nobody's and it is taken back.
+        let taken = claim_runner_after(&dir, dir.join("other/test"), std::time::Duration::ZERO);
+        assert_eq!(taken.path(), dir.join("test-runner"));
+        drop(held);
+        drop(taken);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

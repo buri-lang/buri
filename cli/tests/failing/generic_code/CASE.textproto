@@ -13,7 +13,7 @@
 doc: "a failing assertion inside generic code renders the value at the instantiation, not the type variable"
 
 run {
-  args: ["test", "//lib/generic", "--force"]
+  args: ["test", "//lib/generic", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

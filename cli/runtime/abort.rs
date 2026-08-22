@@ -27,6 +27,17 @@
 //! The exit status is 1, and the message is followed by a single newline, which
 //! is what `generate.rs:336` writes on the JavaScript side.
 //!
+//! ## Inside a test binary
+//!
+//! An abort is also how a `test` block fails, and it is *every* way one can
+//! fail: a failed assertion, a division by zero, an allocation past a budget.
+//! So [`die`] is the one place that can attribute a failure to the block it
+//! happened in, and it calls [`crate::testing::note_failure`] to do it — one
+//! line naming the block, the message, and the values where the assertion had
+//! them, which is what `buri test` turns into the same report a JavaScript run
+//! prints. Outside a test binary nothing is driving the process and that call
+//! is a load and a branch.
+//!
 //! ## What is missing, and who owns it
 //!
 //! CODEGEN-CRANELIFT.md §5 wants an abort to print a stack trace by walking the
@@ -60,8 +71,16 @@ pub unsafe extern "C" fn buri_rt_abort(msg: *const u8, len: u64) -> ! {
 }
 
 /// The whole of an abort that is not the message: flush, write, exit.
-fn die(parts: &[&[u8]]) -> ! {
+///
+/// One place, which is what lets a native test binary attribute *every* way a
+/// `test` block can end other than by returning — a failed assertion, a
+/// division by zero, an allocation past a budget — to the block it happened in
+/// ([`crate::testing::note_failure`]). Outside a test binary that call is a
+/// load and a branch: nothing is driving the process, so there is no record to
+/// write.
+pub(crate) fn die(parts: &[&[u8]]) -> ! {
     buri_rt_flush();
+    crate::testing::note_failure(parts);
     let err = std::io::stderr();
     let mut err = err.lock();
     for part in parts {
@@ -163,20 +182,14 @@ pub extern "C" fn buri_rt_abort_unreachable() -> ! {
     die(&[b"internal compiler error: a case the checker proved unreachable was reached"])
 }
 
-/// A failed assertion, in a natively-compiled test binary.
+/// A failed assertion whose values could not be rendered.
 ///
-/// `core/testing/assert`'s `report`, `failWith` and `failExpected` are the
-/// runner's on JavaScript: `$testing_assert_report` throws, and `buri test`
-/// catches it, renders both values and moves on to the next test
-/// (`runtime.js:1637-1658`). There is no native runner yet — a native test
-/// binary is one process running every `test` block in order — so a failure
-/// ends the process, which is the only thing a process can do without one.
-///
-/// The message is deliberately *not* the JavaScript renderer's: rendering both
-/// values is what the runner does, and reproducing half of it here would be a
-/// second format for the same event. What is here is the assertion's kind and
-/// the fact that it failed, which is what makes a failing native run
-/// attributable.
+/// The message is the same sentence `$testing_assert_report` throws, and it is
+/// the whole of the report where the two values are missing — which happens
+/// only where `middle::derives` declined to generate a `Show` at the type, an
+/// opaque one. Every other failed assertion arrives through
+/// [`crate::testing::buri_rt_test_fail_compared`] with both values already
+/// rendered, and `die`'s record carries them to `buri test`.
 ///
 /// # Safety
 /// `kind` must point at `len` readable bytes, or be null with `len == 0`.

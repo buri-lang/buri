@@ -701,16 +701,26 @@ modules, so comparing those is a compile error.
 
 Two consequences worth knowing:
 
-- **A derived `Eq` inherits IEEE-754 float behaviour.** `NaN != NaN`, so a struct
-  with an `F64` field holding `NaN` is not equal to itself. That is structural
-  equality being honest about its components rather than papering over them, but
-  it does mean derived `Eq` is not reflexive for every value. `Ord` on floats
-  orders `-0.0` equal to `0.0` and reports `NaN` as unordered.
-Referential equality was considered and rejected. `a === b` on ordinary values
-has no stable answer: the runtime may share one representation between two equal
-values or copy it, so the result would depend on the optimization level and on
-the backend. Code that needs identity carries it as data (`struct NodeId(U64)`),
-which is a value the compiler cannot invent or coalesce.
+- **A derived `Eq` is an equivalence relation, and so is `==` on a float.**
+  `NaN == NaN` (§6.2), so a struct with an `F64` field holding `NaN` is equal to
+  itself *and* to a separately built copy of itself. Derived `Eq` is therefore
+  reflexive, symmetric and transitive at every value there is, which is what the
+  rest of the language assumes of it: a key can be looked up in the `Map` it was
+  put into, `list.contains` finds what the list holds, and a value is equal to
+  itself. `Ord` on floats is unchanged and still IEEE-754's: it orders `-0.0`
+  equal to `0.0` and reports `NaN` as unordered, so `<` and `compare` do not
+  agree with `==` at `NaN` — `==` is the one that was made total.
+Referential equality was considered and rejected **as the definition**. `a === b`
+on ordinary values has no stable answer: the runtime may share one representation
+between two equal values or copy it, so a language that *defined* `==` that way
+would have a result that depended on the optimization level and on the backend.
+Code that needs identity carries it as data (`struct NodeId(U64)`), which is a
+value the compiler cannot invent or coalesce. What a backend may do — and the
+JavaScript one does — is answer `true` early when the two operands are already
+known to be one value, because reflexivity says the walk would reach `true`
+anyway. That is a shortcut to a fixed answer rather than a second definition of
+equality, and it is sound only because `==` is reflexive; it was not, before this
+rule, and the two backends disagreed at exactly `NaN` as a result.
 
 - **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
   reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
@@ -926,8 +936,24 @@ that are defined on every backend: the `Checked` methods, which answer `.None`
 rather than a value they cannot hold, and `core/bits`, which computes on the bit
 pattern.
 
-Floating point follows IEEE-754. `==` on floats compares numerically with `-0.0`
-equal to `0.0`, and `NaN != NaN`. Rendering a float is the shortest decimal that
+Floating point follows IEEE-754, with one deliberate exception: **`==` is an
+equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
+`0.1 + 0.2 != 0.3`, and it is reflexive, so **`NaN == NaN` is true** — every
+`NaN` equals every other `NaN` regardless of sign or payload. IEEE-754 says the
+opposite, and the trade is deliberate: an `==` that is not reflexive is not an
+equivalence relation, and everything built on `==` quietly requires one. A value
+put into a `Map` or a `Set` must be findable again; `list.contains(x)` must
+answer `true` for an `x` taken out of the list; `derive Eq` on a struct must
+make it equal to itself. Each of those is a bug at exactly one value if
+`NaN != NaN`, and none of them can be fixed locally.
+
+The **ordering** operators are unchanged and remain IEEE-754's: `NaN < x`,
+`NaN <= x`, `NaN > x` and `NaN >= x` are all false, in both operand orders, and
+so is `NaN < NaN`. So `a <= b && b <= a` does not imply `a == b`, and `!(a < b)
+&& !(a > b)` does not imply it either. `math.isNan(x)` is how a program asks the
+question `x != x` used to answer.
+
+Rendering a float is the shortest decimal that
 round-trips, and that is a promise about digits rather than only about values:
 `1.0 / 3.0` prints the same characters on every backend.
 
@@ -2363,6 +2389,14 @@ before its receiver's type constructor is determined.
 **13.3 Function bodies check independently.** Top-level signatures are mandatory
 (Section 9), so no inference crosses a function boundary. Bodies check in
 parallel, and editing one body can never invalidate the check of another.
+
+A consequence: a type variable still unconstrained when a body finishes checking
+is unconstrained for good, because no other body and no signature can reach it.
+It becomes `()`. This is not the literal defaulting of Section 5.1.1, which picks
+between the types a numeric class admits; here nothing in the program picks at
+all, so the type with one value and no structure is the answer. `assert.some(o)`
+on an `Option` whose payload the program never names is the shape that reaches
+it, and the value it renders is the `Option`, not the payload.
 
 **13.4 A module's inter-module surface is exactly its exported declarations.**
 Because conformance is declared rather than inferred from shape, adding or

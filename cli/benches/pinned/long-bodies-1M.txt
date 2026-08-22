@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = long-bodies-1M
+profile = mixed
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = body_lets=24..48 lines=1000000 nesting=3 seed=0x0b001a575eed0013 w_arith_fn=8
+lines = 1007145
+bytes = 31027496
+modules = 3526
+digest = 3df29d343bde3afaff7b0c60d52dfd4a6d9715a25c5573b001d7172afa7ebd3b
+native = false

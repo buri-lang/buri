@@ -15,7 +15,7 @@
 doc: "what a failing test wrote to a captured stdout does not appear in its report"
 
 run {
-  args: ["test", "//lib/noisy", "--force"]
+  args: ["test", "//lib/noisy", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

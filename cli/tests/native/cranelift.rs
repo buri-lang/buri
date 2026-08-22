@@ -67,6 +67,7 @@ fn host_platform() -> Platform {
 /// binary the first is executing — which on macOS is a child that never
 /// returns rather than an error, and a full-suite run that never completes.
 fn workspace(name: &str) -> PathBuf {
+    crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-cranelift-{}", std::process::id()))
         .join(name);

@@ -242,6 +242,25 @@ a pin earns its keep where a toolchain is fetched, and nothing fetches one. The
 key lost nothing a live repository could vary, because a repository that named a
 toolchain this was not never got as far as computing a key.
 
+### What "version" means here, and the one trap it leaves
+
+It is the version string, not a hash of the `buri` binary. Everything a *user*
+can vary underneath one version is caught separately — the backend's identity
+carries the LLVM the binary was linked against, and the linker's identity
+carries the linker it found — so for anyone running a released toolchain the
+version is the whole answer.
+
+It is not the whole answer for anyone who **builds this compiler from source**.
+Two `buri` binaries built from different code at the same version compute the
+same keys, so a repository built by the first will serve its cached objects to
+the second, and only the units whose IR moved will be re-emitted. If you are
+comparing one repository's artifacts across a change to the compiler — a new
+optimization, a backend edit — then compare on a fresh tree, or pass `--force`,
+or `buri clean` in between. Otherwise the first build after a rebuilt compiler
+is a mix of both compilers' output, and it is the only build that is: every
+build after it agrees with itself, which is what makes the trap easy to
+dismiss as noise.
+
 ## The cache is local, for now
 
 `.buri/cache/` in the repository root, and it is safe to delete at any time.

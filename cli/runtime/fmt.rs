@@ -281,6 +281,48 @@ pub unsafe extern "C" fn buri_rt_show_char(c: u32, out: *mut BuriStr) {
     unsafe { out.write(str_of(&format!("'{ch}'"))) }
 }
 
+/// `derive Show` of a `[T]`: `[` + the elements, already rendered, joined by
+/// `, ` + `]`.
+///
+/// The one rendering entry whose argument is a list, and here for the reason
+/// [`buri_rt_show_str`] is here: `$show`'s array arm is
+/// `"[" + $showEach(v, d[1]) + "]"` (`runtime.js:273`) with `$showEach` joining
+/// by `", "`, and a `show` that is not byte-identical across backends is a
+/// failure report that depends on which backend built it (VALUE-MODEL.md §12
+/// row 9). Two code generators spelling the brackets and the separator for
+/// themselves would be two places for that to drift.
+///
+/// The elements arrive **already rendered** — `middle/derives.rs`'s
+/// `deriveArrayShow` is `([T], fn(T) -> Str) -> Str`, and a backend calls that
+/// function once per element into a scratch block of [`BuriStr`]s before this
+/// runs. So this entry needs no element descriptor, which is what separates it
+/// from the `list.*` entries `cli/runtime/list.rs`'s header holds back.
+///
+/// # Safety
+/// `xs` points at `count` [`BuriStr`]s, each a live view, or is null with
+/// `count == 0`. `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_show_list(xs: *const u8, count: u64, out: *mut BuriStr) {
+    let stride = size_of::<BuriStr>();
+    let mut built: Vec<u8> = Vec::new();
+    built.push(b'[');
+    for i in 0..count {
+        if xs.is_null() {
+            break;
+        }
+        if i > 0 {
+            built.extend_from_slice(b", ");
+        }
+        // SAFETY: the caller promises `count` elements at `xs`.
+        let element = unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriStr>() };
+        // SAFETY: an element of a live `[Str]` is a live view.
+        built.extend_from_slice(unsafe { element.bytes() });
+    }
+    built.push(b']');
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(BuriStr::copy_from(&built)) }
+}
+
 /// `derive Show` of a `Str`: `JSON.stringify`, which is quoting and escaping.
 ///
 /// `$show`'s `"s"` arm (`runtime.js:205`). ECMA-262 `QuoteJSONString`: the two
@@ -406,5 +448,39 @@ mod tests {
     fn an_f32_renders_through_its_double() {
         assert_eq!(show_f64(f64::from(0.1f32)), "0.10000000149011612");
         assert_eq!(show_f64(f64::from(1.0f32)), "1.0");
+    }
+
+    /// `$show`'s array arm, spelled out: brackets always, `", "` between, and
+    /// an empty list is `[]` rather than the empty string.
+    #[test]
+    fn a_list_renders_the_way_the_javascript_runner_renders_one() {
+        let render = |items: &[&str]| {
+            let strs: Vec<BuriStr> =
+                items.iter().map(|s| BuriStr::copy_from(s.as_bytes())).collect();
+            let mut out = BuriStr::empty();
+            // SAFETY: `strs` is a live block of `BuriStr`s and `out` is a live
+            // local.
+            unsafe {
+                buri_rt_show_list(strs.as_ptr().cast(), strs.len() as u64, &raw mut out);
+                String::from_utf8_lossy(out.bytes()).into_owned()
+            }
+        };
+        assert_eq!(render(&[]), "[]");
+        assert_eq!(render(&["1"]), "[1]");
+        assert_eq!(render(&["1", "2", "3"]), "[1, 2, 3]");
+        assert_eq!(render(&["\"a\"", "\"b\""]), "[\"a\", \"b\"]");
+    }
+
+    /// A null block with no elements is the empty `[T]` every backend answers
+    /// for `list.empty` (VALUE-MODEL.md §4), and it renders as `[]`.
+    #[test]
+    fn a_null_block_renders_as_the_empty_list() {
+        let mut out = BuriStr::empty();
+        // SAFETY: `count` is zero, so `xs` is never dereferenced.
+        let text = unsafe {
+            buri_rt_show_list(std::ptr::null(), 0, &raw mut out);
+            String::from_utf8_lossy(out.bytes()).into_owned()
+        };
+        assert_eq!(text, "[]");
     }
 }

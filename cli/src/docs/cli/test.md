@@ -11,6 +11,24 @@ implementations are bound in `main`.
 Exit status is `0` when every test passed and `1` when any did not — so `buri
 test` is usable directly as a gate.
 
+## Where a suite runs
+
+Natively, on the host, in the dev profile. A suite that says otherwise in
+`test { platforms }` gets what it asked for, and `--output=js` says it for one
+invocation without editing a build file.
+
+Where a native run is not available the suite runs on JavaScript instead, with
+one line on standard error naming the suite and the reason: this toolchain has
+no native backend for the host in this profile, or the suite's program reaches
+something the backend has no body for yet, or `--accept` is in play — that mode
+rewrites a golden file from the two sides of a failed comparison, and only the
+JavaScript runner reports them. The fallback is decided per suite, so one suite
+on the frontier does not move the rest of the run.
+
+A platform this toolchain cannot produce a binary for is an *error* when a suite
+named it and a fallback when nobody did. That asymmetry is the whole rule: a
+platform written down is a request, and the default is a preference.
+
 ## Watching
 
 With `--watch`, the same invocation is run again every time one of its inputs

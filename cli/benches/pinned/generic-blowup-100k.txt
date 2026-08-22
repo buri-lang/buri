@@ -1,0 +1,12 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = generic-blowup-100k
+profile = generic-blowup
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = generic_args=8 lines=100000 seed=0x0b001a575eed000a w_generic_fn=8
+lines = 100762
+bytes = 3674469
+modules = 360
+digest = eaf2bb91e6ca6ffcd926abc55ba352ac0a53b0125e2223214e3f101e05d971b4

@@ -36,14 +36,30 @@
 //!
 //! # What this suite pins, and what it does not
 //!
-//! **The JavaScript backend.** A suite that declares no `test.platforms` is
-//! executed as JavaScript, which is what `buri test` has always done and what
-//! every case here runs on. The native path through `commands/test.rs::run_native`
-//! produces a deliberately worse report — there is no native test runner, so
-//! the binary stops at the first failure and, in a suite of more than one test,
-//! says it cannot attribute it — and it is reachable only where a backend, a
-//! runtime archive and a linker for the host are all present. Pinning it here
-//! would make this suite fail under `--no-default-features`, so it is not here:
+//! **The JavaScript backend**, named rather than inherited: every `run` step
+//! here passes `--output=js`. A suite that declares no `test.platforms` runs
+//! natively now, and the native path prints *these* bytes — which is checked
+//! rather than assumed, by `the_default_backend_prints_the_report_the_javascript_one_does`
+//! below, and is why the pin costs no coverage.
+//!
+//! The pin stays for one reason, and it is about the machine rather than about
+//! the report: the fallback sends the same suite to JavaScript on a toolchain
+//! built with `--no-default-features`, on a host outside macOS and Linux, and
+//! on a machine with no C toolchain — out loud, as a `note:` on standard error.
+//! Standard *output* is identical either way, but `does_not_compile`,
+//! `duplicate_titles` and `exit_codes` record standard error, and an unpinned
+//! one of those would gain a line depending on how the binary running it was
+//! compiled. Naming the backend keeps every golden here a fact about the
+//! report; the equivalence test keeps the two paths honest about being one
+//! report.
+//!
+//! The pin is on the invocation rather than in each `repo/`'s `BUILD.buri`
+//! because the build files themselves are under test — `exit_codes` edits one
+//! until it stops parsing and records the diagnostic, line numbers and all — so
+//! a line added to one is a golden rewritten for no reason. The corpora whose
+//! repository is the shared thing pin it there instead
+//! (`cli/tests/conformance/lib/*/BUILD.buri`).
+//!
 //! `native/conformance.rs` drives the native side, and
 //! `repositories/testing/suite_platforms` records the refusal a platform this
 //! toolchain cannot produce a binary for gets.
@@ -238,4 +254,90 @@ fn every_case_documents_itself_and_runs_the_test_command() {
         docs.push((case.name.clone(), case.doc.clone()));
     }
     assert!(wrong.is_empty(), "{} case(s):\n  {}", wrong.len(), wrong.join("\n  "));
+}
+
+/// The corpus again, on the backend the default chooses, compared against the
+/// recorded JavaScript report rather than against a second set of goldens.
+///
+/// This is the claim the pin above rests on, checked instead of assumed: a
+/// suite that names no platform runs natively, and what it prints is what these
+/// files say. Stated as an equivalence rather than as a second corpus because
+/// the answer must not depend on the machine — a toolchain built with
+/// `--no-default-features`, a host outside macOS and Linux, or a machine with
+/// no C toolchain falls back to JavaScript per suite, and then the two runs are
+/// the same run and this test still holds.
+///
+/// **Standard output only.** The report is stdout; which backend ran a suite is
+/// a `note:` on stderr, so comparing stderr would be comparing how the binary
+/// running the test was built. The exit status is compared, because a report
+/// that agrees and a status that does not is worse than either.
+///
+/// The known differences are listed rather than excluded: a case that stops
+/// differing fails here just as loudly as one that starts. **The list is
+/// empty** — every step of every case in this corpus agrees to the byte.
+#[test]
+fn the_default_backend_prints_the_report_the_javascript_one_does() {
+    let known: &[(&str, usize)] = &[];
+    let mut differ: Vec<(String, usize)> = Vec::new();
+    let mut how: Vec<String> = Vec::new();
+    for dir in case_dirs(&corpus(), "CASE.textproto", 18) {
+        let case = load_case(&dir);
+        let pinned = transcript(&case, false);
+        let default = transcript(&case, true);
+        for (i, (a, b)) in pinned.iter().zip(default.iter()).enumerate() {
+            if a == b {
+                continue;
+            }
+            differ.push((case.name.clone(), i + 1));
+            how.push(format!(
+                "{}: step {} — `--output=js` exited {} and printed\n{}\n  the default exited {} and printed\n{}",
+                case.name,
+                i + 1,
+                a.0,
+                indent(&a.1),
+                b.0,
+                indent(&b.1)
+            ));
+        }
+    }
+    let known: Vec<(String, usize)> =
+        known.iter().map(|(c, i)| ((*c).to_string(), *i)).collect();
+    assert_eq!(
+        differ, known,
+        "the default path and `--output=js` disagree somewhere this test does not \
+         already say they do:\n{}",
+        how.join("\n")
+    );
+}
+
+/// One case's `run` steps, as `(exit status, standard output)`, on the pinned
+/// backend or on the default.
+///
+/// The pin is dropped from the argument list rather than added to it, so the
+/// two runs are the same invocation and the flag is the only difference.
+fn transcript(case: &Case, default: bool) -> Vec<(i32, String)> {
+    let where_ = if default { "default" } else { "pinned" };
+    let scratch = Scratch::copy_of(&format!("{}-{where_}", case.name), &case.dir.join("repo"));
+    case.subst.fill_tree(&scratch.root);
+    let mut out = Vec::new();
+    for step in &case.steps {
+        match step {
+            Step::Run { args, cwd, .. } => {
+                let args: Vec<&str> = args
+                    .iter()
+                    .filter(|a| !(default && a.as_str() == "--output=js"))
+                    .map(String::as_str)
+                    .collect();
+                let from = match cwd {
+                    Some(rel) => scratch.path(rel),
+                    None => scratch.root.clone(),
+                };
+                let run = run_in(&from, &args);
+                out.push((run.code, normalise(&run.stdout, &scratch.root)));
+            }
+            Step::Edit { file, from, to } => scratch.edit(file, from, to),
+            _ => {}
+        }
+    }
+    out
 }

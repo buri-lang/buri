@@ -69,8 +69,24 @@ that are defined on every backend: the `Checked` methods, which answer `.None`
 rather than a value they cannot hold, and `core/bits`, which computes on the bit
 pattern.
 
-Floating point follows IEEE-754. `==` on floats compares numerically with `-0.0`
-equal to `0.0`, and `NaN != NaN`. Rendering a float is the shortest decimal that
+Floating point follows IEEE-754, with one deliberate exception: **`==` is an
+equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
+`0.1 + 0.2 != 0.3`, and it is reflexive, so **`NaN == NaN` is true** — every
+`NaN` equals every other `NaN` regardless of sign or payload. IEEE-754 says the
+opposite, and the trade is deliberate: an `==` that is not reflexive is not an
+equivalence relation, and everything built on `==` quietly requires one. A value
+put into a `Map` or a `Set` must be findable again; `list.contains(x)` must
+answer `true` for an `x` taken out of the list; `derive Eq` on a struct must
+make it equal to itself. Each of those is a bug at exactly one value if
+`NaN != NaN`, and none of them can be fixed locally.
+
+The **ordering** operators are unchanged and remain IEEE-754's: `NaN < x`,
+`NaN <= x`, `NaN > x` and `NaN >= x` are all false, in both operand orders, and
+so is `NaN < NaN`. So `a <= b && b <= a` does not imply `a == b`, and `!(a < b)
+&& !(a > b)` does not imply it either. `math.isNan(x)` is how a program asks the
+question `x != x` used to answer.
+
+Rendering a float is the shortest decimal that
 round-trips, and that is a promise about digits rather than only about values:
 `1.0 / 3.0` prints the same characters on every backend.
 

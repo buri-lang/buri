@@ -11,13 +11,22 @@
 # runner learns where a test is from the compiler and where it failed from a
 # JavaScript exception, and only the first of those is a Buri span.
 #
+# `--output=js` because the report recorded here is the JavaScript runner's.
+# A suite that names no platform runs natively now, and a native run has no
+# runner: a failure is an exit status and a message, without the two values or
+# the count of the tests that did not get to run (`commands/test.rs`'s
+# `run_native`). Recording that instead would be recording less, and recording
+# it *conditionally* — the fallback makes the two reports swap under
+# `--no-default-features` — would be a golden that depends on how the toolchain
+# was built. `cli/tests/failing` pins the same backend for the same reason.
+
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
 doc: "the recorded failure report: target, file, test name, actual, expected, and the source location"
 
 run {
-  args: ["test", "//lib/money", "--force"]
+  args: ["test", "//lib/money", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT
@@ -31,7 +40,7 @@ edit {
 }
 
 run {
-  args: ["test", "//lib/money", "--force"]
+  args: ["test", "//lib/money", "--force", "--output=js"]
   exit: 0
   golden: "pass.txt"
   stream: OUT

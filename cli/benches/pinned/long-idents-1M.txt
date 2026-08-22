@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = long-idents-1M
+profile = long-idents
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = ident_len=32 lines=1000000 seed=0x0b001a575eed0010
+lines = 1007271
+bytes = 44693658
+modules = 3593
+digest = c43bf214cbc238d90462e9e86be319f4a4ee7cb32a627975696a3df2f5da3438
+native = false

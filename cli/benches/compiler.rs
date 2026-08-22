@@ -139,8 +139,8 @@ usage: compiler [flags]
                          `alloc-counter` feature; noise-free)
   --rss                  peak resident set size per phase, untimed
 
-  --set=<name>           core | realistic | stress | native | saved | scale | full
-                         (default: core)
+  --set=<name>           core | realistic | stress | native | saved | scale |
+                         scale-full | full          (default: core)
   --only=<substring>     keep corpora whose label contains it
   --list                 print the profile table and exit
 
@@ -171,6 +171,7 @@ enum Set {
     Native,
     Saved,
     Scale,
+    ScaleFull,
     Full,
 }
 
@@ -183,6 +184,7 @@ impl Set {
             "native" => Set::Native,
             "saved" => Set::Saved,
             "scale" => Set::Scale,
+            "scale-full" => Set::ScaleFull,
             "full" => Set::Full,
             _ => return None,
         })
@@ -196,7 +198,17 @@ impl Set {
             Set::Native => "native",
             Set::Saved => "saved",
             Set::Scale => "scale",
+            Set::ScaleFull => "scale-full",
             Set::Full => "full",
+        }
+    }
+
+    /// Which pinned corpora this set covers.
+    fn tier(self) -> Tier {
+        match self {
+            Set::Scale => Tier::Sample,
+            Set::ScaleFull => Tier::All,
+            _ => Tier::Anchor,
         }
     }
 }
@@ -428,6 +440,11 @@ struct Plan {
     /// Whether this corpus gets native lowering rows. Native codegen is the
     /// expensive phase, so the matrix is deliberately narrow by default.
     native: bool,
+    /// Whether its native rows may include the cross triples. False only in the
+    /// scale tier, and there only away from the anchor: forty pinned corpora
+    /// times three triples is an hour of cross-compiling to re-answer a question
+    /// the anchor answers on the same bytes.
+    cross: bool,
 }
 
 /// The profiles in each family, in report order.
@@ -448,6 +465,7 @@ fn generated(name: &str, lines: usize, seed: u64, native: bool) -> Plan {
         family,
         source: Source::Generated(params),
         native,
+        cross: true,
     }
 }
 
@@ -462,25 +480,75 @@ fn saved_plans(native: bool) -> Vec<Plan> {
                 family: manifest.family(),
                 source: Source::Saved(dir),
                 native,
+                cross: true,
             })
         })
         .collect()
 }
 
-/// Every pinned manifest, as a plan. The scale tier is exactly this list, so a
-/// new scale point is a new manifest and nothing else — which is how a 10M row
-/// would arrive if somebody decided the wall time was worth it.
-fn pinned_plans() -> Vec<Plan> {
+/// The parameter point the scale tier is anchored on.
+///
+/// Every other pinned corpus is a delta from it, so it is the one whose series
+/// has to be unbroken: it keeps the cross triples, it is the pinned half a plain
+/// `--validate` covers, and it is the only 1M corpus `--set=scale` measures.
+const ANCHOR_POINT: &str = "mixed";
+
+/// The parameter point a pinned corpus's name states, which is its name without
+/// the scale suffix.
+///
+/// A pinned corpus is named `<point>-<scale>`, and the convention is already
+/// load-bearing: `--pin=mixed-1M` reads the scale off the same suffix. The point
+/// is what identifies a corpus *across* scales, which is what a tier and a
+/// twenty-by-two sweep are both stated over. It is not the profile — four of the
+/// points are the `mixed` profile with a parameter delta, and their manifests
+/// say so.
+fn pinned_point(name: &str) -> &str {
+    name.rsplit_once('-').map_or(name, |(point, _)| point)
+}
+
+/// How much of the pinned half a run covers.
+///
+/// Forty pinned corpora are a parameter sweep, not a tier, and the sweep at a
+/// million lines is twenty minutes. So the wall time is a property of the flag
+/// rather than of the directory: `--set=scale-full` is the whole sweep,
+/// `--set=scale` is the sample that fits in a coffee break, and every other set
+/// — including a plain `--validate` — carries the anchor and nothing more.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tier {
+    Anchor,
+    /// Every pinned corpus the standard protocol applies to, plus the anchor
+    /// above it. The threshold is [`REDUCED_ABOVE_LINES`] rather than a second
+    /// number: the scale at which a row costs minutes is already named, and it
+    /// is the same scale.
+    Sample,
+    All,
+}
+
+/// The pinned manifests a tier covers, as plans.
+///
+/// The tier is every `.txt` in the directory filtered by the manifest's own
+/// fields, so a new scale point is still a new manifest and nothing else.
+fn pinned_plans(tier: Tier) -> Vec<Plan> {
     let root = corpus::pinned_root();
     corpus::discover_pinned(&root)
         .into_iter()
         .filter_map(|path| {
             let manifest = corpus::pinned_manifest(&path).ok()?;
+            let anchor = pinned_point(&manifest.name) == ANCHOR_POINT;
+            let wanted = match tier {
+                Tier::Anchor => anchor,
+                Tier::Sample => anchor || manifest.lines <= REDUCED_ABOVE_LINES,
+                Tier::All => true,
+            };
+            if !wanted {
+                return None;
+            }
             Some(Plan {
                 label: format!("pinned:{}", manifest.name),
                 family: manifest.family(),
                 source: Source::Pinned(path),
-                native: true,
+                native: manifest.native,
+                cross: anchor,
             })
         })
         .collect()
@@ -562,11 +630,12 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
             }
         }
         Set::Saved => work.extend(saved_plans(true)),
-        // The scale tier is every pinned manifest and nothing else. It is
+        // The scale tier is pinned manifests and nothing else. It is
         // deliberately not in `core` and not in `full`: a million-line row
         // costs minutes, and the default run has to stay something a
         // contributor takes before a commit rather than over lunch.
-        Set::Scale => work.extend(pinned_plans()),
+        Set::Scale => work.extend(pinned_plans(Tier::Sample)),
+        Set::ScaleFull => work.extend(pinned_plans(Tier::All)),
         Set::Full => {
             for name in family_profiles(Family::Realistic) {
                 for &n in scales {
@@ -640,6 +709,7 @@ fn main() {
             family,
             source: Source::Generated(params),
             native: true,
+            cross: true,
         }]
     } else {
         if !args.overrides.is_empty() {
@@ -660,12 +730,14 @@ fn main() {
         }
         // The pinned manifests too, and for the same reason — a pinned digest
         // that no longer matches is the staleness failure this scheme exists to
-        // produce. Not under `--quick`, which is the CI gate and has to stay a
-        // couple of seconds: regenerating and checking a million lines is not a
-        // couple of seconds, so plain `--validate` is where the scale tier's
-        // digests are covered.
+        // produce. How many of them is `--set`'s business and not `--validate`'s:
+        // regenerating and digesting forty corpora, half of them a million
+        // lines, is minutes, and a plain `--validate` has to stay the check
+        // somebody takes before a commit. So the anchor by default, the sample
+        // under `--set=scale`, all forty under `--set=scale-full`, and none
+        // under `--quick`, which is the CI gate and has to stay under a second.
         if !args.quick {
-            for plan in pinned_plans() {
+            for plan in pinned_plans(args.set.tier()) {
                 if !have.contains(&plan.label) {
                     work.push(plan);
                 }
@@ -1297,13 +1369,16 @@ fn print_memory(row: &MemoryRow) {
 /// `(native, Release)` selects — only under `--set=native` and `--set=full`,
 /// because a `core` run must take about the same time on every contributor's
 /// machine and `backend-llvm` is not on every contributor's machine.
-/// Beyond `REDUCED_ABOVE_LINES` the native rows are the host triple only.
+/// The host triple only: what a row takes beyond `REDUCED_ABOVE_LINES`, and
+/// what every pinned corpus away from the anchor takes at any scale.
 ///
 /// The cross triples are worth their seat where they cost two seconds a
 /// repetition and settle whether a gap is codegen or cross-compilation; at a
-/// million lines they cost twenty, and the question they answer has already
-/// been answered at 100k on the same corpus. `--targets=` overrides this, which
-/// is how somebody who wants the cross rows at scale asks for them.
+/// million lines they cost twenty, and across a forty-corpus parameter sweep
+/// they are three quarters of the wall time. Either way the question they answer
+/// has already been answered on the anchor, over the same bytes. `--targets=`
+/// overrides this, which is how somebody who wants the cross rows at scale asks
+/// for them.
 fn scale_targets(targets: &[Target]) -> Vec<Target> {
     let host = host_target();
     targets
@@ -1331,7 +1406,7 @@ fn host_target() -> Option<Target> {
 
 fn lowering_targets(args: &Args, plan: &Plan, lines: usize) -> Vec<(Target, Profile)> {
     let mut out = Vec::new();
-    let requested = if lines > REDUCED_ABOVE_LINES {
+    let requested = if lines > REDUCED_ABOVE_LINES || !plan.cross {
         scale_targets(&args.targets)
     } else {
         args.targets.clone()
@@ -1404,20 +1479,25 @@ fn do_record(args: &Args, name: &str, seed: u64, pinned: bool) {
         }
         std::process::exit(1);
     }
+    // A pin taken with `--targets=js` records a corpus the scale tier measures
+    // through the JavaScript backend only.
+    let native = args.targets.iter().any(|t| t.platform != Platform::Js);
     let written = if pinned {
-        corpus::pin(&root, name, &profile_name, &params, &program)
+        corpus::pin(&root, name, &profile_name, &params, &program, native)
     } else {
         corpus::record(&root, name, &profile_name, &params, &program)
     };
     let verb = if pinned { "pinned" } else { "recorded" };
     match written {
         Ok(m) => println!(
-            "{verb} {name}: profile {} revision {} — {} lines, {} bytes, {} modules, digest {}",
+            "{verb} {name}: profile {} revision {} — {} lines, {} bytes, {} modules, {} rows, \
+             digest {}",
             m.profile,
             m.revision,
             m.lines,
             m.bytes,
             m.modules,
+            if m.native { "native+js" } else { "js-only" },
             m.digest.chars().take(16).collect::<String>()
         ),
         Err(e) => {
@@ -1460,12 +1540,26 @@ fn print_profiles() {
     let pinned = corpus::discover_pinned(&corpus::pinned_root());
     if !pinned.is_empty() {
         println!();
-        println!("digest-pinned corpora (--set=scale; regenerated per run, no source in git):");
+        println!(
+            "digest-pinned corpora (--set=scale-full; regenerated per run, no source in git;\n\
+             `s` marks the --set=scale sample, `n` a corpus that takes native rows):"
+        );
         for path in pinned {
             match corpus::pinned_manifest(&path) {
                 Ok(m) => println!(
-                    "  {:<24} profile {:<18} rev {}  {} lines, {} bytes, {} modules",
-                    m.name, m.profile, m.revision, m.lines, m.bytes, m.modules
+                    "  {}{} {:<24} profile {:<18} rev {}  {} lines, {} bytes, {} modules",
+                    if pinned_point(&m.name) == ANCHOR_POINT || m.lines <= REDUCED_ABOVE_LINES {
+                        's'
+                    } else {
+                        ' '
+                    },
+                    if m.native { 'n' } else { ' ' },
+                    m.name,
+                    m.profile,
+                    m.revision,
+                    m.lines,
+                    m.bytes,
+                    m.modules
                 ),
                 Err(e) => println!("  {e}"),
             }
@@ -2167,10 +2261,18 @@ fn header(cfg: &Config, scales: &[usize], set: Set, targets: &[Target]) {
         ms(cfg.min_time)
     );
     println!("  set         {}", set.name());
-    if set == Set::Scale {
+    if matches!(set, Set::Scale | Set::ScaleFull) {
         // The scale tier's corpora carry their own line counts in their
         // manifests, so the generated scales are not what this run measures.
         println!("  scales      the pinned manifests (--list)");
+        if set == Set::Scale {
+            println!(
+                "  sample      every pinned corpus at or below {} lines, plus `{}` above it; \
+                 --set=scale-full runs all of them",
+                commas(REDUCED_ABOVE_LINES as f64),
+                ANCHOR_POINT
+            );
+        }
         println!(
             "  deviation   above {} lines: >= {} repetitions instead of >= 10, one warmup call \
              instead of two, and the host triple only for the native rows. Affected rows say so.",

@@ -27,7 +27,7 @@
 //!                                                   |
 //!                 +---------------------------------+
 //!                 |                                 |
-//!                js            derives -> closures -> rc -> layout -> lower -> ir
+//!                js       derives -> fuse -> closures -> rc -> layout -> lower -> ir
 //!                                                                               |
 //!                                                             +-----------------+-------------+
 //!                                                             |                               |
@@ -38,7 +38,9 @@
 //! where an arrow function closing over its scope is exactly what the engine
 //! wants, so the JS backend is handed the tree before `closures` runs and the
 //! native backends after it. `derives` and `rc` are on the native branch only —
-//! JavaScript walks a type descriptor at run time and is garbage collected.
+//! JavaScript walks a type descriptor at run time and is garbage collected, and
+//! `fuse` is there too so that the unfused JavaScript stays the reference the
+//! agreement tests compare both natives against (`fuse.rs`'s header).
 //!
 //! # The module list is deliberately complete
 //!
@@ -51,6 +53,7 @@ pub mod closures;
 pub mod dce;
 pub mod decision;
 pub mod derives;
+pub mod fuse;
 pub mod inline;
 pub mod ir;
 pub mod layout;
@@ -95,12 +98,28 @@ pub fn run(program: &mut Program, opts: &Options) {
 ///
 /// Separate from [`run`] because JavaScript must not run them: `derives`
 /// replaces a run-time descriptor walk that JavaScript wants, `closures`
-/// replaces lexical capture that JavaScript already has, and `rc` inserts
-/// reference counting a garbage collector makes pointless.
-pub fn native(program: &mut Program) {
+/// replaces lexical capture that JavaScript already has, and `fuse` deletes an
+/// intermediate list whose cost is `malloc` plus a copy here and a bump pointer
+/// in a nursery there — while leaving JavaScript as the unfused reference the
+/// agreement tests compare both natives against (`fuse.rs`'s header).
+///
+/// **The [`rc::Plan`] is returned rather than dropped.** `rc` is an analysis —
+/// `rc::run` takes the program by `&mut` and writes nothing to it — and the
+/// plan it produces is exactly what [`lower::run`] recomputes for itself a
+/// moment later. Computing it here and throwing it away was a whole-program
+/// ownership, purity and placement analysis run twice per native build, 55 ms
+/// of it at a hundred thousand lines. The pipeline in this module's header is
+/// unchanged; `rc` still runs between `closures` and `lower`, and it runs
+/// *there*, on the program in exactly the state `lower` will see, because
+/// nothing between here and the backend takes the program by `&mut`.
+pub fn native(program: &mut Program) -> rc::Plan {
     derives::run(program);
+    // After `derives` so that a generated body's own combinator chains fuse,
+    // and before `closures` because fusion composes the *lambdas* and
+    // `closures` is what turns a lambda into a lifted function.
+    fuse::run(program);
     closures::run(program);
-    rc::run(program);
+    rc::run(program)
 }
 
 /// What Tarjan's algorithm needs to know about one node, as one row rather than

@@ -18,14 +18,14 @@
 doc: "a test source that does not compile: the diagnostic on stderr, a summary of zeros on stdout, exit 1"
 
 run {
-  args: ["test", "//lib/broken", "--force"]
+  args: ["test", "//lib/broken", "--force", "--output=js"]
   exit: 1
   golden: "stderr.txt"
   stream: ERR
 }
 
 run {
-  args: ["test", "//lib/broken", "--force"]
+  args: ["test", "//lib/broken", "--force", "--output=js"]
   exit: 1
   golden: "stdout.txt"
   stream: OUT
@@ -38,7 +38,7 @@ edit {
 }
 
 run {
-  args: ["test", "//lib/broken", "--force"]
+  args: ["test", "//lib/broken", "--force", "--output=js"]
   exit: 0
   golden: "fixed.txt"
   stream: OUT

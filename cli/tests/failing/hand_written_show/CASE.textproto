@@ -18,7 +18,7 @@
 doc: "a hand-written impl Show does not reach the failure report, which renders both sides structurally"
 
 run {
-  args: ["test", "//lib/money", "--force"]
+  args: ["test", "//lib/money", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

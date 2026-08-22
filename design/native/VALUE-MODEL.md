@@ -185,6 +185,35 @@ allocation count. The one restriction is that an element type holding counted
 references — `[Str]` — still copies; MEMORY.md §5.3 says why, and it is a
 property of the drop glue rather than of `[T]`.
 
+### 4.2 `..rest` allocates, and the arm owns what it binds
+
+**Ruling.** `[head, ..rest]` binds a **fresh block**, not an interior view of
+the scrutinee. It is the same ruling as §4's "never a view", read at the one
+place a slice is produced by pattern matching rather than by a `core/list`
+function, and both backends already emitted it that way:
+`cranelift/emit.rs`'s `array_slice` calls `buri_rt_list_new`, `memcpy`s the
+tail and retains every counted element; `llvm/emit.rs`'s calls `heap`,
+`build_memcpy` and retains the same elements. The header at `ptr - 16` is what
+forces it — an interior pointer would make the next release read a header that
+is not one.
+
+The consequence is a rule for `middle/rc.rs`, which had the other answer by
+default. Every *other* binding a pattern makes is a projection: it points into
+the scrutinee, owns nothing, and takes a count only where a consuming match is
+about to drop what it points into. A rest binding is the exception in both
+directions — **the arm owns it however the scrutinee is held, and it takes no
+count out of the scrutinee** — so `Pattern::fresh_binds` names exactly these
+locals and `Scan::match_` puts the drop on them unconditionally.
+
+Getting this backwards in the other direction would be worse than the leak it
+replaces: marking the binding owned where the slice *aliased* would free the
+scrutinee's block at the arm's last use, which is a double free rather than a
+missed one. The evidence above is what rules it out, and
+`scratchpad/frcheck/cmd/r1` — `..rest` over `[Str]` and `[Int]`, with
+`cmd/r2`'s `list.drop` over the same forty elements as the control — is the
+measurement: 44 leaks on Cranelift and 46 on LLVM before, 0 on both after, with
+the program's answers unchanged and still equal to JavaScript's.
+
 ## 5. Tuples and structs
 
 Fields in **declaration order**, at natural alignment, C layout. Size rounded up
@@ -298,8 +327,7 @@ Two niches, both on day one, both because the IR already assumes them:
   in the IR: `Desc::Option(inner)` says only what the payload is, because "`None`
   is `undefined` and `Some(x)` is `x`" (`monomorphize.rs:969-979`,
   `runtime.js:22-27`). The niche keeps that true natively for the case that
-  matters — `Option<Str>`, `Option<[T]>`, `Option<Box-shaped struct>` — at zero
-  cost.
+  matters — `Option<Str>`, `Option<Box-shaped struct>` — at zero cost.
 
 "A pointer field with a known-nonnull invariant" is a short list, and it is
 worth writing out because half of the pointers in this model *are* nullable and
@@ -309,9 +337,15 @@ optimization:
 | Shape | The niche | Why not the other one |
 |---|---|---|
 | `Str` | `ptr`, at offset 8 | `base` is null for a literal (§3) |
-| `[T]` | `ptr`, at offset 0 | a list is never a view, so `ptr` is always a payload start (§4) |
 | a closure | `code`, at offset 0 | `env` is null when nothing was captured (§7) |
 | a struct or tuple | the first such pointer inside it, by offset | — |
+
+`[T]` used to be on that list, on the reasoning that a list is never a view so
+its `ptr` is always a payload start — and the empty list refuted it: both
+backends make an empty list's `ptr` null, so `.Some(list.empty())` *was*
+`.None`, which is the silent-miscompile half of the warning above happening in
+this very table. `Ty::Array` is not a niche candidate (`middle/layout.rs`), and
+`Option<[T]>` carries a tag.
 | a field boxed by §5.2 | that pointer | — |
 | an enum | none | which pointers exist depends on the tag |
 
@@ -625,12 +659,13 @@ and fails if a row names a test that is not there, so the column cannot rot.
 | 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
 | 7 | `str.slice` past the end | clamps (`runtime.js:709-712`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
 | 8 | Float rendering | JS `Number#toString` | shortest round-trip (§11.4) | Must agree, character for character. The runtime implements Ryū rather than trusting a libc `printf`. The corpus is `native/float_parity.rs`'s 3.8 million doubles; the row here is the end-to-end variant. | `row_08_float_rendering` |
-| 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field is a **named gap** — `deriveArrayShow` has no native body — and `Eq`, `Ord` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list_is_a_gap`, `row_09_derived_show_of_a_list` |
+| 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Eq`, `Ord` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
 | 10 | `derive ToJson` output | runtime walker | **absent** | Must agree, byte for byte. It is a wire format. Not reachable yet: `derivePrimJson` has no native body at any primitive, so the row is a named gap with the agreement test beside it, `#[ignore]`d. | `row_10_derived_tojson_is_a_gap`, `row_10_derived_tojson` |
 | 11 | Division by zero | aborts (`runtime.js:44-47`) | aborts | Must agree, including the message. The *whole* stream does not: JavaScript writes `e.stack` after the message because there is a stack to write, so what is compared is the first line and the status. | `row_11_division_by_zero` |
 | 12 | `Alloc` accounting | not implemented | not implemented | Must agree once both exist, which is why the model is *defined* rather than measured. A named gap on both sides today: `host.HostAlloc.allocate` has no native body, and the JavaScript one hands the byte count back without accumulating anything. | `row_12_alloc_accounting_is_a_gap`, `row_12_alloc_accounting` |
 | 13 | Tail calls in constant stack | rewritten to a loop | rewritten to a loop | Must agree. **A merged group's forwarders were labelled `()` until wave 4b**, so a mutually recursive `Bool` came back as nothing: natively `even(3)` printed the empty string, and used as a condition it panicked inside Cranelift. | `row_13_tail_calls_run_in_constant_stack` |
 | 14 | Abort message and exit status | stderr, exit 1 (`generate.rs:302-308`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
+| 15 | `char.toUpper` / `toLower` where the full case mapping is not one scalar | `"SS"` — a `Char` of two scalars | `'S'` — the **first** scalar of the full mapping | **Divergence, listed**, and the JavaScript side is the one outside the type: `Char` is one Unicode scalar value (`char.buri`), and `"ß".toUpperCase()` is two characters. There is no single scalar equal to `"SS"`, so this could not be transcribed and the choice was measured rather than assumed — the *simple* case mapping (`'ß'` unchanged) was the tidier answer and disagrees with JavaScript at `toU32` as well, where the first scalar agrees. So the divergence is confined to **rendering the whole `Char`**, and every use that reads it as a scalar agrees. `cli/runtime/char.rs` §3. | `row_15_char_case_of_a_multi_scalar_mapping` |
 
 Rows 8, 9 and 10 are the ones that actually cost work, and they are the ones
 worth the cost: a `Show` that differs between backends means every golden test in
@@ -648,25 +683,52 @@ with `env.args(ctx).len()` and `host.HostEnv.arguments` has no native body; the
 rows here use `"".len()` instead, which is opaque to the folder and reaches no
 capability.
 
-**A third, found later, and it is a bug rather than a fifteenth row.** A struct
-holding `NaN` compared with **itself** answers `true` on JavaScript and `false`
-on both native backends. It gets no numbered row because a row is either "must
-agree" or a divergence the table endorses, and this is neither: SPEC 7.2 already
-says which answer is right, and it is the native one — "a struct with an `F64`
-field holding `NaN` is not equal to itself … derived `Eq` is not reflexive for
-every value". The same section rejects the mechanism that produces the other
-answer, and predicts exactly this: referential equality "has no stable answer …
-the result would depend on the optimization level and on the backend".
-`js/generate.rs`'s `eq_decl` and `runtime.js`'s `$eq` both open with
-`if (a === b) return true;`, so on that backend `==` is answered by identity
-whenever the operands are one object; `middle/derives.rs` emits the field walk
-with no such prelude, and `fcmp Equal` / `fcmp oeq` loses. Row 9's reason for
-grouping `Eq` with `Show` — "they are the same generator" — is what hid it:
-`derives.rs`'s header records that the pass "runs from `middle::native` and
-nowhere else", so derived equality has **two** implementations, not one. Both
-answers are pinned by
-`agreement.rs::a_struct_holding_nan_compared_with_itself_does_not_agree`, which
-fails the day either side moves — including the day the JavaScript side is
-corrected, which is the repair. `conformance/lib/codegen/test/equality.buri`'s
-"a value is equal to itself even when it holds NaN" asserts the JavaScript
-answer and runs JS-only, which is why no suite saw this.
+**A third, found later, fixed by a ruling rather than by a fifteenth row.** A
+struct holding `NaN` compared with **itself** used to answer `true` on
+JavaScript and `false` on both native backends. It never got a numbered row,
+because a row is either "must agree" or a divergence the table endorses and this
+was neither — SPEC 7.2 had already ruled, and at the time it ruled for the
+native answer. The user re-ruled it on 2026-08-20, the other way: **`NaN == NaN`
+is true**, everywhere and at every depth, so `==` is an equivalence relation and
+the case is now "must agree" with `true` as the answer. The ordering operators
+were left on IEEE-754 — `NaN < NaN` is still false — so `<` and `compare` no
+longer agree with `==` at `NaN`, and that is the price the ruling knowingly paid
+for reflexivity.
+
+What changed, and where:
+
+- **The float leaf.** `==` and `!=` at `F32`/`F64` are `a == b || (isnan(a) &&
+  isnan(b))` on all three backends: `fcmp Equal` / `bor` / two `fcmp Unordered`
+  in `cranelift/emit.rs`'s `float_equality`, `fcmp oeq` / `or` / two `fcmp uno`
+  in `llvm/emit.rs`'s, and `a === b || (a !== a && b !== b)` in
+  `js/generate.rs`'s `float_eq` (with `$feq` in `runtime.js` for the operands
+  that cannot be written twice). Not a bitwise compare, which would separate
+  `-0.0` from `0.0` and two `NaN`s with different payloads.
+- **Derived equality needed no third change natively.** `middle/derives.rs`
+  emits `PrimOp::Eq` at a float field, which lowers to `BinOp::Eq`, which is the
+  leaf above. On JavaScript it did: `eq_kind` answered `Identity` — bare `===` —
+  for every primitive, so the float field is now its own `EqKind::Float`, and
+  `runtime.js`'s `$eq` gained one line for the same reason.
+- **`Hash` was already right and is now load-bearing.** `buri_rt_hash_f64` and
+  `$hashInto` both mix `ToUint32(Math.trunc(x) || 0)`, and `|| 0` catches every
+  `NaN` regardless of payload, so every `NaN` hashes to the same number on every
+  backend. Equal values hash equally, which is what a `Map` key needs and what
+  `conformance/lib/collections/test/map.buri`'s "NaN is an ordinary key" now
+  asserts.
+
+Row 9's reason for grouping `Eq` with `Show` — "they are the same generator" —
+is still false and is still worth knowing: `derives.rs`'s header records that
+the pass "runs from `middle::native` and nowhere else", so derived equality has
+**two** implementations, not one, and the only thing comparing them is
+`agreement.rs`. The test that pinned both old answers,
+`a_struct_holding_nan_compared_with_itself_does_not_agree`, was built with
+`diverge` so that it would fail the day either side moved; it did, and it is now
+`a_struct_holding_nan_compared_with_itself_agrees` with a single expected text.
+
+The referential fast path in `eq_decl` and in `$eq` — `if (a === b) return
+true;` — **stays, and is now sound.** An equivalence relation is reflexive, so
+two references to one value are equal and the walk could only reach the same
+answer more slowly. SPEC 7.2's rejection of referential equality was a rejection
+of it as the *definition*, which is untouched; what made the old fast path a bug
+was that it decided a case the definition decided differently, and there is no
+longer such a case.

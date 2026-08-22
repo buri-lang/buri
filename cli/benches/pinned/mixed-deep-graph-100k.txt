@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = mixed-deep-graph-100k
+profile = mixed-deep-graph
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = dep_span_pct=5 lines=100000 seed=0x0b001a575eed0005
+lines = 100753
+bytes = 3523459
+modules = 361
+digest = 8d213f0c0e981894814fea28c9c7270377d0facf2ff555915758b10652008816
+native = false

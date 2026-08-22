@@ -65,6 +65,14 @@
 //! Equality and ordering need no intrinsic: they are `ExprKind::Prim` at the
 //! primitive the descriptor names, which every backend already emits.
 //!
+//! That is also why SPEC 7.2's `NaN == NaN` ruling cost this pass nothing. A
+//! float field lowers to `PrimOp::Eq`, which is `BinOp::Eq`, which is the one
+//! place each backend spells float equality — `cranelift/emit.rs`'s and
+//! `llvm/emit.rs`'s `float_equality`. The JavaScript backend needed its own
+//! edit because it does *not* come through here: `eq_decl` in
+//! `backend/js/generate.rs` is a second implementation of derived equality,
+//! and `agreement.rs` is the only thing that compares the two.
+//!
 //! **Arrays** become one helper each, taking a **code pointer to the element's
 //! generated function**, because a loop is not expressible in the layer-A tree
 //! and every backend has the loop already:
@@ -432,6 +440,15 @@ impl Env {
         if let Some(s) = result.get(&Op::Show).cloned() {
             prim_of.entry(Prim::Str).or_insert(s);
         }
+        // And the other direction, for the same identity. A test suite asks for
+        // `Show` at every type it asserts on without ever calling `show`, so
+        // there is no `structuralShow` call site to read the result type from —
+        // rendering a failure is the runner's, not the program's. A program
+        // that names a `Str` anywhere can answer one, and every assertion names
+        // its kind as a literal.
+        if let Some(s) = prim_of.get(&Prim::Str).cloned() {
+            result.entry(Op::Show).or_insert(s);
+        }
         // The tags of `Json`, from the program where it described the type.
         for (i, d) in program.descriptors.iter().enumerate() {
             let Desc::Enum { name, variants } = d else { continue };
@@ -520,6 +537,19 @@ fn children(d: &Desc) -> Vec<usize> {
 // Generation
 // ---------------------------------------------------------------------------
 
+/// Adjacent literal text as one part: a field name and the separator before it
+/// are written separately and are one string.
+fn merge(parts: Vec<TemplatePart>) -> Vec<TemplatePart> {
+    let mut merged: Vec<TemplatePart> = Vec::new();
+    for p in parts {
+        match (merged.last_mut(), p) {
+            (Some(TemplatePart::Text(prev)), TemplatePart::Text(next)) => prev.push_str(&next),
+            (_, p) => merged.push(p),
+        }
+    }
+    merged
+}
+
 /// One generated function under construction: its locals, and the parameters
 /// among them.
 struct Frame {
@@ -565,6 +595,8 @@ struct Generator {
     routed: HashMap<(Op, usize), FuncIdx>,
     /// Instances whose body is still to be built.
     queue: Vec<(Op, usize, FuncIdx)>,
+    /// Arity to the shared string joiner of that arity ([`Generator::joiner`]).
+    joiners: HashMap<usize, FuncIdx>,
     out: Derives,
 }
 
@@ -583,6 +615,7 @@ impl Generator {
             taken: HashMap::default(),
             routed: HashMap::default(),
             queue: Vec::new(),
+            joiners: HashMap::default(),
             out: Derives::default(),
         }
     }
@@ -1438,7 +1471,7 @@ impl Generator {
                 let v = frame.local("v", &inner_ty);
                 let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty.clone())])?;
                 let shown = self.at(Op::Show, inner, vec![self.local_expr(v, &inner_ty)])?;
-                let body = self.template(vec![
+                let body = self.joined(vec![
                     TemplatePart::Text(".Some(".into()),
                     TemplatePart::Hole(shown),
                     TemplatePart::Text(")".into()),
@@ -1486,7 +1519,7 @@ impl Generator {
                         parts.push(TemplatePart::Text(
                             if v.record { " }".to_string() } else { ")".to_string() },
                         ));
-                        self.template(parts)
+                        self.joined(parts)
                     };
                     arms.push(self.arm(pat, body));
                 }
@@ -1496,21 +1529,87 @@ impl Generator {
         }
     }
 
+    /// The rendered pieces of one value, joined by a **single shared call**
+    /// rather than by a chain of concatenations written out at the site.
+    ///
+    /// `middle::lower` turns a `Template` of *k* parts into *k*−1 `str.concat`
+    /// calls and, because every intermediate is a fresh block this generator
+    /// owns, *k*−1 more drops — and a drop of a `Str` is four CLIF blocks
+    /// inline. A derived `show` writes one such template **per variant**, so an
+    /// enum of twenty three-field variants pays for sixty joins and ninety
+    /// drops in one function body, which is where `enum-heavy`'s native row
+    /// went: turning `Show` on took it from 97.9 k lines/s to 20.8 k, with
+    /// 1,221 ms of the 1,251 ms difference inside `emit`.
+    ///
+    /// The chain itself is not wrong, and this does not replace it — it moves
+    /// it. [`Generator::joiner`] mints one function per *arity* for the whole
+    /// program, whose body is that same template, so the chain is emitted once
+    /// per arity instead of once per variant. What is left at the site is one
+    /// call with *k* string arguments, and no intermediate for anyone to drop.
+    fn joined(&mut self, parts: Vec<TemplatePart>) -> Expr {
+        let merged = merge(parts);
+        // Two parts are already one join; a call for them would be one more
+        // instruction, not one fewer.
+        if merged.len() < 3 {
+            return self.template_of(merged);
+        }
+        let Some(f) = self.joiner(merged.len()) else { return self.template_of(merged) };
+        let args: Vec<Expr> = merged
+            .into_iter()
+            .map(|p| match p {
+                TemplatePart::Text(t) => self.str_lit(&t),
+                TemplatePart::Hole(e) => e,
+            })
+            .collect();
+        let ret = self.str_ty();
+        self.call(f, args, ret)
+    }
+
+    /// The function that concatenates `n` strings, minted on first use and
+    /// shared by every generated body in the program.
+    ///
+    /// It is deliberately unqualified, so it lands in the root codegen unit:
+    /// there are as many of these as there are distinct arities in the whole
+    /// program — a dozen or so — and giving them a module would mean minting
+    /// one per module instead.
+    fn joiner(&mut self, n: usize) -> Option<FuncIdx> {
+        if let Some(f) = self.joiners.get(&n) {
+            return Some(*f);
+        }
+        let str_ty = self.str_ty();
+        if str_ty.is_error() {
+            return None;
+        }
+        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).ok()?);
+        let mut frame = Frame::new();
+        let mut parts = Vec::with_capacity(n);
+        for i in 0..n {
+            let p = frame.param(&format!("p{i}"), &str_ty);
+            parts.push(TemplatePart::Hole(self.local_expr(p, &str_ty)));
+        }
+        let body = Expr::new(ExprKind::Template { parts }, str_ty.clone(), Span::NONE);
+        self.funcs.push(Func {
+            symbol: format!("derive$join${n}"),
+            debug_name: format!("derive$join${n}"),
+            params: frame.params,
+            locals: frame.locals,
+            kind: FuncKind::Body(body),
+            ret: str_ty,
+            desc: None,
+            span: Span::NONE,
+        });
+        self.joiners.insert(n, idx);
+        Some(idx)
+    }
+
+    /// A template over parts already merged.
+    ///
     /// Every hole in a generated template is already a `Str`, so a backend
     /// needs no per-type rendering to lower one: it is concatenation.
-    ///
-    /// Adjacent literal text is merged, because a field name and the separator
-    /// before it are written separately and are one string.
-    fn template(&self, parts: Vec<TemplatePart>) -> Expr {
-        let mut merged: Vec<TemplatePart> = Vec::new();
-        for p in parts {
-            match (merged.last_mut(), p) {
-                (Some(TemplatePart::Text(prev)), TemplatePart::Text(next)) => prev.push_str(&next),
-                (_, p) => merged.push(p),
-            }
-        }
+    fn template_of(&self, merged: Vec<TemplatePart>) -> Expr {
         Expr::new(ExprKind::Template { parts: merged }, self.str_ty(), Span::NONE)
     }
+
 
     fn show_fields(
         &mut self,
@@ -1542,7 +1641,7 @@ impl Generator {
             parts.push(TemplatePart::Hole(shown));
         }
         parts.push(TemplatePart::Text(close.to_string()));
-        Some(self.template(parts))
+        Some(self.joined(parts))
     }
 
     // -- JSON ---------------------------------------------------------------
@@ -1892,17 +1991,105 @@ fn rewrite(
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
     let mut reporter: Vec<(usize, FuncIdx)> = Vec::new();
-    for f in &program.funcs {
-        if let (Some(key), Some(d)) = (f.intrinsic_key(), f.desc) {
-            if key != "json.decode" {
-                if let Some(idx) = routed.get(&(Op::Show, d)) {
-                    reporter.push((d, *idx));
-                }
-            }
+    for i in 0..program.funcs.len() {
+        let Some(f) = program.funcs.get(i) else { continue };
+        let (Some(key), Some(d)) = (f.intrinsic_key().map(str::to_owned), f.desc) else { continue };
+        if key == "json.decode" {
+            continue;
+        }
+        let Some(show) = routed.get(&(Op::Show, d)).copied() else { continue };
+        reporter.push((d, show));
+        if let Some(f) = program.funcs.get_mut(i) {
+            reporter_body(f, &key, show);
         }
     }
     out.reporter_show = reporter;
 }
+
+/// Gives the test runner's two reporting intrinsics a body that renders their
+/// values, where there is a generated `Show` at the type to render them with.
+///
+/// This is the substitution the module docs name: a descriptor reaches no
+/// native artifact (VALUE-MODEL.md §9), so the descriptor `report` was handed
+/// becomes a *call* at the type, and what reaches the runtime is two `Str`s
+/// rather than a value and a walk. The bytes are then the program's own —
+/// `$show`'s, by way of the `Show` this pass generates — which is what lets one
+/// `commands/test.rs::report_failure` state the failure format for both
+/// backends instead of each runtime having its own.
+///
+/// `report` renders **only on the branch that fails**. An assertion that passes
+/// is a comparison and a branch, here as on JavaScript, because rendering both
+/// sides of every passing assertion in a suite is the cost this shape exists to
+/// avoid.
+fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
+    let ty_of = |f: &Func, p: usize| {
+        f.params.get(p).and_then(|l| f.locals.get(l.0 as usize)).map(|l| l.ty.clone())
+    };
+    let local = |f: &Func, p: usize| {
+        Some(Expr::new(ExprKind::Local(*f.params.get(p)?), ty_of(f, p)?, Span::NONE))
+    };
+    // A rendering answers a `Str`, and the one `Str` this function is sure to
+    // name is the `kind` it was handed.
+    let shown = |f: &Func, p: usize, str_ty: &Ty| {
+        Some(Expr::new(
+            ExprKind::CallFn { func: Callee::Func(show), args: vec![local(f, p)?] },
+            str_ty.clone(),
+            Span::NONE,
+        ))
+    };
+    let built = match key {
+        // `report(passed, kind, actual, expected)`.
+        "testing_assert.report" => (|| {
+            let str_ty = ty_of(f, 1)?;
+            let fail = Expr::new(
+                ExprKind::Intrinsic {
+                    name: String::from(REPORT_SHOWN),
+                    targs: Vec::new(),
+                    args: vec![local(f, 1)?, shown(f, 2, &str_ty)?, shown(f, 3, &str_ty)?],
+                },
+                f.ret.clone(),
+                Span::NONE,
+            );
+            Some(Expr::new(
+                ExprKind::If {
+                    cond: Box::new(local(f, 0)?),
+                    then: Box::new(Expr::new(ExprKind::Unit, f.ret.clone(), Span::NONE)),
+                    else_: Box::new(fail),
+                },
+                f.ret.clone(),
+                Span::NONE,
+            ))
+        })(),
+        // `failExpected(kind, got)`, which answers the bottom type: it is
+        // reached only where the test has already failed, so there is no branch
+        // and the rendering is unconditional.
+        "testing_assert.failExpected" => (|| {
+            let str_ty = ty_of(f, 0)?;
+            Some(Expr::new(
+                ExprKind::Intrinsic {
+                    name: String::from(EXPECTED_SHOWN),
+                    targs: Vec::new(),
+                    args: vec![local(f, 0)?, shown(f, 1, &str_ty)?],
+                },
+                f.ret.clone(),
+                Span::NONE,
+            ))
+        })(),
+        _ => None,
+    };
+    if let Some(body) = built {
+        f.set_body(body);
+    }
+}
+
+/// `report`, with both values rendered: `(kind, actual, expected) -> ()`, and
+/// it does not return. Named here because both native backends lower it and
+/// neither may spell it differently.
+pub const REPORT_SHOWN: &str = "testing_assert.reportShown";
+
+/// `failExpected`, with its one value rendered: `(kind, got) -> R`, and it does
+/// not return.
+pub const EXPECTED_SHOWN: &str = "testing_assert.failExpectedShown";
 
 fn rewrite_expr(
     e: &mut Expr,
@@ -2312,17 +2499,64 @@ export fn main(): Result<(), Str> {
 
     /// Rendering is a concatenation of literal text and rendered fields: no
     /// descriptor, and no name read at run time.
+    ///
+    /// The concatenation is one call to the shared arity-5 joiner rather than a
+    /// `cat[…]` written out here, which is [`Generator::joined`]: the chain is
+    /// emitted once for the program instead of once per rendered shape.
     #[test]
     fn rendering_is_a_concatenation() {
         let (mut program, _) = compile(POINT);
         let out = run(&mut program);
+        let joiner = joiner_of(&program, 5).expect("an arity-5 joiner");
         assert_eq!(
             printed(&program, &out, Op::Show),
-            vec![
-                "$derive$show$P(l0) = cat[\"P { x: \" derivePrimShow(l0.0) \", y: \" \
-                 derivePrimShow(l0.1) \" }\"]"
-            ]
+            vec![format!(
+                "$derive$show$P(l0) = f{joiner}(\"P {{ x: \", derivePrimShow(l0.0), \", y: \", \
+                 derivePrimShow(l0.1), \" }}\")"
+            )]
         );
+    }
+
+    /// The index of the joiner of this arity, and the proof that there is
+    /// exactly one of it.
+    fn joiner_of(program: &Program, arity: usize) -> Option<usize> {
+        let name = format!("derive$join${arity}");
+        let found: Vec<usize> = program
+            .funcs
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.symbol == name)
+            .map(|(i, _)| i)
+            .collect();
+        assert!(found.len() <= 1, "{name} was minted {} times", found.len());
+        found.first().copied()
+    }
+
+    /// Two shapes that render with the same number of pieces share one joiner,
+    /// which is the whole point of moving the chain off the site.
+    #[test]
+    fn one_joiner_serves_every_shape_of_the_same_width() {
+        let src = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct A { x: Int, y: Int }
+struct B { p: Int, q: Int }
+derive Show for A;
+derive Show for B;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(A { x: 1, y: 2 }.show(ctx));
+  let _ = ctx.println(B { p: 3, q: 4 }.show(ctx));
+  .Ok(())
+}
+"#;
+        let (mut program, _) = compile(src);
+        let _ = run(&mut program);
+        // `joiner_of` asserts there is at most one, and both shapes render five
+        // pieces, so finding it at all is the sharing.
+        assert!(joiner_of(&program, 5).is_some(), "the arity-5 joiner is shared");
     }
 
     /// Hashing threads an accumulator and mirrors `$hashInto`: the field count
@@ -2369,12 +2603,13 @@ export fn main(): Result<(), Str> {
                  (Eq<I64>(l2, l3) && Eq<I64>(l4, l5)), _ => false } }"
             ]
         );
+        let joiner = joiner_of(&program, 5).expect("an arity-5 joiner");
         assert_eq!(
             printed(&program, &out, Op::Show),
-            vec![
-                "$derive$show$Shape(l0) = match l0 { .v0 => \".Dot\", .v1(l1, l2) => \
-                 cat[\".Line(\" derivePrimShow(l1) \", \" derivePrimShow(l2) \")\"] }"
-            ]
+            vec![format!(
+                "$derive$show$Shape(l0) = match l0 {{ .v0 => \".Dot\", .v1(l1, l2) => \
+                 f{joiner}(\".Line(\", derivePrimShow(l1), \", \", derivePrimShow(l2), \")\") }}"
+            )]
         );
     }
 

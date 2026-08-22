@@ -376,12 +376,39 @@ fn eq_name(i: usize) -> String {
     format!("$eqD{i}")
 }
 
+/// `a == b` at a float: `===` widened by the one pair it denies.
+///
+/// SPEC 7.2 rules `NaN == NaN`, and SPEC 6.2 keeps `-0.0 == 0.0`. `Object.is`
+/// answers the first and gets the second wrong, so the test is spelled out.
+///
+/// Inline only where both operands may be written twice, which is a name, a
+/// literal, or a projection of one — the shapes a compiled comparison reads
+/// out of an aggregate. `$feq` is the same test for everything else, and is
+/// tree-shaken away in a program that never needs it.
+pub(crate) fn float_eq(a: Expr, b: Expr) -> Expr {
+    if !a.is_duplicable() || !b.is_duplicable() {
+        return Expr::call(Expr::ident("$feq"), vec![a, b]);
+    }
+    Expr::bin(
+        BinOp::Or,
+        Expr::bin(BinOp::StrictEq, a.clone(), b.clone()),
+        Expr::bin(
+            BinOp::And,
+            Expr::bin(BinOp::StrictNe, a.clone(), a),
+            Expr::bin(BinOp::StrictNe, b.clone(), b),
+        ),
+    )
+}
+
 /// How a value of a described type is compared.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EqKind {
-    /// `a === b` says it: a number, a string, a boolean, `()`, or an enum
+    /// `a === b` says it: an integer, a string, a boolean, `()`, or an enum
     /// whose every variant is payload-free and so is a bare number.
     Identity,
+    /// A float, where `===` is wrong in exactly one pair: SPEC 7.2 rules
+    /// `NaN == NaN` and `===` denies it.
+    Float,
     /// An aggregate whose shape is known, compiled into its own function.
     Compiled,
     /// `Option` — whose nesting the runtime boxes — and anything with no
@@ -1201,6 +1228,11 @@ impl<'a> Gen<'a> {
                 let lit = self.int_literal(*v, *neg, &pattern.ty);
                 Some(Expr::bin(BinOp::StrictEq, subject.clone(), lit))
             }
+            // `===` and not `float_eq`: the grammar has no `NaN` literal, so
+            // the right operand is never one, and the extra test SPEC 7.2 asks
+            // for could only ever answer false here. A `NaN` subject fails this
+            // test on every backend, which is `float_eq` at a non-`NaN`
+            // literal.
             PatKind::Float(v) => {
                 Some(Expr::bin(BinOp::StrictEq, subject.clone(), Expr::Num(*v)))
             }
@@ -2048,6 +2080,15 @@ impl<'a> Gen<'a> {
         }
         match op {
             PrimOp::Not => Expr::un(UnOp::Not, args.pop().or_ice(UNARY_ARITY)),
+            // A float is the one primitive `===` gets wrong, and only at
+            // `NaN`. The ordering operators below keep IEEE's unordered
+            // answer, which SPEC 6.2 still pins.
+            PrimOp::Eq | PrimOp::Ne if float => {
+                let b = args.pop().or_ice(BINARY_ARITY);
+                let a = args.pop().or_ice(BINARY_ARITY);
+                let same = float_eq(a, b);
+                if op == PrimOp::Eq { same } else { Expr::un(UnOp::Not, same) }
+            }
             PrimOp::Eq => two(BinOp::StrictEq, &mut args),
             PrimOp::Ne => two(BinOp::StrictNe, &mut args),
             PrimOp::Lt => two(BinOp::Lt, &mut args),
@@ -2221,6 +2262,7 @@ impl<'a> Gen<'a> {
     /// How values of the type descriptor `i` describes are compared.
     fn eq_kind(&self, i: usize) -> EqKind {
         match self.program.descriptors.get(i) {
+            Some(Desc::Prim(p)) if p.is_float() => EqKind::Float,
             Some(Desc::Prim(_) | Desc::Unit) => EqKind::Identity,
             Some(e @ Desc::Enum { .. }) if e.payloadless() => EqKind::Identity,
             Some(Desc::Struct { .. } | Desc::Enum { .. } | Desc::Array(_) | Desc::Tuple(_)) => {
@@ -2237,6 +2279,7 @@ impl<'a> Gen<'a> {
     fn eq_call(&self, i: usize, a: Expr, b: Expr) -> Expr {
         match self.eq_kind(i) {
             EqKind::Identity => Expr::bin(BinOp::StrictEq, a, b),
+            EqKind::Float => float_eq(a, b),
             EqKind::Compiled => Expr::call(Expr::ident(eq_name(i)), vec![a, b]),
             EqKind::Generic => Expr::call(Expr::ident("$eq"), vec![a, b]),
         }
@@ -2245,11 +2288,10 @@ impl<'a> Gen<'a> {
     /// The comparison for descriptor `i`, as its own function — or `None` for
     /// the types that need none, because `===` or `$eq` already says it.
     ///
-    /// Every one of these begins `if (a === b) return true;`, which is not an
-    /// optimisation: it is what `$eq` does, and it is observable. A struct
-    /// holding `NaN` is equal to *itself* — the same object — and not to a
-    /// separately built copy, and that is the answer the language already
-    /// gives.
+    /// Every one of these begins `if (a === b) return true;`. SPEC 7.2 makes
+    /// `==` an equivalence relation, so a reference that is already known to
+    /// be the same value is already known to be equal, and the walk below can
+    /// only reach the same answer more slowly.
     fn eq_decl(&self, i: usize) -> Option<Stmt> {
         if self.eq_kind(i) != EqKind::Compiled {
             return None;

@@ -130,7 +130,11 @@ impl<'a> Gen<'a> {
             }
             "eq" => {
                 let (x, y) = two()?;
-                Some(Expr::bin(BinOp::StrictEq, x, y))
+                Some(if from.is_float() {
+                    crate::compiler::backend::js::generate::float_eq(x, y)
+                } else {
+                    Expr::bin(BinOp::StrictEq, x, y)
+                })
             }
             "compare" => {
                 let (x, y) = two()?;

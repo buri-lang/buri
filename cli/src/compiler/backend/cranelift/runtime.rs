@@ -89,6 +89,23 @@ pub enum Ret {
     /// whether `middle::layout` chose a tag or a niche, which is exactly what
     /// rule 3 is protecting.
     Opt,
+    /// A `Result<T, E>`: an `i32` discriminant, `.Ok`'s payload through a
+    /// trailing out-pointer, and an error variant **named by its index**
+    /// (`lib.rs` §2.1).
+    ///
+    /// The difference from [`Ret::Opt`] is entirely on the failure side. An
+    /// `Option`'s one failure is `.None` and carries nothing; a `Result`'s is a
+    /// value of `E`, and the discriminant `0 ..= n` is what says which one — so
+    /// the backend stores `.Err`'s tag into the `Result` and then `n` into the
+    /// `E` sitting at `.Err`'s payload offset. `lib.rs` §2.1 states the
+    /// restriction that makes two stores enough: the variant `n` names carries
+    /// no fields.
+    ///
+    /// The out-pointer is **omitted where `T` is zero-sized**, which is
+    /// `MemFs.writeFile`'s `Result<(), IoError>`. A parameter for a value that
+    /// occupies no bytes is one the two sides can disagree about for free, and
+    /// `Ret::Out` already drops it for the same reason.
+    Res,
     /// The call does not come back (SPEC 6.10).
     NoReturn,
 }
@@ -181,6 +198,49 @@ pub const ENTRIES: &[Entry] = &[
     er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1),
     e("list.range", "buri_rt_list_range", Ret::Out),
     e("list.join", "buri_rt_list_join", Ret::Out),
+    // -- core/bytes ---------------------------------------------------------
+    //
+    // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
+    // hexadecimal, base64, varints and zigzag are arithmetic over a `[U8]`.
+    // These six are the two conversions whose answer is the platform's
+    // representation — the UTF-8 encoding of a string, and the IEEE 754 byte
+    // pattern of a `Float`.
+    //
+    // `Extra::None` at every one of them, including the three answering a
+    // `[U8]`: the element type is fixed at `U8`, so there is no `T` for the
+    // stride-and-glue pair of `lib.rs` §2 rule 4 to describe, and
+    // `cli/runtime/value.rs`'s `list_of_bytes` knows the stride is one.
+    e("bytes.toUtf8", "buri_rt_bytes_to_utf8", Ret::Out),
+    // `Result<Str, Utf8Error>` — §2.1's *second* error shape. `Utf8Error(Int)`
+    // is a struct, so there is no variant index to name it with and the value
+    // crosses through its own out-pointer.
+    e("bytes.fromUtf8", "buri_rt_bytes_from_utf8", Ret::Res),
+    e("bytes.f64ToBytes", "buri_rt_bytes_f64_to_bytes", Ret::Out),
+    e("bytes.f64FromBytes", "buri_rt_bytes_f64_from_bytes", Ret::Opt),
+    e("bytes.f32ToBytes", "buri_rt_bytes_f32_to_bytes", Ret::Out),
+    e("bytes.f32FromBytes", "buri_rt_bytes_f32_from_bytes", Ret::Opt),
+    // -- core/char ----------------------------------------------------------
+    //
+    // Eight of `char.buri`'s nine. `toU32` is the ninth and is not here: a
+    // `Char` **is** a `U32`, so it is a representation change the backend
+    // open-codes, and `isAlphanumeric` is written in Buri over two of these.
+    //
+    // Every one of them is one comparison or one table lookup, and a call is
+    // more instructions than the answer — which is the argument for open-coding
+    // that `str.concat` wins and this loses. `isAlpha` is a binary search over
+    // six hundred ranges of Unicode data, `isUpper` is two full case mappings,
+    // and open-coding *those* in two backends is two places for the data to
+    // drift. So all eight go through the archive together rather than four of
+    // them here and four there, and `cli/runtime/char.rs` is the one place the
+    // answers live.
+    e("char.isDigit", "buri_rt_char_is_digit", Ret::Scalar),
+    e("char.isAlpha", "buri_rt_char_is_alpha", Ret::Scalar),
+    e("char.isSpace", "buri_rt_char_is_space", Ret::Scalar),
+    e("char.isUpper", "buri_rt_char_is_upper", Ret::Scalar),
+    e("char.isLower", "buri_rt_char_is_lower", Ret::Scalar),
+    e("char.toUpper", "buri_rt_char_to_upper", Ret::Scalar),
+    e("char.toLower", "buri_rt_char_to_lower", Ret::Scalar),
+    e("char.toDigit", "buri_rt_char_to_digit", Ret::Opt),
     // -- core/math, the exactly-specified half --------------------------------
     //
     // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are
@@ -221,6 +281,128 @@ pub const ENTRIES: &[Entry] = &[
     e("alloc.charge", "buri_rt_alloc_charge", Ret::Scalar),
     e("alloc.count", "buri_rt_alloc_count", Ret::Scalar),
     e("alloc.total", "buri_rt_alloc_total", Ret::Scalar),
+    // -- core/testing/context's stateful half ---------------------------------
+    //
+    // `cli/runtime/testing.rs`'s header is the argument for these being in the
+    // archive rather than open-coded: each names a slot in one mutable table,
+    // which is `runtime.js`'s `$t.h` written for a language that has statics.
+    //
+    // Every **constructor** is `Ret::Out` and not `Ret::Scalar`, and that is
+    // the one non-obvious row here. `struct CaptureOut(I64)` is a struct, and
+    // `middle/layout.rs` gives every struct `Repr::Aggregate` however few
+    // fields it has — so the result is an aggregate and §2 rule 2 puts it
+    // through an out-pointer. Declaring it as returning one word would agree
+    // with the archive by accident on both supported targets and be an ABI
+    // disagreement nothing diagnoses.
+    //
+    // `alloc` and `TestAlloc.allocate` are **not** here: they read no state and
+    // both backends open-code them (`emit.rs`).
+    //
+    // `MemFs`'s four **are** here now. Three answer a `Result<T, IoError>`,
+    // which was the shape this table had no `Ret` for and the reason all four
+    // were held back; §2.1 is that shape and [`Ret::Res`] is the row for it.
+    // `host.HostFs.readFile` is still absent, and for a different reason: the
+    // archive has no body for it (`cli/runtime/host.rs`), so it is a gap rather
+    // than a shape.
+    e("testing_context.captureOut", "buri_rt_testing_context_capture_out", Ret::Out),
+    e("testing_context.captureErr", "buri_rt_testing_context_capture_err", Ret::Out),
+    e("testing_context.CaptureOut.print", "buri_rt_testing_context_capture_out_print", Ret::Void),
+    e(
+        "testing_context.CaptureOut.println",
+        "buri_rt_testing_context_capture_out_println",
+        Ret::Void,
+    ),
+    e(
+        "testing_context.CaptureOut.writeBytes",
+        "buri_rt_testing_context_capture_out_write_bytes",
+        Ret::Void,
+    ),
+    e(
+        "testing_context.CaptureOut.captured",
+        "buri_rt_testing_context_capture_out_captured",
+        Ret::Out,
+    ),
+    e("testing_context.CaptureErr.eprint", "buri_rt_testing_context_capture_err_eprint", Ret::Void),
+    e(
+        "testing_context.CaptureErr.eprintln",
+        "buri_rt_testing_context_capture_err_eprintln",
+        Ret::Void,
+    ),
+    e(
+        "testing_context.CaptureErr.capturedErr",
+        "buri_rt_testing_context_capture_err_captured_err",
+        Ret::Out,
+    ),
+    e("testing_context.stdin", "buri_rt_testing_context_stdin", Ret::Out),
+    e("testing_context.stdinBytes", "buri_rt_testing_context_stdin_bytes", Ret::Out),
+    e(
+        "testing_context.TestStdin.readLine",
+        "buri_rt_testing_context_test_stdin_read_line",
+        Ret::Opt,
+    ),
+    e(
+        "testing_context.TestStdin.readBytes",
+        "buri_rt_testing_context_test_stdin_read_bytes",
+        Ret::Opt,
+    ),
+    e("testing_context.data", "buri_rt_testing_context_data", Ret::Out),
+    e("testing_context.files", "buri_rt_testing_context_files", Ret::Out),
+    e(
+        "testing_context.MemFs.readFile",
+        "buri_rt_testing_context_mem_fs_read_file",
+        Ret::Res,
+    ),
+    // `Result<(), IoError>` — `Ret::Res` with no out-pointer, because `()`
+    // occupies no bytes.
+    e(
+        "testing_context.MemFs.writeFile",
+        "buri_rt_testing_context_mem_fs_write_file",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.fileExists",
+        "buri_rt_testing_context_mem_fs_file_exists",
+        Ret::Scalar,
+    ),
+    e(
+        "testing_context.MemFs.readDir",
+        "buri_rt_testing_context_mem_fs_read_dir",
+        Ret::Res,
+    ),
+    e("testing_context.clockAt", "buri_rt_testing_context_clock_at", Ret::Out),
+    e(
+        "testing_context.TestClock.nowMillis",
+        "buri_rt_testing_context_test_clock_now_millis",
+        Ret::Scalar,
+    ),
+    e(
+        "testing_context.TestClock.sleepMillis",
+        "buri_rt_testing_context_test_clock_sleep_millis",
+        Ret::Void,
+    ),
+    e("testing_context.TestClock.advance", "buri_rt_testing_context_test_clock_advance", Ret::Void),
+    e("testing_context.randSeed", "buri_rt_testing_context_rand_seed", Ret::Out),
+    e(
+        "testing_context.TestRand.nextInt",
+        "buri_rt_testing_context_test_rand_next_int",
+        Ret::Scalar,
+    ),
+    e(
+        "testing_context.TestRand.nextFloat",
+        "buri_rt_testing_context_test_rand_next_float",
+        Ret::Scalar,
+    ),
+    e("testing_context.envOf", "buri_rt_testing_context_env_of", Ret::Out),
+    e(
+        "testing_context.TestEnv.variable",
+        "buri_rt_testing_context_test_env_variable",
+        Ret::Opt,
+    ),
+    e(
+        "testing_context.TestEnv.arguments",
+        "buri_rt_testing_context_test_env_arguments",
+        Ret::Out,
+    ),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
@@ -361,7 +543,26 @@ mod tests {
     /// than to let the mangler invent it.
     #[test]
     fn the_unimplemented_surface_is_not_claimed() {
-        for absent in ["list.map", "list.fold", "list.zip", "list.flatten", "json.decode"] {
+        for absent in [
+            "list.map",
+            "list.fold",
+            "list.sortBy",
+            "list.zip",
+            "list.flatten",
+            "json.decode",
+            // The archive has no body for these: `core/fs`'s real filesystem
+            // is `cli/runtime/host.rs`'s business and it stops at
+            // `fileExists`. Not a *shape* — `MemFs`'s three are the same
+            // `Result<T, IoError>` and are in the table above — which is the
+            // distinction this list exists to keep.
+            "host.HostFs.readFile",
+            "host.HostFs.writeFile",
+            "host.HostFs.readDir",
+            // Open-coded, and named here so that "it has no symbol" and "the
+            // backend cannot compile it" stay two different statements.
+            "testing_context.alloc",
+            "testing_context.TestAlloc.allocate",
+        ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
     }

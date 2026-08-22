@@ -469,9 +469,14 @@ impl<'a> Reprs<'a> {
                     let offsets = layout.variant(v).to_vec();
                     for (i, f) in fields.iter().enumerate() {
                         let offset = offsets.get(i).copied().unwrap_or(0);
-                        let counts = self.layouts.boxes(owner, f) || self.counted_type(f);
-                        if counts {
-                            variants.push((u32::try_from(v).unwrap_or(0), f.clone(), offset));
+                        let boxed = self.layouts.boxes(owner, f);
+                        if boxed || self.counted_type(f) {
+                            variants.push((
+                                u32::try_from(v).unwrap_or(0),
+                                f.clone(),
+                                offset,
+                                boxed,
+                            ));
                         }
                     }
                 }
@@ -545,7 +550,15 @@ pub enum Site {
     /// Never null, and its pointee is released by that type's own glue.
     Boxed { offset: u32, ty: Ty },
     /// An enum: switch on the tag, then walk only the variant that is live.
-    Tagged { tag: Scalar, variants: Vec<(u32, Ty, u32)> },
+    ///
+    /// Each entry is `(variant, field type, offset, boxed)`. The last is the
+    /// same distinction [`Site::Boxed`] makes for a struct's field, and this
+    /// list used to drop it: a variant field whose type is the enum's own is
+    /// behind a pointer (VALUE-MODEL.md §5.2), and walking it *in place*
+    /// reads the pointer's bytes as if the pointee were inline and then
+    /// descends into the enum's own type again. `cranelift/emit.rs` had the
+    /// identical defect and it is fixed there in the same words.
+    Tagged { tag: Scalar, variants: Vec<(u32, Ty, u32, bool)> },
     /// A niche-encoded `Option`: walk the payload only where it is `.Some`.
     Guarded { null_at: u32, ty: Ty },
 }

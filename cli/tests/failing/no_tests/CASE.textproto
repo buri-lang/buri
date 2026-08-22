@@ -17,14 +17,14 @@
 doc: "a suite with no test declarations reports zeros; a selection with no suite at all says so"
 
 run {
-  args: ["test", "//lib/empty", "--force"]
+  args: ["test", "//lib/empty", "--force", "--output=js"]
   exit: 0
   golden: "zeros.txt"
   stream: OUT
 }
 
 run {
-  args: ["test", "//lib/untested", "--force"]
+  args: ["test", "//lib/untested", "--force", "--output=js"]
   exit: 0
   golden: "no_suites.txt"
   stream: OUT
@@ -33,7 +33,7 @@ run {
 # The whole repository is one suite holding nothing and one package with none,
 # which is still zeros rather than `no test suites`.
 run {
-  args: ["test", "//...", "--force"]
+  args: ["test", "//...", "--force", "--output=js"]
   exit: 0
   golden: "everything.txt"
   stream: OUT

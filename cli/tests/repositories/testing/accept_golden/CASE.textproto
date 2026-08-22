@@ -21,6 +21,13 @@
 #     reports both failures, and the ordinary run after it passes the one test
 #     whose golden moved and no others.
 #
+# `--output=js` on every step, including the ones that do not pass `--accept`.
+# The mode needs the two sides of the comparison that failed, and only the
+# JavaScript runner reports them — `default_platform` already sends `--accept`
+# there on its own, so the flag here is what makes the runs *around* it the
+# same run rather than two, and what keeps the recorded failures the same bytes
+# on a toolchain built without a native backend.
+
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
@@ -29,14 +36,14 @@ doc: "buri test --accept rewrites the declared golden a failing assertion expect
 # The stale golden, and the failure format the spec's `Running` section shows:
 # target, file, test name, actual, expected, source location.
 run {
-  args: ["test", "//lib/report", "--force"]
+  args: ["test", "//lib/report", "--force", "--output=js"]
   exit: 1
   golden: "stale.txt"
   stream: OUT
 }
 
 run {
-  args: ["test", "//lib/report", "--accept"]
+  args: ["test", "//lib/report", "--accept", "--output=js"]
   exit: 1
   golden: "accept.txt"
   stream: OUT
@@ -55,7 +62,7 @@ file {
 # One test passes now, and the two that were about files `--accept` may not
 # write still fail — in the same words, because nothing about them moved.
 run {
-  args: ["test", "//lib/report", "--force"]
+  args: ["test", "//lib/report", "--force", "--output=js"]
   exit: 1
   golden: "after.txt"
   stream: OUT

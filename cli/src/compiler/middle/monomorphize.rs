@@ -195,6 +195,71 @@ pub struct Program {
     pub desc_index: HashMap<Ty, usize>,
     /// Number of effect slots each context type carries, in binding order.
     pub ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
+    /// What every declared type is made of. See [`Shapes`].
+    pub shapes: Shapes,
+}
+
+/// What every declared type is made of, in a form a pass holding no `Tables`
+/// can still substitute into.
+///
+/// Recorded here for the reason [`Program::desc_modules`] is: the question is a
+/// `Tables` question and the pass that asks it is handed a `Program`.
+/// `middle::rc` decides whether a value carries a reference count, and
+/// `middle::native` — the pipeline that runs it — takes no `Tables`; a type it
+/// could not classify got no reference operations at all, which is a leaked
+/// block per value of it. Both native backends ask *rc's* question rather than
+/// the layout table's wherever they generate one half of a pair rc completes
+/// (`cranelift::emit::Cx::rc_counted`), and they build their oracle from a
+/// `Program` too, so the answer has to travel with the program or the two
+/// halves disagree.
+///
+/// Keyed by constructor rather than by instantiated type, and holding the
+/// *declared* field types with `Ty::Param` still in them: a type first spelled
+/// after this pass has run — `derives` and `closures` both build them — is then
+/// answered by substituting its own arguments, rather than being absent.
+#[derive(Clone, Debug, Default)]
+pub struct Shapes {
+    /// By `TyConId`, in `Tables::tycons` order.
+    pub cons: Vec<ConShape>,
+    /// By `CtxTypeId`: the type of each effect binding, in binding order.
+    pub ctxs: Vec<Vec<Ty>>,
+}
+
+/// What one type constructor is made of.
+#[derive(Clone, Debug)]
+pub enum ConShape {
+    Prim(Prim),
+    /// A struct's declared fields, or every variant's fields concatenated. A
+    /// type carries a count when *any* variant's field does, so the union over
+    /// variants is the accumulation the question wants and the tags are not
+    /// part of it.
+    Fields(Vec<Ty>),
+}
+
+/// [`Shapes`] for the whole compilation, which is every declared type rather
+/// than only the reached ones: a shape is two clones of a field list, the
+/// question is asked at types no body names, and a table with a hole in it is
+/// the defect this exists to close.
+fn shapes_of(tables: &Tables) -> Shapes {
+    let cons = tables
+        .tycons
+        .iter()
+        .map(|c| match &c.def {
+            TyDef::Prim(p) => ConShape::Prim(*p),
+            TyDef::Struct { fields, .. } => {
+                ConShape::Fields(fields.iter().map(|f| f.ty.clone()).collect())
+            }
+            TyDef::Enum { variants } => ConShape::Fields(
+                variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty.clone())).collect(),
+            ),
+        })
+        .collect();
+    let ctxs = tables
+        .ctx_types
+        .iter()
+        .map(|c| c.bindings.iter().map(|(_, t)| t.clone()).collect())
+        .collect();
+    Shapes { cons, ctxs }
 }
 
 /// What a queued instance is.
@@ -262,6 +327,7 @@ pub fn run(
         m.build(key, slot);
     }
 
+    let shapes = shapes_of(&checked.tables);
     Program {
         funcs: m.funcs,
         roots: program_roots,
@@ -269,6 +335,7 @@ pub fn run(
         desc_modules: m.desc_modules,
         desc_index: m.desc_index,
         ctx_layouts: m.ctx_layouts,
+        shapes,
     }
 }
 

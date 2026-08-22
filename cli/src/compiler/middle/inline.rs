@@ -623,6 +623,7 @@ mod tests {
             desc_modules: Vec::new(),
             desc_index: Default::default(),
             ctx_layouts: Default::default(),
+            shapes: Default::default(),
         }
     }
 

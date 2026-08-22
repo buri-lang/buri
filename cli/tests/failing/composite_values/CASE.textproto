@@ -18,7 +18,7 @@
 doc: "a failing assertion on every composite shape: structs, enums, lists, tuples, and the empty case of each"
 
 run {
-  args: ["test", "//lib/shapes", "--force"]
+  args: ["test", "//lib/shapes", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

@@ -268,8 +268,8 @@ mandatory axis, traded for there being no resolution algorithm to reason about.
 A test suite inherits its target's tags and platform restrictions, so a suite for
 a `server` library is checked as server code without saying anything.
 
-By default a suite runs once, on the host platform. A suite that must run in more
-than one lists them:
+By default a suite runs once, on the host platform, as a native binary. A suite
+that must run in more than one lists them:
 
 ```textproto schema=build
 # lib/codec/BUILD.buri
@@ -294,8 +294,47 @@ A native platform runs as a native binary where this toolchain can build one for
 it, which means the host's own platform: there is no cross-compilation, so a
 `LINUX` run is a Linux machine's and a `MACOS` run is a Mac's, and the other is
 refused with `platform-not-implemented` rather than quietly run through
-JavaScript. A suite that names no platforms still runs on JavaScript, which is
-the only backend every program can rely on today.
+JavaScript.
+
+A suite that names no platforms runs on the host natively too, and that is the
+default rather than a refusal: where this toolchain has no native backend, or
+where the suite's program reaches something the backend has no body for yet, the
+run falls back to JavaScript and says so in one line on standard error. The
+difference between the two is who asked. A platform written down is a request,
+and a request this toolchain cannot serve is an error; the default is a
+preference, and a preference gives way rather than turning a suite that used to
+run into one that does not. `buri test --output=js` is how to say it for a whole
+invocation without editing a build file.
+
+### One binary for several suites
+
+Almost none of what a small suite costs is compiling it: the charges are one `cc`
+invocation and one first execution of a file the operating system has never run,
+and both are paid per binary rather than per test. So `buri test` compiles the
+suites that name no platform into **one binary per tag-compatible batch**, links
+it once, and runs it once.
+
+Tag-compatible is this chapter's own rule applied to the union: a batch is one
+artifact, so two tags that forbid each other may not both be in it. A `client`
+suite and a `server` suite are therefore two binaries, however convenient one
+would have been, and the tags counted are those of the suite's production
+closure *and* of its `test { dependencies }` — everything the binary would
+actually link. Four more conditions keep a suite out of a batch, and each is a
+way two suites would disagree about what building or running them means: a
+declared `test { platforms }` (a request, served on its own), a declared
+`test { data }` (which runs on JavaScript anyway), a declared `timeout_seconds`
+(a limit is one suite's, and a shared process would make it everybody's), and
+`--output=` or `--accept` on the invocation.
+
+Nothing about the result changes. Each suite still has its own cache key, its own
+cached verdict, and its own report; a suite whose verdict is already cached is
+not compiled into the batch at all; and one suite's failure — which is an abort,
+and takes its process with it — costs that suite's test and no other suite's
+report, because the runner resumes at the block after the one that aborted. If
+anything at all makes a batch doubtful, from a type error to an intrinsic the
+backend has no body for, the batch is abandoned and every suite in it is
+compiled, linked and run on its own, which is where a diagnostic can name the one
+suite it belongs to.
 
 ## What tags are not
 

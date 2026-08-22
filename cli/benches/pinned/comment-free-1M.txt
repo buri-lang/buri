@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = comment-free-1M
+profile = comment-free
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = doc_comment_pct=0 lines=1000000 seed=0x0b001a575eed000f
+lines = 1009140
+bytes = 29051778
+modules = 4544
+digest = 6f60367cf9396d7974ce3910a3c665d46249c791ad9610b5267214c7e9a3d8c8
+native = false

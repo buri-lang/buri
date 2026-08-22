@@ -8,5 +8,9 @@ library {
             "test/patterns.buri",
             "test/optionresult.buri",
         ]
+
+        # The reference run, on the reference backend: `native::conformance`
+        # drives these same files through Cranelift (cli/tests/README.md).
+        platforms: [JS]
     }
 }

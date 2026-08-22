@@ -1,0 +1,12 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = enum-heavy-1M
+profile = enum-heavy
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = lines=1000000 seed=0x0b001a575eed0009 variants_per_enum=12..24 w_enum=8 w_generic_fn=0 w_list_fn=0 w_match_fn=0 w_string_fn=0 w_struct=0
+lines = 1007022
+bytes = 31200565
+modules = 3480
+digest = d50b2560a48bee7a6bba23d796fad5e1003761fe0162c02d5ae9b0fc7aaa95bc

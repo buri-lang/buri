@@ -14,14 +14,14 @@
 doc: "failures across two packages are grouped by target in label order, under one summary line, the same way twice"
 
 run {
-  args: ["test", "//...", "--force"]
+  args: ["test", "//...", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT
 }
 
 run {
-  args: ["test", "//...", "--force"]
+  args: ["test", "//...", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

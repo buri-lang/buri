@@ -5,8 +5,8 @@
 // value, and the cases that could tell them apart are the ones where
 // "structural" and "identical" come apart:
 //
-//   * `NaN`, which is not equal to itself — but a value *is* equal to itself,
-//     and the two claims meet inside a struct holding one;
+//   * `NaN`, which IEEE-754 denies is itself and SPEC 7.2 rules equal, so a
+//     struct holding one is equal to itself *and* to a separately built copy;
 //   * `-0.0` and `0.0`, which are equal;
 //   * an `Option`, whose nesting the runtime carries in a box;
 //   * an enum whose variants hold different numbers of fields;
@@ -45,15 +45,18 @@ test "a struct nests" {
 
 // --- floats --------------------------------------------------------------------------
 
-test "a struct holding NaN is not equal to a separately built one" {
-  // NaN is not equal to itself, and structural equality is honest about it.
-  assert.isFalse(mkFloaty(notANumber()) == mkFloaty(notANumber()));
+test "a struct holding NaN is equal to a separately built one" {
+  // SPEC 7.2: `==` is an equivalence relation, so the float leaf answers
+  // `true` for two NaNs and the struct inherits that.
+  assert.isTrue(mkFloaty(notANumber()) == mkFloaty(notANumber()));
+  assert.isFalse(mkFloaty(notANumber()) == mkFloaty(0.0));
+  assert.isFalse(mkFloaty(0.0) == mkFloaty(notANumber()));
 }
 
 test "a value is equal to itself even when it holds NaN" {
-  // The same value, not a copy — so this is identity, which holds of every
-  // value there is. Both answers above are correct and they are different
-  // questions.
+  // The same value, not a copy. Reflexivity holds of every value there is,
+  // and after SPEC 7.2's ruling it holds for the same reason as the case
+  // above rather than as a separate accident of identity.
   let f = mkFloaty(notANumber());
   assert.isTrue(f == f);
 }

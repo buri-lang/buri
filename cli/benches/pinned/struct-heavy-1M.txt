@@ -1,0 +1,12 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = struct-heavy-1M
+profile = struct-heavy
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = fields_per_struct=6..12 lines=1000000 seed=0x0b001a575eed0007 w_enum=0 w_generic_fn=0 w_list_fn=0 w_match_fn=0 w_string_fn=0 w_struct=8
+lines = 1007247
+bytes = 32714259
+modules = 3589
+digest = e5dd6936fb81af5baa8cd6c95f1290643f22e635371972adec0a73d5326de532

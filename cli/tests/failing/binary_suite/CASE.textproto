@@ -9,7 +9,7 @@
 doc: "a failing test in a binary rule's suite is reported exactly as a library's is"
 
 run {
-  args: ["test", "//cmd/app", "--force"]
+  args: ["test", "//cmd/app", "--force", "--output=js"]
   exit: 1
   golden: "fail.txt"
   stream: OUT

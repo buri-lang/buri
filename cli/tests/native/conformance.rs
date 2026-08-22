@@ -1,7 +1,8 @@
 //! The conformance corpus, compiled and run **natively**.
 //!
-//! `language/conformance.rs` drives the same corpus through `buri test`, which is the
-//! JavaScript backend: it is the suite that says what the language does. This
+//! `language/conformance.rs` drives the same corpus through `buri test`, which
+//! is the JavaScript backend because every `BUILD.buri` in the corpus says so:
+//! it is the suite that says what the language does. This
 //! file asks the other half of the question — whether the native backend
 //! *agrees* — by taking the same `.buri` files, compiling each one through
 //! `middle::run` → `middle::native` → `middle::lower` → `backend::cranelift`,
@@ -25,45 +26,64 @@
 //!
 //! # Which packages are in the native set, and which are not
 //!
-//! [`PACKAGES`] is the list, with the reason beside each exclusion. Three
-//! things keep a file out, and they are worth separating because only the third
-//! is about the backend:
+//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-four
+//! of the thirty-one files are in it** — the number the harness prints, and one
+//! the prose had off by one before `semantics/generics.buri` joined them — and
+//! one more, `proto/binary.buri`, which compiles and passes but is
+//! [`Out::Costly`] rather than in the set, for a
+//! reason that is the middle end's rather than the backend's. What is actually
+//! *refused* is three things:
 //!
-//!  1. **The harness cannot reach the package's library.** Eleven files import
-//!     `//lib/<package>`, and this compiles one file at a time against the
-//!     standard library with no repository, so the *front end* refuses them.
-//!     That says nothing about the backend and is the first thing `buri test
-//!     --backend=cranelift` would fix.
-//!  2. **The testing context.** `captureOut`, `clockAt`, `envOf`, `randSeed`,
-//!     `MemFs` and `TestStdin` have no native counterpart, and a file that
-//!     builds a `Hermetic` context instantiates all of them whether it uses
-//!     them or not. This is the single most common exclusion and it is what the
-//!     mission expected: effects and the testing-context machinery are a wave
-//!     of their own.
-//!  3. **The closure surface**, which is now most of the way in. A `list.*`
-//!     entry taking a function is a backend's loop to emit
-//!     (`cli/runtime/list.rs`'s header says why it cannot be a runtime call),
-//!     and `cranelift/emit.rs`'s `list_closure` emits nine of them: `map`,
-//!     `mapCtx`, `filter`, `filterCtx`, `fold`, `foldCtx`, `any`, `all` and
-//!     `count`. That is what moved `canary/canary.buri` into the native set,
-//!     and it is why no file below is excluded for a *plain* fold or map any
-//!     more. What is left is the entries that are not a loop over one list:
-//!     `find` and `findIndex` (they build an `Option`), `foldResult` and
-//!     `foldResultCtx` (a `Result`, with an early exit), `sortBy` (a
-//!     comparison sort), and `zip` and `flatten` (a second element layout).
-//!     `core/map`, `core/queue`, `core/bitset` and `core/date` are now held
-//!     out by the *testing context* rather than by the closure surface —
-//!     `queue` and `bitset` by nothing else at all.
+//!  1. **An inexact numeric conversion.** `x.toT()` where not every value fits
+//!     answers `Result<T, RangeError>` (SPEC 6.2.1), and `RangeError` is a
+//!     *struct of two `Str`s* — the source value rendered and the target's
+//!     name. That is a different shape from the runtime `Result` of
+//!     `cli/runtime/lib.rs` §2.1, which names an error by a variant index or
+//!     writes it through a pointer: here the backend has to *build* the two
+//!     strings. `numbers/conversions.buri`, `text/json.buri` (one call:
+//!     `num.U32.toChar`) and `proto/json.buri` (`num.F64.toI64`) are the three
+//!     files, and `numbers/conversions.buri` carries a second problem behind
+//!     the first — two of its blocks assert the JavaScript *bound*, which
+//!     VALUE-MODEL.md §12 row 2 has already ruled is not the native one.
+//!  2. **`json.*` and `derivePrimJson`.** A descriptor-driven walker, which is
+//!     what `runtime.js` does. `json/decoding.buri` and `json/encoding.buri`.
+//!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
+//!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
 //!
-//! Everything else — `json.*`, `core/proto`, `core/simd`, `core/math`,
-//! `core/char`, `core/bytes` — is named against the file that needs it. Every
-//! one is reported by `Backend::missing_intrinsics` before a byte of code is
-//! generated, rather than discovered as a link error.
+//! `semantics/generics.buri` was a fourth until a type parameter a program
+//! never determines stopped being a free variable: `Subst::default_unconstrained`
+//! makes it `()`, which every backend already lays out.
 //!
-//! The exclusions are checked as well as stated: [`the_excluded_packages_are_excluded_for_the_stated_reason`]
-//! compiles each one and asserts that the backend does refuse it, so a package
-//! that quietly becomes compilable is a failing test rather than a stale
-//! comment.
+//! # The harness used to be the biggest exclusion, and it was never about the
+//! backend
+//!
+//! Eleven files import `//lib/<package>`, and this compiled each one as a
+//! snippet against the standard library **with no repository** — so the front
+//! end refused them and eleven files' worth of conformance was invisible.
+//! `cli/tests/conformance/REPO.buri` has been there all along;
+//! [`repository`] opens it, and [`analyze`] compiles each file as a test source
+//! of its own package, which is what it is. That alone moved
+//! `codegen/equality.buri` and `codegen/tail_calls.buri` into the set with no
+//! backend change at all, and it is what made the four `//lib/semantics` files
+//! reachable enough to find what they *did* need.
+//!
+//! # What the backend gained to take the rest
+//!
+//!  * **`cli/runtime/lib.rs` §2.1, a `Result<T, E>` a runtime entry can
+//!    answer** — the shape two waves recorded as deferred. `MemFs`'s four
+//!    methods are the first entries to use it, and they are what
+//!    `semantics/effects.buri` and `semantics/evaluation.buri` were waiting
+//!    for.
+//!  * **`core/char`'s eight** (`cli/runtime/char.rs`), including `\p{L}` as a
+//!    table this repository carries. `data/strings.buri`.
+//!  * **`core/bytes`'s six** (`cli/runtime/bytes.rs`) — the UTF-8 pair and the
+//!    four IEEE 754 byte-pattern entries. `crypto/sha256.buri`,
+//!    `text/bytes.buri`, `proto/binary.buri` and `proto/failures.buri`.
+//!
+//! The exclusions are checked as well as stated:
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] compiles each
+//! refused file and asserts the backend still refuses it. A package that
+//! quietly becomes compilable is a failing test rather than a stale comment.
 
 #![allow(
     clippy::unwrap_used,
@@ -80,6 +100,7 @@
 )]
 
 use buri::build::buildfile::Platform;
+use buri::build::workspace::Workspace;
 use buri::compiler::backend::cranelift::Cranelift;
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Options, Profile, Target};
@@ -96,17 +117,60 @@ use std::sync::OnceLock;
 struct Case {
     /// `lib/<package>/test/<file>.buri`, relative to the corpus root.
     path: &'static str,
-    /// `None` when the file is in the native set; `Some(reason)` when it is
-    /// not, and the reason is what a reader gets instead of a surprise.
-    excluded: Option<&'static str>,
+    /// `None` when the file is in the native set; `Some(..)` when it is not,
+    /// and the reason is what a reader gets instead of a surprise.
+    out: Option<Out>,
+}
+
+/// Why a file stays out.
+///
+/// There was a second variant, `Wrong`, for the one file the backend compiled
+/// and got wrong, and `a_wrong_answer_is_still_wrong` ran it and asserted it
+/// still failed. `collections/queue.buri` was that file; the three defects
+/// behind it are fixed (`middle/rc.rs`'s deferred drops and `middle/layout.rs`'s
+/// list niche) and it is in the set above. The category comes back the day
+/// another file needs it, and not before.
+enum Out {
+    /// **The backend refuses it**, and names what it has no body for.
+    /// [`the_excluded_packages_are_excluded_for_the_stated_reason`] compiles
+    /// each and asserts the refusal is still there.
+    Refused(&'static str),
+    /// **The backend compiles it and every block passes**, and compiling it
+    /// costs more than this suite may spend.
+    ///
+    /// One file, and it is not a judgement about the file: `proto/binary.buri`
+    /// pays `middle/rc.rs`'s exponential `Scan::short_circuit` (see its entry
+    /// below), which is minutes when the machine is idle and unbounded when it
+    /// is not — it is a *middle-end* cost on the native path, and the backend
+    /// never gets to say anything about it.
+    ///
+    /// Excluded rather than included because a suite whose wall clock is set by
+    /// somebody else's in-flight work is a suite people stop running, and
+    /// excluded rather than *silently* dropped because the claim in the sentence
+    /// above is checkable: [`a_costly_package_still_passes`] runs it, `#[ignore]`d,
+    /// and is the test that says so the day the middle end stops charging for
+    /// it and this row can be deleted.
+    Costly(&'static str),
+}
+
+impl Out {
+    fn why(&self) -> &'static str {
+        match self {
+            Out::Refused(why) | Out::Costly(why) => why,
+        }
+    }
 }
 
 const fn included(path: &'static str) -> Case {
-    Case { path, excluded: None }
+    Case { path, out: None }
 }
 
 const fn excluded(path: &'static str, why: &'static str) -> Case {
-    Case { path, excluded: Some(why) }
+    Case { path, out: Some(Out::Refused(why)) }
+}
+
+const fn costly(path: &'static str, why: &'static str) -> Case {
+    Case { path, out: Some(Out::Costly(why)) }
 }
 
 /// Every file in `cli/tests/conformance/lib`, in or out, with the reason.
@@ -128,10 +192,12 @@ const PACKAGES: &[Case] = &[
     // written in Buri over fixed-size tuples, and the only entries it
     // reaches outside the language are `math.sqrt` and `math.absFloat`.
     included("vectors/simd.buri"),
-    // The only file that builds a testing context and still compiles: the
-    // one it builds is `alloc`, which is a no-op allocator natively and is
-    // open-coded (`cranelift/emit.rs`). Every *stateful* part of the
-    // testing context is still absent.
+    // It used to be the only file that built a testing context and still
+    // compiled, because the one it builds is `alloc` and that one reads no
+    // state. The *stateful* half — `captureOut`, `stdin`, `clockAt`,
+    // `randSeed`, `envOf`, `data` — is in the archive now
+    // (`cli/runtime/testing.rs`), which is what moved the four files below it
+    // into this set.
     included("codegen/strings.buri"),
     // `core/alloc`'s three allocators, and the numbers the cost model
     // defines. This one is the payoff of a model that is *defined* rather
@@ -145,32 +211,62 @@ const PACKAGES: &[Case] = &[
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what
     // said so on the day it stopped being true.
     included("canary/canary.buri"),
-    // -- out: the harness cannot reach the package's own library --------
+    // The two that the testing context and `list.sortBy` between them let in.
+    // Both were excluded for a `Hermetic` context — which instantiates all
+    // nine implementations whether a test uses them or not — and
+    // `calendar/date.buri` for `list.sortBy` as well.
+    // `the_excluded_packages_are_excluded_for_the_stated_reason` is what said
+    // so on the day each stopped being true.
+    included("calendar/date.buri"),
+    included("collections/bitset.buri"),
+    // It was the one file the backend compiled and got *wrong*, and
+    // `a_wrong_answer_is_still_wrong` is what said so until the day three
+    // premature-release defects behind it were fixed: `middle/rc.rs`'s
+    // deferred drops being flushed by a sibling and its consumed scrutinee
+    // being dropped twice, and `middle/layout.rs` niching `Option<T>` on a
+    // list pointer that is null whenever the list is empty — which is what
+    // `pop` produces the moment it empties a side.
+    included("collections/queue.buri"),
+    // The four the closure surface's last six entries and `deriveArrayShow`
+    // let in. `core/list` has no gap left after them: every key in `list.buri`
+    // is either a row in the runtime table or a loop in the backend, so a file
+    // that only wanted a list is now a file that compiles.
     //
-    // These import `//lib/<package>`, and this harness compiles one file at
-    // a time against the standard library with no repository — so the front
-    // end refuses them before the backend is asked anything. That is a
-    // limit of the harness and says nothing about the backend; the fix is
-    // the same one that deletes this file, which is `buri test` learning to
-    // pick a native backend.
-    excluded(
-        "numbers/conversions.buri",
-        "an *inexact* conversion answers `Result<T, E>` (SPEC 6.2.1), and \
-             constructing that needs the error type `core/num` declares, which \
-             the intrinsic table does not name. The exact ones — every \
-             widening, and every `wrapTo*` — are compiled",
-    ),
-    excluded("codegen/equality.buri", "imports //lib/codegen"),
-    excluded("codegen/tail_calls.buri", "imports //lib/codegen"),
-    excluded("json/decoding.buri", "imports //lib/json"),
-    excluded("json/encoding.buri", "imports //lib/json"),
-    excluded("proto/binary.buri", "imports //lib/proto"),
-    excluded("proto/failures.buri", "imports //lib/proto"),
-    excluded("proto/json.buri", "imports //lib/proto"),
-    excluded("semantics/effects.buri", "imports //lib/semantics"),
-    excluded("semantics/evaluation.buri", "imports //lib/semantics"),
-    excluded("semantics/generics.buri", "imports //lib/semantics"),
-    excluded("semantics/traits.buri", "imports //lib/semantics"),
+    //  * `collections/map.buri` wanted `find` and `flatten`;
+    //  * `data/lists.buri` wanted all six, and is the file the closure surface
+    //    exists for;
+    //  * `data/optionresult.buri` wanted `find` and `foldResult`;
+    //  * `data/patterns.buri` wanted `deriveArrayShow`, which is the element's
+    //    generated `show` called once per element plus `buri_rt_show_list`.
+    included("collections/map.buri"),
+    included("data/lists.buri"),
+    included("data/optionresult.buri"),
+    included("data/patterns.buri"),
+    // `core/char`'s eight, which used to be excluded as "a General_Category
+    // table Rust does not expose". It still is not one Rust exposes;
+    // `cli/runtime/char.rs` carries it, generated from the engine the
+    // JavaScript backend runs on, and says so.
+    included("data/strings.buri"),
+    // `core/char`'s eight, which used to be "a General Category table Rust does
+    // not expose" and now is `cli/runtime/char.rs` — a table this repository
+    // carries, generated from the engine the JavaScript backend runs on.
+    // The two that cost nothing but opening the repository this corpus has
+    // always been. They were excluded for `imports //lib/codegen`, which was
+    // never a statement about the backend — see [`repository`].
+    included("codegen/equality.buri"),
+    included("codegen/tail_calls.buri"),
+    // The four `//lib/semantics` files. Two of them reach `MemFs`'s methods
+    // and were waiting on `cli/runtime/lib.rs` §2.1 — the `Result<T, E>`
+    // shape — as well as on the repository; the other two build a `Hermetic`
+    // context, which instantiates `MemFs` whether a test reads a file or not.
+    included("semantics/effects.buri"),
+    included("semantics/evaluation.buri"),
+    included("semantics/traits.buri"),
+    // `Either.Right(1)` names neither `Left`'s type nor a value of it, and the
+    // fourth file is full of that shape. It was excluded while such a parameter
+    // stayed a free inference variable, which no backend has a layout for;
+    // `Subst::default_unconstrained` makes it `()`.
+    included("semantics/generics.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`
@@ -178,53 +274,54 @@ const PACKAGES: &[Case] = &[
     // and `the_excluded_packages_are_excluded_for_the_stated_reason`
     // checks that the reason is still true.
     excluded(
-        "calendar/date.buri",
-        "`list.sortBy` — the one closure entry that is a sort rather than a \
-             loop — and the file builds a `Hermetic` testing context",
+        "numbers/conversions.buri",
+        "an *inexact* conversion answers `Result<T, E>` (SPEC 6.2.1), and \
+             constructing that needs `core/num`'s `RangeError`, which is a \
+             struct of two `Str`s and not a variant index — so it is a \
+             different shape from the runtime `Result` of §2.1 and not the \
+             same work. The exact ones — every widening, and every `wrapTo*` \
+             — are compiled",
+    ),
+    excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
+    excluded("json/encoding.buri", "`derivePrimJson` at every primitive"),
+    // `core/bytes` and `char.toDigit` are emitted now, and this file needs
+    // nothing else.
+    included("proto/failures.buri"),
+    costly(
+        "proto/binary.buri",
+        "it compiles and all twenty-nine blocks pass; what it costs is \
+             `middle/rc.rs`'s `Scan::short_circuit`, which recurses once per \
+             operand *and* once per continuation, so a chain of `&&` is \
+             explored along every path through it and this file's field-tag \
+             decoder is about twenty links long. Measured at about 280 seconds \
+             on an idle machine and unbounded on a busy one. `middle::native` \
+             is where `rc::analyze` runs, so it is the native path's bill and \
+             nobody else's",
     ),
     excluded(
-        "collections/bitset.buri",
-        "the `Hermetic` testing context, and nothing else: the folds and \
-             filters that used to hold it out are emitted now",
+        "proto/json.buri",
+        "`num.F64.toI64` — an inexact conversion, so it answers \
+             `Result<Int, RangeError>`. `core/char`'s classifiers and \
+             `core/bytes` are emitted now",
     ),
-    excluded(
-        "collections/map.buri",
-        "`list.find`, `list.flatten` and `list.sortBy`, plus a `Hermetic` \
-             context. The hashing half is *done* — `deriveHash` at every \
-             primitive landed in wave 3d and agrees with `$hash` byte for byte \
-             (`native/cranelift.rs`) — and so is the fold half, so what defers \
-             maps is three closure entries and the context",
-    ),
-    excluded("collections/queue.buri", "the `Hermetic` context alone, as `collections/bitset.buri`"),
-    excluded(
-        "crypto/sha256.buri",
-        "`list.flatten`, `bytes.toUtf8` and a `Hermetic` context: \
-             `list.map` is emitted now",
-    ),
-    excluded(
-        "data/lists.buri",
-        "the seven closure entries that are not a loop over one list — \
-             `find`, `findIndex`, `flatten`, `foldResult`, `foldResultCtx`, \
-             `sortBy`, `zip` — and a `Hermetic` context. The other eleven \
-             compile: this is the file the closure surface exists for",
-    ),
-    excluded("data/optionresult.buri", "`list.find` and `list.foldResult`, plus a testing context"),
-    excluded("data/patterns.buri", "`list.sortBy`, plus a testing context"),
-    excluded(
-        "data/strings.buri",
-        "core/char's eight *classification* entries — `isAlpha` is \
-             `\\p{L}`, which is a General_Category table Rust does not expose — \
-             and a testing context",
-    ),
+    // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
+    // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
+    // surface each of these two was waiting for.
+    included("crypto/sha256.buri"),
+    included("text/bytes.buri"),
     excluded(
         "numbers/floats.buri",
         "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \
              not fix — `cli/runtime/math.rs` says why implementing them with the \
-             platform libm would be a divergence rather than a gap — and a \
-             testing context",
+             platform libm would be a divergence rather than a gap",
     ),
-    excluded("text/bytes.buri", "core/bytes, and the closure surface"),
-    excluded("text/json.buri", "core/char's classifiers and the closure surface"),
+    excluded(
+        "text/json.buri",
+        "`num.U32.toChar` — an *inexact* conversion, so it answers \
+             `Result<Char, RangeError>`. `core/char`'s classifiers and \
+             `list.find` are emitted now, and this one call is the whole of \
+             what is left",
+    ),
 ];
 
 fn supported() -> bool {
@@ -243,6 +340,50 @@ fn corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance/lib")
 }
 
+/// The conformance corpus **as the repository it is**, opened once per process.
+///
+/// `cli/tests/conformance/REPO.buri` has been there all along; this harness
+/// simply never opened it, and compiled each file as a snippet against the
+/// standard library with no repository. Eleven files import `//lib/<package>`,
+/// so the *front end* refused them — a limit of the harness that said nothing
+/// about the backend, and the single largest reason a conformance file was not
+/// running natively.
+///
+/// [`driver::analyze_snippet_as`] takes a workspace and the package the text
+/// stands in for, which is exactly what a test source of that package is. The
+/// text still comes from the string this harness read rather than from the
+/// loader, because [`the_native_set_can_fail`] edits one assertion and
+/// recompiles, and a file re-read from disk would silently undo that.
+fn repository() -> Option<&'static Workspace> {
+    static WS: OnceLock<Option<Workspace>> = OnceLock::new();
+    WS.get_or_init(|| {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
+        let mut map = SourceMap::new();
+        let mut diags = Diagnostics::new();
+        let ws = Workspace::load(&root, &mut map, &mut diags).ok()?;
+        if diags.has_errors() {
+            return None;
+        }
+        Some(ws)
+    })
+    .as_ref()
+}
+
+/// One conformance file, loaded and checked as a test source of its own
+/// package.
+///
+/// `case_path` is `semantics/effects.buri`, and the package is `lib/semantics`
+/// — the same split [`read`] makes, for the same reason.
+fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analysis {
+    let ws = repository();
+    let pkg = ws.and_then(|w| {
+        let (package, _) = case_path.split_once('/')?;
+        w.pkg_by_path(&format!("lib/{package}"))
+    });
+    let mut cache = buri::parsing::parser::Cache::new();
+    driver::analyze_snippet_as(ws, pkg, map, &mut cache, "main", source, Role::TestSource)
+}
+
 /// A directory this *process* owns, per case.
 ///
 /// The process id is in the name because two overlapping `cargo test` runs
@@ -250,6 +391,7 @@ fn corpus() -> PathBuf {
 /// executing — which on macOS is a child that never returns rather than an
 /// error.
 fn workspace(name: &str) -> PathBuf {
+    crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-conformance-{}", std::process::id()))
         .join(name.replace('/', "-"));
@@ -279,7 +421,7 @@ fn archive() -> &'static Path {
 /// the one that makes "it passed" mean something.
 fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
     let mut map = SourceMap::new();
-    let analysis = driver::analyze_snippet(&mut map, "main", source, Role::TestSource);
+    let analysis = analyze(name, source, &mut map);
     if analysis.diags.has_errors() {
         return None;
     }
@@ -337,13 +479,61 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
     ))
 }
 
+/// Why the native backend will not compile a source, or the empty string
+/// where it will.
+///
+/// **Both halves**, and the second is not optional. `missing_intrinsics`
+/// answers before emission and is where an unimplemented `FuncKind::Intrinsic`
+/// shows up — but a `deriveArray*` is an `ExprKind::Intrinsic` inside a body
+/// `middle::derives` generated, and a structural operation is an
+/// `ir::Inst::Structural` that exists only after lowering, so neither is in the
+/// program that hook is handed. `native/agreement.rs`'s `native_refusal` says
+/// the same thing and asks the same two questions; this used to ask only the
+/// first, and `data/patterns.buri` — refused for `deriveArrayShow` and for
+/// nothing the hook can see — is the file that made the difference visible.
+fn refusal(name: &str, source: &str) -> Result<String, String> {
+    let mut map = SourceMap::new();
+    let analysis = analyze(name, source, &mut map);
+    if analysis.diags.has_errors() {
+        return Err(analysis
+            .diags
+            .items
+            .iter()
+            .take(2)
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+            .join("; "));
+    }
+    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let mut diags = Diagnostics::new();
+    let mut program =
+        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
+    if diags.has_errors() {
+        return Err(String::from("monomorphization failed"));
+    }
+    middle::run(&mut program, &middle::Options::default());
+    middle::native(&mut program);
+    let missing = Cranelift.missing_intrinsics(&program, &analysis.checked.tables);
+    if !missing.is_empty() {
+        return Ok(missing.join("; "));
+    }
+    let target = Target { platform: host_platform(), arch: None };
+    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    match Cranelift.emit(&program, &analysis.checked.tables, &opts) {
+        Ok(_) => Ok(String::new()),
+        Err(d) => {
+            Ok(d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "))
+        }
+    }
+}
+
 /// Whether the native backend can compile a source at all, without linking.
 ///
-/// Used for the excluded set, where the expected answer is "no" and the
-/// interesting output is *which* intrinsic is missing.
-fn missing_for(source: &str) -> Result<Vec<String>, String> {
+/// The hook's half of [`refusal`], for the callers that want the keys rather
+/// than a sentence.
+fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
     let mut map = SourceMap::new();
-    let analysis = driver::analyze_snippet(&mut map, "main", source, Role::TestSource);
+    let analysis = analyze(name, source, &mut map);
     if analysis.diags.has_errors() {
         return Err(analysis
             .diags
@@ -376,6 +566,7 @@ fn read(case: &Case) -> String {
 }
 
 // -----------------------------------------------------------------------
+
 
 /// The list above covers the corpus, so a package added next door is a
 /// failing test here rather than a silent omission.
@@ -426,18 +617,18 @@ fn the_excluded_packages_are_excluded_for_the_stated_reason() {
     if !supported() {
         return;
     }
-    for case in PACKAGES.iter().filter(|c| c.excluded.is_some()) {
+    for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Refused(_)))) {
         let source = read(case);
-        match missing_for(&source) {
+        match refusal(case.path, &source) {
             // A front-end error means the corpus is mid-change, which is
             // not this file's business to fail over.
             Err(_) => continue,
-            Ok(missing) => assert!(
-                !missing.is_empty(),
+            Ok(why) => assert!(
+                !why.is_empty(),
                 "`{}` is listed as excluded ({}), but the backend now \
                      compiles it — delete the exclusion",
                 case.path,
-                case.excluded.unwrap_or_default()
+                case.out.as_ref().map(Out::why).unwrap_or_default()
             ),
         }
     }
@@ -457,11 +648,11 @@ fn the_native_set_passes() {
     let mut total = 0usize;
     let mut ran = 0usize;
     let mut skipped: Vec<String> = Vec::new();
-    for case in PACKAGES.iter().filter(|c| c.excluded.is_none()) {
+    for case in PACKAGES.iter().filter(|c| c.out.is_none()) {
         let source = read(case);
         // A file the *front end* refuses is not this file's failure: the
         // corpus is shared with `language/conformance.rs` and may be mid-change.
-        match missing_for(&source) {
+        match missing_for(case.path, &source) {
             Err(e) => {
                 skipped.push(format!("{} (front end: {e})", case.path));
                 continue;
@@ -488,6 +679,205 @@ fn the_native_set_passes() {
     assert!(ran > 0, "no conformance file ran natively");
 }
 
+/// `core/testing/context`, natively, against the numbers and strings the
+/// JavaScript runner answers.
+///
+/// The stateful half of the testing context is a **handle table on the
+/// runner's side** (`testing_context.buri`'s header), which on JavaScript is
+/// `runtime.js`'s `$t.h` and natively is `cli/runtime/testing.rs`. Two
+/// conformance files instantiate all nine implementations by building a
+/// `Hermetic` context and neither reads one back, so a table that answered the
+/// empty string to every `captured()` would pass the suite above unchanged.
+/// This is the test that would not.
+///
+/// Every assertion is a literal written into the source, so the two backends
+/// either both pass it or disagree about the language — which is the argument
+/// `memory/allocators.buri` makes for a *defined* cost model, applied to a
+/// *defined* fixture. The identical source is a package in
+/// `scratchpad/tctxcheck` and `buri test` runs it on the JavaScript backend:
+/// **12 passed, 0 failed**, the same twelve blocks this runs natively.
+///
+/// The seeded rows are the load-bearing ones. `randSeed` is xorshift32 and the
+/// *sequence* is part of what a seeded test asserts, so `69, 89` from a seed of
+/// zero checks that the two runtimes are the same generator rather than two
+/// reproducible ones.
+///
+/// # The fixture reads its `Option`s with `assert.some`
+///
+/// It wrote the `match` out until `middle/rc.rs`'s `match_` stopped dropping a
+/// consumed scrutinee twice — once at the arm entry and once from
+/// `Scan::balance`, because the arm that reports the failure mentions the
+/// `Option` itself and so put it in the union the arms are balanced against.
+/// `assert.ok` never had it: its failing arm names the payload rather than the
+/// `Result`. `rc.rs`'s `a_consumed_scrutinee_is_dropped_once_on_every_arm` is
+/// that shape as a unit test; these blocks are it through the real assertion.
+#[test]
+fn the_testing_context_agrees_with_the_runner() {
+    if !supported() {
+        return;
+    }
+    const SOURCE: &str = r##"from "core/testing/assert" import * as assert;
+from "core/testing/context" import {
+  alloc, captureOut, captureErr, captured, capturedErr,
+  clockAt, randSeed, envOf, stdin, stdinBytes,
+};
+from "core/cap" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+fn speak<C: Stdout>(ctx: C, what: Str): () {
+  let _ = ctx.print("[");
+  let _ = ctx.print(what);
+  let _ = ctx.println("]");
+}
+
+fn shout<C: Stderr>(ctx: C, what: Str): () {
+  let _ = ctx.eprint("<");
+  let _ = ctx.eprintln(what);
+}
+
+test "captured reads back what a function printed" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  speak(ctx, "hello");
+  assert.eq(sink.captured(), "[hello]\n");
+}
+
+test "a fresh sink is empty and stays independent" {
+  let first = captureOut();
+  let second = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: first };
+  speak(ctx, "one");
+  assert.eq(second.captured(), "");
+  assert.eq(first.captured(), "[one]\n");
+}
+
+test "captured accumulates in the order things were printed" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let _ = ctx.print("a");
+  let _ = ctx.println("b");
+  let _ = ctx.print("c");
+  assert.eq(sink.captured(), "ab\nc");
+}
+
+test "writeBytes is captured as the text the octets spell" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let _ = ctx.writeBytes([104, 105]);
+  assert.eq(sink.captured(), "hi");
+}
+
+test "standard error is its own transcript" {
+  let out = captureOut();
+  let err = captureErr();
+  let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
+  shout(ctx, "bad");
+  assert.eq(err.capturedErr(), "<bad\n");
+  assert.eq(out.captured(), "");
+}
+
+test "a test clock starts where it was put and moves only when moved" {
+  let clock = clockAt(1000);
+  let ctx = context { Alloc: alloc(), Clock: clock };
+  assert.eq(ctx.nowMillis(), 1000);
+  assert.eq(ctx.nowMillis(), 1000);
+  let _ = ctx.sleepMillis(5);
+  assert.eq(ctx.nowMillis(), 1005);
+  let _ = clock.advance(10);
+  assert.eq(ctx.nowMillis(), 1015);
+}
+
+test "a seeded generator is the same sequence on every backend" {
+  let ctx = context { Alloc: alloc(), Rand: randSeed(0) };
+  assert.eq(ctx.nextInt(0, 100), 69);
+  assert.eq(ctx.nextInt(0, 100), 89);
+  assert.eq(ctx.nextInt(10, 11), 10);
+  let ctx2 = context { Alloc: alloc(), Rand: randSeed(7) };
+  assert.eq(ctx2.nextInt(0, 1000), 583);
+}
+
+test "two generators with the same seed agree with each other" {
+  let a = context { Alloc: alloc(), Rand: randSeed(42) };
+  let b = context { Alloc: alloc(), Rand: randSeed(42) };
+  assert.eq(a.nextInt(0, 1000000), b.nextInt(0, 1000000));
+}
+
+test "an environment holds what it was given and nothing else" {
+  let ctx = context {
+    Alloc: alloc(),
+    Env: envOf([("HOME", "/tmp"), ("LANG", "C")], ["--verbose", "x"]),
+  };
+  assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
+  assert.eq(assert.some(ctx.variable("LANG")), "C");
+  assert.isTrue(ctx.variable("PATH").isNone());
+  let args = ctx.arguments();
+  assert.eq(args.len(), 2);
+  assert.eq(args.join(ctx, " "), "--verbose x");
+}
+
+test "an empty environment has no variables and no arguments" {
+  let ctx = context { Alloc: alloc(), Env: envOf([], []) };
+  assert.isTrue(ctx.variable("HOME").isNone());
+  assert.eq(ctx.arguments().len(), 0);
+}
+
+test "stdin reads its lines, then end of input" {
+  let ctx = context { Alloc: alloc(), Stdin: stdin(["one", "two"]) };
+  assert.eq(assert.some(ctx.readLine()), "one");
+  assert.eq(assert.some(ctx.readLine()), "two");
+  assert.isTrue(ctx.readLine().isNone());
+}
+
+test "stdinBytes reads octets, and readLine finds nothing there" {
+  let ctx = context { Alloc: alloc(), Stdin: stdinBytes([1, 2, 3, 4]) };
+  let first = assert.some(ctx.readBytes(3));
+  assert.eq(first.len(), 3);
+  assert.eq(assert.some(first.get(0)), 1);
+  assert.eq(assert.some(first.get(2)), 3);
+  let rest = assert.some(ctx.readBytes(3));
+  assert.eq(rest.len(), 1);
+  assert.eq(assert.some(rest.get(0)), 4);
+  assert.isTrue(ctx.readBytes(1).isNone());
+  assert.isTrue(ctx.readLine().isNone());
+}
+"##;
+    if refusal("testing-context", SOURCE).is_err() {
+        return;
+    }
+    let Some((status, out, err, blocks)) = run("testing-context", SOURCE) else {
+        panic!("the front end refused the testing-context fixture");
+    };
+    assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
+    assert_eq!(blocks, 12, "the fixture lost a `test` block");
+}
+
+/// The one [`Out::Costly`] package, run on demand.
+///
+/// `#[ignore]`d, and that is the whole of what makes the category honest: the
+/// exclusion above claims the file compiles and passes, and this is the test
+/// that checks the claim rather than leaving it as a sentence. Run it with
+/// `cargo test -p buri --test native -- --ignored costly`, and expect minutes.
+///
+/// The day `middle/rc.rs`'s `Scan::short_circuit` stops being exponential, this
+/// test and that exclusion are deleted together and the file joins the set.
+#[test]
+#[ignore = "minutes: middle/rc.rs's exponential short-circuit scan, not the backend"]
+fn a_costly_package_still_passes() {
+    if !supported() {
+        return;
+    }
+    for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Costly(_)))) {
+        let source = read(case);
+        let Some((status, out, err, blocks)) = run(case.path, &source) else {
+            panic!("`{}` is listed as costly, and the front end refused it", case.path);
+        };
+        assert_eq!(status, 0, "`{}` failed:\nstdout:\n{out}\nstderr:\n{err}", case.path);
+        assert!(blocks > 0, "`{}` holds no `test` blocks", case.path);
+        eprintln!("native conformance: {} passes, {blocks} blocks, on demand", case.path);
+    }
+}
+
 /// The harness has to be able to fail.
 ///
 /// `language/conformance.rs` has the same test for the same reason: a suite that
@@ -501,9 +891,9 @@ fn the_native_set_can_fail() {
     if !supported() {
         return;
     }
-    let case = Case { path: "numbers/bits.buri", excluded: None };
+    let case = Case { path: "numbers/bits.buri", out: None };
     let source = read(&case);
-    if missing_for(&source).is_err() {
+    if missing_for("bits-broken", &source).is_err() {
         return;
     }
     // The value, not a name: renaming a constant and its use together would
@@ -524,3 +914,4 @@ fn the_native_set_can_fail() {
         "the failure did not name the assertion:\nstdout:\n{out}\nstderr:\n{err}"
     );
 }
+

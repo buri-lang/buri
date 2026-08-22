@@ -122,6 +122,23 @@ test "equals compares entries rather than layout" {
   assert.isFalse(a.equals(ctx, map.of(ctx, [("x", 9), ("y", 2), ("z", 3)])));
 }
 
+test "NaN is an ordinary key" {
+  // SPEC 7.2 makes `==` an equivalence relation, which is what a hash map
+  // needs of its keys: a key that is not equal to itself can be inserted and
+  // never found again. `Hash` agrees by construction — every NaN mixes as
+  // zero — so lookup finds the bucket and `==` finds the entry in it.
+  let ctx = Hermetic();
+  let nan = 0.0 / 0.0;
+  let m = map.empty<F64, Str>().insert(ctx, nan, "n").insert(ctx, 1.5, "a");
+  assert.eq(assert.some(m.get(nan)), "n");
+  assert.eq(m.len(), 2);
+  // Inserting it again replaces rather than duplicating, which only holds
+  // because the two NaNs compare equal.
+  let again = m.insert(ctx, 0.0 / 0.0, "m");
+  assert.eq(assert.some(again.get(0.0 / 0.0)), "m");
+  assert.eq(again.len(), 2);
+}
+
 // --- sets -------------------------------------------------------------------------
 
 test "a set collapses duplicates" {

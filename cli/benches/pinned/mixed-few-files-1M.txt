@@ -1,0 +1,12 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = mixed-few-files-1M
+profile = mixed-few-files
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = fanout=1..2 lines=1000000 lines_per_module=5000 seed=0x0b001a575eed0003
+lines = 1000527
+bytes = 34892876
+modules = 192
+digest = 3ac76584a9154e19bd8c8fa9ac0e367a35dd97d6a9673318e3fe2ab467c3b8bb

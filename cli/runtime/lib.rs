@@ -14,7 +14,7 @@
 //! ## 0. What this crate is, and what it is not
 //!
 //! It is not the whole of the 203 `runtime.js` functions. It is what a
-//! *generated program* cannot do for itself, which is now seven things rather
+//! *generated program* cannot do for itself, which is now eight things rather
 //! than three:
 //!
 //!   * **allocation** — the header, the block, the counts, the free path;
@@ -29,12 +29,25 @@
 //!   * **`core/str` and the block-copying half of `core/list`** ([`text`],
 //!     [`list`]) — UTF-8 slicing with the ASCII fast path, and the `[T]`
 //!     producers that are a copy plus a retain;
+//!   * **`core/char`'s eight** ([`char`]) — the classifiers, the two case
+//!     mappings and `toDigit`. Seven of them are transcriptions of what
+//!     `runtime.js` does; `isAlpha` is `\p{L}`, which is a General Category and
+//!     not the **Alphabetic** property `char::is_alphabetic` answers, so that
+//!     file carries the category as data and says where the data came from;
 //!   * **the exactly-specified half of `core/math`** ([`math`]) — `sqrt`, the
 //!     four rounding functions and the three predicates. The thirteen
 //!     transcendentals are deliberately absent, and that file says why: IEEE
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
 //!     libm differ in the last bit, and a rendered `Float` shows seventeen
 //!     digits of it;
+//!   * **the stateful half of `core/testing/context`** ([`testing`]) — a
+//!     captured stdout, a seeded generator, a test clock, a fixture
+//!     environment and a stdin that was handed its lines. Every one of them is
+//!     mutable process state outliving the expression that made it, which is
+//!     why `testing_context.buri` gives each implementation an `I64` handle and
+//!     puts the state on the runner's side; on JavaScript that side is
+//!     `runtime.js`'s `$t.h`, and here it is one table. `alloc()` is the
+//!     exception and both backends open-code it, because it reads no state;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
 //!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
 //!     here for one reason: the overflow test both backends use at 64 bits is
@@ -51,12 +64,21 @@
 //!     own element type, so calling one from C would mean synthesizing a call
 //!     whose parameter list depends on `T` — a backend's job by construction.
 //!   * **It has no single right answer, and guessing would be worse than a
-//!     gap.** `core/math`'s thirteen transcendentals, and `core/char`'s eight
-//!     classifiers. Implementing `sin` with the platform libm, or `isAlpha`
-//!     with Rust's `is_alphabetic` against JavaScript's `\p{L}`, would put a
-//!     divergence into the toolchain that shows up on one input in a few
-//!     thousand — which is the hardest kind of bug to find and the easiest to
-//!     ship.
+//!     gap.** `core/math`'s thirteen transcendentals. Implementing `sin` with
+//!     the platform libm would put a divergence into the toolchain that shows
+//!     up on one input in a few thousand — which is the hardest kind of bug to
+//!     find and the easiest to ship.
+//!
+//!     `core/char`'s classifiers used to be the second entry in this list, for
+//!     the same reason spelled at `isAlpha`: Rust's `is_alphabetic` is the
+//!     **Alphabetic** derived property and JavaScript's `\p{L}` is a General
+//!     Category, and they differ on about fifteen hundred characters. They are
+//!     out of this list rather than answered differently — [`char`] does not
+//!     use `is_alphabetic`; it carries `\p{L}` as a table, generated from the
+//!     engine the JavaScript backend runs on, and that file states the Unicode
+//!     version. The transcendentals have no equivalent move available, because
+//!     what differs there is the last bit of an arithmetic result and not a set
+//!     that can be written down.
 //!
 //! Each is named where it would otherwise be looked for — `list.rs`'s and
 //! `math.rs`'s headers, and `backend/{cranelift,llvm}`'s missing-intrinsic
@@ -104,6 +126,67 @@
 //!    written, or `0` and the out-pointer untouched. Both backends translate
 //!    that into whatever `middle::layout` chose — a tag, or a niche — and the
 //!    runtime never learns which.
+//!
+//! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
+//!
+//! Rule 3 has said "`0 ..= n` is the error variant's index" since wave 2b and
+//! nothing used the range: every fallible entry was an `Option`, and `0` was
+//! `.None`. Two waves recorded `Result<T, E>` as deferred for the same reason
+//! each time — *a typed error needs the error variant's payload, and there is
+//! only one out-pointer*. That is the whole of the open question, and the
+//! answer is that **the range is enough on its own**, because the discriminant
+//! `0 ..= n` already names a variant and a variant with no fields is fully
+//! determined by which one it is.
+//!
+//! So the convention is rule 3 with one sentence added, and the sentence is a
+//! restriction rather than a mechanism:
+//!
+//!   * [`BURI_OK`], and `.Ok`'s payload written through the out-pointer — or,
+//!     where `T` is zero-sized, **no out-pointer at all**, because a parameter
+//!     for a value that occupies no bytes is a parameter the two sides can
+//!     disagree about for free. `MemFs.writeFile` answers `Result<(), IoError>`
+//!     and takes no `out`.
+//!   * `0 ..= n`, naming a variant of `E` in declaration order, **which must
+//!     carry no fields.** The out-pointer is untouched.
+//!
+//! A payload-carrying error *variant* is therefore not expressible, and that is
+//! deliberate: it would need an out-pointer whose offset depends on which
+//! variant `n` turned out to be, which is a switch the backend would generate
+//! per entry rather than the two stores it generates now. Nothing in the archive
+//! needs one — `IoError`'s six variants are reached as `NotFound` alone, exactly
+//! as `runtime.js`'s `$testing_context_MemFs_readFile` returns `$err([0])`.
+//!
+//! **An error type that is not an enum at all is the other half, and it is
+//! not the same problem.** `bytes.fromUtf8` answers `Result<Str, Utf8Error>`
+//! where `Utf8Error(Int)` is a *struct* carrying the offset the decoding stopped
+//! at — so there is no variant to name and no index that could name it, and the
+//! value has exactly one place to go. It goes through **a second out-pointer**,
+//! after `.Ok`'s and omitted on the same rule (present iff `E` occupies bytes),
+//! and the discriminant is `0` meaning "the error is written there" rather than
+//! "error variant zero".
+//!
+//! Which of the two an entry uses is not a column in either backend's table and
+//! must not be: it is `E`'s own shape. An enum error is named by its index; any
+//! other error is written through the pointer. A table column would be a second
+//! statement of a fact the type already makes, and the two could disagree.
+//!
+//! The backends cannot *enforce* the payload-less restriction, and it is worth
+//! saying which way that fails. `n` is a register, so "the variant it names has
+//! no fields" is not a static question, and `IoError` has an `.Other(Str)` the
+//! archive promises never to name. `cranelift/emit.rs`'s `result_call` and
+//! `llvm/emit.rs`'s `call_result` therefore **zero the error variant's payload
+//! area** on the failure path: an entry that broke the promise produces
+//! `.Other("")` — wrong, and safely wrong — rather than a reference count on
+//! whatever the stack held.
+//!
+//! What the backend does with the two numbers is the mirror of what it already
+//! does for an `Option`: store the `Result`'s own `.Ok`/`.Err` discriminant, and
+//! on the error side store `n` as the tag of the `E` sitting at `.Err`'s payload
+//! offset — or nothing at all, where the runtime wrote `E` itself.
+//! `middle/layout.rs` gives a `Result` a `Bare` or a `Tagged`
+//! representation and never a niche — the niche is `Option`'s alone
+//! (`build_enum`'s first branch tests `is_option`) — so "store the tag" is one
+//! store at a known offset in every case.
 //!
 //! 4. **A generic parameter is a pointer and a stride.** `list.get` and
 //!    `list.push` cannot name `T`'s leaves, so the element crosses as
@@ -220,6 +303,8 @@
 #![allow(clippy::missing_safety_doc)]
 
 mod abort;
+mod bytes;
+mod char;
 mod fmt;
 mod hash;
 mod host;
@@ -228,16 +313,20 @@ mod list;
 mod math;
 mod memory;
 mod rng;
+mod testing;
 mod text;
 mod value;
 
 pub use abort::*;
+pub use bytes::*;
+pub use char::*;
 pub use fmt::*;
 pub use hash::*;
 pub use host::*;
 pub use list::*;
 pub use math::*;
 pub use memory::*;
+pub use testing::*;
 pub use text::*;
 pub use value::*;
 

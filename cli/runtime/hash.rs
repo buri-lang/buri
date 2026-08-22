@@ -13,6 +13,12 @@
 //! |---|---|---|
 //! | `Bool`, every integer | `number` | `ToUint32(Math.trunc(x) \|\| 0)` — the low 32 bits |
 //! | `F32`, `F64` | `number` | the same, so `1.9` and `1.0` collide, and `NaN` hashes as `0` |
+//!
+//! The float row is what keeps `Eq` and `Hash` agreeing. SPEC 7.2 makes
+//! `NaN == NaN` true, so every `NaN` has to hash alike — and it does, on both
+//! backends, because `|| 0` maps every payload and both signs to zero before
+//! anything is mixed. A hasher that mixed the bit pattern would give two equal
+//! values two hashes, and a `Map` key would be lost the moment it collided.
 //! | `Char`, `Str` | `string` | one mix per **UTF-16 code unit** |
 //!
 //! The last row is the one that cannot be guessed. `$hashInto` walks a string

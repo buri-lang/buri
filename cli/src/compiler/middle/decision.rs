@@ -403,6 +403,7 @@ mod tests {
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
             ctx_layouts: HashMap::default(),
+            shapes: Default::default(),
         }
     }
 

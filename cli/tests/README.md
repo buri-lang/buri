@@ -60,7 +60,10 @@ cli/tests/
 Nine binaries, so a full run links nine times. A corpus is shared — the
 `conformance/` repository is read by `language::conformance` on the JavaScript
 backend and by `native::conformance` on Cranelift, `crash/` by four suites — so
-corpora sit at the top level rather than inside any one suite's directory.
+corpora sit at the top level rather than inside any one suite's directory. That
+first split is written into the corpus: each `conformance/lib/*/BUILD.buri`
+declares `test { platforms: [JS] }`, because `buri test` runs a suite natively
+by default now and the reference run has to stay the reference one.
 
 ## The suites
 
@@ -99,6 +102,17 @@ checked-in tree, so the suites hold no lock, run in parallel, and two
 `cargo test` runs in two shells do not collide. `BURI_KEEP=1` leaves the
 scratch directories behind, and a panicking test leaves its own regardless —
 a failing test's evidence is the directory it failed in.
+
+A run also sweeps that directory, once, before it makes its first tree
+(`harness/sweep.rs`). Most scratch removes itself when its `Scratch` drops; the
+native suites' per-process trees — `native-cranelift-<pid>` and its siblings,
+about 180 MB a run, holding a runtime archive and a hundred linked executables —
+are named for the process so two overlapping runs cannot share one, and are
+deleted by nothing. Fourteen gigabytes of them filled a disk mid-measurement,
+twice. The sweep takes only what has not been written to for **two hours**,
+which no live run can manage, and it does not run at all under `BURI_KEEP` — so
+the contract above is unchanged for the run that produced the evidence and for
+hours after it.
 
 ### What the run costs
 

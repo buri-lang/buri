@@ -33,6 +33,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod case;
+pub mod sweep;
 pub use case::{load_case, run_case, run_corpus, Case, Step, Stream};
 
 // ---------------------------------------------------------------------------
@@ -286,6 +287,7 @@ impl Scratch {
     /// An empty directory, and deliberately *not* a repository: the cases that
     /// check what happens outside one need this.
     pub fn empty(name: &str) -> Scratch {
+        sweep::once();
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
         let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("{name}-{}-{n}", std::process::id()));

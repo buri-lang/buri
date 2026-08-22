@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = string-heavy-100k
+profile = mixed
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = lines=100000 seed=0x0b001a575eed0011 w_string_fn=8
+lines = 100758
+bytes = 3856935
+modules = 361
+digest = 70670bb64abcee504e3edb0546760ca2fdeb81aa42e8333f2d44523c194f5ce7
+native = false

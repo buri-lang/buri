@@ -1171,6 +1171,19 @@ impl Program {
     /// One function, as text.
     pub fn render_func(&self, func: &Func) -> String {
         let mut out = String::new();
+        self.render_func_into(func, &mut out);
+        out
+    }
+
+    /// The same, appended to a buffer the caller owns.
+    ///
+    /// A `codegen` key is the hash of a whole unit's text, and a unit is a few
+    /// hundred functions; building each of them as its own `String` only to
+    /// copy it into the next one allocates the program twice over. The text is
+    /// identical either way — [`render_func`](Program::render_func) is this
+    /// function into an empty buffer — so the two cannot drift.
+    pub fn render_func_into(&self, func: &Func, out: &mut String) {
+        let out = &mut *out;
         let _ = writeln!(out, "; {} [unit {}]", func.debug_name, self.unit_name(func.unit));
         let params: Vec<String> = func.sig.params.iter().map(|t| self.ty(*t)).collect();
         let rets: Vec<String> = func.sig.rets.iter().map(|t| self.ty(*t)).collect();
@@ -1182,7 +1195,7 @@ impl Program {
         let code = match &func.body {
             Body::Runtime(key) => {
                 let _ = writeln!(out, "fn {}({}){ret} = runtime {key:?}", func.symbol, params.join(", "));
-                return out;
+                return;
             }
             Body::Code(c) => c,
         };
@@ -1199,7 +1212,6 @@ impl Program {
             let _ = writeln!(out, "    {}", term(&b.term));
         }
         let _ = writeln!(out, "}}");
-        out
     }
 
     fn ty(&self, t: Type) -> String {

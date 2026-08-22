@@ -161,12 +161,9 @@ impl Backend for Llvm {
             );
             return Err(diags);
         }
-        let entry = match program.roots {
-            monomorphize::ProgramRoots::Main(idx) => Some(idx),
-            monomorphize::ProgramRoots::Tests(_) => None,
-        };
+        let root = root_of(program);
         let lowered = lower::run(program, tables);
-        emit_selected(&lowered, tables, opts, entry, Units::All, Some(&oracle(program)))
+        emit_selected(&lowered, tables, opts, root, Units::All, Some(&oracle(program)))
     }
 
     /// The unit loop is already per unit; what `units` adds is the parameter
@@ -192,12 +189,9 @@ impl Backend for Llvm {
             );
             return Err(diags);
         }
-        let entry = match program.roots {
-            monomorphize::ProgramRoots::Main(idx) => Some(idx),
-            monomorphize::ProgramRoots::Tests(_) => None,
-        };
+        let root = root_of(program);
         let lowered = lower::run(program, tables);
-        emit_selected(&lowered, tables, opts, entry, units, Some(&oracle(program)))
+        emit_selected(&lowered, tables, opts, root, units, Some(&oracle(program)))
     }
 }
 
@@ -238,7 +232,39 @@ pub fn emit_lowered(
     opts: &Options<'_>,
     entry: Option<FuncIdx>,
 ) -> Result<Vec<Emitted>, Diagnostics> {
-    emit_selected(program, tables, opts, entry, Units::All, None)
+    emit_selected(program, tables, opts, entry.map(Root::Main), Units::All, None)
+}
+
+/// The root a monomorphized program has, in the shape the unit loop needs.
+fn root_of(program: &monomorphize::Program) -> Option<Root> {
+    Some(match &program.roots {
+        monomorphize::ProgramRoots::Main(idx) => Root::Main(*idx),
+        monomorphize::ProgramRoots::Tests(tests) => {
+            Root::Tests(tests.iter().map(|t| t.func).collect())
+        }
+    })
+}
+
+/// Which root this program has, with the function indices resolved.
+///
+/// `monomorphize::ProgramRoots` already says there are exactly two cases, and
+/// `cranelift/mod.rs` names the same two for the same reason: a binary's `main`
+/// and a test binary's list of `test` blocks are two different entry points and
+/// only one of them exists in any program.
+enum Root {
+    Main(FuncIdx),
+    Tests(Vec<FuncIdx>),
+}
+
+/// Whether `unit` is the one the entry point belongs in.
+fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
+    let here = |f: FuncIdx| {
+        program.funcs.get(f.index()).is_some_and(|x| x.unit == unit && x.code().is_some())
+    };
+    match root {
+        Root::Main(e) => here(*e),
+        Root::Tests(tests) => tests.first().copied().is_some_and(here),
+    }
 }
 
 /// The oracle `middle::rc` decided its own operations with, rebuilt over the
@@ -262,7 +288,7 @@ fn emit_selected(
     program: &ir::Program,
     tables: &Tables,
     opts: &Options<'_>,
-    entry: Option<FuncIdx>,
+    root: Option<Root>,
     units: Units<'_>,
     counted: Option<&Rc<RefCell<rc::Syntactic>>>,
 ) -> Result<Vec<Emitted>, Diagnostics> {
@@ -309,9 +335,11 @@ fn emit_selected(
             .copied()
             .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
             .collect();
-        let owns_entry = entry.is_some_and(|e| {
-            program.funcs.get(e.index()).is_some_and(|f| f.unit == unit && f.code().is_some())
-        });
+        // The entry point goes in the unit that owns `main`, so a program is
+        // one `_start`-adjacent symbol and the other units are libraries. A test
+        // binary has no `main` to own it, so it goes in the unit that owns the
+        // *first* test — the same rule, applied to the root that exists.
+        let owns_entry = root.as_ref().is_some_and(|r| owns(program, r, unit));
         // One object per selected unit, including a unit with nothing in it:
         // `actions::objects_of` pairs this vector with `unit_hashes`, which has
         // a row per unit unconditionally, and a unit that was asked for and not
@@ -336,8 +364,12 @@ fn emit_selected(
         for member in &members {
             emitter.define(FuncIdx(*member as u32));
         }
-        if let (Some(e), true) = (entry, owns_entry) {
-            emitter.entry_point(e);
+        if owns_entry {
+            match &root {
+                Some(Root::Main(e)) => emitter.entry_point(*e),
+                Some(Root::Tests(tests)) => emitter.test_entry_point(tests),
+                None => {}
+            }
         }
         // The generated helpers — a closure's thunk, the per-type drop glue —
         // are asked for from inside a function body and built here, after every
@@ -450,7 +482,7 @@ pub fn emit_ir_text(
     Ok(emitter.module.to_string())
 }
 
-/// `codegen_key(unit) = H(backend, identity, triple, profile, the unit's IR)`.
+/// `codegen_key(unit) = H(backend, identity, triple, profile, prefix, the unit's IR)`.
 ///
 /// Content-addressed **on the IR**, which is the convention `actions::codegen_key`
 /// states and the decision the whole incremental story rests on: keying a unit
@@ -467,8 +499,13 @@ pub fn emit_ir_text(
 /// hash and the platform; both must move when either input does, which is why
 /// the backend's identity is in *this* half rather than only in that one.
 /// `members` is the unit's function indices in ascending order, which is the
-/// order the whole-program filter this used to run yielded them in — so the
-/// bytes hashed are unchanged and no cached object is invalidated.
+/// order the whole-program filter this used to run yielded them in.
+///
+/// `unit_prefix` is in it because this backend puts it in the module name, and
+/// on every ELF target LLVM emits the module's source-file name as a `.file`
+/// directive — an `STT_FILE` symbol in the object. The measurement and the
+/// consequence are in `actions::codegen_key`'s note; the term is here so that
+/// neither half of the key can be sound while the other is not.
 fn codegen_key(
     program: &ir::Program,
     members: &[usize],
@@ -483,6 +520,8 @@ fn codegen_key(
     text.push_str(triple);
     text.push('\n');
     text.push_str(opts.profile.name());
+    text.push('\n');
+    text.push_str(opts.unit_prefix);
     text.push('\n');
     for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
         text.push_str(&program.render_func(f));

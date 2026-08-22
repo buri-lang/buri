@@ -1,0 +1,13 @@
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
+name = impl-heavy-100k
+profile = impl-heavy
+generator_revision = 1
+revision = 1
+recorded = 2026-08-20
+params = lines=100000 methods_per_struct=12 seed=0x0b001a575eed000c w_struct=6
+lines = 100726
+bytes = 3423889
+modules = 349
+digest = 1afcfe98f857521cad589400340a043e2311f3d21974965e822684f5f9957640
+native = false

@@ -86,11 +86,35 @@ pub struct Manifest {
     pub bytes: usize,
     pub modules: usize,
     pub digest: String,
+    /// Whether this corpus takes native lowering rows.
+    ///
+    /// Absent means `true`, so a manifest written before the key existed means
+    /// today what it meant then, and [`Manifest::render`] writes the key only
+    /// when it is false. A native row costs about thirty times a JS one, and
+    /// `design/PERFORMANCE.md` §4 states which pinned corpora are worth it.
+    pub native: bool,
 }
 
 impl Manifest {
+    /// The family this corpus is quoted under, which the goal column is printed
+    /// for only when it is [`Family::Realistic`].
+    ///
+    /// The profile's, when the corpus *is* the profile. A corpus whose `params`
+    /// move anything the profile does not is a parameter point rather than the
+    /// profile, and a parameter point is a stress shape by
+    /// `design/PERFORMANCE.md` §3's own definition — one dial pushed until it is
+    /// most of the corpus. Quoting one against a goal stated over representative
+    /// source is the thing §3 forbids, and deriving the family here is what makes
+    /// it unrepresentable rather than a naming convention somebody has to
+    /// remember.
     pub fn family(&self) -> Family {
-        generate::profile(&self.profile).map_or(Family::Stress, |(f, _)| f)
+        let Some((family, profile)) = generate::profile(&self.profile) else {
+            return Family::Stress;
+        };
+        if own_delta(&self.params) != own_delta(&profile.delta()) {
+            return Family::Stress;
+        }
+        family
     }
 
     fn render(&self) -> String {
@@ -106,7 +130,7 @@ impl Manifest {
              lines = {}\n\
              bytes = {}\n\
              modules = {}\n\
-             digest = {}\n",
+             digest = {}\n{}",
             self.name,
             self.profile,
             self.generator_revision,
@@ -116,7 +140,8 @@ impl Manifest {
             self.lines,
             self.bytes,
             self.modules,
-            self.digest
+            self.digest,
+            if self.native { "" } else { "native = false\n" }
         )
     }
 
@@ -132,6 +157,7 @@ impl Manifest {
             bytes: 0,
             modules: 0,
             digest: String::new(),
+            native: true,
         };
         for line in text.lines() {
             let line = line.trim();
@@ -154,6 +180,7 @@ impl Manifest {
                 "bytes" => m.bytes = num(value) as usize,
                 "modules" => m.modules = num(value) as usize,
                 "digest" => m.digest = value.to_string(),
+                "native" => m.native = !matches!(value, "false" | "0"),
                 // An unknown key is a manifest written by a newer toolchain.
                 // Ignoring it is what lets a field be added without every
                 // older checkout failing to read a corpus it can still compile.
@@ -165,6 +192,17 @@ impl Manifest {
         }
         Ok(m)
     }
+}
+
+/// A `params` delta with the two dimensions every corpus sets stripped out.
+///
+/// `lines` is the scale and `seed` is the corpus's identity; neither says
+/// anything about the shape, so neither distinguishes a profile from a point.
+fn own_delta(params: &str) -> Vec<&str> {
+    params
+        .split_whitespace()
+        .filter(|p| !p.starts_with("lines=") && !p.starts_with("seed="))
+        .collect()
 }
 
 /// The root of the checked-in corpora, resolved at compile time so that the
@@ -335,6 +373,7 @@ pub fn record(
         bytes: program.bytes(),
         modules: program.modules.len(),
         digest: digest(program),
+        native: true,
     };
     let path = dir.join("manifest.txt");
     std::fs::write(&path, manifest.render()).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -448,12 +487,17 @@ pub fn load_pinned(path: &Path) -> Result<(Manifest, Program), String> {
 
 /// Write a pinned manifest: the provenance, the counts and the digest, and no
 /// source at all.
+///
+/// `native` is whether the corpus takes native lowering rows, which `--pin`
+/// reads off `--targets`: a pin taken with `--targets=js` records a corpus the
+/// scale tier measures through the JavaScript backend only.
 pub fn pin(
     root: &Path,
     name: &str,
     profile: &str,
     params: &Params,
     program: &Program,
+    native: bool,
 ) -> Result<Manifest, String> {
     let path = root.join(format!("{name}.txt"));
     let bless = std::env::var("BURI_BLESS").is_ok_and(|v| v == "1");
@@ -480,6 +524,7 @@ pub fn pin(
         bytes: program.bytes(),
         modules: program.modules.len(),
         digest: digest(program),
+        native,
     };
     std::fs::write(&path, manifest.render())
         .map_err(|e| format!("{}: {e}", path.display()))?;

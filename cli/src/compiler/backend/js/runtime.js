@@ -117,15 +117,25 @@ function $f64(n) {
 // A descriptor is [kind, ...]. Kinds: 0 primitive, 1 unit, 2 struct, 3 enum,
 // 4 array, 5 tuple, 6 opaque.
 
+// `==` at a float, where the operands cannot be written twice. SPEC 7.2 rules
+// `NaN == NaN`, so this is `===` widened by exactly one pair. It is not
+// `Object.is`, which separates `-0.0` from `0.0`; SPEC 6.2 keeps those equal.
+function $feq(a, b) {
+  return a === b || (a !== a && b !== b);
+}
+
 function $eq(a, b) {
+  // A fast path that is also the answer: SPEC 7.2 makes `==` an equivalence
+  // relation, so one value compared with itself is equal at every type.
   if (a === b) return true;
+  // The one value `===` denies is itself. Both sides NaN is equal; one side
+  // NaN and the other anything is not, at every depth.
+  if (a !== a) return b !== b;
   // Two `Some(None)`s at the same nesting depth are the same value; they are
   // distinct objects, so `===` does not say so.
   if (a !== null && typeof a === "object" && !Array.isArray(a) && a.$n !== undefined) {
     return b !== null && typeof b === "object" && b.$n === a.$n;
   }
-  // NaN !== NaN, so a struct with an F64 field holding NaN is not equal to
-  // itself. That is structural equality being honest about its components.
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (!$eq(a[i], b[i])) return false;

@@ -480,6 +480,13 @@ object paths. Both are set from `Options::unit_prefix` rather than from
 `std::env::current_dir`, because `--check-reproducible` builds into two different
 directories precisely to catch the version that does not.
 
+The prefix does not wait for that wave to reach an object. It is already the
+head of a unit's module name (`emit_selected`), and LLVM emits a module's
+source-file name as a `.file` directive on every target whose assembly syntax
+has one — every ELF target, no Mach-O one — so it lands in `.symtab` as an
+`STT_FILE` symbol today. That is why it is a term of the `codegen` key
+(ARCHITECTURE.md §6.2).
+
 ## 8. Version pinning
 
 ```toml
