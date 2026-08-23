@@ -177,6 +177,19 @@ struct Native {
 const NATIVES: &[Native] = &[
     #[cfg(feature = "backend-cranelift")]
     Native { name: "cranelift", profile: Profile::Debug, partial: None },
+    #[cfg(feature = "backend-cpjit")]
+    Native {
+        name: "cpjit",
+        profile: Profile::Debug,
+        partial: Some(
+            "wave 1 of the copy-and-patch productization, and its surface is \
+             narrower than Cranelift's: drop glue, `Ret::Res`, `Ret::Tag` and \
+             a `[T]` whose element carries a reference count are all refused \
+             rather than emitted wrongly (`backend/cpjit/mod.rs`'s header). A \
+             row it refuses is skipped here; the gate on taking Cranelift's \
+             seat is that this list is empty",
+        ),
+    },
     #[cfg(feature = "backend-llvm")]
     Native {
         name: "llvm",
@@ -202,6 +215,13 @@ impl Native {
     /// the feature that carries the backend, and the `Ok` arm takes over
     /// the day `select` grows the arm.
     fn backend(self) -> Box<dyn Backend> {
+        // `select` still sends every native debug build to Cranelift, which is
+        // wave 1's deliberate non-change, so this backend is the one row here
+        // that is named rather than selected.
+        #[cfg(feature = "backend-cpjit")]
+        if self.name == "cpjit" {
+            return Box::new(backend::cpjit::Cpjit);
+        }
         match backend::select(host_target(), self.profile) {
             Ok(b) => b,
             #[cfg(feature = "backend-llvm")]

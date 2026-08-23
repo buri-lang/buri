@@ -322,9 +322,20 @@ fn dependencies_stay_behind_the_bar() {
     assert!(seen > 0, "the admitted dependencies vanished; this test is now asserting nothing");
 
     // The default feature set is the one `cargo install buri` gets, and it must
-    // not be the one that needs LLVM installed (BUILD-AND-WATCH.md §2).
+    // not be the one that needs LLVM installed (BUILD-AND-WATCH.md §2). The
+    // assertion is on the *property* rather than on the exact list, because
+    // `backend-cpjit` joined it and a third default feature that needs no
+    // crate at all is not what this test is guarding against.
+    let default = cli
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("default = "))
+        .expect("cli/Cargo.toml declares a default feature set");
     assert!(
-        cli.contains("default = [\"backend-cranelift\"]"),
+        default.contains("backend-cranelift"),
+        "the default build no longer has a native backend: {default}"
+    );
+    assert!(
+        !default.contains("backend-llvm"),
         "the default feature set changed; `cargo install buri` must not require LLVM"
     );
     assert!(

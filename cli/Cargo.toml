@@ -76,7 +76,7 @@ inkwell = { version = "0.10", optional = true, features = ["llvm21-1-prefer-dyna
 inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
 
 [features]
-default = ["backend-cranelift"]
+default = ["backend-cranelift", "backend-cpjit"]
 
 # On by default. Cranelift is pure Rust with no system dependency and
 # cross-compiles anywhere Rust does, so having it on costs a contributor
@@ -90,6 +90,9 @@ backend-cranelift = [
     "dep:cranelift-native",
     "dep:target-lexicon",
 ]
+
+# On by default, and off on a host with no `clang`. See `cli/build.rs`.
+backend-cpjit = []
 
 # Off by default. It needs LLVM 21 installed and `LLVM_SYS_211_PREFIX` set, and
 # `cargo install buri` must not require that. A toolchain without it refuses a
