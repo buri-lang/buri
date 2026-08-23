@@ -11,7 +11,7 @@ write the qualified form, as in `Option.Some(...)`, or annotate what this value 
 ## A program that provokes it
 
 ```buri fail code=unannotated-variant
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn mystery(): Int {

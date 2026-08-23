@@ -221,7 +221,7 @@ pub extern "C" fn buri_rt_abort_alloc_budget(requested: i64, budget: i64) -> ! {
 
 /// The allocator could not satisfy a request.
 ///
-/// SPEC 10.5 says `Alloc` can fail; `cap.buri:19` gives `allocate` no value to
+/// SPEC 10.5 says `Alloc` can fail; `effect.buri:19` gives `allocate` no value to
 /// report a failure with; SPEC 6.10 says that combination is an abort.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_abort_oom(bytes: u64) -> ! {

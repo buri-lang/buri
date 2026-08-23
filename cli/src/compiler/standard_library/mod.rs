@@ -106,7 +106,7 @@ pub const MODULES: &[StdModule] = &[
     m("core/math", include_str!("sources/math.buri")),
     m("core/simd", include_str!("sources/simd.buri")),
     m("core/bits", include_str!("sources/bits.buri")),
-    StdModule { platform: true, ..m("core/cap", include_str!("sources/cap.buri")) },
+    StdModule { platform: true, ..m("core/effect", include_str!("sources/effect.buri")) },
     StdModule { platform: true, ..m("core/host", include_str!("sources/host.buri")) },
     // Not a platform module, deliberately. It *implements* `Alloc` rather than
     // declaring it, and `Alloc` is the one effect whose implementation carries

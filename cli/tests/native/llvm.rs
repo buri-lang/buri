@@ -302,7 +302,7 @@ fn build_and_run_at(
 /// prints needs, and nothing else — so the context is a record of two empty
 /// implementations and is therefore zero-sized (VALUE-MODEL.md §8).
 const PRELUDE: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 "#;
 
@@ -2520,7 +2520,7 @@ fn a_stateful_context_is_dropped_at_the_runtime_boundary() {
         "stateful-ctx",
         &program(
             r#"
-from "core/cap" import { Region };
+from "core/effect" import { Region };
 from "core/list" import * as list;
 
 /// The shape `core/testing/context`'s `TestAlloc` has: a handle, because Buri

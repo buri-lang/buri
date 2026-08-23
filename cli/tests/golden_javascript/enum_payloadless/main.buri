@@ -1,6 +1,6 @@
 // Every variant nullary, so the enum is already a bare integer tag. The match
 // over it is the cheapest one the backend has to compile.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Colour { Red, Green, Blue, Cyan, Magenta, Yellow }

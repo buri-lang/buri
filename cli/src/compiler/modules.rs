@@ -23,7 +23,7 @@ use std::path::PathBuf;
 pub enum Role {
     /// A `core/...` module, shipping with the toolchain.
     Std,
-    /// A platform module: `core/cap`, `core/host`, `core/testing/*`. Only
+    /// A platform module: `core/effect`, `core/host`, `core/testing/*`. Only
     /// these may declare effects.
     Platform,
     /// Ordinary library or binary source.

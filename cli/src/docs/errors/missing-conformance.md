@@ -11,7 +11,7 @@ bind a value whose type has `impl Alloc for ...`; an effect is an ordinary inter
 ## A program that provokes it
 
 ```buri fail code=missing-conformance
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

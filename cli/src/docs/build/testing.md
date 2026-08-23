@@ -145,7 +145,7 @@ library code that happens to be test-only, and it lives behind a path with a
 
 ```buri repo=cli/tests/example pkg=//lib/ledger role=testing
 # from "core/testing/context" import { Hermetic, files };
-# from "core/cap" import { Fs };
+# from "core/effect" import { Fs };
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.
 
@@ -212,7 +212,7 @@ its test sources import it by its module path:
 from "//cmd/server/routes" export { Route, route };
 
 from "//cmd/server/routes" import { route };
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
@@ -248,7 +248,7 @@ hand it ([`SPEC.md` §11](./cli/src/docs/SPEC.md)). A binary whose failure modes
 assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
-# from "core/cap" import { Alloc, Env, Fs, Stdout };
+# from "core/effect" import { Alloc, Env, Fs, Stdout };
 # from "core/host" import * as host;
 # from "core/env" import * as env;
 # from "core/fs" import * as fs;
@@ -275,7 +275,7 @@ supply, and it is the same list in both directions.
 ```buri role=test
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic, data, readOnly };
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 # from "core/fs" import * as fs;
 # fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
 #   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
@@ -313,7 +313,7 @@ may use it directly, declare its own on top of it, or build one per test:
 ```buri role=test
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic, envOf };
-# from "core/cap" import { Env };
+# from "core/effect" import { Env };
 # from "core/env" import * as env;
 # fn logPath<C: Env>(ctx: C): Str { env.get(ctx, "LEDGER_LOG") ?? "ledger.log" }
 context Fixture {
@@ -343,7 +343,7 @@ exactly the way the runner's own implementations are:
 ```buri role=test
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic };
-# from "core/cap" import { Net, NetError, NetResponse };
+# from "core/effect" import { Net, NetError, NetResponse };
 # fn body<C: Net>(ctx: C, url: Str): Result<Str, NetError> {
 #   ctx.fetch("GET", url, "").map(fn(r) => r.body)
 # }
@@ -394,7 +394,7 @@ test {
 ```buri role=test
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic };
-# from "core/cap" import { Alloc, Fs };
+# from "core/effect" import { Alloc, Fs };
 # from "core/fs" import * as fs;
 # struct Entry { export memo: Str }
 # fn sample(): [Entry] { [Entry { memo: "coffee" }] }

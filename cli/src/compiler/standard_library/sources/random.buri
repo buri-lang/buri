@@ -4,7 +4,7 @@
 //! the test platform's `randSeed(Int)` is an ordinary implementation of the
 //! same effect.
 
-from "core/cap" import { Rand };
+from "core/effect" import { Rand };
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.

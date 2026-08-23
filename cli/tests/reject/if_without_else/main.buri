@@ -1,5 +1,5 @@
 // EXPECT: `if` requires an `else` branch
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn sign(n: Int): Int {

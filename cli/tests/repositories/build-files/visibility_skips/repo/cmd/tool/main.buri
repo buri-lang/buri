@@ -1,7 +1,7 @@
 // Reaches the co-located library through //cmd/tool. That edge is implicit —
 // it is not in `dependencies` and could not be — so visibility never sees it.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//cmd/tool" import { render };

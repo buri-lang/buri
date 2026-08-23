@@ -1,6 +1,6 @@
 // Boolean-valued conditionals. A branch that yields `true` or `false` is the
 // condition itself, and an `if` in value position is a ternary.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn inRange(n: Int, lo: Int, hi: Int): Bool {

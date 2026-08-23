@@ -1,5 +1,5 @@
 // EXPECT: has no method `show`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct State { export code: Int }

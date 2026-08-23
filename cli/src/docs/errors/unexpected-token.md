@@ -11,7 +11,7 @@ write a pattern: a binding, a literal, `.Variant`, or `_`
 ## A program that provokes it
 
 ```buri fail code=unexpected-token
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn middle(xs: [Int]): Int {

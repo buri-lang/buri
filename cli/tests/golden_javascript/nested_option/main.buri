@@ -3,7 +3,7 @@
 // construction, matching, `??`, equality, ordering and rendering of an
 // `Option<Option<T>>`, and of an `Option` that came out of the runtime rather
 // than out of generated code.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 

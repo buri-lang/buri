@@ -1,4 +1,4 @@
-//! core/cap — the effect declarations.
+//! core/effect — the effect declarations.
 //!
 //! An effect is an interface declared with `effect` instead of `trait`. Its
 //! methods are the operations it grants. Only platform modules may declare
@@ -108,7 +108,7 @@ export effect Proc {
 }
 
 /// Declared here rather than in `core/fs` so that the effect signature above
-/// can name it without `core/cap` depending on a module that depends on it.
+/// can name it without `core/effect` depending on a module that depends on it.
 export enum IoError {
   export NotFound,
   export PermissionDenied,

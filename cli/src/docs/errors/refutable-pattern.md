@@ -15,7 +15,7 @@ a `let` binds unconditionally, so its pattern has to be irrefutable
 ## A program that provokes it
 
 ```buri fail code=refutable-pattern
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn unwrap(o: Option<Int>): Int {

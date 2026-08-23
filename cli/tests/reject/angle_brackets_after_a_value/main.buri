@@ -1,5 +1,5 @@
 // EXPECT: explicit type arguments qualify a function or a call
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 // `x < T > (y)` is the one shape both readings of `<` parse, and it is read as

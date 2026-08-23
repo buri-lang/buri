@@ -15,7 +15,7 @@ there is no implicit promotion of any kind
 ## A program that provokes it
 
 ```buri fail code=type-mismatch
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn widenByAccident(a: I32, b: I64): I64 {

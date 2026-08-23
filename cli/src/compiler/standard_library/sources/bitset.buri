@@ -19,7 +19,7 @@
 //! over a receiver.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/bitset" import * as bitset;
 //! from "core/str" import * as str;
@@ -40,7 +40,7 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/list" import * as list;
 
 /// The number of bits one word holds. Not exported: it is the layout, and a

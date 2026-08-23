@@ -2,7 +2,7 @@
 // `check_ctx_rule` runs on the pre-instantiation signature. So a generic
 // closure-builder should typecheck, and instantiating T at a context type
 // would put a capability in a closure the capture rule never inspected.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 // Nothing here mentions an effect, so the capture rule is silent.

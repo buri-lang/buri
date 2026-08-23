@@ -1,5 +1,5 @@
 // EXPECT: comparison operators are non-associative
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn between(a: Int, b: Int, c: Int): Bool {

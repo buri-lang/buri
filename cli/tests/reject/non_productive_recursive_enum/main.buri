@@ -1,5 +1,5 @@
 // EXPECT: `Endless` can never be constructed
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Endless { Node(Endless) }

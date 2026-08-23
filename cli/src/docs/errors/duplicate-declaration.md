@@ -11,7 +11,7 @@ rename one of them; `match` tells variants apart by name
 ## A program that provokes it
 
 ```buri fail code=duplicate-declaration
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Choice { Yes, No, Yes }

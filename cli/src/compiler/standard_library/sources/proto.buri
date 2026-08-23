@@ -31,7 +31,7 @@
 //! understand to get past, so treating one as an unknown field would silently
 //! read the rest of the message at the wrong offset.
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/bytes" import * as bytes;
 from "core/json" import { Json };
 from "core/list" import * as list;

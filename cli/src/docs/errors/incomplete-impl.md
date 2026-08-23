@@ -15,7 +15,7 @@ an `impl` supplies every method its trait declares
 ## A program that provokes it
 
 ```buri fail code=incomplete-impl
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 trait Measurable {

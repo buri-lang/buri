@@ -1749,7 +1749,7 @@ fn row_12_alloc_accounting() {
 }
 
 const ALLOCATE: &str = r#"
-from "core/cap" import { Alloc, Region };
+from "core/effect" import { Alloc, Region };
 from "core/host" import { stdout, alloc };
 
 export fn main(): Result<(), Str> {

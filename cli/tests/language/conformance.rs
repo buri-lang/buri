@@ -257,7 +257,7 @@ fn tail_calls_run_in_constant_stack_on_v8() {
     scratch.binary_package(
         "cmd/deep",
         r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn countDown(n: Int, acc: Int): Int {

@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "from \"core/cap\" import { Alloc };\n\n/// A whole number of cents. The field is not exported, so arithmetic on the\n/// underlying integer is not reachable from outside this module.\nexport struct Cents(I64);\n\nderive Eq, Show for Cents;\n\nexport fn fromCents(c: I64): Cents { Cents(c) }\n\nexport fn double(c: Cents): Cents { fromCents(c.0 + c.0) }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "from \"core/effect\" import { Alloc };\n\n/// A whole number of cents. The field is not exported, so arithmetic on the\n/// underlying integer is not reachable from outside this module.\nexport struct Cents(I64);\n\nderive Eq, Show for Cents;\n\nexport fn fromCents(c: I64): Cents { Cents(c) }\n\nexport fn double(c: Cents): Cents { fromCents(c.0 + c.0) }\n"}}}
 # `fromCents` on its own declaration line: the signature and the doc comment.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 8, "character": 12}}}
 # `Cents` where the struct is declared: the doc comment above it.

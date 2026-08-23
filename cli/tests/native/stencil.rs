@@ -425,7 +425,7 @@ fn concatenation_keeps_the_ascii_flag() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
@@ -457,7 +457,7 @@ fn runtime_entries_answer_through_an_out_pointer() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
@@ -496,7 +496,7 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let x: F64 = 2.5;
@@ -640,7 +640,7 @@ fn nothing_is_leaked() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
 export struct Boxed { label: Str, n: Int }
@@ -695,7 +695,7 @@ fn the_glue_balances() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
 export struct Row { names: [Str] }
@@ -799,7 +799,7 @@ fn the_list_surface_is_the_one_the_language_specifies() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
 export struct Row { key: Int, tag: Str }
@@ -846,7 +846,7 @@ fn a_none_with_a_niche_is_not_walked() {
         r#"
 from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
 

@@ -246,7 +246,7 @@ fn generated_javascript_matches_its_record() {
 #[test]
 fn generics_over_different_contexts_do_not_share_a_symbol() {
     let program = "\
-from \"core/cap\" import { Alloc, Stdout };
+from \"core/effect\" import { Alloc, Stdout };
 from \"core/host\" import * as host;
 
 struct Loud(Str);

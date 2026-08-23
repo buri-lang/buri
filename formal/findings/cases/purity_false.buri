@@ -4,7 +4,7 @@
 // nothing, and constructs no context. SPEC 10.4 therefore claims it "performs
 // no observable effect" and "may be freely cached, reordered, or eliminated".
 // It prints twice.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {

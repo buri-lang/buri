@@ -13,7 +13,7 @@ The module path comes **first**, before the specifier list:
 from "core/list" import { map, filter };
 from "core/list" import { map as listMap };
 from "core/list" import * as list;
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open

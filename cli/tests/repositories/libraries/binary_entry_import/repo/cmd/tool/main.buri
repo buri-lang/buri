@@ -1,7 +1,7 @@
 // The entry point, and this binary's surface for its own tests: the suite sees
 // what this file exports and nothing more.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 // Re-exported so the suite can reach it. Everything else in routes.buri stays

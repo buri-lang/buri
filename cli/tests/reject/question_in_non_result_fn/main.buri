@@ -1,5 +1,5 @@
 // EXPECT: needs a `Result` return type
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn unwrap(r: Result<Int, Str>): Int {

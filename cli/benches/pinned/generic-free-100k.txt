@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = generic-free-100k
 profile = mixed
-generator_revision = 1
-revision = 1
-recorded = 2026-08-20
+generator_revision = 2
+revision = 2
+recorded = 2026-08-23
 params = generic_args=1 lines=100000 seed=0x0b001a575eed0014 w_generic_fn=0
 lines = 100786
-bytes = 3448016
+bytes = 3449099
 modules = 361
-digest = bc05bab7570bc08c9cc315acf60cab20e5794f38893bff5ca9b99f18dd294aad
+digest = 6f2fc642b64d86d6d9909e633e8fd2bc3cb83355f0e5cd23a5cb3c8b12de9c17
 native = false

@@ -15,7 +15,7 @@ a module is a test source because a rule lists it in `test.sources`; that is the
 ## A program that provokes it
 
 ```buri fail code=test-outside-test-source
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 test "a test in a binary source" {

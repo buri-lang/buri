@@ -15,7 +15,7 @@ a `.` resolves to a field before a method, so the two may not share a name
 ## A program that provokes it
 
 ```buri fail code=duplicate-field
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

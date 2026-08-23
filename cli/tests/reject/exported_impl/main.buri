@@ -1,5 +1,5 @@
 // EXPECT: expected a declaration, found `impl`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/order" import { Eq };
 from "core/host" import * as host;
 

@@ -842,7 +842,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// A effect-carrying parameter must be `self` or `ctx`, at most one of
+    /// An effect-carrying parameter must be `self` or `ctx`, at most one of
     /// each. Both are fixed positions with fixed names, so you read the first
     /// two parameters and stop (SPEC 10.2).
     fn check_ctx_rule(&mut self, fid: FnId, d: &tree::FnDecl) {
@@ -1089,7 +1089,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Resolves a possibly-qualified path (`Order`, `cap.Alloc`) in a module's
+    /// Resolves a possibly-qualified path (`Order`, `effects.Alloc`) in a module's
     /// scope.
     pub fn resolve_path(&mut self, module: ModuleId, path: &[flat::Loc]) -> Option<Sym> {
         let t = self.tree(module);
@@ -1408,7 +1408,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        if let Some(m) = self.loaded.find("core/cap") {
+        if let Some(m) = self.loaded.find("core/effect") {
             for name in ["Alloc", "IoError", "Region"] {
                 match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {

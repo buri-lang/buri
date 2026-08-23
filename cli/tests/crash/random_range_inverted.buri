@@ -1,7 +1,7 @@
 // CRASH: random range is empty
 // `hi < lo` is the same emptiness as `hi == lo`, and is worth its own case
 // because a subtraction of the two would silently produce a negative span.
-from "core/cap" import { Alloc, Stdout, Env, Rand };
+from "core/effect" import { Alloc, Stdout, Env, Rand };
 from "core/host" import * as host;
 from "core/env" import * as env;
 from "core/random" import * as random;

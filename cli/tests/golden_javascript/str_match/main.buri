@@ -1,6 +1,6 @@
 // A match over string literals: a run of `===` comparisons where a JavaScript
 // `switch` would do.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn code(name: Str): Int {

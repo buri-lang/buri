@@ -15,7 +15,7 @@ the calling convention is receiver first, context second, everything else after
 ## A program that provokes it
 
 ```buri fail code=ctx-not-first
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 

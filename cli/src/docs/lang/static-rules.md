@@ -15,7 +15,7 @@ afterward:
 7. Every arm of a `match` produces a value of the arm type. There is no bottom
    type and no way to declare a branch unreachable, so an arm cannot opt out
    (Section 6.10).
-8. A lambda may not capture a effect-carrying value, nor one whose type could be
+8. A lambda may not capture an effect-carrying value, nor one whose type could be
    a context at some instantiation — that is, one mentioning a type parameter
    that carries no ordinary trait bound, anywhere `is effect-carrying` would
    have looked (Section 10.6). Function types are exempt: a closure holds only
@@ -56,13 +56,13 @@ Methods and traits:
 24. A generic parameter's bounds must name declared traits. Inside the function,
     only the methods those traits declare are callable on that parameter.
 
-Capabilities:
+Effects and contexts:
 
 25. `ctx` may appear only as a function's first parameter, the parameter
     immediately after `self`, or a `let` binding name where a context may be
     constructed (Section 11.3).
-26. A effect-carrying parameter must be `self` or `ctx`, at most one of each
-    (Section 10.2). A type is effect-carrying if it is a type variable with a
+26. An effect-carrying parameter must be `self` or `ctx`, at most one of each
+    (Section 10.2). A type is effect-carrying if it is a type variable with an
     effect bound, a type that implements an effect, or any type that can hand
     one of those back — a type argument counts only in a position the
     constructor can hand back, which is why `fn(C, A) => B` and a constructor

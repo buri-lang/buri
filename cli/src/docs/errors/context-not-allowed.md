@@ -15,7 +15,7 @@ only in `main`'s body, in a test source, or in a test-only module — and never 
 ## A program that provokes it
 
 ```buri fail code=context-not-allowed
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

@@ -9,7 +9,7 @@
 //! | Module | Gate | Question |
 //! |---|---|---|
 //! | [`link`] | none | Bytes in, an executable out: object caching, the link key, reproducibility. Objects come from `cc`, because the layer neither knows nor can know which backend made them. |
-//! | [`runtime`] | none | The `buri_rt_*` C ABI, driven from C (`driver.c`, beside this file): the archive links, the reference-count header and drop glue behave and leak nothing, every abort message is byte-identical to the JavaScript backend's, and each host capability answers what `core/cap` declares. |
+//! | [`runtime`] | none | The `buri_rt_*` C ABI, driven from C (`driver.c`, beside this file): the archive links, the reference-count header and drop glue behave and leak nothing, every abort message is byte-identical to the JavaScript backend's, and each host capability answers what `core/effect` declares. |
 //! | [`float_parity`] | none | Does a native `show` of a `Float` print what a JavaScript one prints, over 3 807 072 doubles? Needs a JavaScript engine and takes seconds; `--skip float_parity` leaves the rest fast. |
 //! | [`stencil`] | `backend-stencil` | The same for the copy-and-patch backend: the frame-threaded convention, the hand-written `main`, the constant pool as its own section, and that a refusal is a diagnostic. |
 //! | [`cranelift`] | `backend-cranelift` | Programs through the whole pipeline, linked, run, and asserted on what they printed. |

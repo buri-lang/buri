@@ -10,7 +10,7 @@
 // What to read for in the record: every one of these is a `while(true)` whose
 // short-circuit is a `return` of the literal the operator gives, and whose
 // recursion is a rebinding plus `continue`.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 

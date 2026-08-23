@@ -2106,7 +2106,7 @@ fn bounded_expr(rng: &mut Rng, depth: u32, x: i64) -> (String, i64) {
 fn printer(rng: &mut Rng) -> Printer {
     let funcs = 1 + rng.below(5);
     let mut text = String::from(
-        "from \"core/cap\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\n",
+        "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\n",
     );
     let mut lines: Vec<String> = Vec::new();
     let mut expected: Vec<String> = Vec::new();

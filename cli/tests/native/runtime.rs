@@ -389,7 +389,7 @@ fn the_streams_interleave_as_written() {
 
 /// `Fs`, end to end, including the two error shapes a program can match on.
 #[test]
-fn the_filesystem_capability_works() {
+fn the_filesystem_effect_works() {
     if skip() {
         return;
     }
@@ -409,7 +409,7 @@ fn the_filesystem_capability_works() {
 
 /// `Env`, both halves — and the argument vector the entry point hands over.
 #[test]
-fn the_environment_capability_works() {
+fn the_environment_effect_works() {
     if skip() {
         return;
     }
@@ -426,7 +426,7 @@ fn the_environment_capability_works() {
 /// `Clock` and `Rand`. Neither has a fixed answer, so what is asserted is the
 /// range each one promises.
 #[test]
-fn the_clock_and_random_capabilities_work() {
+fn the_clock_and_random_effects_work() {
     if skip() {
         return;
     }
@@ -442,7 +442,7 @@ fn the_clock_and_random_capabilities_work() {
 
 /// `Stdin`, both forms: lines to end of input, and exactly `n` octets.
 #[test]
-fn the_standard_input_capability_works() {
+fn the_standard_input_effect_works() {
     if skip() {
         return;
     }
@@ -458,7 +458,7 @@ fn the_standard_input_capability_works() {
 
 /// `Proc::exitWith` flushes and does not return.
 #[test]
-fn the_process_capability_exits() {
+fn the_process_effect_exits() {
     if skip() {
         return;
     }
@@ -475,7 +475,7 @@ fn the_process_capability_exits() {
 /// refusal that silently became a cleartext request would be the worst possible
 /// regression in this file.
 #[test]
-fn the_network_capability_fetches() {
+fn the_network_effect_fetches() {
     if skip() {
         return;
     }
@@ -525,7 +525,7 @@ fn the_network_capability_fetches() {
 
 /// The two refusals, which are the honest half of `fetch`'s scope.
 #[test]
-fn the_network_capability_refuses_what_it_cannot_do() {
+fn the_network_effect_refuses_what_it_cannot_do() {
     if skip() {
         return;
     }

@@ -2,7 +2,7 @@
 // Methods are not extensible. An `impl` block belongs to the module that
 // declares its type, which is what keeps `x.f()` a single lookup with no
 // import and no collision.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 impl Str {

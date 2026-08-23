@@ -1,5 +1,5 @@
 // EXPECT: this pattern does not mention `y`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Point { export x: Int, export y: Int }

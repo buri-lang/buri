@@ -20,7 +20,7 @@ a function.
 ## A program that provokes it
 
 ```buri fail code=type-args-on-a-value
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn f(a: Int, c: Int): Bool {

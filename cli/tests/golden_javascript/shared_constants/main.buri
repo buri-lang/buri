@@ -1,7 +1,7 @@
 // Constant aggregates built inside a function that runs many times. Each of
 // these used to allocate a fresh array per call for a value with no contents
 // and no identity anyone can observe.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Token { Blank, Word(Str), Number(Int) }

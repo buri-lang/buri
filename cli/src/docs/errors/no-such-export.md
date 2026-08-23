@@ -15,7 +15,7 @@ a re-export may name only what its module path exports
 ## A program that provokes it
 
 ```buri fail code=no-such-export
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" export { notAThing };
 

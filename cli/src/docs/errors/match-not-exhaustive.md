@@ -15,7 +15,7 @@ every `match` must cover its scrutinee's type
 ## A program that provokes it
 
 ```buri fail code=match-not-exhaustive
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Shape { Circle(Int), Square(Int), Empty }

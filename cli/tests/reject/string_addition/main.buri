@@ -1,5 +1,5 @@
 // EXPECT: `Str` does not implement `Add`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn joined(a: Str, b: Str): Str {

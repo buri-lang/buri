@@ -311,7 +311,7 @@ DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" type=NamedType ";"
    grammar one.
 
    The left side of a binding is a NamedType because it names an effect, which
-   may be written qualified (`cap.Alloc`). The right side is any expression. *)
+   may be written qualified (`effects.Alloc`). The right side is any expression. *)
 
 ContextDecl     ::= "context" name=IDENT ContextBody
 

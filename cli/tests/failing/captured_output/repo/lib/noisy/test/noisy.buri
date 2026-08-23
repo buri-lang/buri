@@ -3,7 +3,7 @@
 // location, and nothing else — so the only way to see captured output is to
 // assert on it, which the second test does.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/testing/assert" import * as assert;
 from "core/testing/context" import { alloc, captured, captureOut };
 from "//lib/noisy" import { announce };

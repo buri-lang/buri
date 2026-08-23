@@ -11,7 +11,7 @@
 //!
 //! ## The charge is defined, not measured
 //!
-//! The table beside `Alloc` in `core/cap` is the whole cost model: the charge
+//! The table beside `Alloc` in `core/effect` is the whole cost model: the charge
 //! for an operation is a function of the *types*, so the same program charges
 //! the same number on every backend and every platform. A count from
 //! `GeneralPurpose` on JavaScript — where there is a garbage collector under
@@ -62,7 +62,7 @@
 //!
 //! ```buri run
 //! from "core/alloc" import * as alloc;
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //!
 //! export fn main(): Result<(), Str> {
@@ -87,11 +87,11 @@
 //! 32 of 64 left
 //! ```
 
-from "core/cap" import { Alloc, Region };
+from "core/effect" import { Alloc, Region };
 
 // --- The cost model, as arithmetic --------------------------------------------
 //
-// `core/cap`'s table states the model; these evaluate it. They are ordinary
+// `core/effect`'s table states the model; these evaluate it. They are ordinary
 // pure functions, so both backends compute them from one body and the
 // agreement is by construction rather than by test.
 
@@ -240,7 +240,7 @@ impl Arena {
 ///
 /// The abort is forced rather than chosen, and the reasoning is worth having
 /// where a reader meets the type: `allocate` answers `Region`, not
-/// `Result<Region, _>` (`core/cap`), so there is no value to report a failure
+/// `Result<Region, _>` (`core/effect`), so there is no value to report a failure
 /// with; SPEC 10.5 says `Alloc` can fail; and SPEC 6.10 says a failure with no
 /// value to return is an abort. The message names both numbers —
 /// `allocation budget exhausted: 40 bytes requested against a budget of 64` —

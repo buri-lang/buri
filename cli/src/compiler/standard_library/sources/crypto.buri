@@ -18,7 +18,7 @@
 //! - **No cryptographically secure randomness.** `core/random` is a seeded,
 //!   reproducible generator, and it is that way on purpose — a hermetic test
 //!   needs the same numbers every run. A CSPRNG is a different thing that
-//!   would need a new `Entropy` effect in `core/cap` and a host implementation
+//!   would need a new `Entropy` effect in `core/effect` and a host implementation
 //!   behind it. That is a decision to take deliberately, not a function to add
 //!   quietly beside these.
 //!
@@ -26,7 +26,7 @@
 //! property. Passwords want a memory-hard function with a work factor.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/crypto" import * as crypto;
 //!
@@ -44,7 +44,7 @@
 
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/list" import * as list;
 
 /// A 32-byte digest.

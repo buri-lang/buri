@@ -6,7 +6,7 @@
 
 from "core/str" import * as str;
 from "core/list" import * as list;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "//bench/m0002" import { Node2, seed2, blend2, reach2 };
 
 /// The record every module in this corpus exports, so that an import

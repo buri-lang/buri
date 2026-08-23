@@ -3,8 +3,8 @@
 //! Every function here names `Fs` in its bounds, so the disk is visible in the
 //! signature.
 
-from "core/cap" import { Alloc, Fs, IoError };
-from "core/cap" export { IoError };
+from "core/effect" import { Alloc, Fs, IoError };
+from "core/effect" export { IoError };
 
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
   ctx.readFile(path)

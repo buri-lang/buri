@@ -417,7 +417,7 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_stdin_read_bytes(
 // Filesystem
 // ---------------------------------------------------------------------------
 
-/// `IoError.NotFound` — variant `0` of the enum `core/cap` declares, which is
+/// `IoError.NotFound` — variant `0` of the enum `core/effect` declares, which is
 /// the only error any of the four below produces.
 ///
 /// `runtime.js`'s `$testing_context_MemFs_readFile` answers `$err([0])` and

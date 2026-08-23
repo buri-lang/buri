@@ -5,7 +5,7 @@
 // be checked while signatures were elaborated, before conformance was
 // registered, so it read an empty impl table and admitted this: `sneaky`
 // performs an effect with no `ctx` anywhere in its signature.
-from "core/cap" import { Alloc, Clock, Stdout };
+from "core/effect" import { Alloc, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 

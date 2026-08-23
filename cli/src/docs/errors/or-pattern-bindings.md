@@ -15,7 +15,7 @@ it binds `y`, which the others do not
 ## A program that provokes it
 
 ```buri fail code=or-pattern-bindings
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Either { Left(Int), Right(Int) }

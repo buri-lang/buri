@@ -139,7 +139,7 @@ Nothing has to be configured: a `repo=` on the fence is only needed when the
 example lives in a *different* repository's documentation.
 
 ```buri run
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/money" import { fromCents };

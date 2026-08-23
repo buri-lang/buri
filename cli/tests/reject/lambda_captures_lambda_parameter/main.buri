@@ -1,7 +1,7 @@
 // EXPECT: a lambda may not capture `c`, which carries an effect
 // The context a `*Ctx` combinator passes in is a binding like any other, so a
 // lambda *inside* that lambda may not close over it either (SPEC 10.6).
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 from "core/list" import * as list;

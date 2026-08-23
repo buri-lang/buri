@@ -3,7 +3,7 @@
 // may not name a module inside it, even though those files are one directory
 // listing away. The boundary belongs to the rule, not to the directory.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//tools/report" import { render };

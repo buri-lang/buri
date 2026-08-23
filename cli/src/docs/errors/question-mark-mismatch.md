@@ -11,7 +11,7 @@ return a `Result` from this function, or handle the error here with `match` or `
 ## A program that provokes it
 
 ```buri fail code=question-mark-mismatch
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn unwrap(r: Result<Int, Str>): Int {

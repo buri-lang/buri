@@ -11,7 +11,7 @@
 // and the rebinding writes the carrier instead. `sumTo` next to it has no
 // closure and keeps the plain in-place rebinding, which is the point of doing
 // this per slot rather than everywhere.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 

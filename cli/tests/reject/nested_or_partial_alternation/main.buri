@@ -1,7 +1,7 @@
 // EXPECT: this `match` does not cover `.Some(false)`
 // The alternation under `.Some` names one of `Bool`'s two constructors, so it
 // completes nothing.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn describe(x: Option<Bool>): Int {

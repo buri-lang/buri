@@ -1,5 +1,5 @@
 // EXPECT: `Outer` does not implement `Eq`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/order" import { Eq };
 

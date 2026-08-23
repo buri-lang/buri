@@ -69,7 +69,7 @@
 //!    out-pointer into whatever `middle::layout` chose for an `Option`, and
 //!    `str.toInt` and `list.get` go through it — but a `Result<T, IoError>` has
 //!    an error *payload* to build as well as a tag, and `IoError` is a
-//!    `core/cap` type the intrinsic table does not name. One `Ret::Result` and
+//!    `core/effect` type the intrinsic table does not name. One `Ret::Result` and
 //!    that type's layout away.
 //!  * **The rest of the closure surface of `core/list`.** Ten of them are
 //!    emitted now (`emit::Lower::list_closure`), which is what moved

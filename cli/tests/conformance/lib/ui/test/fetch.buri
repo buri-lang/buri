@@ -6,7 +6,7 @@
 // that takes its context as a parameter. A lambda may not capture a context,
 // and that is exactly why the shape is this one.
 
-from "core/cap" import { NetResponse };
+from "core/effect" import { NetResponse };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Fetch, fetch, FetchError, Request };
 from "ui/testing" import { noFetch, Recorder, recorder };

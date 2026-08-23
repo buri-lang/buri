@@ -15,7 +15,7 @@ a derived implementation is a fold over the type's components, and `Inner` does 
 ## A program that provokes it
 
 ```buri fail code=underivable
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/order" import { Eq };
 

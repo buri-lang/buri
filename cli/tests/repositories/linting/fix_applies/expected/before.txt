@@ -1,8 +1,8 @@
 error: `Stdout` is imported and never used [unused-import]
- --> cmd/app/main.buri:4:33
+ --> cmd/app/main.buri:4:36
   |
-4 | from "core/cap" import { Alloc, Stdout };
-  |                                 ^^^^^^
+4 | from "core/effect" import { Alloc, Stdout };
+  |                                    ^^^^^^
   |
   = an import that names something the module does not use makes the dependency graph describe something other than the code
   = fix: remove `Stdout` from the import

@@ -9,7 +9,7 @@
 //! method with no import: receiver first, context second, everything else
 //! after (SPEC 10.7).
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/order" import { Order, Ord };
 
 // --- Pure: no context parameter at all --------------------------------------

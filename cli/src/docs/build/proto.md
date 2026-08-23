@@ -5,7 +5,7 @@ generated rather than read:
 
 ```buri repo=cli/tests/conformance pkg=//lib/proto
 from "//lib/proto/address.proto" import { Address, encodeAddress, decodeAddress };
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/proto" import { ProtoError };
 
 export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {

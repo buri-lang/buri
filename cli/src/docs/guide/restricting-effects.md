@@ -5,7 +5,7 @@ them. It receives the same value and cannot use — or pass on — anything its
 bounds omit:
 
 ```buri
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 # from "core/host" import * as host;
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   let _ = ctx.println(msg);
@@ -30,7 +30,7 @@ binds whichever implementations it wants — the runner's in-memory filesystem, 
 its own:
 
 ```buri role=test
-# from "core/cap" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 # from "core/testing/assert" import * as assert;
 # from "core/testing/context" import { Hermetic, files };
 # struct Config(export Int);

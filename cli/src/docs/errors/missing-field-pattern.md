@@ -11,7 +11,7 @@ match `y` too, or end the pattern with `..` to ignore the rest
 ## A program that provokes it
 
 ```buri fail code=missing-field-pattern
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Point { export x: Int, export y: Int }

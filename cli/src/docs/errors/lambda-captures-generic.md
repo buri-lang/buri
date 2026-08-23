@@ -34,7 +34,7 @@ fn(A) => B, g: fn(B) => C): fn(A) => C { fn(x) => g(f(x)) }` is fine.
 ## A program that provokes it
 
 ```buri fail code=lambda-captures-generic
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn hide<T>(x: T): fn() => T {

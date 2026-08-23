@@ -15,7 +15,7 @@ the arms before it already cover everything it matches
 ## A program that provokes it
 
 ```buri fail code=unreachable-arm
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn describe(o: Option<Int>): Int {

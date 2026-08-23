@@ -15,7 +15,7 @@ a lambda that could close over authority would make the capture rule meaningless
 ## A program that provokes it
 
 ```buri fail code=lambda-captures-effect
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 from "core/list" import * as list;

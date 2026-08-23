@@ -1,5 +1,5 @@
 // EXPECT: a `test` declaration is legal only in a test source
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 test "a test in a binary source" {

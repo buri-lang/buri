@@ -2,7 +2,7 @@
 // test/routes.buri sees what this file exports, and nothing else — the same
 // rule lib.buri follows for a library.
 
-from "core/cap" import { Alloc, Env, Fs, Stdout };
+from "core/effect" import { Alloc, Env, Fs, Stdout };
 from "core/host" import * as host;
 from "core/env" import * as env;
 from "core/str" import * as str;

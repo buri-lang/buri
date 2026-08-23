@@ -1,5 +1,5 @@
 // EXPECT: would propagate `IoError`
-from "core/cap" import { Alloc, Fs, Stdout, IoError };
+from "core/effect" import { Alloc, Fs, Stdout, IoError };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 

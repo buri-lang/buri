@@ -1,5 +1,5 @@
 // EXPECT: the head of a struct literal must be a type
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Holder { export a: Int }

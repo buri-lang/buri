@@ -38,7 +38,7 @@ cut; Section 15 records why.
 ### 1.1 A taste
 
 ```buri run
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/host" import * as host;
@@ -218,7 +218,7 @@ The module path comes **first**, before the specifier list:
 from "core/list" import { map, filter };
 from "core/list" import { map as listMap };
 from "core/list" import * as list;
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open
@@ -446,7 +446,7 @@ The unit type and its only value are both written `()`. Functions that exist
 only for their effect return `()`.
 
 ```buri
-# from "core/cap" import { Stdout };
+# from "core/effect" import { Stdout };
 fn log<C: Stdout>(ctx: C, msg: Str): () { ctx.println(msg) }
 ```
 
@@ -646,7 +646,7 @@ Type parameters are declared in angle brackets; row parameters are prefixed with
 `..`.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Stdout };
+# from "core/effect" import { Alloc, Stdout };
 fn identity<T>(x: T): T { x }
 fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
@@ -656,7 +656,7 @@ A parameter may carry one or more **bounds**, naming traits the argument type
 must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc };
+# from "core/effect" import { Alloc };
 fn largest<T: Ord>(xs: [T]): Option<T> { ... }
 fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
@@ -740,7 +740,7 @@ A trait is an **interface**: a named set of method signatures that a type may
 satisfy.
 
 ```buri
-# from "core/cap" import { Alloc };
+# from "core/effect" import { Alloc };
 trait Ord {
   fn compare(self: Self, other: Self): Order;
 }
@@ -1232,7 +1232,7 @@ x.f()          //  self = x
 comes second:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc };
+# from "core/effect" import { Alloc };
 impl<A> [A] {
   export fn map<B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B];
 }
@@ -1312,7 +1312,7 @@ Postfix `?` unwraps a `Result` or `Option`, returning early from the enclosing
 function on the failure case.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs };
+# from "core/effect" import { Alloc, Fs };
 fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
   let text = fs.readText(ctx, path)?;        // Err(e) => return Err(e)
   let cfg = parseConfig(text)?;
@@ -1498,7 +1498,7 @@ that the reported location is still correct.
 ### 8.4 Closures
 
 Lambdas capture by value. Since values are immutable, capture is unobservable —
-with one exception: **a lambda may not capture a effect-carrying value**, nor
+with one exception: **a lambda may not capture an effect-carrying value**, nor
 one whose type could be a context at some instantiation (Section 10.6).
 
 ---
@@ -1506,7 +1506,7 @@ one whose type could be a context at some instantiation (Section 10.6).
 ## 9. Functions
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Clock };
+# from "core/effect" import { Clock };
 export fn slugify(s: Str): Str { ... }
 
 fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> { ... }
@@ -1543,7 +1543,7 @@ An **effect** is an interface declared with `effect` instead of `trait`. Its
 methods are the operations it grants:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-// core/cap
+// core/effect
 export effect Alloc {
   fn allocate(self: Self, bytes: Int): Region;
 }
@@ -1559,7 +1559,7 @@ export effect Fs {
 }
 ```
 
-`core/cap` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
+`core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
 `Stdout`, `Stderr`, and `Proc`. **Only platform modules may declare effects**;
 `effect` in ordinary code is a compile error, so the set of things a Buri program
 can do to the world is fixed by its platform rather than open-ended.
@@ -1580,7 +1580,7 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs };
+# from "core/effect" import { Alloc, Fs };
 fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, ConfigError> {
   let text = fs.readText(ctx, path)?;
   parse(ctx, text)
@@ -1593,11 +1593,11 @@ must satisfy.
 
 ### 10.2 The `ctx` rule
 
-**A effect-carrying parameter must be `self` or `ctx`** — never any other
+**An effect-carrying parameter must be `self` or `ctx`** — never any other
 name, never any other position, and at most one of each:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, IoError, Net, Region };
+# from "core/effect" import { Alloc, Fs, IoError, Net, Region };
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
 fn render<C: Alloc>(self: Report, ctx: C): Str                            // ok
 fn allocate(self: Self, bytes: Int): Region                               // ok
@@ -1627,7 +1627,7 @@ stores its `C` and hands it straight back, so a `Boxed<C>` is a second context
 under another name. A parameter that occurs in no field at all — a handle that
 is phantom in it — is data for the same reason.
 
-`self` has to be allowed because a effect's own methods take the
+`self` has to be allowed because an effect's own methods take the
 effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
 attenuation wrappers of Section 10.8. Outside those two places, effects arrive
 through `ctx`.
@@ -1635,7 +1635,7 @@ through `ctx`.
 There is exactly one construct in which more than one effect-carrying value may
 appear, and it is the `context` expression of Section 11.3 — the place where a
 context is assembled out of the implementations that make it up. Everywhere
-else, capabilities travel through a single `ctx` parameter or an
+else, effects travel through a single `ctx` parameter or an
 effect-carrying `self`.
 
 The rule costs a little flexibility — a function cannot take two independent
@@ -1657,7 +1657,7 @@ from the module that exports `main`. `main` assembles them into the one context
 the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
@@ -1678,11 +1678,11 @@ set of `host` members reachable from `main`'s context, and a platform that does
 not grant an effect simply does not export it, so requesting one is an ordinary
 unresolved-name error at the one line that asked for it.
 
-Note what is *not* claimed: a effect is an ordinary interface, so
+Note what is *not* claimed: an effect is an ordinary interface, so
 anyone may write a type that satisfies it.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Stdout };
+# from "core/effect" import { Stdout };
 struct SilentOut {}
 fn writeOut(self: SilentOut, text: Template): () { () }    // satisfies Stdout
 ```
@@ -1747,7 +1747,7 @@ Two consequences worth naming:
 ### 10.5 Determinism versus effects
 
 `Alloc` is a **resource** effect: it can fail (out of memory) and it costs
-something, but it is not observable. Every other effect in `core/cap` is
+something, but it is not observable. Every other effect in `core/effect` is
 **observable**.
 
 A function is **deterministic** if its only effect bound is `Alloc`.
@@ -1758,7 +1758,7 @@ Tracking allocation is why `[T]`-returning combinators take a context at all, an
 it is what makes "does no I/O" and "does not allocate" separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 fn sum(self: [Int]): Int                                              // pure
 fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]         // deterministic
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // effectful
@@ -1770,7 +1770,7 @@ on runtime data do.
 
 ### 10.6 The capture rule
 
-**A lambda may not capture a effect-carrying value.** Capabilities travel
+**A lambda may not capture an effect-carrying value.** Effects travel
 through the `ctx` parameter only.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -1829,7 +1829,7 @@ Section 15 lists it as the first open question.
 rather than merely conventional (Section 10.2):
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>
 ```
@@ -1847,7 +1847,7 @@ Two forms, giving different guarantees.
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   let _ = io.println(ctx, msg);
   // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
@@ -1869,7 +1869,7 @@ downstream.
 the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, IoError, Region };
+# from "core/effect" import { Alloc, Fs, IoError, Region };
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
@@ -1903,7 +1903,7 @@ interfaces, writing one is writing a struct with methods. The call site does not
 change, because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 struct FakeFs { export files: [(Str, Str)] }
 
 impl Fs for FakeFs {
@@ -1930,7 +1930,7 @@ build a context — is Sections 11.2 and 11.3.
 A program is a module that exports `main`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Env, Stdout };
+# from "core/effect" import { Alloc, Env, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
@@ -2001,7 +2001,7 @@ one value rather than a new collection.
 
 | Module | Needs | Functions |
 |---|---|---|
-| `core/cap` | — | the effect declarations themselves |
+| `core/effect` | — | the effect declarations themselves |
 | `core/host` | — | `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — the platform's implementations, importable only by the module exporting `main` |
 | `core/alloc` | — | `generalPurpose`, `arena`, `fixedBuffer` — counting implementations of `Alloc`, importable anywhere, because an `Alloc` grants no authority |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
@@ -2151,7 +2151,7 @@ implements it. There is one form, and `main` and a test use the same one.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 let ctx = context {
   Alloc:  host.alloc,
   Stdout: host.stdout,
@@ -2163,7 +2163,7 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+# from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
 context Hermetic {
   Alloc:  alloc(),
   Stdout: captureOut(),
@@ -2186,7 +2186,7 @@ varies between call sites is expressed by overriding, not by arguments.
 context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Fs };
+# from "core/effect" import { Fs };
 context Fixture {
   ..Hermetic(),
   Fs: files([("config.toml", "port=8080")]),
@@ -2455,7 +2455,7 @@ afterward:
 7. Every arm of a `match` produces a value of the arm type. There is no bottom
    type and no way to declare a branch unreachable, so an arm cannot opt out
    (Section 6.10).
-8. A lambda may not capture a effect-carrying value, nor one whose type could be
+8. A lambda may not capture an effect-carrying value, nor one whose type could be
    a context at some instantiation — that is, one mentioning a type parameter
    that carries no ordinary trait bound, anywhere `is effect-carrying` would
    have looked (Section 10.6). Function types are exempt: a closure holds only
@@ -2496,13 +2496,13 @@ Methods and traits:
 24. A generic parameter's bounds must name declared traits. Inside the function,
     only the methods those traits declare are callable on that parameter.
 
-Capabilities:
+Effects and contexts:
 
 25. `ctx` may appear only as a function's first parameter, the parameter
     immediately after `self`, or a `let` binding name where a context may be
     constructed (Section 11.3).
-26. A effect-carrying parameter must be `self` or `ctx`, at most one of each
-    (Section 10.2). A type is effect-carrying if it is a type variable with a
+26. An effect-carrying parameter must be `self` or `ctx`, at most one of each
+    (Section 10.2). A type is effect-carrying if it is a type variable with an
     effect bound, a type that implements an effect, or any type that can hand
     one of those back — a type argument counts only in a position the
     constructor can hand back, which is why `fn(C, A) => B` and a constructor

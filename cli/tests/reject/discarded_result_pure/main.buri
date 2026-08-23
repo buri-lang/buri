@@ -1,5 +1,5 @@
 // EXPECT: a `Result` may not be discarded
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn parse(text: Str): Result<Int, Str> {

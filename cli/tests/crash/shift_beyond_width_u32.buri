@@ -1,7 +1,7 @@
 // CRASH: shift out of range
 // The `U32` shifts are a distinct runtime path from the `Int` ones, so the
 // guard is asserted on each width separately.
-from "core/cap" import { Alloc, Stdout, Env };
+from "core/effect" import { Alloc, Stdout, Env };
 from "core/bits" import * as bits;
 from "core/host" import * as host;
 from "core/env" import * as env;

@@ -1,7 +1,7 @@
 //! core/net/http — HTTP over the `Net` effect.
 
-from "core/cap" import { Alloc, Net, NetError };
-from "core/cap" export { NetError };
+from "core/effect" import { Alloc, Net, NetError };
+from "core/effect" export { NetError };
 from "core/order" import { Eq, Show };
 
 export struct Request {
@@ -40,7 +40,7 @@ impl Response {
 }
 
 /// A free function rather than a method: `NetError` is declared in
-/// `core/cap`, and a method must live in its type's defining module.
+/// `core/effect`, and a method must live in its type's defining module.
 export fn errorText(e: NetError): Str {
   match (e) {
     .Timeout => "the request timed out",

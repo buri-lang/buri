@@ -3,7 +3,7 @@
 // so this builds, and the graph is a description of something other than the
 // code until `buri lint` says so.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/money" import { fromCents };

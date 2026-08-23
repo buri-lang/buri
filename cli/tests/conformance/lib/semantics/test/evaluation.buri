@@ -8,7 +8,7 @@
 
 from "core/testing/assert" import * as assert;
 from "core/testing/context" import { Hermetic, alloc, captureOut, captured, files };
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/fs" import * as fs;
 from "core/time" import * as time;
 from "core/list" import * as list;

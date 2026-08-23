@@ -11,7 +11,7 @@ consume it: `?` to propagate, `match` to handle both cases, `result.withDefault`
 ## A program that provokes it
 
 ```buri fail code=result-discarded
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 

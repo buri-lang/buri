@@ -1,6 +1,6 @@
 // A match on a nested enum, where the outer tag is established once but every
 // inner arm re-establishes it.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Inner { A, B, C, D }

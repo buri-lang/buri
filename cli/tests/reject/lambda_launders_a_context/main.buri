@@ -3,7 +3,7 @@
 // nothing effectful, which is precisely what SPEC 10.6 says must not happen:
 // "a value of type `fn(Str) => Str` could smuggle a file handle past a
 // signature with no `ctx` parameter, and the purity theorem would be false."
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {

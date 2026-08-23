@@ -28,7 +28,7 @@ file that still has it.
 ## A program that provokes it
 
 ```buri fail code=turbofish
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 

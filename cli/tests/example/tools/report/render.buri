@@ -1,4 +1,4 @@
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
 from "//lib/ledger" import { Entry, total };

@@ -17,7 +17,7 @@ an `impl` block declares methods; a function with no receiver is declared at the
 ```buri fail code=impl-fn-without-self
 // The converse rule: an `impl` block declares methods, so everything in one
 // has a receiver. A constructor-shaped function is an ordinary declaration.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

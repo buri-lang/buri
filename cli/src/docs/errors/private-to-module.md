@@ -29,7 +29,7 @@ Functional update still works, because it never names the hidden fields.
 ## A program that provokes it
 
 ```buri fail code=private-to-module
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/signal" import { Signal, signal };

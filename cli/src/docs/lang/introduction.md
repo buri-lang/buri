@@ -29,7 +29,7 @@ cut; Section 15 records why.
 ### 1.1 A taste
 
 ```buri run
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/host" import * as host;

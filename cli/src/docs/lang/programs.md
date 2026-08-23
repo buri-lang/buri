@@ -3,7 +3,7 @@
 A program is a module that exports `main`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Env, Stdout };
+# from "core/effect" import { Alloc, Env, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
@@ -74,7 +74,7 @@ one value rather than a new collection.
 
 | Module | Needs | Functions |
 |---|---|---|
-| `core/cap` | — | the effect declarations themselves |
+| `core/effect` | — | the effect declarations themselves |
 | `core/host` | — | `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — the platform's implementations, importable only by the module exporting `main` |
 | `core/alloc` | — | `generalPurpose`, `arena`, `fixedBuffer` — counting implementations of `Alloc`, importable anywhere, because an `Alloc` grants no authority |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
@@ -224,7 +224,7 @@ implements it. There is one form, and `main` and a test use the same one.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 let ctx = context {
   Alloc:  host.alloc,
   Stdout: host.stdout,
@@ -236,7 +236,7 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+# from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
 context Hermetic {
   Alloc:  alloc(),
   Stdout: captureOut(),
@@ -259,7 +259,7 @@ varies between call sites is expressed by overriding, not by arguments.
 context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/cap" import { Fs };
+# from "core/effect" import { Fs };
 context Fixture {
   ..Hermetic(),
   Fs: files([("config.toml", "port=8080")]),

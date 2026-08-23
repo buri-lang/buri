@@ -1,4 +1,4 @@
-from "core/cap" import { Alloc, Fs };
+from "core/effect" import { Alloc, Fs };
 from "core/fs" import * as fs;
 from "core/fs" import { IoError };
 

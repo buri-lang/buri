@@ -1,6 +1,6 @@
 // Closures, capture by value, and a closure passed to a stdlib higher-order
 // function — which is where an eta-expanded wrapper shows up.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 

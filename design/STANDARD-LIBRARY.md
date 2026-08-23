@@ -22,7 +22,7 @@ charge for an operation is *defined* — a `Str` of *n* UTF-8 bytes charges
 and it is computed from the types rather than measured. So the same program
 charges the same number on both backends by construction, and a count is not a
 JavaScript fact that a native run would contradict. The model lives beside
-`Alloc` in `core/cap`, where a reader of the effect meets it;
+`Alloc` in `core/effect`, where a reader of the effect meets it;
 `design/native/MEMORY.md` §7 is the argument for it.
 
 `FixedBuffer` aborting rather than answering an error is forced by the

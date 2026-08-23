@@ -17,7 +17,7 @@ lists — which is also why the diagnostic can offer the nearest name it does ha
 ## A program that provokes it
 
 ```buri fail code=no-such-field
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Rec { export f0: Int }

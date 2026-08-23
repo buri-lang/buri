@@ -1,7 +1,7 @@
 // CRASH: random range is empty
 // `nextInt` has no value to return when the range holds none, and there is no
 // `Option` in its signature to say so.
-from "core/cap" import { Alloc, Stdout, Env, Rand };
+from "core/effect" import { Alloc, Stdout, Env, Rand };
 from "core/host" import * as host;
 from "core/env" import * as env;
 from "core/random" import * as random;

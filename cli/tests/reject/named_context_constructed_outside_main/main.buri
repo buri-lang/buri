@@ -1,5 +1,5 @@
 // EXPECT: a context may not be constructed here
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 

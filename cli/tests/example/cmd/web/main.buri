@@ -2,7 +2,7 @@
 // asks for: no `Fs`, because the browser platform has none to grant. The
 // libraries below are compiled from the same sources the server binary uses.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/ledger" import { entry, total };

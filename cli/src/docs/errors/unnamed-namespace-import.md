@@ -15,7 +15,7 @@ write `import * as name`; bare `import *` is not derivable from the grammar, so 
 ## A program that provokes it
 
 ```buri fail code=unnamed-namespace-import
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import *;
 

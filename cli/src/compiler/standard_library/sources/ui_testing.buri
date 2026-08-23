@@ -16,7 +16,7 @@
 //! cells it made.
 
 from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
-from "core/cap" import { NetResponse };
+from "core/effect" import { NetResponse };
 
 /// Creates and writes signals, and runs computations, with no rendering.
 export struct Headless(I64);

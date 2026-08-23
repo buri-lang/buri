@@ -1,6 +1,6 @@
 //! core/time — the clock.
 
-from "core/cap" import { Clock };
+from "core/effect" import { Clock };
 from "core/order" import { Eq, Ord, Show };
 
 /// A point in time, in milliseconds. A distinct type rather than an `I64`, so

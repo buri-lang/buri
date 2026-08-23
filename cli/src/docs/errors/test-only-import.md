@@ -17,7 +17,7 @@ a path containing a `testing` segment may be imported only from a test source
 ## A program that provokes it
 
 ```buri fail code=test-only-import
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/testing/assert" import * as assert;
 

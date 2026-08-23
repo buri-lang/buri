@@ -15,7 +15,7 @@ every module path is absolute, so a path means the same module wherever it is wr
 ## A program that provokes it
 
 ```buri fail code=relative-import
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "./helper" import { thing };
 

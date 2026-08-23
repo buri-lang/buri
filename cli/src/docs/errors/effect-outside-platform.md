@@ -15,7 +15,7 @@ the set of things a Buri program can do to the world is fixed by its platform ra
 ## A program that provokes it
 
 ```buri fail code=effect-outside-platform
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 effect Mischief {

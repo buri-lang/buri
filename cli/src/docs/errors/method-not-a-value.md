@@ -11,7 +11,7 @@ call it on a receiver: `x.area()`; to pass it on, wrap it in a lambda: `fn(x) =>
 ## A program that provokes it
 
 ```buri fail code=method-not-a-value
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

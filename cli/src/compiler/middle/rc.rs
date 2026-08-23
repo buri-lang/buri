@@ -704,7 +704,58 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
         }
         funcs.push(plan);
     }
-    Plan { funcs }
+    let plan = Plan { funcs };
+    dump(program, &plan);
+    plan
+}
+
+/// TEMPORARY (short-circuit wave): the whole plan as text, when
+/// `BURI_RC_DUMP` names a file. Removed before the wave lands.
+fn dump(program: &Program, plan: &Plan) {
+    use std::io::Write as _;
+    let Some(path) = std::env::var_os("BURI_RC_DUMP") else { return };
+    let mut out = String::new();
+    for (i, f) in program.funcs.iter().enumerate() {
+        let Some(fp) = plan.funcs.get(i) else { continue };
+        out.push_str(&format!(
+            "fn {} params={:?} purity={:?} abort={} unclassified={:?}\n",
+            f.debug_name, fp.params, fp.purity, fp.can_abort, fp.unclassified
+        ));
+        for s in &fp.sites {
+            let what = match s.target {
+                Target::Local(l) => format!(
+                    "{}#{}",
+                    f.locals.get(l.index()).map(|x| x.name.clone()).unwrap_or_default(),
+                    l.0
+                ),
+                Target::Node(n) => format!("n{}", n.0),
+            };
+            out.push_str(&format!("  {:?} {what} {:?} n{}\n", s.op, s.at, s.node.0));
+        }
+        for r in &fp.reuse {
+            out.push_str(&format!("  reuse {:?} at n{} {:?}\n", r.token, r.at.0, r.fields));
+        }
+        if std::env::var_os("BURI_RC_TREE").is_some() {
+            if let Some(body) = f.body() {
+                preorder(body, &mut |id, e| {
+                    let k = format!("{:?}", e.kind);
+                    let k = k.split_once(' ').map(|x| x.0.to_string()).unwrap_or(k);
+                    let name = match &e.kind {
+                        ExprKind::Local(l) => f
+                            .locals
+                            .get(l.index())
+                            .map(|x| format!(" {}#{}", x.name, l.0))
+                            .unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    out.push_str(&format!("  tree n{} {}{}\n", id.0, k, name));
+                });
+            }
+        }
+    }
+    let mut file =
+        std::fs::OpenOptions::new().create(true).append(true).open(path).expect("dump file");
+    file.write_all(out.as_bytes()).expect("dump write");
 }
 
 // ---------------------------------------------------------------------------
@@ -1833,9 +1884,6 @@ impl Scan<'_> {
     /// and a correct count on the skipped one.
     fn short_circuit(&mut self, id: NodeId, lhs: &Expr, rhs: &Expr, live: &Live) -> Live {
         let rid = self.child(id, 1);
-        // Scanned twice: once to find which locals die inside the operand, and
-        // again in the liveness that keeping them alive produces. The first
-        // scan's sites are discarded rather than fixed up.
         let sites = self.sites.len();
         let reuse = self.reuse.len();
         let pending = self.pending.len();
@@ -2522,7 +2570,7 @@ mod tests {
     /// past the match, a borrow across a call, and two branches that use
     /// different values.
     const TREE: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Tree { Leaf, Node(Str, [Tree]) }
@@ -2543,7 +2591,7 @@ export fn main(): Result<(), Str> {
 "#;
 
     const PROGRAM: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct P { name: Str, n: Int }
@@ -2590,7 +2638,7 @@ export fn main(): Result<(), Str> {
     /// shape the LLVM backend's live-block test leaked three blocks an
     /// iteration on.
     const CHURN: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Row { name: Str, tags: [Str] }
@@ -2653,7 +2701,7 @@ export fn main(): Result<(), Str> {
     /// A tail-recursive drain: every iteration builds *both* of its loop
     /// variables, and neither is the caller's to keep alive.
     const DRAIN: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 
@@ -2755,7 +2803,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_rest_binding_is_dropped_and_never_increfed() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -2809,7 +2857,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_merged_group_balances_at_every_entry() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn even(n: Int, s: Str, t: Str): Str {
@@ -2846,7 +2894,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_closure_in_a_loop_captures_by_incrementing() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn tag<C: Alloc>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
@@ -2958,6 +3006,101 @@ export fn main(): Result<(), Str> {
     #[test]
     fn branches_and_short_circuits_balance_too() {
         let program = compile(TREE);
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// A chain of short circuits costs one scan per operand, not one per path
+    /// through them.
+    ///
+    /// [`Scan::short_circuit`] used to scan its right operand **twice** — a
+    /// probe whose sites were thrown away, then the real scan — and a nested
+    /// `&&` inside that operand doubled again, so `n` links cost 2ⁿ scans.
+    /// `middle/derives.rs`'s `eq_fields` right-nests exactly one link per field
+    /// and says so in its own doc comment, which is how
+    /// `cli/tests/conformance/lib/proto/test/binary.buri` came to take minutes
+    /// to compile on the native path.
+    ///
+    /// Sixty links is 10¹⁸ scans if the probe is ever put back, so this test
+    /// does not fail slowly: it does not finish. That is the point of the
+    /// number — a chain short enough to fail *quickly* would not be a
+    /// regression test for an exponential.
+    #[test]
+    fn a_chain_of_short_circuits_is_scanned_once_per_operand() {
+        const LINKS: usize = 60;
+        let mut chain = format!("(a{n} == b{n})", n = LINKS - 1);
+        for i in (0..LINKS - 1).rev() {
+            chain = format!("((a{i} == b{i}) && {chain})");
+        }
+        let params: Vec<String> = (0..LINKS).map(|i| format!("a{i}: Str, b{i}: Str")).collect();
+        let args: Vec<String> = (0..LINKS).map(|i| format!("\"x{i}\", \"x{i}\"")).collect();
+        let src = format!(
+            r#"
+from "core/effect" import {{ Alloc, Stdout }};
+from "core/host" import * as host;
+
+export fn same({params}): Bool {{
+  {chain}
+}}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let _ = ctx.println("${{same({args})}}");
+  .Ok(())
+}}
+"#,
+            params = params.join(", "),
+            args = args.join(", "),
+        );
+        let program = compile(&src);
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// A scrutinee a short circuit is keeping alive is **not** consumed by the
+    /// `match` that reads it, and its payload is a borrowed view.
+    ///
+    /// The deferral is what decides this: the right operand holds `o`'s last
+    /// use, so `short_circuit` keeps `o` live across the whole expression and
+    /// drops it afterwards — and a `match` whose scrutinee is still live after
+    /// it takes no count out of it ([`Scan::match_`]'s `token`).
+    ///
+    /// The discarded probe scan used to decide it the *other* way and leave the
+    /// decision behind: it ran against the liveness *before* the deferral, so
+    /// its `match` did own the scrutinee, and `owns` put the payload binding
+    /// into [`Scan::owned`] — where the real scan then found it. The result was
+    /// a `DecRef` of `s` with no `IncRef` anywhere, against a count `o`'s own
+    /// drop was already going to release: one block, released twice.
+    #[test]
+    fn a_deferred_scrutinee_is_not_consumed_by_the_match_that_reads_it() {
+        const SRC: &str = r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let o: Option<Str> = .Some("s".concat(ctx, "x"));
+  let flag = 1 < 2;
+  let ok = flag && match (o) {
+    .Some(s) => s.len() > 0,
+    .None => false,
+  };
+  let _ = ctx.println("${ok}");
+  .Ok(())
+}
+"#;
+        let program = compile(SRC);
+        let i = find(&program, "main");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        let sites = named_sites(&program, i, fp);
+        assert!(
+            !sites.iter().any(|s| s.starts_with("dec s ")),
+            "`s` is a view into `o`, which the deferral drops: {sites:?}"
+        );
+        assert!(
+            sites.iter().any(|s| s.starts_with("dec o ")),
+            "`o` itself is still dropped: {sites:?}"
+        );
         assert_eq!(check_balance(&program), Vec::<String>::new());
     }
 
@@ -3105,7 +3248,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_scrutinee_the_match_built_is_dropped_after_the_arms() {
         const SRC: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 
@@ -3144,7 +3287,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_value_behind_a_branch_is_still_dropped() {
         const SRC: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/str" import * as str;
 
@@ -3180,7 +3323,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn the_standard_library_balances_too() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 
@@ -3214,7 +3357,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_dying_value_is_paired_with_a_construction() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Pair { One(Str), Two(Str, Str) }
@@ -3259,7 +3402,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_value_used_after_the_construction_is_not_paired() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Pair { One(Str), Two(Str, Str) }
@@ -3310,7 +3453,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn only_a_construction_pairs_and_it_carries_its_own_shape() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Shape { Nil, One(Str), Two(Str, Str) }
@@ -3376,7 +3519,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn purity_is_a_fixpoint_over_the_call_graph() {
         let src = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn double(n: Int): Int { n * 2 }
@@ -3438,7 +3581,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_context_and_an_option_no_literal_builds_are_both_counted() {
         const SRC: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -3485,7 +3628,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_scrutinee_is_dropped_on_the_arm_that_jumps_too() {
         const SRC: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 
@@ -3563,7 +3706,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_called_closure_is_not_consumed_by_the_call() {
         const SRC: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn twice<C: Alloc>(ctx: C, n: Int): Int {
@@ -3618,7 +3761,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_projection_of_a_temporary_releases_it() {
         const SRC: &str = r#"
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 

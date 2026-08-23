@@ -1,4 +1,4 @@
-from "core/cap" import { Alloc, Env, Stdout };
+from "core/effect" import { Alloc, Env, Stdout };
 from "core/host" import * as host;
 from "core/env" import * as env;
 

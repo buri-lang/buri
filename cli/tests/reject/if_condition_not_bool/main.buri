@@ -1,5 +1,5 @@
 // EXPECT: expected `Bool`, found `I64`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn truthy(n: Int): Int {

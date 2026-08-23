@@ -11,7 +11,7 @@ name an effect the platform declares, as in `Alloc` or `Stdout`; `Region` is not
 ## A program that provokes it
 
 ```buri fail code=not-an-effect
-from "core/cap" import { Alloc, Stdout, Region };
+from "core/effect" import { Alloc, Stdout, Region };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

@@ -3,7 +3,7 @@
 // resolves through its receiver's type rather than through scope, so this
 // target depends on //lib/money and no import says so.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/ledger" import { priceOf };

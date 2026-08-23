@@ -20,7 +20,7 @@ is what was meant.
 ## A program that provokes it
 
 ```buri fail code=module-doc-not-first
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 //! This belongs at the top of the file, above everything.

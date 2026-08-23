@@ -1,6 +1,6 @@
 // Integer and float arithmetic. Overflow is undefined, so `+ - *` are raw JS
 // operators; `/` and `%` go through the runtime because a zero divisor aborts.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn mix(a: Int, b: Int): Int {

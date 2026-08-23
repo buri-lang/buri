@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = mixed-deep-graph-100k
 profile = mixed-deep-graph
-generator_revision = 1
-revision = 1
-recorded = 2026-08-20
+generator_revision = 2
+revision = 2
+recorded = 2026-08-23
 params = dep_span_pct=5 lines=100000 seed=0x0b001a575eed0005
 lines = 100753
-bytes = 3523459
+bytes = 3524542
 modules = 361
-digest = 8d213f0c0e981894814fea28c9c7270377d0facf2ff555915758b10652008816
+digest = 9e79a17ed587a991ae236fbb5595cda94b6ab60c31a109232080c6ee8b0a258f
 native = false

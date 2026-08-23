@@ -15,7 +15,7 @@ every variant recurses, so building one would need one already
 ## A program that provokes it
 
 ```buri fail code=uninhabited
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Endless { Node(Endless) }

@@ -1,6 +1,6 @@
 // EXPECT: this `match` does not cover `[false]`
 // The same, one array element deep.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn describe(xs: [Bool]): Int {

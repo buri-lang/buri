@@ -1,5 +1,5 @@
 // EXPECT: variant `Yes` is declared twice
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Choice { Yes, No, Yes }

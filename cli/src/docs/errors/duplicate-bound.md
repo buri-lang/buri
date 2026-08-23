@@ -15,7 +15,7 @@ a spread's binding is replaced by an explicit one, but two explicit bindings of 
 ## A program that provokes it
 
 ```buri fail code=duplicate-bound
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

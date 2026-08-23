@@ -24,7 +24,7 @@
 //! double.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/json" import { Json };
 //! from "core/json" import * as json;
@@ -47,8 +47,8 @@
 //! buri: {"name":"buri","tags":["a","b"]}
 //! ```
 
-from "core/cap" import { Alloc };
 from "core/char" import * as char;
+from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -620,7 +620,7 @@ derive Eq, Show for DecodeError;
 /// Encodes any `ToJson` value.
 ///
 /// ```buri run
-/// from "core/cap" import { Alloc, Stdout };
+/// from "core/effect" import { Alloc, Stdout };
 /// from "core/host" import * as host;
 /// from "core/json" import { DecodeError, ToJson, FromJson };
 /// from "core/json" import * as json;

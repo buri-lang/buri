@@ -14,7 +14,7 @@ from "core/testing/context" import {
   Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
   data, readOnly, noNet, clockAt, advance, randSeed, envOf,
 };
-from "core/cap" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
+from "core/effect" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
 
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -210,7 +210,7 @@ test "files contains exactly the entries it was given" {
 }
 
 test "reading a path files does not have gives IoError.NotFound" {
-  // `core/cap` declares the variant, and an unknown path is what `.NotFound`
+  // `core/effect` declares the variant, and an unknown path is what `.NotFound`
   // is for; the match is exhaustive so a fourth answer cannot hide.
   let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
   let which = match (loadText(ctx, "missing")) {

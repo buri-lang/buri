@@ -5,7 +5,7 @@
 // `run` in the pipeline is hermetic, and this program is handed the real
 // filesystem and the real environment.
 
-from "core/cap" import { Alloc, Env, Fs, Proc, Stdout };
+from "core/effect" import { Alloc, Env, Fs, Proc, Stdout };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
 from "core/host" import * as host;

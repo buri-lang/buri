@@ -497,7 +497,7 @@ pub fn generate(
          //!\n\
          //! What the mapping is, and why: `buri docs build/proto`.\n\n"
     ));
-    source.push_str("from \"core/cap\" import { Alloc };\n");
+    source.push_str("from \"core/effect\" import { Alloc };\n");
     source.push_str("from \"core/bytes\" import * as bytes;\n");
     source.push_str("from \"core/json\" import { Json };\n");
     source.push_str("from \"core/list\" import * as list;\n");

@@ -3,7 +3,7 @@
 // either part of the world or part of your data (SPEC 10.1). `Holder<C>`
 // implements `Eq` and stores a `C`, so `Holder<ctx>` is effect-carrying and
 // must not reach a `T: Eq` — otherwise `hide` could launder a context again.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Holder<C> { export inner: C }

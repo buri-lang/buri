@@ -1,7 +1,7 @@
 // The good half. `format` is on //lib/money's surface, so the method resolves
 // here. `toCents` is not, and the edit in CASE.textproto adds a call to it.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/money" import { fromCents };

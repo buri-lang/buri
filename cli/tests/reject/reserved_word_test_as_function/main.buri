@@ -1,5 +1,5 @@
 // EXPECT: expected an identifier, found `test`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn test(n: Int): Int { n }

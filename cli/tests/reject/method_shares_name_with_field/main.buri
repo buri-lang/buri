@@ -1,5 +1,5 @@
 // EXPECT: `side` is already a field of `Square`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

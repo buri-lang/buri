@@ -773,6 +773,25 @@ Two snapshots, both on an M-series MacBook (macOS, aarch64, 10 cores), release
 build, seed `0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal
 is met; below 1.0 means it is beaten.
 
+> **Generator revision 2, 2026-08-23 — a break in the series, announced.**
+> `core/cap` was renamed `core/effect`, so every generated module's import block
+> is three bytes longer and every recorded digest moved. §3.1's rule applies and
+> was followed: the five saved corpora that carry the import were re-recorded
+> at **corpus revision 2**, all forty pinned manifests were re-pinned at it, and
+> the three saved corpora whose bytes never moved — `wide-match-1k`,
+> `many-small-fns-1k`, `few-large-fns-1k` — were **left at revision 1**, because
+> byte-stability across a generator change is the whole point of saving one and
+> re-recording an unchanged corpus would break its series for nothing.
+>
+> **Nothing measurable moved with it.** The change is a textual substitution in
+> one import line per module: `lines` and `modules` are identical for all forty
+> pinned and all eight saved corpora, and `bytes` grew by exactly `3 × modules`
+> in every one of them — checked, not assumed. Every reading in §6.1 through
+> §6.9 was taken at generator revision 1 and corpus revision 1 and is still
+> comparable with one taken at revision 2; a rate quoted in lines/s is unmoved
+> because the line count is unmoved, and a rate quoted per byte would differ by
+> the ratio above.
+
 **2026-08-21: `buri test` defaults to the native dev backend.** A suite that
 names no platform is compiled with Cranelift and run as a binary, and falls back
 to JavaScript per suite — out loud — where the toolchain or the suite's program

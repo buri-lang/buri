@@ -6,7 +6,7 @@
 
 from "core/str" import * as str;
 from "core/list" import * as list;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "//bench/m0006" import { Node6, seed6, blend6, reach6 };
 from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
 from "//bench/m0003" import { Node3, seed3, blend3, reach3 };

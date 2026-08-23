@@ -748,7 +748,7 @@ from "core/testing/context" import {
   alloc, captureOut, captureErr, captured, capturedErr,
   clockAt, randSeed, envOf, stdin, stdinBytes,
 };
-from "core/cap" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
 from "core/list" import * as list;
 from "core/str" import * as str;
 

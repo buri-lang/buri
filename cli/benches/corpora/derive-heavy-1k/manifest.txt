@@ -1,12 +1,12 @@
-# Provenance for a checked-in benchmark corpus. See
-# cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
 name = derive-heavy-1k
 profile = derive-heavy
-generator_revision = 1
-revision = 1
-recorded = 2026-08-18
+generator_revision = 2
+revision = 2
+recorded = 2026-08-23
 params = derives=6 lines=1000 w_enum=4 w_struct=4
 lines = 1065
-bytes = 35938
+bytes = 35953
 modules = 5
-digest = 8ac6e86b509c59f554d58455e15c46e01387bd177fe653fd6c53a27807cff06f
+digest = 807905e5755a3155c184846ffded7df063297e6b645515b83dc38b9a3f2bb091

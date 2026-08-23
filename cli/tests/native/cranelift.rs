@@ -541,7 +541,7 @@ fn the_three_allocators_count_the_defined_charges() {
         "allocators",
         r#"
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
@@ -590,7 +590,7 @@ fn a_fixed_buffer_overrun_aborts_with_the_budget_and_the_request() {
         "allocbudget",
         r#"
 from "core/alloc" import * as alloc;
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
@@ -694,7 +694,7 @@ fn a_list_of_strings_is_walked() {
     let r = run(
         "list_of_str",
         r#"
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/host" import { stdout };
 from "core/host" import * as host;
 

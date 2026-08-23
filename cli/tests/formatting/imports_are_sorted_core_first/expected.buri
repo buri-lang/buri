@@ -1,5 +1,5 @@
-from "core/cap" import * as cap;
-from "core/cap" import { Alloc };
+from "core/effect" import * as effects;
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 from "//lib/a" import { Ay };
 from "//lib/z" import { Zed };

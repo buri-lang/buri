@@ -15,7 +15,7 @@ a function is effectful if and only if it has a `ctx` parameter or an effect-car
 ## A program that provokes it
 
 ```buri fail code=effect-param-not-ctx
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 

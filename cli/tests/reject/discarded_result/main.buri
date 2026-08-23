@@ -1,5 +1,5 @@
 // EXPECT: a `Result` may not be discarded
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 

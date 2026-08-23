@@ -17,7 +17,7 @@ from shape, so a misspelling cannot quietly become a different type.
 ## A program that provokes it
 
 ```buri fail code=unresolved-type
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

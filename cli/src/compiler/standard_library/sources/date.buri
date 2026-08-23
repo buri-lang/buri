@@ -18,7 +18,7 @@
 //! the whole range of `Int` and uses nothing but integer arithmetic.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/date" import * as date;
 //!
@@ -40,7 +40,7 @@
 //! 2024-02-29 is .Thursday, +1y is 2025-02-28
 //! ```
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/str" import * as str;
 from "core/time" import { Instant };
 

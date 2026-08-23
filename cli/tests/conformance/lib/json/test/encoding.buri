@@ -7,7 +7,7 @@
 
 from "core/testing/assert" import * as assert;
 from "core/testing/context" import { Hermetic };
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/json" import { Json, ToJson };
 from "core/json" import * as json;
 

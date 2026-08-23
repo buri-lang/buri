@@ -12,7 +12,7 @@
 //! rather than referred to: each call allocates fresh handles, so what one test
 //! writes is invisible to the next.
 
-from "core/cap" import {
+from "core/effect" import {
   Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdin, Stdout,
   IoError, NetError, NetResponse, Region,
 };

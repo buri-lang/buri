@@ -1,5 +1,5 @@
 // EXPECT: has no method `len`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn sizeOf(t: (Int, Int)): Int {

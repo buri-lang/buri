@@ -1,5 +1,5 @@
 // EXPECT: a lambda may not capture `ctx`
-from "core/cap" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 from "core/list" import * as list;

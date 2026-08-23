@@ -18,7 +18,7 @@
 //! which is what `core/json` does for exactly this reason.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/map" import * as map;
 //!
@@ -37,7 +37,7 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/list" import * as list;
 
 /// The buckets, and how many entries are spread across them.

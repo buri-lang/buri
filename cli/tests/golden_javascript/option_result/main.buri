@@ -1,7 +1,7 @@
 // `Option` and `Result` are ordinary enums, so every `Some`, `None`, `Ok` and
 // `Err` is an allocation. `?` and `??` are the two places the backend already
 // knows their shape.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Bad { Missing(Str), NotANumber(Str) }

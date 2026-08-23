@@ -1,5 +1,5 @@
 // CRASH: shift out of range
-from "core/cap" import { Alloc, Stdout, Env };
+from "core/effect" import { Alloc, Stdout, Env };
 from "core/bits" import * as bits;
 from "core/host" import * as host;
 from "core/env" import * as env;

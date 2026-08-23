@@ -1,6 +1,6 @@
 // Array patterns, including a trailing rest — which allocates, so where the
 // allocation happens relative to the test that guards it is visible here.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn describe(xs: [Int]): Template {

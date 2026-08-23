@@ -1,5 +1,5 @@
 // EXPECT: this arm is unreachable
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn describe(o: Option<Int>): Int {

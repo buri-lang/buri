@@ -31,7 +31,7 @@ see at the call site.
 ## A program that provokes it
 
 ```buri fail code=derive-only-trait
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/json" import { Json, ToJson };
 from "core/json" import * as json;

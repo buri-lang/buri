@@ -9,7 +9,7 @@
 // receives a `Scope`, which grants reading the graph and nothing else, so it
 // cannot print — `cli/tests/conformance/lib/ui/` is where the ordering and
 // re-run counts are asserted, through a recorder the runner owns.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Scope, Ui, Watch };

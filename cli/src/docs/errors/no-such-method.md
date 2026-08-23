@@ -14,7 +14,7 @@ check the spelling, or declare it in `impl Square { ... }` in that type's own mo
 // A method is declared inside an `impl` block for its type. Taking `self` at
 // the top level names the shape of a method in a place that has no receiver
 // type to attach it to.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

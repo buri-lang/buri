@@ -1,6 +1,6 @@
 // Alternatives that share a body. Each alternative independently re-tests
 // whatever its siblings already established.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Status { Ok_, NotFound, Gone, Teapot, Server(Int) }

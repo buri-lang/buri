@@ -2,7 +2,7 @@
 // surface, so importing it from //lib/money names something that, from here,
 // does not exist.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/money" import { fromCents, rawValue };

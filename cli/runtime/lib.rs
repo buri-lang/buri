@@ -119,7 +119,7 @@
 //!    is the backend's business, and a niche (VALUE-MODEL.md §6) can change
 //!    without touching this file. So the boundary is explicit:
 //!    [`BURI_OK`] (`-1`) means the success arm, and `0 ..= n` is the error
-//!    variant's index in *declaration order* in `core/cap`.
+//!    variant's index in *declaration order* in `core/effect`.
 //!
 //!    An `Option<T>` is the case with exactly one non-success arm, so it uses
 //!    the same convention with nothing added: [`BURI_OK`] and the payload

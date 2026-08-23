@@ -15,7 +15,7 @@ name the type itself here
 ## A program that provokes it
 
 ```buri fail code=self-type-outside-impl
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn identity(x: Int): Self { x }

@@ -4,7 +4,7 @@
 //! monomorphization reaches the whole program from `main` and the
 //! lowering benchmark is not measuring dead-code elimination.
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/host" import * as host;
 from "//bench/m0000" import { blend0, reach0 };
 from "//bench/m0001" import { blend1, reach1 };

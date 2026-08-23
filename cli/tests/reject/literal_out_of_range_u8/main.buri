@@ -1,5 +1,5 @@
 // EXPECT: 300 is not representable in `U8`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

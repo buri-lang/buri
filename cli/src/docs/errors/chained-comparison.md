@@ -15,7 +15,7 @@ write `a < b && b < c` rather than `a < b < c`
 ## A program that provokes it
 
 ```buri fail code=chained-comparison
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn between(a: Int, b: Int, c: Int): Bool {

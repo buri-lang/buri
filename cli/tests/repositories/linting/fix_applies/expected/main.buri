@@ -1,7 +1,7 @@
 // Two findings with one mechanical answer each: `Stdout` is imported and never
 // used, and //lib/money is used and never declared.
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/host" import * as host;
 
 from "//lib/money" import { fromCents };

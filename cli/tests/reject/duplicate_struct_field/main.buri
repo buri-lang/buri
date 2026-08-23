@@ -1,5 +1,5 @@
 // EXPECT: field `a` is declared twice
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Twice { export a: Int, export a: Int }

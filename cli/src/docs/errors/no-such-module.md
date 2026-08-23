@@ -20,7 +20,7 @@ later used.
 ## A program that provokes it
 
 ```buri fail code=no-such-module
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/lists" import * as lists;
 

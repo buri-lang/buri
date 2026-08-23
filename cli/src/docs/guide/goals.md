@@ -28,7 +28,7 @@ drift from the language. `buri docs` serves all of it from the binary; the
 [README](./README.md) says where each part lives.
 
 ```buri run
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Shape {

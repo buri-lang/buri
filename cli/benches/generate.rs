@@ -60,7 +60,12 @@
 /// *older* revision is legal and expected — byte-stability across a generator
 /// change is the entire point of saving one — so `--validate` prints it as a
 /// note and never as an error.
-pub const GENERATOR_REVISION: u32 = 1;
+///
+/// | Revision | What moved |
+/// |---:|---|
+/// | 1 | The first one. |
+/// | 2 | `core/cap` was renamed `core/effect`, so every module's import block is three bytes longer. No construct, count or shape moved — `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
+pub const GENERATOR_REVISION: u32 = 2;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -831,7 +836,7 @@ fn mixed_module(
     ));
     s.push_str("from \"core/str\" import * as str;\n");
     s.push_str("from \"core/list\" import * as list;\n");
-    s.push_str("from \"core/cap\" import { Alloc };\n");
+    s.push_str("from \"core/effect\" import { Alloc };\n");
     // `Eq`, `Show`, `Ord` and `Hash` are in scope everywhere; the JSON pair is
     // not. The import appears only when `derives` reaches them, so the default
     // corpus is unchanged.
@@ -1318,7 +1323,7 @@ fn main_module(count: usize, p: &Params) -> String {
          //! monomorphization reaches the whole program from `main` and the\n\
          //! lowering benchmark is not measuring dead-code elimination.\n\n",
     );
-    s.push_str("from \"core/cap\" import { Alloc };\n");
+    s.push_str("from \"core/effect\" import { Alloc };\n");
     s.push_str("from \"core/host\" import * as host;\n");
     for i in 0..count {
         s.push_str(&format!("from \"//bench/m{i:04}\" import {{ blend{i}, reach{i} }};\n"));

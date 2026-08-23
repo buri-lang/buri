@@ -15,7 +15,7 @@ the grammar permits `f(x) { a: 1 }`; the checker does not
 ## A program that provokes it
 
 ```buri fail code=struct-literal-head
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Holder { export a: Int }

@@ -1284,7 +1284,7 @@ function $write(fd, s) {
 
 // The platform's allocator: unbounded, and it counts nothing. `core/alloc`'s
 // three count; this one is what a program gets when it asks for none of them,
-// and it is a `Region` of the bytes requested (`cap.buri`'s cost model, last
+// and it is a `Region` of the bytes requested (`effect.buri`'s cost model, last
 // row).
 function $host_HostAlloc_allocate(self, n) {
   return [Number(n)];
@@ -1296,7 +1296,7 @@ function $host_HostAlloc_allocate(self, n) {
 // here rather than in the struct because Buri has no mutation, exactly as the
 // test platform's handles below; the struct carries the index.
 //
-// The charges are the *defined* ones (`cap.buri`), so these numbers are the
+// The charges are the *defined* ones (`effect.buri`), so these numbers are the
 // numbers `cli/runtime/memory.rs` produces for the same program. That is what
 // makes a count meaningful on a backend with a garbage collector under it:
 // nothing here is measured, on either backend.

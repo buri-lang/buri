@@ -1,6 +1,6 @@
 // CRASH: division by zero
 // `%` at a narrow width, which is a different code path from `Int`.
-from "core/cap" import { Alloc, Stdout, Env };
+from "core/effect" import { Alloc, Stdout, Env };
 from "core/host" import * as host;
 from "core/env" import * as env;
 

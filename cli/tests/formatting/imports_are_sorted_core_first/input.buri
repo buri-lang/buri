@@ -1,7 +1,7 @@
 from "//lib/z" import { Zed };
 from "core/str" import * as str;
 from "//lib/a" import { Ay };
-from "core/cap" import { Alloc };
-from "core/cap" import * as cap;
+from "core/effect" import { Alloc };
+from "core/effect" import * as effects;
 
 export fn f(): Int { 1 }

@@ -20,7 +20,7 @@
 //! a vector type is exactly the shape the purity rule was drawn around.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/simd" import * as simd;
 //!

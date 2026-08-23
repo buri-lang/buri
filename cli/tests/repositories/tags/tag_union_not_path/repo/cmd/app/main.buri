@@ -3,7 +3,7 @@
 // conflict exists only in the union at this binary, which is what makes tags a
 // property of the closure rather than of a path through it.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 from "//lib/left" import { vialeft };

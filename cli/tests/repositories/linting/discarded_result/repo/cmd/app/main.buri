@@ -3,7 +3,7 @@
 // hatch, and this lint is the grep — a warning, not an error, because dropping
 // the failure may well be what was meant.
 
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 

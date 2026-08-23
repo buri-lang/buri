@@ -2263,7 +2263,7 @@ export fn step(n: Int): Int {
     fn a_binding_nothing_reads_is_still_dropped() {
         let p = lower_plain(&program(
             "
-from \"core/cap\" import { Alloc };
+from \"core/effect\" import { Alloc };
 from \"core/host\" import * as host;
 
 export fn junk<C: Alloc>(ctx: C, n: Int): Int {

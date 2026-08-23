@@ -54,7 +54,7 @@
 (generic_parameter name: (identifier) @type.parameter)
 
 ; A type path's last segment is the type; the ones before it are the module it
-; came from, and colouring them the same makes `cap.Alloc` read as one word.
+; came from, and colouring them the same makes `effects.Alloc` read as one word.
 (named_type (type_path (identifier) @type))
 (array_type "[" @punctuation.bracket)
 

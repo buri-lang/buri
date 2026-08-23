@@ -1,5 +1,5 @@
 // EXPECT: //cmd/discarded_result
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "//cmd/discarded_result" import { main };
 

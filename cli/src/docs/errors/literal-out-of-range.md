@@ -15,7 +15,7 @@ write a value inside `U64`'s range, or annotate a wider type
 ## A program that provokes it
 
 ```buri fail code=literal-out-of-range
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

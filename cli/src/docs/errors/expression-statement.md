@@ -15,7 +15,7 @@ a block is `let`s followed by a result expression
 ## A program that provokes it
 
 ```buri fail code=expression-statement
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {

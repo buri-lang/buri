@@ -5,7 +5,7 @@
 // of structs that implement an effect so a test can bind one in a context and
 // prove its own implementation is the one that ran.
 
-from "core/cap" import { Alloc, Clock, Env, Fs, IoError, Net, NetError, NetResponse, Stdout };
+from "core/effect" import { Alloc, Clock, Env, Fs, IoError, Net, NetError, NetResponse, Stdout };
 from "core/num" import { Add, Div, Mul, Neg, Rem, Sub };
 from "core/order" import { Eq, Hash, Ord, Order, Show };
 from "core/time" import { Instant };

@@ -1,5 +1,5 @@
 // EXPECT: a rest pattern must come last
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn lastOf(xs: [Int]): Int {

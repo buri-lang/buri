@@ -1,5 +1,5 @@
 // EXPECT: or-pattern alternatives must bind the same names
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Either { Left(Int), Right(Int) }

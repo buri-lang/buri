@@ -119,7 +119,7 @@ const SEED: u64 = generate::SEED;
 const FLOOR: &str = "\
 from \"core/str\" import * as str;
 from \"core/list\" import * as list;
-from \"core/cap\" import { Alloc };
+from \"core/effect\" import { Alloc };
 
 export fn main(): Result<(), Str> {
   let xs: [Int] = list.empty<Int>();

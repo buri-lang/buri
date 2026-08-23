@@ -1,5 +1,5 @@
 // EXPECT: expected `I64`, found `I32`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn widenByAccident(a: I32, b: I64): I64 {

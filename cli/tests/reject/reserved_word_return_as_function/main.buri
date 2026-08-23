@@ -1,5 +1,5 @@
 // EXPECT: `return` is a reserved word
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn return(n: Int): Int { n }

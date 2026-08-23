@@ -15,7 +15,7 @@ add `else { ... }`; an `if` is an expression, so it has a value either way
 ## A program that provokes it
 
 ```buri fail code=if-without-else
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn sign(n: Int): Int {

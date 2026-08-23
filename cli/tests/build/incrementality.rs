@@ -66,7 +66,7 @@ fn status(run: &Run, action_and_label: &str) -> String {
 fn program(answer: i32) -> String {
     format!(
         r#"
-from "core/cap" import {{ Alloc, Stdout }};
+from "core/effect" import {{ Alloc, Stdout }};
 from "core/host" import * as host;
 
 fn answer(): Int {{ {answer} }}

@@ -8,7 +8,7 @@
 //! same idea get different names: `splitOnce` returns two slices and is pure;
 //! `split` returns `[Str]` and allocates.
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/order" import { Order };
 
 // --- Pure ---------------------------------------------------------------------

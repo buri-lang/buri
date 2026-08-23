@@ -124,7 +124,7 @@ What a Buri binary needed was the ability to read and write *octets* on standard
 input and output. `Stdin.readLine` reads the stream to its end, so a program
 using it cannot answer before the other side has finished speaking — which a
 request/response protocol requires. So `Stdin.readBytes` and `Stdout.writeBytes`
-were added to `core/cap`, with implementations in `core/host` and
+were added to `core/effect`, with implementations in `core/host` and
 `core/testing/context` and two intrinsics behind them. That is a capability the
 language wanted anyway; this is just what asked for it first.
 

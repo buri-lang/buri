@@ -5,11 +5,11 @@
 //! which is why there is no `seed` entry point here and no way to ask for one.
 //!
 //! xoshiro256++ over a seed from the operating system. No dependency, about
-//! forty lines, and the properties that matter for the two operations `core/cap`
+//! forty lines, and the properties that matter for the two operations `core/effect`
 //! actually declares (`nextInt`, `nextFloat`) are properties xoshiro has: a
 //! 2^256 period, passes BigCrush, and is four instructions per word.
 //!
-//! It is deliberately **not** a cryptographic generator, and `core/cap` does not
+//! It is deliberately **not** a cryptographic generator, and `core/effect` does not
 //! claim one. A `Rand` that promised unpredictability would need to say so in
 //! its own documentation and would be a different effect.
 

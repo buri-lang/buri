@@ -59,7 +59,7 @@ fn layout_for(payload: u64) -> Layout {
         Some(l) => l,
         // A request that cannot even be described is out of memory by any
         // useful definition, and there is no value to report it with:
-        // `allocate` returns `Region`, not `Result` (`cap.buri:19`).
+        // `allocate` returns `Region`, not `Result` (`effect.buri:19`).
         None => buri_rt_abort_oom(payload),
     }
 }

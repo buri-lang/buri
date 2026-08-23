@@ -15,7 +15,7 @@ move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an arra
 ## A program that provokes it
 
 ```buri fail code=rest-pattern-not-last
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn lastOf(xs: [Int]): Int {

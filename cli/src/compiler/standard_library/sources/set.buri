@@ -9,7 +9,7 @@
 //! instead of two and `union` can exist — a set has operations a map does not.
 //!
 //! ```buri run
-//! from "core/cap" import { Alloc, Stdout };
+//! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/list" import * as list;
 //! from "core/set" import * as set;
@@ -32,7 +32,7 @@
 //! 3 unique, union 1 2 3 4
 //! ```
 
-from "core/cap" import { Alloc };
+from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/map" import { Map };
 from "core/map" import * as map;

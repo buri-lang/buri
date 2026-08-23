@@ -1,6 +1,6 @@
 // One variant, so there is nothing to discriminate: the tag test is dead
 // weight and the backend already knows it.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 enum Wrapped { Only(Int, Str) }

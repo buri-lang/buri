@@ -1,12 +1,12 @@
-# Provenance for a checked-in benchmark corpus. See
-# cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
 name = mixed-10k
 profile = mixed
-generator_revision = 1
-revision = 1
-recorded = 2026-08-18
+generator_revision = 2
+revision = 2
+recorded = 2026-08-23
 params = 
 lines = 10119
-bytes = 349265
+bytes = 349376
 modules = 37
-digest = 33c9f3d634cd6c6841b643dcbf1268bcf81fe57ff81bac61002122bcfa3c286e
+digest = 2ee074ab2324bc776d681571bca82adfd301854382036b72475466263d1c9e5c

@@ -1,6 +1,6 @@
 // Self tail recursion, which becomes a loop with the parameters rebound. The
 // rebinding is a parallel move, and most of these need no temporary at all.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn sumTo(n: Int, acc: Int): Int {

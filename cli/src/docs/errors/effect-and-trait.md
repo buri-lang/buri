@@ -11,7 +11,7 @@ split it in two: a type is either part of the world or part of your data
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/order" import { Show };
 from "core/str" import * as str;
 from "core/host" import * as host;

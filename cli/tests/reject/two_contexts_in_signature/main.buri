@@ -1,5 +1,5 @@
 // EXPECT: carries an effect, so it must be named `ctx`
-from "core/cap" import { Alloc, Fs, Net, Stdout };
+from "core/effect" import { Alloc, Fs, Net, Stdout };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 

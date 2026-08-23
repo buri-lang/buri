@@ -15,7 +15,7 @@ a bound names a declared trait; there are no where clauses
 ## A program that provokes it
 
 ```buri fail code=not-a-trait
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn measure<T: Bogus>(x: T): Int { 1 }

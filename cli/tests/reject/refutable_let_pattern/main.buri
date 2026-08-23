@@ -1,5 +1,5 @@
 // EXPECT: this pattern does not match every value of its type
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn unwrap(o: Option<Int>): Int {

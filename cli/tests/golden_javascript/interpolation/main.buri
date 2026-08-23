@@ -1,6 +1,6 @@
 // A `Template` is an array of parts handed to the runtime's formatter. Where
 // every hole renders on its own, the array and the call are both avoidable.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/str" import * as str;
 

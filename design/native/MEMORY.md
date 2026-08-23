@@ -17,9 +17,9 @@ Four properties, and every decision below is downstream of them.
   no assignment, no interior mutability, no `&mut`.
 - **No destructors.** Freeing is the implementation's business entirely; nothing
   in a program can observe when it happens or run code at that point.
-- **No threads.** The language has no concurrency construct, `core/cap` grants no
+- **No threads.** The language has no concurrency construct, `core/effect` grants no
   effect that produces one, and nothing in the standard library spawns anything.
-- **Capabilities cannot be captured.** SPEC 10.6, checked. So a closure's
+- **Effect-carrying values cannot be captured.** SPEC 10.6, checked. So a closure's
   environment is plain data.
 
 ## 2. Immutability implies acyclicity, and that is the whole argument
@@ -45,7 +45,7 @@ cannot happen:
 - **A lambda cannot refer to itself.** `ExprKind::Lambda` captures a list of
   already-bound locals (`typed.rs:194`); there is no `let rec`, and a `let f = fn(x) => f(x)`
   fails name resolution because `f` is not in scope in its own initialiser.
-- **A context cannot close a cycle.** SPEC 10.6 again: nothing capability-carrying
+- **A context cannot close a cycle.** SPEC 10.6 again: nothing effect-carrying
   is ever captured, so a context never ends up inside a value that the context
   also reaches.
 
@@ -108,11 +108,11 @@ answer is that the effect system does not carry the information it would need.
 An arena needs a scope: a point at which everything allocated since some earlier
 point becomes unreachable, all at once. Look for one:
 
-- `Alloc` is a **bound on a context** (`cap.buri:18-20`), and a bound propagates.
+- `Alloc` is a **bound on a context** (`effect.buri:18-20`), and a bound propagates.
   `list.map` is `<C: Alloc>`, so every caller of `map` is `Alloc`-bounded, and so
   is every caller of *those*. In any program that maps a list, `main` is
   `Alloc`-bounded and the "Alloc scope" is the program.
-- `Region` is a **value** (`cap.buri:16`: `export struct Region(export I64)`),
+- `Region` is a **value** (`effect.buri:16`: `export struct Region(export I64)`),
   returned by `allocate` and freely storable in a struct, returnable from a
   function, and placeable in a list. It is not a scope and it does not nest.
 - There is no `with`, no `using`, no scoped-context expression. A context is
@@ -487,7 +487,7 @@ Two rows deserve their reasons:
 Making it a definition also makes it a **commitment**: a change to any row is a
 breaking change to observable behaviour, exactly as
 `design/STANDARD-LIBRARY.md` §1 says. It
-goes in `core/cap`'s own source next to the `Alloc` declaration, where a reader of
+goes in `core/effect`'s own source next to the `Alloc` declaration, where a reader of
 the effect meets it — and it is there now, as a table above `effect Alloc`.
 `middle::layout`'s `charge_list`, `charge_str`, `charge_closure_env`,
 `charge_allocate` and `CHARGE_VIEW` are the same rows as code, and
@@ -514,7 +514,7 @@ accounting policies over the one real allocator. They are not three allocators.
   because the handle is the identity.
 - **`FixedBuffer(n)`** — a budget of *n* bytes. Exceeding it **aborts**. This is
   forced, and it is the right answer: `allocate` returns `Region`, not
-  `Result<Region, _>` (`cap.buri:19`), so there is no value to report failure
+  `Result<Region, _>` (`effect.buri:19`), so there is no value to report failure
   with; and SPEC 10.5 already says `Alloc` "can fail (out of memory)", while SPEC
   6.10 says an abort is what a failure with no value to return does. So exceeding
   a `FixedBuffer` is `$abort("allocation budget exhausted")`, with the budget and

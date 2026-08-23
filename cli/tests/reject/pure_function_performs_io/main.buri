@@ -3,7 +3,7 @@
 // `runTwice` has no `ctx` parameter, no effect-carrying `self`, captures
 // nothing and constructs no context — and it used to print twice. The rule
 // that stops it is one function earlier, in `wrap`.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {

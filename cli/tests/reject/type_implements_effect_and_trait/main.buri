@@ -1,5 +1,5 @@
 // EXPECT: cannot implement both the effect `Stdout` and the trait `Show`
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/order" import { Show };
 from "core/str" import * as str;
 from "core/host" import * as host;

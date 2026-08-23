@@ -27,7 +27,7 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-/// `NetError`'s variants, in declaration order in `cap.buri:91-96`. The index
+/// `NetError`'s variants, in declaration order in `effect.buri:91-96`. The index
 /// is what crosses the ABI, so this order is the contract.
 pub enum NetFail {
     Timeout,

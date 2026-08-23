@@ -1,5 +1,5 @@
 // EXPECT: `Bogus` is not a trait or effect
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 fn measure<T: Bogus>(x: T): Int { 1 }

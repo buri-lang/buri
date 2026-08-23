@@ -1,5 +1,5 @@
 // EXPECT: a method is not a value
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

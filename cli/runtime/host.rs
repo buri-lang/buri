@@ -1,7 +1,7 @@
 //! The host capabilities: one native entry per `$host_*` in `backend/js/runtime.js`.
 //!
 //! `core/host` exports ten zero-sized implementations (`host.buri:18-87`) and
-//! `core/cap` declares what each of them grants. Every method of every one of
+//! `core/effect` declares what each of them grants. Every method of every one of
 //! them has a counterpart here, named by the rule in `lib.rs` §1:
 //! `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
 //!
@@ -19,7 +19,7 @@
 //!
 //! ## Errors
 //!
-//! `IoError`'s variants, in declaration order in `cap.buri:82-89`, are the
+//! `IoError`'s variants, in declaration order in `effect.buri:82-89`, are the
 //! integers this file returns: `NotFound` 0, `PermissionDenied` 1, `ReadOnly` 2,
 //! `AlreadyExists` 3, `NotADirectory` 4, `Other(Str)` 5. `NetError`'s are in
 //! `http.rs`. [`crate::BURI_OK`] is the success arm.
@@ -432,7 +432,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_read_dir(
 
 /// `Net::fetch` — `Result<NetResponse, NetError>`.
 ///
-/// `NetResponse` is `{ status: Int, body: Str }` (`cap.buri:98-101`) and its two
+/// `NetResponse` is `{ status: Int, body: Str }` (`effect.buri:98-101`) and its two
 /// fields leave through two out-pointers, per `lib.rs` §2 rule 2. On the error
 /// arm the tag is `NetError`'s variant index and `out_body` carries the payload
 /// of the two variants that have one — `BadUrl(Str)` and `Transport(Str)` —

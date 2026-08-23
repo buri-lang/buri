@@ -11,7 +11,7 @@ move it to the front, or rename it if this parameter is not the receiver
 ## A program that provokes it
 
 ```buri fail code=self-not-first
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Square { export side: Int }

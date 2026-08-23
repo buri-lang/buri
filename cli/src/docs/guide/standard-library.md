@@ -149,14 +149,14 @@ Deliberately absent, and not by oversight:
 - **No cryptographically secure randomness.** `core/random` is seeded and
   reproducible on purpose — a hermetic test needs the same numbers every run.
   A CSPRNG is a different thing, and it would need a new `Entropy` effect in
-  `core/cap` with a host implementation behind it. That is a decision to take
+  `core/effect` with a host implementation behind it. That is a decision to take
   deliberately, not a function to add quietly beside these.
 
 `sha256` is **not a password hash**. It is fast, which is the wrong property.
 
 ### The platform
 
-`core/cap` declares the effects; `core/host` implements them and may be
+`core/effect` declares the effects; `core/host` implements them and may be
 imported only by the module that exports `main`. `core/io`, `core/fs`,
 `core/env`, `core/random`, `core/net/http` are the interfaces those effects
 are used through. `core/testing/assert` and `core/testing/context` are
@@ -210,7 +210,7 @@ The charge for an operation is *defined* rather than measured — a `Str` of *n*
 UTF-8 bytes charges `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, a
 view charges nothing — and the list and string rows are charged by definition
 and reported to no allocator. The model is written down beside `Alloc` in
-`core/cap`, where a reader of the effect meets it.
+`core/effect`, where a reader of the effect meets it.
 
 ### What is deliberately not here
 

@@ -494,7 +494,7 @@ pub fn rendered(body: &str) -> String {
 // Assembly
 // ---------------------------------------------------------------------------
 
-/// `(effect name, cap trait, host value)`.
+/// `(effect name, effect type, host value)`.
 fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         "alloc" => ("Alloc", "alloc"),
@@ -614,14 +614,14 @@ pub fn assemble(
     match block.wrap {
         Wrap::Module => {}
         Wrap::Body | Wrap::Expr => {
-            body.push_str("from \"core/cap\" import * as __cap;\n");
+            body.push_str("from \"core/effect\" import * as __effect;\n");
             body.push_str("from \"core/host\" import * as __host;\n");
             body.push_str("export fn main(): Result<(), Str> {\n");
             body.push_str("  let ctx = context {\n");
             for e in &block.effects {
                 let (trait_name, host_value) = effect_binding(e)
                     .or_ice("`parse_block` refuses a block naming an effect with no binding");
-                body.push_str(&format!("    __cap.{trait_name}: __host.{host_value},\n"));
+                body.push_str(&format!("    __effect.{trait_name}: __host.{host_value},\n"));
             }
             body.push_str("  };\n");
             if block.wrap == Wrap::Expr {

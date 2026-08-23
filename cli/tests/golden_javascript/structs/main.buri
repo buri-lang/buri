@@ -1,7 +1,7 @@
 // Construction, field access, and functional update — which copies, because
 // the language has no assignment and the backend does not yet know when the
 // copy is unobservable.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 struct Point { x: Int, y: Int }

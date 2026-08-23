@@ -1,6 +1,6 @@
 // A trait with two implementations. Every call resolves at monomorphisation,
 // so what reaches the backend is a direct call — and a wrapper around it.
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 trait Area {

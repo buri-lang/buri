@@ -1,5 +1,5 @@
 // EXPECT: is a relative module path
-from "core/cap" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "./helper" import { thing };
 
