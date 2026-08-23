@@ -131,6 +131,23 @@ written a moment ago, however small it is. That is most of the domain's wall
 time on a mac and almost none of it on Linux. `--skip float_parity` is not
 where the time is.
 
+### The five-minute budget
+
+The whole verification bar — this suite, the `backend-llvm` feature suite, the
+fuzz binary twice, `--validate`, `--check-reproducible`, and clippy — runs in
+**under five minutes**, and that is a policy rather than an observation. A
+change that pushes it over owes either an optimization that brings it back or
+a written justification beside the change; the ledger of past offenders says
+the optimization is usually there to find (an exponential scan in `rc.rs` was
+once 96% of an 829-second run, and the fix was also a product bug's fix).
+
+Two rules keep the budget honest. **Coverage never pays for it**: the way
+under the line is faster mechanics — build profiles, caching, shared
+analysis, deduplicating a binary that literally re-runs tests another suite
+already ran — never running less. And **the number is measured, not
+asserted**: a wave that touches this suite's cost reports the bar's wall time
+against the budget in its verification section.
+
 ## Why each shape exists
 
 **The conformance repository** is ordinary Buri. Its packages are libraries
