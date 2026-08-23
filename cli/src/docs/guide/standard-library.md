@@ -1,8 +1,10 @@
 ## The standard library
 
-`core/*` ships with the toolchain. It is never listed in a `dependencies`, it
-is available to every target, and it cannot be replaced — there is one, and
-this is it.
+The standard library ships with the toolchain. It is never listed in a
+`dependencies`, it is available to every target, and it cannot be replaced —
+there is one, and this is it. It owns two reserved module roots: `core/*`, the
+deliberately small set of essentials, and `ui/*`, the reactivity vocabulary,
+which is a different kind of thing and a much larger surface.
 
 **The reference for a module is the module.** `buri docs core/list` renders it
 from the source the compiler checked, so a signature on the page is the
@@ -159,6 +161,31 @@ imported only by the module that exports `main`. `core/io`, `core/fs`,
 `core/env`, `core/random`, `core/net/http` are the interfaces those effects
 are used through. `core/testing/assert` and `core/testing/context` are
 importable only from a test source.
+
+### User interfaces
+
+`ui/effect` declares `Watch`, `Ui` and `Fetch`, and the `Scope` a reactive
+closure is handed. `ui/signal` is `Signal<T>` — `get`, `set`, `update` — plus
+`signal` and `watch`; `ui/prop` is `Prop<T>` and `memo`. `ui/testing` is a
+headless platform, importable only from a test source.
+
+The whole of it rests on one idea: **a signal handle is inert data, and the
+authority to read or write it travels through `ctx`** — the same split `Alloc`
+and `Region` use. So a `Signal<T>` may be captured by an event handler, and the
+handler takes its context as a parameter rather than closing over one.
+
+| | Cost |
+|---|---|
+| `signal(ctx, v)` | O(1) |
+| `get` | O(1) outside a computation. Inside one, O(k) in that computation's dependencies so far, because the edge is recorded once and recording it looks first |
+| `set`, `update` | O(1) when the value is unchanged, and otherwise O(d) over what read the cell, transitively through memos |
+| `memo(ctx, f)` | O(1) to declare — `f` does not run until something reads it, and then only after a cell it actually read has changed |
+| `watch(ctx, f)` | runs once now, and once per batch in which something it read changed |
+
+Tracking is automatic and exact: dependencies are collected afresh on every
+run, so a read behind an `if` subscribes to the branch taken and not to the
+other one. Writing a value identical to the one already there is not a change
+and re-runs nothing.
 
 ### Allocators
 

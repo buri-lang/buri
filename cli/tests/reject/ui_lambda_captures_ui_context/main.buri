@@ -1,0 +1,23 @@
+// EXPECT: a lambda may not capture `ctx`, which carries an effect
+//
+// The event-handler shape is `fn(C, Event) => ()`: the handler takes its
+// context as a parameter, the way `list.mapCtx` does. This is the mistake that
+// shape exists to prevent — a closure that has closed over the program's
+// effect budget and can be called from anywhere, including from inside a
+// reactive computation that was handed read authority and nothing else.
+from "core/cap" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/signal" import { Signal, signal };
+
+fn later<C: Ui>(ctx: C, n: Signal<Int>): fn(Int) => () {
+  fn(by) => n.update(ctx, fn(v) => v + by)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let n = signal(ctx, 1);
+  let bump = later(ctx, n);
+  let _ = bump(2);
+  .Ok(())
+}

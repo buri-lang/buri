@@ -1,0 +1,41 @@
+// Signals, memos and watchers reach the runtime as three intrinsic calls and
+// two ordinary arrow functions (design/ui-reactivity.md, "Runtime"). There is
+// no compiler work behind reactivity beyond the platform module and its
+// intrinsics: a Buri lambda is a JavaScript arrow function, so a memo's body
+// is handed to `$host_HostUi_memo` unchanged and the graph in the runtime
+// calls it back with the `Scope` it minted.
+//
+// What a watcher does is invisible here on purpose. A reactive closure
+// receives a `Scope`, which grants reading the graph and nothing else, so it
+// cannot print — `cli/tests/conformance/lib/ui/` is where the ordering and
+// re-run counts are asserted, through a recorder the runner owns.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { Prop, memo };
+from "ui/signal" import { Signal, signal, watch };
+
+fn ignore(value: Int): () {
+  let _ = value;
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+
+  let count = signal(ctx, 0);
+  let doubled = memo(ctx, fn(s) => count.get(s) * 2);
+  let _ = watch(ctx, fn(s) => ignore(doubled.read(s)));
+
+  let _ = io.println(ctx, "count ${count.get(ctx)}");
+  let _ = count.update(ctx, fn(n) => n + 1);
+  let _ = io.println(ctx, "count ${count.get(ctx)}");
+  let _ = count.set(ctx, 20);
+  let _ = io.println(ctx, "count ${count.get(ctx)}");
+  .Ok(())
+}

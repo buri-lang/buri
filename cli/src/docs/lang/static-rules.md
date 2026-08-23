@@ -96,10 +96,11 @@ Contexts (Section 11.3):
 
 Modules and tests:
 
-35. A module path is `"core/..."` or `"//..."`. A relative path is an error, as
-    is a `//` path the build system does not make visible to the importing
-    target (Section 4.1.1). A path containing a `testing` segment is importable
-    only from a test source.
+35. A module path names the standard library — `"core/..."` or `"ui/..."` — or
+    this repository, `"//..."`. A relative path is an error, as is a `//` path
+    the build system does not make visible to the importing target
+    (Section 4.1.1). A path containing a `testing` segment is importable only
+    from a test source.
 36. A re-export may name only what its module path exports, and `export *` is
     not derivable.
 37. `test`, and imports of test-only paths, may appear only in a test source. A

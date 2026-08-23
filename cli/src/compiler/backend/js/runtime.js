@@ -1526,6 +1526,283 @@ function $host_HostProc_exitWith(self, code) {
   return 0;
 }
 
+// --- The reactive graph -----------------------------------------------------
+//
+// Auto-tracking, in the shape design/ui-reactivity.md commits to: the runtime
+// holds a pointer to the computation that is running, `read` records a
+// source -> computation edge, `write` marks dependents out of date and
+// schedules them, and dependencies are collected afresh on every run, so a
+// read behind an `if` is tracked exactly.
+//
+// One array of nodes, indexed by the `Int` a Buri `Signal<T>` carries. Three
+// kinds, told apart by `kind`:
+//
+//   0  cell        a value, written from outside
+//   1  memo        a value, computed from other nodes, lazily
+//   2  watcher     run for its effect on the world, eagerly
+//
+// A memo is lazy and a watcher is not, and that is the whole difference in
+// scheduling: an out-of-date memo recomputes when something reads it, while a
+// watcher is pushed onto the queue and drained at the end of the batch.
+//
+// `deps` and `subs` are the same edges from the two ends. Both are arrays
+// rather than sets: a computation reads a handful of cells, and a linear scan
+// over three elements beats a hash.
+
+const $ui = {
+  nodes: [],
+  // The computation whose body is running, or -1. This is what makes tracking
+  // automatic: nothing is declared, `read` simply looks here.
+  current: -1,
+  queue: [],
+  // Open batches. A write inside one defers the drain, so N writes cause one
+  // pass rather than N.
+  depth: 0,
+};
+
+// A runaway is a program whose watchers write what they read. The limit is not
+// a policy, it is the difference between a diagnosis and a hung tab.
+const $UI_STEPS = 100000;
+
+function $ui_node(kind, value, compute) {
+  const owner = $ui.current;
+  $ui.nodes.push({
+    kind,
+    value,
+    compute,
+    deps: [],
+    subs: [],
+    // A memo has never run, so it is out of date by construction.
+    dirty: kind === 1,
+    queued: false,
+    disposed: false,
+    owner,
+    children: [],
+  });
+  const id = $ui.nodes.length - 1;
+  // Disposal is keyed on which computation was executing when the node was
+  // created, so a nested computation dies with the run that made it.
+  if (owner >= 0) $ui.nodes[owner].children.push(id);
+  return id;
+}
+
+function $ui_at(id) {
+  const n = $ui.nodes[id];
+  if (n === undefined) $abort("this signal does not exist");
+  return n;
+}
+
+function $ui_read(id) {
+  const n = $ui_at(id);
+  // Reading is what makes a memo run: until then it has computed nothing, and
+  // a memo nothing reads never runs at all.
+  if (n.kind === 1 && n.dirty && !n.disposed) $ui_run(id);
+  const c = $ui.current;
+  if (c >= 0 && c !== id) {
+    if (!n.subs.includes(c)) n.subs.push(c);
+    const reader = $ui.nodes[c];
+    if (!reader.deps.includes(id)) reader.deps.push(id);
+  }
+  return n.value;
+}
+
+function $ui_unsubscribe(id, n) {
+  for (const d of n.deps) {
+    const source = $ui.nodes[d];
+    if (source === undefined) continue;
+    const at = source.subs.indexOf(id);
+    if (at >= 0) source.subs.splice(at, 1);
+  }
+  n.deps = [];
+}
+
+function $ui_dispose(id) {
+  const n = $ui.nodes[id];
+  if (n === undefined || n.disposed) return;
+  n.disposed = true;
+  for (const c of n.children) $ui_dispose(c);
+  n.children = [];
+  $ui_unsubscribe(id, n);
+  n.subs = [];
+  n.compute = null;
+}
+
+function $ui_run(id) {
+  const n = $ui_at(id);
+  if (n.disposed) return;
+  // Everything the previous run created belongs to the previous run.
+  for (const c of n.children) $ui_dispose(c);
+  n.children = [];
+  // Per-run dependency re-collection: the edges are dropped before the body
+  // runs, so what it reads this time is exactly what it is subscribed to.
+  $ui_unsubscribe(id, n);
+  const outer = $ui.current;
+  $ui.current = id;
+  try {
+    // The `Scope` a Buri closure receives: a one-field struct naming the
+    // computation it belongs to.
+    const v = n.compute([id]);
+    if (n.kind === 1) n.value = v;
+  } finally {
+    $ui.current = outer;
+    n.dirty = false;
+  }
+}
+
+// Marking out of date, transitively. A memo is only marked — it recomputes
+// when read — while a watcher is queued, since nothing will ever read it.
+function $ui_notify(n) {
+  for (const s of n.subs.slice()) {
+    const c = $ui.nodes[s];
+    if (c === undefined || c.disposed) continue;
+    if (c.kind === 1) {
+      if (!c.dirty) {
+        c.dirty = true;
+        $ui_notify(c);
+      }
+    } else if (!c.queued) {
+      c.queued = true;
+      $ui.queue.push(s);
+    }
+  }
+}
+
+function $ui_drain() {
+  let steps = 0;
+  // Not `for (const id of queue)`: a watcher may schedule another, and the
+  // one it schedules belongs to this pass. Index-walking is what makes the
+  // order the order they were scheduled in.
+  for (let i = 0; i < $ui.queue.length; i++) {
+    if (++steps > $UI_STEPS) $abort("a reactive update did not settle");
+    const id = $ui.queue[i];
+    const n = $ui.nodes[id];
+    if (n === undefined) continue;
+    n.queued = false;
+    if (!n.disposed) $ui_run(id);
+  }
+  $ui.queue = [];
+}
+
+function $ui_write(id, v) {
+  const n = $ui_at(id);
+  // Identical is not a change. This is what makes "wrote the same value, so
+  // nothing re-ran" a thing a test can assert.
+  if (n.value === v) return 0;
+  n.value = v;
+  $ui_notify(n);
+  if ($ui.depth === 0) $ui_drain();
+  return 0;
+}
+
+// One update transaction. Event handlers and fetch callbacks land inside one,
+// so N writes cause one pass over the watchers.
+function $ui_flush(f) {
+  $ui.depth++;
+  try {
+    f();
+  } finally {
+    $ui.depth--;
+  }
+  if ($ui.depth === 0) $ui_drain();
+  return 0;
+}
+
+function $host_HostUi_signal(self, initial) {
+  return $ui_node(0, initial, null);
+}
+
+function $host_HostUi_read(self, id) {
+  return $ui_read(id);
+}
+
+function $host_HostUi_write(self, id, value) {
+  return $ui_write(id, value);
+}
+
+function $host_HostUi_memo(self, compute) {
+  return $ui_node(1, undefined, compute);
+}
+
+function $host_HostUi_watch(self, run) {
+  // Eager, and that is not an optimization: a watcher learns what it depends
+  // on by running, so one that has never run is subscribed to nothing and
+  // would never run again.
+  $ui_run($ui_node(2, undefined, run));
+  return 0;
+}
+
+function $host_HostWatch_read(self, id) {
+  return $ui_read(id);
+}
+
+function $ui_effect_Scope_read(self, id) {
+  return $ui_read(id);
+}
+
+// A `Request` is `[method, url, headers, body]` and a `FetchError` is
+// `[tag, ...payload]` with the tag order `ui/effect` declares:
+// Timeout, Refused, BadUrl, Transport, Aborted.
+function $host_HostFetch_fetch(self, request, done) {
+  const settle = (r) => $ui_flush(() => done(self, r));
+  try {
+    const req = new XMLHttpRequest();
+    req.open(request[0], request[1], true);
+    for (const h of request[2]) req.setRequestHeader(h[0], h[1]);
+    req.onload = () => settle($ok([req.status, req.responseText]));
+    req.onerror = () => settle($err([3, "transport"]));
+    req.ontimeout = () => settle($err([0]));
+    req.onabort = () => settle($err([4]));
+    req.send(request[3] === "" ? null : request[3]);
+  } catch (e) {
+    settle($err([3, String((e && e.message) || e)]));
+  }
+  return 0;
+}
+
+// --- The headless user-interface platform ------------------------------------
+//
+// The same graph, with no document attached: `ui/testing` is about what the
+// runtime does, and a second implementation of it would be a second thing to
+// be right. The handles are unused — the graph is the state — but the structs
+// carry one so that the shape matches every other test double.
+
+const $ui_testing_Headless_signal = $host_HostUi_signal;
+const $ui_testing_Headless_read = $host_HostUi_read;
+const $ui_testing_Headless_write = $host_HostUi_write;
+const $ui_testing_Headless_memo = $host_HostUi_memo;
+const $ui_testing_Headless_watch = $host_HostUi_watch;
+const $ui_testing_Observer_read = $host_HostWatch_read;
+
+function $ui_testing_headless() {
+  return $handle(0);
+}
+
+function $ui_testing_observer() {
+  return $handle(0);
+}
+
+function $ui_testing_recorder() {
+  return $handle({ tags: [], values: [] });
+}
+
+function $ui_testing_Recorder_record(self, tag) {
+  $slot(self).tags.push(tag);
+  return 0;
+}
+
+function $ui_testing_Recorder_recorded(self) {
+  return $slot(self).tags.slice();
+}
+
+function $ui_testing_Recorder_note(self, value) {
+  $slot(self).values.push(value);
+  return value;
+}
+
+function $ui_testing_Recorder_noted(self) {
+  return $slot(self).values.slice();
+}
+
 // --- The test platform ------------------------------------------------------------
 //
 // The structs carry an I64 handle rather than their state, because Buri has no

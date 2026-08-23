@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-five
-//! of the thirty-two files are in it** — the number the harness prints, and one
+//! of the thirty-four files are in it** — the number the harness prints, and one
 //! the prose had off by one before `semantics/generics.buri` joined them — and
 //! one more, `proto/binary.buri`, which compiles and passes but is
 //! [`Out::Costly`] rather than in the set, for a
@@ -49,6 +49,10 @@
 //!     what `runtime.js` does. `json/decoding.buri` and `json/encoding.buri`.
 //!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
+//!  4. **The reactive graph.** `ui/effect`'s `Ui` entries and `ui/testing`'s
+//!     recorder are `backend/js/runtime.js` and nowhere else, because no
+//!     native platform grants `Ui` — there is nothing on this side to render
+//!     to. `ui/reactivity.buri` and `ui/fetch.buri`.
 //!
 //! `semantics/generics.buri` was a fourth until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
@@ -326,6 +330,24 @@ const PACKAGES: &[Case] = &[
              `Result<Char, RangeError>`. `core/char`'s classifiers and \
              `list.find` are emitted now, and this one call is the whole of \
              what is left",
+    ),
+    // The two below are excluded for a reason no later wave of this backend
+    // retires: the reactive graph is a *runtime* — a mutable dependency graph
+    // with a scheduler — and it lives in the JavaScript runtime alone. There
+    // is no `cli/runtime/*.rs` for `$ui_*`, and until a native target renders
+    // anything there is nothing for one to be right about.
+    excluded(
+        "ui/reactivity.buri",
+        "the reactive graph, `ui/effect`'s five `Ui` entries and \
+             `ui/testing`'s recorder — all of them `backend/js/runtime.js` and \
+             nothing else, because no native platform grants `Ui`",
+    ),
+    excluded(
+        "ui/fetch.buri",
+        "`ui/testing`'s recorder. `Fetch` itself is ordinary Buri here — the \
+             test double answers its own callback — so this file is one \
+             intrinsic away from the native set the day a native platform has \
+             a reason to record",
     ),
 ];
 

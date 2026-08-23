@@ -129,7 +129,45 @@ pub const MODULES: &[StdModule] = &[
         platform: true,
         ..m("core/testing/context", include_str!("sources/testing_context.buri"))
     },
+    // `ui/*`. A user interface is not one of the deliberately small
+    // essentials, and its vocabulary is large, so it gets its own reserved
+    // root rather than growing `core/`. Only `ui/effect` is a platform module —
+    // it declares the effects; everything else is ordinary Buri over inert
+    // handles and could move to a real library once external repositories
+    // land.
+    StdModule { platform: true, ..m("ui/effect", include_str!("sources/ui_effect.buri")) },
+    m("ui/signal", include_str!("sources/ui_signal.buri")),
+    m("ui/prop", include_str!("sources/ui_prop.buri")),
+    m("ui/testing", include_str!("sources/ui_testing.buri")),
 ];
+
+/// The module-path roots the standard library owns.
+///
+/// `core/` is the deliberately small set of essentials; `ui/` is the reactive
+/// and styling vocabulary, which is a different kind of thing and a much
+/// larger surface, so it gets its own root rather than diluting what `core/`
+/// means (SPEC rule 35). Both are reserved: a repository path is always
+/// `//...`, so nothing here can collide with user code.
+pub const ROOTS: &[&str] = &["core/", "ui/"];
+
+/// Whether a module path names the embedded standard library at all.
+///
+/// This is a question about the *path*, not about whether the module exists —
+/// `"core/nope"` answers `true`, so that naming a module the standard library
+/// does not have is a `no-such-module` error rather than a search of the
+/// repository that reports something else.
+pub fn is_std_path(path: &str) -> bool {
+    ROOTS.iter().any(|r| path.starts_with(r))
+}
+
+/// The roots as they read in a diagnostic: `` `core/...` or `ui/...` ``.
+pub fn roots_phrase() -> String {
+    let quoted: Vec<String> = ROOTS.iter().map(|r| format!("`{r}...`")).collect();
+    match quoted.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+        _ => quoted.join(""),
+    }
+}
 
 pub fn find(path: &str) -> Option<&'static StdModule> {
     MODULES.iter().find(|m| m.path == path)
@@ -210,6 +248,16 @@ mod tests {
                 "`{}` publishes a prelude name but does not load eagerly",
                 m.path
             );
+        }
+    }
+
+    /// The roots are what module resolution, the reference and the intrinsic
+    /// gate all key off, so a module outside them would load and then be
+    /// invisible to all three.
+    #[test]
+    fn every_module_is_under_a_reserved_root() {
+        for m in MODULES {
+            assert!(is_std_path(m.path), "`{}` is under no reserved root", m.path);
         }
     }
 

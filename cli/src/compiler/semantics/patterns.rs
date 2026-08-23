@@ -370,6 +370,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.err(span, format!("variant `{v}` of `{t}` is private to its module"))
+                .code("private-to-module")
                 .fix(format!("add `export` to `{v}`, or match through a function `{t}`'s module provides"));
         }
         let fields = self.payload_patterns(&variant.fields, &args, payload, span, &variant.name);
@@ -393,6 +394,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if !f.exported {
                     let fname = f.name.clone();
                     self.err(span, format!("field `{fname}` of `{name}` is private to its module"))
+                        .code("private-to-module")
                         .fix(format!("add `export` to `{fname}`, or read it through a method"));
                     break;
                 }

@@ -1,0 +1,12 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/reactivity.buri", "test/fetch.buri"]
+
+        # JS only, and not for the usual reason: the reactive graph is a
+        # runtime intrinsic, and no native backend has one. `native::conformance`
+        # records both files as excluded, with that reason.
+        platforms: [JS]
+    }
+}

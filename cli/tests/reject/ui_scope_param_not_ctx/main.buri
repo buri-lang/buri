@@ -1,0 +1,21 @@
+// EXPECT: `s` carries an effect, so it must be named `ctx`
+//
+// "A signature taking a `Scope` is visibly effectful" is a claim about rule 26,
+// and this is the program that holds it: `Scope` implements `Watch`, so it is
+// effect-carrying by conformance rather than by a bound, and a parameter of it
+// must be `ctx`. `Signal<Int>` beside it stays ordinary data — the handle
+// holds no authority, which is the other half of the same design.
+from "core/cap" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/signal" import { Signal, signal };
+
+fn peek(s: Scope, n: Signal<Int>): Int {
+  n.get(s)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let n = signal(ctx, 1);
+  .Ok(())
+}

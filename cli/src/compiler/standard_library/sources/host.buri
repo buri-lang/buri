@@ -14,6 +14,7 @@ from "core/cap" import {
   Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout,
   IoError, NetError, NetResponse, Region,
 };
+from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
 
 export struct HostAlloc {}
 impl Alloc for HostAlloc {
@@ -75,6 +76,34 @@ impl Proc for HostProc {
   fn exitWith(self: HostProc, code: Int): ();
 }
 
+/// The reactive graph. Bound by a program with a user interface; a platform
+/// that renders nothing simply never has one asked of it.
+export struct HostUi {}
+impl Ui for HostUi {
+  fn signal<T>(self: HostUi, initial: T): Int;
+  fn read<T>(self: HostUi, id: Int): T;
+  fn write<T>(self: HostUi, id: Int, value: T): ();
+  fn memo<T>(self: HostUi, compute: fn(Scope) => T): Int;
+  fn watch(self: HostUi, run: fn(Scope) => ()): ();
+}
+
+/// Reading the reactive graph, without the authority to change it.
+export struct HostWatch {}
+impl Watch for HostWatch {
+  fn read<T>(self: HostWatch, id: Int): T;
+}
+
+/// Requests that do not block. `Net` is the blocking shape, and a platform
+/// with an interface to freeze grants this one instead.
+export struct HostFetch {}
+impl Fetch for HostFetch {
+  fn fetch(
+    self: HostFetch,
+    request: Request,
+    done: fn(HostFetch, Result<NetResponse, FetchError>) => (),
+  ): ();
+}
+
 export const alloc: HostAlloc = HostAlloc {};
 export const stdout: HostStdout = HostStdout {};
 export const stderr: HostStderr = HostStderr {};
@@ -85,3 +114,6 @@ export const clock: HostClock = HostClock {};
 export const rand: HostRand = HostRand {};
 export const env: HostEnv = HostEnv {};
 export const proc: HostProc = HostProc {};
+export const ui: HostUi = HostUi {};
+export const watch: HostWatch = HostWatch {};
+export const fetch: HostFetch = HostFetch {};

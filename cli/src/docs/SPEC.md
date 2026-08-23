@@ -242,8 +242,15 @@ A module path is one of two forms, told apart by their first characters:
 
 | Form | Example | Names |
 |---|---|---|
-| Standard library | `"core/list"` | A module of the standard library, which ships with the compiler. |
+| Standard library | `"core/list"`, `"ui/signal"` | A module of the standard library, which ships with the compiler. |
 | Repository-absolute | `"//lib/money"`, `"//lib/money/cents"` | A module of this repository, by its path from the root. |
+
+The standard library owns two reserved roots. `core/` is the deliberately small
+set of essentials — the types every program uses and the effects every platform
+might grant. `ui/` is the reactivity and styling vocabulary, which is a
+different kind of thing and a much larger surface, so it has its own root
+rather than diluting what `core/` means. Both are reserved: a repository path
+always begins `//`, so nothing a repository declares can collide with either.
 
 **There are no relative module paths.** `"./cents"` and `"../money"` are not
 module paths, and a leading `.` in an import is an error. A path therefore
@@ -2529,10 +2536,11 @@ Contexts (Section 11.3):
 
 Modules and tests:
 
-35. A module path is `"core/..."` or `"//..."`. A relative path is an error, as
-    is a `//` path the build system does not make visible to the importing
-    target (Section 4.1.1). A path containing a `testing` segment is importable
-    only from a test source.
+35. A module path names the standard library — `"core/..."` or `"ui/..."` — or
+    this repository, `"//..."`. A relative path is an error, as is a `//` path
+    the build system does not make visible to the importing target
+    (Section 4.1.1). A path containing a `testing` segment is importable only
+    from a test source.
 36. A re-export may name only what its module path exports, and `export *` is
     not derivable.
 37. `test`, and imports of test-only paths, may appear only in a test source. A

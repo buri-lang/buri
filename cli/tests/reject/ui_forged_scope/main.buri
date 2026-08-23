@@ -1,0 +1,22 @@
+// EXPECT: field `0` of `Scope` is private to its module
+//
+// `Scope` is the one concrete implementor of `Watch`, and the runtime is the
+// only thing that mints one — that is what "the closure can never capture a
+// context" rests on. Its field is private, so the type is nameable everywhere
+// and constructible nowhere, and reading a signal outside a computation the
+// runtime started is not expressible rather than merely discouraged.
+from "core/cap" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/signal" import { Signal, signal };
+
+fn peek(n: Signal<Int>): Int {
+  n.get(Scope(0))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let n = signal(ctx, 1);
+  let _ = peek(n);
+  .Ok(())
+}

@@ -1,0 +1,5 @@
+// The user-interface package. Everything it asserts lives in `test/`; the
+// library itself has no exports, because what is under test is the standard
+// library's own reactivity — `ui/effect`, `ui/signal`, `ui/prop` and the
+// runtime graph behind them (design/ui-reactivity.md, "Runtime") — rather
+// than any code here.

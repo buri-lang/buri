@@ -510,7 +510,10 @@ impl<'a> Loader<'a> {
         let Some(text) = standard_library::source(path) else {
             self.diags.push(
                 Diagnostic::error(span, format!("there is no module \"{path}\"")).with_code("no-such-module")
-                    .with_fix("check the path; the standard library's modules are all `core/...`"),
+                    .with_fix(format!(
+                        "check the path; the standard library's modules are all {}",
+                        standard_library::roots_phrase()
+                    )),
             );
             return None;
         };
@@ -538,7 +541,7 @@ impl<'a> Loader<'a> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
-        if path.starts_with("core/") {
+        if standard_library::is_std_path(path) {
             return self.load_std(path, span);
         }
         let Some(ws) = self.ws else {
@@ -687,7 +690,7 @@ impl<'a> Loader<'a> {
     /// binary compiled on its own, or a documentation example standing in the
     /// package, reaches it here first.
     fn role_for(&self, path: &str) -> Role {
-        if path.starts_with("core/") {
+        if standard_library::is_std_path(path) {
             return if standard_library::is_platform_module(path) { Role::Platform } else { Role::Std };
         }
         if is_test_only_path(path) {

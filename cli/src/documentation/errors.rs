@@ -62,6 +62,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("not-a-trait", "A bound names a trait or an effect"),
     e!("not-an-effect", "A context binds effects"),
     e!("or-pattern-bindings", "Or-pattern alternatives bind the same names"),
+    e!("private-to-module", "A private declaration is private to its module"),
     e!("question-mark-mismatch", "`?` propagates into a matching return type"),
     e!("refutable-pattern", "A `let` pattern must match every value"),
     e!("relative-import", "Every module path is absolute"),

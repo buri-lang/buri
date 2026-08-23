@@ -601,16 +601,23 @@ impl Workspace {
                  move between directories without its imports changing"
             ));
         }
-        if let Some(rest) = path.strip_prefix("core/") {
-            let _ = rest;
+        if crate::compiler::standard_library::is_std_path(path) {
             return Ok(ModuleLoc::Std { path: path.to_string() });
         }
         if path == "core" {
             return Err("\"core\" is not a module; name one, as in \"core/list\"".into());
         }
+        if path == "ui" {
+            return Err("\"ui\" is not a module; name one, as in \"ui/signal\"".into());
+        }
         let Some(rest) = path.strip_prefix("//") else {
             return Err(format!(
-                "\"{path}\" is not a module path; the two forms are \"core/...\" and \"//...\""
+                "\"{path}\" is not a module path; the forms are {} and \"//...\"",
+                crate::compiler::standard_library::ROOTS
+                    .iter()
+                    .map(|r| format!("\"{r}...\""))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         };
 

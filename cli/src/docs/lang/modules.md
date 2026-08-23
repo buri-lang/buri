@@ -37,8 +37,15 @@ A module path is one of two forms, told apart by their first characters:
 
 | Form | Example | Names |
 |---|---|---|
-| Standard library | `"core/list"` | A module of the standard library, which ships with the compiler. |
+| Standard library | `"core/list"`, `"ui/signal"` | A module of the standard library, which ships with the compiler. |
 | Repository-absolute | `"//lib/money"`, `"//lib/money/cents"` | A module of this repository, by its path from the root. |
+
+The standard library owns two reserved roots. `core/` is the deliberately small
+set of essentials — the types every program uses and the effects every platform
+might grant. `ui/` is the reactivity and styling vocabulary, which is a
+different kind of thing and a much larger surface, so it has its own root
+rather than diluting what `core/` means. Both are reserved: a repository path
+always begins `//`, so nothing a repository declares can collide with either.
 
 **There are no relative module paths.** `"./cents"` and `"../money"` are not
 module paths, and a leading `.` in an import is an error. A path therefore

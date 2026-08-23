@@ -6,14 +6,16 @@ error: there is no module "core/lists" [no-such-module]
 
 ## What to do
 
-check the path; the standard library's modules are all `core/...`
+check the path; the standard library's modules are all `core/...` or `ui/...`
 
 ## Why
 
-There are two kinds of module path and no others: `"core/..."` for the standard
-library, which ships with the toolchain, and `"//..."` for this repository,
-from its root. A path that matches neither names nothing, and the error says so
-where it is written rather than where the missing name is later used.
+There are two kinds of module path and no others: the standard library, which
+ships with the toolchain and owns two reserved roots — `"core/..."` for the
+essentials and `"ui/..."` for the user-interface vocabulary — and `"//..."` for
+this repository, from its root. A path that matches neither names nothing, and
+the error says so where it is written rather than where the missing name is
+later used.
 
 ## A program that provokes it
 

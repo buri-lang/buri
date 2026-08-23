@@ -28,6 +28,7 @@ tail_mutual: 1479 bytes artifact, 665 generated
 tail_self: 1739 bytes artifact, 1160 generated
 tail_short_circuit: 2245 bytes artifact, 1496 generated
 traits: 1338 bytes artifact, 228 generated
+ui_signals: 4384 bytes artifact, 1149 generated
 
-total: 64745 bytes artifact, 33237 generated
+total: 69129 bytes artifact, 34386 generated
 largest function: 1549 bytes, json_derive/$json_into

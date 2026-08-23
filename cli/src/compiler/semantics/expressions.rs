@@ -1132,6 +1132,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if !exported {
             let name = self.c.tables.fun(f).name.clone();
             self.err(span, format!("`{name}` is private to its module"))
+                .code("private-to-module")
                 .fix(format!("add `export` to `{name}`'s declaration, if it is meant to be part of the API"));
             return;
         }
@@ -1175,6 +1176,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let name = f.name.clone();
         let ty = self.c.tables.tycon(con).name.clone();
         self.err(span, format!("field `{name}` of `{ty}` is private to its module"))
+            .code("private-to-module")
             .fix(format!("add `export` to the field, or go through a method `{ty}` provides"))
             .notes
             .push(
@@ -1448,6 +1450,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.err(head_span, format!("variant `{v}` of `{t}` is private to its module"))
+                .code("private-to-module")
                 .fix(format!("add `export` to `{v}`, or build the value through a function `{t}`'s module provides"));
         }
 
@@ -1721,6 +1724,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.err(head_span, format!("variant `{v}` of `{t}` is private to its module"))
+                .code("private-to-module")
                 .fix(format!("add `export` to `{v}`, or build the value through a function `{t}`'s module provides"));
         }
         let targs: Vec<Ty> = match expected.map(|t| self.resolve(t)) {

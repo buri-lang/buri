@@ -1025,8 +1025,13 @@ impl<'a> Checker<'a> {
             return;
         }
         let path = self.module(module).path.clone();
-        if !path.starts_with("core/") {
-            // Already reported by the parser.
+        // A bundled standard-library module, asked of the table rather than of
+        // the path's spelling: the roots are `core/` and `ui/`, and a
+        // documentation example loaded with `Role::Std` is under neither, so
+        // this cannot mark a fenced signature as something the runtime is
+        // expected to supply. Anything else bodyless was already reported by
+        // the parser.
+        if crate::compiler::standard_library::find(&path).is_none() {
             return;
         }
         self.tables.fun_mut(fid).intrinsic = true;

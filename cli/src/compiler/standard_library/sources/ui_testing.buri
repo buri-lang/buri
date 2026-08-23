@@ -1,0 +1,97 @@
+//! ui/testing — a headless user interface platform.
+//!
+//! Test-only, by the `testing` path segment: importable only from a test
+//! source (SPEC rule 35). One implementation per effect, the same shape as
+//! `core/testing/context`, so a test builds the context it wants rather than
+//! being handed a world.
+//!
+//! The implementations are the real reactive runtime with no document
+//! attached. That is deliberate: the graph is what the tests here are about,
+//! and a second implementation of it would be a second thing to be right.
+//!
+//! Each call to `recorder()` allocates a fresh handle, so what one test
+//! records is invisible to the next. `headless()` and `observer()` are windows
+//! onto the one graph the runtime holds, which needs no isolating: a cell is
+//! named by an index nothing else can produce, so a test can only reach the
+//! cells it made.
+
+from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
+from "core/cap" import { NetResponse };
+
+/// Creates and writes signals, and runs computations, with no rendering.
+export struct Headless(I64);
+
+impl Ui for Headless {
+  fn signal<T>(self: Headless, initial: T): Int;
+  fn read<T>(self: Headless, id: Int): T;
+  fn write<T>(self: Headless, id: Int, value: T): ();
+  fn memo<T>(self: Headless, compute: fn(Scope) => T): Int;
+  fn watch(self: Headless, run: fn(Scope) => ()): ();
+}
+
+/// A headless `Ui`.
+export fn headless(): Headless;
+
+/// Reads signals and nothing else — what a test binds to `Watch` so that it
+/// can look at a cell from outside any computation.
+export struct Observer(I64);
+
+impl Watch for Observer {
+  fn read<T>(self: Observer, id: Int): T;
+}
+
+/// A headless `Watch`.
+export fn observer(): Observer;
+
+/// Refuses every request. A fake goes in `test.dependencies`.
+export struct NoFetch {}
+
+impl Fetch for NoFetch {
+  fn fetch(
+    self: NoFetch,
+    request: Request,
+    done: fn(NoFetch, Result<NetResponse, FetchError>) => (),
+  ): () {
+    done(self, .Err(.Refused))
+  }
+}
+
+/// A `Fetch` that refuses.
+export fn noFetch(): NoFetch {
+  NoFetch {}
+}
+
+/// An ordered log, for asserting on *when* something ran.
+///
+/// A reactive computation receives a `Scope`, which grants reading the graph
+/// and nothing else, so it cannot write a signal to say that it ran. This is
+/// how a test sees the order watchers were scheduled in and how many times a
+/// memo recomputed — the same shape as `core/testing/context`'s captured
+/// stdout, and for the same reason: Buri has no mutation, so the state lives
+/// on the runner's side and this value names it.
+///
+/// Holds no authority, so a lambda may capture one, which is what lets a
+/// computation reach it at all.
+export struct Recorder(I64);
+
+/// A fresh, empty recorder.
+export fn recorder(): Recorder;
+
+impl Recorder {
+  /// Appends `tag` to the tag log.
+  export fn record(self: Recorder, tag: Str): ();
+
+  /// Every tag recorded so far, oldest first.
+  export fn recorded(self: Recorder): [Str];
+
+  /// Appends `value` to the value log, and answers it.
+  ///
+  /// A second channel rather than `record("${value}")` because a computation
+  /// holds only a `Scope`: it cannot allocate, so it cannot render a number
+  /// into a string. It answers its argument so that it can be wrapped around
+  /// the expression being watched instead of sequenced before it.
+  export fn note(self: Recorder, value: Int): Int;
+
+  /// Every value noted so far, oldest first.
+  export fn noted(self: Recorder): [Int];
+}

@@ -1,0 +1,127 @@
+//! ui/effect — the effects a user interface platform grants.
+//!
+//! The same shape the standard library's other effect declarations have: an
+//! effect is an interface declared with `effect` instead of `trait`, only a
+//! platform module may declare one, and its implementors are effect-carrying,
+//! so they may be passed only as `self` or `ctx` (SPEC 10.1, 10.2).
+//!
+//! Everything here rests on one idea: **a signal handle is inert data, and the
+//! authority to read or write it travels through `ctx`.** That is the split
+//! `Alloc` and `Region` already use — the handle is the reference, the context
+//! is the effect. `Signal<T>` and `Prop<T>`, in `ui/signal` and `ui/prop`, are
+//! ordinary capturable data; nothing in them can do anything without one of
+//! the effects below.
+//!
+//! A signal identifier is an `Int` here rather than a `Signal<T>` because this
+//! module is the boundary with the runtime, which holds one graph of untyped
+//! cells. The typed handle is built on top, in ordinary Buri.
+
+from "core/cap" import { NetResponse };
+
+/// Reading signals, alone.
+///
+/// Separate from `Ui` so a computation can be handed read authority and
+/// provably nothing else: a `fn(Scope) => T` can observe the graph and cannot
+/// change it, which is what makes a derivation safe to re-run whenever the
+/// runtime likes.
+export effect Watch {
+  /// The current value of the cell `id` names.
+  ///
+  /// Reading inside a computation records a dependency, so the computation
+  /// re-runs when that cell changes. Reading outside one records nothing.
+  fn read<T>(self: Self, id: Int): T;
+}
+
+/// Creating and writing signals, and registering computations.
+///
+/// `read` appears here as well as on `Watch` because writing is not a
+/// substitute for reading: `Signal.update` reads the old value and writes a
+/// new one, and it takes the effect that can write. An implementor of `Ui`
+/// grants strictly more than one of `Watch`.
+export effect Ui {
+  /// A fresh cell holding `initial`. The returned `Int` names it for the
+  /// lifetime of the program.
+  fn signal<T>(self: Self, initial: T): Int;
+  /// The current value of the cell `id` names.
+  fn read<T>(self: Self, id: Int): T;
+  /// Replaces the value of the cell `id` names, marking everything that read
+  /// it out of date.
+  fn write<T>(self: Self, id: Int, value: T): ();
+  /// A derived cell: `compute` runs on demand and is re-run only after
+  /// something it read has changed. Lazy, so a memo nothing reads never runs.
+  fn memo<T>(self: Self, compute: fn(Scope) => T): Int;
+  /// A computation run for its effect on the world rather than its value. It
+  /// runs once immediately — which is how it learns what it depends on — and
+  /// again whenever any of that changes.
+  ///
+  /// Named `watch` rather than `effect` because `effect` is a keyword.
+  fn watch(self: Self, run: fn(Scope) => ()): ();
+}
+
+/// Starting requests. Separate from `Net` because the shape is different, not
+/// because the authority is: `Net.fetch` blocks until the response arrives,
+/// which on a platform with an interface means freezing it, so this one takes a
+/// callback and returns immediately. A platform grants one or the other.
+export effect Fetch {
+  /// Starts `request` and returns immediately. `done` runs later, with the
+  /// same context this call was made with — which is what lets it write
+  /// signals without capturing anything.
+  fn fetch(
+    self: Self,
+    request: Request,
+    done: fn(Self, Result<NetResponse, FetchError>) => (),
+  ): ();
+}
+
+/// The one concrete implementor of `Watch`, minted only by the runtime when it
+/// evaluates a reactive closure.
+///
+/// Concrete so that closure types can name it — which is what keeps `Prop`
+/// free of a *context* type parameter, and will keep `Style` free of one. Its
+/// field is private, so no program can build one; it implements an effect, so
+/// it is effect-carrying and may only arrive as `ctx`. A signature taking a
+/// `Scope` is visibly effectful.
+export struct Scope(Int);
+
+impl Watch for Scope {
+  fn read<T>(self: Scope, id: Int): T;
+}
+
+/// What a `Fetch` is asked to do.
+export struct Request {
+  export method: Str,
+  export url: Str,
+  export headers: [(Str, Str)],
+  /// Empty for a request with no body.
+  export body: Str,
+}
+
+/// Why a request produced no response.
+///
+/// The same four reasons as `NetError`, plus `Aborted`: a callback-shaped
+/// request can be cancelled, and the variant exists now so that adding the
+/// handle later does not change this type.
+export enum FetchError {
+  export Timeout,
+  export Refused,
+  export BadUrl(Str),
+  export Transport(Str),
+  export Aborted,
+}
+
+/// Starts a request and returns immediately.
+///
+/// The free-function form of `Fetch.fetch`, so a call site reads
+/// `ui.fetch(ctx, request, done)` rather than `ctx.fetch(request, done)`. The
+/// callback takes its context as a parameter — a lambda may not capture one —
+/// and receives the very context the call was made with.
+export fn fetch<C: Fetch>(
+  ctx: C,
+  request: Request,
+  done: fn(C, Result<NetResponse, FetchError>) => (),
+): () {
+  ctx.fetch(request, done)
+}
+
+derive Eq, Show for FetchError;
+derive Eq, Show for Request;

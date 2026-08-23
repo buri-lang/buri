@@ -212,9 +212,14 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
     out
 }
 
-/// The standard library: every `core/...` module.
+/// The standard library: every module under one of its reserved roots.
+///
+/// The role alone is not enough — a documentation example is loaded with
+/// `Role::Std` so that a fence may show a signature without a body — so this
+/// asks the path too.
 pub fn std_filter(m: &ModuleData) -> bool {
-    matches!(m.role, Role::Std | Role::Platform) && m.path.starts_with("core/")
+    matches!(m.role, Role::Std | Role::Platform)
+        && crate::compiler::standard_library::is_std_path(&m.path)
 }
 
 fn items_of(module: &tree::Module) -> Vec<ApiItem> {
