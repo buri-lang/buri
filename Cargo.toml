@@ -125,3 +125,36 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+
+# The profile the **validation** gate is built with, and nothing else.
+#
+# `cargo bench -- --validate` compiles every pinned corpus and asserts that it
+# compiles. Its whole output is a boolean, and it is run on every wave. But a
+# bench target is built under `[profile.bench]`, which inherits `[profile.release]`
+# above — so that boolean was costing a link-time-optimized, one-codegen-unit
+# build of the entire toolchain. Measured, cold, on an M-series mac:
+#
+#   cargo bench --bench compiler --no-run                        169 s
+#   the same with `lto = false, codegen-units = 16`               98 s
+#   `-- --validate` itself                                  12 s → 13 s
+#
+# Seventy seconds a wave, for a check that measures nothing, and the second
+# 1.3 s is the validation running through a slightly less optimized compiler.
+#
+#   cargo bench -p buri --bench compiler --profile validate -- --validate
+#
+# **The timed rows must not be taken under this profile**, which is why it is a
+# separate profile rather than a change to `[profile.bench]`: a number from an
+# unoptimized build is not comparable with one from an optimized build, and
+# `design/PERFORMANCE.md`'s figures are all from the latter. `benches/compiler.rs`
+# prints which build it is in its header, so a row taken here announces itself —
+# but the rule is that measurement uses `cargo bench` and validation uses this.
+#
+# `opt-level` stays at 3: the corpora include a million lines, and validating
+# them through an unoptimized compiler would give the seventy seconds straight
+# back. What is dropped is only cross-crate inlining and the single codegen
+# unit, neither of which can change whether a program compiles.
+[profile.validate]
+inherits = "bench"
+lto = false
+codegen-units = 16
