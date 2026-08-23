@@ -21,7 +21,7 @@
 //!
 //! # Code and pool in two sections
 //!
-//! [`HoleKind::Imm64`](super::stencil::HoleKind) is an `adrp`/`ldr` pair aimed
+//! [`HoleKind::Imm64`](super::library::HoleKind) is an `adrp`/`ldr` pair aimed
 //! at a constant-pool slot, and a pool slot may hold an **address** — a
 //! function's, or a string literal's bytes. An eight-byte absolute address is
 //! what a relocation is for, and `ld` refuses one inside a code section outright

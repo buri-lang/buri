@@ -33,10 +33,13 @@
 //! The measured consequence is in the report: it is small, because the register
 //! pressure in a stencil is 2–3 values.
 
-use super::abi::{Loc, NREGS};
-use super::extract::{extract, fold_addressing, fold_cond, fold_imm, swap_arms};
+use super::abi::{Loc, Tgt, NREGS};
+use super::elfobj as elf;
+use super::extract::{
+    extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms,
+};
 use super::machobj as macho;
-use super::stencil::{Library, Stencil};
+use super::library::{Library, Stencil};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -58,7 +61,7 @@ pub enum Level {
     Super = 5,
     /// (f) the addressing-mode fold: a frame-slot hole becomes the `imm12`
     /// field of the load that uses it, which is what the paper gets from
-    /// x86-64's `disp32` for nothing. See `stencil::fold_addressing`.
+    /// x86-64's `disp32` for nothing. See `extract::fold_addressing`.
     Addr = 6,
     /// (g) branch mechanics: the *false* arm of every two-target stencil is the
     /// one whose `b` is elidable, so the emitter arranges for it to be the
@@ -177,6 +180,8 @@ pub const I16: Sc = Sc { tag: "i16", cty: "int16_t", bits: 16, float: false, sig
 pub const U16: Sc = Sc { tag: "u16", cty: "uint16_t", bits: 16, float: false, signed: false };
 pub const I8: Sc = Sc { tag: "i8", cty: "int8_t", bits: 8, float: false, signed: true };
 pub const U8: Sc = Sc { tag: "u8", cty: "uint8_t", bits: 8, float: false, signed: false };
+pub const I128: Sc = Sc { tag: "i128", cty: "i128_t", bits: 128, float: false, signed: true };
+pub const U128: Sc = Sc { tag: "u128", cty: "u128_t", bits: 128, float: false, signed: false };
 pub const F64: Sc = Sc { tag: "f64", cty: "double", bits: 64, float: true, signed: true };
 pub const F32: Sc = Sc { tag: "f32", cty: "float", bits: 32, float: true, signed: true };
 
@@ -219,25 +224,45 @@ fn op_applies(op: &str, t: Sc) -> bool {
 // C emission
 // ---------------------------------------------------------------------------
 
-fn prelude(n: usize) -> String {
+/// The two spellings of `memcpy`'s declaration.
+///
+/// The host build reaches the platform's own `<string.h>`, which is what it has
+/// always done and what keeps the `macos-arm64` library byte-identical to the
+/// one this toolchain shipped before there were three. A cross build has no
+/// Linux sysroot on this machine — `clang -target aarch64-unknown-linux-gnu`
+/// finds its *own* `<stdint.h>` in the resource directory and no libc headers
+/// at all — so it declares the one libc function the generators use and nothing
+/// else. Clang recognises `memcpy` as a builtin from the declaration alone, so
+/// the two produce the same code; `sources::the_two_arm64_libraries_agree`
+/// is the assertion, and it compares the whole library byte for byte.
+fn memcpy_decl(tgt: Tgt) -> &'static str {
+    match tgt {
+        Tgt::MacosArm64 => "#include <string.h>",
+        // `unsigned long` rather than `size_t`, which would need `<stddef.h>`:
+        // it is `size_t` on both LP64 targets here.
+        _ => "void *memcpy(void *, const void *, unsigned long);",
+    }
+}
+
+fn prelude(n: usize, tgt: Tgt) -> String {
     let ar: Vec<String> = (0..n).map(|k| format!("uint64_t r{k}")).collect();
     let ag: Vec<String> = (0..n).map(|k| format!("double g{k}")).collect();
     let pr: Vec<String> = (0..n).map(|k| format!("r{k}")).collect();
     let pg: Vec<String> = (0..n).map(|k| format!("g{k}")).collect();
     format!(
-        "#define ARGS_R {}\n#define ARGS_G {}\n#define PASS_R {}\n#define PASS_G {}\n{}",
+        "#define ARGS_R {}\n#define ARGS_G {}\n#define PASS_R {}\n#define PASS_G {}\n{}{}",
         ar.join(", "),
         ag.join(", "),
         pr.join(", "),
         pg.join(", "),
+        memcpy_decl(tgt),
         PRELUDE
     )
 }
 
 const PRELUDE: &str = r#"
-// GENERATED — the stencil generators of cpjit. See src/gen.rs.
+// GENERATED — the stencil generators of stencil. See src/gen.rs.
 #include <stdint.h>
-#include <string.h>
 
 #define HID __attribute__((visibility("hidden")))
 
@@ -283,10 +308,23 @@ NORET void buri_rt_abort_unreachable(void);
 NORET void buri_rt_abort(const char *, uint64_t);
 void buri_rt_decref(uint64_t, void *);
 uint64_t buri_rt_alloc(uint64_t);
+// 128-bit division, which is a call on every backend: clang would otherwise
+// reach compiler-rt's `__divti3`, and a Buri artifact links `libburi_rt.a` and
+// the C library and nothing else. The runtime's entry also owns the
+// division-by-zero message, so all three backends produce the same one.
+void buri_rt_i128_divmod(uint64_t, uint64_t, uint64_t, uint64_t, uint8_t,
+                         uint64_t *, uint64_t *);
 
 H32(_JIT_A) H32(_JIT_B) H32(_JIT_C) H32(_JIT_D)
 H32(_JIT_E) H32(_JIT_N) H32(_JIT_P) H32(_JIT_Q)
 H64(_JIT_R) H64(_JIT_M)
+// One hole per argument of a slots-only runtime call (`runtime_calls`): ten
+// integers and two doubles, which is the widest shape `rt_callee` names. They
+// are separate names rather than reuses of `_JIT_A`.. because a stencil that
+// reads the same hole twice would have one offset for two arguments.
+H32(_JIT_S0) H32(_JIT_S1) H32(_JIT_S2) H32(_JIT_S3) H32(_JIT_S4)
+H32(_JIT_S5) H32(_JIT_S6) H32(_JIT_S7) H32(_JIT_S8) H32(_JIT_S9)
+H32(_JIT_G0) H32(_JIT_G1)
 extern uint64_t *_JIT_T(ARGS) HID;
 extern uint64_t *_JIT_F(ARGS) HID;
 extern uint64_t *_JIT_CALLEE(uint64_t *) HID;
@@ -300,9 +338,9 @@ struct Out {
 }
 
 impl Out {
-    fn new() -> Out {
+    fn new(tgt: Tgt) -> Out {
         Out {
-            head: format!("{}{HELPERS}", prelude(NREGS)),
+            head: format!("{}{HELPERS}", prelude(NREGS, tgt)),
             bodies: Vec::new(),
             keys: Vec::new(),
             names: Vec::new(),
@@ -382,13 +420,24 @@ static inline uint64_t f32_bits(float f) { uint32_t b; memcpy(&b, &f, 4); return
 static inline double bits_f64(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }
 static inline float bits_f32(uint64_t b) { uint32_t x = (uint32_t)b; float f; memcpy(&f, &x, 4); return f; }
 H64(_JIT_K)
+// The two types a frame slot holds in *sixteen* bytes. Read and written with
+// `memcpy` rather than a cast, because a frame slot is only eight-aligned and a
+// `__int128` load asks for sixteen.
+typedef __int128 i128_t;
+typedef unsigned __int128 u128_t;
+static inline u128_t rd128(const uint64_t *fp, uintptr_t o) {
+  u128_t v; memcpy(&v, (const char *)fp + o, 16); return v;
+}
+static inline void wr128(uint64_t *fp, uintptr_t o, u128_t v) {
+  memcpy((char *)fp + o, &v, 16);
+}
 static inline double imm_f64(void) { return bits_f64((uint64_t)(uintptr_t)_JIT_K); }
 static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K); }
 "#;
 
 /// Every stencil the level's library contains, as C source shards.
-pub fn sources(level: Level) -> Result<Vec<Out2>, String> {
-    let mut o = Out::new();
+pub fn sources(level: Level, tgt: Tgt) -> Result<Vec<Out2>, String> {
+    let mut o = Out::new(tgt);
     moves(&mut o);
     arithmetic(&mut o, level)?;
     control(&mut o, level);
@@ -727,6 +776,8 @@ fn arithmetic(o: &mut Out, level: Level) -> Result<(), String> {
             }
         }
     }
+    checks(o)?;
+    wide(o);
     // Boolean not, which the IR spells `UnOp::Not` on an `I1`.
     for a in &locs {
         if matches!(a, Loc::Imm) {
@@ -739,6 +790,202 @@ fn arithmetic(o: &mut Out, level: Level) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// `(result, did it overflow)` for the four operations `Checked` and
+/// `Saturating` are built out of.
+///
+/// One stencil per operation and width rather than a sequence of ordinary ones,
+/// because the test is different at every width and clang already has it:
+/// `__builtin_*_overflow` is exact at the operand's **own** type, which is the
+/// bound SPEC 6.2.2 and `cranelift/emit.rs::overflowing` both check. Writing it
+/// as an extend, a sixty-four-bit operation and a range test would be right at
+/// eight, sixteen and thirty-two bits and wrong at sixty-four, where no wider
+/// type exists to do the arithmetic in.
+///
+/// Generated at every integer width whatever the level, because this is
+/// correctness rather than a specialisation the level ladder measures.
+fn checks(o: &mut Out) -> Result<(), String> {
+    for t in [I8, I16, I32, I64, U8, U16, U32, U64] {
+        let cty = t.cty;
+        let store = |expr: &str| -> String {
+            if t.bits == 64 {
+                format!("AT(uint64_t, _JIT_D) = (uint64_t)({expr});")
+            } else {
+                format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint{}_t)({expr});", t.bits)
+            }
+        };
+        for (name, builtin) in [
+            ("add", "__builtin_add_overflow"),
+            ("sub", "__builtin_sub_overflow"),
+            ("mul", "__builtin_mul_overflow"),
+        ] {
+            o.push(
+                &format!("chk/{name}/{}", t.tag),
+                format!(
+                    "void $NAME(ARGS) {{ {cty} a = AT({cty}, _JIT_A), b = AT({cty}, _JIT_B), r; \
+                     AT(uint64_t, _JIT_N) = (uint64_t){builtin}(a, b, &r); {} TAIL; }}",
+                    store("r")
+                ),
+            );
+        }
+        // Two ways to fail, and the divide must not be reached on either: a
+        // zero divisor traps, and `MIN / -1` is the one signed quotient with no
+        // representation. The divisor is replaced with `1` on both, so the
+        // instruction is always well defined and the answer is discarded.
+        let bad = if t.signed {
+            format!(
+                "(b == 0) || (a == ({cty})((uint{}_t)1 << {}) && b == ({cty})-1)",
+                t.bits,
+                t.bits.saturating_sub(1)
+            )
+        } else {
+            String::from("(b == 0)")
+        };
+        o.push(
+            &format!("chk/div/{}", t.tag),
+            format!(
+                "void $NAME(ARGS) {{ {cty} a = AT({cty}, _JIT_A), b = AT({cty}, _JIT_B); \
+                 uint64_t bad = ({bad}) ? 1 : 0; {cty} s = bad ? ({cty})1 : b; \
+                 AT(uint64_t, _JIT_N) = bad; {} TAIL; }}",
+                store("a / s")
+            ),
+        );
+    }
+    Ok(())
+}
+
+/// The two types a frame slot holds in sixteen bytes.
+///
+/// A separate family rather than two more rows in [`types_for`], because the
+/// CPS register file is sixty-four bits wide: every operand and every
+/// destination here is a **frame slot**, and the `Imm` variant would need a
+/// 128-bit hole that `_JIT_K` is not. `jit::constants` only folds a literal
+/// into an operand whose `fi` stencil exists, so not generating one is what
+/// keeps a 128-bit constant materialised.
+///
+/// Nothing about this is a level: `core/num` declares `I128` and `U128` at
+/// every operation the other widths have, so a library without these is a
+/// library that refuses a program rather than one that compiles it slower.
+fn wide(o: &mut Out) {
+    for t in [I128, U128] {
+        let (tag, cty) = (t.tag, t.cty);
+        let a = format!("(({cty})rd128(fp, OFF(_JIT_A)))");
+        let b = format!("(({cty})rd128(fp, OFF(_JIT_B)))");
+        for (name, cop, is_cmp) in BIN_OPS {
+            if matches!(name, "shl" | "shr") {
+                continue;
+            }
+            if matches!(name, "div" | "rem") {
+                let want = if name == "div" { "q" } else { "r" };
+                o.push(
+                    &format!("bin/{name}/{tag}/ff/f"),
+                    format!(
+                        "void $NAME(ARGS0) {{ u128_t x = rd128(fp, OFF(_JIT_A)), \
+                         y = rd128(fp, OFF(_JIT_B)); uint64_t q[2], r[2]; \
+                         buri_rt_i128_divmod((uint64_t)x, (uint64_t)(x >> 64), \
+                         (uint64_t)y, (uint64_t)(y >> 64), {}, q, r); \
+                         memcpy((char *)fp + OFF(_JIT_D), {want}, 16); TAIL0; }}",
+                        u32::from(t.signed)
+                    ),
+                );
+                continue;
+            }
+            let body = if is_cmp {
+                format!("AT(uint64_t, _JIT_D) = (uint64_t)(({a}) {cop} ({b}));")
+            } else {
+                format!("wr128(fp, OFF(_JIT_D), (u128_t)(({a}) {cop} ({b})));")
+            };
+            o.push(
+                &format!("bin/{name}/{tag}/ff/f"),
+                format!("void $NAME(ARGS) {{ {body} TAIL; }}"),
+            );
+            if is_cmp {
+                o.push(
+                    &format!("brcmp/{name}/{tag}/ff"),
+                    format!(
+                        "void $NAME(ARGS) {{ if (({a}) {cop} ({b})) \
+                         {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
+                         else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
+                    ),
+                );
+            }
+        }
+        for (name, cop) in [("neg", "-"), ("bnot", "~")] {
+            o.push(
+                &format!("un/{name}/{tag}/f/f"),
+                format!(
+                    "void $NAME(ARGS) {{ wr128(fp, OFF(_JIT_D), (u128_t)({cop}{a})); TAIL; }}"
+                ),
+            );
+        }
+        // The overflow pair, as `checks` builds it at every other width.
+        for (name, builtin) in [
+            ("add", "__builtin_add_overflow"),
+            ("sub", "__builtin_sub_overflow"),
+            ("mul", "__builtin_mul_overflow"),
+        ] {
+            o.push(
+                &format!("chk/{name}/{tag}"),
+                format!(
+                    "void $NAME(ARGS) {{ {cty} x = {a}, y = {b}, r; \
+                     AT(uint64_t, _JIT_N) = (uint64_t){builtin}(x, y, &r); \
+                     wr128(fp, OFF(_JIT_D), (u128_t)r); TAIL; }}"
+                ),
+            );
+        }
+        let bad = if t.signed {
+            format!("(y == 0) || (x == ({cty})((u128_t)1 << 127) && y == ({cty})-1)")
+        } else {
+            String::from("(y == 0)")
+        };
+        o.push(
+            &format!("chk/div/{tag}"),
+            format!(
+                "void $NAME(ARGS0) {{ {cty} x = {a}, y = {b}; \
+                 uint64_t bad = ({bad}) ? 1 : 0; uint64_t q[2] = {{0, 0}}, r[2]; \
+                 if (!bad) buri_rt_i128_divmod((uint64_t)(u128_t)x, (uint64_t)((u128_t)x >> 64), \
+                 (uint64_t)(u128_t)y, (uint64_t)((u128_t)y >> 64), {}, q, r); \
+                 AT(uint64_t, _JIT_N) = bad; \
+                 memcpy((char *)fp + OFF(_JIT_D), q, 16); TAIL0; }}",
+                u32::from(t.signed)
+            ),
+        );
+        // A sixty-four-bit word widened into one, and a sixteen-byte value
+        // narrowed back. The source of a widening has already been
+        // sign-extended to sixty-four bits where its type is signed
+        // (`emit.rs::widen`), so the two forms differ only in what the top half
+        // becomes.
+        o.push(
+            &format!("cvt/to/{tag}/i"),
+            String::from(
+                "void $NAME(ARGS) { wr128(fp, OFF(_JIT_D), \
+                 (u128_t)(i128_t)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }"
+            ),
+        );
+        o.push(
+            &format!("cvt/to/{tag}/u"),
+            String::from(
+                "void $NAME(ARGS) { wr128(fp, OFF(_JIT_D), \
+                 (u128_t)AT(uint64_t, _JIT_A)); TAIL; }"
+            ),
+        );
+        o.push(
+            &format!("cvt/from/{tag}/f"),
+            format!(
+                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f64_bits((double){a}); TAIL; }}"
+            ),
+        );
+        for w in [8u32, 16, 32, 64] {
+            o.push(
+                &format!("cvt/from/{tag}/{w}"),
+                format!(
+                    "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = \
+                     (uint64_t)(uint{w}_t)rd128(fp, OFF(_JIT_A)); TAIL; }}"
+                ),
+            );
+        }
+    }
 }
 
 fn control(o: &mut Out, level: Level) {
@@ -956,6 +1203,42 @@ fn runtime_calls(o: &mut Out) {
                     &format!("crt/{ni}/{nf}/{ret}"),
                     format!("{decl}\nvoid $NAME(ARGS0) {{ {bind}{store} TAIL0; }}"),
                 );
+
+                // The slots-only twin of the same shape: every argument read
+                // from its **own** frame-offset hole rather than out of one
+                // contiguous area.
+                //
+                // The cross product this file's header rejects is over operand
+                // *kinds* — register, slot, immediate — and this is not that
+                // one. Every argument here is a slot, so the shape is still
+                // `(integers, doubles, result)` and the family is the same 132
+                // stencils; what grows is the number of holes in each, not the
+                // number of stencils. `extract::fold_addressing` then puts each
+                // offset in the `imm12` of the load that uses it, so an
+                // argument that is already a frame word costs **one**
+                // instruction and no store at all, against the two the caller
+                // spent staging it plus its share of the `ldp`s reading it back.
+                //
+                // Both families are kept, and `rtcall::c_call_to` picks: a
+                // folded `imm12` reaches 32 KiB into a frame, and a frame wider
+                // than that is what the array-passing form is still for.
+                let sargs: Vec<String> = (0..ni)
+                    .map(|i| format!("AT(uint64_t, _{})", super::abi::rt_slot(i)))
+                    .chain(
+                        (0..nf).map(|i| format!("AT(double, _{})", super::abi::rt_float_slot(i))),
+                    )
+                    .collect();
+                let scall = format!("{sym}({})", sargs.join(", "));
+                let sstore = match ret {
+                    "i" => format!("AT(uint64_t, _JIT_D) = {scall};"),
+                    "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){scall};"),
+                    "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({scall});"),
+                    _ => format!("(void){scall};"),
+                };
+                o.push(
+                    &format!("crts/{ni}/{nf}/{ret}"),
+                    format!("{decl}\nvoid $NAME(ARGS0) {{ {sstore} TAIL0; }}"),
+                );
             }
         }
     }
@@ -1054,12 +1337,9 @@ fn runtime_calls(o: &mut Out) {
     );
 }
 
-/// How wide a runtime call this backend can make. Eight integers is AAPCS64's
-/// whole register half — an entry needing a ninth would pass it on the machine
-/// stack, which no stencil in this library touches — and two doubles is the
-/// widest float half `cli/runtime` has.
-pub const MAX_INT_ARGS: usize = 8;
-pub const MAX_FLOAT_ARGS: usize = 2;
+/// How wide a runtime call this backend can make. See [`super::abi`], which is
+/// where a number the builder and the emitter both have to know lives.
+pub use super::abi::{MAX_FLOAT_ARGS, MAX_INT_ARGS};
 
 fn calls(o: &mut Out) {
     // A direct call. The callee's frame begins at `fp + _JIT_N`, where `_JIT_N`
@@ -1229,7 +1509,7 @@ fn supernodes(o: &mut Out, level: Level) {
     );
     // (l) The byte tag. At and below [`Level::Lay`] the comparison is written
     // at the field's own width, and clang answers `cmp w8, w9, uxtb` — the
-    // *extended*-register form, which `stencil::fold_imm` refuses, so the tag
+    // *extended*-register form, which `extract::fold_imm` refuses, so the tag
     // constant costs a `movz`/`movk` pair in every arm of every match. Widening
     // the comparison to 64 bits removes the extension and the pair folds into
     // the compare's `imm12`. It is the same test: the loaded byte is
@@ -1318,9 +1598,21 @@ fn supernodes(o: &mut Out, level: Level) {
 /// One slot per shard, filled by whichever worker took it.
 type Shards = Arc<Mutex<Vec<Result<Vec<Stencil>, String>>>>;
 
-pub fn build(cc: &str, dir: &std::path::Path, jobs: usize) -> Result<Library, String> {
+pub fn build(
+    cc: &str,
+    dir: &std::path::Path,
+    jobs: usize,
+    tgt: Tgt,
+) -> Result<Library, String> {
+    // One scratch directory per target. The generated C differs between them
+    // by one line (`memcpy_decl`) and the objects differ entirely, so sharing
+    // `s0.c`/`s0.o` between targets would make every target's build invalidate
+    // every other's — three clang runs per rebuild instead of the one that
+    // actually changed.
+    let dir = &dir.join(tgt.slug());
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let shards = Arc::new(sources(Level::Tag)?);
+    let flags = compile_flags(cc, tgt)?;
+    let shards = Arc::new(sources(Level::Tag, tgt)?);
     let results: Shards = Arc::new(Mutex::new((0..shards.len()).map(|_| Ok(Vec::new())).collect()));
     let next = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut handles = Vec::new();
@@ -1330,11 +1622,12 @@ pub fn build(cc: &str, dir: &std::path::Path, jobs: usize) -> Result<Library, St
         let next = Arc::clone(&next);
         let dir = dir.to_path_buf();
         let cc = cc.to_string();
+        let flags = flags.clone();
         handles.push(std::thread::spawn(move || {
             loop {
                 let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let Some(shard) = shards.get(i) else { return };
-                let r = shard_library(&cc, &dir, i, &shard.src);
+                let r = shard_library(&cc, &dir, i, &shard.src, &flags, tgt);
                 if let Ok(mut slot) = results.lock() {
                     if let Some(cell) = slot.get_mut(i) {
                         *cell = r;
@@ -1354,40 +1647,57 @@ pub fn build(cc: &str, dir: &std::path::Path, jobs: usize) -> Result<Library, St
             byname.insert(st.name.clone(), st.clone());
         }
     }
-    let mut lib = Library { config: config(), ..Library::default() };
+    let mut lib = Library { config: config(tgt), ..Library::default() };
     for sh in shards.iter() {
         for (key, name) in sh.keys.iter().zip(sh.names.iter()) {
             let Some(base) = byname.get(name) else {
-                return Err(format!("{cc} emitted no symbol for {name} ({key})"));
+                // On x86-64 a key can be legitimately absent: `x86.rs` drops
+                // the stencils that reach a constant clang spilled, and the
+                // emitter refuses the IR shapes that needed them. On arm64
+                // nothing may be missing, and a missing symbol is a generator
+                // that stopped compiling.
+                if tgt.is_arm64() {
+                    return Err(format!("{cc} emitted no symbol for {name} ({key})"));
+                }
+                continue;
             };
             let mut base = base.clone();
             base.name = key.clone();
-            // The conditional-branch fold, which is what makes a two-way branch
-            // two instructions instead of three.
-            if let Some(c) = fold_cond(&base) {
-                base = c;
-            }
-            // Up to four twins per stencil: the arm swap, the immediate fold,
-            // the addressing fold, and the last two together. `Jit::emit` picks
-            // the most specific one whose fields the operands fit.
             let mut variants: Vec<(String, Stencil)> = vec![(key.clone(), base.clone())];
-            if let Some(sw) = swap_arms(&base) {
-                variants.push((format!("{key}+swap"), sw));
-            }
-            let mut extra = Vec::new();
-            for (k, v) in &variants {
-                if let Some(t) = fold_imm(v) {
-                    extra.push((format!("{k}+ifold"), t));
+            // The four folds read the body as A64 instructions and are this
+            // port's own; x86-64 gets three of the four from its own operand
+            // encodings and needs no rewriting at all. `x86.rs`'s header is the
+            // table, and it is why the x86-64 library has one variant per key
+            // where the arm64 ones have up to six.
+            if tgt.is_arm64() {
+                // The conditional-branch fold, which is what makes a two-way
+                // branch two instructions instead of three.
+                if let Some(c) = fold_cond(&base) {
+                    base = c;
+                    variants = vec![(key.clone(), base.clone())];
                 }
-            }
-            variants.append(&mut extra);
-            let mut extra = Vec::new();
-            for (k, v) in &variants {
-                if let Some(t) = fold_addressing(v) {
-                    extra.push((format!("{k}+fold"), t));
+                // Up to four twins per stencil: the arm swap, the immediate
+                // fold, the addressing fold, and the last two together.
+                // `Jit::emit` picks the most specific one whose fields the
+                // operands fit.
+                if let Some(sw) = swap_arms(&base) {
+                    variants.push((format!("{key}+swap"), sw));
                 }
+                let mut extra = Vec::new();
+                for (k, v) in &variants {
+                    if let Some(t) = fold_imm(v) {
+                        extra.push((format!("{k}+ifold"), t));
+                    }
+                }
+                variants.append(&mut extra);
+                let mut extra = Vec::new();
+                for (k, v) in &variants {
+                    if let Some(t) = fold_addressing(v) {
+                        extra.push((format!("{k}+fold"), t));
+                    }
+                }
+                variants.append(&mut extra);
             }
-            variants.append(&mut extra);
             for (k, mut v) in variants {
                 v.name.clone_from(&k);
                 let id = lib.stencils.len() as u32;
@@ -1399,12 +1709,119 @@ pub fn build(cc: &str, dir: &std::path::Path, jobs: usize) -> Result<Library, St
     Ok(lib)
 }
 
+/// The `cc` arguments one target's shards are compiled with.
+///
+/// Computed once per library rather than per shard, because the cross targets
+/// need `cc -print-resource-dir` and that is a process.
+///
+/// The cross flags are the whole of what makes a Linux library buildable on a
+/// machine with no Linux sysroot, and each one is load-bearing:
+///
+/// * `-target <triple>` picks the ISA and the container. Nothing else does.
+/// * `-nostdinc` plus `-isystem <resource-dir>/include` gives clang its **own**
+///   headers and no host ones. `<stdint.h>` is clang's, so it is right for the
+///   target; the host's `<string.h>` would not be, and `memcpy_decl` is why
+///   nothing needs it.
+/// * `-fno-asynchronous-unwind-tables` — the Linux drivers default it *on*,
+///   where the Darwin one does not, and the result is a `.eh_frame` the size of
+///   the code. Nothing reads it: a stencil is copied out of `.text` without its
+///   unwind entry, and an entry that survived would describe a body that has
+///   been rewritten. This is the ELF counterpart of the `collect-loh` flag.
+/// * The `collect-loh` flag itself is arm64-only and clang rejects it as
+///   unused elsewhere, so it is not passed to the x86-64 build.
+fn compile_flags(cc: &str, tgt: Tgt) -> Result<Vec<String>, String> {
+    let mut f: Vec<String> = [
+        // The one level that was measured: `-O3` moves the four kernels by 1 %
+        // and `-Oz` produces a library that does not run, because it lets
+        // clang share a tail between two stencils.
+        "-O2",
+        "-c",
+        "-fno-stack-protector",
+        "-fomit-frame-pointer",
+        "-fno-unwind-tables",
+    ]
+    .iter()
+    .map(|s| String::from(*s))
+    .collect();
+    if tgt.is_arm64() {
+        // Linker-optimization hints are notes *about* an instruction pair, and
+        // a stencil is copied out of the object without them; a hint that
+        // survived would describe a pair that has been rewritten.
+        f.push(String::from("-mllvm"));
+        f.push(String::from("-aarch64-enable-collect-loh=false"));
+    }
+    if tgt != Tgt::MacosArm64 {
+        // `--target=`, with two dashes: the one-dash spelling takes the triple
+        // as a separate argument and clang rejects `-target=…` outright.
+        f.push(format!("--target={}", tgt.triple()));
+        f.push(String::from("-fno-asynchronous-unwind-tables"));
+        let out = Command::new(cc)
+            .arg("-print-resource-dir")
+            .output()
+            .map_err(|e| format!("could not run {cc} -print-resource-dir: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("{cc} could not name its resource directory"));
+        }
+        let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if dir.is_empty() {
+            return Err(format!("{cc} named an empty resource directory"));
+        }
+        f.push(String::from("-nostdinc"));
+        f.push(String::from("-isystem"));
+        f.push(format!("{dir}/include"));
+    }
+    Ok(f)
+}
+
+/// Whether this `cc` can produce an object for `tgt` at all.
+///
+/// A compile of three lines with the real flags, rather than a `--version` or a
+/// look at the triple: a clang that is a Nix cross-wrapper, or one whose
+/// resource directory has no headers for the target, answers a version quite
+/// happily and then fails on the first `#include`. The generated C's own
+/// prelude is what is compiled, so the probe fails exactly where the library
+/// would.
+///
+/// This is the "degrades rather than breaks" clause of the dependency bar
+/// applied per target: a host that cannot cross-compile gets an **empty**
+/// library for the targets it cannot reach and a full one for the target it
+/// can, rather than a build failure.
+pub fn can_build(cc: &str, dir: &std::path::Path, tgt: Tgt) -> bool {
+    let Ok(flags) = compile_flags(cc, tgt) else { return false };
+    let dir = dir.join(tgt.slug());
+    if std::fs::create_dir_all(&dir).is_err() {
+        return false;
+    }
+    let c = dir.join("probe.c");
+    let obj = dir.join("probe.o");
+    // The prelude and one stencil-shaped body, which is what exercises
+    // `musttail`, hidden visibility and the GOT form all at once.
+    let src = format!(
+        "{}\nuint64_t *st_probe(ARGS) {{ AT(uint64_t, _JIT_D) = \
+         AT(uint64_t, _JIT_A) + (uintptr_t)_JIT_R; TAIL; }}\n",
+        prelude(NREGS, tgt)
+    );
+    if std::fs::write(&c, src).is_err() {
+        return false;
+    }
+    Command::new(cc)
+        .args(&flags)
+        .arg(&c)
+        .arg("-o")
+        .arg(&obj)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 /// One shard: write the C, compile it if the C moved, and extract.
 fn shard_library(
     cc: &str,
     dir: &std::path::Path,
     i: usize,
     src: &str,
+    flags: &[String],
+    tgt: Tgt,
 ) -> Result<Vec<Stencil>, String> {
     let c = dir.join(format!("s{i}.c"));
     let obj = dir.join(format!("s{i}.o"));
@@ -1413,22 +1830,7 @@ fn shard_library(
     if !unchanged {
         std::fs::write(&c, src).map_err(|e| format!("{}: {e}", c.display()))?;
         let out = Command::new(cc)
-            .args([
-                // The one level that was measured: `-O3` moves the four
-                // kernels by 1 % and `-Oz` produces a library that does not
-                // run, because it lets clang share a tail between two stencils.
-                "-O2",
-                "-c",
-                "-fno-stack-protector",
-                "-fomit-frame-pointer",
-                "-fno-unwind-tables",
-                // Linker-optimization hints are notes *about* an instruction
-                // pair, and a stencil is copied out of the object without
-                // them; a hint that survived would describe a pair that has
-                // been rewritten.
-                "-mllvm",
-                "-aarch64-enable-collect-loh=false",
-            ])
+            .args(flags)
             .arg(&c)
             .arg("-o")
             .arg(&obj)
@@ -1436,15 +1838,58 @@ fn shard_library(
             .map_err(|e| format!("could not run {cc}: {e}"))?;
         if !out.status.success() {
             return Err(format!(
-                "{cc} failed on stencil shard {i}:\n{}",
+                "{cc} failed on stencil shard {i} for {}:\n{}",
+                tgt.slug(),
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
     }
     let bytes = std::fs::read(&obj).map_err(|e| format!("{}: {e}", obj.display()))?;
-    let o = macho::read(&bytes)?;
-    extract(&o).map_err(|e| format!("stencil shard {i}: {e}"))
+    match tgt {
+        Tgt::MacosArm64 => {
+            let o = macho::read(&bytes)?;
+            extract(&o)
+        }
+        Tgt::LinuxArm64 => {
+            let o = elf::read(&bytes)?;
+            extract_elf_arm64(&o)
+        }
+        Tgt::LinuxX86_64 => {
+            let o = elf::read(&bytes)?;
+            let (stencils, dropped) = super::x86::extract_elf_x86(&o)?;
+            // **A drop is bounded, not free.** `x86.rs` refuses a stencil that
+            // reaches a constant clang spilled, because there is no hole to put
+            // one in; three families do it and thirty keys of thirteen thousand
+            // nine hundred are affected. A clang that started spilling somewhere
+            // else would quietly shrink the library, and a silent loss of
+            // coverage is exactly what a per-key refusal makes easy to miss —
+            // so the *count* is the guard, and it names what it dropped.
+            if dropped.len() > MAX_DROPPED_PER_SHARD {
+                let named: Vec<String> =
+                    dropped.iter().map(|d| format!("{} ({})", d.name, d.why)).collect();
+                return Err(format!(
+                    "shard {i} dropped {} x86-64 stencils, more than the {MAX_DROPPED_PER_SHARD} \
+                     the three spilled-constant families account for:\n  {}",
+                    dropped.len(),
+                    named.join("\n  ")
+                ));
+            }
+            Ok(stencils)
+        }
+    }
+    .map_err(|e| format!("stencil shard {i} ({}): {e}", tgt.slug()))
 }
+
+/// How many stencils one x86-64 shard may lose to a spilled constant.
+///
+/// The three families are `un/neg/f32`, `un/neg/f64` and `cvt/u2f`, plus
+/// `chk/div/i128`; sharding puts at most a family or two in any one translation
+/// unit, and the observed maximum is well inside this. It is a ceiling on a
+/// *silent* loss rather than an exact count, because the exact count is a
+/// property of how `shard` happened to split the generators and would be a test
+/// of nothing. The exact set is asserted at the library level, by
+/// `stencil::tests::the_x86_64_library_drops_only_the_spilled_constant_families`.
+const MAX_DROPPED_PER_SHARD: usize = 40;
 
 /// The library's identity, which enters `Backend::identity` and therefore every
 /// `codegen` cache key this backend produces.
@@ -1453,6 +1898,6 @@ fn shard_library(
 /// of the CPS register file, and the level the generators were run at. The
 /// compiler's own version is not here — it is hashed in, along with everything
 /// else, by `cli/build.rs`, which has the library in front of it.
-pub fn config() -> String {
-    format!("{} r{NREGS}", Level::Tag.name())
+pub fn config(tgt: Tgt) -> String {
+    format!("{} {} r{NREGS}", tgt.slug(), Level::Tag.name())
 }

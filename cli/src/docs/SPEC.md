@@ -1596,13 +1596,29 @@ fn render<C: Alloc>(self: Report, ctx: C): Str                            // ok
 fn allocate(self: Self, bytes: Int): Region                               // ok
 fn sneaky<C: Fs>(a: Int, handle: C): Bool                                 // ERROR
 fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): {}                         // ERROR
+
+enum Widget<C> { Press(fn(C, Int) => Str), Group([Widget<C>]) }
+enum Boxed<C>  { Held(C) }
+
+fn render<C: Alloc>(ctx: C, root: Widget<C>): Str                         // ok
+fn peek<C: Alloc>(ctx: C, held: Boxed<C>): Int                            // ERROR
 ```
 
 A type is **effect-carrying** if it is a type variable with an effect
-bound, or any type mentioning one — so a struct that stores a context is
-effect-carrying too. A *function type* is effect-carrying when its **result**
+bound, a type that implements an effect, or any type that can hand one of those
+back — so a struct that stores a context is effect-carrying too.
+
+**Position decides.** A *function type* is effect-carrying when its **result**
 is: `fn(C, A) => B` merely accepts a context, which is the shape the `*Ctx`
-combinators of Section 10.6 take, while `fn() => C` produces one.
+combinators of Section 10.6 take, while `fn() => C` produces one. The same
+reading applies to a type you declare, at each of its type arguments: an
+argument counts only where the constructor can hand that argument back.
+
+`Widget<C>` mentions `C`, but only where a *caller* must supply one: to get a
+`C` out of a press handler you would have to pass one in first. `Boxed<C>`
+stores its `C` and hands it straight back, so a `Boxed<C>` is a second context
+under another name. A parameter that occurs in no field at all — a handle that
+is phantom in it — is data for the same reason.
 
 `self` has to be allowed because a effect's own methods take the
 effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
@@ -2480,7 +2496,10 @@ Capabilities:
     constructed (Section 11.3).
 26. A effect-carrying parameter must be `self` or `ctx`, at most one of each
     (Section 10.2). A type is effect-carrying if it is a type variable with a
-    effect bound, or any type mentioning one. A `context` expression is the only
+    effect bound, a type that implements an effect, or any type that can hand
+    one of those back — a type argument counts only in a position the
+    constructor can hand back, which is why `fn(C, A) => B` and a constructor
+    storing only such functions are data. A `context` expression is the only
     construct in which more than one effect-carrying value may appear.
 27. `effect` declarations may appear only in platform modules, and no type may
     implement both an effect and a trait. An effect-carrying type satisfies no

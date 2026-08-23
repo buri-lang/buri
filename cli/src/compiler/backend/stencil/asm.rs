@@ -58,13 +58,29 @@
 use super::object::RelKind;
 use super::region::Target;
 
+/// Whether this file has a SysV x86-64 counterpart of the two shims below.
+///
+/// **It does not**, and this constant is how `mod.rs::supported` says so in one
+/// sentence rather than letting a `linux-x86_64` build get as far as an object
+/// with arm64 bytes in `main`. Everything else that target needs exists: the
+/// stencils are baked (`abi::Tgt::LinuxX86_64`), `x86.rs` extracts them and
+/// `elf.rs` writes the container.
+///
+/// It is a constant rather than an absence because the absence has to be
+/// *stated*: this is 900 lines of hand-encoded A64 whose whole content is a
+/// calling convention, and the honest thing to record is that its x86-64 twin
+/// would be written on a machine that cannot execute a single instruction of
+/// it. `design/native/CODEGEN-STENCIL.md`, "the x86-64 checklist", is the list of
+/// what a Linux CI run would have to confirm before it is worth writing.
+pub const AVAILABLE_X86_64: bool = false;
+
 /// The symbol the program's Buri stack is emitted under.
 ///
 /// A `$` because no Buri identifier can contain one, so the name cannot collide
 /// with a mangled user symbol.
-pub const STACK_SYMBOL: &str = "buri$cpjit$stack";
+pub const STACK_SYMBOL: &str = "buri$stencil$stack";
 
-/// How much Buri stack a program gets: 64 MiB.
+/// How much Buri stack a program may actually use: 64 MiB.
 ///
 /// The block is zero-filled and the object emits it into a `__bss`-style
 /// zerofill section, so it costs no bytes in the executable and no work at
@@ -76,26 +92,48 @@ pub const STACK_SYMBOL: &str = "buri$cpjit$stack";
 /// `middle::layout` rather than the register allocator's spill set: a frame
 /// here is larger than the machine frame the same function compiles to under
 /// Cranelift, so equal depth costs more bytes.
-///
-/// **This is a real deviation from the Cranelift backend, not an
-/// implementation detail.** A Cranelift-compiled program recurses on the
-/// machine stack and the OS puts a guard page under it, so running out is a
-/// `SIGSEGV` the runtime reports as a stack overflow. There is no guard page
-/// here and nothing checks `fp` against the end of the block, so a program that
-/// recurses past 64 MiB **silently corrupts whatever the linker placed after
-/// this symbol** and keeps running. Deep recursion is therefore a case where
-/// the two backends disagree about what a program does, and this constant is
-/// the whole of the margin.
-pub const STACK_BYTES: u64 = 64 * 1024 * 1024;
+pub const STACK_USABLE: u64 = 64 * 1024 * 1024;
 
-/// log2 of the alignment the stack block must be emitted with.
+/// The guard region above the usable stack, which [`install_guard`] turns into
+/// `PROT_NONE` at startup: 1 MiB.
 ///
-/// Every load and store into a frame is at a `middle::layout` offset computed
-/// from a base of zero, so the block's own address has to satisfy the widest
-/// alignment a layout can ask for or every one of those offsets is wrong by the
-/// same amount. Sixteen bytes covers `i128` and `f64`, which is the widest
-/// scalar the value model has.
-pub const STACK_ALIGN: u32 = 4;
+/// **Why it is above and not below.** A frame here is entered at
+/// `fp + frame_size(caller)`, so this stack grows *upward* from
+/// [`STACK_SYMBOL`] and the address a runaway recursion reaches first is the
+/// top of the block. That is the opposite direction from the machine stack, and
+/// therefore the opposite side from where the kernel puts a thread's own guard.
+///
+/// **Why a megabyte and not a page.** A guard smaller than the largest frame
+/// can be *stepped over*: a callee whose frame is wider than the guard writes
+/// past it without ever touching it, which is the same hazard native code
+/// answers with stack probes. A Buri frame is a `middle::layout` locals area
+/// and 1 MiB is far past any this compiler emits, at a cost of address space
+/// alone — the pages are zero-fill and never faulted in. It is not a *proof*,
+/// and neither is Cranelift's: `cranelift/mod.rs` sets no `enable_probestack`,
+/// so a machine frame past the OS guard has exactly this exposure. The two
+/// backends are level here rather than one being sound.
+pub const GUARD_BYTES: u64 = 1024 * 1024;
+
+/// The whole zero-filled block: the usable stack, then the guard.
+///
+/// One block and one symbol rather than two, because
+/// `MH_SUBSECTIONS_VIA_SYMBOLS` makes every symbol the start of an
+/// independently movable atom — a second symbol at the guard's own address
+/// would let `ld64` place the guard somewhere other than immediately above the
+/// stack, which is the one property the whole mechanism rests on.
+pub const STACK_BYTES: u64 = STACK_USABLE + GUARD_BYTES;
+
+/// log2 of the alignment the stack block must be emitted with: 16 KiB.
+///
+/// Two requirements, and the second is the larger. Every load and store into a
+/// frame is at a `middle::layout` offset computed from a base of zero, so the
+/// block's own address has to satisfy the widest alignment a layout can ask for
+/// — sixteen bytes, which covers `i128` and `f64`. And [`install_guard`]
+/// `mprotect`s the top [`GUARD_BYTES`] of the block, which the kernel will only
+/// do on a page boundary: arm64 macOS pages are 16 KiB, and both
+/// [`STACK_USABLE`] and [`GUARD_BYTES`] are whole multiples of one, so a block
+/// aligned to 16 KiB puts the guard's base on a page.
+pub const STACK_ALIGN: u32 = 14;
 
 /// A place in the instruction stream whose branch target is not known yet.
 ///
@@ -127,6 +165,14 @@ const MOVK_X: u32 = 0xf280_0000;
 const ORR_X_SHIFTED: u32 = 0xaa00_0000;
 const AND_X_SHIFTED: u32 = 0x8a00_0000;
 const ADD_X_IMM: u32 = 0x9100_0000;
+const ADD_X_SHIFTED: u32 = 0x8b00_0000;
+const SUB_X_IMM: u32 = 0xd100_0000;
+/// `str xt, [xn, #off]`, unsigned offset scaled by eight.
+const STR_X_UIMM: u32 = 0xf900_0000;
+/// `str xt, [xn, #imm9]!` — pre-index, unscaled.
+const STR_X_PRE: u32 = 0xf800_0c00;
+/// `ldr xt, [xn], #imm9` — post-index, unscaled.
+const LDR_X_POST: u32 = 0xf840_0400;
 const LDR_X_UIMM: u32 = 0xf940_0000;
 const LDR_W_UIMM: u32 = 0xb940_0000;
 const LDRH_W_UIMM: u32 = 0x7940_0000;
@@ -145,7 +191,7 @@ const STP_FP_LR_PRE: u32 = 0xa9bf_7bfd;
 const LDP_FP_LR_POST: u32 = 0xa8c1_7bfd;
 /// The stack pointer and the zero register share encoding 31; which one an
 /// instruction means is fixed by the instruction.
-const SP: u32 = 31;
+pub const SP: u32 = 31;
 const ZR: u32 = 31;
 
 impl Default for Asm {
@@ -207,6 +253,45 @@ impl Asm {
     /// `add xd, xn, #imm`, unshifted, so `imm` must fit twelve bits.
     pub fn add_imm(&mut self, rd: u32, rn: u32, imm: u32) {
         self.word(ADD_X_IMM | ((imm & 0xfff) << 10) | ((rn & 31) << 5) | (rd & 31));
+    }
+
+    /// `add xd, xn, xm`. The register form, for the one addend this file has
+    /// that does not fit an `imm12`: the distance from the stack's base to its
+    /// guard ([`install_guard`]).
+    pub fn add_reg(&mut self, rd: u32, rn: u32, rm: u32) {
+        self.word(ADD_X_SHIFTED | ((rm & 31) << 16) | ((rn & 31) << 5) | (rd & 31));
+    }
+
+    /// `sub xd, xn, #imm`, unshifted, so `imm` must fit twelve bits.
+    pub fn sub_imm(&mut self, rd: u32, rn: u32, imm: u32) {
+        self.word(SUB_X_IMM | ((imm & 0xfff) << 10) | ((rn & 31) << 5) | (rd & 31));
+    }
+
+    /// `str xt, [xn, #off]`, scaled by eight.
+    pub fn str_off(&mut self, rt: u32, rn: u32, off: u32) {
+        self.word(STR_X_UIMM | (((off / 8) & 0xfff) << 10) | ((rn & 31) << 5) | (rt & 31));
+    }
+
+    /// `str xt, [xn, #-16]!` and `ldr xt, [xn], #16` — the one-register frame
+    /// a generated glue function needs to keep its return address across the
+    /// stencil chain it calls.
+    pub fn str_pre16(&mut self, rt: u32, rn: u32) {
+        self.word(STR_X_PRE | ((0x1f0u32 & 0x1ff) << 12) | ((rn & 31) << 5) | (rt & 31));
+    }
+
+    pub fn ldr_post16(&mut self, rt: u32, rn: u32) {
+        self.word(LDR_X_POST | ((16u32 & 0x1ff) << 12) | ((rn & 31) << 5) | (rt & 31));
+    }
+
+    /// `bl .+4*words`, with the displacement written here rather than left to a
+    /// relocation: the target is inside this same block.
+    pub fn bl_words(&mut self, words: u32) {
+        self.word(BL | (words & 0x03ff_ffff));
+    }
+
+    /// `br xn` — an indirect tail call, which leaves the link register alone.
+    pub fn br_reg(&mut self, rn: u32) {
+        self.word(0xd61f_0000 | ((rn & 31) << 5));
     }
 
     /// `ldr xt, [xn, #off]`. The unsigned-offset form scales by eight, so `off`
@@ -372,6 +457,53 @@ const X2: u32 = 2;
 const X9: u32 = 9;
 const X10: u32 = 10;
 
+/// Turns the top [`GUARD_BYTES`] of the Buri stack into an unmapped hole, so
+/// that a runaway recursion **faults** where it would otherwise have kept
+/// writing.
+///
+/// Nine instructions, once per process, and the whole of the answer to
+/// `design/native/CODEGEN-STENCIL.md` §8. What it does is what the kernel does
+/// for a thread stack — a `PROT_NONE` page on the side the stack grows towards
+/// — done by the program because this stack is a `__bss` block the program
+/// owns rather than a mapping the kernel made.
+///
+/// **What each backend guards, and where.** A stencil artifact runs on two
+/// stacks. Generated Buri code uses only this one, and it is the one with no
+/// kernel guard, which is this function. The *machine* stack is used by the
+/// `crt` stencils' own prologues and by `glue.rs`'s `extern "C"` stubs — drop
+/// glue recurses, `[[Str]]` releasing `[Str]` releasing `Str` — and that stack
+/// is the OS's, already guarded, on both backends and in every mode. There is
+/// no in-process JIT mode left to guard separately: this backend writes objects
+/// and the linker makes the artifact (`region.rs`'s header), so `main` is the
+/// only place a stack is established at all.
+///
+/// **On failure the program stops.** `mprotect` over a page-aligned range of a
+/// mapping the process owns does not fail in practice, but a program running
+/// without the guard it believes it has is the exact condition this function
+/// exists to remove, so a non-zero answer goes to `abort` rather than being
+/// ignored. The result is a `SIGABRT` at startup instead of a silent corruption
+/// later.
+fn install_guard(a: &mut Asm) {
+    // The guard has no symbol of its own — see [`STACK_BYTES`] — so its address
+    // is the stack's plus a constant, and the constant is far past an `imm12`.
+    a.adrp_add_symbol(X0, STACK_SYMBOL);
+    a.mov_imm(X9, STACK_USABLE);
+    a.add_reg(X0, X0, X9);
+    a.mov_imm(X1, GUARD_BYTES);
+    a.mov_imm(X2, PROT_NONE);
+    a.bl_symbol("mprotect");
+    // `mprotect` answers an `int`, so the test is the 32-bit one: `-1` is
+    // `0xffff_ffff` in `w0` and the upper half of `x0` is not the ABI's to
+    // promise.
+    let ok = a.cbz(X0);
+    a.bl_symbol("abort");
+    a.here(ok);
+}
+
+/// `PROT_NONE`, which is zero on every platform that has the call and is
+/// spelled here because a bare `0` in an argument register says nothing.
+const PROT_NONE: u64 = 0;
+
 /// `int main(int argc, char **argv)` for a program whose root is `main`.
 ///
 /// `cranelift/mod.rs::entry_point` behaviour for behaviour: `buri_rt_argv_init`
@@ -382,6 +514,7 @@ pub fn program_entry(callee: &str, result: Option<MainResult>) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol("buri_rt_argv_init");
+    install_guard(&mut a);
 
     // The root's frame is the bottom of the Buri stack, so its return area —
     // which begins at offset 0 of the frame — is at the stack base itself. The
@@ -463,6 +596,7 @@ pub fn test_entry(tests: &[String]) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol("buri_rt_argv_init");
+    install_guard(&mut a);
     for (i, sym) in tests.iter().enumerate() {
         a.mov_imm(X0, i as u64);
         a.bl_symbol("buri_rt_test_enter");
@@ -599,6 +733,10 @@ mod tests {
             names(a),
             vec![
                 ("Branch26", String::from("buri_rt_argv_init")),
+                ("Page21", String::from(STACK_SYMBOL)),
+                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("Branch26", String::from("mprotect")),
+                ("Branch26", String::from("abort")),
                 ("Branch26", String::from("buri_rt_test_enter")),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
@@ -621,6 +759,10 @@ mod tests {
             names(a),
             vec![
                 ("Branch26", String::from("buri_rt_argv_init")),
+                ("Page21", String::from(STACK_SYMBOL)),
+                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("Branch26", String::from("mprotect")),
+                ("Branch26", String::from("abort")),
                 ("Branch26", String::from("buri_rt_flush")),
             ]
         );
@@ -635,6 +777,10 @@ mod tests {
             names(a),
             vec![
                 ("Branch26", String::from("buri_rt_argv_init")),
+                ("Page21", String::from(STACK_SYMBOL)),
+                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("Branch26", String::from("mprotect")),
+                ("Branch26", String::from("abort")),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("buri$main")),
@@ -655,6 +801,10 @@ mod tests {
             names(a),
             vec![
                 ("Branch26", String::from("buri_rt_argv_init")),
+                ("Page21", String::from(STACK_SYMBOL)),
+                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("Branch26", String::from("mprotect")),
+                ("Branch26", String::from("abort")),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("buri$main")),
@@ -705,11 +855,59 @@ mod tests {
         assert_eq!(of(8), LDR_X_UIMM);
     }
 
-    /// The stack has to be at least as aligned as the widest scalar a frame can
-    /// hold, or every layout offset in the program is wrong by the same amount.
+    /// The five instructions `glue.rs`'s C-ABI stub is made of, as the bytes
+    /// they have to be.
+    ///
+    /// A glue function is entered by the *runtime* and its body is
+    /// frame-threaded, so the stub is the whole of the bridge: keep the return
+    /// address, take a frame off the machine stack, put the argument in its
+    /// first slot, and hand the frame pointer over. Getting the pre- and
+    /// post-index forms the wrong way round is a stack that grows every call.
     #[test]
-    fn the_stack_is_aligned_for_the_widest_scalar() {
-        assert_eq!(1u64 << STACK_ALIGN, 16);
+    fn the_glue_stubs_bridge_is_the_bytes_it_has_to_be() {
+        let mut a = Asm::new();
+        a.str_pre16(30, SP);
+        a.sub_imm(SP, SP, 512);
+        a.str_off(0, SP, 0);
+        a.add_imm(0, SP, 0);
+        a.bl_words(4);
+        a.add_imm(SP, SP, 512);
+        a.ldr_post16(30, SP);
+        a.br_reg(1);
+        assert_eq!(
+            words(a),
+            vec![
+                0xf81f_0ffe, // str  x30, [sp, #-16]!
+                0xd108_03ff, // sub  sp, sp, #512
+                0xf900_03e0, // str  x0, [sp]
+                0x9100_03e0, // mov  x0, sp
+                0x9400_0004, // bl   .+16
+                0x9108_03ff, // add  sp, sp, #512
+                0xf841_07fe, // ldr  x30, [sp], #16
+                0xd61f_0020, // br   x1
+            ]
+        );
+    }
+
+    /// The stack has to be at least as aligned as the widest scalar a frame can
+    /// hold, or every layout offset in the program is wrong by the same amount —
+    /// and at least as aligned as a page, or the guard's `mprotect` is a call
+    /// the kernel refuses.
+    #[test]
+    fn the_stack_is_aligned_for_the_widest_scalar_and_for_a_page() {
+        // Sixteen bytes covers `i128` and `f64`; sixteen kilobytes is the page
+        // the guard's `mprotect` needs, and it is the binding one.
+        assert_eq!(1u64 << STACK_ALIGN, 16 * 1024);
         assert_eq!(STACK_BYTES % (1u64 << STACK_ALIGN), 0);
+    }
+
+    /// The guard is *inside* the block and above the usable stack, so that
+    /// nothing but this program's own address space is ever `mprotect`ed and
+    /// the guard's base is on a page whatever the block's address.
+    #[test]
+    fn the_guard_is_a_whole_number_of_pages_at_the_top_of_the_block() {
+        assert_eq!(STACK_BYTES, STACK_USABLE + GUARD_BYTES);
+        assert_eq!(STACK_USABLE % (1u64 << STACK_ALIGN), 0);
+        assert_eq!(GUARD_BYTES % (1u64 << STACK_ALIGN), 0);
     }
 }

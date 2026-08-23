@@ -15,6 +15,12 @@ use std::collections::HashMap;
 
 /// How a hole's value reaches the instruction stream.
 ///
+/// The three kinds are the same on both instruction sets this library is built
+/// for, and mean the same thing — a small literal, a full-width datum, a jump
+/// target — but *what a patch does* differs, and the difference is the whole
+/// substance of the AArch64 port. The x86-64 side is described under each
+/// variant after the AArch64 one.
+///
 /// On x86-64, the paper's target, every hole is one contiguous field: a 32-bit
 /// displacement or a 64-bit `movabs` immediate, and "patching" is a store. On
 /// AArch64 no instruction has a 32-bit immediate field, so a hole is always a
@@ -33,6 +39,26 @@ use std::collections::HashMap;
 ///   fidelity gap in this port. §"deviations" in the report says so.
 /// * [`HoleKind::Branch`] — `ARM64_RELOC_BRANCH26` on `b`/`bl`, patched with a
 ///   signed 26-bit word displacement. This one *is* the paper's case.
+///
+/// On x86-64/ELF the same three kinds are recovered from what clang emits for
+/// the same C, and each is cheaper:
+///
+/// * [`HoleKind::Imm32`] — a hidden hole compiles to `lea rD, [rip+disp32]`,
+///   seven bytes. `mov rD, imm32` (`REX.W C7 /0`) is *also* seven bytes, so the
+///   patch is an in-place rewrite with nothing left over and no second
+///   instruction involved. Where the value would not survive that form's sign
+///   extension the patcher writes the five-byte zero-extending `mov rD32,
+///   imm32` and two bytes of `nop`, which is still one instruction and no
+///   memory reference.
+/// * [`HoleKind::Imm64`] — a default-visibility hole compiles to `mov rD,
+///   sym@GOTPCREL(%rip)`, and the patcher retargets its `disp32` at the JIT
+///   region's own constant pool. Same single load as the AArch64 form, and the
+///   same fidelity gap against the paper's `movabs` — which does not fit,
+///   being ten bytes where the GOT load is seven.
+/// * [`HoleKind::Branch`] — `R_X86_64_PLT32` on `jmp`/`call`, patched with a
+///   signed 32-bit byte displacement. The paper's case exactly, and unlike
+///   AArch64's 26-bit word field it can never be out of range for anything
+///   this emitter produces.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HoleKind {
     Imm32,
@@ -56,6 +82,29 @@ pub enum SiteKind {
     /// produced by a relocation record — clang has no way to spell it — only by
     /// [`fold_cond`], which is this port's second invented fold.
     Cond19,
+
+    // x86-64. A site is recorded at the **`disp32`/`rel32` field**, not at the
+    // instruction, because on this ISA the field is what a relocation names and
+    // what a patch writes; where the patcher also needs the opcode, the
+    // instruction's start travels beside it in `Hole::pairs`.
+    /// `lea rD, [rip+disp32]` for a hidden hole; rewritten to a `mov` of the
+    /// literal. The x86-64 counterpart of the [`Adrp`](SiteKind::Adrp) /
+    /// [`AddLo12`](SiteKind::AddLo12) pair, in one instruction instead of two.
+    LeaPc32,
+    /// The `disp32` of a rip-relative memory operand that reads the hole out of
+    /// the GOT; retargeted at the constant pool. The counterpart of
+    /// [`GotAdrp`](SiteKind::GotAdrp) / [`GotLdr`](SiteKind::GotLdr).
+    GotPc32,
+    /// The `rel32` of a `jmp` or `call`. The counterpart of
+    /// [`Branch26`](SiteKind::Branch26).
+    Rel32,
+    /// The `rel32` of a `jcc`. The counterpart of [`Cond19`](SiteKind::Cond19)
+    /// — and, unlike it, **not** something a fold had to invent: clang emits a
+    /// conditional branch straight to a `musttail` continuation on this target,
+    /// because x86-64 has a 32-bit conditional displacement and AArch64's is 19
+    /// bits and could not be trusted to reach. The whole of `fold_cond` is what
+    /// this one relocation record gives away for nothing.
+    CondRel32,
 }
 
 #[derive(Clone, Debug)]
@@ -141,7 +190,7 @@ impl Library {
 
 /// The magic and the layout revision, checked on decode so that a stale
 /// `OUT_DIR` is a build error rather than a wrong instruction stream.
-const MAGIC: [u8; 8] = *b"CPJITLB1";
+const MAGIC: [u8; 8] = *b"STENCIL1";
 
 struct Cursor<'a> {
     bytes: &'a [u8],

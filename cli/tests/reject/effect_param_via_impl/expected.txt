@@ -1,0 +1,9 @@
+error: `s` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
+  --> cmd/effect_param_via_impl/main.buri:26:11
+   |
+26 | fn sneaky(s: Ticker): I64 {
+   |           ^^^^^^^^^
+   |
+   = `Ticker` implements the effect `Clock`, so holding one is holding the capability
+   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters
+   = fix: rename `s` to `ctx` and make it the first parameter, or take a type that implements no effect if this parameter is ordinary data

@@ -601,6 +601,15 @@ pub struct Tables {
     /// wrongly. Sparse: only the types past the threshold have an entry, and
     /// the vector may be shorter than `tycons`.
     member_index: Vec<Option<Box<HashMap<String, usize>>>>,
+    /// Per type constructor, per type parameter: whether *holding* a value of
+    /// that constructor can hand you the argument at that position. See
+    /// `compute_variance`.
+    ///
+    /// Empty until `compute_variance` runs, and `provides` answers `true` for
+    /// anything it has no row for — so a question asked before the fixpoint is
+    /// settled gets the conservative answer rather than a wrong one, and a
+    /// type constructor minted afterwards is treated as holding everything.
+    variance: Vec<Vec<bool>>,
     /// Which traits are effects, kept as a list because the effect predicates
     /// below ask "does this type constructor implement *any* effect?" once per
     /// type-constructor node they walk.
@@ -815,8 +824,152 @@ impl Tables {
     }
 
     /// Whether this type constructor implements any effect.
+    ///
+    /// Answered from `impls`, which is filled in by conformance registration —
+    /// so every caller must run after it. That is why rule 26 is checked in a
+    /// pass of its own (`Checker::check_ctx_rules`) rather than while
+    /// signatures are elaborated: asked earlier, this returned `false` for
+    /// every concrete effect implementor and a function taking one as an
+    /// ordinary parameter was admitted.
     fn con_carries_effect(&self, con: TyConId) -> bool {
         self.effect_traits.iter().any(|t| self.impls.contains_key(&(*t, con)))
+    }
+
+    /// The first concrete constructor in `ty` that implements an effect,
+    /// together with the effect it implements.
+    ///
+    /// `is_effect_carrying` answers yes or no; this answers *why*, for the
+    /// case where the type mentions no bound anywhere and a reader would
+    /// otherwise have nothing to look at. Walks the same positions the
+    /// predicate does, so it never names a constructor the predicate did not
+    /// count.
+    pub fn effect_implementor(&self, ty: &Ty) -> Option<(TyConId, TraitId)> {
+        match ty {
+            Ty::Con(id, args) => {
+                let own = self.effect_traits.iter().find(|t| self.impls.contains_key(&(**t, *id)));
+                if let Some(t) = own {
+                    return Some((*id, *t));
+                }
+                args.iter().enumerate().find_map(|(k, a)| {
+                    if self.provides(*id, k) { self.effect_implementor(a) } else { None }
+                })
+            }
+            Ty::Array(e) => self.effect_implementor(e),
+            Ty::Tuple(es) => es.iter().find_map(|e| self.effect_implementor(e)),
+            Ty::Fn(_, r) => self.effect_implementor(r),
+            _ => None,
+        }
+    }
+
+    /// Whether holding a `con<...>` can hand you its `i`th type argument.
+    ///
+    /// `true` for anything the fixpoint has no answer for, which is the
+    /// conservative direction: the predicates below use this to *stop*
+    /// descending, so a missing row costs precision and never soundness.
+    pub fn provides(&self, con: TyConId, i: usize) -> bool {
+        match self.variance.get(con.index()) {
+            Some(row) => row.get(i).copied().unwrap_or(true),
+            None => true,
+        }
+    }
+
+    /// Computes `provides` for every type constructor, once the type bodies
+    /// are elaborated and before anything asks.
+    ///
+    /// The rule is one line — a constructor provides its `i`th argument when
+    /// some field it stores does:
+    ///
+    /// ```text
+    /// provides(con, i)      =  ∃ field f of con . pos(f.ty, i)
+    /// pos(Param(j), i)      =  j == i
+    /// pos(Array(e), i)      =  pos(e, i)
+    /// pos(Tuple(es), i)     =  ∃ e . pos(e, i)
+    /// pos(Fn(_, r), i)      =  pos(r, i)                       // params dropped
+    /// pos(Con(c, as), i)    =  ∃ k . provides(c, k) ∧ pos(as[k], i)
+    /// ```
+    ///
+    /// Dropping a function type's parameters is the same rule the `Ty::Fn` arm
+    /// of `is_effect_carrying` already rests on, generalised from the one
+    /// built-in constructor that has a contravariant position to every
+    /// user-declared one: holding a `fn(C, Event) => ()` never hands you a
+    /// `C`, because to get one out you would have to supply it first. So an
+    /// `enum Node<C> { Btn(fn(C, Event) => ()), Group([Node<C>]) }` provides
+    /// no `C`, and `fn mount<C: Ui>(ctx: C, root: Node<C>)` is a function with
+    /// one context rather than two.
+    ///
+    /// Monotone from all-false, so this is the *least* fixpoint: a parameter
+    /// is provided only if some finite chain of fields hands it over. That is
+    /// what makes a recursive type answer honestly — `Group([Node<C>])` needs
+    /// `provides(Node, 0)` to already be true to make it true, so it stays
+    /// false — and it is why the loop terminates: each pass only ever sets a
+    /// bit, and there are finitely many.
+    ///
+    /// Over-approximating is safe in both users below: an extra `true` only
+    /// makes them say "effect-carrying" more often, which is the direction
+    /// that rejects programs rather than admitting them.
+    pub fn compute_variance(&mut self) {
+        let mut table: Vec<Vec<bool>> =
+            self.tycons.iter().map(|c| vec![false; c.generics.len()]).collect();
+        // Only a generic constructor has a row that can change, and a program
+        // declares far more `Int`s than `Option`s. Listing them once keeps the
+        // fixpoint off the primitives entirely rather than walking every empty
+        // field list once per pass.
+        let generic: Vec<usize> = self
+            .tycons
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.generics.is_empty())
+            .map(|(i, _)| i)
+            .collect();
+        loop {
+            let mut changed = false;
+            for &index in &generic {
+                let Some(con) = self.tycons.get(index) else { continue };
+                let arity = con.generics.len();
+                // A struct has fields and no variants; an enum the reverse.
+                // Both accessors answer `&[]` for the other shape, so this is
+                // every type a value of `con` can hold.
+                let stored = con
+                    .fields()
+                    .iter()
+                    .chain(con.variants().iter().flat_map(|v| v.fields.iter()));
+                for field in stored {
+                    for i in 0..arity {
+                        let known = table
+                            .get(index)
+                            .and_then(|row| row.get(i))
+                            .copied()
+                            .unwrap_or(true);
+                        if known || !Tables::occurs_provided(&table, &field.ty, i) {
+                            continue;
+                        }
+                        if let Some(cell) = table.get_mut(index).and_then(|row| row.get_mut(i)) {
+                            *cell = true;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        self.variance = table;
+    }
+
+    /// `pos` from `compute_variance`, against a partial table.
+    fn occurs_provided(table: &[Vec<bool>], ty: &Ty, i: usize) -> bool {
+        match ty {
+            Ty::Param(j) => *j as usize == i,
+            Ty::Array(e) => Tables::occurs_provided(table, e, i),
+            Ty::Tuple(es) => es.iter().any(|e| Tables::occurs_provided(table, e, i)),
+            Ty::Fn(_, r) => Tables::occurs_provided(table, r, i),
+            Ty::Con(c, args) => args.iter().enumerate().any(|(k, a)| {
+                table.get(c.index()).and_then(|row| row.get(k)).copied().unwrap_or(true)
+                    && Tables::occurs_provided(table, a, i)
+            }),
+            _ => false,
+        }
     }
 
     pub fn add_const(&mut self, c: ConstInfo) -> ConstId {
@@ -869,8 +1022,13 @@ impl Tables {
     }
 
     /// A type is effect-carrying if it is a type variable with an effect
-    /// bound, or any type mentioning one — so a struct that stores a context
-    /// is effect-carrying too (SPEC 10.2).
+    /// bound, or any type that can *hand one over* — so a struct that stores a
+    /// context is effect-carrying too (SPEC 10.2).
+    ///
+    /// "Can hand one over" rather than "mentions one": a type argument counts
+    /// only where the constructor `provides` it. `Node<C>`, whose `C` appears
+    /// only as a handler's parameter, is data even when `C: Ui`, for the same
+    /// reason `fn(C, A) => B` is.
     pub fn is_effect_carrying(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
         match ty {
             Ty::Param(i) => generics
@@ -878,8 +1036,10 @@ impl Tables {
                 .is_some_and(|g| g.bounds.iter().any(|b| self.trait_(*b).is_effect)),
             Ty::Ctx(_) => true,
             Ty::Con(id, args) => {
-                args.iter().any(|a| self.is_effect_carrying(a, generics))
-                    || self.con_carries_effect(*id)
+                self.con_carries_effect(*id)
+                    || args.iter().enumerate().any(|(k, a)| {
+                        self.provides(*id, k) && self.is_effect_carrying(a, generics)
+                    })
             }
             Ty::Array(e) => self.is_effect_carrying(e, generics),
             Ty::Tuple(es) => es.iter().any(|e| self.is_effect_carrying(e, generics)),
@@ -931,6 +1091,12 @@ impl Tables {
     /// lambda (SPEC 11.3). That is what keeps `fn compose<A, B, C>(f: fn(A) =>
     /// B, g: fn(B) => C): fn(A) => C` legal.
     ///
+    /// A **type argument** the constructor does not `provide` answers `false`
+    /// here too, and for a stronger reason than above: this rule asks what a
+    /// value holds, and a `struct Signal<T>(Int)` holds no `T` at all under
+    /// any instantiation. A `Prop<T>` — which stores one — still answers
+    /// `true`, so an ordinary bound is still the way to capture that.
+    ///
     /// Everything else is the shape of `is_effect_carrying`.
     pub fn may_carry_effect(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
         match ty {
@@ -940,8 +1106,10 @@ impl Tables {
             },
             Ty::Ctx(_) => true,
             Ty::Con(id, args) => {
-                args.iter().any(|a| self.may_carry_effect(a, generics))
-                    || self.con_carries_effect(*id)
+                self.con_carries_effect(*id)
+                    || args.iter().enumerate().any(|(k, a)| {
+                        self.provides(*id, k) && self.may_carry_effect(a, generics)
+                    })
             }
             Ty::Array(e) => self.may_carry_effect(e, generics),
             Ty::Tuple(es) => es.iter().any(|e| self.may_carry_effect(e, generics)),

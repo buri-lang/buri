@@ -9,6 +9,9 @@
 //! 3. Elaborate the types in every signature. This is a module's entire
 //!    inter-module surface (13.4).
 //! 4. Register `impl` and `derive`, and build the method table.
+//! 4½. Check the `ctx` rule, which needs both of the two above finished: which
+//!    positions of a type constructor hand a value back (step 3's type bodies)
+//!    and which types implement an effect (step 4's conformances).
 //! 5. Check each function body, independently and in any order (13.3).
 //!
 //! Only step 5 needs inference, and it never crosses a function boundary,
@@ -117,6 +120,12 @@ pub struct Checker<'a> {
     pub option_con: Option<TyConId>,
     pub result_con: Option<TyConId>,
     pub order_con: Option<TyConId>,
+    /// The free functions whose signatures are elaborated and whose `ctx` rule
+    /// is still to be checked, in declaration order — which is the order the
+    /// check used to run in, so the diagnostics are the same ones in the same
+    /// sequence. Held rather than checked in place because rule 26 asks two
+    /// questions no earlier pass can answer (see `Checker::run`).
+    pending_ctx_rules: Vec<(FnId, ModuleId, u32)>,
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
     /// Whether the declaration being elaborated is a trait, an effect, or an
@@ -149,6 +158,7 @@ impl<'a> Checker<'a> {
             option_con: None,
             result_con: None,
             order_con: None,
+            pending_ctx_rules: Vec::new(),
             resolving: Vec::new(),
             in_self_scope: false,
         }
@@ -161,6 +171,13 @@ impl<'a> Checker<'a> {
         self.register_known_names();
         self.elaborate_signatures();
         self.register_conformance();
+        // Both of these read what the two passes above finished: the fixpoint
+        // needs elaborated type bodies, and rule 26 needs to know which types
+        // implement an effect. Asking either question from inside
+        // `elaborate_signatures` — where the `ctx` rule used to be checked —
+        // means asking it of a half-built table.
+        self.tables.compute_variance();
+        self.check_ctx_rules();
         self.register_primitive_methods();
         self.check_derives();
         self.compute_surfaces();
@@ -627,7 +644,7 @@ impl<'a> Checker<'a> {
             let id = ModuleId(m as u32);
             let items = &self.module(id).ast.items;
             let t = self.tree(id);
-            for item in items {
+            for (index, item) in items.iter().enumerate() {
                 match item {
                     tree::Item::Struct(d) => {
                         let Some(Sym::Ty(con)) = self.scope(id).own.get(t.name(d.name)).cloned()
@@ -758,7 +775,7 @@ impl<'a> Checker<'a> {
                             }
                             _ => continue,
                         };
-                        self.elaborate_fn_signature(id, fid, d);
+                        self.elaborate_fn_signature(id, index as u32, fid, d);
                     }
                     tree::Item::Const(d) => {
                         let Some(Sym::Const(cid)) = self.scope(id).own.get(t.name(d.name)).cloned()
@@ -774,7 +791,13 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn elaborate_fn_signature(&mut self, module: ModuleId, fid: FnId, d: &tree::FnDecl) {
+    fn elaborate_fn_signature(
+        &mut self,
+        module: ModuleId,
+        item: u32,
+        fid: FnId,
+        d: &tree::FnDecl,
+    ) {
         let generics = self.elaborate_generics(module, &d.generics);
         self.tables.fun_mut(fid).generics = generics.clone();
         let params = self.elaborate_params(module, &generics, &d.params);
@@ -793,14 +816,86 @@ impl<'a> Checker<'a> {
             }
         }
 
-        self.check_ctx_rule(fid, d);
+        self.pending_ctx_rules.push((fid, module, item));
         self.record_intrinsic(fid, module, d);
+    }
+
+    /// Phase 4½: rule 26, once the tables it reads are finished.
+    ///
+    /// It asks whether a parameter is effect-carrying, and that question has
+    /// two dependencies neither of which `elaborate_signatures` can satisfy
+    /// while it runs. `con_carries_effect` reads the conformance table, which
+    /// `register_conformance` fills in afterwards — so a concrete implementor
+    /// of an effect used to be invisible here and `fn sneaky(s: Scope): I64 {
+    /// s.nowMillis() }` was admitted, defeating the invariant the diagnostic
+    /// itself states. And `provides` reads elaborated type bodies, which the
+    /// same interleaved loop is still filling in, item by item.
+    ///
+    /// Both are settled by the time this runs, and nothing between the two
+    /// points reads what it reports.
+    fn check_ctx_rules(&mut self) {
+        for (fid, module, item) in std::mem::take(&mut self.pending_ctx_rules) {
+            let Some(tree::Item::Fn(d)) = self.module(module).ast.items.get(item as usize) else {
+                continue;
+            };
+            self.check_ctx_rule(fid, d);
+        }
     }
 
     /// A effect-carrying parameter must be `self` or `ctx`, at most one of
     /// each. Both are fixed positions with fixed names, so you read the first
     /// two parameters and stop (SPEC 10.2).
     fn check_ctx_rule(&mut self, fid: FnId, d: &tree::FnDecl) {
+        // Whether there is anything to say is decided from a borrow; only
+        // saying it needs an owned `FnInfo`. This runs once per function in
+        // the program, the standard library included, and the answer is almost
+        // always "nothing" — so the copy belongs on the reporting path.
+        if self.violates_ctx_rule(fid) {
+            self.report_ctx_rule(fid);
+        }
+        // `main` takes no parameters, declares no generics, and returns
+        // `Result<(), Str>`.
+        let info = self.tables.fun(fid);
+        let (name_is_main, exported, module) =
+            (info.name == "main", info.exported, info.module);
+        if name_is_main && exported && self.module(module).role == Role::Entry {
+            self.check_main_signature(fid, d);
+        }
+    }
+
+    /// The predicate half of the rule above: does any parameter break it?
+    /// Written as a mirror of the loop that reports, so the two cannot drift —
+    /// a `true` here is exactly one diagnostic or more there.
+    fn violates_ctx_rule(&self, fid: FnId) -> bool {
+        let info = self.tables.fun(fid);
+        let mut ctx_count: usize = 0;
+        let mut self_count: usize = 0;
+        for (i, p) in info.params.iter().enumerate() {
+            match p.role {
+                ParamRole::SelfParam => {
+                    self_count = self_count.saturating_add(1);
+                    if i != 0 {
+                        return true;
+                    }
+                }
+                ParamRole::Ctx => {
+                    ctx_count = ctx_count.saturating_add(1);
+                    let expected = if self_count > 0 { 1 } else { 0 };
+                    if i != expected || ctx_count > 1 {
+                        return true;
+                    }
+                }
+                ParamRole::Normal => {
+                    if self.tables.is_effect_carrying(&p.ty, &info.generics) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn report_ctx_rule(&mut self, fid: FnId) {
         let info = self.tables.fun(fid).clone();
         let mut ctx_count: usize = 0;
         let mut self_count: usize = 0;
@@ -843,16 +938,42 @@ impl<'a> Checker<'a> {
                 ParamRole::Normal => {
                     if self.tables.is_effect_carrying(&p.ty, &info.generics) {
                         let name = p.name.clone();
-                        self.err(
+                        // A type that implements an effect *is* the
+                        // capability, so "drop the effect bound" would be
+                        // advice that cannot be taken — there is no bound
+                        // anywhere in the signature to drop. Name the `impl`
+                        // instead, which is the only thing a reader can act
+                        // on.
+                        let nominal = self.tables.effect_implementor(&p.ty).map(|(con, tr)| {
+                            (
+                                self.tables.tycon(con).name.clone(),
+                                self.tables.trait_(tr).name.clone(),
+                            )
+                        });
+                        let fix = match &nominal {
+                            Some(_) => format!(
+                                "rename `{name}` to `ctx` and make it the first parameter, or \
+                                 take a type that implements no effect if this parameter is \
+                                 ordinary data"
+                            ),
+                            None => format!(
+                                "rename `{name}` to `ctx` and make it the first parameter, or \
+                                 drop the effect bound if this parameter is ordinary data"
+                            ),
+                        };
+                        let d = self.err(
                             p.span,
                             format!("`{name}` carries an effect, so it must be named `ctx`"),
-                        ).code("effect-param-not-ctx")
-                        .fix(format!(
-                            "rename `{name}` to `ctx` and make it the first parameter, or drop \
-                             the effect bound if this parameter is ordinary data"
-                        ))
-                        .notes
-                        .push(
+                        );
+                        d.code("effect-param-not-ctx");
+                        d.fix(fix);
+                        if let Some((con, tr)) = nominal {
+                            d.notes.push(format!(
+                                "`{con}` implements the effect `{tr}`, so holding one is holding \
+                                 the capability"
+                            ));
+                        }
+                        d.notes.push(
                             "a function is effectful if and only if it has a `ctx` parameter or \
                              an effect-carrying `self`, which is what lets a reader stop after \
                              the first two parameters"
@@ -861,11 +982,6 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-        }
-        // `main` takes no parameters, declares no generics, and returns
-        // `Result<(), Str>`.
-        if info.name == "main" && info.exported && self.module(info.module).role == Role::Entry {
-            self.check_main_signature(fid, d);
         }
     }
 

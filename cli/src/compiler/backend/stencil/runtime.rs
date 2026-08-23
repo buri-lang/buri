@@ -30,7 +30,7 @@
 //! Unchanged from the other two: the rule in `lib.rs` §1 would happily produce
 //! `buri_rt_list_map` for `list.map`, which does not exist, and a program using
 //! it would get a link error naming a symbol instead of
-//! [`super::Cpjit::missing_intrinsics`] naming the operation.
+//! [`super::Stencil::missing_intrinsics`] naming the operation.
 
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 

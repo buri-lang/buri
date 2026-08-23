@@ -1,0 +1,25 @@
+// EXPECT: a lambda may not capture `p`, whose type `Prop<T>` could be a context
+//
+// The capture rule stops descending into a type argument the constructor
+// cannot hand back, which is what makes a phantom handle capturable. `Prop<T>`
+// stores its `T` in `Const`, so it does hand one back — and an unbounded `T`
+// stands for a context type too (SPEC 13.5). An ordinary bound such as
+// `T: Eq` is the answer, because an effect-carrying type satisfies none.
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum Prop<T> {
+  Const(T),
+  Missing,
+}
+
+fn later<T>(p: Prop<T>): fn() => Prop<T> {
+  fn() => p
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "unreachable");
+  .Ok(())
+}

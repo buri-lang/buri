@@ -1,77 +1,547 @@
 name: CI
 
-# Every push to every branch. `push` with no filter is exactly that.
+# One workflow, and this is it. There used to be a second file for the Linux
+# leg; the split cost a duplicated toolchain block and a composite action, and
+# bought nothing that a job in here does not.
+#
+# Two vocabularies are deliberately absent. There are no backend names in a job
+# or a step name: this repository has one **dev** build, which is the default
+# and which no flag selects, and one **release** build, which is `--release`.
+# Which code generator serves each is `backend::select`'s business and changes
+# without CI changing. Where a `run:` line names a cargo feature or a test
+# module it is naming a build flag, not a job's subject.
+#
+# Three things about the Linux jobs are decisions rather than defaults:
+#
+# * **apt, not the flake.** design/native/BUILD-AND-WATCH.md §3.4 is titled
+#   "Without nix" and it is the path a Debian-like contributor walks: a Rust
+#   toolchain and a C compiler and nothing else. The flake pins a toolchain for
+#   contributors and is held green by the `nix` job below, so nix is covered by
+#   the job that exists for it. Running the suite inside `nix develop` would
+#   substitute nixpkgs' clang for the runner's and answer a different question.
+#
+# * **`CC: clang`, and it is LOAD-BEARING.** `cli/build.rs` degrades rather than
+#   breaks: the stencil generators
+#   (`cli/src/compiler/backend/stencil/sources.rs::compile_flags`) pass
+#   `--target=<triple>`, `-nostdinc` and `-isystem $(cc -print-resource-dir)`
+#   for BOTH Linux targets — including the host's own, on a Linux host — and the
+#   generated C uses `musttail`. gcc understands none of that, so `can_build`
+#   fails, an EMPTY library is written, `stencil::AVAILABLE` is false, and every
+#   test in `cli/tests/native/stencil.rs` returns early: the suite passes having
+#   checked nothing. That is why the stencil libraries are ASSERTED non-empty
+#   below rather than believed. On macOS `clang` is what `cc` already is, so
+#   the macOS leg pays nothing for it.
+#   `build/link.rs` reads `CC` too, so this also decides which driver the
+#   product's own link runs through. It is set on the four jobs that verify the
+#   native path and nowhere else, so that `minimal`, `lean`, `tree-sitter` and
+#   `nix` do not pay a minute of stencil generation they never read.
+#
+# * **clang, lld, mold, llvm and binutils, all five.** clang for the above; mold
+#   *and* lld because `build/link.rs::choose` prefers mold on Linux and every
+#   ELF byte this compiler emits had, until these runners, been accepted by
+#   exactly one linker; `llvm` for the unversioned `llvm-nm`, `llvm-objdump` and
+#   `llvm-readelf` that `cli/tests/native/stencil.rs::cross_tools` probes before
+#   it will run the cross-link tests — without them those tests skip.
+#
+# `push:` with no branch filter: every push to every branch, and no second run
+# per pull request.
 on:
   push:
   workflow_dispatch:
 
+# One run per ref. A push that supersedes another cancels it, because the
+# question this workflow answers is about the tip and not about the history.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  # The whole Rust suite: unit tests plus every integration binary. There are
-  # seven, one per domain, and `cli/tests/README.md` is the map: `language`,
-  # `build`, `native`, `docs`, `vectors`, `formatting`, `adversarial`.
-  # Compiled programs are executed with `bun`; the constant-stack tail-call
-  # tests additionally run under `node` (JavaScriptCore has proper tail calls,
-  # V8 does not — the tests exist because of that difference, so both runtimes
-  # must be present).
+  # ---------------------------------------------------------------------------
+  # The whole Rust suite, on every host this toolchain supports.
+  #
+  # One integration binary per domain plus the unit tests; `cli/tests/README.md`
+  # is the map. Compiled programs are executed with `bun`, and the constant-stack
+  # tail-call tests additionally run under `node` — JavaScriptCore has proper
+  # tail calls and V8 does not, which is why those tests exist and why both
+  # runtimes must be present.
+  #
+  # macOS is arm64 and builds its own stencil library; the two Linux legs build
+  # theirs. There is no `ubuntu-latest` leg without clang: it was the same suite
+  # with the native tests silently skipped, which is the one shape of green this
+  # workflow exists to refuse.
+  # ---------------------------------------------------------------------------
   test:
+    name: test (${{ matrix.arch }}, ${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - { os: macos-latest, arch: arm64 }
+          - { os: ubuntu-24.04, arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
+    env:
+      CC: clang
+    # Measured, not guessed: the `native` domain alone is 750 s of the run and
+    # `the_corpus_census_is_a_ratchet` is 700 s of that — thirty-one corpus
+    # files through an unoptimized backend. Add a cold runner's toolchain build
+    # and the benchmark's LTO'd `bench` profile and an hour is a cap rather than
+    # a target.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Two architectures must not share a key: the cached artifacts are the
+          # host's.
+          shared-key: ${{ matrix.os }}-${{ matrix.arch }}
       - uses: oven-sh/setup-bun@v2
-      # node is preinstalled on GitHub runners; assert rather than assume.
-      - run: node --version && bun --version
-      # mold on the Linux runner and nothing on the macOS one, which has
-      # Apple's `ld` and no use for another: mold is ELF-only and its Mach-O
-      # fork was archived (design/native/CODEGEN-CRANELIFT.md §7.3). Not
-      # required — with neither mold nor lld the link goes through the system
-      # default and works, more slowly — so it is installed rather than
-      # asserted.
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y mold
-      # `cc` is what the native link step and `tests/native/runtime.rs` drive.
-      # Both runners have one; assert rather than assume, because its absence
-      # would present as a link failure inside a test rather than as a missing
-      # tool.
-      - run: cc --version
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          # Debian's `llvm` package installs the UNVERSIONED tool names under
+          # /usr/lib/llvm-<N>/bin and only the versioned ones in /usr/bin.
+          # `cross_tools` probes the unversioned names, so the directory goes on
+          # PATH rather than this file guessing a version. Highest wins.
+          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+      # Asserted, not assumed. A missing tool otherwise presents as a test that
+      # skipped or as a link failure inside a suite, and both read as "green" or
+      # as "a compiler bug" rather than as "the runner changed".
+      - name: Every tool this workflow assumes
+        run: |
+          set -euo pipefail
+          for t in cc clang node bun; do
+            command -v "$t" >/dev/null || { echo "::error::$t is not on PATH"; exit 1; }
+          done
+          if [ "$RUNNER_OS" = Linux ]; then
+            for t in ld.lld mold llvm-nm llvm-objdump llvm-readelf readelf; do
+              command -v "$t" >/dev/null || { echo "::error::$t is not on PATH"; exit 1; }
+            done
+          fi
+          cc --version | head -1
+          node --version
+          bun --version
+
+      # Before the suite, not after: an empty stencil library is a suite that
+      # passes vacuously, and the diagnosis should not have to be reconstructed
+      # from a green run. `--tests` is what runs `cli/build.rs`.
+      - run: cargo build -p buri --tests
+      - name: The stencil libraries are not empty
+        run: bash .github/scripts/assert-stencils.sh
+
+      # `--no-fail-fast` because the test binaries are domains, and one failing
+      # domain should not hide the others.
       - run: cargo test -p buri --no-fail-fast
 
-  # `cargo install buri` on a machine with no LLVM. It is a job rather than an
-  # assertion because "it builds without the optional system library" is only
-  # true if something builds it that way, and the runner here is deliberately
-  # the one with nothing installed on it.
+      # Deliberately NOT `-D warnings`. The bar this repository states is the
+      # panic-free lint set in the workspace manifest, and every lint in it is
+      # `deny` — so a violation is an ERROR and fails this step already. Turning
+      # the remaining warnings into errors would make CI's verdict depend on
+      # clippy's version rather than on the repository's rules.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p buri --all-targets
+
+      # The validation gate: compile every corpus and measure nothing.
+      # `--quick` is named in `cli/benches/compiler.rs` as the CI shape and is
+      # held to staying under a second there.
+      - if: runner.os == 'Linux'
+        run: cargo bench -p buri --bench compiler -- --validate --quick
+
+      # A failing test's scratch directory is its evidence (cli/tests/README.md).
+      # `BURI_KEEP` is NOT set: a panicking test keeps its own tree regardless
+      # (`harness/mod.rs`), while `BURI_KEEP` would also disable the sweep and
+      # keep every passing suite's tree, which is the 14 GB that filled a disk
+      # twice.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scratch-test-${{ matrix.os }}-${{ matrix.arch }}
+          path: target/tmp
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Linux arm64: the programs a dev build produces are executed.
   #
-  # Both halves matter. The default set is `backend-cranelift`, which is pure
-  # Rust and must never need a system library; `--no-default-features` is the
-  # dependency-free build the bar in `Cargo.toml` is about, and it is the one
-  # that catches a `#[cfg]` written only one way.
+  # Compiling is what `test` above proves. This job runs the artifacts — the
+  # stack guard's `mprotect`, Linux's signal disposition for a `PROT_NONE` page
+  # inside a mapping, both linkers' idea of an ELF image, and two builds of one
+  # repository compared byte for byte.
+  # ---------------------------------------------------------------------------
+  linux-arm64:
+    name: linux arm64 (the programs run)
+    runs-on: ubuntu-24.04-arm
+    env:
+      CC: clang
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-24.04-arm-arm64
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+      - run: cargo build -p buri --tests
+      - name: The stencil libraries are not empty
+        run: bash .github/scripts/assert-stencils.sh
+
+      # FIRST, and alone. This is the liveness gate: every test in
+      # `cli/tests/native/stencil.rs` opens with `if !supported() { return; }`,
+      # so a host with no stencils runs the whole file, reports every test as
+      # PASSED, and proves nothing. The census's `println!` sits on the far side
+      # of that guard and is the only thing that can tell the two apart — so it
+      # is asked before anything below spends twelve minutes proving nothing.
+      #
+      # ALONE and `--test-threads=1` because `--nocapture` with the default
+      # thread count lets two tests write to one line, and this assertion reads
+      # lines. (Even alone, libtest's own `test <name> ... ` prefix shares a
+      # line with the first `println!` — `assert-suite-ran.sh` handles that, and
+      # says where it learned it.)
+      - name: The suite was live, and the corpus is at macOS parity
+        run: |
+          set -o pipefail
+          cargo test -p buri --test native stencil::the_corpus_census_is_a_ratchet \
+            -- --nocapture --test-threads=1 2>&1 | tee census.log
+          bash .github/scripts/assert-suite-ran.sh census.log
+
+      # The rest, in parallel, which is how it is written to run: one scratch
+      # tree per test and one runtime archive per process. Every test here RUNS
+      # A PROGRAM — including `the_corpus_files_it_compiles_pass`, and including
+      # `a_runaway_recursion_faults_at_the_guard` and
+      # `a_deep_recursion_inside_the_stack_still_answers`, which are the first
+      # execution anywhere of `asm::install_guard`'s `mprotect` and of Linux's
+      # signal disposition for a `PROT_NONE` page inside a mapping.
+      #
+      # `--skip` the census: it just ran, it is the longest test in the file,
+      # and running it twice buys nothing.
+      - name: The programs run
+        run: |
+          set -o pipefail
+          cargo test -p buri --test native stencil:: -- --nocapture \
+            --skip the_corpus_census_is_a_ratchet 2>&1 | tee suite.log
+
+      # Leak parity: heap-stats and NOT valgrind, deliberately. The claim is
+      # that both code generators leave *exactly the same* blocks live, which a
+      # leak checker's own accounting cannot state, and valgrind would cost tens
+      # of minutes on a corpus this size.
+      #
+      # The COUNT is asserted, not the probe's own output: the harness captures
+      # the child's stderr and only prints it when an assertion fails, so
+      # `live=0` never reaches this log. Three selected and three passed is what
+      # says all three ran; that they were not vacuous is the liveness step's
+      # job, and `supported()` does not change between two runs on one host.
+      - name: Leak parity through buri_rt_heap_stats
+        run: |
+          set -o pipefail
+          cargo test -p buri --test native -- \
+            stencil::nothing_is_leaked \
+            stencil::the_glue_balances \
+            cranelift::interpolating_in_a_loop_leaks_nothing \
+            2>&1 | tee leaks.log
+          grep -qE 'test result: ok\. 3 passed' leaks.log \
+            || { echo "::error::the three heap-stats tests did not all run"; exit 1; }
+
+      # `--check-reproducible` driven through the CLI: two builds from two
+      # freshly opened sessions with the cache off, into two directories,
+      # compared byte for byte. Silent on agreement.
+      #
+      # A repository written here rather than one of the checked-in ones,
+      # because both native binaries in `cli/tests/example` are refused by the
+      # dev build — `//cmd/server` needs `host.HostFs.readFile` and
+      # `//tools/report` needs `host.HostEnv.arguments`, and neither is
+      # implemented (measured, not assumed: both were tried). A four-line
+      # program that only prints is what this needs; the artifact being small
+      # does not make its bytes less reproducible.
+      #
+      # `mktemp -d` rather than a directory in the checkout, because nothing may
+      # write into a checked-in tree (cli/tests/README.md) and this is the CLI
+      # rather than a harness that would make its own scratch.
+      - name: --check-reproducible on a linked Linux artifact
+        run: |
+          set -euo pipefail
+          cargo build -p buri
+          bin=$PWD/target/debug/buri
+          work=$(mktemp -d)
+          mkdir -p "$work/repo/cmd/app"
+          printf '# a repository with no tags\n' > "$work/repo/REPO.buri"
+          cat > "$work/repo/cmd/app/BUILD.buri" <<'BUILD'
+          binary {
+              outputs: [
+                  { platform: LINUX, arch: ARM64 },
+              ]
+          }
+          BUILD
+          cat > "$work/repo/cmd/app/main.buri" <<'SRC'
+          from "core/host" import { stdout };
+          export fn main(): Result<(), Str> {
+            let _ = stdout.println("reproducible");
+            .Ok(())
+          }
+          SRC
+          cd "$work/repo"
+          "$bin" build //cmd/app --output=linux/arm64 --check-reproducible
+
+      # mold AND ld.lld. `BURI_LINKER` is the documented override
+      # (`build/link.rs`'s header), and the test prints which one it used, so
+      # the assertion is on what happened rather than on what was asked for. The
+      # ELF properties are checked once per linker, on that linker's own output,
+      # because `--gc-sections` and the stack marking are the linker's behaviour
+      # and not the emitter's.
+      #
+      # `target/tmp` is cleared first so that the artifact found afterwards is
+      # unambiguously the one this step produced: the suite names its scratch
+      # tree for the process id, and every `cargo test` invocation is a new one.
+      - name: Both linkers, and the image each produces
+        run: |
+          set -euo pipefail
+          for linker in mold lld; do
+            echo "::group::BURI_LINKER=$linker"
+            rm -rf target/tmp
+            set -o pipefail
+            BURI_LINKER=$linker cargo test -p buri --test native \
+              stencil::the_products_own_link -- --nocapture 2>&1 | tee "link-$linker.log"
+            grep -q "linked with cc+$linker" "link-$linker.log" || {
+              echo "::error::BURI_LINKER=$linker did not reach link::choose — the test may have skipped"
+              exit 1
+            }
+            app=$(find target/tmp -path '*/product-link/app' -type f -print -quit 2>/dev/null || true)
+            [ -n "$app" ] || {
+              echo "::error::the product's link left no artifact, so the suite skipped"
+              exit 1
+            }
+            bash .github/scripts/assert-elf.sh "$app"
+            # The other half of the stack check: a linker that had to guess
+            # about the stack says so, and `build/link.rs` captures its stderr,
+            # so a warning that did not fail the link would otherwise pass
+            # unread.
+            if grep -qiE 'requires executable stack|missing \.note\.GNU-stack' "link-$linker.log"; then
+              echo "::error::$linker warned about an executable stack"
+              exit 1
+            fi
+            # And it still runs, linked by this linker, on this machine.
+            [ "$("$app")" = "500500" ] || {
+              echo "::error::the artifact $linker produced printed the wrong answer"
+              exit 1
+            }
+            echo "::endgroup::"
+          done
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scratch-linux-arm64
+          path: |
+            target/tmp
+            census.log
+            suite.log
+            leaks.log
+            link-*.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Linux x86_64: the refusals, and the cross emission.
   #
-  # The `backend-llvm` half of this matrix arrives with wave 2b, and needs
-  # exactly three things: LLVM 21 on both runners (`brew install llvm@21`,
-  # `apt.llvm.org`'s `llvm-21-dev`), `LLVM_SYS_211_PREFIX` exported, and
-  # `cargo test -p buri --no-fail-fast --features backend-llvm`. It is not here
-  # yet because a job that installs a 1 GB toolchain to compile a module with
-  # no code in it is a job that only fails.
-  no-llvm:
+  # `asm::AVAILABLE_X86_64` is false — there is no SysV entry point yet — so on
+  # this host the executing suite skips, correctly and for a stated reason. What
+  # must NOT happen is that an object with arm64 bytes in its entry point is
+  # produced, or that anything panics. Both halves are asserted here, because
+  # "it skipped" and "it ran and was fine" are the same green otherwise.
+  #
+  # The cross half is the other reason for this job: this host emits
+  # `linux-arm64` objects, links them with `ld.lld` and checks every relocation
+  # resolves. Running that on a second host is what says the emission does not
+  # depend on the machine it was made on.
+  # ---------------------------------------------------------------------------
+  linux-x86_64:
+    name: linux x86_64 (refusals and cross emission)
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-24.04-x86_64
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+      - run: cargo build -p buri --tests
+
+      # A refusal is only worth anything if the LIBRARY is there: a host with no
+      # x86-64 stencils refuses for the wrong reason, and the test's own
+      # availability guard would skip its assertion.
+      - name: The stencil libraries are not empty, so the refusal is the real one
+        run: bash .github/scripts/assert-stencils.sh
+
+      - name: The refusal names the missing piece, and is not a crash
+        run: |
+          set -o pipefail
+          # One filter, so the summary line is the assertion: `1 passed` says
+          # the test both existed and ran. A filter that matched nothing exits
+          # 0 with `0 passed`, which is the failure this catches.
+          cargo test -p buri --test native \
+            stencil::an_unsupported_cross_target_is_refused_with_a_reason \
+            2>&1 | tee refusal.log
+          grep -qE 'test result: ok\. 1 passed' refusal.log \
+            || { echo "::error::the refusal test did not run"; exit 1; }
+
+      - name: And the executing suite skips, for the stated reason
+        run: |
+          set -o pipefail
+          cargo test -p buri --test native stencil:: -- --nocapture 2>&1 | tee suite.log
+          # The contrapositive of the arm64 job's liveness check: on x86-64 the
+          # executing suite MUST skip, because there is no SysV entry point to
+          # put in front of the stencils. A census here would mean
+          # `stencil::AVAILABLE` became true without `asm.rs` gaining one.
+          #
+          # Unanchored on purpose: libtest's `test <name> ... ` prefix shares a
+          # line with a test's first `println!`, so `^` here would be a check
+          # that cannot fail, which is worse than no check.
+          if grep -qE 'stencil compiles [0-9]+ of' suite.log; then
+            echo "::error::the corpus ran on x86-64, which has no entry point"
+            exit 1
+          fi
+
+      - name: Cross emission and cross link, from x86-64
+        run: |
+          set -o pipefail
+          cargo test -p buri --test native -- --nocapture \
+            stencil::linux_arm64_objects_link_and_every_relocation_resolves \
+            stencil::a_cross_emission_is_reproducible \
+            2>&1 | tee cross.log
+          grep -qE 'test result: ok\. 2 passed' cross.log \
+            || { echo "::error::the two cross tests did not both run — ld.lld or the llvm tools may be missing, which makes cross_tools() skip"; exit 1; }
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scratch-linux-x86_64
+          path: |
+            target/tmp
+            refusal.log
+            suite.log
+            cross.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # The release build. x86-64 only, ADVISORY.
+  #
+  # `continue-on-error: true`, and the reason is not timidity. LLVM 21 is not in
+  # Ubuntu 24.04 — noble ships 18 — so this job depends on apt.llvm.org, which
+  # is third-party infrastructure with no uptime guarantee and a package set
+  # that moves. design/native/BUILD-AND-WATCH.md §3.4 names it as the Debian
+  # answer, so it is the right source; but a red X caused by a 404 teaches
+  # people to ignore a red X, and the dev matrix above is what this workflow is
+  # for. If this job proves stable over a few weeks, delete the
+  # `continue-on-error` line and nothing else.
+  #
+  # arm64 is not attempted: apt.llvm.org's architecture coverage per release is
+  # not something to discover inside a required job.
+  #
+  # The version is asserted rather than assumed. CODEGEN-LLVM.md §8.1 allows
+  # exactly one supported LLVM and `cli/Cargo.toml`'s `llvm21-1` is one half of
+  # that decision; a silently substituted 22 is precisely what §3.4 says a
+  # compiler claiming byte-identical output must not accept.
+  # ---------------------------------------------------------------------------
+  release:
+    name: release build (x86_64, advisory)
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang
+    timeout-minutes: 75
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-24.04-x86_64-release
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+
+      - name: Install LLVM 21 from apt.llvm.org
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          codename=$(lsb_release -cs)
+          echo "deb http://apt.llvm.org/$codename/ llvm-toolchain-$codename-21 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            llvm-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
+
+      - name: Assert it is 21, and export its prefix
+        run: |
+          set -euo pipefail
+          v=$(llvm-config-21 --version)
+          case "$v" in
+            21.*) echo "llvm-config-21: $v" ;;
+            *) echo "::error::apt.llvm.org served $v, not 21.x"; exit 1 ;;
+          esac
+          echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
+
+      # The agreement test (ARCHITECTURE.md §4) is what makes the release
+      # build's code generator worth turning on, and it only exists with both.
+      - run: cargo test -p buri --no-fail-fast --features backend-llvm
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scratch-release-x86_64
+          path: target/tmp
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # `cargo install buri` on a machine with nothing installed on it.
+  #
+  # A job rather than an assertion because "it builds without the optional
+  # system libraries" is only true if something builds it that way, and this
+  # runner is deliberately the one with nothing. `--no-default-features` is the
+  # dependency-free build the bar in `cli/Cargo.toml` is about, and it is the
+  # one that catches a `#[cfg]` written only one way. The default-feature build
+  # needs no job of its own: every `test` leg above is one.
+  # ---------------------------------------------------------------------------
+  minimal:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p buri
       - run: cargo build -p buri --no-default-features
 
+  # ---------------------------------------------------------------------------
   # The formal development: the build must succeed, the audit must record no
   # sorryAx, and no proof may contain `sorry`/`admit`. The toolchain is pinned
   # by formal/lean-toolchain; elan reads it.
+  # ---------------------------------------------------------------------------
   lean:
     runs-on: ubuntu-latest
     steps:
@@ -97,6 +567,7 @@ jobs:
         working-directory: formal
         run: "! grep -rn 'sorry\\|admit' Buri/"
 
+  # ---------------------------------------------------------------------------
   # The editor grammar: generated grammar.js compiles, every highlight query
   # compiles, and the tree-sitter parse of every test source agrees with the
   # compiler's own verdict.
@@ -106,6 +577,7 @@ jobs:
   # tree-sitter CLI and cargo. The build below is what `check.sh` would do for
   # itself; it is written out so that the step that takes the time is the one
   # named for it.
+  # ---------------------------------------------------------------------------
   tree-sitter:
     runs-on: ubuntu-latest
     steps:
@@ -117,8 +589,10 @@ jobs:
       - run: ./check.sh
         working-directory: editors/tree-sitter-buri
 
+  # ---------------------------------------------------------------------------
   # Packaging: the flake evaluates and the package builds. This is the
   # `nix run github:...` path users take, so it is held to green like a test.
+  # ---------------------------------------------------------------------------
   nix:
     runs-on: ubuntu-latest
     steps:

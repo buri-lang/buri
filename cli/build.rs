@@ -52,34 +52,84 @@ use std::process::Command;
 // the toolchain: generating C and running a C compiler is something a build
 // does once, and a `Level` ladder and a Mach-O reader are not things `buri`
 // should carry at run time. The four modules below are the halves of
-// `backend/cpjit` that only this script compiles, plus the two — `abi` and
-// `stencil` — that both compile, which is what keeps the emitter and the
+// `backend/stencil` that only this script compiles, plus the two — `abi` and
+// `library` — that both compile, which is what keeps the emitter and the
 // library it reads from disagreeing. `super::` resolves the same way in both
 // module trees, which is why the paths inside them are written that way.
 //
 // `dead_code` is allowed on the four the script does not use *all* of, and the
 // allow is here rather than in the files because that is where the fact is:
-// `stencil.rs`'s decoder and `abi.rs`'s register cap are the toolchain's half,
+// `library.rs`'s decoder and `abi.rs`'s register cap are the toolchain's half,
 // and `Level`'s lower rungs are the ladder the report measured along — the
 // generators still read them, and a library is built at the top one.
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/cpjit/abi.rs"]
+#[path = "src/compiler/backend/stencil/abi.rs"]
 mod abi;
-#[path = "src/compiler/backend/cpjit/extract.rs"]
+#[path = "src/compiler/backend/stencil/elfobj.rs"]
+mod elfobj;
+#[path = "src/compiler/backend/stencil/extract.rs"]
 mod extract;
-#[path = "src/compiler/backend/cpjit/machobj.rs"]
+#[path = "src/compiler/backend/stencil/machobj.rs"]
 mod machobj;
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/cpjit/sources.rs"]
+#[path = "src/compiler/backend/stencil/x86.rs"]
+mod x86;
+#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
+#[path = "src/compiler/backend/stencil/sources.rs"]
 mod sources;
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/cpjit/stencil.rs"]
-mod stencil;
+#[path = "src/compiler/backend/stencil/library.rs"]
+mod library;
+
+// The toolchain's one hash, shared the same way and for a reason of the same
+// shape. Both blobs written below enter a cache key **as their own digest** —
+// the archive through `link_key`'s runtime term, the stencil library through
+// `Backend::identity` — and a digest of bytes that cannot change after this
+// script has written them has no business being recomputed by every process
+// that later reads them. Ten megabytes of SHA-256 is about fifty-five
+// milliseconds, paid once per `buri` invocation that reaches a native backend
+// and paid *before* any cache lookup, so it lands on the no-op build as
+// squarely as on the cold one.
+//
+// Shared rather than restated: `hash_bytes` here and `hash_bytes` in the
+// toolchain must produce the same string, and the only way to be sure of that
+// is for there to be one of them. `src/build/sha256.rs`'s header is the whole
+// argument; `runtime_native::the_hash_is_of_the_bytes` is the assertion.
+#[allow(dead_code, reason = "the streaming half of this file is the toolchain's")]
+#[path = "src/build/sha256.rs"]
+mod sha256;
 
 fn main() {
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR"));
+    // Not in the rerun set by default: this script names its inputs, so
+    // without this line an edit to the hash would leave a digest baked by the
+    // old one beside bytes the new one reads differently.
+    println!("cargo:rerun-if-changed={}", manifest.join("src/build/sha256.rs").display());
     runtime_archive(&manifest);
     stencil_library(&manifest);
+}
+
+/// Writes `<out>.sha256` beside a blob this script produced.
+///
+/// A file rather than a `cargo:rustc-env`: the bytes are reached with
+/// `include_bytes!(concat!(env!("OUT_DIR"), …))` and the digest is reached with
+/// `include_str!` of the same shape, so the two travel together and a stale
+/// `OUT_DIR` cannot pair one with the other's digest.
+///
+/// Sixty-four hex digits and no newline, so that `include_str!` is the digest
+/// and not the digest plus whitespace to trim.
+fn digest_beside(out: &Path) {
+    let bytes = match std::fs::read(out) {
+        Ok(b) => b,
+        Err(e) => fail(&format!("could not read back {} to hash it: {e}", out.display())),
+    };
+    let path = out.with_file_name(format!(
+        "{}.sha256",
+        out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
+    ));
+    if let Err(e) = std::fs::write(&path, sha256::hash_bytes(&bytes)) {
+        fail(&format!("could not write {}: {e}", path.display()));
+    }
 }
 
 fn runtime_archive(manifest: &Path) {
@@ -154,6 +204,7 @@ fn runtime_archive(manifest: &Path) {
     if !out.exists() {
         fail("rustc reported success but produced no libburi_rt.a");
     }
+    digest_beside(&out);
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +212,7 @@ fn runtime_archive(manifest: &Path) {
 // ---------------------------------------------------------------------------
 
 /// Generates the copy-and-patch backend's stencils and writes the library into
-/// `OUT_DIR`, for `backend::cpjit` to `include_bytes!`.
+/// `OUT_DIR`, for `backend::stencil` to `include_bytes!`.
 ///
 /// This is the paper's §5.3 "stencil library builder", and it is here for the
 /// same reason the runtime archive is: it is an **install-time** cost paid once
@@ -179,44 +230,72 @@ fn runtime_archive(manifest: &Path) {
 ///   a native artifact already has — `build/link.rs` shells out to the same one
 ///   to produce the artifact itself.
 /// * **Degrades rather than breaks.** A host with no `cc`, or one that is not
-///   arm64, gets an **empty** library; `cpjit::AVAILABLE` reads the emptiness
+///   arm64, gets an **empty** library; `stencil::AVAILABLE` reads the emptiness
 ///   and the backend reports itself unavailable, exactly as
 ///   `runtime_native::AVAILABLE` does for the archive. That is the third clause
 ///   of the dependency bar applied to a tool rather than to a crate, and it is
 ///   why this is a `return` and not a `fail`.
-/// * **The stencils are arm64.** They are the bytes `cc` emitted for arm64
-///   functions, so they are not portable in any sense — an x86-64 seat needs
-///   its own generators, and `design/native/CODEGEN-CPJIT.md` says so. Hence
-///   the architecture test rather than only the platform one.
+/// * **One library per target.** A stencil is the bytes `cc` emitted for a
+///   function of a particular instruction set, in a particular container, so
+///   it is not portable in any sense. Three are built —
+///   [`abi::Tgt::ALL`] — and each is a separate blob with its own baked
+///   digest, so a toolchain can have the host's and not the cross ones, or all
+///   three, and `Stencil::identity` names whichever it has.
+///
+///   The two Linux libraries are **cross-compiled**: `clang -target
+///   {aarch64,x86_64}-unknown-linux-gnu` with clang's own headers and no
+///   sysroot, which works because the generated C includes `<stdint.h>` and
+///   declares the one libc function it uses (`sources::memcpy_decl`). A host
+///   whose `cc` cannot do that gets empty blobs for those two and a full one
+///   for its own, which is `can_build`'s whole job.
 fn stencil_library(manifest: &Path) {
-    let dir = manifest.join("src/compiler/backend/cpjit");
-    for file in ["abi.rs", "stencil.rs", "sources.rs", "extract.rs", "machobj.rs"] {
+    let dir = manifest.join("src/compiler/backend/stencil");
+    for file in
+        ["abi.rs", "library.rs", "sources.rs", "extract.rs", "machobj.rs", "elfobj.rs", "x86.rs"]
+    {
         println!("cargo:rerun-if-changed={}", dir.join(file).display());
     }
     println!("cargo:rerun-if-env-changed=CC");
 
-    let out = PathBuf::from(env("OUT_DIR")).join("cpjit-stencils.bin");
+    let out_dir = PathBuf::from(env("OUT_DIR"));
+    let blob = |t: abi::Tgt| out_dir.join(format!("stencils-{}.bin", t.slug()));
     let target = env("TARGET");
-    if !supported(&target) || !target.starts_with("aarch64") {
-        write_empty(&out);
-        return;
-    }
     let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
-    if !can_compile(&cc) {
-        write_empty(&out);
+
+    // A host with no C compiler, or one that is not a platform this toolchain
+    // has a runtime for, has no stencil library of any kind. Every blob is
+    // still written, because the emitter `include_bytes!`es all three by name.
+    if !supported(&target) || !can_compile(&cc) {
+        for t in abi::Tgt::ALL {
+            write_empty(&blob(t));
+        }
         return;
     }
-    let scratch = PathBuf::from(env("OUT_DIR")).join("cpjit-stencils");
+    let scratch = out_dir.join("stencils");
     let jobs: usize = std::env::var("NUM_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
-    match sources::build(&cc, &scratch, jobs) {
-        // A failure *after* `cc` has been shown to work is a bug in the
-        // generators, not a missing tool, so it fails the build rather than
-        // degrading: a toolchain that silently shipped no stencils because a
-        // generator stopped compiling would be a silent loss of a backend.
-        Err(e) => fail(&format!("cpjit stencil library: {e}")),
-        Ok(lib) => {
-            if let Err(e) = std::fs::write(&out, lib.encode()) {
-                fail(&format!("could not write {}: {e}", out.display()));
+    for t in abi::Tgt::ALL {
+        let out = blob(t);
+        // The host library is only buildable on the host: `cc` without
+        // `-target` compiles for the machine it is on, and `sources.rs` does
+        // not pass one for `MacosArm64`.
+        let host_ok = t != abi::Tgt::MacosArm64
+            || (target.contains("-apple-darwin") && target.starts_with("aarch64"));
+        if !host_ok || !sources::can_build(&cc, &scratch, t) {
+            write_empty(&out);
+            continue;
+        }
+        match sources::build(&cc, &scratch, jobs, t) {
+            // A failure *after* `cc` has been shown to compile this target's
+            // prelude is a bug in the generators, not a missing tool, so it
+            // fails the build rather than degrading: a toolchain that silently
+            // shipped no stencils because a generator stopped compiling would
+            // be a silent loss of a backend.
+            Err(e) => fail(&format!("stencil library ({}): {e}", t.slug())),
+            Ok(lib) => {
+                if let Err(e) = std::fs::write(&out, lib.encode()) {
+                    fail(&format!("could not write {}: {e}", out.display()));
+                }
+                digest_beside(&out);
             }
         }
     }
@@ -236,10 +315,16 @@ fn supported(target: &str) -> bool {
     target.contains("-apple-darwin") || target.contains("-linux-")
 }
 
+/// The blob a host with no runtime, no `cc` or no arm64 gets. The emptiness
+/// *is* the signal (see both headers above), and it gets a digest too: the
+/// digest of no bytes is a perfectly good identity for no bytes, and a missing
+/// file would be an `include_str!` that does not compile on exactly the hosts
+/// this branch exists to keep building.
 fn write_empty(out: &Path) {
     if let Err(e) = std::fs::write(out, []) {
         fail(&format!("could not write {}: {e}", out.display()));
     }
+    digest_beside(out);
 }
 
 fn env(name: &str) -> String {

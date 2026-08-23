@@ -63,7 +63,10 @@ Capabilities:
     constructed (Section 11.3).
 26. A effect-carrying parameter must be `self` or `ctx`, at most one of each
     (Section 10.2). A type is effect-carrying if it is a type variable with a
-    effect bound, or any type mentioning one. A `context` expression is the only
+    effect bound, a type that implements an effect, or any type that can hand
+    one of those back — a type argument counts only in a position the
+    constructor can hand back, which is why `fn(C, A) => B` and a constructor
+    storing only such functions are data. A `context` expression is the only
     construct in which more than one effect-carrying value may appear.
 27. `effect` declarations may appear only in platform modules, and no type may
     implement both an effect and a trait. An effect-carrying type satisfies no

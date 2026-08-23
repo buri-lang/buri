@@ -10,15 +10,29 @@
 //! ```
 //!
 //! The difference is where an argument *is*. Cranelift builds a value list and
-//! lets its register allocator place it; this backend has no register
-//! allocator at the call boundary and a stencil cannot take eight independent
-//! offsets without becoming eight thousand stencils, so the arguments are
-//! copied into a **contiguous scratch area** with the ordinary `mov` and `imm`
-//! stencils, and one `crt` stencil reads them off consecutively into `x0`–`x7`
-//! and `d0`–`d1`. `sources.rs::runtime_calls` is the other half of that
-//! sentence.
+//! lets its register allocator place it; this backend has no register allocator
+//! at the call boundary, so where an argument is has to be spelled in the
+//! stencil. There are two families for that and [`Jit::c_call_to`] picks
+//! between them per call site:
 //!
-//! Writing the arguments out to memory before a call is not a cost this
+//! * **`crts`, the slots family** — one frame-offset hole per argument, which
+//!   `extract::fold_addressing` puts in the `imm12` of the load that uses it.
+//!   An argument that is already a whole frame word costs one instruction and
+//!   no store at all. This is the one taken whenever every offset the call
+//!   names fits that field;
+//! * **`crt`, the array family** — the arguments copied into a **contiguous
+//!   scratch area** with the ordinary `mov` and `imm` stencils, and one stencil
+//!   reading them off consecutively into `x0`–`x7` and `d0`–`d1`. A folded
+//!   `imm12` reaches 32 KiB into a frame and this is what a wider frame still
+//!   uses.
+//!
+//! Both are `(integers, doubles, result)` and nothing else — the cross product
+//! `sources.rs`'s header rejects is over operand *kinds*, and every argument of
+//! either family is a slot. An operand that is not already a frame word — a
+//! literal, a narrow field, an address, a glue symbol — is materialised into
+//! the scratch area first in **both**, and read from there.
+//!
+//! Writing such an argument out to memory before a call is not a cost this
 //! convention pays extra: a Buri call already writes its arguments into the
 //! callee's frame, and this is the same store to a different address.
 
@@ -31,10 +45,14 @@
               can exceed it and no sum of two of them can wrap"
 )]
 
+// How many integer and float registers a call may use: the widest `crt` shape
+// the stencil library holds, read from `abi.rs` — the one file the library
+// builder and this emitter both compile — rather than written down twice.
+use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Fn2, Jit, V};
 use super::runtime::{Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{EnumRepr, Repr};
+use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::Ty;
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
@@ -44,11 +62,6 @@ use crate::compiler::semantics::types::Ty;
 /// their own temporaries (`lists.rs` §"the scratch words"), so that a runtime
 /// call in the middle of a loop does not tread on the loop's index.
 pub const CARG_WORD: u32 = 16;
-
-/// How many integer and float registers a call may use, mirroring the widest
-/// `crt` shape the stencil library holds.
-const MAX_INT: usize = 8;
-const MAX_FLOAT: usize = 2;
 
 /// The scratch word a fallible entry's discriminant lands in.
 ///
@@ -69,13 +82,14 @@ pub(crate) const RAW_WORD: u32 = SPARE_WORD + 1;
 
 /// One scalar of a flattened Buri value: where it is in the frame and how wide.
 #[derive(Clone, Copy)]
-struct Leaf {
+pub(crate) struct Leaf {
     offset: u32,
     width: u32,
     float: bool,
 }
 
 /// What goes into one C argument register.
+#[derive(Clone)]
 pub(crate) enum Src {
     /// The word at a frame offset, already whole.
     Word(u32),
@@ -85,6 +99,8 @@ pub(crate) enum Src {
     Imm(u64),
     /// The address of a frame offset.
     Addr(u32),
+    /// The address of a function this unit generated (`glue.rs`).
+    Sym(String),
 }
 
 /// `Str` is `{ base, ptr, len }` (VALUE-MODEL.md §3), and bit 63 of `len` is
@@ -142,20 +158,14 @@ impl Jit<'_> {
             };
             let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
             ints.push(Src::Imm(stride));
-            // The retain glue of `lib.rs` §2 rule 4. A null pointer is the
-            // right answer for an element that owns no counted block, and the
-            // only one this backend can give for an element that does: the
-            // glue is a C-ABI function this backend does not yet emit, and a
-            // null where one was needed would be a leak rather than a
-            // diagnostic. So the refusal is here.
-            if matches!(self.layouts_of(elem.clone()).repr, Repr::Str | Repr::List) {
-                return Err(format!(
-                    "{}: a `[T]` whose element carries a reference count needs \
-                     the per-element retain glue",
-                    entry.key
-                ));
+            // The retain glue of `lib.rs` §2 rule 4: the per-element function
+            // that increfs whatever counted pointers one element holds, and a
+            // **null** pointer for an element type that holds none — which is
+            // the common case and what the runtime tests for.
+            match self.element_glue(elem) {
+                Some(name) => ints.push(Src::Sym(name)),
+                None => ints.push(Src::Imm(0)),
             }
-            ints.push(Src::Imm(0));
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
@@ -185,8 +195,49 @@ impl Jit<'_> {
                 }
                 None
             }
-            Ret::Res => return Err(format!("{}: the `Res` result shape", entry.key)),
-            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Tag => None,
+            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Tag | Ret::Res => None,
+        };
+
+        // `lib.rs` §2.1's `Result<T, E>`: `.Ok`'s payload through an
+        // out-pointer where it has bytes, and then **`E`'s own shape** decides
+        // the failure side. An enum error is named by the discriminant's index;
+        // anything else — `bytes.fromUtf8`'s `Utf8Error(Int)` — is a value with
+        // one place to go, so it goes through a second out-pointer and the
+        // discriminant carries nothing but "it failed". Which of the two is not
+        // a column in the table and must not be: it is a fact the type already
+        // makes, and a column could disagree with it.
+        let res = match entry.ret {
+            Ret::Res => {
+                let Some((_, dty)) = dest else {
+                    return Err(format!("{}: no destination", entry.key));
+                };
+                let ir::Type::Agg(id) = dty else {
+                    return Err(format!("{}: a `Result` destination that is not one", entry.key));
+                };
+                let l = self.layout_of(prog, id);
+                let Some((ok, err, err_ty)) = self.result_shape(prog, dty) else {
+                    return Err(format!("{}: a `Result` destination that is not one", entry.key));
+                };
+                let err_l = self.layouts_of(err_ty.clone());
+                let ok_bytes = self.ok_payload_bytes(prog, dty, ok);
+                if !l.variant(ok).is_empty() && ok_bytes > 0 {
+                    ints.push(Src::Addr(dslot + super::lists::payload_at(&l, ok)));
+                }
+                // `E`'s own shape, as one question: an enum error is named by
+                // its tag's width, and anything else has none and goes through
+                // a second out-pointer instead.
+                let tag_w = match &err_l.repr {
+                    Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
+                    | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => Some(tag.size()),
+                    _ => None,
+                };
+                let err_at = super::lists::payload_at(&l, err);
+                if tag_w.is_none() && err_l.size > 0 {
+                    ints.push(Src::Addr(dslot + err_at));
+                }
+                Some((l, ok, err, err_at, tag_w, err_l.size))
+            }
+            _ => None,
         };
 
         // The result's register shape, which is the destination's own except
@@ -197,7 +248,7 @@ impl Jit<'_> {
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
             // store below.
-            Ret::Opt | Ret::Tag => "w",
+            Ret::Opt | Ret::Tag | Ret::Res => "w",
             Ret::Scalar => {
                 let Some((_, dty)) = dest else {
                     return Err(format!("{}: no destination", entry.key));
@@ -208,7 +259,6 @@ impl Jit<'_> {
                 };
                 scalar_kind(one)
             }
-            Ret::Res => return Err(format!("{}: the `Res` result", entry.key)),
         };
 
         // A `Tag` whose destination is an aggregate has to land at the tag's
@@ -227,7 +277,7 @@ impl Jit<'_> {
             }
             _ => None,
         };
-        let into = if opt.is_some() || narrow.is_some() {
+        let into = if opt.is_some() || narrow.is_some() || res.is_some() {
             st.scratch + DISC_WORD * 8
         } else {
             dslot
@@ -239,7 +289,97 @@ impl Jit<'_> {
         if let Some(w) = narrow {
             self.store_w(dslot, into, w);
         }
+        if let Some((l, ok, err, err_at, tag_w, err_size)) = res {
+            self.store_result_tag(st, dslot, &l, ok, err, err_at, tag_w, err_size);
+        }
         Ok(())
+    }
+
+    /// `.Ok`'s discriminant or `.Err`'s, once a `Ret::Res` entry has answered.
+    ///
+    /// Both payloads are already where they belong — the runtime wrote them
+    /// through the out-pointers — so what is left is the label, and on the
+    /// failure side of an *enum* error the variant index the discriminant is.
+    ///
+    /// The backend cannot enforce `lib.rs` §2.1's "the variant it names carries
+    /// no fields": `n` is a register. So the error's payload area is **zeroed**,
+    /// which makes an entry that broke the promise produce an empty payload —
+    /// wrong, and safely wrong — rather than a reference count on whatever the
+    /// frame held. `cranelift/emit.rs::store_variant_index` zeroes the same
+    /// bytes for the same reason.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one `Result` destination's shape, read off two layouts by the \
+                  caller that already had both in hand"
+    )]
+    fn store_result_tag(
+        &mut self,
+        st: &mut Fn2,
+        dslot: u32,
+        l: &Layout,
+        ok: usize,
+        err: usize,
+        err_at: u32,
+        tag_w: Option<u32>,
+        err_size: u32,
+    ) {
+        let disc = st.scratch + DISC_WORD * 8;
+        let bad = st.label();
+        let done = st.label();
+        // `BURI_OK` is `-1` as an `i32`, and the `w` result shape put it in the
+        // slot zero-extended, so the comparison is against its unsigned form.
+        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(disc))),
+                ("JIT_K", V::I(u64::from(BURI_OK as u32))),
+                ("JIT_T", V::Fall),
+                ("JIT_F", V::Blk(bad)),
+            ],
+        );
+        self.store_disc(l, dslot, ok);
+        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        let here = self.region.code_addr();
+        st.place(bad, here);
+        if let Some(w) = tag_w {
+            let mut off = 0u32;
+            while off + 8 <= err_size {
+                self.imm_to(dslot + err_at + off, 0);
+                off += 8;
+            }
+            while off < err_size {
+                self.imm_w(dslot + err_at + off, 1, 0);
+                off += 1;
+            }
+            // The index is the discriminant itself, at the error enum's own tag
+            // width — one store at offset zero, because `middle/layout.rs`
+            // gives a niche only to `Option<T>`.
+            self.store_w(dslot + err_at, disc, w);
+        }
+        self.store_disc(l, dslot, err);
+        let here = self.region.code_addr();
+        st.place(done, here);
+    }
+
+    /// `(the `.Ok` variant, the `.Err` variant, `E`)` for a `Result`
+    /// destination.
+    fn result_shape(&mut self, prog: &ir::Program, dty: ir::Type) -> Option<(usize, usize, Ty)> {
+        let Some(Ty::Con(id, args)) = source_ty(prog, dty) else { return None };
+        let variants = self.tables.tycon(id).variants();
+        let ok = variants.iter().position(|v| v.name == "Ok")?;
+        let err = variants.iter().position(|v| v.name == "Err")?;
+        let err_ty = args.get(err)?.clone();
+        Some((ok, err, err_ty))
+    }
+
+    /// How many bytes `.Ok`'s payload occupies, from `T` rather than from the
+    /// enum: a variant records *where* a field is and never how big it is, and
+    /// `Result<(), E>` has a field of no size.
+    fn ok_payload_bytes(&mut self, prog: &ir::Program, dty: ir::Type, ok: usize) -> u32 {
+        let Some(Ty::Con(_, args)) = source_ty(prog, dty) else { return 0 };
+        let Some(payload) = args.get(ok).cloned() else { return 0 };
+        self.layouts_of(payload).size
     }
 
     /// One C call: the arguments into the scratch area, then the `crt` stencil
@@ -261,6 +401,42 @@ impl Jit<'_> {
         dslot: u32,
         kind: &str,
     ) -> Result<(), String> {
+        self.c_call_to(V::Ext(symbol), symbol, st, ints, floats, dslot, kind)
+    }
+
+    /// [`Jit::c_call`] to a function **this unit generated** (`glue.rs`), whose
+    /// name is chosen at emission time and so cannot be a `&'static str`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one call's shape, as `c_call`'s, plus the symbol by value"
+    )]
+    pub(crate) fn c_call_sym(
+        &mut self,
+        symbol: String,
+        st: &Fn2,
+        ints: &[Src],
+        floats: &[Src],
+        dslot: u32,
+        kind: &str,
+    ) -> Result<(), String> {
+        self.c_call_to(V::Sym(symbol.clone()), &symbol, st, ints, floats, dslot, kind)
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one call's shape, and the callee twice: once as the hole's \
+                  value and once as the name a refusal would print"
+    )]
+    fn c_call_to(
+        &mut self,
+        callee_v: V,
+        symbol: &str,
+        st: &Fn2,
+        ints: &[Src],
+        floats: &[Src],
+        dslot: u32,
+        kind: &str,
+    ) -> Result<(), String> {
         if ints.len() > MAX_INT || floats.len() > MAX_FLOAT {
             return Err(format!(
                 "{symbol}: {} integer and {} float arguments, past what a `crt` stencil holds",
@@ -270,24 +446,78 @@ impl Jit<'_> {
         }
         let base = st.scratch + CARG_WORD * 8;
         let fbase = base + MAX_INT as u32 * 8;
+        let callee = super::abi::rt_callee(ints.len(), floats.len(), kind);
+
+        // Where each argument will be **read from**. An operand that is already
+        // a whole frame word is read where it lies; everything else — a literal,
+        // a narrow field, an address, a glue symbol — is materialised into the
+        // scratch area first, exactly as it always was, and read from there.
+        let place = |i: usize, at: u32, src: &Src| match src {
+            Src::Word(from) => *from,
+            _ => at + i as u32 * 8,
+        };
+        let iat: Vec<u32> =
+            ints.iter().enumerate().map(|(i, s)| place(i, base, s)).collect();
+        let fat: Vec<u32> =
+            floats.iter().enumerate().map(|(i, s)| place(i, fbase, s)).collect();
+
+        // The slots family is the fast one and the array family is the fallback,
+        // and the question that decides is whether every offset fits the field
+        // the fold puts it in. `Jit::emit` takes a folded twin only when *all*
+        // of its `imm12` holes fit, so a single offset past 32 KiB would leave
+        // the whole call materialising an offset per argument — worse than the
+        // form it replaced. Asking here instead makes that case the array one.
+        let fits = |o: &u32| o.is_multiple_of(8) && u64::from(*o) / 8 < 4096;
+        let dfits = kind == "v" || fits(&dslot);
+        if self.slots_crt_available() && dfits && iat.iter().chain(&fat).all(fits) {
+            for (src, at) in ints.iter().zip(&iat).chain(floats.iter().zip(&fat)) {
+                if !matches!(src, Src::Word(_)) {
+                    self.marshal(*at, src);
+                }
+            }
+            let mut binds: Vec<(String, V)> = Vec::new();
+            for (i, at) in iat.iter().enumerate() {
+                binds.push((super::abi::rt_slot(i), V::I(u64::from(*at))));
+            }
+            for (i, at) in fat.iter().enumerate() {
+                binds.push((super::abi::rt_float_slot(i), V::I(u64::from(*at))));
+            }
+            binds.push((String::from("JIT_D"), V::I(u64::from(dslot))));
+            binds.push((callee.clone(), callee_v));
+            binds.push((String::from("JIT_CONT0"), V::Fall));
+            let refs: Vec<(&str, V)> =
+                binds.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+            self.emit(&format!("crts/{}/{}/{kind}", ints.len(), floats.len()), &refs);
+            return Ok(());
+        }
+
         for (i, src) in ints.iter().enumerate() {
             self.marshal(base + i as u32 * 8, src);
         }
         for (i, src) in floats.iter().enumerate() {
             self.marshal(fbase + i as u32 * 8, src);
         }
-        let callee = super::abi::rt_callee(ints.len(), floats.len(), kind);
         self.emit(
             &format!("crt/{}/{}/{kind}", ints.len(), floats.len()),
             &[
                 ("JIT_A", V::I(u64::from(base))),
                 ("JIT_B", V::I(u64::from(fbase))),
                 ("JIT_D", V::I(u64::from(dslot))),
-                (&callee, V::Ext(symbol)),
+                (&callee, callee_v),
                 ("JIT_CONT0", V::Fall),
             ],
         );
         Ok(())
+    }
+
+    /// Whether the slots-only `crt` family may be used at all.
+    ///
+    /// Always, in the repository. It is a function rather than a constant so
+    /// that a measurement copy can ablate it in one place and price the family
+    /// against exactly the code it replaced; nothing in the product reads an
+    /// environment variable here.
+    fn slots_crt_available(&self) -> bool {
+        true
     }
 
     /// A borrowed `Str`'s bytes, as the `(ptr, len)` pair `lib.rs` §2 rule 1
@@ -310,12 +540,28 @@ impl Jit<'_> {
         (Src::Word(slot + STR_PTR), Src::Word(scratch))
     }
 
+    /// The per-element retain glue for an element type, or `None` where the
+    /// element owns no counted block — which is what `cli/runtime/list.rs`
+    /// reads a null pointer as.
+    pub(crate) fn element_glue(&mut self, elem: Ty) -> Option<String> {
+        self.rc_counted(&elem)
+            .then(|| self.helper(super::glue::Helper::Walk { ty: elem, retain: true }))
+    }
+
     /// One argument into its place in the scratch area.
     pub(crate) fn marshal(&mut self, at: u32, src: &Src) {
-        match *src {
+        match src.clone() {
             Src::Word(from) => self.mv(at, from, 8),
             Src::Narrow(from, w) => self.load_w(at, from, w),
             Src::Imm(v) => self.imm_to(at, v),
+            Src::Sym(name) => self.emit(
+                "imm/64",
+                &[
+                    ("JIT_D", V::I(u64::from(at))),
+                    ("JIT_M", V::Sym(name)),
+                    ("JIT_CONT", V::Fall),
+                ],
+            ),
             Src::Addr(from) => self.emit(
                 "lea",
                 &[
@@ -637,6 +883,36 @@ impl Jit<'_> {
                     "v",
                 )
             }
+            // Every integer wider than an `i64`, through the runtime's own
+            // 128-bit decimal. A `U64` above `i64::MAX` is one of them: it is
+            // not an `i64` and `buri_rt_str_from_int` would render it negative,
+            // so it goes across as a `u128` whose high half is zero rather than
+            // through a signed parameter it does not fit.
+            Prim::U64 => self.c_call(
+                "buri_rt_show_u128",
+                st,
+                &[Src::Word(src), Src::Imm(0), Src::Addr(dest)],
+                &[],
+                dest,
+                "v",
+            ),
+            Prim::I128 | Prim::U128 => {
+                let symbol =
+                    if prim == Prim::I128 { "buri_rt_show_i128" } else { "buri_rt_show_u128" };
+                self.c_call(
+                    symbol,
+                    st,
+                    &[Src::Word(src), Src::Word(src + 8), Src::Addr(dest)],
+                    &[],
+                    dest,
+                    "v",
+                )
+            }
+            // `F32` is not here, and it is a marshalling question rather than a
+            // gap: a `crt` stencil declares every float parameter `double`, and
+            // an `F32` sits in its slot as its own thirty-two bits — so the
+            // shape `buri_rt_show_f32` wants is one this call boundary does not
+            // have. Widening first would render the `F64` and not the `F32`.
             other => Err(format!("rendering a `{}`", other.name())),
         }
     }

@@ -31,6 +31,11 @@ pub mod protogen;
 pub mod protoschema;
 pub mod regenerate;
 pub mod session;
+/// SHA-256. Its own file, and not a private one, because `cli/build.rs`
+/// `#[path]`-includes it: the digests of the blobs the build script embeds are
+/// taken where the bytes are written, and a build script cannot use the crate
+/// it builds. `cache` re-exports it, so nothing else spells this path.
+pub mod sha256;
 pub mod spawn;
 pub mod textproto;
 pub mod workspace;

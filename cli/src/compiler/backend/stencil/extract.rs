@@ -36,10 +36,45 @@
               than trusted"
 )]
 
+use super::elfobj as elf;
 use super::machobj as macho;
-use super::stencil::{Hole, HoleKind, Site, SiteKind, Stencil};
+use super::library::{Hole, HoleKind, Site, SiteKind, Stencil};
 
 const NOP: u32 = 0xd503_201f;
+
+// ---------------------------------------------------------------------------
+// The container-neutral hand-over
+// ---------------------------------------------------------------------------
+//
+// Two object formats carry the same stencils. Mach-O and ELF disagree about
+// how a relocation record is spelled, how a symbol is mangled and how a
+// function's extent is known, and about nothing else: below this boundary the
+// bytes are arm64 either way and every rewrite in this file reads them as
+// arm64. So each reader answers a [`RawFn`] and the whole of the rest of the
+// file is shared, which is the property that makes the linux-arm64 stencils the
+// *same* stencils as the macos-arm64 ones rather than a second set to keep in
+// step.
+
+/// One relocation record, after the container's own vocabulary has been
+/// translated into the one `library.rs` speaks.
+pub struct RawSite {
+    /// Byte offset within the body.
+    pub off: u32,
+    pub hole: HoleKind,
+    pub site: SiteKind,
+    /// The hole's name as the emitter spells it: `JIT_A`, or a plain C
+    /// identifier for a runtime symbol.
+    pub name: String,
+}
+
+/// One `st_*` function, with its body already cut to size and its relocation
+/// records already rebased onto it.
+pub struct RawFn {
+    pub name: String,
+    pub code: Vec<u8>,
+    /// Sorted by `off`, which every rewrite below relies on.
+    pub sites: Vec<RawSite>,
+}
 
 /// The instruction at byte offset `o`, or `None` when the body ends first.
 fn word(b: &[u8], o: usize) -> Option<u32> {
@@ -71,17 +106,17 @@ fn reloc_words(s: &Stencil, words: usize) -> Option<Vec<bool>> {
     Some(v)
 }
 
-/// Turns one clang-compiled object into stencils, one per exported function
-/// whose name starts with `st_`.
+/// Turns one clang-compiled **Mach-O** object into stencils, one per exported
+/// function whose name starts with `st_`.
 pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
     if let Some((n, sz)) = obj.other_sections.first() {
         return Err(format!(
             "a stencil spilled {sz} bytes into {n}; every constant must be a hole"
         ));
     }
-    let mut out = Vec::new();
+    let mut raws = Vec::new();
     for (name, start, end) in macho::functions(obj) {
-        let sname = name.trim_start_matches('_');
+        let sname = name.strip_prefix('_').unwrap_or(&name);
         if !sname.starts_with("st_") {
             continue;
         }
@@ -89,19 +124,152 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
             return Err(format!("{sname}: {start:#x}..{end:#x} is outside __text"));
         };
         let mut code = body.to_vec();
-        // Trailing alignment padding, which `.p2align` fills with nops.
+        // Trailing alignment padding, which `.p2align` fills with nops. Mach-O
+        // has no `st_size`, so a body's extent is the next symbol's start and
+        // the padding is inside it; the ELF reader is handed the exact length
+        // and has nothing to trim.
         while code.len() >= 4
             && word(&code, code.len() - 4).is_some_and(|w| w == NOP || w == 0)
         {
             code.truncate(code.len() - 4);
         }
-        let mut sites: Vec<(u32, u8, u32)> = obj
+        let mut sites: Vec<RawSite> = Vec::new();
+        for r in obj.text_relocs.iter().filter(|r| {
+            (r.addr as usize) >= start && ((r.addr as usize) < start + code.len())
+        }) {
+            let sym = obj
+                .syms
+                .get(r.symbolnum as usize)
+                .ok_or_else(|| format!("{sname}: relocation names symbol {}", r.symbolnum))?;
+            let (hole, site) = match r.kind {
+                macho::ARM64_RELOC_BRANCH26 => (HoleKind::Branch, SiteKind::Branch26),
+                macho::ARM64_RELOC_PAGE21 => (HoleKind::Imm32, SiteKind::Adrp),
+                macho::ARM64_RELOC_PAGEOFF12 => (HoleKind::Imm32, SiteKind::AddLo12),
+                macho::ARM64_RELOC_GOT_LOAD_PAGE21 => (HoleKind::Imm64, SiteKind::GotAdrp),
+                macho::ARM64_RELOC_GOT_LOAD_PAGEOFF12 => (HoleKind::Imm64, SiteKind::GotLdr),
+                other => {
+                    return Err(format!("{sname}: unhandled arm64 relocation type {other}"))
+                }
+            };
+            sites.push(RawSite {
+                off: r.addr - start as u32,
+                hole,
+                site,
+                name: macho_hole_name(&sym.name),
+            });
+        }
+        sites.sort_by_key(|s| s.off);
+        raws.push(RawFn { name: sname.to_string(), code, sites });
+    }
+    finish_arm64(raws)
+}
+
+/// The emitter's spelling of a hole, from a Mach-O symbol name.
+///
+/// **One** underscore is Mach-O's C mangling, and what is under it is the C
+/// name. A hole is declared `_JIT_A` in the generated C, so its C name has a
+/// second one and the emitter's hole names have neither; every other symbol
+/// here is a plain C identifier and keeps whatever underscores it was written
+/// with. Stripping the run turned `___divti3` — compiler-rt's, which a 128-bit
+/// divide used to reach — into `divti3`, a symbol nothing defines.
+///
+/// ELF does not mangle at all, which is why this is the Mach-O reader's
+/// business and not the shared finisher's.
+fn macho_hole_name(sym: &str) -> String {
+    let c = sym.strip_prefix('_').unwrap_or(sym);
+    match c.strip_prefix("_JIT_") {
+        Some(rest) => format!("JIT_{rest}"),
+        None => c.to_string(),
+    }
+}
+
+/// Turns one clang-compiled **ELF/aarch64** object into stencils.
+///
+/// The relocation vocabulary is one-to-one with Mach-O's — the AArch64 ELF
+/// psABI splits `BRANCH26` into `JUMP26` and `CALL26` by instruction, and
+/// otherwise names the same five fields — so the stencils this answers are the
+/// same stencils [`extract`] answers for the same C. `sources.rs`'s
+/// `linux-arm64` library is verified against the `macos-arm64` one on exactly
+/// that claim.
+pub fn extract_elf_arm64(obj: &elf::Obj) -> Result<Vec<Stencil>, String> {
+    if obj.machine != elf::EM_AARCH64 {
+        return Err(format!("expected an aarch64 ELF object, got machine {}", obj.machine));
+    }
+    if let Some((n, sz, _)) = obj.other_sections.first() {
+        return Err(format!(
+            "a stencil spilled {sz} bytes into {n}; every constant must be a hole"
+        ));
+    }
+    let mut raws = Vec::new();
+    for (sname, start, end) in elf::functions(obj) {
+        if !sname.starts_with("st_") {
+            continue;
+        }
+        let Some(body) = obj.text.get(start..end) else {
+            return Err(format!("{sname}: {start:#x}..{end:#x} is outside .text"));
+        };
+        let code = body.to_vec();
+        let mut sites: Vec<RawSite> = Vec::new();
+        for r in obj
             .text_relocs
             .iter()
-            .filter(|r| (r.addr as usize) >= start && ((r.addr as usize) < start + code.len()))
-            .map(|r| (r.addr - start as u32, r.kind, r.symbolnum))
-            .collect();
-        sites.sort_by_key(|(a, _, _)| *a);
+            .filter(|r| (r.addr as usize) >= start && ((r.addr as usize) < end))
+        {
+            let sym = obj
+                .syms
+                .get(r.symbolnum as usize)
+                .ok_or_else(|| format!("{sname}: relocation names symbol {}", r.symbolnum))?;
+            let (hole, site) = match r.kind {
+                elf::R_AARCH64_JUMP26 | elf::R_AARCH64_CALL26 => {
+                    (HoleKind::Branch, SiteKind::Branch26)
+                }
+                elf::R_AARCH64_ADR_PREL_PG_HI21 => (HoleKind::Imm32, SiteKind::Adrp),
+                elf::R_AARCH64_ADD_ABS_LO12_NC => (HoleKind::Imm32, SiteKind::AddLo12),
+                elf::R_AARCH64_ADR_GOT_PAGE => (HoleKind::Imm64, SiteKind::GotAdrp),
+                elf::R_AARCH64_LD64_GOT_LO12_NC => (HoleKind::Imm64, SiteKind::GotLdr),
+                other => {
+                    return Err(format!("{sname}: unhandled aarch64 ELF relocation type {other}"))
+                }
+            };
+            // Every one of these kinds takes its value from the symbol alone.
+            // A non-zero addend would displace a field this file is about to
+            // rewrite into a `movz`/`movk` pair that has nowhere to carry it,
+            // so it is refused rather than dropped.
+            if r.addend != 0 {
+                return Err(format!(
+                    "{sname}+{:#x}: relocation against {} has addend {}, which a hole cannot carry",
+                    r.addr - start as u32,
+                    sym.name,
+                    r.addend
+                ));
+            }
+            sites.push(RawSite {
+                off: r.addr - start as u32,
+                hole,
+                site,
+                name: sym.name.strip_prefix("_JIT_").map_or_else(
+                    || sym.name.clone(),
+                    |rest| format!("JIT_{rest}"),
+                ),
+            });
+        }
+        sites.sort_by_key(|s| s.off);
+        raws.push(RawFn { name: sname.clone(), code, sites });
+    }
+    finish_arm64(raws)
+}
+
+/// Everything below the container: the arm64 half of extraction.
+///
+/// The dead-clear trim, the shape checks, the `adrp`/low-12 pairing, the tail
+/// branch and `strip_dead_clears` all read the body as A64 instructions, so
+/// they are shared by both readers and neither format appears below this line.
+fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
+    let mut out = Vec::new();
+    for raw in raws {
+        let sname = raw.name;
+        let mut code = raw.code;
+        let mut sites = raw.sites;
 
         // Clang zeroes the scratch registers it used for `adrp` pairs just
         // before a tail call. They are caller-saved, unused by the
@@ -113,25 +281,11 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
         }
 
         let mut holes: Vec<Hole> = Vec::new();
-        for (off, kind, symnum) in &sites {
-            let sym = obj
-                .syms
-                .get(*symnum as usize)
-                .ok_or_else(|| format!("{sname}: relocation names symbol {symnum}"))?;
-            let hname = sym.name.trim_start_matches('_').to_string();
-            let (hk, sk) = match *kind {
-                macho::ARM64_RELOC_BRANCH26 => (HoleKind::Branch, SiteKind::Branch26),
-                macho::ARM64_RELOC_PAGE21 => (HoleKind::Imm32, SiteKind::Adrp),
-                macho::ARM64_RELOC_PAGEOFF12 => (HoleKind::Imm32, SiteKind::AddLo12),
-                macho::ARM64_RELOC_GOT_LOAD_PAGE21 => (HoleKind::Imm64, SiteKind::GotAdrp),
-                macho::ARM64_RELOC_GOT_LOAD_PAGEOFF12 => (HoleKind::Imm64, SiteKind::GotLdr),
-                other => {
-                    return Err(format!("{sname}: unhandled arm64 relocation type {other}"))
-                }
-            };
+        for RawSite { off, hole: hk, site: sk, name: hname } in &sites {
+            let (off, hk, sk, hname) = (*off, *hk, *sk, hname.clone());
             // Shape checks, so that a clang that stopped emitting the expected
             // pair fails here rather than at run time in patched machine code.
-            let Some(w) = word(&code, *off as usize) else {
+            let Some(w) = word(&code, off as usize) else {
                 return Err(format!("{sname}+{off:#x}: relocation is outside the body"));
             };
             match sk {
@@ -159,9 +313,20 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
                     }
                 }
                 // No relocation type above maps to `Cond19`: the cond fold is
-                // what makes one, and it runs long after this.
+                // what makes one, and it runs long after this. The three
+                // x86-64 kinds cannot reach here at all — `x86.rs` is the
+                // other finisher — and saying so is cheaper than a wildcard
+                // that would swallow a fourth arm added later.
                 SiteKind::Cond19 => {
                     return Err(format!("{sname}+{off:#x}: a relocation named a Cond19 site"));
+                }
+                SiteKind::LeaPc32
+                | SiteKind::GotPc32
+                | SiteKind::Rel32
+                | SiteKind::CondRel32 => {
+                    return Err(format!(
+                        "{sname}+{off:#x}: an x86-64 site reached the arm64 extractor"
+                    ));
                 }
             }
             match holes.iter_mut().find(|h| h.name == hname) {
@@ -169,12 +334,12 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
                     if h.kind != hk {
                         return Err(format!("{sname}: hole {hname} has two kinds"));
                     }
-                    h.sites.push(Site { off: *off, kind: sk });
+                    h.sites.push(Site { off, kind: sk });
                 }
                 None => holes.push(Hole {
                     name: hname,
                     kind: hk,
-                    sites: vec![Site { off: *off, kind: sk }],
+                    sites: vec![Site { off, kind: sk }],
                     pairs: Vec::new(),
                     branches: Vec::new(),
                     conds: Vec::new(),
@@ -208,6 +373,14 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
                     }
                     SiteKind::Branch26 => h.branches.push(s.off),
                     SiteKind::Cond19 => h.conds.push(s.off),
+                    SiteKind::LeaPc32
+                    | SiteKind::GotPc32
+                    | SiteKind::Rel32
+                    | SiteKind::CondRel32 => {
+                        return Err(format!(
+                            "{sname}: an x86-64 site reached the arm64 extractor"
+                        ));
+                    }
                 }
             }
             if !pending.is_empty() {
@@ -227,7 +400,7 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
         } else {
             None
         };
-        let st = Stencil { name: sname.to_string(), code, holes, tail };
+        let st = Stencil { name: sname.clone(), code, holes, tail };
         out.push(strip_dead_clears(&st).unwrap_or(st));
     }
     Ok(out)
@@ -392,11 +565,37 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
 /// they are not in the continuation's prototype, and LLVM emitted them
 /// precisely because it had already proved them dead. Dropping them is worth
 /// three instructions in the inner loop of the prime kernel alone.
+///
+/// # The argument registers, on a stencil that ends in `_JIT_CONT0`
+///
+/// A stencil with the **zero-register** prototype passes its continuation the
+/// frame pointer and nothing else, and clang clears the argument registers it
+/// used — `x1`–`x7` — before the `b`, for the same reason it clears `x8`–`x17`:
+/// they are not parameters of the callee and it has proved them dead. On a
+/// runtime call that was **five instructions** after the `bl`, on every call,
+/// and they are strippable for a reason this backend states rather than
+/// inherits: `jit.rs::is_barrier` already treats every zero-register stencil as
+/// clobbering the whole CPS register file, so nothing downstream may read
+/// `x1`–`x7` across one. The zeroes are dead by the convention, not merely by
+/// LLVM's analysis of one function.
+///
+/// The narrower rule for a stencil that continues to `_JIT_CONT` is kept, and
+/// it has to be: there `x1`–`x3` *are* the continuation's `r0`–`r2`, so a
+/// `movz x1, #0` can be a value the next stencil reads. Which prototype a
+/// stencil has is read off the name of its tail hole, which is the one place
+/// the two are distinguishable after extraction.
+///
+/// `x0` is never a candidate at either prototype: it is the frame pointer.
 pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
     let words = s.code.len() / 4;
     let mut code = words_of(&s.code)?;
     let reloc = reloc_words(s, words)?;
-    let is_clear = |w: u32| w & 0xffff_ffe0 == 0xd280_0000 && (8..=17).contains(&(w & 0x1f));
+    let zero_reg = s
+        .tail
+        .and_then(|t| s.holes.get(t))
+        .is_some_and(|h| h.name == "JIT_CONT0");
+    let lo = if zero_reg { 1 } else { 8 };
+    let is_clear = |w: u32| w & 0xffff_ffe0 == 0xd280_0000 && (lo..=17).contains(&(w & 0x1f));
     let mut dead = vec![false; words];
     for i in 0..words {
         let (Some(&is_reloc), Some(&w)) = (reloc.get(i), code.get(i)) else { continue };
@@ -513,7 +712,7 @@ pub fn fold_addressing(s: &Stencil) -> Option<Stencil> {
 
 /// Removes one trailing `movz Xn, #0` (n >= 8) sitting immediately before the
 /// body's last instruction. Answers whether it removed one.
-fn strip_dead_movs(code: &mut Vec<u8>, sites: &mut [(u32, u8, u32)]) -> bool {
+fn strip_dead_movs(code: &mut Vec<u8>, sites: &mut [RawSite]) -> bool {
     if code.len() < 8 {
         return false;
     }
@@ -524,13 +723,13 @@ fn strip_dead_movs(code: &mut Vec<u8>, sites: &mut [(u32, u8, u32)]) -> bool {
     if !is_zero_mov {
         return false;
     }
-    if sites.iter().any(|(o, _, _)| *o as usize == cand) {
+    if sites.iter().any(|s| s.off as usize == cand) {
         return false;
     }
     code.drain(cand..cand + 4);
-    for (o, _, _) in sites.iter_mut() {
-        if (*o as usize) > cand {
-            *o -= 4;
+    for s in sites.iter_mut() {
+        if (s.off as usize) > cand {
+            s.off -= 4;
         }
     }
     true

@@ -11,13 +11,13 @@
 //!   js/           always compiled in
 //!   cranelift/    behind `backend-cranelift`, on by default   (wave 2a)
 //!   llvm/         behind `backend-llvm`, off by default       (wave 2b)
-//!   cpjit/        behind `backend-cpjit`, on by default
+//!   stencil/      behind `backend-stencil`, on by default
 //! ```
 //!
-//! `cpjit` is compiled in and **not selected**: [`select`] still answers
+//! `stencil` is compiled in and **not selected**: [`select`] still answers
 //! `cranelift` for every native debug build. It is held to this file's traits
 //! so that the seat it is meant to take is a decision about parity rather than
-//! about plumbing, and `design/native/CODEGEN-CPJIT.md` §9 is the list that
+//! about plumbing, and `design/native/CODEGEN-STENCIL.md` §9 is the list that
 //! decision is waiting on.
 //!
 //! Design: `design/native/ARCHITECTURE.md` §3.
@@ -28,14 +28,14 @@ pub mod js;
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;
 
-#[cfg(feature = "backend-cpjit")]
-pub mod cpjit;
-
 #[cfg(feature = "backend-cranelift")]
 pub mod cranelift;
 
 #[cfg(feature = "backend-llvm")]
 pub mod llvm;
+
+#[cfg(feature = "backend-stencil")]
+pub mod stencil;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;

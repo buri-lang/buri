@@ -114,6 +114,14 @@
 //! `VALUE-MODEL.md` §10's runtime already follows, and a runtime function that
 //! wanted a count would be the thing that changed.
 //!
+//! The second of those is about a call's **arguments** and never about the
+//! closure it is made *through*. [`ir::Inst::CallIndirect`] loads `code`,
+//! passes `env` and returns; what frees an environment is the closure value's
+//! own drop, so a call **borrows** its callee. `child_modes` said otherwise and
+//! `collect_consuming` said this, and while the two disagreed every closure a
+//! program called leaked its environment —
+//! `tests::a_called_closure_is_not_consumed_by_the_call`.
+//!
 //! # Loops, which is where the counts are easiest to get wrong
 //!
 //! `middle::tail_calls` runs before this pass, so a tail-recursive function is
@@ -1346,6 +1354,50 @@ impl Scan<'_> {
         }
     }
 
+    /// The count a projection takes, and the temporary it takes it out of.
+    ///
+    /// Two cases, and only the second is new.
+    ///
+    /// * A base this function can still **name** — a local, or a projection
+    ///   chain down to one — is dropped by whoever owns that name, and
+    ///   [`Scan::project`] is what decides when. The projection's own value is
+    ///   an alias, so it needs a count only where the parent takes it.
+    ///
+    /// * A base that is **fresh** has no name and no owner: it is a value this
+    ///   expression built, holding counts it took on its way out of whatever
+    ///   built it, and the words this projection copies out of it are the only
+    ///   part of it anyone goes on to read. Nothing else can reach it, so it is
+    ///   released *here* — after the field it hands on has been increfed, so
+    ///   the count never touches zero in between. What the projection then
+    ///   holds is an owned reference with no name, which is what a temporary
+    ///   is, and [`fresh`] says so: a borrowing parent drops it through
+    ///   [`Scan::drop_temporary`] and an owning one takes it, exactly as for
+    ///   any other temporary.
+    ///
+    /// Without the release, **`crypto.sha256Text(ctx, "x").0` leaked the
+    /// digest's `[U8]` block.** A struct is a stack value in both backends
+    /// (this module's header, on reuse), so there was nothing to free the
+    /// aggregate; its one counted field was handed on carrying the count the
+    /// call had taken for it, and no site anywhere named the temporary the
+    /// field came out of. It is `crypto/sha256.buri`'s five live blocks, and
+    /// `a_projection_of_a_temporary_releases_it` is the plan.
+    ///
+    /// **Not a premature free.** The release only ever fires on a base
+    /// [`fresh`] answers for — a construction or a call result, never a
+    /// [`ExprKind::Local`] or an alias of one — so no name is left pointing at
+    /// what it frees, and the one field that outlives it was increfed on the
+    /// line above.
+    fn projected(&mut self, e: &Expr, base: &Expr, id: NodeId, bid: NodeId, mode: Mode) {
+        let takes = fresh(base);
+        if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) {
+            self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
+        }
+        if takes && self.counted_ty(&base.ty.clone()) {
+            self.push(id, Position::After, RcOp::DecRef, Target::Node(bid));
+        }
+        self.project(id, mode);
+    }
+
     /// The id of the `k`th child of the node at `id`, from the subtree sizes —
     /// the same preorder numbering `walk` assigns, so a site recorded here and
     /// a site read there name the same node.
@@ -1589,16 +1641,15 @@ impl Scan<'_> {
             }
             // A projection reads its base without taking it, which is the whole
             // of borrowing at the tree level. What it *produces* is a reference
-            // the parent still owns, so taking it needs a count of its own.
+            // the parent still owns, so taking it needs a count of its own —
+            // and where the base is a temporary, the base dies here.
+            // [`Scan::projected`] is both halves.
             ExprKind::Field { base, .. }
             | ExprKind::TupleIndex { base, .. }
             | ExprKind::CtxGet { base, .. } => {
                 let bid = self.child(id, 0);
                 let out = self.expr(base, bid, live, Mode::Borrow);
-                if mode == Mode::Own && self.counted_ty(&e.ty.clone()) {
-                    self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
-                }
-                self.project(id, mode);
+                self.projected(e, base, id, bid, mode);
                 out
             }
             ExprKind::Index { base, index, .. } => {
@@ -1606,10 +1657,7 @@ impl Scan<'_> {
                 let after = self.expr(index, iid, live, Mode::Borrow);
                 let bid = self.child(id, 0);
                 let out = self.expr(base, bid, &after, Mode::Borrow);
-                if mode == Mode::Own && self.counted_ty(&e.ty.clone()) {
-                    self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
-                }
-                self.project(id, mode);
+                self.projected(e, base, id, bid, mode);
                 out
             }
             _ => self.children(e, id, live),
@@ -1944,6 +1992,17 @@ fn fresh(e: &Expr) -> bool {
 }
 
 fn fresh_leaf(e: &Expr) -> bool {
+    // A projection is an alias, so it is a new reference exactly when its base
+    // is a temporary: [`Scan::projected`] increfs the field and releases the
+    // base there, and what comes out is an owned reference with no name.
+    // `mk().a.b` is the same statement twice, which is why this recurses.
+    if let ExprKind::Field { base, .. }
+    | ExprKind::TupleIndex { base, .. }
+    | ExprKind::CtxGet { base, .. }
+    | ExprKind::Index { base, .. } = &e.kind
+    {
+        return fresh(base);
+    }
     matches!(
         e.kind,
         ExprKind::CallFn { .. }
@@ -1978,10 +2037,33 @@ fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> {
         | ExprKind::StructUpdate { .. }
         // A closure environment is a construction over what it captured, which
         // is what `middle::closures` turned a `Lambda` into.
-        | ExprKind::Closure { .. }
+        | ExprKind::Closure { .. } => vec![Mode::Own; n],
         // A code pointer cannot carry a per-callee convention, so an indirect
-        // call owns what it is passed.
-        | ExprKind::CallValue { .. } => vec![Mode::Own; n],
+        // call owns what it is *passed* — and borrows what it is *reached
+        // through*.
+        //
+        // [`kids`] puts the callee first and the arguments after it, so the
+        // first mode is the closure value's and the rest are the arguments'.
+        // [`ir::Inst::CallIndirect`] is "load `code` and `env`, then
+        // `call_indirect`": the environment pointer is handed to the code and
+        // neither half of it is released there. What frees an environment is
+        // the closure *value*'s own drop — `cranelift::helpers`'s environment
+        // glue and `stencil::glue::EnvGlue` — so an `Own` here was a release
+        // nothing performed, and every closure that was ever called leaked its
+        // environment.
+        //
+        // [`collect_consuming`] has always said this: its `CallValue` arm
+        // consumes `args` and not `callee`, so ownership inference already
+        // treated a parameter that is only *called* as borrowed. The two
+        // functions describe one convention and now agree.
+        //
+        // `Borrow` on the callee is also what puts the drop back on a *fresh*
+        // one: `(fn(x) => x + n)(3)`, which `middle::inline` produces whenever
+        // it pastes a one-call higher-order function into its caller, is a
+        // borrowing child, so [`Scan::drop_temporary`] drops it after the call.
+        ExprKind::CallValue { .. } => (0..n)
+            .map(|k| if k == 0 { Mode::Borrow } else { Mode::Own })
+            .collect(),
         ExprKind::CallFn { func, .. } => {
             let row = func.func().and_then(|f| own.get(f.index()));
             (0..n)
@@ -3448,6 +3530,132 @@ export fn main(): Result<(), Str> {
                 "dec acc after n11",
                 "dec n3 after n11",
             ]
+        );
+    }
+
+    /// **Calling a closure does not consume it.**
+    ///
+    /// `child_modes` gave every child of an [`ExprKind::CallValue`] `Own`, and
+    /// [`kids`] puts the *callee* first — so the closure a call was made
+    /// through was treated as handed over to the call. Nothing on the other
+    /// side takes it: [`ir::Inst::CallIndirect`] is a load of `code` and a pass
+    /// of `env`, and what frees an environment is the closure value's own drop.
+    /// So every closure a program ever called leaked its environment, and a
+    /// closure it merely built and dropped did not — which is why the shape hid
+    /// in the corpus for two waves.
+    ///
+    /// `collect_consuming` had it right all along: its `CallValue` arm consumes
+    /// `args` and not `callee`. The two functions describe one convention and
+    /// disagreed about it.
+    ///
+    /// The plan for `twice`, before and after:
+    ///
+    /// ```text
+    /// before:  inc g after n5
+    /// after:   dec g after n7
+    /// ```
+    ///
+    /// — an increment with no decrement anywhere, against a drop at the last
+    /// use and no increment at all, because the first call no longer takes a
+    /// count it was never going to give back. This is
+    /// `codegen/tail_calls.buri`'s seventeen live blocks and
+    /// `semantics/evaluation.buri`'s twenty.
+    #[test]
+    fn a_called_closure_is_not_consumed_by_the_call() {
+        const SRC: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn twice<C: Alloc>(ctx: C, n: Int): Int {
+  let g: fn(Int) => Int = fn(x) => x + n;
+  g(100) + g(200)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${twice(ctx, 1)}");
+  .Ok(())
+}
+"#;
+        let program = compile_native(SRC);
+        let i = find(&program, "twice");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        // `n5` is the first call and `n7` the second. One drop, at the last
+        // use, and nothing else: a call reads the closure and gives it back.
+        assert_eq!(named_sites(&program, i, fp), vec!["dec g after n7"]);
+    }
+
+    /// **A projection of a temporary releases the temporary.**
+    ///
+    /// A struct is a stack value in both backends, so `mk(ctx).a` allocated
+    /// nothing for the `Pair` and everything for its two `[Str]` fields — and
+    /// the moment one field was copied out, the other had no name anywhere and
+    /// the copy carried the count `mk` had taken for it. `Scan::project` is
+    /// written for a base this function can *name*, whose owner decides when it
+    /// dies; a base with no name has no owner, so the projection is where it
+    /// dies.
+    ///
+    /// Two positions, because they fail differently:
+    ///
+    /// ```text
+    /// firstLen — borrowed by `len`   before: (nothing at all)
+    ///                                 after: dec n2 after n1
+    ///                                        inc n2 after n2
+    ///                                        dec n3 after n2
+    ///
+    /// keep     — returned            before: inc n1 after n1
+    ///                                 after: inc n1 after n1
+    ///                                        dec n2 after n1
+    /// ```
+    ///
+    /// The increment always precedes the release, so the field the projection
+    /// hands on never reaches zero in between; `keep`'s parent takes the
+    /// reference and `firstLen`'s borrows it, which is why only the second has
+    /// a drop of the projection itself. This is `crypto/sha256.buri`'s five
+    /// live blocks — `crypto.sha256Text(ctx, "x").0`, once per digest.
+    #[test]
+    fn a_projection_of_a_temporary_releases_it() {
+        const SRC: &str = r#"
+from "core/cap" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+struct Pair { a: [Str], b: [Str] }
+
+fn mk<C: Alloc>(ctx: C): Pair { Pair { a: ["x".repeat(ctx, 8)], b: ["y".repeat(ctx, 8)] } }
+
+export fn firstLen<C: Alloc>(ctx: C): Int { mk(ctx).a.len() }
+
+export fn keep<C: Alloc>(ctx: C): [Str] { mk(ctx).a }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${firstLen(ctx)} ${keep(ctx).len()}");
+  .Ok(())
+}
+"#;
+        let program = compile_native(SRC);
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+
+        // `n1` is `len`, `n2` the projection, `n3` the `mk` call: the field is
+        // increfed, the `Pair` released, and the borrowed projection dropped
+        // after the call that read it.
+        let i = find(&program, "firstLen");
+        assert_eq!(
+            named_sites(&program, i, plan.func(i).expect("a plan")),
+            vec!["dec n2 after n1", "inc n2 after n2", "dec n3 after n2"]
+        );
+
+        // Returned instead: `n1` is the projection and `n2` the `mk` call. The
+        // increment was already there — it is the release that was missing, and
+        // without it `b` was freed by nobody and `a` came back one count high.
+        let i = find(&program, "keep");
+        assert_eq!(
+            named_sites(&program, i, plan.func(i).expect("a plan")),
+            vec!["inc n1 after n1", "dec n2 after n1"]
         );
     }
 

@@ -43,6 +43,11 @@ use crate::compiler::semantics::types::{Prim, TyDef, Ty};
 /// second belt on a case the first one already stops.
 const RC_DEPTH: u32 = 8;
 
+/// How many levels of a compound type's counted-pointer walk are emitted
+/// inline before the rest goes through the type's own glue. See
+/// [`Jit::walk_deep`].
+const RC_INLINE: u32 = 2;
+
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     Some(match p {
         Prim::Bool => ("u64", 64, false),
@@ -57,7 +62,12 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
         Prim::Char => ("u32", 32, false),
         Prim::F32 => ("f32", 32, true),
         Prim::F64 => ("f64", 64, true),
-        Prim::I128 | Prim::U128 | Prim::Str | Prim::Template => return None,
+        // Sixteen bytes, and the register file is eight: every stencil at
+        // these two widths is frame-to-frame (`sources.rs::wide`), which is
+        // what the `Loc` tests at each call site already fall back to.
+        Prim::I128 => ("i128", 128, true),
+        Prim::U128 => ("u128", 128, false),
+        Prim::Str | Prim::Template => return None,
     })
 }
 
@@ -194,19 +204,6 @@ impl<'a> Jit<'a> {
         }
     }
 
-    /// The bytes a field at `off` may occupy: the distance to the next field
-    /// that starts after it, or the end of the value.
-    ///
-    /// `middle::layout` **boxes** a field whose type would make the owner
-    /// recursive (`Layouts::boxes`), and a boxed field is a *pointer*, eight
-    /// bytes, where the value's own type says it is a whole aggregate. Writing
-    /// the aggregate there would silently overwrite the next field — which is
-    /// exactly the shape of heap corruption this prototype produced before the
-    /// check existed. Nothing here knows how to build the box, so it refuses.
-    fn field_room(offs: &[u32], off: u32, size: u32) -> u32 {
-        offs.iter().copied().filter(|o| *o > off).min().unwrap_or(size).saturating_sub(off)
-    }
-
     pub(crate) fn unsupported(&mut self, why: String) {
         let id = self.push_reason(why);
         self.emit("unsupported", &[("JIT_N", V::I(id))]);
@@ -224,9 +221,18 @@ impl<'a> Jit<'a> {
                     Const::Bool(b) => self.imm_to(off, u64::from(*b)),
                     Const::Char(c) => self.imm_to(off, u32::from(*c) as u64),
                     Const::Int { bits, negative } => {
+                        let w = self.width_of(prog, ty);
+                        // A literal wider than a word is two stores: truncating
+                        // it to one would silently drop the top half of every
+                        // `I128` constant in the program.
+                        if w > 8 {
+                            let x = if *negative { bits.wrapping_neg() } else { *bits };
+                            self.imm_to(off, x as u64);
+                            self.imm_to(off + 8, (x >> 64) as u64);
+                            return;
+                        }
                         let x = *bits as u64;
                         let x = if *negative { x.wrapping_neg() } else { x };
-                        let w = self.width_of(prog, ty);
                         let x = if w >= 8 { x } else { x & ((1u64 << (w * 8)) - 1) };
                         self.imm_to(off, x);
                     }
@@ -267,34 +273,42 @@ impl<'a> Jit<'a> {
             }
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
-                let l = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => self.layout_of(prog, id),
+                let (l, owner) = match code.ty_of(*dest) {
+                    ir::Type::Agg(id) => {
+                        (self.layout_of(prog, id), prog.type_info(id).ty.clone())
+                    }
                     _ => return self.unsupported("MakeStruct of a non-aggregate".into()),
                 };
+                let ftys = self.field_types(&owner);
                 for (i, f) in fields.iter().enumerate() {
                     let w = self.width_of(prog, code.ty_of(*f));
                     if w == 0 || i >= l.fields.len() {
                         continue;
                     }
                     let off = l.field(i);
-                    if w > Self::field_room(&l.fields, off, l.size) {
-                        return self.unsupported("MakeStruct with a boxed field".into());
+                    if ftys.get(i).is_some_and(|t| self.boxes(&owner, t)) {
+                        self.box_into(st, d + off, st.at(*f), w);
+                        continue;
                     }
                     self.store_w(d + off, st.at(*f), w);
                 }
             }
             Inst::GetField { dest, agg, index } => {
-                let l = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => self.layout_of(prog, id),
+                let (l, owner) = match code.ty_of(*agg) {
+                    ir::Type::Agg(id) => {
+                        (self.layout_of(prog, id), prog.type_info(id).ty.clone())
+                    }
                     _ => return self.unsupported("GetField of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
+                let ftys = self.field_types(&owner);
                 if (*index as usize) < l.fields.len() {
                     let off = l.field(*index as usize);
-                    if w > Self::field_room(&l.fields, off, l.size) {
-                        return self.unsupported("GetField of a boxed field".into());
-                    }
                     let src = st.at(*agg) + off;
+                    if ftys.get(*index as usize).is_some_and(|t| self.boxes(&owner, t)) {
+                        self.unbox_from(st, st.at(*dest), src, w);
+                        return;
+                    }
                     self.load_w(st.at(*dest), src, w);
                 }
             }
@@ -302,18 +316,22 @@ impl<'a> Jit<'a> {
                 self.make_enum(prog, code, st, *dest, *variant, fields)
             }
             Inst::GetPayload { dest, agg, variant, index } => {
-                let l = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => self.layout_of(prog, id),
+                let (l, owner) = match code.ty_of(*agg) {
+                    ir::Type::Agg(id) => {
+                        (self.layout_of(prog, id), prog.type_info(id).ty.clone())
+                    }
                     _ => return self.unsupported("GetPayload of a non-aggregate".into()),
                 };
                 let offs = l.variant(*variant as usize).to_vec();
                 let w = self.width_of(prog, code.ty_of(*dest));
+                let ftys = self.variant_types(&owner, *variant as usize);
                 match offs.get(*index as usize) {
                     Some(o) => {
-                        if w > Self::field_room(&offs, *o, l.size) {
-                            return self.unsupported("GetPayload of a boxed field".into());
-                        }
                         let src = st.at(*agg) + *o;
+                        if ftys.get(*index as usize).is_some_and(|t| self.boxes(&owner, t)) {
+                            self.unbox_from(st, st.at(*dest), src, w);
+                            return;
+                        }
                         self.load_w(st.at(*dest), src, w)
                     }
                     None => self.unsupported("GetPayload of an absent field".into()),
@@ -321,50 +339,39 @@ impl<'a> Jit<'a> {
             }
             Inst::GetTag { dest, agg } => self.get_tag(prog, code, st, *dest, *agg),
             Inst::MakeClosure { dest, func, env } => {
-                // `cranelift/emit.rs::make_closure` builds a **thunk** for every
-                // closure, so that `{code, env}` has one shape whatever the
-                // target is: a lambda lifted by `middle::closures` takes the
-                // environment as its first parameter, and a named function
-                // referenced as a value (`let f = identity<Int>`) does not.
-                // This prototype has no thunk builder, so it calls the target
-                // directly — which is only sound when the target already has
-                // the environment parameter. The arity of the closure's *type*
-                // is what says whether it does.
+                // `{ code, env }` has one shape whatever the target is, and a
+                // **thunk** is what makes that true: a lambda lifted by
+                // `middle::closures` takes the environment as its first
+                // parameter, and a named function referenced as a value
+                // (`let f = identity<Int>`) does not.
+                // `cranelift/emit.rs::make_closure` builds the same two words.
+                let d = st.at(*dest);
+                // How many parameters the closure's *type* declares is what
+                // separates the environment parameter from a value one: a
+                // capture-free lambda still has a leading parameter, of the
+                // unit type, and a plain `FnRef` has none at all.
                 let want = match code.ty_of(*dest) {
                     ir::Type::Agg(id) => match &prog.type_info(id).ty {
-                        crate::compiler::semantics::types::Ty::Fn(ps, _) => Some(ps.len()),
+                        Ty::Fn(ps, _) => Some(ps.len()),
                         _ => None,
                     },
                     _ => None,
                 };
-                let have = prog.funcs.get(func.0 as usize).map(|f| f.sig.params.len());
-                if let (Some(w), Some(h)) = (want, have) {
-                    if h != w + 1 {
-                        return self.unsupported(
-                            "MakeClosure of a function with no environment parameter \
-                             (this prototype builds no thunk)"
-                                .into(),
-                        );
-                    }
-                }
-                if let Some(e) = env {
-                    // The environment travels in the closure's one `env` word,
-                    // where the Cranelift backend puts a pointer to a heap block.
-                    let n = self.slot_bytes_of(prog, code.ty_of(*e));
-                    if n > 8 {
-                        return self.unsupported(
-                            "MakeClosure with an environment wider than one word".into(),
-                        );
-                    }
-                }
-                let d = st.at(*dest);
+                let Some(args) = want else {
+                    return self.unsupported("MakeClosure of a value that is not a function".into());
+                };
+                let thunk = self.helper(super::glue::Helper::Thunk {
+                    func: func.0,
+                    args: args as u32,
+                    boxed: env.is_some(),
+                });
                 self.emit(
                     "imm/64",
-                    &[("JIT_D", V::I(d as u64)), ("JIT_M", V::Fn(func.0)), ("JIT_CONT", V::Fall)],
+                    &[("JIT_D", V::I(d as u64)), ("JIT_M", V::Sym(thunk)), ("JIT_CONT", V::Fall)],
                 );
                 match env {
-                    Some(e) => self.mv(d + 8, st.at(*e), 8),
-                    None => self.imm_to(d + 8, 0),
+                    Some(e) => self.build_env(prog, code, st, d + super::glue::ENV_WORD, *e),
+                    None => self.imm_to(d + super::glue::ENV_WORD, 0),
                 }
             }
             Inst::IncRef { value } => self.rc(prog, code, st, *value, true),
@@ -459,28 +466,31 @@ impl<'a> Jit<'a> {
             // balance against the copy's own eventual release
             // (`cranelift/emit.rs::array_slice`).
             Inst::ArraySlice { dest, array, from } => {
-                let Some((stride, _, counted)) = self.array_elem(prog, code.ty_of(*array)) else {
+                let Some((stride, _, _)) = self.array_elem(prog, code.ty_of(*array)) else {
                     return self.unsupported("ArraySlice of a non-array".into());
                 };
-                if counted {
-                    return self.unsupported(
-                        "ArraySlice of a `[T]` whose element carries a reference count \
-                         needs the per-element retain glue"
-                            .into(),
-                    );
-                }
+                let glue = match self.element_of(prog, code.ty_of(*array)) {
+                    Some(elem) => self.element_glue(elem),
+                    None => None,
+                };
                 let src = st.at(*array);
                 let dst = st.at(*dest);
-                // `buri_rt_list_slice(base, ptr, len, from, to, stride, glue,
-                // out)`: `to` is the length, because `ArraySlice` is `xs[from..]`.
+                // `buri_rt_list_slice(ptr, len, start, end, stride, retain,
+                // out)`: **seven** parameters, and `end` is the length because
+                // `ArraySlice` is `xs[from..]`. A `[T]` is two words
+                // (VALUE-MODEL.md §4), not the three a `Str` is, so reading a
+                // third slid every argument along and handed the entry a null
+                // out-pointer.
                 let args = [
                     Src::Word(src),
                     Src::Word(src + 8),
-                    Src::Word(src + 16),
                     Src::Word(st.at(*from)),
-                    Src::Word(src + 16),
+                    Src::Word(src + 8),
                     Src::Imm(u64::from(stride)),
-                    Src::Imm(0),
+                    match glue {
+                        Some(name) => Src::Sym(name),
+                        None => Src::Imm(0),
+                    },
                     Src::Addr(dst),
                 ];
                 if let Err(why) = self.c_call("buri_rt_list_slice", st, &args, &[], dst, "v") {
@@ -557,10 +567,11 @@ impl<'a> Jit<'a> {
         variant: u32,
         fields: &[ir::ValueId],
     ) {
-        let l = match code.ty_of(dest) {
-            ir::Type::Agg(id) => self.layout_of(prog, id),
+        let (l, owner) = match code.ty_of(dest) {
+            ir::Type::Agg(id) => (self.layout_of(prog, id), prog.type_info(id).ty.clone()),
             _ => return self.unsupported("MakeEnum of a non-aggregate".into()),
         };
+        let ftys = self.variant_types(&owner, variant as usize);
         let d = st.at(dest);
         let Repr::Enum { repr, variants } = l.repr.clone() else {
             return self.unsupported("MakeEnum of a non-enum layout".into());
@@ -570,15 +581,7 @@ impl<'a> Jit<'a> {
             EnumRepr::Tagged { tag, .. } => {
                 self.imm_w(d, tag.size(), variant as u64);
                 let offs = variants.get(variant as usize).cloned().unwrap_or_default();
-                for (i, f) in fields.iter().enumerate() {
-                    let w = self.width_of(prog, code.ty_of(*f));
-                    if let Some(o) = offs.get(i) {
-                        if w > Self::field_room(&offs, *o, l.size) {
-                            return self.unsupported("MakeEnum with a boxed field".into());
-                        }
-                        self.store_w(d + *o, st.at(*f), w);
-                    }
-                }
+                self.store_variant(prog, code, st, d, fields, &offs, &owner, &ftys);
             }
             EnumRepr::Niche { null_at } => {
                 let offs = variants.get(variant as usize).cloned().unwrap_or_default();
@@ -586,18 +589,67 @@ impl<'a> Jit<'a> {
                     // The null variant: VALUE-MODEL.md §6's second niche.
                     self.imm_to(d + null_at, 0);
                 } else {
-                    for (i, f) in fields.iter().enumerate() {
-                        let w = self.width_of(prog, code.ty_of(*f));
-                        if let Some(o) = offs.get(i) {
-                            if w > Self::field_room(&offs, *o, l.size) {
-                                return self.unsupported("MakeEnum with a boxed field".into());
-                            }
-                            self.store_w(d + *o, st.at(*f), w);
-                        }
-                    }
+                    self.store_variant(prog, code, st, d, fields, &offs, &owner, &ftys);
                 }
             }
         }
+    }
+
+    /// One variant's payload fields, at the offsets the layout gave them.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one variant's fields, and the four tables that say where each \
+                  goes and whether it is behind a pointer"
+    )]
+    fn store_variant(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &mut Fn2,
+        d: u32,
+        fields: &[ir::ValueId],
+        offs: &[u32],
+        owner: &Ty,
+        ftys: &[Ty],
+    ) {
+        for (i, f) in fields.iter().enumerate() {
+            let w = self.width_of(prog, code.ty_of(*f));
+            let Some(o) = offs.get(i).copied() else { continue };
+            if ftys.get(i).is_some_and(|t| self.boxes(owner, t)) {
+                self.box_into(st, d + o, st.at(*f), w);
+                continue;
+            }
+            self.store_w(d + o, st.at(*f), w);
+        }
+    }
+
+    /// A **boxed** field: `middle::layout` puts a pointer where the field would
+    /// be, for the field that would otherwise make the owner recursive
+    /// (`Layouts::boxes`). So writing one is an allocation, a copy and a store
+    /// of the pointer — the shape `cranelift/emit.rs`'s `Site::Boxed` releases.
+    fn box_into(&mut self, st: &mut Fn2, dest: u32, src: u32, size: u32) {
+        let (ptr, one) = (st.scratch, st.scratch + 8);
+        self.imm_to(one, 1);
+        self.emit(
+            "elemalloc",
+            &[
+                ("JIT_D", V::I(u64::from(ptr))),
+                ("JIT_A", V::I(u64::from(one))),
+                ("JIT_P", V::I(u64::from(size))),
+                ("JIT_CONT0", V::Fall),
+            ],
+        );
+        self.imm_to(one, 0);
+        self.elem_store(src, ptr, one, 8, size);
+        self.mv(dest, ptr, 8);
+    }
+
+    /// Reading one back: the field holds the block's pointer, and the value is
+    /// the bytes it names.
+    fn unbox_from(&mut self, st: &mut Fn2, dest: u32, at: u32, size: u32) {
+        let zero = st.scratch + 8;
+        self.imm_to(zero, 0);
+        self.elem_load(dest, at, zero, 8, size);
     }
 
     pub(crate) fn imm_w(&mut self, dst: u32, w: u32, v: u64) {
@@ -649,27 +701,14 @@ impl<'a> Jit<'a> {
         }
     }
 
-    /// Reference counting, for the three reprs that carry exactly one pointer.
-    ///
-    /// A compound value's count is a *walk* of its fields (`cranelift/emit.rs`'s
-    /// `walk_rc`), which needs the field types this IR does not carry — so those
-    /// are a no-op here and the JIT leaks them. §"deviations" in the report.
     /// `Inst::IncRef` and `Inst::DecRef`: MEMORY.md §5.1's saturating increment
     /// and its decrement, over **every** counted block the value owns.
     ///
-    /// `cranelift/emit.rs::walk_rc` is the model and this is the same walk with
-    /// two of its five site kinds refused rather than emitted:
-    ///
-    ///  * a `[T]` whose element is itself counted needs a **per-element drop
-    ///    glue**, which is a C-ABI function this backend does not emit yet;
-    ///  * a **boxed** field is a heap indirection whose layout question is the
-    ///    same one `MakeEnum` of a boxed field already refuses.
-    ///
-    /// Both are refusals and not omissions on purpose. A missing release is a
-    /// leak, and a leak that compiles is a wrong program that passes its tests:
-    /// `cli/tests/native/runtime.rs` holds the toolchain to "every allocation
-    /// is freed at exit", and a backend that quietly did not would be reported
-    /// by that test rather than by this one.
+    /// The walk is `cranelift/emit.rs::walk_rc`, all five of its site kinds. A
+    /// missing release is a leak, and a leak that compiles is a wrong program
+    /// that passes its tests: `cli/tests/native/runtime.rs` holds the toolchain
+    /// to "every allocation is freed at exit", and a backend that quietly did
+    /// not would be reported by that test rather than by this one.
     fn rc(
         &mut self,
         prog: &ir::Program,
@@ -689,11 +728,11 @@ impl<'a> Jit<'a> {
     /// One value's counted blocks, in the order `middle::rc`'s oracle names
     /// them.
     ///
-    /// `depth` bounds the walk the same way `cranelift/emit.rs` bounds its own:
-    /// a recursive type reaches itself through a box, and a box is refused
-    /// here, so the bound is a statement about the walk rather than about the
-    /// type.
-    fn walk_rc(
+    /// `depth` bounds the walk the same way `cranelift/emit.rs` bounds its own,
+    /// and [`Jit::walk_deep`] is what keeps it from being reached: a recursive
+    /// type reaches itself through a **box**, which is a leaf here, and a deep
+    /// non-recursive one goes out of line into its own glue.
+    pub(crate) fn walk_rc(
         &mut self,
         st: &mut Fn2,
         ty: &Ty,
@@ -707,61 +746,78 @@ impl<'a> Jit<'a> {
         let l = self.layouts_of(ty.clone());
         match l.repr.clone() {
             Repr::Str => {
-                self.rc_block(at, retain);
+                self.rc_block(at, retain, None);
                 Ok(())
             }
             Repr::List => {
-                // The block itself is counted; its **elements** are the part
-                // that needs glue.
+                // The block itself is counted; its **elements** are released by
+                // the glue the free path is handed, which is what makes one
+                // pointer enough to drop a whole `[T]`.
                 let Ty::Array(elem) = ty else {
                     return Err(String::from("a list layout on a type that is not one"));
                 };
-                if self.rc_counted(elem) {
-                    return Err(String::from(
-                        "a `[T]` whose element carries a reference count (it needs \
-                         the per-element drop glue)",
-                    ));
-                }
-                self.rc_block(at, retain);
+                let glue = (!retain && self.rc_counted(elem))
+                    .then(|| self.helper(super::glue::Helper::Elems { ty: (**elem).clone() }));
+                self.rc_block(at, retain, glue);
                 Ok(())
             }
-            // **Not** the closure. `cranelift/emit.rs::build_env` puts the
-            // environment in a heap block and counts *that*; this backend
-            // carries a one-word environment by value, so the `env` field is an
-            // `Int` and counting it would dereference the integer. A one-word
-            // environment cannot hold a counted value anyway — `Str` is three
-            // words and `[T]` two, and `MakeClosure` refuses both.
-            Repr::Closure | Repr::Zero | Repr::Scalar(_) => Ok(()),
+            // A closure's environment is a heap block holding its own release
+            // function in the first word (`glue.rs`), which is what `Ty::Fn`
+            // not recording what was captured forces:
+            // `cranelift/emit.rs::build_env` allocates the same shape and
+            // `rc_sites` counts the same word.
+            Repr::Closure => {
+                let glue = (!retain).then(|| self.helper(super::glue::Helper::EnvGlue));
+                self.rc_block(at + super::glue::ENV_WORD, retain, glue);
+                Ok(())
+            }
+            Repr::Zero | Repr::Scalar(_) => Ok(()),
             Repr::Aggregate => {
                 for (i, f) in self.field_types(ty).iter().enumerate() {
+                    let off = l.fields.get(i).copied().unwrap_or(0);
+                    if self.boxes(ty, f) {
+                        self.rc_box(at + off, f, retain);
+                        continue;
+                    }
                     if !self.rc_counted(f) {
                         continue;
                     }
-                    let off = l.fields.get(i).copied().unwrap_or(0);
-                    self.walk_rc(st, f, at + off, retain, depth + 1)?;
+                    self.walk_deep(st, f, at + off, retain, depth)?;
                 }
                 Ok(())
             }
             Repr::Enum { repr, variants } => {
-                let EnumRepr::Tagged { tag, .. } = repr else {
-                    // A bare tag carries no payload at all, and a niche is a
-                    // pointer whose null *is* the discriminant — so the walk is
-                    // the payload's, guarded by the same null test the block's
-                    // own already is.
-                    return self.niche_rc(st, ty, at, retain, depth);
+                let tag = match repr {
+                    EnumRepr::Tagged { tag, .. } => tag,
+                    // A bare tag carries no payload at all.
+                    EnumRepr::Bare { .. } => return Ok(()),
+                    // A niche is a pointer whose null *is* the discriminant, so
+                    // the walk is the payload's behind that same null test.
+                    EnumRepr::Niche { null_at } => {
+                        return self.niche_rc(st, ty, at, null_at, retain, depth)
+                    }
                 };
                 self.tagged_rc(st, ty, at, &variants, tag, retain, depth)
             }
         }
     }
 
-    /// A niche `Option<T>`: the payload is the value, and `T`'s own null test
-    /// is the discriminant, so nothing extra guards it.
+    /// A niche `Option<T>`: the payload **is** the value, and the pointer the
+    /// niche spends is null exactly when the value is `.None`.
+    ///
+    /// The walk is therefore behind that null test, and the test is not
+    /// belt-and-braces: `.None` is written by storing null at `null_at` and
+    /// nothing else (`Lower::store_disc`, `rtcall::store_option_tag`), so every
+    /// other byte of the payload area is whatever the frame last held. Walking
+    /// it unguarded decremented a reference count at an address that was never
+    /// a pointer — `cranelift/emit.rs`'s `Site::Guarded` is the same test for
+    /// the same reason.
     fn niche_rc(
         &mut self,
         st: &mut Fn2,
         ty: &Ty,
         at: u32,
+        null_at: u32,
         retain: bool,
         depth: u32,
     ) -> Result<(), String> {
@@ -770,7 +826,21 @@ impl<'a> Jit<'a> {
         if !self.rc_counted(&payload) {
             return Ok(());
         }
-        self.walk_rc(st, &payload, at, retain, depth + 1)
+        let skip = st.label();
+        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(at + null_at))),
+                ("JIT_K", V::I(0)),
+                ("JIT_T", V::Blk(skip)),
+                ("JIT_F", V::Fall),
+            ],
+        );
+        self.walk_rc(st, &payload, at, retain, depth + 1)?;
+        let here = self.region.code_addr();
+        st.place(skip, here);
+        Ok(())
     }
 
     /// A tagged enum: one arm per variant that owns something, dispatched on
@@ -792,11 +862,14 @@ impl<'a> Jit<'a> {
         let done = st.label();
         for (v, offsets) in variants.iter().enumerate() {
             let fields = self.variant_types(ty, v);
-            let owned: Vec<(u32, Ty)> = fields
+            let owned: Vec<(u32, Ty, bool)> = fields
                 .iter()
                 .enumerate()
-                .filter(|(_, f)| self.rc_counted(f))
-                .map(|(i, f)| (offsets.get(i).copied().unwrap_or(0), f.clone()))
+                .filter_map(|(i, f)| {
+                    let boxed = self.boxes(ty, f);
+                    (boxed || self.rc_counted(f))
+                        .then(|| (offsets.get(i).copied().unwrap_or(0), f.clone(), boxed))
+                })
                 .collect();
             if owned.is_empty() {
                 continue;
@@ -814,8 +887,14 @@ impl<'a> Jit<'a> {
                     ("JIT_F", V::Blk(next)),
                 ],
             );
-            for (off, f) in owned {
-                self.walk_rc(st, &f, at + off, retain, depth + 1)?;
+            for (off, f, boxed) in owned {
+                if boxed {
+                    // The field *is* the pointer, so this is one reference
+                    // operation on it and no descent.
+                    self.rc_box(at + off, &f, retain);
+                    continue;
+                }
+                self.walk_deep(st, &f, at + off, retain, depth)?;
             }
             self.emit("jump", &[("JIT_T", V::Blk(done))]);
             let here = self.region.code_addr();
@@ -826,13 +905,86 @@ impl<'a> Jit<'a> {
         Ok(())
     }
 
+    /// One step down inside [`Jit::walk_rc`]: the field's own glue where that
+    /// field is a compound one and the walk is already deep, and the walk
+    /// inline where it is not.
+    ///
+    /// The threshold has to apply at **every** level and not only at the top.
+    /// A type graph is a DAG whose nodes are revisited along every path, so an
+    /// inline walk of a record of records of records expands once per path
+    /// rather than once per type — which is what
+    /// `conformance/lib/semantics/test/generics.buri` is
+    /// (`Tree`, `Pair`, `Either`, `Slot`, `Boxed`, each over the others) and
+    /// what made the walk run out of depth there. Going through here, an
+    /// emitted body holds at most [`RC_INLINE`] levels of its own plus one call
+    /// per deeper field, so the code is linear in the *distinct* types a
+    /// program holds. `cranelift/emit.rs::walk_or_call` is the same threshold
+    /// for the same reason.
+    ///
+    /// A `Str`, a `[T]` and a closure are one reference operation whatever the
+    /// depth, so they never go out of line: the call would cost more than the
+    /// instruction it replaced.
+    fn walk_deep(
+        &mut self,
+        st: &mut Fn2,
+        ty: &Ty,
+        at: u32,
+        retain: bool,
+        depth: u32,
+    ) -> Result<(), String> {
+        let compound = matches!(
+            self.layouts_of(ty.clone()).repr,
+            Repr::Aggregate | Repr::Enum { .. }
+        );
+        if compound && depth >= RC_INLINE {
+            let sym = self.helper(super::glue::Helper::Walk { ty: ty.clone(), retain });
+            let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
+            self.emit(
+                "lea",
+                &[
+                    ("JIT_D", V::I(u64::from(addr))),
+                    ("JIT_A", V::I(u64::from(at))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            return self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v");
+        }
+        self.walk_rc(st, ty, at, retain, depth + 1)
+    }
+
+    /// The reference operation on a **boxed** field: the field is the block's
+    /// pointer, so there is no descent — whatever is inside it is the block's
+    /// own drop glue's business.
+    fn rc_box(&mut self, at: u32, ty: &Ty, retain: bool) {
+        let glue = (!retain && self.rc_counted(ty))
+            .then(|| self.helper(super::glue::Helper::Walk { ty: ty.clone(), retain: false }));
+        self.rc_block(at, retain, glue);
+    }
+
     /// The increment or the decrement of one block, at a frame offset holding
     /// its pointer.
-    fn rc_block(&mut self, at: u32, retain: bool) {
+    ///
+    /// `glue` is what releases the block's *contents* once its count reaches
+    /// zero, and is `None` for a block that holds only bytes — a `Str`'s
+    /// allocation, a `[Int]`. A retain never needs one: taking a reference on a
+    /// block says nothing about what is inside it.
+    fn rc_block(&mut self, at: u32, retain: bool, glue: Option<String>) {
         if retain {
             self.emit("incref", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT", V::Fall)]);
-        } else {
-            self.emit("decref/free", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT0", V::Fall)]);
+            return;
+        }
+        match glue {
+            Some(g) => self.emit(
+                "decref/drop",
+                &[
+                    ("JIT_A", V::I(u64::from(at))),
+                    ("JIT_M", V::Sym(g)),
+                    ("JIT_CONT0", V::Fall),
+                ],
+            ),
+            None => {
+                self.emit("decref/free", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT0", V::Fall)])
+            }
         }
     }
 
@@ -878,18 +1030,67 @@ impl<'a> Jit<'a> {
 
     /// Whether a source type owns a counted block anywhere inside it, which is
     /// the same question `middle::rc`'s oracle asks.
-    fn rc_counted(&mut self, ty: &Ty) -> bool {
+    /// The answer is **memoised, and recorded before the descent**, which is
+    /// what makes this terminate and what makes it linear in the *distinct*
+    /// types a program holds rather than in the paths through them.
+    /// `cranelift/emit.rs::counted` is the same two lines for the same two
+    /// reasons: a type graph is a DAG whose nodes are revisited along every
+    /// path, and a recursive type reaches itself.
+    pub(crate) fn rc_counted(&mut self, ty: &Ty) -> bool {
+        if let Some(known) = self.counted_memo.get(ty) {
+            return *known;
+        }
+        self.counted_memo.insert(ty.clone(), false);
+        let answer = self.counted_ty(ty, 0);
+        self.counted_memo.insert(ty.clone(), answer);
+        answer
+    }
+
+    fn counted_ty(&mut self, ty: &Ty, depth: u32) -> bool {
+        if depth > RC_DEPTH {
+            return false;
+        }
         match self.layouts_of(ty.clone()).repr {
-            Repr::Str | Repr::List => true,
+            // The closure is here because its environment is a heap block this
+            // backend allocates and counts (`glue.rs`), which is the same
+            // answer `cranelift/emit.rs::rc_sites` gives `Ty::Fn`.
+            Repr::Str | Repr::List | Repr::Closure => true,
             Repr::Aggregate => {
-                self.field_types(ty).iter().any(|f| self.rc_counted(f))
+                let fields = self.field_types(ty);
+                self.any_counted(ty, &fields, depth)
             }
             Repr::Enum { .. } => {
                 let n = self.variant_count(ty);
-                (0..n).any(|v| self.variant_types(ty, v).iter().any(|f| self.rc_counted(f)))
+                (0..n).any(|v| {
+                    let fields = self.variant_types(ty, v);
+                    self.any_counted(ty, &fields, depth)
+                })
             }
             _ => false,
         }
+    }
+
+    /// Whether any of `fields` carries a count, where a **boxed** field always
+    /// does: the box is a heap block of its own, whoever else owns what is
+    /// inside it.
+    fn any_counted(&mut self, owner: &Ty, fields: &[Ty], depth: u32) -> bool {
+        for f in fields {
+            if self.boxes(owner, f) {
+                return true;
+            }
+            if let Some(known) = self.counted_memo.get(f) {
+                if *known {
+                    return true;
+                }
+                continue;
+            }
+            let answer = self.counted_ty(f, depth + 1);
+            self.counted_memo.insert(f.clone(), answer);
+            if answer {
+                return true;
+            }
+        }
+        false
     }
 
     /// A comparison of two `Str`s, through one helper. The six orderings are
@@ -968,6 +1169,13 @@ impl<'a> Jit<'a> {
                     ("JIT_D", V::I(d as u64)),
                     ("JIT_K", V::I(k)),
                     ("JIT_CONT", V::Fall),
+                    // A 128-bit divide is a *call* — the runtime owns it
+                    // (`sources.rs::wide`) — so its stencil has the
+                    // zero-register prototype and names its continuation
+                    // `JIT_CONT0`. Binding both costs nothing: `emit` looks a
+                    // hole up by name and a stencil that has neither ignores
+                    // the other.
+                    ("JIT_CONT0", V::Fall),
                 ],
             );
             return;
@@ -986,6 +1194,7 @@ impl<'a> Jit<'a> {
                     ("JIT_B", V::I(b as u64)),
                     ("JIT_D", V::I(d as u64)),
                     ("JIT_CONT", V::Fall),
+                    ("JIT_CONT0", V::Fall),
                 ],
             );
             return;
@@ -1111,6 +1320,44 @@ impl<'a> Jit<'a> {
             let key = key.clone();
             if self.list_loop(prog, code, st, dests, &key, args) {
                 return;
+            }
+            if let Some(o) = self.operands(prog, code, st, dests, args) {
+                if self.list_extra(prog, st, &key, &o) {
+                    return;
+                }
+            }
+            // The archive boundary, **emitted here rather than called**, which
+            // is `cranelift/emit.rs::call`'s first act for the same reason.
+            //
+            // Called, `a.get(i)` costs two frames: the caller copies the `[T]`
+            // and the index into the callee's parameter slots and branches; the
+            // generated `core/list$get` body then copies the same words again
+            // into its C argument area and branches into `libburi_rt.a`. The
+            // second copy is the whole of the difference — the marshalling the
+            // generated body does is exactly the marshalling the caller could
+            // have done, from the operands it already has in its own frame.
+            // Measured on a matrix multiply whose inner loop is two `list.get`
+            // per element, that was ~40 instructions against the incumbent's
+            // ten, thirty-two million times.
+            //
+            // Sound because the *shape* of a marshalled call is a function of
+            // the key and of the operand and result IR types alone, and those
+            // are the same at the two sites: the `Body::Runtime` function's
+            // signature **is** the caller's argument and destination types.
+            // `rt_call` is the one implementation of `cli/runtime/lib.rs` §2's
+            // rule, and `runtime_body` hands it the same list from the callee's
+            // parameter offsets — so a shape refused here is refused there too,
+            // and the refusal is the same sentence.
+            if inline_runtime_key(&key) {
+                if let Some(entry) = super::runtime::entry(&key) {
+                    let list: Vec<(u32, ir::Type)> =
+                        args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
+                    let dest = dests.first().map(|d| (st.at(*d), code.ty_of(*d)));
+                    if let Err(why) = self.rt_call(prog, st, entry, dest, &list) {
+                        self.unsupported(why);
+                    }
+                    return;
+                }
             }
         }
         let base = st.frame.size;
@@ -1241,6 +1488,25 @@ impl<'a> Jit<'a> {
                     self.unsupported(why);
                 }
             }
+            // `failExpected<T, R>(kind, got): R` where the derive pass declined
+            // to generate a `Show` at `T` — an opaque type — so there is
+            // nothing to render `got` with and the kind is the whole of what
+            // makes the failure attributable. `cranelift/emit.rs`'s arm for the
+            // key is the same abort, and `middle/derives.rs` is what decides
+            // which of the two keys a `.Some`/`.Ok` assertion lowers to.
+            //
+            // The destination is not written, for the reason
+            // `failExpectedShown`'s is not: `buri_rt_abort_assert` does not
+            // return, so every instruction the emitter lays down after this one
+            // is unreachable. Cranelift binds zeros there because its verifier
+            // requires every block parameter to be defined; a frame slot needs
+            // no such thing.
+            "testing_assert.failExpected" => {
+                let (kp, kl) = self.str_arg(arg(st, 0), scr);
+                if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+                    self.unsupported(why);
+                }
+            }
             "testing_assert.reportShown" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (ap, al) = self.str_arg(arg(st, 1), scr + 8);
@@ -1302,11 +1568,26 @@ impl<'a> Jit<'a> {
                 }
             }
             _ => {
+                if self.list_loop(prog, code, st, dests, key, args) {
+                    return;
+                }
+                if let Some(o) = self.operands(prog, code, st, dests, args) {
+                    if self.list_extra(prog, st, key, &o) {
+                        return;
+                    }
+                }
                 if self.prim_trait(prog, code, st, dests, key, args) {
                     return;
                 }
                 if self.bits(st, dests, key, args) {
                     return;
+                }
+                if let Some(t) = key.strip_prefix("derivePrimHash.") {
+                    let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
+                    let Some(prim) = prim_of_name(t) else {
+                        return self.unsupported(format!("derivePrimHash.{t}"));
+                    };
+                    return self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
                 }
                 if let Some(t) = key.strip_prefix("derivePrimShow.") {
                     let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
@@ -1454,7 +1735,7 @@ impl<'a> Jit<'a> {
                 // dead. On the two-arm `Option` match that is 58% of the
                 // corpus's switches this halves the dispatch. The belt the
                 // Cranelift backend keeps under `Profile::defensive_aborts` is
-                // `CPJIT_OFF=tag` here.
+                // `STENCIL_OFF=tag` here.
                 let total = default.is_none() && cases.len() > 1;
                 let last = cases.len() - 1;
                 for (ci, (k, tgt)) in cases.iter().enumerate() {
@@ -1605,7 +1886,7 @@ impl<'a> Jit<'a> {
 
     /// The twin of a two-target stencil whose **last** branch is the arm named
     /// by `fall` — the only arm copy-and-patch can elide. See
-    /// `stencil::swap_arms` for why this is a choice the library has to offer
+    /// `extract::swap_arms` for why this is a choice the library has to offer
     /// rather than one the emitter can make by negating the test.
     pub(crate) fn arm_key(&self, base: &str, fall: &str) -> String {
         if self.elidable_arm(base).as_deref() == Some(fall) {
@@ -1626,7 +1907,7 @@ impl<'a> Jit<'a> {
         // library rather than a program the level declines, and it stops here
         // instead of emitting a fall-through that would run the wrong arm.
         let Some(key) = self.cond_key(st, cond, plan) else {
-            crate::diagnostics::ice("cpjit: the level has no branch stencil")
+            crate::diagnostics::ice("stencil: the level has no branch stencil")
         };
         let key = match fall {
             Some(f) => self.arm_key(&key, f),
@@ -1790,7 +2071,7 @@ impl<'a> Jit<'a> {
                     let Some(&(_, f, src)) = pend.first() else { break };
                     let RSrc::Reg(j) = src else {
                         crate::diagnostics::ice(
-                            "cpjit: an edge's register copies deadlocked on a slot source",
+                            "stencil: an edge's register copies deadlocked on a slot source",
                         )
                     };
                     self.emit(
@@ -1890,6 +2171,36 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
+        // `failExpected(kind, got)` is the one of this family whose parameters
+        // are **not** all `Str`: `got` is the opaque `T` there was no `Show`
+        // for, and the abort names the kind alone. It cannot join the loop
+        // below, which flattens every parameter as a string.
+        if key == "testing_assert.failExpected" {
+            let (kp, kl) = self.str_arg(p(0), fs.param_end);
+            if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+                self.unsupported(why);
+            }
+            self.emit("ret", &[]);
+            return;
+        }
+        if key == "testing_assert.failWith" || key == "testing_assert.failExpectedShown" {
+            let mut args = Vec::new();
+            for i in 0..fs.params.len() {
+                let (p, l) = self.str_arg(p(i), fs.param_end + i as u32 * 8);
+                args.push(p);
+                args.push(l);
+            }
+            let symbol = if key == "testing_assert.failWith" {
+                "buri_rt_abort"
+            } else {
+                "buri_rt_test_fail_expected"
+            };
+            if let Err(why) = self.c_call(symbol, st, &args, &[], 0, "v") {
+                self.unsupported(why);
+            }
+            self.emit("ret", &[]);
+            return;
+        }
         if key == "testing_assert.reportShown" {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
             let (ap, al) = self.str_arg(p(1), fs.param_end + 8);
@@ -1929,9 +2240,9 @@ impl<'a> Jit<'a> {
                 // JavaScript backend's business alone.
                 if matches!(op, "minValue" | "maxValue") {
                     let low = op == "minValue";
-                    match bound_bits(prim, low) {
+                    match bound_pattern(prim, low) {
                         Some(bits) => {
-                            self.imm_to(ret0, bits);
+                            self.imm_num(ret0, prim, bits);
                             self.emit("ret", &[]);
                         }
                         None => self.unsupported(format!("Body::Runtime {key}")),
@@ -1945,9 +2256,23 @@ impl<'a> Jit<'a> {
                 // sign-extended first where it is signed, and masked to the
                 // target's width after.
                 if let Some(to) = conversion_target(op) {
-                    let exact = op.starts_with("wrapTo")
-                        || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
-                        || op == "toChar";
+                    // An **aggregate** result is the whole of the test, and it
+                    // is the same one `cranelift/emit.rs::numeric` makes by
+                    // asking `Abi::register` before its `toChar` arm: an exact
+                    // conversion answers the target type and an inexact one
+                    // answers `Result<T, RangeError>` (SPEC 6.2.1), so the
+                    // result's *shape* says which this is without a second
+                    // table. `U32.toChar` is the case that needs it — not every
+                    // `U32` is a scalar value — and casting anyway would have
+                    // written a `Char` into a `Result` and called it success.
+                    let wide = matches!(
+                        prog.funcs.get(fi).and_then(|f| f.sig.rets.first()),
+                        Some(ir::Type::Agg(_))
+                    );
+                    let exact = !wide
+                        && (op.starts_with("wrapTo")
+                            || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
+                            || op == "toChar");
                     match (exact, self.convert(st, prim, to, p(0), ret0)) {
                         // An inexact `toX` answers a `Result` (SPEC 6.2.1) and
                         // is refused rather than cast, which would silently
@@ -1979,6 +2304,56 @@ impl<'a> Jit<'a> {
                     }
                     return;
                 }
+                // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,
+                // which `core/num` declares without a body and every backend
+                // open-codes. `cranelift/emit.rs::numeric` is the model, and
+                // the bound each one checks is the **type's own range** — SPEC
+                // 6.2.2 and VALUE-MODEL.md §12 row 2.
+                if let Some(kind) = op.strip_prefix("checked") {
+                    let ok = self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
+                    if !ok {
+                        self.unsupported(format!("Body::Runtime {key}"));
+                    }
+                    self.emit("ret", &[]);
+                    return;
+                }
+                if let Some(kind) = op.strip_prefix("saturating") {
+                    if !self.saturating(st, prim, kind, p(0), p(1), ret0) {
+                        self.unsupported(format!("Body::Runtime {key}"));
+                    }
+                    self.emit("ret", &[]);
+                    return;
+                }
+                // Wrapping **is** the machine operation: two's complement at
+                // the operand's own width is what an `i8` addition already
+                // does, and a frame slot holds the answer re-truncated.
+                if let Some(kind) = op.strip_prefix("wrapping") {
+                    if !self.wrapping(st, prim, kind, p(0), p(1), ret0) {
+                        self.unsupported(format!("Body::Runtime {key}"));
+                    }
+                    self.emit("ret", &[]);
+                    return;
+                }
+                if matches!(op, "abs" | "signum") {
+                    if !self.abs_signum(st, prim, op == "abs", p(0), ret0) {
+                        self.unsupported(format!("Body::Runtime {key}"));
+                    }
+                    self.emit("ret", &[]);
+                    return;
+                }
+                // `Ord::compare` answers an `Order`, which is an enum and not a
+                // register, so it is taken before the binary-operator table
+                // below could refuse it for having no `bin/compare` stencil.
+                if op == "compare" {
+                    match self.ret_tag(prog, fi) {
+                        Some(w) => {
+                            self.compare_prim(st, prim, p(0), p(1), ret0, w);
+                            self.emit("ret", &[]);
+                        }
+                        None => self.unsupported(format!("Body::Runtime {key}")),
+                    }
+                    return;
+                }
                 if let Some((tag, _, _)) = prim_tag(prim) {
                     let binkey = format!("bin/{}/{tag}/ff/f", op);
                     if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
@@ -1989,6 +2364,7 @@ impl<'a> Jit<'a> {
                                 ("JIT_B", V::I(p(1) as u64)),
                                 ("JIT_D", V::I(ret0 as u64)),
                                 ("JIT_CONT", V::Fall),
+                                ("JIT_CONT0", V::Fall),
                             ],
                         );
                         self.emit("ret", &[]);
@@ -2038,6 +2414,12 @@ impl<'a> Jit<'a> {
         if self.list_loop_rt(prog, fi, &key, st) {
             self.emit("ret", &[]);
             return;
+        }
+        if let Some(o) = self.rt_operands(prog, fi, &fs) {
+            if self.list_extra(prog, st, &key, &o) {
+                self.emit("ret", &[]);
+                return;
+            }
         }
         if self.runtime_intrinsic(prog, fi, &key, &fs, st) {
             self.emit("ret", &[]);
@@ -2094,7 +2476,7 @@ impl<'a> Jit<'a> {
                 return;
             };
             self.mv(ret0, last, 24);
-            if !std::env::var("CPJIT_NOFREE").is_ok_and(|v| v == "1") {
+            if !std::env::var("STENCIL_NOFREE").is_ok_and(|v| v == "1") {
                 self.emit("incref", &[("JIT_A", V::I(u64::from(ret0))), ("JIT_CONT", V::Fall)]);
             }
             self.emit("ret", &[]);
@@ -2104,6 +2486,43 @@ impl<'a> Jit<'a> {
             self.imm_to(ret0, 0);
             self.imm_to(ret0 + 8, 0);
             self.emit("ret", &[]);
+            return;
+        }
+        // The three surfaces `Lower::intrinsic` open-codes at a call site,
+        // reached here because the same key arrives two ways: spelled inline it
+        // is an `Inst::CallIntrinsic`, and spelled as a method it is a call to
+        // the `Body::Runtime` function whose body this is. Answering only the
+        // first left `char.eq`, `bits.shl` and `str.concat` refused in exactly
+        // the files that write them as methods.
+        let ret_tag = self.ret_tag(prog, fi);
+        if self.prim_trait_at(st, &key, ret0, p(0), p(1), Some(ret_tag)) {
+            self.emit("ret", &[]);
+            return;
+        }
+        if self.bits_at(st, &key, ret0, p(0), fs.params.get(1).copied()) {
+            self.emit("ret", &[]);
+            return;
+        }
+        if key == "str.concat" {
+            let list: Vec<u32> = prog
+                .funcs
+                .get(fi)
+                .map(|f| f.sig.params.clone())
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| {
+                    !matches!(
+                        super::rtcall::source_ty(prog, **t),
+                        Some(crate::compiler::semantics::types::Ty::Ctx(_))
+                    )
+                })
+                .map(|(i, _)| p(i))
+                .collect();
+            match self.str_concat(st, &list, ret0) {
+                Ok(()) => self.emit("ret", &[]),
+                Err(why) => self.unsupported(why),
+            }
             return;
         }
         self.unsupported(format!("Body::Runtime {key}"));
@@ -2150,6 +2569,45 @@ impl<'a> Jit<'a> {
                 true
             }
         }
+    }
+
+    /// One instruction's operands as `lists.rs` wants them: a frame offset and
+    /// an IR type apiece, so that the loops are written once and serve both a
+    /// call site and a `Body::Runtime` body.
+    fn operands(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &Fn2,
+        dests: &[ir::ValueId],
+        args: &[ir::ValueId],
+    ) -> Option<super::lists::Operands> {
+        let dest = dests.first()?;
+        let _ = prog;
+        Some(super::lists::Operands {
+            args: args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect(),
+            dest: (st.at(*dest), code.ty_of(*dest)),
+        })
+    }
+
+    /// The same, for a `Body::Runtime` function whose operands are its own
+    /// parameters.
+    fn rt_operands(
+        &mut self,
+        prog: &ir::Program,
+        fi: usize,
+        fs: &super::jit::FrameSig,
+    ) -> Option<super::lists::Operands> {
+        let f = prog.funcs.get(fi)?;
+        let dest = (fs.ret.first().copied()?, f.sig.rets.first().copied()?);
+        let args = f
+            .sig
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
+            .collect();
+        Some(super::lists::Operands { args, dest })
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
@@ -2203,6 +2661,31 @@ impl Jit<'_> {
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
+        let Some(d) = dests.first().map(|v| st.at(*v)) else { return false };
+        let a = args.first().map(|v| st.at(*v)).unwrap_or(0);
+        let b = args.get(1).map(|v| st.at(*v)).unwrap_or(0);
+        let tag = dests.first().and_then(|v| match code.ty_of(*v) {
+            ir::Type::Agg(id) => Some(self.tag_width(prog, id)),
+            _ => None,
+        });
+        self.prim_trait_at(st, key, d, a, b, tag)
+    }
+
+    /// [`Jit::prim_trait`] with its operands as frame offsets.
+    ///
+    /// `tag` is the destination's tag width where the destination is an enum —
+    /// `compare` answers an `Order` — `Some(None)` where it is an aggregate
+    /// that is not one, and `None` where the caller has no aggregate
+    /// destination at all.
+    pub(crate) fn prim_trait_at(
+        &mut self,
+        st: &mut Fn2,
+        key: &str,
+        d: u32,
+        a: u32,
+        b: u32,
+        tag: Option<Option<u32>>,
+    ) -> bool {
         let Some((module, op)) = key.split_once('.') else { return false };
         let prim = match module {
             "bool" => Prim::Bool,
@@ -2210,9 +2693,6 @@ impl Jit<'_> {
             "str" => Prim::Str,
             _ => return false,
         };
-        let Some(d) = dests.first().map(|v| st.at(*v)) else { return false };
-        let a = args.first().map(|v| st.at(*v)).unwrap_or(0);
-        let b = args.get(1).map(|v| st.at(*v)).unwrap_or(0);
         match op {
             // `show` is `$str`, not `$show`: the trait method renders the value
             // and the *derived* one quotes it.
@@ -2270,14 +2750,7 @@ impl Jit<'_> {
                     let here = self.region.code_addr();
                     st.place(skip, here);
                 }
-                let w = dests
-                    .first()
-                    .and_then(|v| match code.ty_of(*v) {
-                        ir::Type::Agg(id) => Some(self.tag_width(prog, id)),
-                        _ => None,
-                    })
-                    .unwrap_or(Some(8));
-                match w {
+                match tag.unwrap_or(Some(8)) {
                     Some(w) => self.store_w(d, raw, w),
                     None => self.unsupported(format!("{key} into a destination that is not a tag")),
                 }
@@ -2308,6 +2781,486 @@ impl Jit<'_> {
         }
     }
 
+    // -- the numeric surface ------------------------------------------------
+    //
+    // `Checked` and `Saturating` are one stencil and a branch apiece: the
+    // stencil answers `(result, did it overflow)` at the operand's own width
+    // (`sources.rs::checks`) and the branch turns that pair into the `Option`
+    // one wants and the clamp the other does. Splitting it that way is what
+    // keeps the *test* — which is different at every width — out of this file.
+
+    /// The two scratch words the overflow pair lands in: the result, and the
+    /// flag beside it.
+    fn overflow_slots(st: &Fn2) -> (u32, u32) {
+        (st.scratch + super::rtcall::RAW_WORD * 8, st.scratch + super::rtcall::SPARE_WORD * 8)
+    }
+
+    /// `chk/<op>/<tag>` — the result and the overflow flag. Answers `false`
+    /// for an operation or a width there is no stencil for.
+    fn overflowing(&mut self, st: &Fn2, prim: Prim, kind: &str, a: u32, b: u32) -> bool {
+        let Some((tag, _, _)) = prim_tag(prim) else { return false };
+        if !prim.is_integer() {
+            return false;
+        }
+        let name = match kind {
+            "Add" => "add",
+            "Sub" => "sub",
+            "Mul" => "mul",
+            "Div" => "div",
+            _ => return false,
+        };
+        let key = format!("chk/{name}/{tag}");
+        if !self.has(&key) {
+            return false;
+        }
+        let (res, flag) = Self::overflow_slots(st);
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(a))),
+                ("JIT_B", V::I(u64::from(b))),
+                ("JIT_D", V::I(u64::from(res))),
+                ("JIT_N", V::I(u64::from(flag))),
+                ("JIT_CONT", V::Fall),
+                ("JIT_CONT0", V::Fall),
+            ],
+        );
+        true
+    }
+
+    /// `checkedAdd`, `checkedSub`, `checkedMul`, `checkedDiv` — an `Option<T>`.
+    ///
+    /// `Div` is where "the type's own range" is not the same statement as "the
+    /// machine did not wrap": `MIN / -1` is `2^63`, which the width cannot
+    /// hold, so the stencil reports it alongside a zero divisor.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one operation's operands and the two programs it is read \
+                  against, which is what naming the destination's layout needs"
+    )]
+    fn checked(
+        &mut self,
+        prog: &ir::Program,
+        fi: usize,
+        st: &mut Fn2,
+        prim: Prim,
+        kind: &str,
+        a: u32,
+        b: u32,
+        dest: u32,
+    ) -> bool {
+        let Some((_, bits, _)) = prim_tag(prim) else { return false };
+        let Some(ir::Type::Agg(id)) = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied())
+        else {
+            return false;
+        };
+        let l = self.layout_of(prog, id);
+        if !self.overflowing(st, prim, kind, a, b) {
+            return false;
+        }
+        let (res, flag) = Self::overflow_slots(st);
+        let pay = super::lists::payload_at(&l, 0);
+        let some = st.label();
+        let done = st.label();
+        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(flag))),
+                ("JIT_K", V::I(0)),
+                ("JIT_T", V::Blk(some)),
+                ("JIT_F", V::Fall),
+            ],
+        );
+        self.store_disc(&l, dest, 1);
+        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        let here = self.region.code_addr();
+        st.place(some, here);
+        self.store_w(dest + pay, res, bits / 8);
+        self.store_disc(&l, dest, 0);
+        let here = self.region.code_addr();
+        st.place(done, here);
+        true
+    }
+
+    /// `saturatingAdd`, `saturatingSub`, `saturatingMul`.
+    ///
+    /// The overflow is detected and the **end** it ran off is chosen, which is
+    /// the same answer a wider type would give without there being one. Which
+    /// end is a property of the operands' signs, not of the wrapped result —
+    /// the wrapped result is precisely the thing that is wrong.
+    fn saturating(
+        &mut self,
+        st: &mut Fn2,
+        prim: Prim,
+        kind: &str,
+        a: u32,
+        b: u32,
+        dest: u32,
+    ) -> bool {
+        let Some((tag, _, signed)) = prim_tag(prim) else { return false };
+        // Division cannot saturate: its only failures are a zero divisor and
+        // `MIN / -1`, and neither has an end to run off.
+        if kind == "Div" || !self.overflowing(st, prim, kind, a, b) {
+            return false;
+        }
+        let (res, flag) = Self::overflow_slots(st);
+        let (Some(lo), Some(hi)) = (bound_pattern(prim, true), bound_pattern(prim, false)) else {
+            return false;
+        };
+        let ok = st.label();
+        let done = st.label();
+        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(flag))),
+                ("JIT_K", V::I(0)),
+                ("JIT_T", V::Blk(ok)),
+                ("JIT_F", V::Fall),
+            ],
+        );
+        if !signed {
+            // Unsigned: an addition or a multiplication can only run off the
+            // top, and a subtraction only off the bottom.
+            self.imm_num(dest, prim, if kind == "Sub" { lo } else { hi });
+        } else {
+            // The sum of two operands that overflowed is negative exactly when
+            // they were both positive, so the sign of `x` decides — and for
+            // `Sub` the same test is right for the same reason, because the
+            // only way to underflow is a negative `x` against a positive `y`.
+            // A product runs off the bottom when the signs differ.
+            // Past `overflow_slots`' two words, which hold the result and the
+            // flag this branch was reached on.
+            let scr = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
+            self.lt_zero(scr, a, tag);
+            if kind == "Mul" {
+                let other = scr + 8;
+                self.lt_zero(other, b, tag);
+                self.emit(
+                    "bin/xor/u64/ff/f",
+                    &[
+                        ("JIT_D", V::I(u64::from(scr))),
+                        ("JIT_A", V::I(u64::from(scr))),
+                        ("JIT_B", V::I(u64::from(other))),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+            }
+            let top = st.label();
+            let brkey = self.arm_key("br/f", "JIT_T");
+            self.emit(
+                &brkey,
+                &[
+                    ("JIT_A", V::I(u64::from(scr))),
+                    ("JIT_T", V::Fall),
+                    ("JIT_F", V::Blk(top)),
+                ],
+            );
+            self.imm_num(dest, prim, lo);
+            self.emit("jump", &[("JIT_T", V::Blk(done))]);
+            let here = self.region.code_addr();
+            st.place(top, here);
+            self.imm_num(dest, prim, hi);
+        }
+        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        let here = self.region.code_addr();
+        st.place(ok, here);
+        self.mv(dest, res, if prim.bits() > 64 { 16 } else { 8 });
+        let here = self.region.code_addr();
+        st.place(done, here);
+        true
+    }
+
+    /// `frame[d] = frame[a] < 0`, at the operand's own signedness.
+    ///
+    /// At sixteen bytes there is no immediate stencil — `_JIT_K` is one word —
+    /// so the sign test is a signed compare of the **high** half, which is the
+    /// same question one instruction narrower.
+    fn lt_zero(&mut self, d: u32, a: u32, tag: &str) {
+        let (key, at) = if tag == "i128" || tag == "u128" {
+            (String::from("bin/lt/i64/fi/f"), a + 8)
+        } else {
+            (format!("bin/lt/{tag}/fi/f"), a)
+        };
+        self.emit(
+            &key,
+            &[
+                ("JIT_D", V::I(u64::from(d))),
+                ("JIT_A", V::I(u64::from(at))),
+                ("JIT_K", V::I(0)),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+    }
+
+    /// A literal into a destination at the type's own width: one store, or two
+    /// where the type is sixteen bytes.
+    fn imm_num(&mut self, dest: u32, prim: Prim, v: u128) {
+        if prim.bits() > 64 {
+            self.imm_to(dest, v as u64);
+            self.imm_to(dest + 8, (v >> 64) as u64);
+            return;
+        }
+        self.imm_to(dest, v as u64);
+    }
+
+    /// `wrappingAdd`, `wrappingSub`, `wrappingMul` — the machine operation at
+    /// the operand's own width, which is what the ordinary stencil already is.
+    fn wrapping(
+        &mut self,
+        st: &mut Fn2,
+        prim: Prim,
+        kind: &str,
+        a: u32,
+        b: u32,
+        dest: u32,
+    ) -> bool {
+        let Some((tag, _, _)) = prim_tag(prim) else { return false };
+        let name = match kind {
+            "Add" => "add",
+            "Sub" => "sub",
+            "Mul" => "mul",
+            _ => return false,
+        };
+        let key = format!("bin/{name}/{tag}/ff/f");
+        if !self.has(&key) {
+            return false;
+        }
+        let _ = st;
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(a))),
+                ("JIT_B", V::I(u64::from(b))),
+                ("JIT_D", V::I(u64::from(dest))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        true
+    }
+
+    /// `abs` and `signum`.
+    ///
+    /// `abs` of a signed minimum overflows, and overflow is undefined
+    /// (SPEC 6.2), so there is nothing to check. A float's is the sign bit
+    /// cleared, which is exact for every value including the infinities and
+    /// leaves a NaN a NaN.
+    fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) -> bool {
+        let Some((tag, bits, signed)) = prim_tag(prim) else { return false };
+        let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+        // A sign test at sixteen bytes reads the high half, which the `signum`
+        // comparisons below cannot: they are `bin/{lt,gt}/{tag}/fi/f` and there
+        // is no immediate form that wide. So it goes through the same wide
+        // compare against a materialised zero.
+        if abs {
+            if prim.is_float() {
+                let sign = if prim == Prim::F32 { 0x7fff_ffffu64 } else { !(1u64 << 63) };
+                self.emit(
+                    "bin/and/u64/fi/f",
+                    &[
+                        ("JIT_D", V::I(u64::from(dest))),
+                        ("JIT_A", V::I(u64::from(a))),
+                        ("JIT_K", V::I(sign)),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+                return true;
+            }
+            self.mv(dest, a, if bits > 64 { 16 } else { 8 });
+            if !signed {
+                return true;
+            }
+            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+            self.lt_zero(scr, a, tag);
+            let skip = st.label();
+            let brkey = self.arm_key("br/f", "JIT_T");
+            self.emit(
+                &brkey,
+                &[
+                    ("JIT_A", V::I(u64::from(scr))),
+                    ("JIT_T", V::Fall),
+                    ("JIT_F", V::Blk(skip)),
+                ],
+            );
+            self.emit(
+                &format!("un/neg/{tag}/f/f"),
+                &[
+                    ("JIT_A", V::I(u64::from(a))),
+                    ("JIT_D", V::I(u64::from(dest))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            let here = self.region.code_addr();
+            st.place(skip, here);
+            return true;
+        }
+        // `signum`: zero, then one test per end. A `Float`'s answers are
+        // `1.0`, `-1.0` and `0.0`, so a NaN — which is neither above nor
+        // below — answers zero, exactly as the two `select`s
+        // `cranelift/emit.rs` chains do.
+        let (zero, one, minus) = if prim == Prim::F64 {
+            (0u128, u128::from(1.0f64.to_bits()), u128::from((-1.0f64).to_bits()))
+        } else if prim == Prim::F32 {
+            (0, u128::from(1.0f32.to_bits()), u128::from((-1.0f32).to_bits()))
+        } else if bits > 64 {
+            (0, 1, u128::MAX)
+        } else {
+            (0, 1, u128::from(mask))
+        };
+        self.imm_num(dest, prim, zero);
+        // At sixteen bytes there is no immediate operand — `_JIT_K` is one
+        // word — so the zero the two tests compare against is materialised.
+        let wide = bits > 64;
+        let zslot = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
+        if wide {
+            self.imm_num(zslot, prim, 0);
+        }
+        for (op, v) in [("gt", one), ("lt", minus)] {
+            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+            let key = format!("bin/{op}/{tag}/{}/f", if wide { "ff" } else { "fi" });
+            self.emit(
+                &key,
+                &[
+                    ("JIT_D", V::I(u64::from(scr))),
+                    ("JIT_A", V::I(u64::from(a))),
+                    ("JIT_B", V::I(u64::from(zslot))),
+                    ("JIT_K", V::I(0)),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            let skip = st.label();
+            let brkey = self.arm_key("br/f", "JIT_T");
+            self.emit(
+                &brkey,
+                &[
+                    ("JIT_A", V::I(u64::from(scr))),
+                    ("JIT_T", V::Fall),
+                    ("JIT_F", V::Blk(skip)),
+                ],
+            );
+            self.imm_num(dest, prim, v);
+            let here = self.region.code_addr();
+            st.place(skip, here);
+        }
+        true
+    }
+
+    /// `Ord::compare` at a primitive: `Less`, `Equal`, `Greater` in
+    /// declaration order, which is what `middle::layout` gives `core/order`'s
+    /// three-variant enum as a bare tag.
+    ///
+    /// Two tests of the operands rather than one three-way instruction, because
+    /// `Equal` is the answer neither test claims — and the tests are at the
+    /// operand's *own* type, so a signed compare is signed and a `Float`'s is
+    /// `fcmp`.
+    fn compare_prim(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
+        let Some((tag, _, _)) = prim_tag(prim) else {
+            return self.unsupported(format!("Ord::compare at `{}`", prim.name()));
+        };
+        let raw = st.scratch + super::rtcall::RAW_WORD * 8;
+        self.imm_to(raw, EQUAL);
+        for (op, v) in [("lt", LESS), ("gt", GREATER)] {
+            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+            self.emit(
+                &format!("bin/{op}/{tag}/ff/f"),
+                &[
+                    ("JIT_D", V::I(u64::from(scr))),
+                    ("JIT_A", V::I(u64::from(a))),
+                    ("JIT_B", V::I(u64::from(b))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            let skip = st.label();
+            let brkey = self.arm_key("br/f", "JIT_T");
+            self.emit(
+                &brkey,
+                &[
+                    ("JIT_A", V::I(u64::from(scr))),
+                    ("JIT_T", V::Fall),
+                    ("JIT_F", V::Blk(skip)),
+                ],
+            );
+            self.imm_to(raw, v);
+            let here = self.region.code_addr();
+            st.place(skip, here);
+        }
+        self.store_w(dest, raw, w);
+    }
+
+    /// `derivePrimHash.<T>` — `(U64, T) -> U64`, the accumulator then the
+    /// value.
+    ///
+    /// `cranelift/emit.rs::hash_prim` is the model and the symbols are the same
+    /// ones, because what a hash has to agree with is `runtime.js`'s: a `Char`
+    /// is a one-character *string* on JavaScript, so an astral scalar is two
+    /// mixes and the runtime owns that, and a `Float` hashes through the double
+    /// it widens to.
+    fn hash_prim(&mut self, st: &mut Fn2, prim: Prim, acc: u32, v: u32, dest: u32) {
+        use crate::compiler::semantics::types::Prim as P;
+        let r = match prim {
+            P::Str | P::Template => {
+                let raw = st.scratch + super::rtcall::SPARE_WORD * 8;
+                let _ = raw;
+                self.c_call(
+                    "buri_rt_hash_str",
+                    st,
+                    &[Src::Word(acc), Src::Word(v), Src::Word(v + 8), Src::Word(v + 16)],
+                    &[],
+                    dest,
+                    "i",
+                )
+            }
+            P::Char => self.c_call(
+                "buri_rt_hash_char",
+                st,
+                &[Src::Word(acc), Src::Word(v)],
+                &[],
+                dest,
+                "i",
+            ),
+            P::F32 | P::F64 => {
+                let wide = if prim == P::F32 {
+                    let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+                    self.emit(
+                        "cvt/f322f",
+                        &[
+                            ("JIT_D", V::I(u64::from(scr))),
+                            ("JIT_A", V::I(u64::from(v))),
+                            ("JIT_CONT", V::Fall),
+                        ],
+                    );
+                    scr
+                } else {
+                    v
+                };
+                self.c_call(
+                    "buri_rt_hash_f64",
+                    st,
+                    &[Src::Word(acc)],
+                    &[Src::Word(wide)],
+                    dest,
+                    "i",
+                )
+            }
+            // `$mix` is handed `ToUint32` of a value that is already an
+            // integer, and a frame slot holds one zero-extended at its own
+            // width — so the low word is already what the `u32` parameter
+            // reads out of `w1`.
+            _ => self.c_call(
+                "buri_rt_mix",
+                st,
+                &[Src::Word(acc), Src::Word(v)],
+                &[],
+                dest,
+                "i",
+            ),
+        };
+        if let Err(why) = r {
+            self.unsupported(why);
+        }
+    }
+
     /// One numeric conversion, between two types a frame slot can hold.
     ///
     /// Integer to integer is the interesting case and it is two steps: widen
@@ -2323,9 +3276,58 @@ impl Jit<'_> {
         src: u32,
         dest: u32,
     ) -> Result<(), String> {
-        let (Some((_, fw, fsigned)), Some((_, tw, _))) = (prim_tag(from), prim_tag(to)) else {
+        let (Some((ftag, fw, fsigned)), Some((ttag, tw, _))) = (prim_tag(from), prim_tag(to))
+        else {
             return Err(format!("a conversion at `{}` or `{}`", from.name(), to.name()));
         };
+        // The sixteen-byte types, first, because everything below assumes a
+        // value that fits one frame word.
+        if fw == 128 || tw == 128 {
+            if fw == 128 && tw == 128 {
+                self.mv(dest, src, 16);
+                return Ok(());
+            }
+            if tw == 128 {
+                if from.is_float() {
+                    return Err(format!("a conversion from `{}`", from.name()));
+                }
+                let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
+                let at = self.widen(src, wide, fw, fsigned);
+                self.emit(
+                    &format!("cvt/to/{ttag}/{}", if fsigned { "i" } else { "u" }),
+                    &[
+                        ("JIT_D", V::I(u64::from(dest))),
+                        ("JIT_A", V::I(u64::from(at))),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+                return Ok(());
+            }
+            let key = if to.is_float() {
+                format!("cvt/from/{ftag}/f")
+            } else {
+                format!("cvt/from/{ftag}/{tw}")
+            };
+            self.emit(
+                &key,
+                &[
+                    ("JIT_D", V::I(u64::from(dest))),
+                    ("JIT_A", V::I(u64::from(src))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            if to == Prim::F32 {
+                self.emit(
+                    "cvt/f2f32",
+                    &[
+                        ("JIT_D", V::I(u64::from(dest))),
+                        ("JIT_A", V::I(u64::from(dest))),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+            }
+            return Ok(());
+        }
         match (from.is_float(), to.is_float()) {
             (true, true) => {
                 let key = if to == Prim::F32 { "cvt/f2f32" } else { "cvt/f322f" };
@@ -2409,6 +3411,16 @@ impl Jit<'_> {
         scratch
     }
 
+    /// The tag width of a function's first result, where that result is an
+    /// enum. `None` covers both "not an aggregate" and "an aggregate that is
+    /// not an enum", which is what the caller declines on either way.
+    fn ret_tag(&mut self, prog: &ir::Program, fi: usize) -> Option<u32> {
+        match prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied()) {
+            Some(ir::Type::Agg(id)) => self.tag_width(prog, id),
+            _ => None,
+        }
+    }
+
     /// The tag width of an enum destination, or `None` when it is not one.
     fn tag_width(&mut self, prog: &ir::Program, id: ir::TypeId) -> Option<u32> {
         match &self.layout_of(prog, id).repr {
@@ -2435,9 +3447,25 @@ impl Jit<'_> {
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        let Some(op) = key.strip_prefix("bits.") else { return false };
         let Some(d) = dests.first().map(|v| st.at(*v)) else { return false };
         let a = args.first().map(|v| st.at(*v)).unwrap_or(0);
+        let b = args.get(1).map(|v| st.at(*v));
+        self.bits_at(st, key, d, a, b)
+    }
+
+    /// [`Jit::bits`] with its operands as frame offsets, so that the same
+    /// sequence serves an `Inst::CallIntrinsic` and the `Body::Runtime`
+    /// function `middle::lower` leaves when the same key was spelled as a
+    /// method call.
+    pub(crate) fn bits_at(
+        &mut self,
+        st: &mut Fn2,
+        key: &str,
+        d: u32,
+        a: u32,
+        count: Option<u32>,
+    ) -> bool {
+        let Some(op) = key.strip_prefix("bits.") else { return false };
         // The operand's width comes from the key's suffix; the bare names are
         // `Int`, which is sixty-four bits.
         let (width, unsigned) = match op {
@@ -2463,7 +3491,7 @@ impl Jit<'_> {
             );
             return true;
         }
-        let Some(count) = args.get(1).map(|v| st.at(*v)) else { return false };
+        let Some(count) = count else { return false };
         self.shift_count_check(st, count, width);
         let key2 = format!("bits/{stem}/{width}");
         if !self.has(&key2) {
@@ -2538,6 +3566,20 @@ fn conversion_target(op: &str) -> Option<Prim> {
 /// The pattern, not the number: `u64::MAX` is not an `i64`, and a slot holds an
 /// integer zero-extended at its own width. `None` for the two 128-bit types,
 /// which do not fit a slot at all.
+fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
+    if prim.is_float() {
+        return bound_bits(prim, low).map(u128::from);
+    }
+    let (lo, hi) = prim.int_range()?;
+    let (_, bits, _) = prim_tag(prim)?;
+    let pattern = if low { lo as u128 } else { hi };
+    if bits >= 128 {
+        return Some(pattern);
+    }
+    let mask = if bits == 64 { u128::from(u64::MAX) } else { (1u128 << bits) - 1 };
+    Some(pattern & mask)
+}
+
 fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
     if prim.is_float() {
         // The largest finite magnitude, signed — not the smallest *positive*
@@ -2579,6 +3621,7 @@ pub fn implemented(key: &str) -> bool {
         || bits_op(key)
         || prim_trait_op(key)
         || key.strip_prefix("derivePrimShow.").is_some_and(|t| prim_of_name(t).is_some())
+        || key.strip_prefix("derivePrimHash.").is_some_and(|t| prim_of_name(t).is_some())
         || numeric_key(key)
 }
 
@@ -2643,6 +3686,7 @@ fn open_coded_key(key: &str) -> bool {
             | "testing_assert.report"
             | "testing_assert.reportShown"
             | "testing_assert.failWith"
+            | "testing_assert.failExpected"
             | "testing_assert.failExpectedShown"
     )
 }
@@ -2662,7 +3706,41 @@ fn list_closure_key(key: &str) -> bool {
             | "list.any"
             | "list.all"
             | "list.count"
+            | "list.find"
+            | "list.findIndex"
+            | "list.sortBy"
+            | "list.foldResult"
+            | "list.foldResultCtx"
+            // The two that build a block without taking a function at all:
+            // what keeps them out of `cli/runtime/list.rs` is a second
+            // *layout* rather than a closure, and that file's header says
+            // which one each needs.
+            | "list.zip"
+            | "list.flatten"
     )
+}
+
+/// Whether a call to a `Body::Runtime` function is **emitted into its caller**
+/// instead of being made.
+///
+/// The rule is one line — a key `runtime.rs`'s table has a row for — and the
+/// two exclusions are not exceptions to it but the same fallback the loops have
+/// always had:
+///
+/// * [`list_closure_key`] and the two `deriveArray*` derives are open-coded as
+///   a **loop** whose step this function has to be able to see as a
+///   `MakeClosure` (`lists.rs`). Where it cannot, the designed answer is a call
+///   to the `Body::Runtime` function, whose body reaches the same loop through
+///   the closure's thunk — so inlining those would replace a working fallback
+///   with a refusal.
+/// * A key with no row is `str.len`, `num.<T>.<op>` and the rest, whose bodies
+///   `runtime_body` generates from the signature; those keys reach a backend
+///   only as a method, never as an `Inst::CallIntrinsic`, so there is no
+///   call-site emitter for them to be inlined by.
+fn inline_runtime_key(key: &str) -> bool {
+    super::runtime::entry(key).is_some()
+        && !list_closure_key(key)
+        && !matches!(key, "deriveArrayEq" | "deriveArrayShow")
 }
 
 /// `num.<T>.<op>`, for the operations `Lower::runtime_body` turns into an
@@ -2674,9 +3752,9 @@ fn list_closure_key(key: &str) -> bool {
 /// describe an operation this backend compiles.
 ///
 /// The list is what `runtime_body` actually dispatches on and not `num.*`:
-/// `Checked`, `Saturating` and `Wrapping` have no body here yet, and claiming
-/// them would turn a diagnostic that names the operation into one that names an
-/// IR shape.
+/// claiming a key with no body would turn a diagnostic that names the operation
+/// into one that names an IR shape. `toJson` is the operation `core/num`
+/// declares that this does not answer.
 fn numeric_key(key: &str) -> bool {
     if key == "num.minValue" || key == "num.maxValue" {
         return true;
@@ -2707,5 +3785,10 @@ fn numeric_key(key: &str) -> bool {
             | "toF64"
             | "toChar"
             | "hash"
+            | "abs"
+            | "signum"
     ) || conversion_target(op).is_some()
+        || ["checked", "saturating", "wrapping"]
+            .iter()
+            .any(|p| op.strip_prefix(p).is_some_and(|k| matches!(k, "Add" | "Sub" | "Mul" | "Div")))
 }

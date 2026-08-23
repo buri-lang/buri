@@ -26,8 +26,8 @@
 //!
 //! # Which packages are in the native set, and which are not
 //!
-//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-four
-//! of the thirty-one files are in it** — the number the harness prints, and one
+//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-five
+//! of the thirty-two files are in it** — the number the harness prints, and one
 //! the prose had off by one before `semantics/generics.buri` joined them — and
 //! one more, `proto/binary.buri`, which compiles and passes but is
 //! [`Out::Costly`] rather than in the set, for a
@@ -267,6 +267,11 @@ const PACKAGES: &[Case] = &[
     // stayed a free inference variable, which no backend has a layout for;
     // `Subst::default_unconstrained` makes it `()`.
     included("semantics/generics.buri"),
+    // The fifth: which positions of a type constructor hand a value back
+    // (SPEC 10.2). It reaches nothing the four above do not — a `Hermetic`
+    // context, `list.mapCtx`, `[Str].join` and `str.format` — so it is in the
+    // native set from the day it was written.
+    included("semantics/variance.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`

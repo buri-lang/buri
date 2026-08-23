@@ -858,3 +858,70 @@ export fn threeInts(a: Int, b: Int, c: Int): Int {
 export fn fourStrs<C: Alloc>(ctx: C, a: Str, b: Str, c: Str, d: Str): Str {
   str.format(ctx, "${a}${b}${c}${d}")
 }
+
+// =============================================================================
+// 13. Which positions of a type constructor hand a value back (SPEC 10.2)
+// =============================================================================
+
+/// A tree whose type parameter appears only where a *caller* must supply it:
+/// as the first parameter of a handler. Holding a `Widget<C>` never hands you
+/// a `C` — to get one out you would have to pass one in — so the parameter is
+/// ordinary data even when `C` is bounded by an effect, for exactly the reason
+/// `fn(C, A) => B` is.
+export enum Widget<C> {
+  export Label(Str),
+  export Press(Str, fn(C, Int) => Str),
+  export Group([Widget<C>]),
+}
+
+/// The shape a `mount` has: a bounded context *and* a tree over that same
+/// context, in one signature. The `Group` recursion is what makes the rule a
+/// fixpoint rather than a single pass — `Group([Widget<C>])` can only provide
+/// a `C` if `Widget` already does.
+export fn render<C: Alloc>(ctx: C, root: Widget<C>): Str {
+  match (root) {
+    .Label(text) => text,
+    .Press(label, press) => press(ctx, label.len()),
+    .Group(children) => children.mapCtx(ctx, fn(c, child) => render(c, child)).join(ctx, "+"),
+  }
+}
+
+/// The shape a row closure has: a function whose *result* is a tree over the
+/// bounded context. A function type is judged by its result, so this was
+/// rejected for the same reason `render` was.
+export fn eachRow<C: Alloc, T>(ctx: C, items: [T], row: fn(C, T, Int) => Widget<C>): Str {
+  // `count` first: `[T]` is a type the lambda may not close over, because an
+  // unbounded `T` stands for a context type too (SPEC 10.6). An `Int` is not.
+  let count = items.len();
+  items.mapCtx(ctx, fn(c, item) => render(c, row(c, item, count))).join(ctx, ",")
+}
+
+/// A pure component: no `ctx`, `C` unbounded, and it closes over a subtree.
+/// The capture rule rejected this too, and dropping the bound did not help —
+/// which is what made hoisting a subtree impossible in any component at all.
+export fn deferred<C>(header: Widget<C>): fn() => Widget<C> {
+  fn() => .Group([header])
+}
+
+/// Phantom in `T`: it stores an index and never a `T`. So a lambda may capture
+/// one with no ordinary bound on `T` to launder it through.
+export struct Cell<T>(export Int);
+
+export fn cellIndex<T>(cell: Cell<T>): fn() => Int {
+  fn() => cell.0
+}
+
+/// The other direction, so the rule is not mistaken for a weakening: `Held<T>`
+/// stores its `T`, so it does hand one back, and a lambda may capture it only
+/// under an ordinary bound. `cli/tests/reject/covariant_param_not_capturable`
+/// pins the unbounded form still failing; this pins the bounded form working.
+export enum Held<T> {
+  export Value(T),
+  export Empty,
+}
+
+derive Eq, Show for Held;
+
+export fn heldTwice<T: Eq>(held: Held<T>): fn() => (Held<T>, Held<T>) {
+  fn() => (held, held)
+}

@@ -44,7 +44,7 @@
 
 use super::abi::Loc;
 use super::region::{Region, RelocKind, Target};
-use super::stencil::{Hole, HoleKind, Library};
+use super::library::{Hole, HoleKind, Library};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layout, Layouts};
 use crate::compiler::semantics::types::{Tables, Ty};
@@ -70,6 +70,11 @@ pub enum V {
     Fn(u32),
     /// A C symbol in this process, through a veneer.
     Ext(&'static str),
+    /// A symbol this unit defines for itself: one of `glue.rs`'s helpers.
+    ///
+    /// Separate from [`V::Ext`] only because the name is chosen at emission
+    /// time and cannot be a `&'static str`; the two are patched identically.
+    Sym(String),
     /// The stencil laid out immediately after this one — the paper's "control
     /// is passed directly to the next operation", which costs zero bytes
     /// because the branch is dropped rather than patched.
@@ -81,7 +86,7 @@ enum Fix {
     /// A `b`/`bl` whose target is a block of the function being emitted.
     Block { at: u64, blk: u32 },
     /// The same, for a conditional branch whose `imm19` the cond fold made a
-    /// hole. See `stencil::fold_cond`.
+    /// hole. See `extract::fold_cond`.
     BlockCond { at: u64, blk: u32 },
     /// A `b`/`bl` whose target is a function entry.
     Func { at: u64, f: u32 },
@@ -128,16 +133,21 @@ pub struct Jit<'a> {
     /// parameter and result types are (the open-coded `list.*` loops).
     pub(crate) tables: &'a Tables,
     /// Per function: (frame size, return offsets, parameter offsets).
-    frames: Vec<FrameSig>,
+    ///
+    /// **Borrowed, not owned, and computed once for the whole emission.** It is
+    /// a whole-*program* table — a call site needs the callee's frame whether or
+    /// not this unit owns the callee — so computing it inside `plan` made the
+    /// emitter O(units × program): at 104k lines and 367 units it walked a 121k
+    /// line program 367 times, which was 2,378 ms of a 3,184 ms emission and
+    /// most of `Layouts::compute`. `mod.rs::emit_units` computes it beside
+    /// `lower::run`, which is where the other whole-program work already is.
+    frames: &'a [FrameSig],
     /// Section offset of each function of *this unit*; zero for a function the
-    /// unit does not own, which is what makes a call to one a relocation.
+    /// unit does not own. It is what the object's symbol table is written from
+    /// — not what a call site reads, because every call is a relocation
+    /// (see [`Jit::resolve`]).
     entries: Vec<u64>,
     fixups: Vec<Fix>,
-    /// Which unit each function belongs to, so that a call site can tell a
-    /// direct branch from an import.
-    unit_of: Vec<u32>,
-    /// The unit being emitted.
-    unit: u32,
     pub stats: Stats,
     /// The IR shapes this emitter refused, in the order they were first met.
     /// A unit with any of them produces no object: a refusal is a diagnostic
@@ -151,6 +161,20 @@ pub struct Jit<'a> {
     /// Per function: did anything in it compile to an `unsupported` stencil.
     dirty: Vec<bool>,
     current: usize,
+    /// The functions this unit generates for itself, in the order they were
+    /// first asked for, and where each was laid out.
+    ///
+    /// A `Vec` and not a map because the order is the object's symbol order and
+    /// `--check-reproducible` compares two builds byte for byte; the map beside
+    /// it is only a lookup. `cranelift/helpers.rs` is the same set of helpers
+    /// under the same argument.
+    helpers: Vec<super::glue::Helper>,
+    helper_ix: HashMap<super::glue::Helper, usize>,
+    helper_at: Vec<u64>,
+    /// Whether a value of a type owns a counted block anywhere inside it, by
+    /// type. Memoised because the question is asked once per reference
+    /// operation and answering it walks the type; see `Lower::rc_counted`.
+    pub(crate) counted_memo: HashMap<Ty, bool>,
 }
 
 #[derive(Clone, Default)]
@@ -217,23 +241,51 @@ fn find(uf: &[u32], mut v: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 impl<'a> Jit<'a> {
-    pub fn new(lib: &'a Library, tables: &'a Tables, unit: u32) -> Jit<'a> {
+    pub(crate) fn new(lib: &'a Library, tables: &'a Tables, frames: &'a [FrameSig]) -> Jit<'a> {
         Jit {
             lib,
             region: Region::new(),
             layouts: Layouts::new(tables),
             tables,
-            frames: Vec::new(),
+            frames,
             entries: Vec::new(),
             fixups: Vec::new(),
-            unit_of: Vec::new(),
-            unit,
             stats: Stats::default(),
             reasons: Vec::new(),
             veneer_ok: false,
             dirty: Vec::new(),
             current: 0,
+            helpers: Vec::new(),
+            helper_ix: HashMap::new(),
+            helper_at: Vec::new(),
+            counted_memo: HashMap::new(),
         }
+    }
+
+    /// The symbol of a generated helper, registering it the first time it is
+    /// asked for.
+    ///
+    /// A **local** symbol of this unit, so two units that both need the drop
+    /// glue for `[Str]` get a copy each and neither collides —
+    /// `cranelift/helpers.rs`'s `Linkage::Local` for the same reason.
+    pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
+        if let Some(i) = self.helper_ix.get(&h) {
+            return super::glue::symbol(*i);
+        }
+        let i = self.helpers.len();
+        self.helper_ix.insert(h.clone(), i);
+        self.helpers.push(h);
+        self.helper_at.push(0);
+        super::glue::symbol(i)
+    }
+
+    /// Every helper this unit generated, as `(symbol, section offset)`.
+    pub fn helper_symbols(&self) -> Vec<(String, u64)> {
+        self.helper_at
+            .iter()
+            .enumerate()
+            .map(|(i, at)| (super::glue::symbol(i), *at))
+            .collect()
     }
 
     pub(crate) fn has(&self, key: &str) -> bool {
@@ -282,6 +334,13 @@ impl<'a> Jit<'a> {
         self.layouts.of(ty)
     }
 
+    /// Whether `middle::layout` put `field` behind a pointer inside `owner`,
+    /// which it does for the field that would otherwise make the owner
+    /// recursive.
+    pub(crate) fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
+        self.layouts.boxes(owner, field)
+    }
+
     pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> Layout {
         let ty: Ty = prog.type_info(id).ty.clone();
         self.layouts.of(ty)
@@ -314,15 +373,17 @@ impl<'a> Jit<'a> {
         round8(self.width(prog, t)).max(8)
     }
 
-
-    /// Frame layouts for every function, which a call site needs before the
-    /// callee has been emitted.
+    /// The per-unit tables, sized from the program.
+    ///
+    /// The frame layouts a call site needs are *not* computed here: they are a
+    /// whole-program function of the program alone, so `emit_units` computes
+    /// them once and every unit borrows the same slice. What is left is the two
+    /// vectors that are genuinely this unit's — where each function was laid
+    /// out, and whether it has been emitted — and both are a `memset`.
     pub fn plan(&mut self, prog: &ir::Program) {
-        self.frames = frame_sigs(prog, self.tables);
         self.entries = vec![0; prog.funcs.len()];
         self.dirty = vec![false; prog.funcs.len()];
-        self.unit_of = prog.funcs.iter().map(|f| f.unit).collect();
-        for fs in &self.frames {
+        for fs in self.frames {
             self.stats.max_frame = self.stats.max_frame.max(fs.size);
         }
     }
@@ -330,13 +391,14 @@ impl<'a> Jit<'a> {
 
 /// Every function's frame layout, from the program and the type tables alone.
 ///
-/// A free function and not a method because **the per-unit cache key has to
-/// compute the same thing** (`cache.rs`): cpjit's calling convention is
+/// A free function and not a method because it is **whole-program and computed
+/// once per emission**, not once per unit: stencil's calling convention is
 /// frame-threaded — a call site writes its arguments at
-/// `fp + frame_size(caller) + param_off(callee)` — so a caller's *bytes* depend
-/// on its callee's `FrameSig`, and a unit key that does not fold those in would
-/// serve a cached body compiled against a frame the callee no longer has. That
-/// is a miscompile, not a slow build, so the two must be one implementation.
+/// `fp + frame_size(caller) + param_off(callee)` — so a caller's bytes depend on
+/// its *callee's* `FrameSig` whether or not the two share a unit, and the table
+/// cannot be restricted to a unit's own members. `mod.rs::emit_units` calls it
+/// beside `lower::run` and hands every `Jit` the same slice; calling it from
+/// `Jit::plan` made emission quadratic in the program (see `Jit::frames`).
 pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
     let mut layouts = Layouts::new(tables);
     let width = |l: &mut Layouts, t: ir::Type| -> u32 {
@@ -384,12 +446,14 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
 /// Words of scratch past the last local, inside every frame.
 ///
 /// Sixteen for the emitter's own temporaries and the open-coded list loops'
-/// (`lists.rs` §"the scratch words"), and sixteen more for the C argument area
-/// a runtime call marshals into (`rtcall::CARG_WORD`). The second sixteen are
+/// (`lists.rs` §"the scratch words"), sixteen more for the C argument area a
+/// runtime call marshals into (`rtcall::CARG_WORD`), and twenty-four for the
+/// loops whose state does not fit two words — the merge sort's seven indices,
+/// `flatten`'s two passes (`lists.rs::LOOP_SCRATCH`). The C argument area is
 /// not optional: a `crt` stencil's arguments have to live **inside** this
 /// frame, and the first byte past it is where a Buri callee's frame starts —
 /// which `lists.rs` writes into before it calls the step.
-const SCRATCH_WORDS: usize = 32;
+pub(crate) const SCRATCH_WORDS: usize = 96;
 
 // ---------------------------------------------------------------------------
 // Emission
@@ -462,6 +526,20 @@ impl<'a> Jit<'a> {
         for i in members {
             self.function(prog, *i);
         }
+        // The helpers, after the bodies that asked for them. An index walk
+        // rather than an iterator because emitting one may register another —
+        // the drop glue of a `[[Str]]` block needs the drop glue of a `[Str]` —
+        // and the list grows underneath the loop.
+        let mut i = 0usize;
+        while i < self.helpers.len() {
+            let h = match self.helpers.get(i) {
+                Some(h) => h.clone(),
+                None => break,
+            };
+            let at = self.emit_helper(prog, &h);
+            put(&mut self.helper_at, i, at);
+            i += 1;
+        }
         self.resolve(prog);
     }
 
@@ -470,7 +548,7 @@ impl<'a> Jit<'a> {
         self.region.align_code(4);
         let Some(f) = prog.funcs.get(fi) else {
             crate::diagnostics::ice(&format!(
-                "cpjit: unit member {fi} is past the program's {} functions",
+                "stencil: unit member {fi} is past the program's {} functions",
                 prog.funcs.len()
             ));
         };
@@ -565,6 +643,17 @@ impl<'a> Jit<'a> {
         }
     }
 
+    /// Where the fixup list stands, so that a generated body can resolve its
+    /// own labels without seeing the ones a member left behind.
+    pub(crate) fn fixups_len(&self) -> usize {
+        self.fixups.len()
+    }
+
+    /// [`Jit::resolve_blocks`] for one of `glue.rs`'s generated bodies.
+    pub(crate) fn resolve_helper_blocks(&mut self, base: usize, st: &Fn2) {
+        self.resolve_blocks(base, &st.blk);
+    }
+
     /// Block references are function-local, so they are resolved as soon as
     /// the function is laid out — and only then may a veneer be planted, since
     /// one in the middle of a function would land inside the fallthrough of the
@@ -604,7 +693,7 @@ impl<'a> Jit<'a> {
         let mut s = match lib.get(key) {
             Some(s) => s,
             None => crate::diagnostics::ice(&format!(
-                "cpjit: no stencil {key} in {}",
+                "stencil: no stencil {key} in {}",
                 lib.config
             )),
         };
@@ -647,7 +736,7 @@ impl<'a> Jit<'a> {
         }
         let Some(bytes) = s.code.get(..len) else {
             crate::diagnostics::ice(&format!(
-                "cpjit: stencil {key} is {} bytes, shorter than the tail branch it names",
+                "stencil: stencil {key} is {} bytes, shorter than the tail branch it names",
                 s.code.len()
             ));
         };
@@ -669,7 +758,7 @@ impl<'a> Jit<'a> {
                 // set for a test to check rather than for this to consult.
                 if h.name.starts_with("JIT_") {
                     crate::diagnostics::ice(&format!(
-                        "cpjit: stencil {key} has an unbound hole {}",
+                        "stencil: stencil {key} has an unbound hole {}",
                         h.name
                     ));
                 }
@@ -720,6 +809,16 @@ impl<'a> Jit<'a> {
                         }
                         None
                     }
+                    V::Sym(ref n) => {
+                        for off in &h.branches {
+                            self.region.reloc(
+                                at + *off as u64,
+                                RelocKind::Branch26,
+                                Target::Symbol(n.clone()),
+                            );
+                        }
+                        None
+                    }
                     // The stencil laid out immediately after this one, which
                     // is the address one past this body — *not* one past this
                     // branch, which for a two-target stencil is the other arm.
@@ -751,7 +850,7 @@ impl<'a> Jit<'a> {
             }
             HoleKind::Imm32 => {
                 let V::I(x) = v else {
-                    crate::diagnostics::ice(&format!("cpjit: hole {} takes a literal", h.name));
+                    crate::diagnostics::ice(&format!("stencil: hole {} takes a literal", h.name));
                 };
                 for (a, b) in &h.pairs {
                     self.patch_imm32(at + *a as u64, at + *b as u64, x as u32);
@@ -769,7 +868,7 @@ impl<'a> Jit<'a> {
                     // that does not match this emitter.
                     let V::I(x) = v else {
                         crate::diagnostics::ice(&format!(
-                            "cpjit: hole {} was folded into an imm12 but is not an offset",
+                            "stencil: hole {} was folded into an imm12 but is not an offset",
                             h.name
                         ));
                     };
@@ -805,8 +904,9 @@ impl<'a> Jit<'a> {
                     V::Ptr(x) => self.region.pool_target(Target::Here(x)),
                     V::Fn(f) => self.region.pool_target(Target::Func(f)),
                     V::Ext(n) => self.region.pool_target(Target::Symbol(String::from(n))),
+                    V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone())),
                     other => crate::diagnostics::ice(&format!(
-                        "cpjit: hole {} takes a datum, got {other:?}",
+                        "stencil: hole {} takes a datum, got {other:?}",
                         h.name
                     )),
                 };
@@ -862,7 +962,7 @@ impl<'a> Jit<'a> {
     }
 
     /// `adrp Xd, sym@PAGE` + `add Xd, Xd, sym@PAGEOFF` → `movz Xd, #lo` +
-    /// `movk Xd, #hi, lsl 16`. See `stencil::HoleKind`.
+    /// `movk Xd, #hi, lsl 16`. See `library::HoleKind`.
     fn patch_imm32(&mut self, adrp: u64, add: u64, v: u32) {
         let wa = self.region.word_at(adrp);
         let wb = self.region.word_at(add);
@@ -873,7 +973,7 @@ impl<'a> Jit<'a> {
     }
 
     /// The `imm12` field of a load or store the library builder folded the hole
-    /// into. See `stencil::fold_addressing`.
+    /// into. See `extract::fold_addressing`.
     fn patch_lo12(&mut self, at: u64, v: u32, scale: u32) {
         debug_assert_eq!(v % scale, 0);
         let imm12 = v / scale;
@@ -884,11 +984,22 @@ impl<'a> Jit<'a> {
 
     /// The cross-function sites, once the unit is laid out.
     ///
-    /// A callee this unit owns is a `bl` with a displacement, exactly as the
-    /// prototype's was; a callee in another unit is a relocation against its
-    /// symbol, which is what makes the unit an object rather than a program.
-    /// `ir::Func::symbol` is the name both sides agree on — `ir.rs` §"a callee
-    /// is named by its symbol" is the reason it exists.
+    /// **Every** call to a function is a relocation against its symbol, whether
+    /// or not this unit owns the callee. `ir::Func::symbol` is the name both
+    /// sides agree on — `ir.rs` §"a callee is named by its symbol" is the
+    /// reason it exists.
+    ///
+    /// The intra-unit case is *not* an optimisation opportunity, and baking the
+    /// displacement there is unsound. `object.rs` sets
+    /// `MH_SUBSECTIONS_VIA_SYMBOLS`, which tells `ld64` that every symbol
+    /// begins an independently movable atom, and `build/link.rs` passes
+    /// `-Wl,-dead_strip` on every macOS link. A baked `bl` is not a reference,
+    /// so nothing reaches the callee's atom, so the linker moves it and then
+    /// deletes it and the branch lands on whatever took its place. This is what
+    /// an assembler emits for a call to a symbol in the same file, and what
+    /// `cranelift-object` emits for the same edge; the linker resolves an
+    /// intra-section `BRANCH26` to the same instruction the bake would have
+    /// produced, so it costs nothing and it keeps the atom alive.
     fn resolve(&mut self, prog: &ir::Program) {
         let fixups = std::mem::take(&mut self.fixups);
         for f in fixups {
@@ -897,24 +1008,9 @@ impl<'a> Jit<'a> {
                 // Block fixups are resolved per function, in `resolve_blocks`.
                 Fix::Block { .. } | Fix::BlockCond { .. } => continue,
             };
-            match self.local_entry(callee) {
-                Some(t) => self.patch_branch(at, t),
-                None => {
-                    let name = symbol_of(prog, callee);
-                    self.region.reloc(at, RelocKind::Branch26, Target::Symbol(name));
-                }
-            }
+            let name = symbol_of(prog, callee);
+            self.region.reloc(at, RelocKind::Branch26, Target::Symbol(name));
         }
-    }
-
-    /// Where a function is inside *this* unit's section, or `None` when the
-    /// unit does not own it.
-    fn local_entry(&self, f: u32) -> Option<u64> {
-        let i = f as usize;
-        if self.unit_of.get(i).copied() != Some(self.unit) {
-            return None;
-        }
-        self.entries.get(i).copied()
     }
 
     /// Whether a function, or anything reachable from it, contains an
@@ -1050,7 +1146,7 @@ impl<'a> Jit<'a> {
             // rather than trusting it.
             if root.is_some_and(|o| o != p) {
                 crate::diagnostics::ice(&format!(
-                    "cpjit: slot class {r} is pinned at two offsets ({root:?} and {p})"
+                    "stencil: slot class {r} is pinned at two offsets ({root:?} and {p})"
                 ));
             }
             *root = Some(p);
@@ -1645,13 +1741,24 @@ impl<'a> Jit<'a> {
                     }
                     continue;
                 }
+                // A CPS register is one machine word, so a sixteen-byte
+                // operand is never a candidate: every stencil at `I128` and
+                // `U128` is frame-to-frame (`sources.rs::wide`), and promoting
+                // one would be a value the consumer could not read.
+                let wide = |p: &crate::compiler::semantics::types::Prim| {
+                    matches!(
+                        p,
+                        crate::compiler::semantics::types::Prim::I128
+                            | crate::compiler::semantics::types::Prim::U128
+                    )
+                };
                 let (float, dest) = match i {
-                    ir::Inst::Binary { dest, op, prim, .. } => {
+                    ir::Inst::Binary { dest, op, prim, .. } if !wide(prim) => {
                         let f = matches!(prim, crate::compiler::semantics::types::Prim::F32 | crate::compiler::semantics::types::Prim::F64)
                             && !op.is_comparison();
                         (f, *dest)
                     }
-                    ir::Inst::Unary { dest, prim, .. } => (
+                    ir::Inst::Unary { dest, prim, .. } if !wide(prim) => (
                         matches!(prim, crate::compiler::semantics::types::Prim::F32 | crate::compiler::semantics::types::Prim::F64),
                         *dest,
                     ),
@@ -1857,7 +1964,7 @@ fn uses_after(code: &ir::Code, block: &ir::Block, v: ir::ValueId, from: usize) -
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
         ir::Inst::CallIntrinsic { key, .. } => key != "testing_assert.report",
-        // A comparison of two `Str`s is a *call* — `cpjit_str_cmp` — and every
+        // A comparison of two `Str`s is a *call* — `stencil_str_cmp` — and every
         // stencil that calls uses the zero-register prototype, so nothing may
         // be live in the CPS file across one. Missing this is not a slow
         // program, it is a wrong one: the register a loop variable was
@@ -1911,12 +2018,13 @@ fn literal(c: &ir::Const, ty: ir::Type) -> Option<u64> {
 /// C library — the same boundary `cranelift/runtime.rs` draws — so this list is
 /// checked against `cli/runtime/lib.rs`'s exports by a test rather than left to
 /// a link error to discover.
-pub const EXTERNALS: [&str; 6] = [
+pub const EXTERNALS: [&str; 7] = [
     "buri_rt_abort",
     "buri_rt_abort_div_zero",
     "buri_rt_abort_unreachable",
     "buri_rt_alloc",
     "buri_rt_decref",
+    "buri_rt_i128_divmod",
     "memcpy",
 ];
 

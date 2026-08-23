@@ -17,8 +17,6 @@
 //! runtime that lived beside the binary would be an unpinned input to every
 //! artifact.
 
-use crate::build::cache::hash_bytes;
-
 /// The prefix on every symbol the runtime exports.
 ///
 /// One prefix and one rule, so that "is this symbol the runtime's" is a string
@@ -35,15 +33,40 @@ pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libburi_rt.
 /// Whether this toolchain has a runtime to link against.
 pub const AVAILABLE: bool = !ARCHIVE.is_empty();
 
-/// The archive's SHA-256, for the `link` cache key.
+/// The archive's SHA-256, **taken by `cli/build.rs` when the bytes were
+/// written**.
 ///
 /// BUILD-AND-WATCH.md §2.2: editing the runtime relinks every artifact and
 /// recompiles none, which is right, because the runtime is linked against and
 /// not compiled against. This is what makes that true — without it, a changed
 /// runtime would be invisible to a cache that only hashes source.
+///
+/// The digest is the same string it always was; what moved is *when*. [`ARCHIVE`]
+/// is a constant of this binary, so its hash is fixed the moment the binary is
+/// linked, and computing it at run time was six and a quarter megabytes of
+/// SHA-256 in front of the first `link` key of every process that builds
+/// anything native — about thirty-five milliseconds, before any cache lookup
+/// could be made, and therefore paid in full by a **no-op** build.
+/// `build::actions::runtime_archive_hash`'s `OnceLock` removed the repeats; a
+/// `buri` invocation is a process, so only the build script can remove the
+/// first one.
+///
+/// `the_hash_is_of_the_bytes` is what keeps this honest, and it is the reason
+/// `cli/build.rs` `#[path]`-includes `build::sha256` rather than restating the
+/// algorithm: the assertion is `archive_hash() == hash_bytes(ARCHIVE)` — the
+/// baked answer against the computed one, over the very bytes that were baked.
 pub fn archive_hash() -> String {
-    hash_bytes(ARCHIVE)
+    ARCHIVE_SHA256.to_string()
 }
+
+/// `libburi_rt.a`'s digest, written beside it in `OUT_DIR` by `cli/build.rs`.
+///
+/// Sixty-four hex digits and nothing else — no newline to trim — so that this
+/// is the string [`hash_bytes`] would have answered and not a rendering of it.
+/// It sits beside the `include_bytes!` above deliberately: one `OUT_DIR`, two
+/// files written by one run of the build script, so there is no way to pair
+/// this digest with some other build's archive.
+const ARCHIVE_SHA256: &str = include_str!(concat!(env!("OUT_DIR"), "/libburi_rt.a.sha256"));
 
 /// The filename to write the archive under. Named, rather than spelled at each
 /// use, because the linker command line names it too.
@@ -52,6 +75,7 @@ pub const ARCHIVE_NAME: &str = "libburi_rt.a";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::cache::hash_bytes;
 
     /// A host we build a runtime for must have produced one, and it must be an
     /// archive rather than whatever else ended up at that path. `!<arch>\n` is
@@ -75,6 +99,15 @@ mod tests {
 
     /// The hash is what the `link` key is built from, so it has to be a hash of
     /// the bytes and not of something incidental.
+    ///
+    /// Since the digest is baked by `cli/build.rs`, this is also the join
+    /// between the two copies of SHA-256 that exist at different times: the
+    /// build script's, over the bytes as it wrote them, and the toolchain's,
+    /// over the bytes as it embedded them. They are one file
+    /// (`build/sha256.rs`, `#[path]`-included by the script), and this is the
+    /// assertion that says so — a fork of that file, or a stale `OUT_DIR`
+    /// pairing one build's archive with another's digest, fails here and moves
+    /// no cache key silently.
     #[test]
     fn the_hash_is_of_the_bytes() {
         assert_eq!(archive_hash(), hash_bytes(ARCHIVE));

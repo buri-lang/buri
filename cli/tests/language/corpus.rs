@@ -324,7 +324,7 @@ fn dependencies_stay_behind_the_bar() {
     // The default feature set is the one `cargo install buri` gets, and it must
     // not be the one that needs LLVM installed (BUILD-AND-WATCH.md §2). The
     // assertion is on the *property* rather than on the exact list, because
-    // `backend-cpjit` joined it and a third default feature that needs no
+    // `backend-stencil` joined it and a third default feature that needs no
     // crate at all is not what this test is guarding against.
     let default = cli
         .lines()
