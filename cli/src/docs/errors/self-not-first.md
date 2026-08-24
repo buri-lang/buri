@@ -6,7 +6,13 @@ error: `self` may appear only as a function's first parameter [self-not-first]
 
 ## What to do
 
-move it to the front, or rename it if this parameter is not the receiver
+Move it to the front, or rename it if this parameter is not the receiver.
+
+## Why
+
+`self` first and `ctx` immediately after is the whole calling convention, and
+it is what lets a reader answer "what does this take, and what may it do?" from
+the front of a signature.
 
 ## A program that provokes it
 

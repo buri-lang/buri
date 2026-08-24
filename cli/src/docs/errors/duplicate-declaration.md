@@ -6,7 +6,13 @@ error: variant `Yes` is declared twice [duplicate-declaration]
 
 ## What to do
 
-rename one of them; `match` tells variants apart by name
+Rename one of them.
+
+## Why
+
+A name is how the thing is referred to, and two of them in one scope leaves the
+reference with no answer — `match` tells variants apart by name, a call tells
+functions apart by name, and neither has a second thing to fall back on.
 
 ## A program that provokes it
 

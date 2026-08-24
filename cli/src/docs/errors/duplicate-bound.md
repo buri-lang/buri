@@ -6,11 +6,13 @@ error: `Alloc` is bound twice [duplicate-bound]
 
 ## What to do
 
-delete one of the two bindings
+Delete one of the two bindings.
 
 ## Why
 
-a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake
+A spread's binding is replaced by an explicit one — `context { ..Hermetic(),
+Fs: files([]) }` is how a test overrides a default — but two explicit bindings
+of one effect have no such reading, so the later one is not a silent winner.
 
 ## A program that provokes it
 

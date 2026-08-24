@@ -6,7 +6,13 @@ error: `Region` is not a declared effect [not-an-effect]
 
 ## What to do
 
-name an effect the platform declares, as in `Alloc` or `Stdout`; `Region` is not one
+Name an effect the platform declares, as in `Alloc` or `Stdout`.
+
+## Why
+
+A context binds effects to implementations, so each key has to be one — and the
+set of them is `core/effect`'s, plus `ui/effect`'s where the platform grants
+them.
 
 ## A program that provokes it
 

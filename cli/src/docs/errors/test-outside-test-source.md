@@ -6,11 +6,13 @@ error: a `test` declaration is legal only in a test source [test-outside-test-so
 
 ## What to do
 
-move it into a file listed in the target's `test.sources`
+Move it into a file listed in the target's `test.sources`.
 
 ## Why
 
-a module is a test source because a rule lists it in `test.sources`; that is the only thing that makes one
+A module is a test source because a rule lists it there; that is the only thing
+that makes one. So a `test` in production code is not a test the runner has
+missed — it is a declaration in a file the runner will never look at.
 
 ## A program that provokes it
 

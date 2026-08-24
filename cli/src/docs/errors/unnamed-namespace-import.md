@@ -6,7 +6,8 @@ error: a namespace import must be named [unnamed-namespace-import]
 
 ## What to do
 
-write `import * as list`, so every name it brings in is reached through one prefix
+Write `import * as list`, so every name it brings in is reached through one
+prefix.
 
 ## Why
 

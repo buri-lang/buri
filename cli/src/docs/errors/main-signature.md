@@ -6,7 +6,13 @@ error: `main` declares no generic parameters [main-signature]
 
 ## What to do
 
-drop them: `main` is called by the runtime, so there is nothing to infer them from
+Drop them. `main` takes no parameters, declares no generic parameters, and
+returns `Result<(), Str>`.
+
+## Why
+
+`main` is called by the runtime rather than by a program, so there is no call
+site to infer a type argument from and nothing to pass an argument in.
 
 ## A program that provokes it
 

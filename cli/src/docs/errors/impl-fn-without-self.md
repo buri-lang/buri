@@ -6,11 +6,13 @@ error: `unit` is in an `impl` block but takes no `self` [impl-fn-without-self]
 
 ## What to do
 
-give it a `self` parameter, or move it out of the `impl` block
+Give it a `self` parameter, or move it out of the `impl` block.
 
 ## Why
 
-an `impl` block declares methods; a function with no receiver is declared at the top level
+An `impl` block declares methods, and a method is found through its receiver's
+type. A constructor-shaped function has no receiver, so it is an ordinary
+top-level declaration.
 
 ## A program that provokes it
 

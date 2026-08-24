@@ -6,33 +6,15 @@ error: `JS` does not grant `ui` [host-not-granted]
 
 ## What to do
 
-drop the effect from the context, or build this target for a platform that grants it
+Drop the effect from the context, or build this target for a platform that
+grants it.
 
 ## Why
 
-a platform *is* the set of effects its host exports, so a platform that does not grant one does not export the name for it, and there is no second declaration to keep in step
-
-## The rule
-
-`core/host` is the platform's implementations of the effects it grants, and it is
-importable only from the module that exports `main` (SPEC rule 34). What it
-exports is decided by the platform of the **output being built**, so the same
-`main` may compile for one of a binary's outputs and not for another:
-
-| Effect | LINUX | MACOS | JS | WEB |
-|---|---|---|---|---|
-| `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand` | yes | yes | yes | yes |
-| `Fs`, `Net`, `Stdin`, `Env`, `Proc` | yes | yes | yes | no |
-| `Ui`, `Watch`, `Fetch` | no | no | no | yes |
-
-A page has no filesystem, no socket that does not freeze it — `Net.fetch` blocks
-until the response arrives, so `WEB` grants `Fetch` instead — no standard input,
-no command line and no process to exit. Nothing but a page has a document, so
-nothing but a page has a reactive graph to grant.
-
-Both halves of a grant are withheld together: the implementation struct as well
-as the value. A host struct has no private field, so exporting `HostNet` while
-withholding `net` would leave the authority one `Net: host.HostNet {}` away.
+A platform *is* the set of effects its host exports, so a platform that does
+not grant one does not export the name for it. Asking for it is then an
+ordinary unresolved name at the line that asked, and there is no second
+declaration anywhere that has to be kept in step.
 
 ## A program that provokes it
 

@@ -6,8 +6,8 @@ error: `//!` documents the module, so it must come first [module-doc-not-first]
 
 ## What to do
 
-move it above the first declaration, or write `///` to document the declaration
-below it
+Move it above the first declaration, or write `///` to document the declaration
+below it.
 
 ## Why
 

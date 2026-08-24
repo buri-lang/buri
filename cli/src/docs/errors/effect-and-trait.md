@@ -6,7 +6,14 @@ error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show
 
 ## What to do
 
-split it in two: a type is either part of the world or part of your data
+Split it in two: a type is either part of the world or part of your data.
+
+## Why
+
+The two kinds of interface are kept apart so that a type parameter bounded by
+an ordinary trait can never be instantiated at a context type. That is what
+makes `xs.any(fn(x) => x == needle)` legal while a lambda capturing a context
+is not.
 
 ## A program that provokes it
 

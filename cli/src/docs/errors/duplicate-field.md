@@ -6,11 +6,13 @@ error: `side` is already a field of `Square` [duplicate-field]
 
 ## What to do
 
-rename the method, or rename the field
+Rename the method, or rename the field.
 
 ## Why
 
-a `.` resolves to a field before a method, so the two may not share a name
+A `.` resolves to a field before a method, so the two sharing a name would make
+`sq.side` mean one thing and `sq.side()` another, decided by a rule nobody
+should have to remember.
 
 ## A program that provokes it
 

@@ -6,11 +6,12 @@ error: `Self` is legal only inside a `trait` or `impl` [self-type-outside-impl]
 
 ## What to do
 
-name the type itself here
+Name the type itself here.
 
 ## Why
 
-`Self` stands for the implementing type, and there is none here
+`Self` stands for the implementing type, and outside a `trait` or an `impl`
+there is none for it to stand for.
 
 ## A program that provokes it
 

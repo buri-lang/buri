@@ -6,7 +6,14 @@ error: `area` is a method, and a method is not a value [method-not-a-value]
 
 ## What to do
 
-call it on a receiver: `x.area()`; to pass it on, wrap it in a lambda: `fn(x) => x.area()`
+Call it on a receiver — `x.area()` — or, to pass it on, wrap it in a lambda:
+`fn(x) => x.area()`.
+
+## Why
+
+A method is resolved through its receiver's type rather than looked up in
+scope, so `sq.area` on its own has nothing to evaluate to. The lambda is where
+the receiver becomes an argument, which is what a function value needs.
 
 ## A program that provokes it
 

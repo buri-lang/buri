@@ -6,7 +6,14 @@ error: `Square` has no method `area` [no-such-method]
 
 ## What to do
 
-check the spelling, or declare it in `impl Square { ... }` in that type's own module — a method may not be added from anywhere else
+Check the spelling, or declare it in an `impl` block in that type's own module.
+
+## Why
+
+A method is looked up in exactly one place: the module that declares the
+receiver's type. There is no extension mechanism, so a method cannot be added
+to a type from outside — which is also what makes resolution a single lookup
+rather than a search.
 
 ## A program that provokes it
 
