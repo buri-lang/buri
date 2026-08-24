@@ -19,12 +19,9 @@ use crate::diagnostics::Invariant as _;
 
 /// `deps`, `rdeps`, `path`, `tags`, `platforms`, `sources`.
 pub fn cmd_query(args: &arguments::Args) -> i32 {
-    let s = match session::open(&args.flags) {
+    let s = match session::open_or_exit(&args.flags) {
         Ok(s) => s,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return 2;
-        }
+        Err(c) => return c as i32,
     };
     let Some(expr) = args.targets.first() else {
         eprintln!("error: `buri query` takes an expression, as in 'deps(//cmd/server)'");

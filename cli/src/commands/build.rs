@@ -26,21 +26,9 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
         return check_reproducible(args);
     }
-    let mut s = match open_or_exit(&args.flags) {
-        Ok(s) => s,
+    let (mut s, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+        Ok(both) => both,
         Err(c) => return c as i32,
-    };
-    // An unparseable build file is a problem with the invocation, not with the
-    // code, so it exits 2.
-    if s.report() {
-        return 2;
-    }
-    let targets = match s.resolve_targets(&args.targets) {
-        Ok(t) => t,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return 2;
-        }
     };
 
     // `--output` selects one of the outputs a target declares. A selector that
@@ -203,12 +191,9 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let round_dir = std::env::temp_dir()
                 .join(format!("buri-reproducible-{}-{round}", std::process::id()));
             let _ = std::fs::remove_dir_all(&round_dir);
-            let mut s = match session::open(&flags) {
+            let mut s = match open_or_exit(&flags) {
                 Ok(s) => s,
-                Err(msg) => {
-                    eprintln!("error: {msg}");
-                    return 2;
-                }
+                Err(c) => return c as i32,
             };
             if s.report() {
                 return 2;
@@ -387,13 +372,7 @@ fn check_native(
         let round_dir =
             std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
         let _ = std::fs::remove_dir_all(&round_dir);
-        let mut s = match session::open(flags) {
-            Ok(s) => s,
-            Err(msg) => {
-                eprintln!("error: {msg}");
-                return Err(2);
-            }
-        };
+        let mut s = open_or_exit(flags).map_err(i32::from)?;
         if s.report() {
             return Err(2);
         }
@@ -512,13 +491,7 @@ fn check_native(
 type Plan = Vec<Entry>;
 
 fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
-    let s = match session::open(flags) {
-        Ok(s) => s,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return Err(2);
-        }
-    };
+    let s = open_or_exit(flags).map_err(i32::from)?;
     let targets = match s.resolve_targets(&args.targets) {
         Ok(t) => t,
         Err(msg) => {

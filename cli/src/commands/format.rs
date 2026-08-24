@@ -46,12 +46,9 @@ pub fn file(name: &str, text: &str) -> Option<String> {
 /// configuration file. A formatter with options is a formatter whose output is
 /// a repository decision.
 pub fn cmd_format(args: &arguments::Args) -> i32 {
-    let s = match session::open(&args.flags) {
+    let s = match session::open_or_exit(&args.flags) {
         Ok(s) => s,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return 2;
-        }
+        Err(c) => return c as i32,
     };
     let roots: Vec<PathBuf> = if args.targets.is_empty() {
         vec![s.root.clone()]

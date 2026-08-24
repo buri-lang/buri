@@ -58,23 +58,8 @@ pub fn cmd_lint(args: &arguments::Args) -> i32 {
 
 /// Opens the repository and runs every check, in the order a reader would.
 fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics), i32> {
-    let mut s = match session::open(&args.flags) {
-        Ok(s) => s,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return Err(2);
-        }
-    };
-    if s.report() {
-        return Err(2);
-    }
-    let targets = match s.resolve_targets(&args.targets) {
-        Ok(t) => t,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return Err(2);
-        }
-    };
+    let (mut s, targets) =
+        session::open_and_resolve(&args.flags, &args.targets).map_err(i32::from)?;
 
     let diags = findings_for(&mut s, &targets);
     Ok((s, diags))

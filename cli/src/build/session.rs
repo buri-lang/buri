@@ -151,3 +151,29 @@ pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
         }
     }
 }
+
+/// `open_or_exit`, then the two things every command taking targets does next:
+/// report what loading the repository found, and resolve the arguments to
+/// targets.
+///
+/// All three failures exit 2, and for one reason: an unparseable build file, a
+/// missing repository and a label naming nothing are each a problem with the
+/// invocation rather than with the code.
+#[expect(
+    clippy::print_stderr,
+    reason = "the same argument as `open_or_exit` above: a target argument that resolves to \
+              nothing is not a diagnostic about a source file, so there is no `emit` for it"
+)]
+pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
+    let mut s = open_or_exit(flags)?;
+    if s.report() {
+        return Err(2);
+    }
+    match s.resolve_targets(args) {
+        Ok(targets) => Ok((s, targets)),
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            Err(2)
+        }
+    }
+}

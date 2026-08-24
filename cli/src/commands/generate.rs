@@ -22,22 +22,9 @@ use crate::commands::arguments;
 /// `test.platforms`, and every comment come back saying exactly what they
 /// said.
 pub fn cmd_gen(args: &arguments::Args) -> i32 {
-    let mut s = match session::open(&args.flags) {
-        Ok(s) => s,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return 2;
-        }
-    };
-    if s.report() {
-        return 2;
-    }
-    let targets = match s.resolve_targets(&args.targets) {
-        Ok(t) => t,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return 2;
-        }
+    let (mut s, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+        Ok(both) => both,
+        Err(c) => return c as i32,
     };
 
     let mut stale = Vec::new();

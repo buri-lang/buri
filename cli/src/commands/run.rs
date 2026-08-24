@@ -11,24 +11,14 @@
 )]
 
 use crate::build::actions;
-use crate::build::session::open_or_exit;
+use crate::build::session;
 use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
 
 pub fn cmd_run(args: &arguments::Args) -> i32 {
-    let mut s = match open_or_exit(&args.flags) {
-        Ok(s) => s,
+    let (mut s, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+        Ok(both) => both,
         Err(c) => return c as i32,
-    };
-    if s.report() {
-        return 2;
-    }
-    let targets = match s.resolve_targets(&args.targets) {
-        Ok(t) => t,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return 2;
-        }
     };
     let binaries: Vec<_> = targets.iter().copied().filter(|t| t.kind == RuleKind::Binary).collect();
     let &[target] = binaries.as_slice() else {
