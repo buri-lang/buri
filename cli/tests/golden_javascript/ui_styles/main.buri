@@ -1,0 +1,90 @@
+// design/ui-reactivity.md, "Styling" — the static tier, compiled.
+//
+// Everything this program says about appearance is gone from the generated
+// code: what is left is a class name per distinct property value and one
+// assignment to `$ui_sheet` holding the rules. That is what "extracted at
+// compile time, deduped across the whole build, nothing generated at run time"
+// looks like once it has been compiled.
+//
+// Four things to read in `expected.css`:
+//
+//   - **A token is a call, and it folded.** `tokenColor(.Surface)` is a
+//     function call inside a `const` initializer, and it is a colour in the
+//     sheet, because purity is readable off the signature.
+//   - **Dedup crosses modules.** `.Grow(1)` is written here and again by
+//     `ui/node`'s own `spacer`, and there is one `.grow-1` rule.
+//   - **`On` is a pseudo-class**, which has no inline form and exists only
+//     here.
+//   - **`At` is mobile-first**: the media queries ascend, so a larger tier
+//     overrides a smaller one by being written later, and no maximum-width
+//     query is ever needed.
+//
+// What it prints is one line. A mounted page has nothing to say on the way out.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Style };
+
+// A design token: a closed enum, and a constructor answering a colour. This is
+// the shape `design/ui-reactivity.md` §Design tokens commits to — an ordinary
+// Buri enum per package, with exhaustiveness as the contract — and it is why
+// extraction needs constant folding at all.
+enum Token {
+  Surface,
+  OnSurface,
+}
+
+impl Token {
+  fn color(self: Token): Color {
+    match (self) {
+      .Surface => .Rgb(240, 240, 245),
+      .OnSurface => .Rgb(24, 24, 27),
+    }
+  }
+}
+
+fn tokenColor(t: Token): Color {
+  t.color()
+}
+
+const badgeStyle: Style = .Group([
+  .PaddingX(.Rem(0.5)),
+  .Radius(.Px(6)),
+  .Background(tokenColor(.Surface)),
+  .Foreground(tokenColor(.OnSurface)),
+  .On(.Hover, [.Background(tokenColor(.OnSurface)), .Foreground(tokenColor(.Surface))]),
+]);
+
+fn badge<C>(label: Str): Node<C> {
+  ui.row([badgeStyle], [ui.text(.Const(label))])
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let _ = io.println(ctx, "styled");
+  let page = ui.column(
+    [
+      .Padding(.Rem(1.0)),
+      .Gap(.Px(8)),
+      .At(.Medium, [.Padding(.Rem(2.0)), .Gap(.Px(16))]),
+      .At(.Large, [.MaxWidth(.Rem(64.0))]),
+      .At(.Small, [.On(.Hover, [.Radius(.Px(4))])]),
+    ],
+    [
+      badge("one"),
+      // The badge's padding again, and a `Grow` that `ui/node`'s `spacer` also
+      // asks for: one class each, from two modules that never met.
+      ui.row([.PaddingX(.Rem(0.5)), .Grow(1)], []),
+      ui.spacer(),
+    ],
+  );
+  ui.mount(ctx, page, [])
+}

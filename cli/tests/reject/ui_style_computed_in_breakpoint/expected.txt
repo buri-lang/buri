@@ -1,0 +1,7 @@
+error: a `Computed` style may not appear under `On` or `At`: a closure cannot be scoped to a pseudo-class or to a media query [style-not-static]
+  --> cmd/ui_style_computed_in_breakpoint/main.buri:16:34
+   |
+16 | const wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a `const`, or apply it outside the `On`/`At`, where it can be an inline style

@@ -11,62 +11,193 @@
 //! stack mean the same thing by them — and **arrangement is style while meaning
 //! is the role**, so nothing here says what a region *is*. `ui/node` owns that.
 //!
-//! This is the vocabulary's first tier: every variant below is a single
-//! property with a single value, and the runtime applies it to the element it
-//! belongs to. `design/ui-reactivity.md` §Styling describes two more tiers that
-//! are not here yet, and both need machinery rather than more variants: the
-//! *static* tier (`On(State, [Style])` for hover and focus, `At(Screen,
-//! [Style])` for breakpoints) has to be extracted at compile time into one
-//! atomic class per distinct property value, since a pseudo-class and a media
-//! query cannot be written into an element's own style; and the *reactive* tier
-//! (`When(Prop<Bool>, ...)`, `Computed(fn(Scope) => [Style])`) waits with it, so
-//! that the two arrive with one conflict-resolution rule rather than two. Both
-//! are additive: a variant added to `Style` later changes no signature here.
+//! ## Two tiers, and where each one ends up
+//!
+//! **Static** is everything except `Computed`: the compiler evaluates it, turns
+//! each distinct property value into one atomic class, and writes the classes
+//! into a stylesheet that is part of the artifact. Two modules that ask for the
+//! same padding get the same class and one rule. `On` (a pseudo-class) and `At`
+//! (a breakpoint) exist only in this tier, because neither can be written into
+//! an element's own style attribute; `When` puts both of its branches in the
+//! stylesheet and leaves the runtime a precomputed class string to choose
+//! between. **Nothing is generated at run time, ever.**
+//!
+//! **Computed** is the other tier: a value that is driven by a signal — a drag,
+//! a cursor-follow, an animation — and it is applied inline, per element, and
+//! re-serialised whenever it changes. It is deliberately absent from the
+//! stylesheet. Reach for the static tier first.
+//!
+//! A style the compiler cannot evaluate — one built out of a function's
+//! parameters, say — is not an error: it degrades to the same inline
+//! application `Computed` gets. The two exceptions are `On` and `At`, which
+//! have nowhere to degrade *to*, so a program that writes one out of values
+//! that are not statically known is rejected rather than silently ignored.
+//!
+//! ## Conflict resolution
+//!
+//! Per property, last wins. `[.Padding(.Px(8)), .Padding(.Px(4))]` is four
+//! pixels, whether the compiler resolved it or a runtime scan did — the runtime
+//! scan only ever *chooses between* classes the compiler already emitted.
+//!
+//! Between two *different* properties that touch the same CSS declaration —
+//! `Padding` and `PaddingX`, `BorderWidth` and `BorderStyle`, `Layout` and
+//! `Truncate` — the declaration order of the variants below decides, because
+//! the stylesheet is written in that order and equal-specificity rules resolve
+//! by position. The narrower property is always declared after the broader one.
+//! **The variant order is load-bearing for that reason and for one more:** the
+//! JavaScript runtime reads a `Style` by its tag.
 
-/// One appearance property, or a group of them.
-///
-/// The variants are ordered, and the order is load-bearing: the JavaScript
-/// runtime reads a `Style` by its tag, the same way it reads a `FetchError`.
+from "ui/effect" import { Scope };
+from "ui/prop" import { Prop };
+
+/// One appearance property, or a group, a condition, or a computation over
+/// them.
 export enum Style {
   /// Several properties as one value. Composition, with no allocator: an array
   /// literal is fixed-size construction.
   export Group([Style]),
+  /// Styles that apply only while the element is in a given state — hovered,
+  /// focused, pressed. A pseudo-class in the stylesheet, so it costs nothing at
+  /// run time and there is no signal write on a mouse move.
+  ///
+  /// Statically known or rejected: there is no inline form of `:hover`.
+  ///
+  /// One state at a time. An `On` inside an `On` keeps the innermost, because
+  /// two pseudo-classes at once is a rule this vocabulary has no way to name;
+  /// an `On` inside an `At` is both, and is the useful nesting.
+  export On(State, [Style]),
+  /// Styles that apply only from a given screen width upwards. Mobile-first: a
+  /// larger breakpoint overrides a smaller one, and the styles outside any `At`
+  /// are the smallest screen's.
+  ///
+  /// Statically known or rejected: there is no inline form of a media query.
+  /// `When` inside `At` is fine; `Computed` inside it is not.
+  export At(Screen, [Style]),
+  /// One of two style lists, chosen by something that can change. Both lists
+  /// are extracted into the stylesheet, and the runtime swaps between two
+  /// precomputed class strings.
+  export When(Prop<Bool>, [Style], [Style]),
+  /// Styles derived from whatever the closure reads. Applied inline and
+  /// re-serialised on every change, and never in the stylesheet — which is why
+  /// it is the last resort rather than the first.
+  export Computed(fn(Scope) => [Style]),
+  /// **Compiler-produced, and the one variant a program cannot write.** Holds
+  /// the pairs a static style was extracted into: a conflict slot, and the name
+  /// of a class that is already in the stylesheet. Last slot wins.
+  ///
+  /// It is private so that the only way a class name reaches an element is by
+  /// having been emitted, which is the whole of "nothing is generated at run
+  /// time".
+  Extracted([(Int, Str)]),
+
   /// How this container arranges its children.
   export Layout(Layout),
-  /// The space between children.
+  /// Where the children sit along the axis the layout runs along.
+  export AlignMain(Align),
+  /// Where the children sit across that axis.
+  export AlignCross(Align),
+  /// Where this child sits across its parent's main axis, overriding the
+  /// parent's `AlignCross` for it alone.
+  export AlignSelf(Align),
+  /// Whether children that do not fit start a new line.
+  export Wrap(Bool),
+  /// Which way this container scrolls when its content is larger than it is.
+  export Scroll(Axis),
+  /// How much of the leftover space along the main axis this child takes,
+  /// relative to its siblings. `0` is "none of it".
+  export Grow(Int),
+  /// How much this child gives up when there is not enough room, relative to
+  /// its siblings. `0` is "none of it", which is how a sidebar keeps its width.
+  export Shrink(Int),
+  /// How many grid tracks this child covers.
+  export Span(Int),
+  /// Fixes one edge of a child at a distance, taking it out of the flow. Two
+  /// `Pin`s naming different edges compose. The distance is measured from the
+  /// nearest ancestor that has a `Position`, or from the page.
+  export Pin(Edge, Length),
+  /// How this element relates to the flow — and, declared after `Pin` so that
+  /// it wins, what a pinned child is measured against.
+  export Position(Position),
+
+  /// The space between children, both ways.
   export Gap(Length),
+  /// The space between children along the text direction.
+  export GapX(Length),
+  /// The space between children down the page.
+  export GapY(Length),
   /// Space inside every edge.
   export Padding(Length),
   /// Space inside the two edges the text direction runs along.
   export PaddingX(Length),
   /// Space inside the top and bottom edges.
   export PaddingY(Length),
+  /// Space inside one edge.
+  export PaddingEdge(Edge, Length),
+
   /// How wide.
   export Width(Length),
   /// How tall.
   export Height(Length),
-  /// Where the children sit along the axis the layout runs along.
-  export AlignMain(Align),
-  /// Where the children sit across that axis.
-  export AlignCross(Align),
-  /// How much of the leftover space along the main axis this child takes,
-  /// relative to its siblings. `0` is "none of it".
-  export Grow(Int),
+  /// No narrower than this.
+  export MinWidth(Length),
+  /// No wider than this.
+  export MaxWidth(Length),
+  /// No shorter than this.
+  export MinHeight(Length),
+  /// No taller than this.
+  export MaxHeight(Length),
+  /// Width divided by height, for an element that should keep its proportions
+  /// as it resizes. `1.0` is a square.
+  export AspectRatio(Float),
+
   /// What is painted behind the content.
   export Background(Color),
   /// What the text is painted in.
   export Foreground(Color),
-  /// How thick the border is. A width with no `BorderColor` draws in the
-  /// foreground colour, which is what every other toolkit does.
+  /// How thick the border is. A width on its own draws a solid border, because
+  /// a border nobody can see is not what asking for one means; `BorderStyle` is
+  /// declared after it and overrides that.
   export BorderWidth(Length),
-  /// What colour the border is.
+  /// What colour the border is. A border with no colour draws in the
+  /// foreground colour, which is what every other toolkit does.
   export BorderColor(Color),
+  /// What the border is drawn like.
+  export BorderStyle(BorderStyle),
   /// How rounded the corners are.
   export Radius(Length),
+  /// How opaque the whole element is, `0.0` to `1.0`, content included.
+  export Opacity(Float),
+  /// A shadow cast by this element.
+  export Shadow(Shadow),
+
+  /// Which family the text is set in.
+  export FontFamily(FontFamily),
   /// How large the text is.
   export FontSize(Length),
   /// How heavy the text is.
   export FontWeight(Weight),
+  /// Whether the text slants.
+  export Italic(Bool),
+  /// The distance between baselines, as a multiple of the text size. `1.5` is
+  /// the usual body setting.
+  export LineHeight(Float),
+  /// Extra space between letters. Negative tightens.
+  export LetterSpacing(Length),
+  /// Where the text sits in its line box. The three `Space*` distributions and
+  /// `Stretch` all mean *justified*, which is the nearest thing text has to
+  /// distributing leftover room.
+  export TextAlign(Align),
+  /// Whether the text is re-cased for display. The text itself is unchanged,
+  /// so what is copied out and what is announced are what was written.
+  export TextCase(TextCase),
+  /// A line drawn through or under the text.
+  export TextLine(TextLine),
+  /// How the text breaks across lines.
+  export TextWrap(TextWrap),
+  /// Show at most this many lines and end the last one with an ellipsis. Zero
+  /// means no limit.
+  export Truncate(Int),
+
   /// What the pointer looks like over this element.
   export Cursor(Cursor),
 }
@@ -80,6 +211,23 @@ export enum Layout {
   export Column,
   /// Children run along it.
   export Row,
+  /// Children are placed in named columns, left to right, wrapping into rows.
+  export Grid([Track]),
+  /// Children share one space, later ones over earlier ones. There is no
+  /// depth number to get wrong: the order they are written in is the order
+  /// they stack in.
+  export Layers,
+}
+
+/// One column of a `Grid`.
+export enum Track {
+  /// A share of the leftover room. Two `Fraction(1)`s split it evenly; a
+  /// `Fraction(2)` beside a `Fraction(1)` takes twice as much.
+  export Fraction(Int),
+  /// Exactly this wide.
+  export Fixed(Length),
+  /// As wide as its content needs.
+  export Auto,
 }
 
 /// A distance.
@@ -134,6 +282,76 @@ export enum Align {
   export SpaceEvenly,
 }
 
+/// One direction, or both.
+export enum Axis {
+  /// The direction the text runs.
+  export X,
+  /// Down the page.
+  export Y,
+  /// Both of them.
+  export Both,
+}
+
+/// One edge of a box, named by where it is in the reading order rather than by
+/// where it is on the screen — so a right-to-left page is right by
+/// construction rather than by a second stylesheet.
+export enum Edge {
+  /// The top.
+  export Top,
+  /// The bottom.
+  export Bottom,
+  /// Where the text begins: the left edge in English, the right in Arabic.
+  export Start,
+  /// Where the text ends.
+  export End,
+}
+
+/// A screen size, from this width upwards.
+///
+/// Closed names rather than numbers, so that a library's breakpoints and an
+/// app's are the same four and compose. The widths are 40, 48, 64 and 80 rem,
+/// which follow the reader's text size rather than the device's pixels.
+export enum Screen {
+  /// From 40rem up — a large phone held sideways, and everything above it.
+  export Small,
+  /// From 48rem up — a tablet.
+  export Medium,
+  /// From 64rem up — a laptop.
+  export Large,
+  /// From 80rem up — a desktop display.
+  export ExtraLarge,
+}
+
+/// A state an element can be in, which the platform tracks and a program does
+/// not have to.
+///
+/// This is why hover is not an event: a pseudo-class costs nothing, survives
+/// into an email's `<style>` block, and maps to a native pressed or focused
+/// trait — where a signal write per mouse move does none of the three.
+export enum State {
+  /// A pointer is over it.
+  export Hover,
+  /// It has the keyboard's attention, and the platform judged that showing so
+  /// is useful — `:focus-visible`, so a mouse press does not draw a focus ring.
+  export Focus,
+  /// It is being pressed right now.
+  export Active,
+  /// It refuses input.
+  export Disabled,
+  /// It is a toggle and it is on.
+  export Checked,
+}
+
+/// How an element relates to the flow of the page.
+export enum Position {
+  /// In the flow, and the origin anything pinned inside it is measured from.
+  export Flow,
+  /// In the flow until it would scroll out of view, and then held at the edge.
+  export Sticky,
+  /// Out of the flow and fixed to the viewport, so scrolling does not move it.
+  export PinViewport,
+}
+
 /// How heavy text is.
 ///
 /// Named rather than numeric, because a name is what a font family actually
@@ -150,6 +368,63 @@ export enum Weight {
   export Bold,
 }
 
+/// Which kind of letterform.
+///
+/// The three unnamed families resolve to whatever the platform's own interface
+/// font is, so an app that names none of them looks native everywhere.
+export enum FontFamily {
+  /// The platform's interface face.
+  export Sans,
+  /// A face with serifs, for long reading.
+  export Serif,
+  /// A fixed-pitch face, for code and figures that must line up.
+  export Mono,
+  /// A face by name, with the matching generic family behind it.
+  export Named(Str),
+}
+
+/// What a border is drawn like.
+export enum BorderStyle {
+  /// No border at all, whatever its width.
+  export None,
+  /// One unbroken line.
+  export Solid,
+  /// A broken line.
+  export Dashed,
+}
+
+/// Whether text is re-cased for display.
+export enum TextCase {
+  /// However it was written.
+  export AsWritten,
+  /// ALL CAPITALS.
+  export Upper,
+  /// all lower case.
+  export Lower,
+  /// The First Letter Of Each Word.
+  export Capitalize,
+}
+
+/// A line drawn through or under text.
+export enum TextLine {
+  /// None.
+  export None,
+  /// Underlined.
+  export Underline,
+  /// Struck through.
+  export Strike,
+}
+
+/// How text breaks across lines.
+export enum TextWrap {
+  /// Wherever it has to.
+  export Wrap,
+  /// Never — it overflows instead.
+  export NoWrap,
+  /// Wherever it has to, with the line lengths evened out. For headings.
+  export Balance,
+}
+
 /// What the pointer looks like.
 export enum Cursor {
   /// Whatever the platform would have chosen.
@@ -160,4 +435,18 @@ export enum Cursor {
   export Text,
   /// Something that would refuse.
   export NotAllowed,
+}
+
+/// A shadow cast by an element.
+export struct Shadow {
+  /// How far along the text direction the shadow is offset.
+  export x: Length,
+  /// How far down the page.
+  export y: Length,
+  /// How far the edge is softened.
+  export blur: Length,
+  /// How much larger than the element the shadow is before it is blurred.
+  export spread: Length,
+  /// What colour it is.
+  export color: Color,
 }

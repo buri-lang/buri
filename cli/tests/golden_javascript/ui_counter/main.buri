@@ -21,12 +21,40 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal };
-from "ui/style" import { Style };
+from "ui/style" import { Color, Style };
+
+// Hover is a style rather than an event: a pseudo-class costs nothing and needs
+// no signal write on a mouse move, and it survives into an email's `<style>`
+// block where an event would not.
+//
+// The design's example writes `Token.Surface.color()`, and a token is a call
+// rather than a literal. It reaches the stylesheet anyway: a `const`
+// initializer is folded by an interpreter that inlines any function that is
+// pure by its signature, which is what this enum's `color` is.
+enum Token {
+  Surface,
+  OnSurface,
+}
+
+impl Token {
+  fn color(self: Token): Color {
+    match (self) {
+      .Surface => .Rgb(240, 240, 245),
+      .OnSurface => .Rgb(24, 24, 27),
+    }
+  }
+}
+
+fn tokenColor(t: Token): Color {
+  t.color()
+}
 
 const badgeStyle: Style = .Group([
   .PaddingX(.Rem(0.5)),
   .Radius(.Px(6)),
-  .Background(.Rgb(240, 240, 245)),
+  .Background(tokenColor(.Surface)),
+  .Foreground(tokenColor(.OnSurface)),
+  .On(.Hover, [.Background(tokenColor(.OnSurface)), .Foreground(tokenColor(.Surface))]),
 ]);
 
 // Pure: no ctx. It cannot tell whether either prop varies.

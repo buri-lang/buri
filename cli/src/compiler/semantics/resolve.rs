@@ -69,6 +69,18 @@ pub struct Checked {
     /// `main`, when this compilation has one.
     pub entry: Option<FnId>,
     pub tests: Vec<TestCase>,
+    /// The stylesheet rules this compilation's static `ui/style` literals
+    /// extracted to, in walk order.
+    ///
+    /// A `Vec` beside `tests` rather than a cache sidecar, and the two are the
+    /// same shape for the same reason: both are things a module's own compile
+    /// discovers, and both are merged by whoever links. A class here names
+    /// itself (`semantics::styles`), so merging is a dedupe and never a
+    /// renumbering — which is what keeps compilation local.
+    pub styles: Vec<crate::compiler::semantics::styles::StyleRule>,
+    /// `ui/style`'s `Style`, when this compilation loaded it. The link step
+    /// needs it to tell which of the rules above a program actually reaches.
+    pub style_con: Option<TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `unreachable-export` needs
     /// it to ask the opposite question — what is exported and reaches nobody.
@@ -183,6 +195,18 @@ impl<'a> Checker<'a> {
         self.compute_surfaces();
         self.check_module_rules();
         self.check_bodies();
+        // Last, because it reads every checked body and rewrites the ones that
+        // hold a static style. It must also run before `monomorphize` inlines a
+        // constant, or a `const` style would be extracted once per use site
+        // instead of once.
+        let (styles, style_con) = crate::compiler::semantics::styles::run(
+            self.loaded,
+            &self.tables,
+            &self.scopes,
+            &mut self.bodies,
+            &mut self.const_values,
+            self.diags,
+        );
         Checked {
             tables: self.tables,
             scopes: self.scopes,
@@ -190,6 +214,8 @@ impl<'a> Checker<'a> {
             consts: self.const_values,
             entry: self.entry,
             tests: self.tests,
+            styles,
+            style_con,
             surfaces: self.surfaces,
         }
     }

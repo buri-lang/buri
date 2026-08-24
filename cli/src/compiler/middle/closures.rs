@@ -211,6 +211,7 @@ mod tests {
             desc_index: HashMap::default(),
             ctx_layouts: HashMap::default(),
             shapes: Default::default(),
+            stylesheet: String::new(),
         }
     }
 

@@ -1,0 +1,7 @@
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_state_is_not_static/main.buri:17:16
+   |
+17 |   .On(.Hover, [.Background(accent)])
+   |                ^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a `const`, or apply it outside the `On`/`At`, where it can be an inline style

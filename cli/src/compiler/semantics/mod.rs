@@ -10,10 +10,12 @@
 //! `typed` is the output — the tree `middle` and `backend` consume.
 
 pub mod builtins;
+pub mod consteval;
 pub mod exhaustiveness;
 pub mod expressions;
 pub mod inference;
 pub mod patterns;
 pub mod resolve;
+pub mod styles;
 pub mod typed;
 pub mod types;

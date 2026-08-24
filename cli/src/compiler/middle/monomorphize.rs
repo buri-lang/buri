@@ -197,6 +197,14 @@ pub struct Program {
     pub ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
     /// What every declared type is made of. See [`Shapes`].
     pub shapes: Shapes,
+    /// The stylesheet the static `ui/style` literals in this program extracted
+    /// to, merged and deduped across every module it links.
+    ///
+    /// It travels on the program because it is *part of the artifact*: the
+    /// JavaScript backend hands it to `mount`, which puts it in the document.
+    /// Empty for every program that never styles anything, which is every
+    /// program that is not a user interface.
+    pub stylesheet: String,
 }
 
 /// What every declared type is made of, in a form a pass holding no `Tables`
@@ -328,6 +336,17 @@ pub fn run(
     }
 
     let shapes = shapes_of(&checked.tables);
+    // Which classes the program kept, so the sheet holds the rules it reaches
+    // and no others. Asked of the built functions rather than of the source,
+    // because a library's unused styles are exactly what must not ship.
+    let mut used = crate::hash::Set::default();
+    if let Some(style_con) = checked.style_con {
+        for f in &mut m.funcs {
+            if let FuncKind::Body(body) = &mut f.kind {
+                crate::compiler::semantics::styles::collect_classes(body, style_con, &mut used);
+            }
+        }
+    }
     Program {
         funcs: m.funcs,
         roots: program_roots,
@@ -336,6 +355,9 @@ pub fn run(
         desc_index: m.desc_index,
         ctx_layouts: m.ctx_layouts,
         shapes,
+        // Merged here rather than by each caller, so that `buri build` and
+        // `buri test` cannot disagree about what a program's styles are.
+        stylesheet: crate::compiler::semantics::styles::stylesheet(&checked.styles, &used),
     }
 }
 

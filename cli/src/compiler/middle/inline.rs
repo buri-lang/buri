@@ -624,6 +624,7 @@ mod tests {
             desc_index: Default::default(),
             ctx_layouts: Default::default(),
             shapes: Default::default(),
+            stylesheet: String::new(),
         }
     }
 

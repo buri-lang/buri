@@ -194,6 +194,21 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     // ones they need.
     let runtime_end = stmts.len();
 
+    // The stylesheet, as one string the compiler wrote. `mount` puts it in the
+    // document; `ui/testing` reads it back. It is an assignment rather than a
+    // declaration so that the runtime owns the binding — and a statement that
+    // is not a declaration is a dead-code root, which is what keeps the
+    // binding alive for the two readers above.
+    //
+    // Emitted only when there is a sheet, so a program that styles nothing
+    // carries no trace of the styling machinery at all.
+    if !program.stylesheet.is_empty() {
+        stmts.push(Stmt::Expr(Expr::Assign {
+            target: Box::new(Expr::ident("$ui_sheet")),
+            value: Box::new(Expr::Str(program.stylesheet.clone())),
+        }));
+    }
+
     // Type descriptors, for the structural operations `derive` stands for.
     // Declared empty first and filled afterwards, because a recursive type's
     // descriptor names itself and a mutually recursive pair names each other.

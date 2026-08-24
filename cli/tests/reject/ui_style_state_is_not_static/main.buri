@@ -1,0 +1,23 @@
+// EXPECT: this style is not statically known
+//
+// A pseudo-class is a rule in the stylesheet and the stylesheet is written at
+// compile time, so what is under an `On` has to be something the compiler can
+// evaluate. Here the colour arrives as a parameter, which is exactly what it
+// cannot be.
+//
+// The fix the diagnostic names is the real one: hover on a value that varies is
+// the reactive tier's job, and the reactive tier is applied inline.
+from "core/effect" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Color, Style };
+
+fn highlighted(accent: Color): Style {
+  .On(.Hover, [.Background(accent)])
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([highlighted(.Rgb(29, 78, 216))], []), [])
+}

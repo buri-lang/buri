@@ -1,0 +1,21 @@
+// EXPECT: a `Computed` style may not appear under `On` or `At`
+//
+// The static tier is everything except `Computed`, and `At` lives in it because
+// a media query exists only in a stylesheet: there is no inline form of
+// `@media (min-width: 64rem)`. So a closure cannot be scoped to one.
+//
+// Every other unfoldable style degrades quietly to the inline tier. These two
+// constructors are the exception because they have nowhere to degrade *to*, and
+// silently dropping a breakpoint is worse than refusing it.
+from "core/effect" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+
+const wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([wide], []), [])
+}

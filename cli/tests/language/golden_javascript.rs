@@ -81,6 +81,35 @@ fn program_only(artifact: &str) -> String {
     out
 }
 
+/// The stylesheet an artifact carries, as text.
+///
+/// The backend emits it as one assignment to the runtime's `$ui_sheet`, and the
+/// printer escaped it into a string literal; this is the inverse. Reading it
+/// back out of the artifact rather than asking the compiler for it is
+/// deliberate: what is recorded here is what a page would actually load.
+fn stylesheet_of(artifact: &str) -> String {
+    let Some(rest) = artifact.split("$ui_sheet=").nth(1) else { return String::new() };
+    let mut chars = rest.chars();
+    let Some(quote) = chars.next() else { return String::new() };
+    let mut out = String::new();
+    while let Some(c) = chars.next() {
+        if c == quote {
+            break;
+        }
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some(other) => out.push(other),
+            None => break,
+        }
+    }
+    out
+}
+
 /// V8 refuses to optimize a function above 61,440 bytecodes: past that it runs
 /// in the interpreter forever, however hot it gets. Bytes of minified source
 /// are not bytecodes, but they move together, and a whole-program compiler has
@@ -151,6 +180,26 @@ fn generated_javascript_matches_its_record() {
             &format!("golden_javascript/{name}/expected.mjs"),
             &generated,
         );
+        // The stylesheet is the other half of what this backend emits for a
+        // user interface, and it is a separate record because it is a separate
+        // artifact in every way but where the bytes sit: it is CSS, it is read
+        // by a browser rather than run, and a change to it is reviewed as text
+        // rather than as code. A case with no styles records no file, and one
+        // that *stopped* having styles fails rather than quietly losing them.
+        let sheet = stylesheet_of(&debug);
+        let css = case.join("expected.css");
+        if sheet.is_empty() {
+            if css.exists() {
+                g.fail(format!(
+                    "{name}: `expected.css` records a stylesheet, and the program \
+                     no longer emits one. Delete the file to record that \
+                     deliberately."
+                ));
+            }
+        } else {
+            g.check(&css, &format!("golden_javascript/{name}/expected.css"), &sheet);
+        }
+
         let debug_out = scratch.exec_js("cmd/x");
         debug_out.ok();
 

@@ -1,0 +1,7 @@
+error: variant `Extracted` of `Style` is private to its module [private-to-module]
+  --> cmd/ui_style_extracted_is_private/main.buri:14:23
+   |
+14 | const forged: Style = .Extracted([(600, "p-8")]);
+   |                       ^^^^^^^^^^
+   |
+   = fix: add `export` to `Extracted`, or build the value through a function `Style`'s module provides

@@ -143,6 +143,18 @@ impl Rendered {
   export fn identity(self: Rendered, name: Str, index: Int): Int;
 }
 
+/// The stylesheet the compiler extracted for this artifact.
+///
+/// Every static style in the program is in here, as one atomic class per
+/// distinct property value, deduped across the whole build — so this is how a
+/// test asserts what a class *means* rather than only what an element is
+/// called, and how it sees that two modules asking for one padding produced one
+/// rule and not two.
+///
+/// It is a compile-time string. Nothing appends to it at run time, and there is
+/// no call anywhere that could.
+export fn stylesheet(): Str;
+
 /// An ordered log, for asserting on *when* something ran.
 ///
 /// A reactive computation receives a `Scope`, which grants reading the graph

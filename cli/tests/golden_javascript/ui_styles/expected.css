@@ -1,0 +1,21 @@
+.lay-col{display:flex;flex-direction:column}
+.lay-row{display:flex;flex-direction:row}
+.grow-1{flex-grow:1}
+.gap-8{gap:8px}
+.p-r1{padding:1rem}
+.px-r0_5{padding-inline:0.5rem}
+.bg-f0f0f5{background-color:rgb(240,240,245)}
+.hover_bg-18181b:hover{background-color:rgb(24,24,27)}
+.fg-18181b{color:rgb(24,24,27)}
+.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}
+.r-6{border-radius:6px}
+@media (min-width:40rem){
+.sm_hover_r-4:hover{border-radius:4px}
+}
+@media (min-width:48rem){
+.md_gap-16{gap:16px}
+.md_p-r2{padding:2rem}
+}
+@media (min-width:64rem){
+.lg_maxw-r64{max-width:64rem}
+}

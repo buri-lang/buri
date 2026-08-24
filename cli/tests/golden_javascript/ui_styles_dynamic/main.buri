@@ -1,0 +1,39 @@
+// design/ui-reactivity.md, "Styling" — the other tier, compiled.
+//
+// Three shapes, and the point of the case is that they compile to three
+// different things:
+//
+//   - **`When`** is static on both sides. Both branches are in the stylesheet,
+//     and what the runtime does when the condition changes is pick one of two
+//     precomputed class strings — there is no rule built anywhere.
+//   - **`Computed`** is the reactive tier. It is applied inline, per element,
+//     and re-serialised on change, and it is deliberately absent from the
+//     sheet: nothing in `expected.css` mentions a width.
+//   - **A style the compiler cannot evaluate** — here a `Grow` whose count
+//     comes through an effectful read — is not an error. It degrades to the
+//     same inline application `Computed` gets, which is the documented default
+//     and what lets folding improve without a correctness window.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { Signal, signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let lit = signal(ctx, false);
+  let width = signal(ctx, 120);
+  let _ = io.println(ctx, "dynamic");
+  let page = ui.column([], [
+    ui.row([.When(.Cell(lit), [.Background(.Rgb(220, 38, 38))], [.Background(.Rgb(22, 163, 74))])], []),
+    ui.row([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []),
+    ui.row([.Grow(width.get(ctx))], []),
+  ]);
+  ui.mount(ctx, page, [])
+}

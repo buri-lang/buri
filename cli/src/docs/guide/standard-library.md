@@ -227,16 +227,68 @@ update: the handler runs inside a transaction, so three writes cause one pass
 over the watchers rather than three. A field and a toggle have no change event
 at all, because they are bound to a `Signal` and what the reader typed is in it.
 
-What is not here yet, and what it is waiting for. `ui/style` is the first tier
-of `design/ui-reactivity.md` §Styling — one property, one value, applied to the
-element it belongs to. The *static* tier (`On(State, ...)` for hover and focus,
-`At(Screen, ...)` for breakpoints) needs compile-time extraction into one atomic
-class per distinct value, since a pseudo-class and a media query cannot be
-written into an element's own style, and the *reactive* tier (`When`,
-`Computed`) waits with it so that the two arrive with one conflict-resolution
-rule rather than two. `ui/theme` has the `Theme` that `mount` takes and nothing
-that builds one, which is why the list to pass today is the empty one: a design
-token is a name resolved against a theme, and both halves arrive together.
+#### Styling, and the two tiers a style can be in
+
+`ui/style` is 45 properties and five ways of composing them. Every property is
+one value applied to one element, none is named after a CSS declaration, and
+there is no `margin`: `Gap`, stacks and `AlignCross` replace it, and edges are
+logical (`.Start`, `.End`) rather than left and right, so a right-to-left page
+is right by construction.
+
+The part worth understanding is where a style *goes*.
+
+**Static — everything except `Computed`.** The compiler evaluates it, turns each
+distinct property value into one atomic class, and writes the classes into a
+stylesheet that ships with the artifact. `.Padding(.Px(8))` is `.p-8` wherever it
+was written, in whichever module, so two packages that ask for the same padding
+get one class and one rule without having seen each other. Nothing is generated
+at run time, ever.
+
+Two constructors exist only in this tier, because neither has an inline form:
+
+- `On(State, [Style])` is a pseudo-class — hover, focus, pressed, disabled,
+  checked. **This is why hover is not an event.** A pseudo-class costs nothing,
+  needs no signal write on a mouse move, survives into an email's `<style>`
+  block, and maps to a native pressed or focused trait.
+- `At(Screen, [Style])` is a breakpoint, from one of four widths upwards.
+  Mobile-first: the media queries are written in ascending order, so a larger
+  tier overrides a smaller one by position, and there is never a maximum-width
+  query. What is outside every `At` is the smallest screen's.
+
+`When(cond, then, otherwise)` is static on both sides: both branches go in the
+stylesheet, and what the runtime does when `cond` changes is pick one of two
+precomputed class strings.
+
+**Computed — `Computed(fn(Scope) => [Style])`.** For a value a signal drives: a
+drag, a cursor-follow, an animation. Applied inline to the element and
+re-serialised on every change, and deliberately absent from the stylesheet.
+Reach for it last.
+
+A style the compiler cannot evaluate — one built out of a function's parameters,
+or out of a value it had to read — is **not an error**. It degrades to the same
+inline application `Computed` gets. The exception is `On` and `At`, which have
+nowhere to degrade to, so a style under one of them is statically known or the
+program is rejected ([`style-not-static`](./cli/src/docs/errors/style-not-static.md)).
+
+**Conflicts resolve per property, last wins.** When both sides are literals the
+compiler resolves them and the element carries one class rather than two that
+fight. When a style *arrives as a parameter* — the overridable-component case —
+the runtime resolves it by a scan over `(slot, class)` pairs the compiler
+assigned, which can only ever choose between classes that are already in the
+sheet. Between two *different* properties that touch the same declaration —
+`Padding` and `PaddingX` — the order the variants are declared in decides,
+because that is the order the sheet is written in, and the narrower property is
+always declared later.
+
+Constant folding is what makes design tokens work. `.Background(Token.Surface.color())`
+is a *call*, not a literal, and it still reaches the stylesheet: the extractor
+inlines any function that is pure by its signature — no `ctx`, no effect-carrying
+`self`, no allocator — which is a question about a signature and not about a
+body.
+
+`ui/theme` still has the `Theme` that `mount` takes and nothing that builds one,
+which is why the list to pass today is the empty one: a design token is a name
+resolved against a theme, and both halves arrive together.
 
 ### Allocators
 

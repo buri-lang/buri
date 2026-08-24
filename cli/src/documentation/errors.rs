@@ -72,6 +72,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("self-not-first", "`self` is the first parameter or nothing"),
     e!("self-type-outside-impl", "`Self` names the implementing type"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
+    e!("style-not-static", "A conditional style is known at compile time"),
     e!("test-only-import", "A `testing` module is reachable only from a test"),
     e!("test-outside-test-source", "A `test` lives in a test source"),
     e!("turbofish", "Type arguments are written without `::`"),

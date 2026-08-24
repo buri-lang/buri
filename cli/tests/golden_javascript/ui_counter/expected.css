@@ -1,0 +1,8 @@
+.lay-col{display:flex;flex-direction:column}
+.lay-row{display:flex;flex-direction:row}
+.px-r0_5{padding-inline:0.5rem}
+.bg-f0f0f5{background-color:rgb(240,240,245)}
+.hover_bg-18181b:hover{background-color:rgb(24,24,27)}
+.fg-18181b{color:rgb(24,24,27)}
+.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}
+.r-6{border-radius:6px}

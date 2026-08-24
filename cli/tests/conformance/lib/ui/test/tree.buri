@@ -24,8 +24,8 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
-from "ui/style" import { Style };
-from "ui/testing" import { headless, observer, recorder, render };
+from "ui/style" import { Shadow, Style };
+from "ui/testing" import { headless, observer, recorder, render, stylesheet };
 from "ui/theme" import { Theme };
 
 // --- helpers -------------------------------------------------------------------------
@@ -79,14 +79,8 @@ test "a row runs along the axis and a column runs down the page" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.eq(
-        render(ctx, ui.row([], [])).markup(),
-        "<div style=\"display: flex; flex-direction: row\" />",
-    );
-    assert.eq(
-        render(ctx, ui.column([], [])).markup(),
-        "<div style=\"display: flex; flex-direction: column\" />",
-    );
+    assert.eq(render(ctx, ui.row([], [])).markup(), "<div class=\"lay-row\" />");
+    assert.eq(render(ctx, ui.column([], [])).markup(), "<div class=\"lay-col\" />");
 }
 
 test "a caller's own layout wins over the sugar's" {
@@ -95,10 +89,7 @@ test "a caller's own layout wins over the sugar's" {
         Watch: observer(),
     };
     let tree = ui.row([.Layout(.Column)], []);
-    assert.eq(
-        render(ctx, tree).markup(),
-        "<div style=\"display: flex; flex-direction: column\" />",
-    );
+    assert.eq(render(ctx, tree).markup(), "<div class=\"lay-col\" />");
 }
 
 test "a spacer takes what is left over" {
@@ -106,7 +97,7 @@ test "a spacer takes what is left over" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.eq(render(ctx, ui.spacer()).markup(), "<div style=\"flex-grow: 1\" />");
+    assert.eq(render(ctx, ui.spacer()).markup(), "<div class=\"grow-1\" />");
 }
 
 test "every role lowers to the element that carries it" {
@@ -184,6 +175,25 @@ test "a heading is an outline level, and there is no seventh" {
 }
 
 // --- styling -------------------------------------------------------------------------
+//
+// design/ui-reactivity.md, "Styling". Two tiers: everything except `Computed`
+// is extracted at compile time into one atomic class per distinct property
+// value, deduped across the whole build, and `Computed` is applied inline and
+// is deliberately absent from the stylesheet. So a styling assertion has two
+// halves — which classes an element carries, and what those classes mean —
+// and `stylesheet()` is the second half.
+
+/// A component with styles of its own that a caller may override.
+///
+/// The merge happens in the runtime, and it is a scan over `(slot, class)`
+/// pairs the compiler assigned: it can only ever choose between classes that
+/// are already in the sheet.
+fn boxed<C>(extra: [Style], label: Str): Node<C> {
+    ui.stack(
+        [.Group([.Padding(.Px(8)), .Background(.Rgb(0, 0, 0))]), .Group(extra)],
+        [ui.text(.Const(label))],
+    )
+}
 
 test "every property lowers to the one declaration it names" {
     let ctx = context {
@@ -211,8 +221,95 @@ test "every property lowers to the one declaration it names" {
     ];
     assert.eq(
         render(ctx, ui.stack(everything, [])).markup(),
-        "<div style=\"display: flex; flex-direction: row; gap: 8px; padding: 1.5rem; padding-inline: 10%; padding-block: auto; width: 100%; height: 40px; justify-content: space-between; align-items: center; flex-grow: 2; background-color: rgb(1, 2, 3); color: rgba(4, 5, 6, 0.5); border-style: solid; border-width: 1px; border-color: transparent; border-radius: 6px; font-size: 0.875rem; font-weight: 600; cursor: pointer\" />",
+        "<div class=\"lay-row gap-8 p-r1_5 px-pc10 py-auto w-full h-40 am-between ac-center grow-2 bg-010203 fg-040506a0_5 bw-1 bc-none r-6 fs-r0_875 fw-semibold cur-pointer\" />",
     );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".gap-8{gap:8px}"));
+    assert.isTrue(sheet.contains(".px-pc10{padding-inline:10%}"));
+    assert.isTrue(sheet.contains(".fg-040506a0_5{color:rgba(4,5,6,0.5)}"));
+    assert.isTrue(sheet.contains(".bw-1{border-style:solid;border-width:1px}"));
+    assert.isTrue(sheet.contains(".fs-r0_875{font-size:0.875rem}"));
+}
+
+test "the rest of the vocabulary lowers to the declarations it names" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let rest: [Style] = [
+        .AlignSelf(.End),
+        .Wrap(true),
+        .Scroll(.Y),
+        .Shrink(0),
+        .Span(2),
+        .Pin(.Top, .Px(0)),
+        .Position(.Sticky),
+        .GapX(.Px(4)),
+        .GapY(.Px(6)),
+        .PaddingEdge(.Start, .Rem(1.0)),
+        .MinWidth(.Px(100)),
+        .MaxWidth(.Rem(40.0)),
+        .MinHeight(.Px(20)),
+        .MaxHeight(.Percent(50.0)),
+        .AspectRatio(1.5),
+        .BorderStyle(.Dashed),
+        .Opacity(0.5),
+        .Italic(true),
+        .LineHeight(1.5),
+        .LetterSpacing(.Px(1)),
+        .TextAlign(.Center),
+        .TextCase(.Upper),
+        .TextLine(.Underline),
+        .TextWrap(.Balance),
+        .Truncate(2),
+    ];
+    assert.eq(
+        render(ctx, ui.stack(rest, [])).markup(),
+        "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\" />",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pin-top-0{position:absolute;inset-block-start:0px}"));
+    assert.isTrue(sheet.contains(".pe-start-r1{padding-inline-start:1rem}"));
+    assert.isTrue(sheet.contains(".ar-1_5{aspect-ratio:1.5}"));
+    assert.isTrue(
+        sheet.contains(
+            ".trunc-2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
+        ),
+    );
+}
+
+test "a value with no bounded spelling is named by what it is" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [
+        ui.stack([.Layout(.Grid([.Fraction(1), .Fixed(.Px(200)), .Auto]))], []),
+        ui.stack([.Layout(.Layers)], []),
+        ui.stack([.FontFamily(.Mono)], []),
+        ui.stack([.FontFamily(.Named("Iosevka"))], []),
+        ui.stack(
+            [
+                .Shadow(Shadow {
+                    x: .Px(0),
+                    y: .Px(2),
+                    blur: .Px(6),
+                    spread: .Px(0),
+                    color: .Rgba(0, 0, 0, 0.25),
+                }),
+            ],
+            [],
+        ),
+    ]);
+    let _ = render(ctx, tree).markup();
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains("{display:grid;grid-template-columns:1fr 200px auto}"));
+    // The children's half of `Layers` is a rule about descendants, which is the
+    // one place a class needs two blocks.
+    assert.isTrue(sheet.contains("{grid-area:1/1}"));
+    assert.isTrue(sheet.contains("{font-family:ui-monospace,SFMono-Regular,monospace}"));
+    assert.isTrue(sheet.contains("{font-family:\"Iosevka\",ui-sans-serif,sans-serif}"));
+    assert.isTrue(sheet.contains("{box-shadow:0px 2px 6px 0px rgba(0,0,0,0.25)}"));
 }
 
 test "the last value of a property is the one that survives" {
@@ -220,8 +317,10 @@ test "the last value of a property is the one that survives" {
         Ui: headless(),
         Watch: observer(),
     };
+    // Both sides are literals, so this resolved at compile time: the element
+    // carries one class rather than two that fight in the cascade.
     let tree = ui.stack([.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], []);
-    assert.eq(render(ctx, tree).markup(), "<div style=\"background-color: inherit\" />");
+    assert.eq(render(ctx, tree).markup(), "<div class=\"bg-inherit\" />");
 }
 
 test "the remaining alignments and weights and cursors each have a name" {
@@ -238,8 +337,145 @@ test "the remaining alignments and weights and cursors each have a name" {
     ]);
     assert.eq(
         render(ctx, tree).markup(),
-        "<div><div style=\"justify-content: flex-start; align-items: flex-end; font-weight: 400\" /><div style=\"justify-content: stretch; align-items: space-around; font-weight: 500\" /><div style=\"justify-content: space-evenly; font-weight: 700; cursor: default\" /><div style=\"cursor: text\" /><div style=\"cursor: not-allowed\" /></div>",
+        "<div><div class=\"am-start ac-end fw-regular\" /><div class=\"am-stretch ac-around fw-medium\" /><div class=\"am-evenly fw-bold cur-default\" /><div class=\"cur-text\" /><div class=\"cur-notallowed\" /></div>",
     );
+}
+
+test "two elements asking for one padding are given one class" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [
+        ui.stack([.Padding(.Px(11))], []),
+        ui.row([.Padding(.Px(11))], []),
+    ]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><div class=\"p-11\" /><div class=\"lay-row p-11\" /></div>",
+    );
+    assert.isTrue(stylesheet().contains(".p-11{padding:11px}"));
+}
+
+test "a state is a pseudo-class in the stylesheet and costs nothing on the element" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([.Background(.Rgb(1, 1, 1)), .On(.Hover, [.Background(.Rgb(2, 2, 2))])], []);
+    assert.eq(render(ctx, tree).markup(), "<div class=\"bg-010101 hover_bg-020202\" />");
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".hover_bg-020202:hover{background-color:rgb(2,2,2)}"));
+    // A pseudo-class and the base value are different conflict slots: they
+    // apply at different times, so they never resolve against each other.
+    assert.isTrue(sheet.contains(".bg-010101{background-color:rgb(1,1,1)}"));
+}
+
+test "a breakpoint is a media query, mobile first" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([.At(.Medium, [.Padding(.Px(24))]), .At(.Large, [.Padding(.Px(32))])], []);
+    assert.eq(render(ctx, tree).markup(), "<div class=\"md_p-24 lg_p-32\" />");
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".md_p-24{padding:24px}"));
+    assert.isTrue(sheet.contains(".lg_p-32{padding:32px}"));
+    // Ascending, so a larger tier overrides a smaller one by being written
+    // later. That is what makes a max-width query unnecessary.
+    let medium = assert.some(sheet.indexOf("(min-width:48rem)"));
+    let large = assert.some(sheet.indexOf("(min-width:64rem)"));
+    assert.isTrue(medium < large);
+}
+
+test "a state inside a breakpoint is both at once" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([.At(.Small, [.On(.Focus, [.Radius(.Px(3))])])], []);
+    assert.eq(render(ctx, tree).markup(), "<div class=\"sm_focus_r-3\" />");
+    assert.isTrue(stylesheet().contains(".sm_focus_r-3:focus-visible{border-radius:3px}"));
+}
+
+test "a `When` puts both branches in the stylesheet and swaps between them" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let lit = signal(ctx, false);
+    let tree = ui.stack(
+        [.When(.Cell(lit), [.Background(.Rgb(255, 0, 0))], [.Background(.Rgb(0, 0, 255))])],
+        [],
+    );
+    let view = render(ctx, tree);
+    assert.eq(view.markup(), "<div class=\"bg-0000ff\" />");
+    lit.set(ctx, true);
+    assert.eq(view.markup(), "<div class=\"bg-ff0000\" />");
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bg-ff0000{background-color:rgb(255,0,0)}"));
+    assert.isTrue(sheet.contains(".bg-0000ff{background-color:rgb(0,0,255)}"));
+}
+
+test "a `Computed` style is inline, re-serialises, and is never in the stylesheet" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let width = signal(ctx, 137);
+    let tree = ui.stack([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []);
+    let view = render(ctx, tree);
+    assert.eq(view.markup(), "<div style=\"width: 137px\" />");
+    width.set(ctx, 241);
+    assert.eq(view.markup(), "<div style=\"width: 241px\" />");
+    let sheet = stylesheet();
+    assert.isFalse(sheet.contains("137px"));
+    assert.isFalse(sheet.contains("241px"));
+}
+
+test "a style the compiler cannot evaluate becomes an inline style" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // `get` takes a context, so it is not pure, so the folder stops here — and
+    // the style degrades to the tier `Computed` lives in rather than failing.
+    let share = signal(ctx, 7);
+    let tree = ui.stack([.Grow(share.get(ctx))], []);
+    assert.eq(render(ctx, tree).markup(), "<div style=\"flex-grow: 7\" />");
+    assert.isFalse(stylesheet().contains("grow-7"));
+}
+
+test "a style that arrives as a parameter resolves last-wins over emitted classes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [boxed([], "plain"), boxed([.Background(.Rgb(9, 9, 9))], "loud")]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><div class=\"p-8 bg-000000\">plain</div><div class=\"p-8 bg-090909\">loud</div></div>",
+    );
+}
+
+test "a static style registers nothing and a computed one re-runs once per change" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let width = signal(ctx, 21);
+    let view = render(ctx, ui.stack([], [
+        ui.stack([.Padding(.Px(13))], []),
+        ui.stack([.Computed(fn(scope) => [.Width(.Px(log.note(width.get(scope))))])], []),
+    ]));
+    assert.eq(view.markup(), "<div><div class=\"p-13\" /><div style=\"width: 21px\" /></div>");
+    // The static one never ran a computation, so nothing it could have noted
+    // is here; the computed one ran once.
+    assert.eq(log.noted(), [21]);
+    width.set(ctx, 22);
+    assert.eq(view.markup(), "<div><div class=\"p-13\" /><div style=\"width: 22px\" /></div>");
+    assert.eq(log.noted(), [21, 22]);
 }
 
 // --- widgets -------------------------------------------------------------------------

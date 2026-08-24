@@ -1833,6 +1833,7 @@ function $dom_make(kind, name) {
     // lets a test tell a row that was moved from a row that was rebuilt.
     identity: $dom.identities,
     attributes: {},
+    classes: "",
     styles: {},
     children: [],
     parent: null,
@@ -1919,12 +1920,27 @@ function $dom_attribute(element, name, value) {
   element.setAttribute(name, value);
 }
 
-function $dom_style(element, property, value) {
+// The classes an element has, all of them at once. Replacing rather than
+// adding is what makes re-applying a style list idempotent: a `When` that
+// switched back has to lose the class it gained.
+function $dom_classes(element, value) {
   if (element.$shim) {
-    element.styles[property] = value;
+    element.classes = value;
     return;
   }
-  element.style.setProperty(property, value);
+  element.className = value;
+}
+
+// The inline declarations an element has, all of them at once, for the same
+// reason. Everything static is a class, so what is left here is small.
+function $dom_styles(element, declarations) {
+  if (element.$shim) {
+    element.styles = {};
+    for (const entry of declarations) element.styles[entry[0]] = entry[1];
+    return;
+  }
+  element.style.cssText = "";
+  for (const entry of declarations) element.style.setProperty(entry[0], entry[1]);
 }
 
 function $dom_listen(element, type, handler) {
@@ -1969,6 +1985,7 @@ function $dom_markup(node) {
   for (const name of Object.keys(node.attributes)) {
     out += " " + name + '="' + $dom_escape(node.attributes[name], true) + '"';
   }
+  if (node.classes !== "") out += ' class="' + $dom_escape(node.classes, true) + '"';
   if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
   if (node.checked) out += " checked";
   const styles = Object.keys(node.styles);
@@ -2080,7 +2097,44 @@ const $TREE_ALIGNMENTS = [
   "space-evenly",
 ];
 
+// Text has no leftover room to distribute, so every distribution means
+// justified. The compiler's own table says the same thing (`semantics::styles`).
+const $TREE_TEXT_ALIGNMENTS = [
+  "start",
+  "center",
+  "end",
+  "justify",
+  "justify",
+  "justify",
+  "justify",
+];
+
 const $TREE_CURSORS = ["default", "pointer", "text", "not-allowed"];
+
+// Logical edges, so a right-to-left page is right by construction.
+const $TREE_EDGES = ["block-start", "block-end", "inline-start", "inline-end"];
+
+const $TREE_POSITIONS = ["relative", "sticky", "fixed"];
+
+const $TREE_BORDER_STYLES = ["none", "solid", "dashed"];
+
+const $TREE_TEXT_CASES = ["none", "uppercase", "lowercase", "capitalize"];
+
+const $TREE_TEXT_LINES = ["none", "underline", "line-through"];
+
+const $TREE_TEXT_WRAPS = ["wrap", "nowrap", "balance"];
+
+const $TREE_FONTS = [
+  "ui-sans-serif,system-ui,sans-serif",
+  "ui-serif,Georgia,serif",
+  "ui-monospace,SFMono-Regular,monospace",
+];
+
+// The stylesheet the compiler extracted, assigned by one statement the backend
+// emits ahead of the program and empty in a program that styles nothing.
+// Nothing here ever writes to it: every rule in it was written at compile time,
+// which is what "nothing is generated at run time" means.
+let $ui_sheet = "";
 
 function $tree_length(length) {
   const tag = length[0];
@@ -2093,68 +2147,234 @@ function $tree_length(length) {
 
 function $tree_color(color) {
   const tag = color[0];
-  if (tag === 0) return "rgb(" + color[1] + ", " + color[2] + ", " + color[3] + ")";
+  if (tag === 0) return "rgb(" + color[1] + "," + color[2] + "," + color[3] + ")";
   if (tag === 1) {
-    return "rgba(" + color[1] + ", " + color[2] + ", " + color[3] + ", " + color[4] + ")";
+    return "rgba(" + color[1] + "," + color[2] + "," + color[3] + "," + color[4] + ")";
   }
   if (tag === 2) return "transparent";
   return "inherit";
 }
 
-function $tree_styles(element, styles) {
-  for (const style of styles) $tree_style(element, style);
+function $tree_track(track) {
+  const tag = track[0];
+  if (tag === 0) return track[1] + "fr";
+  if (tag === 1) return $tree_length(track[1]);
+  return "auto";
 }
 
-// One property, applied to the element it belongs to. Last one wins, which
-// falls out of applying them in order.
-function $tree_style(element, style) {
+function $tree_font(family) {
+  if (family[0] === 3) return '"' + family[1] + '",ui-sans-serif,sans-serif';
+  return $TREE_FONTS[family[0]];
+}
+
+// Applies a style list to an element.
+//
+// A static style arrived from the compiler already extracted: a conflict slot,
+// and the name of a class that is already in the stylesheet. Everything else —
+// a `Computed`, and anything the compiler could not evaluate — is written out
+// inline. Nothing here builds a rule.
+//
+// A list holding a `When` or a `Computed` is applied inside a computation, so
+// that a change re-picks the classes and re-serialises the inline half; a list
+// holding neither is applied once and registers nothing at all. That is the
+// whole cost difference between the two tiers.
+function $tree_styles(element, styles) {
+  if ($tree_style_static(styles)) {
+    $tree_style_apply(element, styles, null);
+    return;
+  }
+  $ui_run(
+    $ui_cell(2, undefined, (scope) => {
+      $tree_style_apply(element, styles, scope);
+      return 0;
+    }),
+  );
+}
+
+// Whether applying this list can be done once. `Group` is transparent; the two
+// reactive constructors are not.
+function $tree_style_static(styles) {
+  for (const style of styles) {
+    const tag = style[0];
+    if (tag === 3 || tag === 4) return false;
+    if (tag === 0 && !$tree_style_static(style[1])) return false;
+  }
+  return true;
+}
+
+// Collects the classes the list chose and the declarations it has to write
+// out, then applies both at once — so a re-run replaces an element's styling
+// rather than adding to it.
+function $tree_style_apply(element, styles, scope) {
+  const slots = new Map();
+  const inline = new Map();
+  $tree_style_collect(styles, scope, slots, inline);
+  $dom_classes(element, Array.from(slots.values()).join(" "));
+  $dom_styles(element, inline);
+}
+
+function $tree_style_collect(styles, scope, slots, inline) {
+  for (const style of styles) {
+    const tag = style[0];
+    if (tag === 5) {
+      // Compiler-assigned `(slot, class)` pairs. Last slot wins, and every
+      // name is one the stylesheet already has.
+      for (const pair of style[1]) slots.set(pair[0], pair[1]);
+    } else if (tag === 0) {
+      $tree_style_collect(style[1], scope, slots, inline);
+    } else if (tag === 3) {
+      const branch = $tree_value(style[1], scope) ? style[2] : style[3];
+      $tree_style_collect(branch, scope, slots, inline);
+    } else if (tag === 4) {
+      $tree_style_collect(style[1](scope), scope, slots, inline);
+    } else if (tag === 1 || tag === 2) {
+      // Reachable only from a program the compiler could not evaluate under a
+      // condition, which it rejects — so this is the invariant, said out loud.
+      $abort("a pseudo-class or a breakpoint exists only in the stylesheet");
+    } else {
+      $tree_declare(style, inline);
+    }
+  }
+}
+
+// One property, written out as inline declarations.
+//
+// This is the tier a style lands in when the compiler could not evaluate it,
+// and the tier `Computed` always lands in. A static style never reaches here:
+// it arrived as a class. The two lowerings are deliberately the same CSS —
+// `semantics::styles::declaration` is the other half — so that whether a style
+// folded changes what it costs and not what it looks like.
+function $tree_declare(style, out) {
   const tag = style[0];
-  if (tag === 0) {
-    $tree_styles(element, style[1]);
-  } else if (tag === 1) {
-    // A stack is a flex container in both directions. `Column` is the default
-    // in the vocabulary and it is the default here.
-    $dom_style(element, "display", "flex");
-    $dom_style(element, "flex-direction", style[1] === 1 ? "row" : "column");
-  } else if (tag === 2) {
-    $dom_style(element, "gap", $tree_length(style[1]));
-  } else if (tag === 3) {
-    $dom_style(element, "padding", $tree_length(style[1]));
-  } else if (tag === 4) {
+  const value = style[1];
+  if (tag === 6) {
+    if (value[0] === 2) {
+      out.set("display", "grid");
+      out.set("grid-template-columns", value[1].map($tree_track).join(" "));
+    } else if (value[0] === 3) {
+      // The children's half of `Layers` — every child in one cell — is a rule
+      // about descendants, which an element's own style attribute cannot say.
+      // A `Layers` that reached this tier stacks nothing.
+      out.set("display", "grid");
+    } else {
+      out.set("display", "flex");
+      out.set("flex-direction", value[0] === 1 ? "row" : "column");
+    }
+  } else if (tag === 7) {
+    out.set("justify-content", $TREE_ALIGNMENTS[value]);
+  } else if (tag === 8) {
+    out.set("align-items", $TREE_ALIGNMENTS[value]);
+  } else if (tag === 9) {
+    out.set("align-self", $TREE_ALIGNMENTS[value]);
+  } else if (tag === 10) {
+    out.set("flex-wrap", value ? "wrap" : "nowrap");
+  } else if (tag === 11) {
+    if (value === 0) out.set("overflow-x", "auto");
+    else if (value === 1) out.set("overflow-y", "auto");
+    else out.set("overflow", "auto");
+  } else if (tag === 12) {
+    out.set("flex-grow", String(value));
+  } else if (tag === 13) {
+    out.set("flex-shrink", String(value));
+  } else if (tag === 14) {
+    out.set("grid-column", "span " + value);
+  } else if (tag === 15) {
+    out.set("position", "absolute");
+    out.set("inset-" + $TREE_EDGES[value], $tree_length(style[2]));
+  } else if (tag === 16) {
+    out.set("position", $TREE_POSITIONS[value]);
+  } else if (tag === 17) {
+    out.set("gap", $tree_length(value));
+  } else if (tag === 18) {
+    out.set("column-gap", $tree_length(value));
+  } else if (tag === 19) {
+    out.set("row-gap", $tree_length(value));
+  } else if (tag === 20) {
+    out.set("padding", $tree_length(value));
+  } else if (tag === 21) {
     // Logical rather than left-and-right, so a right-to-left page is right by
     // construction rather than by a second stylesheet.
-    $dom_style(element, "padding-inline", $tree_length(style[1]));
-  } else if (tag === 5) {
-    $dom_style(element, "padding-block", $tree_length(style[1]));
-  } else if (tag === 6) {
-    $dom_style(element, "width", $tree_length(style[1]));
-  } else if (tag === 7) {
-    $dom_style(element, "height", $tree_length(style[1]));
-  } else if (tag === 8) {
-    $dom_style(element, "justify-content", $TREE_ALIGNMENTS[style[1]]);
-  } else if (tag === 9) {
-    $dom_style(element, "align-items", $TREE_ALIGNMENTS[style[1]]);
-  } else if (tag === 10) {
-    $dom_style(element, "flex-grow", String(style[1]));
-  } else if (tag === 11) {
-    $dom_style(element, "background-color", $tree_color(style[1]));
-  } else if (tag === 12) {
-    $dom_style(element, "color", $tree_color(style[1]));
-  } else if (tag === 13) {
-    // A width with no style draws nothing in CSS, and a border nobody can see
-    // is not what asking for one means.
-    $dom_style(element, "border-style", "solid");
-    $dom_style(element, "border-width", $tree_length(style[1]));
-  } else if (tag === 14) {
-    $dom_style(element, "border-color", $tree_color(style[1]));
-  } else if (tag === 15) {
-    $dom_style(element, "border-radius", $tree_length(style[1]));
-  } else if (tag === 16) {
-    $dom_style(element, "font-size", $tree_length(style[1]));
-  } else if (tag === 17) {
-    $dom_style(element, "font-weight", $TREE_WEIGHTS[style[1]]);
+    out.set("padding-inline", $tree_length(value));
+  } else if (tag === 22) {
+    out.set("padding-block", $tree_length(value));
+  } else if (tag === 23) {
+    out.set("padding-" + $TREE_EDGES[value], $tree_length(style[2]));
+  } else if (tag === 24) {
+    out.set("width", $tree_length(value));
+  } else if (tag === 25) {
+    out.set("height", $tree_length(value));
+  } else if (tag === 26) {
+    out.set("min-width", $tree_length(value));
+  } else if (tag === 27) {
+    out.set("max-width", $tree_length(value));
+  } else if (tag === 28) {
+    out.set("min-height", $tree_length(value));
+  } else if (tag === 29) {
+    out.set("max-height", $tree_length(value));
+  } else if (tag === 30) {
+    out.set("aspect-ratio", String(value));
+  } else if (tag === 31) {
+    out.set("background-color", $tree_color(value));
+  } else if (tag === 32) {
+    out.set("color", $tree_color(value));
+  } else if (tag === 33) {
+    // A width on its own draws a solid border, because a border nobody can see
+    // is not what asking for one means. `BorderStyle` is applied after it.
+    out.set("border-style", "solid");
+    out.set("border-width", $tree_length(value));
+  } else if (tag === 34) {
+    out.set("border-color", $tree_color(value));
+  } else if (tag === 35) {
+    out.set("border-style", $TREE_BORDER_STYLES[value]);
+  } else if (tag === 36) {
+    out.set("border-radius", $tree_length(value));
+  } else if (tag === 37) {
+    out.set("opacity", String(value));
+  } else if (tag === 38) {
+    out.set(
+      "box-shadow",
+      $tree_length(value[0]) +
+        " " +
+        $tree_length(value[1]) +
+        " " +
+        $tree_length(value[2]) +
+        " " +
+        $tree_length(value[3]) +
+        " " +
+        $tree_color(value[4]),
+    );
+  } else if (tag === 39) {
+    out.set("font-family", $tree_font(value));
+  } else if (tag === 40) {
+    out.set("font-size", $tree_length(value));
+  } else if (tag === 41) {
+    out.set("font-weight", $TREE_WEIGHTS[value]);
+  } else if (tag === 42) {
+    out.set("font-style", value ? "italic" : "normal");
+  } else if (tag === 43) {
+    out.set("line-height", String(value));
+  } else if (tag === 44) {
+    out.set("letter-spacing", $tree_length(value));
+  } else if (tag === 45) {
+    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
+  } else if (tag === 46) {
+    out.set("text-transform", $TREE_TEXT_CASES[value]);
+  } else if (tag === 47) {
+    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
+  } else if (tag === 48) {
+    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+  } else if (tag === 49) {
+    if (value > 0) {
+      out.set("display", "-webkit-box");
+      out.set("-webkit-box-orient", "vertical");
+      out.set("-webkit-line-clamp", String(value));
+      out.set("overflow", "hidden");
+    } else {
+      out.set("-webkit-line-clamp", "none");
+      out.set("overflow", "visible");
+    }
   } else {
-    $dom_style(element, "cursor", $TREE_CURSORS[style[1]]);
+    out.set("cursor", $TREE_CURSORS[value]);
   }
 }
 
@@ -2428,9 +2648,26 @@ function $tree_render(ctx, node, parent, anchor) {
 // `ui/node`'s one operation with a body in the runtime. Everything else in that
 // module is ordinary Buri building a value; this is where the value meets a
 // document.
+// Puts the compiler's stylesheet in the document, once, before anything is
+// rendered against it.
+//
+// The text is a string constant in the artifact — the compiler wrote every
+// rule in it — so this copies rather than generates, and a second mount finds
+// the element already there. Off a browser there is nowhere to put it and
+// nothing to look at it, which is why `ui/testing` reads `$ui_sheet` instead.
+function $ui_inject(sheet) {
+  if (sheet === "" || typeof document === "undefined") return;
+  if (document.getElementById("buri-styles") !== null) return;
+  const element = document.createElement("style");
+  element.id = "buri-styles";
+  element.textContent = sheet;
+  (document.head || document.body).appendChild(element);
+}
+
 function $ui_node_mount(ctx, root, themes) {
   const body = $dom_body();
   if (!body) return $err("there is nowhere to mount: this platform has no document");
+  $ui_inject($ui_sheet);
   $tree_render(ctx, root, body, null);
   // The page stays live. The entry wrapper exits only on an `.Err`, and the
   // listeners this registered go on running.
@@ -2457,6 +2694,14 @@ function $ui_testing_headless() {
 
 function $ui_testing_observer() {
   return $handle(0);
+}
+
+// The stylesheet the compiler extracted for this artifact, as text. Reading it
+// is how a test asserts what a class *means* rather than only what it is
+// called, and how it sees that two modules asking for one padding produced one
+// rule.
+function $ui_testing_stylesheet() {
+  return $ui_sheet;
 }
 
 function $ui_testing_recorder() {

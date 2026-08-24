@@ -1,0 +1,42 @@
+const $k0=[600,'p-r1'];
+const $k1=[510,'gap-8'];
+const $k2=[602,'md_p-r2'];
+const $k3=[512,'md_gap-16'];
+const $k4=[813,'lg_maxw-r64'];
+const $k5=[1086,'sm_hover_r-4'];
+const $k6=[$k0,$k1,$k2,$k3,$k4,$k5];
+const $k7=[5,$k6];
+const $k8=[$k7];
+const $k9=[630,'px-r0_5'];
+const $k10=[1080,'r-6'];
+const $k11=[930,'bg-f0f0f5'];
+const $k12=[960,'fg-18181b'];
+const $k13=[935,'hover_bg-18181b'];
+const $k14=[965,'hover_fg-f0f0f5'];
+const $k15=[$k9,$k10,$k11,$k12,$k13,$k14];
+const $k16=[5,$k15];
+const $k17=[$k16];
+const $k18=[360,'grow-1'];
+const $k19=[$k9,$k18];
+const $k20=[5,$k19];
+const $k21=[$k20];
+const $k22=[$k18];
+const $k23=[5,$k22];
+const $k24=[$k23];
+const $k25=[3,$k24,[]];
+const $k26=[180,'lay-col'];
+const $k27=[$k26];
+const $k28=[5,$k27];
+const $k29=[180,'lay-row'];
+const $k30=[$k29];
+const $k31=[5,$k30];
+$ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.grow-1{flex-grow:1}\n.gap-8{gap:8px}\n.p-r1{padding:1rem}\n.px-r0_5{padding-inline:0.5rem}\n.bg-f0f0f5{background-color:rgb(240,240,245)}\n.hover_bg-18181b:hover{background-color:rgb(24,24,27)}\n.fg-18181b{color:rgb(24,24,27)}\n.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}\n.r-6{border-radius:6px}\n@media (min-width:40rem){\n.sm_hover_r-4:hover{border-radius:4px}\n}\n@media (min-width:48rem){\n.md_gap-16{gap:16px}\n.md_p-r2{padding:2rem}\n}\n@media (min-width:64rem){\n.lg_maxw-r64{max-width:64rem}\n}\n';
+function __cmd_x_main$main(){
+  const ctx_0=[[],[],[],[]];
+  $host_HostStdout_println(ctx_0[1],'styled');
+  const children_6=[ui_node$row$u3rqgv($k17,[[1,[0,'one']]]),ui_node$row$u3rqgv($k21,[]),$k25];
+  return $ui_node_mount(ctx_0,[3,[$k28,[0,$k8]],children_6],[]);
+}
+function ui_node$row$u3rqgv(styles_0,children_1){
+  return [3,[$k31,[0,styles_0]],children_1];
+}
