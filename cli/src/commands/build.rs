@@ -140,40 +140,6 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
 /// - **Two different output directories.** An artifact that embedded the path
 ///   it was written to differs between them, which is the failure mode this is
 ///   most likely to catch.
-/// A round of `--check-reproducible` opens the repository for itself.
-///
-/// Each round has to start from a tree nobody has looked at yet — that is half
-/// of what the check claims — so the session is per round rather than shared,
-/// and the target is found again by label because the plan was resolved from a
-/// session that has since been dropped.
-fn round_session(
-    label: &str,
-    flags: &arguments::Flags,
-) -> Result<(session::Session, crate::build::workspace::TargetId), i32> {
-    let mut s = open_or_exit(flags).map_err(i32::from)?;
-    if s.report() {
-        return Err(2);
-    }
-    let Some(target) =
-        s.ws.targets().into_iter().find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
-    else {
-        eprintln!("error: {label} disappeared between two builds of one tree");
-        return Err(2);
-    };
-    Ok((s, target))
-}
-
-/// The two lines every irreproducibility is reported as: the verdict, then
-/// what moved.
-///
-/// One function because the verdict is one sentence. It was written out at
-/// seven places, which is seven chances for the wording a user greps for to
-/// stop being the same wording.
-fn not_reproducible(label: &str, detail: &str) {
-    eprintln!("error: {label} is not reproducible");
-    eprintln!("  = {detail}");
-}
-
 fn check_reproducible(args: &arguments::Args) -> i32 {
     let mut flags = arguments::Flags { force: true, ..arguments::Flags::default() };
     // Everything that is part of the configuration has to be carried across,
@@ -343,6 +309,40 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
         println!("nothing to build");
     }
     0
+}
+
+/// A round of `--check-reproducible` opens the repository for itself.
+///
+/// Each round has to start from a tree nobody has looked at yet — that is half
+/// of what the check claims — so the session is per round rather than shared,
+/// and the target is found again by label because the plan was resolved from a
+/// session that has since been dropped.
+fn round_session(
+    label: &str,
+    flags: &arguments::Flags,
+) -> Result<(session::Session, crate::build::workspace::TargetId), i32> {
+    let mut s = open_or_exit(flags).map_err(i32::from)?;
+    if s.report() {
+        return Err(2);
+    }
+    let Some(target) =
+        s.ws.targets().into_iter().find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
+    else {
+        eprintln!("error: {label} disappeared between two builds of one tree");
+        return Err(2);
+    };
+    Ok((s, target))
+}
+
+/// The two lines every irreproducibility is reported as: the verdict, then
+/// what moved.
+///
+/// One function because the verdict is one sentence. It was written out at
+/// seven places, which is seven chances for the wording a user greps for to
+/// stop being the same wording.
+fn not_reproducible(label: &str, detail: &str) {
+    eprintln!("error: {label} is not reproducible");
+    eprintln!("  = {detail}");
 }
 
 /// One artifact `--check-reproducible` will build twice.
