@@ -512,7 +512,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     ///   rejected. The bit pattern is what is meant, so it is masked to the
     ///   width.
     /// * **`i128` at all.** There is no `iconst.i128`; a 128-bit constant is two
-    ///   halves and an `iconcat`, which is what `konst` already does for a
+    ///   halves and an `iconcat`, which is what `constant` already does for a
     ///   literal and what every constant-producing path needs.
     ///
     /// Both were `unreachable!()` inside `verifier::iconst_bounds` — a panic in
@@ -1333,7 +1333,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
 
     fn inst(&mut self, inst: &Inst) {
         match inst {
-            Inst::Const { dest, value } => self.konst(*dest, value),
+            Inst::Const { dest, value } => self.constant(*dest, value),
             Inst::Unary { dest, op, prim, arg } => self.unary(*dest, *op, *prim, *arg),
             Inst::Binary { dest, op, prim, lhs, rhs } => {
                 self.binary(*dest, *op, *prim, *lhs, *rhs)
@@ -1389,7 +1389,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         self.cx.walk_rc(&source, addr, retain, 0);
     }
 
-    fn konst(&mut self, dest: ValueId, value: &Const) {
+    fn constant(&mut self, dest: ValueId, value: &Const) {
         let ty = self.code.ty_of(dest);
         match value {
             Const::Unit => self.set(dest, None),

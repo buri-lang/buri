@@ -1252,7 +1252,7 @@ impl Program {
             ds => format!("{} = {text}", vals(ds)),
         };
         match inst {
-            Inst::Const { dest, value } => format!("v{} = const {}", dest.0, konst(value)),
+            Inst::Const { dest, value } => format!("v{} = const {}", dest.0, constant(value)),
             Inst::Unary { dest, op, prim, arg } => {
                 format!("v{} = {}.{} v{}", dest.0, un_op(*op), prim.name(), arg.0)
             }
@@ -1344,7 +1344,7 @@ fn term(t: &Term) -> String {
     }
 }
 
-fn konst(c: &Const) -> String {
+fn constant(c: &Const) -> String {
     match c {
         Const::Unit => "()".into(),
         Const::Bool(b) => format!("{b}"),

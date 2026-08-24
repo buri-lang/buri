@@ -92,8 +92,8 @@ pub fn binop_name(op: BinOp) -> &'static str {
     }
 }
 
-// `Fn2::folded`, `Fn2::konst` and `Fn2::wt` are `Jit::plan`'s side tables and
-// carry one entry per value of the `ir::Code` being emitted, exactly as
+// `Fn2::folded`, `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables
+// and carry one entry per value of the `ir::Code` being emitted, exactly as
 // `Fn2::slot` — which is why `Fn2::at` reads its own with the same fallback.
 // An index past the end would mean the IR disagreed with itself, so each of
 // these three answers what a value the three analyses never saw would mean
@@ -108,8 +108,8 @@ fn folded(st: &Fn2, v: ir::ValueId) -> bool {
 
 /// The literal `v` holds when a stencil can take it as an immediate, or zero —
 /// which is the same zero the immediate hole is ignored at when it cannot.
-fn konst(st: &Fn2, v: ir::ValueId) -> u64 {
-    st.konst.get(v.index()).copied().flatten().unwrap_or(0)
+fn constant(st: &Fn2, v: ir::ValueId) -> u64 {
+    st.constants.get(v.index()).copied().flatten().unwrap_or(0)
 }
 
 /// Whether a register-promoted `v` also needs its frame slot kept in step.
@@ -1105,15 +1105,16 @@ impl<'a> Jit<'a> {
         // The paper's stencil configuration: which of constant, register and
         // stack each operand and the result is.
         let la = st.loc(lhs);
-        // `folded` and `konst` are `Jit::plan`'s side tables and have one entry
-        // per value of the `code` these operands came from, so the defaults are
-        // answers no operand here can actually ask for: "materialised" and "not
-        // an immediate", which is what a value with no `Const` definition is.
+        // `folded` and `constants` are `Jit::plan`'s side tables and have one
+        // entry per value of the `code` these operands came from, so the
+        // defaults are answers no operand here can actually ask for:
+        // "materialised" and "not an immediate", which is what a value with no
+        // `Const` definition is.
         let lb = if folded(st, rhs) { Loc::Imm } else { st.loc(rhs) };
         let ld = st.loc(dest);
         let key = format!("bin/{name}/{tag}/{}{}/{}", la.tag(), lb.tag(), ld.tag());
         if self.has(&key) {
-            let k = konst(st, rhs);
+            let k = constant(st, rhs);
             self.emit(
                 &key,
                 &[
@@ -1868,7 +1869,7 @@ impl<'a> Jit<'a> {
             None => key,
         };
         if let Some((_, _, lhs, rhs)) = plan.cmpbr {
-            let k = konst(st, rhs);
+            let k = constant(st, rhs);
             self.emit(
                 &key,
                 &[

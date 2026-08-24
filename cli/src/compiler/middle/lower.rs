@@ -498,7 +498,7 @@ impl FnLower<'_> {
         if multi {
             let d = match dispatch {
                 Some(d) => d,
-                None => self.konst(Type::I32, Const::Int { bits: 0, negative: false }),
+                None => self.constant(Type::I32, Const::Int { bits: 0, negative: false }),
             };
             first.push(d);
         }
@@ -575,7 +575,7 @@ impl FnLower<'_> {
             // which the checker enforced long before this pass.
             None => {
                 let ty = self.local_type(l);
-                self.konst(ty, Const::Undef)
+                self.constant(ty, Const::Undef)
             }
         }
     }
@@ -601,12 +601,12 @@ impl FnLower<'_> {
         dest
     }
 
-    fn konst(&mut self, ty: Type, value: Const) -> ValueId {
+    fn constant(&mut self, ty: Type, value: Const) -> ValueId {
         self.emit(ty, |dest| Inst::Const { dest, value })
     }
 
     fn int(&mut self, ty: Type, n: usize) -> ValueId {
-        self.konst(ty, Const::Int { bits: n as u128, negative: false })
+        self.constant(ty, Const::Int { bits: n as u128, negative: false })
     }
 
     /// Ends the current block with an abort and continues in a block nothing
@@ -733,7 +733,7 @@ impl FnLower<'_> {
         let ty = self.type_of(&e.ty);
         match &e.kind {
             ExprKind::Int(v, negative) => {
-                self.konst(ty, Const::Int { bits: *v, negative: *negative })
+                self.constant(ty, Const::Int { bits: *v, negative: *negative })
             }
             ExprKind::Float(v) => {
                 // A literal takes its type from context, so an `F32` one is
@@ -743,12 +743,12 @@ impl FnLower<'_> {
                     Some(Prim::F32) => f64::from(*v as f32),
                     _ => *v,
                 };
-                self.konst(ty, Const::Float(v))
+                self.constant(ty, Const::Float(v))
             }
-            ExprKind::Str(s) => self.konst(ty, Const::Str(s.clone())),
-            ExprKind::Char(c) => self.konst(ty, Const::Char(*c)),
-            ExprKind::Bool(b) => self.konst(ty, Const::Bool(*b)),
-            ExprKind::Unit => self.konst(ty, Const::Unit),
+            ExprKind::Str(s) => self.constant(ty, Const::Str(s.clone())),
+            ExprKind::Char(c) => self.constant(ty, Const::Char(*c)),
+            ExprKind::Bool(b) => self.constant(ty, Const::Bool(*b)),
+            ExprKind::Unit => self.constant(ty, Const::Unit),
             ExprKind::Local(l) => self.read(*l),
 
             // Three shapes monomorphization removes: a `const` is inlined at
@@ -837,7 +837,7 @@ impl FnLower<'_> {
                 }
                 match tail {
                     Some(t) => self.expr(t),
-                    None => self.konst(ty, Const::Unit),
+                    None => self.constant(ty, Const::Unit),
                 }
             }
             ExprKind::If { cond, then, else_ } => {
@@ -874,7 +874,7 @@ impl FnLower<'_> {
                 self.set_term(Term::Branch { cond: l, then, else_ });
 
                 self.cur = short_b;
-                let short = self.konst(Type::I1, Const::Bool(!is_and));
+                let short = self.constant(Type::I1, Const::Bool(!is_and));
                 self.set_term(Term::Jump(Target::new(join, vec![short])));
 
                 self.cur = rhs_b;
@@ -1183,7 +1183,7 @@ impl FnLower<'_> {
         for p in parts {
             match p {
                 TemplatePart::Text(t) => {
-                    let v = self.konst(ty, Const::Str(t.clone()));
+                    let v = self.constant(ty, Const::Str(t.clone()));
                     rendered.push((v, false));
                 }
                 TemplatePart::Hole(h) => {
@@ -1207,7 +1207,7 @@ impl FnLower<'_> {
         }
         let mut it = rendered.into_iter();
         let Some((mut acc, mut acc_is_mine)) = it.next() else {
-            return self.konst(ty, Const::Str(String::new()));
+            return self.constant(ty, Const::Str(String::new()));
         };
         for (next, next_is_mine) in it {
             let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
@@ -1306,7 +1306,7 @@ impl FnLower<'_> {
                 Some(v) => *v,
                 None => {
                     let ty = self.type_of(ty);
-                    self.konst(ty, Const::Undef)
+                    self.constant(ty, Const::Undef)
                 }
             })
             .collect()
@@ -1328,7 +1328,7 @@ impl FnLower<'_> {
                 Some(v) => *v,
                 None => {
                     let ty = self.code.ty_of(*p);
-                    self.konst(ty, Const::Undef)
+                    self.constant(ty, Const::Undef)
                 }
             })
             .collect()
@@ -1490,26 +1490,26 @@ impl FnLower<'_> {
             }
             PatKind::Int(v, negative) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.konst(ty, Const::Int { bits: *v, negative: *negative });
+                let c = self.constant(ty, Const::Int { bits: *v, negative: *negative });
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Float(v) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.konst(ty, Const::Float(*v));
+                let c = self.constant(ty, Const::Float(*v));
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Str(s) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.konst(ty, Const::Str(s.clone()));
+                let c = self.constant(ty, Const::Str(s.clone()));
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Char(c) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.konst(ty, Const::Char(*c));
+                let c = self.constant(ty, Const::Char(*c));
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Bool(b) => {
-                let c = self.konst(Type::I1, Const::Bool(*b));
+                let c = self.constant(Type::I1, Const::Bool(*b));
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Tuple(ps) => {

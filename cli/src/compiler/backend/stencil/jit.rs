@@ -476,7 +476,7 @@ pub(crate) struct Fn2 {
     pub wt: Vec<bool>,
     /// The literal a value holds, when it is an `Inst::Const` a stencil can
     /// take as an immediate.
-    pub konst: Vec<Option<u64>>,
+    pub constants: Vec<Option<u64>>,
     /// Values whose every use is an immediate operand: the `Const` that
     /// defines them is never materialised into a frame slot at all.
     pub folded: Vec<bool>,
@@ -567,7 +567,7 @@ impl<'a> Jit<'a> {
                 let mut wt = vec![true; code.values()];
                 let taken = self.promote(code, &mut reg, &mut wt);
                 self.regalloc(code, &mut reg, taken);
-                let (konst, folded) = self.constants(code);
+                let (constants, folded) = self.constants(code);
                 let mut closure_of: Vec<Option<u32>> = vec![None; code.values()];
                 for b in &code.blocks {
                     for i in &b.insts {
@@ -583,7 +583,7 @@ impl<'a> Jit<'a> {
                     scratch,
                     reg,
                     wt,
-                    konst,
+                    constants,
                     folded,
                     closure_of,
                 };
@@ -629,7 +629,7 @@ impl<'a> Jit<'a> {
                     scratch: frame.param_end,
                     reg: Vec::new(),
                     wt: Vec::new(),
-                    konst: Vec::new(),
+                    constants: Vec::new(),
                     folded: Vec::new(),
                     closure_of: Vec::new(),
                 };
@@ -1798,12 +1798,12 @@ impl<'a> Jit<'a> {
     /// Which `Inst::Const`s never need a frame slot, because every use of them
     /// is an immediate operand of a stencil that has an immediate variant.
     fn constants(&mut self, code: &ir::Code) -> (Vec<Option<u64>>, Vec<bool>) {
-        let mut konst: Vec<Option<u64>> = vec![None; code.values()];
+        let mut constants: Vec<Option<u64>> = vec![None; code.values()];
         let mut folded = vec![false; code.values()];
         for block in &code.blocks {
             for i in &block.insts {
                 if let ir::Inst::Const { dest, value } = i {
-                    put(&mut konst, dest.index(), literal(value, code.ty_of(*dest)));
+                    put(&mut constants, dest.index(), literal(value, code.ty_of(*dest)));
                 }
             }
         }
@@ -1820,7 +1820,7 @@ impl<'a> Jit<'a> {
                     bump(&mut total, o.index());
                 }
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
-                    if ent(&konst, rhs.index(), None).is_some() {
+                    if ent(&constants, rhs.index(), None).is_some() {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
                             let k = format!(
                                 "bin/{}/{tag}/fi/f",
@@ -1844,9 +1844,9 @@ impl<'a> Jit<'a> {
         }
         for (v, f) in folded.iter_mut().enumerate() {
             let seen = ent(&total, v, 0);
-            *f = ent(&konst, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
+            *f = ent(&constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
         }
-        (konst, folded)
+        (constants, folded)
     }
 
     /// Fusions the terminator can absorb.

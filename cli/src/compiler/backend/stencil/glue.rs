@@ -348,7 +348,7 @@ impl Jit<'_> {
             scratch,
             reg: Vec::new(),
             wt: Vec::new(),
-            konst: Vec::new(),
+            constants: Vec::new(),
             folded: Vec::new(),
             closure_of: Vec::new(),
         }
