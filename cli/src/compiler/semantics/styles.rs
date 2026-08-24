@@ -42,7 +42,7 @@
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
-use crate::compiler::semantics::typed::{self, ExprKind, Stmt, TemplatePart};
+use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -273,7 +273,7 @@ impl<'a> Extractor<'a> {
         // `On(.Hover, [f(x)])` where `f` answers a `Style` is handled by
         // `style`, and everything else under a condition has already been
         // refused there.
-        children_mut(e, &mut |child| self.walk(child, cond));
+        typed::children_mut(e, &mut |child| self.walk(child, cond));
     }
 
     /// A `[Style]` — the shape every widget takes and the shape both branches
@@ -306,7 +306,7 @@ impl<'a> Extractor<'a> {
             );
             return;
         }
-        children_mut(e, &mut |child| self.walk(child, cond));
+        typed::children_mut(e, &mut |child| self.walk(child, cond));
     }
 
     /// One `Style`.
@@ -336,7 +336,7 @@ impl<'a> Extractor<'a> {
             );
             return;
         }
-        children_mut(e, &mut |child| self.walk(child, cond));
+        typed::children_mut(e, &mut |child| self.walk(child, cond));
     }
 
     /// Descends one composition variant. Answers whether it handled the node.
@@ -390,7 +390,7 @@ impl<'a> Extractor<'a> {
                     // The `Prop<Bool>` is ordinary reactive data and may hold a
                     // closure with styles of its own.
                     if let Some(condition) = rest.next() {
-                        children_mut(condition, &mut |child| self.walk(child, Cond::default()));
+                        typed::children_mut(condition, &mut |child| self.walk(child, Cond::default()));
                     }
                     for branch in rest {
                         self.style_list(branch, cond);
@@ -411,7 +411,7 @@ impl<'a> Extractor<'a> {
                 }
                 let ExprKind::EnumLit { args, .. } = &mut e.kind else { return false };
                 for arg in args {
-                    children_mut(arg, &mut |child| self.walk(child, Cond::default()));
+                    typed::children_mut(arg, &mut |child| self.walk(child, Cond::default()));
                 }
                 true
             }
@@ -1112,7 +1112,7 @@ pub fn collect(e: &mut typed::Expr, style_con: TyConId, out: &mut Reached) {
             }
         }
     }
-    children_mut(e, &mut |child| collect(child, style_con, out));
+    typed::children_mut(e, &mut |child| collect(child, style_con, out));
 }
 
 /// Whether an expression builds a `ui/theme` `Theme`.
@@ -1128,94 +1128,6 @@ pub fn builds_a_theme(e: &mut typed::Expr, theme_con: TyConId) -> bool {
         return true;
     }
     let mut found = false;
-    children_mut(e, &mut |child| found |= builds_a_theme(child, theme_con));
+    typed::children_mut(e, &mut |child| found |= builds_a_theme(child, theme_con));
     found
-}
-
-/// Every sub-expression of one expression, by mutable reference.
-///
-/// Written out rather than derived, so that a new [`ExprKind`] is a compile
-/// error here rather than a silently unvisited subtree.
-fn children_mut(e: &mut typed::Expr, f: &mut impl FnMut(&mut typed::Expr)) {
-    match &mut e.kind {
-        ExprKind::CallValue { callee, args } => {
-            f(callee);
-            args.iter_mut().for_each(f);
-        }
-        ExprKind::CallFn { args, .. }
-        | ExprKind::CallTrait { args, .. }
-        | ExprKind::StructLit { fields: args, .. }
-        | ExprKind::EnumLit { args, .. }
-        | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
-        | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
-        | ExprKind::Closure { env: args, .. }
-        | ExprKind::Loop { entries: args }
-        | ExprKind::Continue { args, .. }
-        | ExprKind::Intrinsic { args, .. } => args.iter_mut().for_each(f),
-        ExprKind::StructUpdate { base, updates, .. } => {
-            f(base);
-            updates.iter_mut().for_each(|(_, v)| f(v));
-        }
-        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => f(base),
-        ExprKind::Index { base, index, .. } => {
-            f(base);
-            f(index);
-        }
-        ExprKind::Block { stmts, tail } => {
-            for stmt in stmts {
-                match stmt {
-                    Stmt::Let { value, .. } => f(value),
-                    Stmt::Expr(x) => f(x),
-                }
-            }
-            if let Some(t) = tail {
-                f(t);
-            }
-        }
-        ExprKind::If { cond, then, else_ } => {
-            f(cond);
-            f(then);
-            f(else_);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            f(scrutinee);
-            for arm in arms {
-                if let Some(g) = &mut arm.guard {
-                    f(g);
-                }
-                f(&mut arm.body);
-            }
-        }
-        ExprKind::Lambda { body, .. } => f(body),
-        ExprKind::And { lhs, rhs }
-        | ExprKind::Or { lhs, rhs }
-        | ExprKind::Coalesce { lhs, rhs, .. } => {
-            f(lhs);
-            f(rhs);
-        }
-        ExprKind::Try { base, .. } => f(base),
-        ExprKind::Template { parts } => {
-            for part in parts {
-                if let TemplatePart::Hole(h) = part {
-                    f(h);
-                }
-            }
-        }
-        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, v)| f(v)),
-        ExprKind::CtxGet { base, .. } => f(base),
-        ExprKind::Int(..)
-        | ExprKind::Float(_)
-        | ExprKind::Str(_)
-        | ExprKind::Char(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Unit
-        | ExprKind::Local(_)
-        | ExprKind::Const(_)
-        | ExprKind::FnRef(_)
-        | ExprKind::CtxCall { .. }
-        | ExprKind::Error => {}
-    }
 }

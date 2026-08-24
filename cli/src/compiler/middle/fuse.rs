@@ -76,7 +76,6 @@
 //!   would have to answer source elements where it answers mapped ones, and the
 //!   second changes length.
 
-use crate::compiler::middle::inline::each_child_mut;
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{
     self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
@@ -186,7 +185,7 @@ impl Fuse<'_> {
     /// Depth first, then to fixpoint at this node: a three-stage chain fuses its
     /// outer pair first, and what is left in the same place is a two-stage one.
     fn expr(&mut self, e: &mut Expr) {
-        each_child_mut(e, &mut |child| self.expr(child));
+        typed::children_mut(e, &mut |child| self.expr(child));
         while self.once(e) {}
     }
 

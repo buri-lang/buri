@@ -408,14 +408,24 @@ impl Pattern {
 // Visiting
 // ---------------------------------------------------------------------------
 
-/// Walks every sub-expression, outermost first.
-pub fn walk(e: &Expr, f: &mut impl FnMut(&Expr)) {
-    f(e);
-    let mut go = |e: &Expr| walk(e, f);
+/// Every **direct** sub-expression, in evaluation order for every construct
+/// that has one.
+///
+/// The one description of what an [`ExprKind`]'s children are. Every walk over
+/// a body in the front end and the middle end is this function plus what it
+/// does at each node — [`walk`] here, `middle::rc`'s node numbering, and the
+/// four middle-end passes that rewrite through [`children_mut`]. It is written
+/// out with no `_` arm, so a new `ExprKind` is a compile error here rather
+/// than a silently unvisited subtree; the two bugs the comments below record
+/// are what a `_` arm and a second copy cost.
+///
+/// A callback rather than a `Vec<&Expr>`: a vector here is a heap allocation
+/// at every node of every body, paid again by every pass that walks the tree.
+pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
     match &e.kind {
         ExprKind::CallValue { callee, args } => {
-            go(callee);
-            args.iter().for_each(go);
+            f(callee);
+            args.iter().for_each(f);
         }
         ExprKind::CallFn { args, .. }
         | ExprKind::CallTrait { args, .. }
@@ -427,59 +437,179 @@ pub fn walk(e: &Expr, f: &mut impl FnMut(&Expr)) {
         | ExprKind::StructuralEq { args, .. }
         | ExprKind::StructuralCmp { args, .. }
         | ExprKind::Intrinsic { args, .. }
+        // `Continue`'s arguments and `Loop`'s entries are children like any
+        // other. A walk that left them out reported a whole loop as one node,
+        // and left a `structuralEq` inside one for `lower` to meet as an
+        // `Inst::Structural`; both were real bugs, in two separate copies of
+        // this match.
         | ExprKind::Continue { args, .. }
         | ExprKind::Closure { env: args, .. }
-        | ExprKind::Loop { entries: args } => args.iter().for_each(go),
+        | ExprKind::Loop { entries: args } => args.iter().for_each(f),
         ExprKind::StructUpdate { base, updates, .. } => {
-            go(base);
-            updates.iter().for_each(|(_, e)| go(e));
+            f(base);
+            updates.iter().for_each(|(_, e)| f(e));
         }
         ExprKind::Field { base, .. }
         | ExprKind::TupleIndex { base, .. }
         | ExprKind::CtxGet { base, .. }
-        | ExprKind::Try { base, .. } => go(base),
+        | ExprKind::Try { base, .. } => f(base),
         ExprKind::Index { base, index, .. } => {
-            go(base);
-            go(index);
+            f(base);
+            f(index);
         }
         ExprKind::Block { stmts, tail } => {
             for s in stmts {
                 match s {
-                    Stmt::Let { value, .. } => go(value),
-                    Stmt::Expr(e) => go(e),
+                    Stmt::Let { value, .. } => f(value),
+                    Stmt::Expr(e) => f(e),
                 }
             }
             if let Some(t) = tail {
-                go(t);
+                f(t);
             }
         }
         ExprKind::If { cond, then, else_ } => {
-            go(cond);
-            go(then);
-            go(else_);
+            f(cond);
+            f(then);
+            f(else_);
         }
         ExprKind::Match { scrutinee, arms } => {
-            go(scrutinee);
+            f(scrutinee);
             for a in arms {
                 if let Some(g) = &a.guard {
-                    go(g);
+                    f(g);
                 }
-                go(&a.body);
+                f(&a.body);
             }
         }
-        ExprKind::Lambda { body, .. } => go(body),
-        ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } | ExprKind::Coalesce { lhs, rhs, .. } => {
-            go(lhs);
-            go(rhs);
+        ExprKind::Lambda { body, .. } => f(body),
+        ExprKind::And { lhs, rhs }
+        | ExprKind::Or { lhs, rhs }
+        | ExprKind::Coalesce { lhs, rhs, .. } => {
+            f(lhs);
+            f(rhs);
         }
         ExprKind::Template { parts } => {
             for p in parts {
                 if let TemplatePart::Hole(h) = p {
-                    go(h);
+                    f(h);
                 }
             }
         }
-        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, e)| go(e)),
-        _ => {}
+        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, e)| f(e)),
+        ExprKind::Int(..)
+        | ExprKind::Float(_)
+        | ExprKind::Str(_)
+        | ExprKind::Char(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Unit
+        | ExprKind::Local(_)
+        | ExprKind::Const(_)
+        | ExprKind::FnRef(_)
+        | ExprKind::CtxCall { .. }
+        | ExprKind::Error => {}
     }
+}
+
+/// [`children`], by mutable reference, for a pass that rewrites what it
+/// visits.
+///
+/// The same arms, and it has to be a second function rather than a generic
+/// one: Rust has no way to be generic over the mutability of a reference, and
+/// the alternative — a pass reading the tree and then writing it — is two
+/// walks where one will do.
+pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
+    match &mut e.kind {
+        ExprKind::CallValue { callee, args } => {
+            f(callee);
+            args.iter_mut().for_each(f);
+        }
+        ExprKind::CallFn { args, .. }
+        | ExprKind::CallTrait { args, .. }
+        | ExprKind::StructLit { fields: args, .. }
+        | ExprKind::EnumLit { args, .. }
+        | ExprKind::Tuple(args)
+        | ExprKind::Array(args)
+        | ExprKind::Prim { args, .. }
+        | ExprKind::StructuralEq { args, .. }
+        | ExprKind::StructuralCmp { args, .. }
+        | ExprKind::Intrinsic { args, .. }
+        // `Continue`'s arguments and `Loop`'s entries are children like any
+        // other. A walk that left them out reported a whole loop as one node,
+        // and left a `structuralEq` inside one for `lower` to meet as an
+        // `Inst::Structural`; both were real bugs, in two separate copies of
+        // this match.
+        | ExprKind::Continue { args, .. }
+        | ExprKind::Closure { env: args, .. }
+        | ExprKind::Loop { entries: args } => args.iter_mut().for_each(f),
+        ExprKind::StructUpdate { base, updates, .. } => {
+            f(base);
+            updates.iter_mut().for_each(|(_, e)| f(e));
+        }
+        ExprKind::Field { base, .. }
+        | ExprKind::TupleIndex { base, .. }
+        | ExprKind::CtxGet { base, .. }
+        | ExprKind::Try { base, .. } => f(base),
+        ExprKind::Index { base, index, .. } => {
+            f(base);
+            f(index);
+        }
+        ExprKind::Block { stmts, tail } => {
+            for s in stmts {
+                match s {
+                    Stmt::Let { value, .. } => f(value),
+                    Stmt::Expr(e) => f(e),
+                }
+            }
+            if let Some(t) = tail {
+                f(t);
+            }
+        }
+        ExprKind::If { cond, then, else_ } => {
+            f(cond);
+            f(then);
+            f(else_);
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            f(scrutinee);
+            for a in arms {
+                if let Some(g) = &mut a.guard {
+                    f(g);
+                }
+                f(&mut a.body);
+            }
+        }
+        ExprKind::Lambda { body, .. } => f(body),
+        ExprKind::And { lhs, rhs }
+        | ExprKind::Or { lhs, rhs }
+        | ExprKind::Coalesce { lhs, rhs, .. } => {
+            f(lhs);
+            f(rhs);
+        }
+        ExprKind::Template { parts } => {
+            for p in parts {
+                if let TemplatePart::Hole(h) = p {
+                    f(h);
+                }
+            }
+        }
+        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| f(e)),
+        ExprKind::Int(..)
+        | ExprKind::Float(_)
+        | ExprKind::Str(_)
+        | ExprKind::Char(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Unit
+        | ExprKind::Local(_)
+        | ExprKind::Const(_)
+        | ExprKind::FnRef(_)
+        | ExprKind::CtxCall { .. }
+        | ExprKind::Error => {}
+    }
+}
+
+/// Walks every sub-expression, outermost first.
+pub fn walk<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
+    f(e);
+    children(e, &mut |c| walk(c, f));
 }

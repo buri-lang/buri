@@ -372,7 +372,7 @@ fn substitute_locals(e: &mut Expr, onto: &HashMap<LocalId, LocalId>) {
         }
         _ => {}
     }
-    crate::compiler::middle::inline::each_child_mut(e, &mut |child| {
+    typed::children_mut(e, &mut |child| {
         substitute_locals(child, onto);
     });
 }

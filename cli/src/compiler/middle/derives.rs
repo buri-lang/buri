@@ -2091,7 +2091,7 @@ fn rewrite_expr(
     n: &mut usize,
 ) {
     // Children first: an argument may itself be a structural call.
-    each_child(e, &mut |c| rewrite_expr(c, routed, index, hash_ty, n));
+    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, index, hash_ty, n));
     let replacement = match &e.kind {
         ExprKind::Intrinsic { name, args, .. } => {
             let op = Op::all().into_iter().find(|o| o.intrinsic() == name);
@@ -2135,88 +2135,6 @@ fn rewrite_expr(
     if let Some(kind) = replacement {
         e.kind = kind;
         *n += 1;
-    }
-}
-
-/// Every direct sub-expression, mutably. `typed::walk` is the shared read-only
-/// walk; there is no mutable one, and a pass that rewrites in place needs the
-/// same coverage.
-fn each_child(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
-    match &mut e.kind {
-        ExprKind::CallValue { callee, args } => {
-            f(callee);
-            args.iter_mut().for_each(f);
-        }
-        ExprKind::CallFn { args, .. }
-        | ExprKind::CallTrait { args, .. }
-        | ExprKind::StructLit { fields: args, .. }
-        | ExprKind::EnumLit { args, .. }
-        | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
-        | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
-        | ExprKind::Closure { env: args, .. }
-        // A tail-recursive body is a `Loop` by the time this runs, so a derive
-        // call site inside one is inside these two and nowhere else. Missing
-        // them left a `structuralEq` in the tree for `lower` to meet as an
-        // `Inst::Structural` — the same traversal gap `rc::kids` had.
-        | ExprKind::Continue { args, .. }
-        | ExprKind::Loop { entries: args }
-        | ExprKind::Intrinsic { args, .. } => args.iter_mut().for_each(f),
-        ExprKind::StructUpdate { base, updates, .. } => {
-            f(base);
-            updates.iter_mut().for_each(|(_, e)| f(e));
-        }
-        ExprKind::Field { base, .. }
-        | ExprKind::TupleIndex { base, .. }
-        | ExprKind::CtxGet { base, .. }
-        | ExprKind::Try { base, .. } => f(base),
-        ExprKind::Index { base, index, .. } => {
-            f(base);
-            f(index);
-        }
-        ExprKind::Block { stmts, tail } => {
-            for s in stmts {
-                match s {
-                    typed::Stmt::Let { value, .. } => f(value),
-                    typed::Stmt::Expr(e) => f(e),
-                }
-            }
-            if let Some(t) = tail {
-                f(t);
-            }
-        }
-        ExprKind::If { cond, then, else_ } => {
-            f(cond);
-            f(then);
-            f(else_);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            f(scrutinee);
-            for a in arms {
-                if let Some(g) = &mut a.guard {
-                    f(g);
-                }
-                f(&mut a.body);
-            }
-        }
-        ExprKind::Lambda { body, .. } => f(body),
-        ExprKind::And { lhs, rhs }
-        | ExprKind::Or { lhs, rhs }
-        | ExprKind::Coalesce { lhs, rhs, .. } => {
-            f(lhs);
-            f(rhs);
-        }
-        ExprKind::Template { parts } => {
-            for p in parts {
-                if let TemplatePart::Hole(h) = p {
-                    f(h);
-                }
-            }
-        }
-        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| f(e)),
-        _ => {}
     }
 }
 

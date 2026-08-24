@@ -197,7 +197,7 @@
 
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt, TemplatePart};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -1051,86 +1051,16 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
 // Node numbering
 // ---------------------------------------------------------------------------
 
-/// Every direct sub-expression, in `typed::walk`'s order — which is evaluation
-/// order for every construct that has one.
+/// [`typed::children`], collected.
 ///
 /// This and `typed::walk` have to agree, because [`NodeId`] is defined by the
-/// latter and computed by the former. `preorder_matches_typed_walk` is the test
-/// that says they do.
+/// latter and computed by the former; they are now the same arms, and
+/// `preorder_matches_typed_walk` still says so. A `Vec` rather than the
+/// callback because the numbering needs each child's *index* and needs to
+/// stop early.
 fn kids(e: &Expr) -> Vec<&Expr> {
     let mut out: Vec<&Expr> = Vec::new();
-    match &e.kind {
-        ExprKind::CallValue { callee, args } => {
-            out.push(callee);
-            out.extend(args);
-        }
-        ExprKind::CallFn { args, .. }
-        | ExprKind::CallTrait { args, .. }
-        | ExprKind::StructLit { fields: args, .. }
-        | ExprKind::EnumLit { args, .. }
-        | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
-        | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
-        | ExprKind::Closure { env: args, .. }
-        // `Continue`'s arguments and `Loop`'s entries are children, and
-        // `typed::walk` descends into both. Leaving them out here did not make
-        // this pass skip a loop body politely: it made [`NodeId`] disagree with
-        // its own definition, and `subtree_sizes` report a whole loop as one
-        // node, so every site after the first loop was keyed on the wrong
-        // expression. `preorder_agrees_across_a_loop` is the test.
-        | ExprKind::Continue { args, .. }
-        | ExprKind::Loop { entries: args }
-        | ExprKind::Intrinsic { args, .. } => out.extend(args),
-        ExprKind::StructUpdate { base, updates, .. } => {
-            out.push(base);
-            out.extend(updates.iter().map(|(_, e)| e));
-        }
-        ExprKind::Field { base, .. }
-        | ExprKind::TupleIndex { base, .. }
-        | ExprKind::CtxGet { base, .. }
-        | ExprKind::Try { base, .. } => out.push(base),
-        ExprKind::Index { base, index, .. } => {
-            out.push(base);
-            out.push(index);
-        }
-        ExprKind::Block { stmts, tail } => {
-            for s in stmts {
-                match s {
-                    Stmt::Let { value, .. } => out.push(value),
-                    Stmt::Expr(e) => out.push(e),
-                }
-            }
-            out.extend(tail.as_deref());
-        }
-        ExprKind::If { cond, then, else_ } => {
-            out.push(cond);
-            out.push(then);
-            out.push(else_);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            out.push(scrutinee);
-            for a in arms {
-                out.extend(a.guard.as_ref());
-                out.push(&a.body);
-            }
-        }
-        ExprKind::Lambda { body, .. } => out.push(body),
-        ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } | ExprKind::Coalesce { lhs, rhs, .. } => {
-            out.push(lhs);
-            out.push(rhs);
-        }
-        ExprKind::Template { parts } => {
-            for p in parts {
-                if let TemplatePart::Hole(h) = p {
-                    out.push(h);
-                }
-            }
-        }
-        ExprKind::CtxLit { bindings } => out.extend(bindings.iter().map(|(_, e)| e)),
-        _ => {}
-    }
+    typed::children(e, &mut |k| out.push(k));
     out
 }
 

@@ -86,7 +86,7 @@ pub fn run(program: &mut Program) {
 /// holding it becomes one — and so the nested matches this pass *creates* are
 /// visited by the explicit call in [`group`] rather than being missed.
 fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
-    crate::compiler::middle::inline::each_child_mut(e, &mut |child| rewrite(locals, child));
+    typed::children_mut(e, &mut |child| rewrite(locals, child));
     let ty = e.ty.clone();
     if let ExprKind::Match { arms, .. } = &mut e.kind {
         if let Some(grouped) = group(locals, arms, &ty) {
