@@ -312,7 +312,7 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
 ///
 /// This is not (yet) a cache key — no `compile` action is stored separately —
 /// but it is the quantity the incrementality table in
-/// HERMETICITY-AND-CACHING.md is written in terms of, so `--explain` reports
+/// `buri docs build/hermeticity` is written in terms of, so `--explain` reports
 /// it and the tests compare it between two states of one tree.
 pub fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Compile, flags.mode);

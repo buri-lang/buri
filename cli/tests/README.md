@@ -34,6 +34,8 @@ cli/tests/
     cranelift.rs          gated on `backend-cranelift`
     conformance.rs        gated on `backend-cranelift`
     llvm.rs               gated on `backend-llvm`
+    stencil.rs            gated on `backend-stencil`: the copy-and-patch
+                          backend, its leak parity, and its cross emission
     agreement.rs          gated on either: VALUE-MODEL.md §12, both backends
   docs/      main.rs    THE DOCUMENTATION, held to the bar the code is
     documents.rs          what the documents are: fences, links, staleness
@@ -43,6 +45,7 @@ cli/tests/
     proto.rs              protobuf's own conformance exchanges
   formatting.rs         THE FORMATTER — a domain of one, its own binary
   adversarial.rs        HOSTILE INPUT — deliberately its own process
+  failing.rs            A FAILING RUN — the report a user reads, pinned
   fuzz.rs               INPUT NOBODY CHOSE — generated and mutated, against
                         properties, with its findings recorded as it goes
 
@@ -54,16 +57,21 @@ cli/tests/
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
   proto/                vendored schemas, a testee, and the recorded exchanges
+  failing/              one directory per failure shape, with its report
   fuzz/                 every finding a search has made, minimised, replayed
 ```
 
-Nine binaries, so a full run links nine times. A corpus is shared — the
-`conformance/` repository is read by `language::conformance` on the JavaScript
-backend and by `native::conformance` on Cranelift, `crash/` by four suites — so
-corpora sit at the top level rather than inside any one suite's directory. That
-first split is written into the corpus: each `conformance/lib/*/BUILD.buri`
-declares `test { platforms: [JS] }`, because `buri test` runs a suite natively
-by default now and the reference run has to stay the reference one.
+**Nine binaries**, so a full run links nine times: five directories holding a
+`main.rs` and four bare `.rs` files. A corpus is shared — the `conformance/`
+repository is read by `language::conformance` on the JavaScript backend, by
+`native::conformance` on Cranelift and by `native::stencil` on the
+copy-and-patch backend, and `crash/` by four suites — so corpora sit at the top
+level rather than inside any one suite's directory. That first split is written
+into the corpus: each `conformance/lib/*/BUILD.buri` declares
+`test { platforms: [JS] }`, because `buri test` runs a suite natively by default
+now and the reference run has to stay the reference one. Three backends reading
+one corpus is the point: a divergence is a failure in exactly one of them rather
+than a difference between three sets of assertions.
 
 ## The suites
 
@@ -448,7 +456,7 @@ substituted, so every other case's goldens come back byte for byte.
 
 **The incrementality suite** reads `buri build --explain`, which prints one line
 per action with its key and whether the cache served it. The claims in
-HERMETICITY-AND-CACHING.md are about *which actions run*, and until that flag
+`buri docs build/hermeticity` are about *which actions run*, and until that flag
 existed nothing outside the toolchain could observe one. Keys are compared
 between two states of one tree and never recorded — a key includes the
 toolchain version, so a recorded one would move on every release.

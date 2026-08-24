@@ -17,8 +17,8 @@ The second consumes the first: `match` progress is exactly the place a type
 safety proof needs "some arm fires", and that is what the exhaustiveness
 theorem was for.
 
-**Purity and inference remain unstarted.** `findings/README.md` (finding 4 in its results table), the hole
-that made the purity theorem false, has since been closed by a language
+**Purity and inference remain unstarted.** [Finding 4](./findings/README.md),
+the hole that made the purity theorem false, has since been closed by a language
 decision, so Stage 5 is now worth starting; it is not started here.
 
 **Nothing here is on the path to building a `buri` binary.** `formal/` is not a
@@ -198,8 +198,8 @@ vectors are checked in, so the Rust suite never needs Lean.
 statements whose answers are not in doubt through the same observation path and
 asserts it sees them, so an agreement result is not vacuous.
 `the_corpus_covers_the_nested_alternation` asserts the corpus still contains
-the shape `findings/README.md` (finding 6 in its results table) was about, so a future edit to the pool
-cannot quietly drop it.
+the shape [finding 6](./findings/README.md) was about, so a future edit to the
+pool cannot quietly drop it.
 
 **What it does not do.** It compares verdicts, not diagnostic text — the reject
 corpus's exact-output goldens are the right tool for that, and they exist. It
@@ -213,8 +213,8 @@ serialisation of `typed::Expr` the Rust side does not have.
 **`useful_sound`**, the converse direction ("no false positives"): that the
 compiler reports a non-exhaustive match only when a value really is uncovered.
 
-`findings/README.md` (finding 6 in its results table) used to be the answer — the theorem was false, because
-a nested alternation made the checker reject an exhaustive match. That is fixed
+[Finding 6](./findings/README.md) used to be the answer — the theorem was false,
+because a nested alternation made the checker reject an exhaustive match. That is fixed
 in `exhaustiveness.rs` and the model here is of the fixed algorithm, so that
 obstacle is gone. Two remain, and the first is sharper than the old one:
 
@@ -249,12 +249,13 @@ that they bind the *same* things. `.Some(true | false)` passes; a hypothetical
 
 **Inference.** `Ty::Var`, `unify`, `default_numerics`, trait obligations. The
 model's `Expr` is the post-inference form, so the Rust checker's two
-directions collapse into one. Everything `formal/README.md` used to say about
-`Ty::Var` being algorithmic is still true and still unstarted.
+directions collapse into one. What the modelling decisions below say about
+`Ty::Var` being algorithmic, and therefore belonging to the inference stage
+rather than to the declarative system, is still true and still unstarted.
 
-**Purity.** No Lean is written for it. `findings/README.md` (finding 4 in its results table) — the reason the
-theorem as stated was false — has since been resolved by a language decision,
-so it is now worth starting.
+**Purity.** No Lean is written for it. [Finding 4](./findings/README.md) — the
+reason the theorem as stated was false — has since been resolved by a language
+decision, so it is now worth starting.
 
 **Errors, guards, and intrinsics.** The operational semantics has no aborts
 (SPEC §6.10 makes one observable, which is a purity concern, not a safety one),
@@ -301,7 +302,7 @@ Four decisions about the core language:
 * **`Expr` is post-inference.** See "What is not proved".
 * **The model tracks the *fixed* algorithm.** `specialize`, `default_matrix`
   and `head_ctors` distribute over an or-headed row, matching
-  `exhaustiveness.rs` after the `findings/README.md` (finding 6 in its results table) fix. One consequence is
+  `exhaustiveness.rs` after the [finding 6](./findings/README.md) fix. One consequence is
   worth noting: or-freeness is now nowhere a hypothesis, and
   `specializeRow_matches` is a biconditional where the old, dropping version
   needed a side condition for the forward direction.
@@ -331,8 +332,13 @@ What this exercise will not catch, whatever else gets proved:
 ## Findings
 
 `findings/` holds the Stage 0 results — hand-written Buri programs, written to
-check predictions made by reading the checker. Six entries; all six are now
-fixed, in the checker or in the spec. One of them, §6, was found by mechanising
+check predictions made by reading the checker. Six entries, and none of them is
+still open: three are fixed in the checker or the spec, one was fixed in the
+spec without ever being run, one was resolved by a language decision, and one is
+latent and pinned by a build-time assertion so that it cannot become reachable
+unnoticed. [`findings/README.md`](./findings/README.md) is the table.
+
+One of them, finding 6, was found by mechanising
 the algorithm rather than by reading it: the Lean model needed a
 well-formedness invariant, and the question "does `expand` actually establish
 this?" turned out to have the answer *no*. That is the argument for doing
