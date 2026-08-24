@@ -1429,21 +1429,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             return self.error_expr(span);
         };
         let Some(index) = self.c.tables.variant_index(*con, name) else {
-            let ty = self.c.tables.tycon(*con).name.clone();
-            let variants: Vec<String> =
-                self.c.tables.tycon(*con).variants().iter().map(|v| v.name.clone()).collect();
-            let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
-            let near = nearest(name, &refs).map(|s| s.to_string());
-            let n = name;
-            let d = self.err(dot_span, format!("`{ty}` has no variant `{n}`"));
+            let (message, note) = crate::compiler::semantics::patterns::no_variant(&self.c.tables, *con, name);
+            let d = self.err(dot_span, message);
             d.fix("name a variant the enum declares");
-            match near {
-                Some(x) => d.notes.push(format!("did you mean `.{x}`?")),
-                None if !variants.is_empty() => {
-                    d.notes.push(format!("its variants are {}", diagnostics::names(&variants)))
-                }
-                None => {}
-            }
+            d.notes.extend(note);
             return self.error_expr(span);
         };
         self.construct_variant(*con, index, args, span, Some(&exp), dot_span)
