@@ -33,6 +33,16 @@
 //! have nowhere to degrade *to*, so a program that writes one out of values
 //! that are not statically known is rejected rather than silently ignored.
 //!
+//! ## Design tokens
+//!
+//! A colour may be a `Token` — a name whose value the app decides at mount.
+//! `token(namespace, name)` is the constructor a package's own closed token
+//! enum is built on, and the reference it holds is opaque, so this module never
+//! learns about any package's token type. In the static tier a token lowers to
+//! a namespaced custom property, which is why a class does not depend on what a
+//! token turns out to be worth and why switching a theme changes no class.
+//! `ui/theme` is the other half.
+//!
 //! ## Conflict resolution
 //!
 //! Per property, last wins. `[.Padding(.Px(8)), .Padding(.Px(4))]` is four
@@ -246,18 +256,48 @@ export enum Length {
 }
 
 /// A colour.
-///
-/// `Token` is not here yet: a design token is a name resolved at mount against
-/// the themes an app passes, and both halves of that arrive with `ui/theme`.
 export enum Color {
   /// Red, green and blue, each 0-255.
   export Rgb(Int, Int, Int),
   /// Red, green and blue, and how opaque, 0.0 to 1.0.
   export Rgba(Int, Int, Int, Float),
+  /// One package's design token: a name whose value the app decides at mount.
+  ///
+  /// A token in the static tier is a custom property — `var(--cardlib-surface)`
+  /// — so the class an element carries is the same one whatever the token turns
+  /// out to be worth, and switching a theme changes no class at all. What each
+  /// name resolves to is a `Theme` (`ui/theme`).
+  export Token(TokenReference),
   /// Nothing is painted, and whatever is behind shows through.
   export Transparent,
   /// Whatever the containing element uses.
   export Inherit,
+}
+
+/// An opaque name for one package's design token: the package it belongs to,
+/// and the token's own name inside that package.
+///
+/// Its fields are private, so the only way to make one is `token` below and the
+/// only way to say what one is worth is a `Theme`. That is what keeps `Style`
+/// from ever learning about any package's token type: a library styles itself
+/// against its own closed enum, and only a reference crosses the boundary.
+export struct TokenReference(Str, Str);
+
+/// The colour a design token names.
+///
+/// This is the constructor a package's token vocabulary is built on: a package
+/// declares `enum Token { Surface, OnSurface }` and an `impl Token` whose
+/// `color` answers `style.token("cardlib", "surface")` for each variant. The
+/// enum is closed and the reference is opaque, so a library's styles name only
+/// the library's own vocabulary.
+///
+/// `namespace` is the package the token belongs to and `name` is its own name;
+/// together they become the custom property `--namespace-name`, which is why a
+/// library's tokens can never collide with an app's. Both read best as plain
+/// letters and digits — a name with anything else in it still works, but the
+/// class the compiler derives from it falls back to a digest.
+export fn token(namespace: Str, name: Str): Color {
+  .Token(TokenReference(namespace, name))
 }
 
 /// Where something sits along an axis.

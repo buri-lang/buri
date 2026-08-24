@@ -17,6 +17,7 @@
 
 from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
 from "ui/node" import { Node };
+from "ui/theme" import { Theme };
 from "core/effect" import { NetResponse };
 
 /// Creates and writes signals, and runs computations, with no rendering.
@@ -154,6 +155,22 @@ impl Rendered {
 /// It is a compile-time string. Nothing appends to it at run time, and there is
 /// no call anywhere that could.
 export fn stylesheet(): Str;
+
+/// Installs `themes` exactly as `mount` does, and answers the custom-property
+/// block they resolve to.
+///
+/// This is how a test asserts what a token is *worth* — the stylesheet says
+/// only that a class reads `var(--cardlib-surface)`, and the value of that
+/// variable is what a theme decides. A chain resolves here, once, the way it
+/// resolves at mount.
+export fn install(themes: [Theme]): Str;
+
+/// The custom-property block that is installed right now.
+///
+/// Reading it again after writing a signal a `switching` theme's condition
+/// depends on is how a test sees a theme switch: the block changes and nothing
+/// else does, which is the claim.
+export fn variables(): Str;
 
 /// An ordered log, for asserting on *when* something ran.
 ///

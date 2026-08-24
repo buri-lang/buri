@@ -1,0 +1,147 @@
+// design/ui-reactivity.md, "Design tokens", compiled — the document's own
+// `cardTheme` example, with the counter's badge styled against a library's
+// token vocabulary instead of against colours.
+//
+// Three things to read in `expected.css`:
+//
+//   - **A token is a namespaced custom property.** `.bg-t_cardlib_surface`
+//     reads `var(--cardlib-surface)`, and the namespace is the package, so a
+//     library's token and an app's can never collide.
+//   - **The class does not depend on what the token is worth.** Nothing in the
+//     sheet mentions a colour a theme decided, which is why switching one is a
+//     block of values rather than a second stylesheet.
+//   - **The badge and the page use different vocabularies** and each names only
+//     its own: `cardlib` styles itself against `Card`, and the app's chrome
+//     against `App`. Only `main` knows about both.
+//
+// And one thing to read in `expected.mjs`, which is where the two halves of a
+// token part company. At every *style* site the token folded: nothing in the
+// generated code says `Card.Surface` or calls `Card_color`, only the class
+// names `$k7`..`$k9` the compiler assigned. What survives is `Card_color`
+// itself and the two `themed` functions, because a theme is built at run time
+// — the reference is compile-time and its *value* is the one part not knowable
+// until mount, which is the whole reason a theme is a parameter of `mount`
+// rather than a fact about a module.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { signal };
+from "ui/style" import * as style;
+from "ui/style" import { Color, Style };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+// --- cardlib: a library with a token vocabulary of its own --------------------
+
+enum Card {
+  Surface,
+  OnSurface,
+  Danger,
+}
+
+impl Card {
+  fn color(self: Card): Color {
+    match (self) {
+      .Surface => style.token("cardlib", "surface"),
+      .OnSurface => style.token("cardlib", "onSurface"),
+      .Danger => style.token("cardlib", "danger"),
+    }
+  }
+}
+
+// The one function only the library can write, because only the library knows
+// what its tokens are. A consumer supplies the mapping.
+fn cardThemed(f: fn(Card) => Color): Theme {
+  theme.themed([
+    (Card.Surface.color(), f(.Surface)),
+    (Card.OnSurface.color(), f(.OnSurface)),
+    (Card.Danger.color(), f(.Danger)),
+  ])
+}
+
+const badgeStyle: Style = .Group([
+  .PaddingX(.Rem(0.5)),
+  .Radius(.Px(6)),
+  .Background(Card.Surface.color()),
+  .Foreground(Card.OnSurface.color()),
+  .On(.Hover, [.Background(Card.Danger.color())]),
+]);
+
+// Pure: no ctx, and no idea a theme exists.
+fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
+  ui.row([badgeStyle], [ui.text(title), ui.text(.Computed(fn(c) => "${count.read(c)}"))])
+}
+
+// --- the app: its own vocabulary, and the mapping of the library's ------------
+
+enum App {
+  Bg,
+  Fg,
+}
+
+impl App {
+  fn color(self: App): Color {
+    match (self) {
+      .Bg => style.token("app", "bg"),
+      .Fg => style.token("app", "fg"),
+    }
+  }
+}
+
+fn appThemed(f: fn(App) => Color): Theme {
+  theme.themed([(App.Bg.color(), f(.Bg)), (App.Fg.color(), f(.Fg))])
+}
+
+// Exhaustiveness is the contract: the day `cardlib` adds a token, this stops
+// compiling until it is mapped.
+fn cardTheme(t: Card): Color {
+  match (t) {
+    .Surface => App.Bg.color(),
+    .OnSurface => App.Fg.color(),
+    .Danger => .Rgb(220, 38, 38),
+  }
+}
+
+fn day(t: App): Color {
+  match (t) {
+    .Bg => .Rgb(255, 255, 255),
+    .Fg => .Rgb(24, 24, 27),
+  }
+}
+
+fn night(t: App): Color {
+  match (t) {
+    .Bg => .Rgb(24, 24, 27),
+    .Fg => .Rgb(240, 240, 245),
+  }
+}
+
+fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
+  let count = signal(ctx, 0);
+
+  ui.column([.Background(App.Bg.color()), .Foreground(App.Fg.color())], [
+    ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
+    badge(.Const(label), .Cell(count)),
+  ])
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  // Dark mode is a `Prop<Bool>`. Writing it rewrites one `:root` block and
+  // touches no element and no class.
+  let dark = signal(ctx, false);
+  let _ = io.println(ctx, "mounted");
+  ui.mount(ctx, counter(ctx, "clicks"), [
+    cardThemed(cardTheme),
+    theme.switching(.Cell(dark), appThemed(night), appThemed(day)),
+  ])
+}

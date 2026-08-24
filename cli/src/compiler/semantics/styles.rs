@@ -965,9 +965,36 @@ fn colour(value: &Value) -> Option<(String, String)> {
                 format!("{r:02x}{g:02x}{b:02x}a{}", number_key(&a)),
             ))
         }
-        2 => Some(("transparent".into(), "none".into())),
-        3 => Some(("inherit".into(), "inherit".into())),
+        // A design token. It lowers to a custom property rather than to a
+        // colour, which is the whole of what makes a theme cost nothing: the
+        // class is decided here, at compile time, and installing or switching a
+        // theme only ever changes what `var(--cardlib-surface)` reads as.
+        2 => {
+            let Value::Struct(parts) = args.first()? else { return None };
+            let namespace = parts.first()?.as_str()?;
+            let name = parts.get(1)?.as_str()?;
+            Some((format!("var(--{namespace}-{name})"), token_key(namespace, name)))
+        }
+        3 => Some(("transparent".into(), "none".into())),
+        4 => Some(("inherit".into(), "inherit".into())),
         _ => None,
+    }
+}
+
+/// A token reference as a class-name fragment.
+///
+/// A namespace and a name that are plain letters and digits become part of the
+/// class, so that `.bg-t_cardlib_surface` says what it is on sight. Anything
+/// else falls back to a digest of the pair, because a class name has a smaller
+/// alphabet than a string does and two different tokens must never be handed
+/// one class. The separator is a byte no Buri identifier holds, so the digest
+/// cannot be made to collide by choosing names that run together.
+fn token_key(namespace: &str, name: &str) -> String {
+    let plain = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric());
+    if plain(namespace) && plain(name) {
+        format!("t_{namespace}_{name}")
+    } else {
+        format!("t_{}", digest(&format!("{namespace}\u{1}{name}")))
     }
 }
 

@@ -6,6 +6,7 @@ library {
             "test/reactivity.buri",
             "test/fetch.buri",
             "test/tree.buri",
+            "test/theme.buri",
         ]
 
         # JS only, and not for the usual reason: the reactive graph and the

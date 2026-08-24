@@ -7,16 +7,70 @@
 //! when a library adds a token, every consumer fails to compile until its
 //! theme maps it (`design/ui-reactivity.md` §Design tokens).
 //!
-//! **A `Theme` cannot be built yet, and that is deliberate rather than
-//! unfinished.** The type is here because `mount` takes a list of them, and a
-//! signature that gains a parameter later is a breaking change while a type
-//! that gains a constructor later is not. What is missing is the other half of
-//! tokens — `Color::Token(TokenReference)` in `ui/style`, and the resolution
-//! step that turns a chain of them into a value at mount — so the only list a
-//! program can pass today is the empty one, which is exactly what an app with
-//! no tokens wants to pass. Until then, a colour is written out.
+//! ## The two halves, and which package writes which
+//!
+//! **The package that owns a vocabulary writes a `themed`** — one small
+//! function taking a mapping, `fn(Token) => Color`, and answering the `themed`
+//! below applied to one binding per token: `(Token.Surface.color(),
+//! f(.Surface))`, and so on down the enum. It is the one function only that
+//! package can write, because only that package knows what its tokens are.
+//!
+//! **The app that uses the package writes the mapping**, as an ordinary
+//! function whose `match` over the package's enum is the compatibility check,
+//! and hands `cardlib.themed(cardTheme)` to `mount` alongside one entry for
+//! every other package it uses. The worked example is in the guide's
+//! standard-library page, under "Design tokens".
+//!
+//! A binding's left half is the token *written the way the owning package
+//! writes it*, and its right half is what that token is worth. The right half
+//! may itself be another token, which is how a chain — a library's token to the
+//! app's token to a value — is expressed; the chain is followed once, at mount.
+//!
+//! ## What it costs at run time, and why that is nothing
+//!
+//! A token is a custom property in the stylesheet, so every class is decided at
+//! compile time and no theme changes any of them. Installing a theme writes one
+//! `:root` block of values; switching one rewrites the same block. That is why
+//! dark mode is a `Prop<Bool>` here rather than a second stylesheet: nothing is
+//! re-extracted, no element is touched, and the browser repaints from the
+//! variables it already had.
+
+from "ui/prop" import { Prop };
+from "ui/style" import { Color };
 
 /// One package's tokens, resolved to values.
 ///
-/// Opaque, and with no constructor: see the module note above.
-export struct Theme(Int);
+/// Opaque: it is built by `themed` or by `switching` and read only by `mount`.
+export enum Theme {
+  /// Each token, paired with what it is worth.
+  Values([(Color, Color)]),
+  /// The first list while the condition reads true, the second while it reads
+  /// false. The lists are one theme each; an array is how a value refers to
+  /// its own type.
+  Switching(Prop<Bool>, [Theme], [Theme]),
+}
+
+/// A package's tokens, resolved.
+///
+/// Each binding pairs a token — written the way the owning package writes it,
+/// which is `Token.Surface.color()` — with the colour it is worth. That colour
+/// may be another package's token, and the chain resolves at mount.
+///
+/// A binding whose left half is not a token names nothing and is ignored: there
+/// is no custom property for `.Rgb(0, 0, 0)` to be the value of.
+export fn themed(bindings: [(Color, Color)]): Theme {
+  .Values(bindings)
+}
+
+/// Whichever of two themes the condition currently picks.
+///
+/// This is dark mode, and it is deliberately not a second stylesheet: when the
+/// condition changes, the custom-property block is written again and every
+/// class on every element stays exactly as it was.
+///
+/// The condition is a `Prop<Bool>`, so it can be a constant, a signal the app
+/// writes, or a computation over one — a media query bridged into a signal, a
+/// stored preference, a switch in the page.
+export fn switching(condition: Prop<Bool>, whenTrue: Theme, whenFalse: Theme): Theme {
+  .Switching(condition, [whenTrue], [whenFalse])
+}

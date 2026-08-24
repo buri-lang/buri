@@ -339,7 +339,16 @@ fn no_document_invents_a_flag() {
                 None => line,
             };
             while let Some(at) = rest.find("--") {
+                let before = &rest[..at];
                 rest = &rest[at + 2..];
+                // A CSS custom property is not a command-line flag. `ui/style`
+                // lowers a design token to `var(--cardlib-surface)`, and the
+                // guide has to be able to write one down. `var(` is the whole
+                // exemption: a flag is never spelled that way, so this cannot
+                // hide one.
+                if before.ends_with("var(") {
+                    continue;
+                }
                 let name: String = rest
                     .chars()
                     .take_while(|c| c.is_ascii_lowercase() || *c == '-')

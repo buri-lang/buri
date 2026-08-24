@@ -286,9 +286,99 @@ inlines any function that is pure by its signature — no `ctx`, no effect-carry
 `self`, no allocator — which is a question about a signature and not about a
 body.
 
-`ui/theme` still has the `Theme` that `mount` takes and nothing that builds one,
-which is why the list to pass today is the empty one: a design token is a name
-resolved against a theme, and both halves arrive together.
+#### Design tokens, and why exhaustiveness is the whole contract
+
+A design token is a name whose value the app decides. Every package that uses
+tokens — a library or an app, the rules are the same — declares its own closed
+vocabulary as an ordinary enum, with a constructor answering a colour:
+
+```buri
+from "core/effect" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+// `cardlib`'s vocabulary, and the constructor that names each of its tokens.
+export enum Token {
+  export Surface,
+  export OnSurface,
+  export Danger,
+}
+
+impl Token {
+  export fn color(self: Token): Color {
+    match (self) {
+      .Surface => style.token("cardlib", "surface"),
+      .OnSurface => style.token("cardlib", "onSurface"),
+      .Danger => style.token("cardlib", "danger"),
+    }
+  }
+}
+
+// `cardlib`'s half of the loop: the one function only it can write, because
+// only it knows what its tokens are.
+export fn themed(f: fn(Token) => Color): Theme {
+  theme.themed([
+    (Token.Surface.color(), f(.Surface)),
+    (Token.OnSurface.color(), f(.OnSurface)),
+    (Token.Danger.color(), f(.Danger)),
+  ])
+}
+
+// The consumer's half. This `match` is the compatibility check: a colour
+// written out, or another package's token, which is a chain.
+fn cardTheme(t: Token): Color {
+  match (t) {
+    .Surface => .Rgb(240, 240, 245),
+    .OnSurface => .Rgb(24, 24, 27),
+    .Danger => .Rgb(220, 38, 38),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let card = ui.stack([.Background(Token.Surface.color())], []);
+  ui.mount(ctx, card, [themed(cardTheme)])
+}
+```
+
+`style.token` answers a `Color.Token`, which holds an opaque reference and
+nothing else. So a library's styles name only the library's own vocabulary,
+`Style` never learns about any package's token type, and a definition site is
+type-safe: `.Background(Token.Surface.color())` cannot name a token that does
+not exist.
+
+The app closes the loop at mount, with **one theme per package it uses** — the
+package's `themed` applied to the app's mapping, all of them in the list
+`mount` takes.
+
+**Exhaustiveness is the compatibility contract.** The day `cardlib` adds a
+token, that `match` stops covering its type and every consumer fails to compile
+until it says what the new token is worth
+([`match-not-exhaustive`](./cli/src/docs/errors/match-not-exhaustive.md)). No
+registry, no schema language, no default — a token nobody mapped would be a
+variable the page never defines, and a silently unpainted element is what this
+refuses.
+
+Chains resolve at mount, in one step: a library's token to the app's token to a
+colour is followed until it reaches a value, and what the page reads is the
+value.
+
+**On the web, a token is a namespaced custom property.** A class in the
+stylesheet reads `var(--cardlib-surface)`, where the namespace is the package,
+so a library's tokens and an app's can never collide. The class is therefore
+decided at compile time and does not depend on what the token turns out to be
+worth; a theme is a `:root` block of values, written once at mount.
+
+That is what makes dark mode free. `theme.switching(condition, whenTrue,
+whenFalse)` takes a `Prop<Bool>` — a signal the app writes, a stored preference,
+a media query bridged into one — and when it changes, the block of values is
+written again. No class changes, no element is touched, and the stylesheet is
+not involved at all.
 
 ### Allocators
 

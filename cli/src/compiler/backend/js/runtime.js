@@ -2151,7 +2151,11 @@ function $tree_color(color) {
   if (tag === 1) {
     return "rgba(" + color[1] + "," + color[2] + "," + color[3] + "," + color[4] + ")";
   }
-  if (tag === 2) return "transparent";
+  // A design token, in the inline tier. The same custom property the compiler
+  // writes into the stylesheet, so a style that folded and one that did not
+  // look the same on the page.
+  if (tag === 2) return "var(--" + $ui_theme_name(color[1]) + ")";
+  if (tag === 3) return "transparent";
   return "inherit";
 }
 
@@ -2655,6 +2659,137 @@ function $tree_render(ctx, node, parent, anchor) {
 // rule in it — so this copies rather than generates, and a second mount finds
 // the element already there. Off a browser there is nowhere to put it and
 // nothing to look at it, which is why `ui/testing` reads `$ui_sheet` instead.
+// --- Themes ------------------------------------------------------------------
+//
+// A design token is a namespaced custom property, and a theme is the block of
+// values those properties take. That split is what makes a theme cost nothing:
+// every class in the stylesheet was decided at compile time and names
+// `var(--cardlib-surface)`, so installing a theme, or switching one, writes one
+// `:root` block and touches no element at all.
+//
+// Resolution is one pass. Every binding every theme holds goes into one map,
+// keyed by the token it names; then each value is followed while it is itself a
+// token, which is how a chain — a library's token to the app's token to a
+// colour — arrives at a value. A chain that leaves the map, or one that closes
+// on itself, names nothing and is left out rather than guessed at: an undefined
+// custom property is one the browser ignores, and inventing a colour for it
+// would hide the missing binding rather than show it.
+
+// The tag `ui/style`'s `Color.Token` carries. That vocabulary's variant order
+// is load-bearing and its module header says so; this is one of the places that
+// rests on it.
+const $UI_COLOR_TOKEN = 2;
+
+// The custom-property block installed right now, without the `<style>` element
+// around it. Off a browser this is all there is, which is what `ui/testing`
+// reads.
+let $ui_theme_text = "";
+
+// `namespace-name` — the custom property's name, without the leading dashes.
+function $ui_theme_name(reference) {
+  return reference[0] + "-" + reference[1];
+}
+
+// Which `Values` themes currently apply, in the order they were passed: a
+// switch is followed to whichever branch its condition picks, and what comes
+// back is a list of binding lists. Deciding this in one place is what keeps the
+// map used for resolution and the blocks that are written from ever disagreeing
+// about which side of a switch the page is on.
+function $ui_theme_applied(themes, scope, out) {
+  for (const theme of themes) {
+    if (theme[0] === 0) {
+      out.push(theme[1]);
+    } else {
+      $ui_theme_applied($tree_value(theme[1], scope) ? theme[2] : theme[3], scope, out);
+    }
+  }
+}
+
+// One value, followed while it is a token. The step budget is the number of
+// bindings there are, so a chain that closes on itself stops instead of
+// hanging.
+function $ui_theme_resolve(bindings, color) {
+  let steps = bindings.size;
+  while (color[0] === $UI_COLOR_TOKEN) {
+    if (steps-- <= 0) return null;
+    const next = bindings.get($ui_theme_name(color[1]));
+    if (next === undefined) return null;
+    color = next;
+  }
+  return $tree_color(color);
+}
+
+// The whole custom-property text: one `:root` block per theme, in the order
+// they were passed — a theme *is* a block of values, so reading the installed
+// text shows which package each variable came from.
+function $ui_theme_render(themes, scope) {
+  const applied = [];
+  $ui_theme_applied(themes, scope, applied);
+
+  // Every binding, in declaration order, a later one for the same token
+  // replacing an earlier one. This is what a chain is followed through.
+  const bindings = new Map();
+  for (const values of applied) {
+    for (const binding of values) {
+      if (binding[0][0] === $UI_COLOR_TOKEN) {
+        bindings.set($ui_theme_name(binding[0][1]), binding[1]);
+      }
+    }
+  }
+
+  let out = "";
+  for (const values of applied) {
+    const body = [];
+    for (const binding of values) {
+      if (binding[0][0] !== $UI_COLOR_TOKEN) continue;
+      const value = $ui_theme_resolve(bindings, binding[1]);
+      if (value !== null) body.push("--" + $ui_theme_name(binding[0][1]) + ":" + value);
+    }
+    if (body.length !== 0) out += ":root{" + body.join(";") + "}\n";
+  }
+  return out;
+}
+
+// Whether the block can be written once. A `switching` theme is the only thing
+// in a theme list that can change.
+function $ui_theme_static(themes) {
+  for (const theme of themes) {
+    if (theme[0] !== 0) return false;
+  }
+  return true;
+}
+
+function $ui_theme_write(text) {
+  $ui_theme_text = text;
+  if (typeof document === "undefined") return;
+  let element = document.getElementById("buri-theme");
+  if (element === null) {
+    // A program with no tokens leaves no trace of the machinery in its page.
+    if (text === "") return;
+    element = document.createElement("style");
+    element.id = "buri-theme";
+    (document.head || document.body).appendChild(element);
+  }
+  element.textContent = text;
+}
+
+// Resolves the themes and puts their values in the document, writing them again
+// whenever a switching theme's condition changes. The stylesheet is never
+// touched and no element's classes are re-applied — which is the whole claim
+// dark mode rests on.
+function $ui_theme_install(themes) {
+  if ($ui_theme_static(themes)) {
+    $ui_theme_write($ui_theme_render(themes, null));
+    return;
+  }
+  $ui_run(
+    $ui_cell(2, undefined, (scope) => {
+      $ui_theme_write($ui_theme_render(themes, scope));
+      return 0;
+    }),
+  );
+}
+
 function $ui_inject(sheet) {
   if (sheet === "" || typeof document === "undefined") return;
   if (document.getElementById("buri-styles") !== null) return;
@@ -2668,6 +2803,9 @@ function $ui_node_mount(ctx, root, themes) {
   const body = $dom_body();
   if (!body) return $err("there is nowhere to mount: this platform has no document");
   $ui_inject($ui_sheet);
+  // Before anything is rendered, so that the first paint already has the values
+  // the classes ask for.
+  $ui_theme_install(themes);
   $tree_render(ctx, root, body, null);
   // The page stays live. The entry wrapper exits only on an `.Err`, and the
   // listeners this registered go on running.
@@ -2702,6 +2840,19 @@ function $ui_testing_observer() {
 // rule.
 function $ui_testing_stylesheet() {
   return $ui_sheet;
+}
+
+// Installs a theme list the way `mount` does, and answers the custom-property
+// block it resolved to. A switching theme registers its computation here too,
+// so reading `variables` again after a signal write is exactly what a page
+// would show.
+function $ui_testing_install(themes) {
+  $ui_theme_install(themes);
+  return $ui_theme_text;
+}
+
+function $ui_testing_variables() {
+  return $ui_theme_text;
 }
 
 function $ui_testing_recorder() {

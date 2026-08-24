@@ -335,9 +335,11 @@ export fn each<C, T: Eq>(
 /// Puts a tree on the screen, and leaves it there.
 ///
 /// The context is what the tree's handlers are given, so it is the budget
-/// `main` chose and nothing wider. `themes` resolves the design tokens of each
-/// package that uses them; there is nothing that can build a `Theme` yet, so
-/// the list to pass today is the empty one (see `ui/theme`).
+/// `main` chose and nothing wider. `themes` is one theme per package whose
+/// design tokens this program uses, and it is where a chain of tokens resolves
+/// — a library's token to the app's token to a colour — into the one
+/// custom-property block the page reads (see `ui/theme`). An app with no tokens
+/// passes the empty list.
 ///
 /// Answers `.Ok(())` and returns immediately: the page stays live because the
 /// entry wrapper only exits on an `.Err`, and the listeners this registered go

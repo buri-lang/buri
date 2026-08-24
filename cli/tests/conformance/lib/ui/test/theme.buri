@@ -1,0 +1,279 @@
+// design/ui-reactivity.md, "Design tokens". Every package declares its own
+// closed vocabulary as an ordinary enum with a constructor producing an opaque
+// reference; library styles name only the library's own enum; the app closes
+// the loop at mount with one theme per library it uses. What that buys is
+// asserted here in four parts:
+//
+//   - **A token is a custom property.** The class an element carries is
+//     decided at compile time and reads `var(--cardlib-surface)`, so what a
+//     token turns out to be worth changes no class anywhere.
+//   - **A theme is a `:root` block**, one per package, in the order the app
+//     passed them.
+//   - **A chain resolves at mount.** A library's token may map to the app's
+//     token, which maps to a colour, and what the page reads is the colour.
+//   - **Switching is a `Prop`.** Flipping it rewrites the block of values and
+//     touches nothing else — no class, no element, no stylesheet.
+//
+// The other half of the contract is not here, because it is a compile error:
+// when a library adds a token, every consumer's `match` stops being exhaustive
+// until it maps it. `cli/tests/reject/ui_theme_unmapped_token/` pins that.
+
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/testing" import { headless, install, observer, render, stylesheet, variables };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+// --- a library's vocabulary ----------------------------------------------------------
+//
+// This is what a package that ships styled components declares. The enum is
+// closed, `color` is the constructor, and `themed` is the one function only
+// this package can write, because only this package knows what its tokens are.
+
+/// The tokens `cardlib` styles itself against.
+enum Card {
+    Surface,
+    OnSurface,
+    Accent,
+}
+
+impl Card {
+    fn color(self: Card): Color {
+        match (self) {
+            .Surface => style.token("cardlib", "surface"),
+            .OnSurface => style.token("cardlib", "onSurface"),
+            .Accent => style.token("cardlib", "accent"),
+        }
+    }
+}
+
+/// `cardlib`'s half of the loop: a mapping in, a theme out.
+fn cardThemed(f: fn(Card) => Color): Theme {
+    theme.themed([
+        (Card.Surface.color(), f(.Surface)),
+        (Card.OnSurface.color(), f(.OnSurface)),
+        (Card.Accent.color(), f(.Accent)),
+    ])
+}
+
+// --- the app's vocabulary ------------------------------------------------------------
+
+/// The tokens the app styles itself against, and maps `cardlib`'s onto.
+enum App {
+    Bg,
+    Fg,
+}
+
+impl App {
+    fn color(self: App): Color {
+        match (self) {
+            .Bg => style.token("app", "bg"),
+            .Fg => style.token("app", "fg"),
+        }
+    }
+}
+
+fn appThemed(f: fn(App) => Color): Theme {
+    theme.themed([(App.Bg.color(), f(.Bg)), (App.Fg.color(), f(.Fg))])
+}
+
+/// The app's mapping of `cardlib`'s vocabulary. Two of the three go through the
+/// app's own tokens, which is the chain; the third is a value written out.
+fn cardTheme(t: Card): Color {
+    match (t) {
+        .Surface => App.Bg.color(),
+        .OnSurface => App.Fg.color(),
+        .Accent => .Rgb(29, 78, 216),
+    }
+}
+
+fn day(t: App): Color {
+    match (t) {
+        .Bg => .Rgb(255, 255, 255),
+        .Fg => .Rgb(24, 24, 27),
+    }
+}
+
+fn night(t: App): Color {
+    match (t) {
+        .Bg => .Rgb(24, 24, 27),
+        .Fg => .Rgb(240, 240, 245),
+    }
+}
+
+/// A `cardlib` component, styled against `cardlib`'s tokens and nothing else.
+/// It cannot see a theme and does not import `ui/theme`.
+fn card<C>(label: Str): Node<C> {
+    ui.stack(
+        [.Background(Card.Surface.color()), .Foreground(Card.OnSurface.color())],
+        [ui.text(.Const(label))],
+    )
+}
+
+/// The app's own chrome, styled against the app's own tokens. Both packages
+/// reach the stylesheet, and neither one's classes mention the other.
+fn page<C>(inner: Node<C>): Node<C> {
+    ui.stack([.Background(App.Bg.color()), .Foreground(App.Fg.color())], [inner])
+}
+
+/// A component whose background is whatever its caller asks for. The style is
+/// built out of a parameter, so the compiler cannot evaluate it and it degrades
+/// to the inline tier — which is where the other half of the token lowering is.
+fn tinted<C>(paint: Color): Node<C> {
+    ui.stack([.Background(paint)], [])
+}
+
+// --- a token in the stylesheet -------------------------------------------------------
+
+test "a token is a custom property, decided at compile time" {
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bg-t_cardlib_surface{background-color:var(--cardlib-surface)}"));
+    assert.isTrue(sheet.contains(".fg-t_cardlib_onSurface{color:var(--cardlib-onSurface)}"));
+    assert.isTrue(sheet.contains(".bg-t_app_bg{background-color:var(--app-bg)}"));
+}
+
+test "the namespace is the package, so two packages cannot collide" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // One property, two packages, two classes and two variables — even though
+    // `cardlib.surface` is mapped straight onto `app.bg` and the two are worth
+    // exactly the same colour.
+    let _ = install([cardThemed(cardTheme), appThemed(day)]);
+    assert.eq(
+        render(ctx, page(card("card"))).markup(),
+        "<div class=\"bg-t_app_bg fg-t_app_fg\"><div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div></div>",
+    );
+}
+
+test "a component that uses tokens carries the same classes under any theme" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let expected = "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>";
+
+    let _ = install([cardThemed(cardTheme), appThemed(day)]);
+    assert.eq(render(ctx, card("card")).markup(), expected);
+
+    let _ = install([cardThemed(cardTheme), appThemed(night)]);
+    assert.eq(render(ctx, card("card")).markup(), expected);
+}
+
+// --- a theme is a block of values ----------------------------------------------------
+
+test "a theme resolves each of its tokens to a value" {
+    assert.eq(
+        install([appThemed(day)]),
+        ":root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n",
+    );
+}
+
+test "one block per theme, in the order the app passed them" {
+    assert.eq(
+        install([cardThemed(cardTheme), appThemed(day)]),
+        ":root{--cardlib-surface:rgb(255,255,255);--cardlib-onSurface:rgb(24,24,27);--cardlib-accent:rgb(29,78,216)}\n:root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n",
+    );
+}
+
+test "a chain resolves at mount: a library's token to the app's token to a value" {
+    // `cardlib.surface` is mapped to `app.bg`, and `app.bg` to white. What the
+    // page reads is white, in one step, with no `var()` referring to another.
+    let block = install([cardThemed(cardTheme), appThemed(night)]);
+    assert.isTrue(block.contains("--cardlib-surface:rgb(24,24,27)"));
+    assert.isTrue(block.contains("--cardlib-onSurface:rgb(240,240,245)"));
+    assert.isFalse(block.contains("var("));
+}
+
+test "a token mapped straight to a value needs no chain at all" {
+    let block = install([cardThemed(cardTheme), appThemed(day)]);
+    assert.isTrue(block.contains("--cardlib-accent:rgb(29,78,216)"));
+}
+
+test "a chain that ends nowhere names nothing rather than guessing" {
+    // `cardlib`'s theme is here and the app's is not, so `surface` and
+    // `onSurface` lead to a variable nobody defined. They are left out; the
+    // one token that was mapped to a value is still there.
+    let block = install([cardThemed(cardTheme)]);
+    assert.eq(block, ":root{--cardlib-accent:rgb(29,78,216)}\n");
+}
+
+test "no themes at all is no block at all" {
+    assert.eq(install([]), "");
+}
+
+// --- switching -----------------------------------------------------------------------
+
+test "switching a theme swaps the values and changes no class" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let dark = signal(ctx, false);
+    let themes = [
+        cardThemed(cardTheme),
+        theme.switching(.Cell(dark), appThemed(night), appThemed(day)),
+    ];
+    let tree = render(ctx, card("card"));
+    let before = tree.markup();
+
+    let _ = install(themes);
+    assert.isTrue(variables().contains("--app-bg:rgb(255,255,255)"));
+    assert.isTrue(variables().contains("--cardlib-surface:rgb(255,255,255)"));
+
+    dark.set(ctx, true);
+    assert.isTrue(variables().contains("--app-bg:rgb(24,24,27)"));
+    // The chain resolves again, so a library's token follows the app's.
+    assert.isTrue(variables().contains("--cardlib-surface:rgb(24,24,27)"));
+
+    // The element was never touched. That is the whole claim: dark mode is a
+    // block of values, not a second stylesheet.
+    assert.eq(tree.markup(), before);
+    assert.eq(tree.markup(), "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>");
+}
+
+test "switching back restores the values it had" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let dark = signal(ctx, false);
+    let _ = install([theme.switching(.Cell(dark), appThemed(night), appThemed(day))]);
+    let light = variables();
+
+    dark.set(ctx, true);
+    assert.isFalse(variables() == light);
+
+    dark.set(ctx, false);
+    assert.eq(variables(), light);
+}
+
+test "a constant condition still picks a side, and registers nothing to change" {
+    assert.eq(
+        install([theme.switching(.Const(true), appThemed(night), appThemed(day))]),
+        ":root{--app-bg:rgb(24,24,27);--app-fg:rgb(240,240,245)}\n",
+    );
+}
+
+// --- the inline tier -----------------------------------------------------------------
+
+test "a token the compiler could not fold is the same custom property inline" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // The style is built out of a parameter, so it degrades to the inline tier
+    // — and what is written out is the *same* `var()` the stylesheet would have
+    // held, so whether a token folded changes what it costs and not what it
+    // looks like.
+    assert.eq(
+        render(ctx, tinted(Card.Accent.color())).markup(),
+        "<div style=\"background-color: var(--cardlib-accent)\" />",
+    );
+}

@@ -1,0 +1,61 @@
+// EXPECT: this `match` does not cover `.Danger`
+//
+// **Exhaustiveness is the compatibility contract for design tokens.** A
+// library declares its token vocabulary as an ordinary closed enum; the app
+// that uses the library writes one function mapping that vocabulary onto its
+// own tokens or onto values, and hands it to the library's `themed` at mount.
+//
+// So when the library adds a token — `Danger` here, as its next release would
+// — every consumer stops compiling until its theme says what the new token is
+// worth. There is no registry, no schema language and no default: a token that
+// nobody mapped would be a variable the page never defines, and a silently
+// unpainted element is exactly what this refuses.
+//
+// The fix is the diagnostic's: add the arm.
+from "core/effect" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+// The library's vocabulary. `Danger` is the token this release added.
+enum Token {
+  Surface,
+  OnSurface,
+  Danger,
+}
+
+impl Token {
+  fn color(self: Token): Color {
+    match (self) {
+      .Surface => style.token("cardlib", "surface"),
+      .OnSurface => style.token("cardlib", "onSurface"),
+      .Danger => style.token("cardlib", "danger"),
+    }
+  }
+}
+
+// The library's half of the loop: only the library knows what its tokens are.
+fn themed(f: fn(Token) => Color): Theme {
+  theme.themed([
+    (Token.Surface.color(), f(.Surface)),
+    (Token.OnSurface.color(), f(.OnSurface)),
+    (Token.Danger.color(), f(.Danger)),
+  ])
+}
+
+// The app's half, written against the previous release and never updated.
+fn cardTheme(t: Token): Color {
+  match (t) {
+    .Surface => .Rgb(240, 240, 245),
+    .OnSurface => .Rgb(24, 24, 27),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([], []), [themed(cardTheme)])
+}

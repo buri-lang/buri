@@ -53,8 +53,9 @@
 //!     recorder are `backend/js/runtime.js` and nowhere else, because no
 //!     native platform grants `Ui` — there is nothing on this side to render
 //!     to, and no document either: `ui/tree.buri` is the tree vocabulary and
-//!     the keyed reconciler under it. `ui/reactivity.buri`, `ui/fetch.buri`
-//!     and `ui/tree.buri`.
+//!     the keyed reconciler under it, and `ui/theme.buri` is the block of
+//!     custom properties a document reads. `ui/reactivity.buri`,
+//!     `ui/fetch.buri`, `ui/tree.buri` and `ui/theme.buri`.
 //!
 //! `semantics/generics.buri` was a fourth until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
@@ -343,6 +344,15 @@ const PACKAGES: &[Case] = &[
              reconciler over it. There is nothing on this side to render to, \
              and a native backend that grew one would be rendering to \
              something else",
+    ),
+    excluded(
+        "ui/theme.buri",
+        "`ui/testing`'s `install` and `variables`, which are the custom \
+             properties a document reads. A theme is ordinary Buri — the \
+             enums, the mappings and the exhaustiveness that is the whole \
+             contract are all checked on every platform — but what a resolved \
+             theme *is* on the other side is a `:root` block, and there is no \
+             document here to put one in",
     ),
 ];
 

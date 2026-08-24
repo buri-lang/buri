@@ -1,0 +1,9 @@
+.lay-col{display:flex;flex-direction:column}
+.lay-row{display:flex;flex-direction:row}
+.px-r0_5{padding-inline:0.5rem}
+.bg-t_app_bg{background-color:var(--app-bg)}
+.bg-t_cardlib_surface{background-color:var(--cardlib-surface)}
+.hover_bg-t_cardlib_danger:hover{background-color:var(--cardlib-danger)}
+.fg-t_app_fg{color:var(--app-fg)}
+.fg-t_cardlib_onSurface{color:var(--cardlib-onSurface)}
+.r-6{border-radius:6px}

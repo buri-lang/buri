@@ -1,0 +1,8 @@
+error: this `match` does not cover `.Danger` [match-not-exhaustive]
+  --> cmd/ui_theme_unmapped_token/main.buri:52:3
+   |
+52 |   match (t) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Danger`, or a `_` arm for everything left
