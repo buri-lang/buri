@@ -79,7 +79,7 @@
 //!   substitution [`ir::Inst::Structural`] stands for.
 
 use crate::compiler::middle::ir::{
-    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Purity, Sig,
+    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Purity, Signature,
     StructuralOp, Target, Term, Type, TypeId, TypeInfo, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
@@ -125,7 +125,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     let mut funcs = Vec::with_capacity(program.funcs.len());
     for (i, f) in program.funcs.iter().enumerate() {
         let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
-        let mut sig = Sig { params: Vec::new(), rets: Vec::new() };
+        let mut sig = Signature { params: Vec::new(), rets: Vec::new() };
         if dispatch {
             sig.params.push(Type::I32);
         }
@@ -182,7 +182,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
 /// question with no content. A plan whose column is a different length from
 /// the signature is not trusted at all, because a *shifted* ownership column
 /// is a missing increment on the wrong parameter.
-fn facts(plan: Option<&rc::FuncPlan>, sig: &Sig, dispatch: bool) -> Facts {
+fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts {
     let conservative =
         Facts { params: vec![Ownership::Own; sig.params.len()], purity: Purity::Effectful, can_abort: true };
     let Some(plan) = plan else { return conservative };
@@ -437,7 +437,7 @@ impl FnLower<'_> {
 
     fn func(
         &mut self,
-        sig: &Sig,
+        sig: &Signature,
         params: &[LocalId],
         body: Option<&Expr>,
         dispatch: bool,

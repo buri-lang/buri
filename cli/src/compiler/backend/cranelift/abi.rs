@@ -282,7 +282,7 @@ impl<'a> Abi<'a> {
     /// The machine signature of an IR signature: every parameter's leaves, in
     /// order, then every result's — or, where the results are too wide for the
     /// return registers, an out-pointer after the parameters.
-    pub fn signature(&mut self, program: &ir::Program, sig: &ir::Sig) -> Signature {
+    pub fn signature(&mut self, program: &ir::Program, sig: &ir::Signature) -> Signature {
         let params = self.leaf_types(program, &sig.params);
         let rets = self.leaf_types(program, &sig.rets);
         signature_of(self.call_conv, &params, &rets)

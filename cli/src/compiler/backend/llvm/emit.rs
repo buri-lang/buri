@@ -260,7 +260,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// emitting the by-pointer path and the caller-owned buffer that goes with
     /// it, which is memory a value model that keeps values in registers does
     /// not otherwise need.
-    fn slots_of_sig(&mut self, sig: &ir::Sig) -> (Vec<Slot>, Vec<Slot>) {
+    fn slots_of_sig(&mut self, sig: &ir::Signature) -> (Vec<Slot>, Vec<Slot>) {
         let mut params = Vec::new();
         for t in &sig.params {
             params.extend(repr::ir_slots(&mut self.reprs, self.program, *t));

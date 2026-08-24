@@ -540,7 +540,7 @@ pub struct Block {
 /// The flattened signature. Aggregates are one entry each here and are
 /// flattened into scalar leaves by the backend, from the layout table — see
 /// the module header.
-pub struct Sig {
+pub struct Signature {
     pub params: Vec<Type>,
     /// Exactly one entry today, `()` included — a zero-sized result is
     /// dropped where the machine signature is built, with the zero-sized
@@ -585,7 +585,7 @@ pub enum Purity {
 /// there is no unwinding at all (SPEC 6.10) — and a constant stored per
 /// function is a constant somebody eventually sets to `false`.
 pub struct Facts {
-    /// One per [`Sig::params`] entry.
+    /// One per [`Signature::params`] entry.
     pub params: Vec<Ownership>,
     pub purity: Purity,
     /// Whether the function, or anything it calls, can reach `buri_abort`.
@@ -770,7 +770,7 @@ pub struct Func {
     pub symbol: String,
     /// `module:owner.name`, for a backtrace and for the printer.
     pub debug_name: String,
-    pub sig: Sig,
+    pub sig: Signature,
     pub facts: Facts,
     /// The codegen unit this function belongs to: an index into
     /// [`Program::units`] (ARCHITECTURE.md §5).
@@ -1431,7 +1431,7 @@ mod tests {
             funcs: vec![Func {
                 symbol: "m$add".into(),
                 debug_name: "m:add".into(),
-                sig: Sig { params: vec![Type::I64, Type::I64], rets: vec![Type::I64] },
+                sig: Signature { params: vec![Type::I64, Type::I64], rets: vec![Type::I64] },
                 facts: Facts {
                     params: vec![Ownership::Own, Ownership::Own],
                     purity: Purity::Effectful,
