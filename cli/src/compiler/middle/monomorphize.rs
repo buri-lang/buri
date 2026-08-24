@@ -205,6 +205,30 @@ pub struct Program {
     /// Empty for every program that never styles anything, which is every
     /// program that is not a user interface.
     pub stylesheet: String,
+    /// Whether any style in this program can reach the **inline tier** — one
+    /// property lowered to a `style=` declaration at run time, rather than to
+    /// a class the compiler put in the sheet.
+    ///
+    /// It travels on the program for the reason [`Program::stylesheet`] does,
+    /// and it exists because the machinery is 3.5 KB that dead-code
+    /// elimination cannot see: the runtime's collector names the lowering
+    /// unconditionally, so *every* user interface paid for the tier and a
+    /// program whose styles are all static paid for it twice over. The backend
+    /// binds the lowering through a hole in the runtime when this is true and
+    /// leaves the hole empty when it is false, which is the same mechanism
+    /// `$ui_sheet` already uses and is what makes the tier droppable.
+    ///
+    /// [`crate::compiler::semantics::styles::Reached::inline`] is what decides
+    /// it, and says why an over-approximation is the safe side.
+    pub inline_styles: bool,
+    /// Whether this program can build a `ui/theme` `Theme`.
+    ///
+    /// The same shape as [`Program::inline_styles`] and for the same reason:
+    /// `mount` installs themes unconditionally, so 1.7 KB of resolution,
+    /// rendering and switching shipped in every user interface — including one
+    /// with no design tokens at all, which can only ever hand `mount` an empty
+    /// list.
+    pub themes: bool,
 }
 
 /// What every declared type is made of, in a form a pass holding no `Tables`
@@ -336,15 +360,26 @@ pub fn run(
     }
 
     let shapes = shapes_of(&checked.tables);
-    // Which classes the program kept, so the sheet holds the rules it reaches
-    // and no others. Asked of the built functions rather than of the source,
-    // because a library's unused styles are exactly what must not ship.
-    let mut used = crate::hash::Set::default();
-    if let Some(style_con) = checked.style_con {
-        for f in &mut m.funcs {
-            if let FuncKind::Body(body) = &mut f.kind {
-                crate::compiler::semantics::styles::collect_classes(body, style_con, &mut used);
-            }
+    // What the program's styles are, and whether it has a theme at all. Asked
+    // of the built functions rather than of the source, because a library's
+    // unused styles are exactly what must not ship — and because the two flags
+    // are about what the *artifact* can reach, which is what dead-code
+    // elimination is about.
+    //
+    // One walk for both style questions; a second for themes, because the two
+    // are different type constructors and a compilation that loaded one may
+    // not have loaded the other. Both cost nothing for a program that is not a
+    // user interface: neither constructor exists, so neither walk starts.
+    let mut reached = crate::compiler::semantics::styles::Reached::default();
+    let mut themes = false;
+    for f in &mut m.funcs {
+        let FuncKind::Body(body) = &mut f.kind else { continue };
+        if let Some(style_con) = checked.style_con {
+            crate::compiler::semantics::styles::collect(body, style_con, &mut reached);
+        }
+        if let Some(theme_con) = checked.theme_con {
+            themes = themes
+                || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
         }
     }
     Program {
@@ -357,7 +392,12 @@ pub fn run(
         shapes,
         // Merged here rather than by each caller, so that `buri build` and
         // `buri test` cannot disagree about what a program's styles are.
-        stylesheet: crate::compiler::semantics::styles::stylesheet(&checked.styles, &used),
+        stylesheet: crate::compiler::semantics::styles::stylesheet(
+            &checked.styles,
+            &reached.classes,
+        ),
+        inline_styles: reached.inline,
+        themes,
     }
 }
 

@@ -2136,6 +2136,26 @@ const $TREE_FONTS = [
 // which is what "nothing is generated at run time" means.
 let $ui_sheet = "";
 
+// The inline tier's lowering, reached through a hole rather than by name.
+//
+// `$tree_declare` below is the run-time lowering of all forty-five properties
+// and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
+// needs it, and a call by name is a reference dead-code elimination cannot
+// argue with — so every user interface carried the whole tier, including one
+// whose styles are all static and are therefore all classes before the artifact
+// is written. The backend assigns this when `Program::inline_styles` says some
+// style in the program can reach the tier, and emits nothing when it cannot,
+// which is the same mechanism `$ui_sheet` above uses.
+let $tree_declare_hook = null;
+
+// The theme installer, through the same kind of hole and for the same reason:
+// `$ui_node_mount` installs themes before it renders, so the seven functions
+// under "Themes" below — 1.7 KB of resolution, rendering and switching — shipped
+// in every user interface, including one with no design tokens, which can only
+// ever pass an empty list. The backend assigns this when `Program::themes` says
+// the program can build one.
+let $ui_theme_hook = null;
+
 function $tree_length(length) {
   const tag = length[0];
   if (tag === 0) return length[1] + "px";
@@ -2235,8 +2255,13 @@ function $tree_style_collect(styles, scope, slots, inline) {
       // Reachable only from a program the compiler could not evaluate under a
       // condition, which it rejects — so this is the invariant, said out loud.
       $abort("a pseudo-class or a breakpoint exists only in the stylesheet");
+    } else if ($tree_declare_hook !== null) {
+      $tree_declare_hook(style, inline);
     } else {
-      $tree_declare(style, inline);
+      // The compiler said no style here could reach the inline tier, so it
+      // left the lowering out of the artifact. Reaching this is that decision
+      // being wrong, and saying so beats a `TypeError` about `null`.
+      $abort("a style reached the inline tier in a program that was said to have none");
     }
   }
 }
@@ -2804,8 +2829,10 @@ function $ui_node_mount(ctx, root, themes) {
   if (!body) return $err("there is nowhere to mount: this platform has no document");
   $ui_inject($ui_sheet);
   // Before anything is rendered, so that the first paint already has the values
-  // the classes ask for.
-  $ui_theme_install(themes);
+  // the classes ask for. Through the hook, so that a program with no themes
+  // carries none of the machinery: with nothing assigned there is nothing to
+  // install, because the only list `themes` can be is an empty one.
+  if ($ui_theme_hook !== null) $ui_theme_hook(themes);
   $tree_render(ctx, root, body, null);
   // The page stays live. The entry wrapper exits only on an `.Err`, and the
   // listeners this registered go on running.
@@ -2847,7 +2874,7 @@ function $ui_testing_stylesheet() {
 // so reading `variables` again after a signal write is exactly what a page
 // would show.
 function $ui_testing_install(themes) {
-  $ui_theme_install(themes);
+  if ($ui_theme_hook !== null) $ui_theme_hook(themes);
   return $ui_theme_text;
 }
 

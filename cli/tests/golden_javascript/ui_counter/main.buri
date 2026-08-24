@@ -14,6 +14,7 @@
 // listeners this registered are what happens next. Under `bun` there is no
 // document, so the runtime supplies one — see `$dom_body`.
 from "core/effect" import { Alloc, Stdout };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Event, Scope, Ui, Watch };

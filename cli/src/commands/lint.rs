@@ -18,7 +18,6 @@
               and walks forward through a string that bounds the offset"
 )]
 
-use crate::build::buildfile::Platform;
 use crate::build::session::{self, Session};
 use crate::build::workspace::{PkgId, RuleKind, TargetId};
 use crate::commands::arguments;
@@ -400,7 +399,9 @@ fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
 /// `missing-dep` and `unused-dep`. Use is what requires a dep, and an import is
 /// not the only way to use: a method resolving into a library counts too.
 fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics) {
-    let unit = Unit { target: Some(target), platform: Platform::Js, with_tests: true };
+    // A lint is not a build, so it does not refuse a program for an output it
+    // was not asked about. See `Unit::platform`.
+    let unit = Unit { target: Some(target), platform: None, with_tests: true };
     let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         diags.extend(analysis.diags.items);

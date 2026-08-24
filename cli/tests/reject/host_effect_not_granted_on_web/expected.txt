@@ -1,0 +1,8 @@
+error: `WEB` does not grant `net` [host-not-granted]
+  --> cmd/host_effect_not_granted_on_web/main.buri:18:15
+   |
+18 |     Net: host.net,
+   |               ^^^
+   |
+   = a platform is the set of effects its host exports; `Net.fetch` blocks until the response arrives, which freezes a page; WEB grants `Fetch` instead, which is the same request with a callback
+   = fix: drop `Net` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS

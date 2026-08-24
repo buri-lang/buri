@@ -22,7 +22,7 @@ use crate::compiler::middle::{ir, layout, lower};
 use crate::compiler::modules::Unit;
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Artifact {
     pub target: TargetId,
@@ -47,7 +47,10 @@ pub fn build_target(
         return Err(diags);
     }
 
-    if platform != Platform::Js {
+    // "Is there a linker and an object file at the end of this?" — not "is
+    // this the JavaScript platform". A WEB output is JavaScript, so it takes
+    // the branch below with `Js` rather than this one.
+    if platform.is_native() {
         // The native path is reachable exactly when there is something to
         // reach: a backend compiled in for this target and profile, a runtime
         // archive for this host, and a host that can link the platform asked
@@ -83,34 +86,73 @@ pub fn build_target(
             &key,
         )
     };
+    // A WEB output writes two more files beside its module, and both are in the
+    // cache under keys derived from this one — so a hit either reproduces the
+    // whole page or is not a hit. Reconstructing them from the module's bytes
+    // instead would mean parsing generated JavaScript back into a string, and
+    // a stale `.css` beside a fresh `.mjs` is exactly the failure a cache is
+    // supposed to be incapable of.
+    let sheet_key = key.companion("stylesheet");
     if !flags.force {
         if let Some(bytes) = cache.get(&key) {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::write(&path, &bytes).is_ok() {
-                explain_link(crate::build::cache::Status::Cached);
-                link_out_symlink(s, output);
-                return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
+            let stylesheet = if platform == Platform::Web {
+                cache.get(&sheet_key).and_then(|b| String::from_utf8(b).ok())
+            } else {
+                Some(String::new())
+            };
+            if let Some(stylesheet) = stylesheet {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if std::fs::write(&path, &bytes).is_ok()
+                    && write_companions(&path, output, &stylesheet, &mut diags)
+                {
+                    explain_link(crate::build::cache::Status::Cached);
+                    link_out_symlink(s, output);
+                    return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
+                }
             }
         }
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let source = compile_artifact(s, target, platform, flags, &mut diags)?;
-    cache.put(&key, source.as_bytes());
+    let compiled = compile_artifact(s, target, platform, flags, &mut diags)?;
+    cache.put(&key, compiled.module.as_bytes());
+    if platform == Platform::Web {
+        cache.put(&sheet_key, compiled.stylesheet.as_bytes());
+    }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Err(e) = std::fs::write(&path, &source) {
+    if let Err(e) = std::fs::write(&path, &compiled.module) {
         diags.push(
             Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
                 .with_fix("check the directory exists and is writable"),
         );
         return Err(diags);
     }
+    if !write_companions(&path, output, &compiled.stylesheet, &mut diags) {
+        return Err(diags);
+    }
     link_out_symlink(s, output);
-    Ok(Artifact { target, path, bytes: source.len(), cached: false })
+    Ok(Artifact { target, path, bytes: compiled.module.len(), cached: false })
+}
+
+/// One compiled JavaScript artifact: the module, and the stylesheet its static
+/// styles extracted to.
+///
+/// Two fields rather than one string because a WEB output writes both, and the
+/// sheet cannot be recovered from the module afterwards without parsing
+/// generated JavaScript back into a string literal. `stylesheet` is empty for
+/// every program that is not a user interface, which is nearly all of them.
+pub struct Compiled {
+    /// The `.mjs`. This is the byte string the cache stores, the one
+    /// `--check-reproducible` compares, and the whole of what a JS output
+    /// writes — the sheet is inside it either way, as the constant `mount`
+    /// installs.
+    pub module: String,
+    /// The same rules, as CSS, for the companion `.css` a WEB output writes.
+    pub stylesheet: String,
 }
 
 /// The `link` action itself: sources in, artifact bytes out, and nothing on
@@ -126,8 +168,9 @@ pub fn compile_artifact(
     platform: Platform,
     flags: &Flags,
     diags: &mut Diagnostics,
-) -> Result<String, Diagnostics> {
-    let unit = Unit { target: Some(target), platform, with_tests: false };
+) -> Result<Compiled, Diagnostics> {
+    // `Some`: a build is the per-output check. See `Unit::platform`.
+    let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
     let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
@@ -157,7 +200,13 @@ pub fn compile_artifact(
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
     let target = Target { platform, arch: None };
-    emit(&mut program, &analysis.checked.tables, target, flags, diags)
+    // Read before `emit`, which takes the program by `&mut`. It is the same
+    // text the backend is about to write into the module as `$ui_sheet`, so
+    // the `.css` a WEB output writes and the `<style>` `mount` installs are
+    // one string produced once.
+    let stylesheet = program.stylesheet.clone();
+    let module = emit(&mut program, &analysis.checked.tables, target, flags, diags)?;
+    Ok(Compiled { module, stylesheet })
 }
 
 /// The first byte at which two artifacts differ, or `None` when they are the
@@ -489,7 +538,10 @@ pub fn prepare(
     target: Target,
 ) -> Option<crate::compiler::middle::rc::Plan> {
     middle::run(program, &middle::Options::default());
-    if target.platform != Platform::Js {
+    // The native branch is chosen by what the artifact *is*, and a WEB artifact
+    // is JavaScript: closure conversion and reference counting are the same
+    // pessimisation for a page that they are for a script.
+    if target.platform.is_native() {
         return Some(middle::native(program));
     }
     None
@@ -655,7 +707,7 @@ fn runtime_archive_hash() -> &'static str {
 /// wave 3c flips: nothing here changes what a `--output=linux/x86_64` build
 /// does on a toolchain with no native backend compiled in.
 pub fn native_ready(target: Target, profile: Profile) -> bool {
-    target.platform != Platform::Js
+    target.platform.is_native()
         && backend::select(target, profile).is_ok()
         && runtime_native::AVAILABLE
         && link::can_link(target)
@@ -883,7 +935,8 @@ pub fn compile_objects(
     diags: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     let platform = output.platform();
-    let unit = Unit { target: Some(target), platform, with_tests: false };
+    // `Some`: a build is the per-output check. See `Unit::platform`.
+    let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
     let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
@@ -1392,11 +1445,110 @@ pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf 
         pkg.path.rsplit('/').next().unwrap_or(&pkg.path).to_string()
     };
     let base = output.artifact_name.clone().unwrap_or(dir_name);
-    let name = match output.platform() {
-        Platform::Js => format!("{base}.mjs"),
-        _ => base,
-    };
+    // The catch-all this used to end in would have given a WEB artifact no
+    // extension at all. Every JavaScript platform writes an `.mjs`, and a
+    // native one writes the bare name, so the match is over the two answers
+    // rather than over one platform and everything else.
+    let name = if output.platform().is_javascript() { format!("{base}.mjs") } else { base };
     s.root.join(".buri/out").join(output.dir()).join(&pkg.path).join(name)
+}
+
+// ---------------------------------------------------------------------------
+// The other two thirds of a page
+// ---------------------------------------------------------------------------
+
+/// What a WEB output writes beside its module: the stylesheet, and the entry
+/// shell that loads both.
+///
+/// **A page is three artifacts, and this is where the other two are decided.**
+/// Both are pure functions of the module's file name and of the stylesheet, so
+/// a cache hit reproduces them byte for byte without recompiling, and
+/// `--check-reproducible` comparing them adds no new source of drift.
+///
+/// The `.mjs` alone is still a complete program — `mount` installs the sheet
+/// itself when the document does not already carry one — so what the shell adds
+/// is the document, and a stylesheet the browser can fetch and cache on its own
+/// rather than one that arrives inside a script. That is why the `<link>`
+/// carries `id="buri-styles"`: the runtime's injection looks for exactly that
+/// id and finds it, so the rules are in the page once, before the first paint,
+/// and the module has nothing to do about them.
+///
+/// Returns an empty vector for every platform that is not WEB.
+pub fn web_companions(module: &Path, output: &Output, stylesheet: &str) -> Vec<(PathBuf, String)> {
+    if output.platform() != Platform::Web {
+        return Vec::new();
+    }
+    // `artifact_path` built this name, so it ends in `.mjs` and has a parent.
+    let base = module
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("main"));
+    let dir = module.parent().unwrap_or(Path::new("."));
+    let mut out = Vec::new();
+    // A program with no static styles writes no stylesheet and links none. An
+    // empty file would be a request a browser makes for nothing.
+    let styled = !stylesheet.is_empty();
+    if styled {
+        out.push((dir.join(format!("{base}.css")), stylesheet.to_string()));
+    }
+    let link = if styled {
+        format!("  <link id=\"buri-styles\" rel=\"stylesheet\" href=\"{}.css\">\n", escape(&base))
+    } else {
+        String::new()
+    };
+    // A module script is deferred by definition, so it runs after the body is
+    // parsed and `mount` has somewhere to mount. That is the whole reason the
+    // shell needs no load event and no inline code.
+    let html = format!(
+        "<!doctype html>\n\
+         <html lang=\"en\">\n\
+         <head>\n\
+         \x20 <meta charset=\"utf-8\">\n\
+         \x20 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+         \x20 <title>{title}</title>\n\
+         {link}</head>\n\
+         <body>\n\
+         \x20 <script type=\"module\" src=\"./{src}.mjs\"></script>\n\
+         </body>\n\
+         </html>\n",
+        title = escape(&base),
+        link = link,
+        src = escape(&base),
+    );
+    out.push((dir.join(format!("{base}.html")), html));
+    out
+}
+
+/// The five characters that mean something else in markup. The base name comes
+/// from a build file's `artifact_name`, which is a string a person writes, so
+/// it is escaped rather than trusted.
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// Writes them, answering whether every one landed. A failure is reported the
+/// same way a failure to write the module is, because from a reader's side it
+/// is the same mistake about the same directory.
+fn write_companions(
+    module: &Path,
+    output: &Output,
+    stylesheet: &str,
+    diags: &mut Diagnostics,
+) -> bool {
+    for (path, text) in web_companions(module, output, stylesheet) {
+        if let Err(e) = std::fs::write(&path, &text) {
+            diags.push(
+                Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
+                    .with_fix("check the directory exists and is writable"),
+            );
+            return false;
+        }
+    }
+    true
 }
 
 /// A convenience symlink pointing at the most recent output directory.
@@ -1724,5 +1876,69 @@ mod tests {
         drop(held);
         drop(taken);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// What a WEB output writes beside its module, and what a JS one does not.
+    ///
+    /// The `.html` is the whole of what "loadable in a browser as it stands"
+    /// means mechanically, so the three things that make it true are asserted
+    /// rather than left to a reader of the format string: a module script that
+    /// names the module beside it, a stylesheet link carrying the id the
+    /// runtime's own injection looks for, and a `<body>` for `mount` to find.
+    #[test]
+    fn a_web_output_writes_a_stylesheet_and_a_shell() {
+        let module = PathBuf::from("/out/web/cmd/counter/counter.mjs");
+        let web = Output::for_platform(Platform::Web, Span::NONE);
+        let files = web_companions(&module, &web, ".p-r1{padding:1rem}");
+        let names: Vec<String> =
+            files.iter().map(|(p, _)| p.display().to_string()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "/out/web/cmd/counter/counter.css".to_string(),
+                "/out/web/cmd/counter/counter.html".to_string(),
+            ]
+        );
+        assert_eq!(files[0].1, ".p-r1{padding:1rem}");
+        let html = &files[1].1;
+        assert!(html.contains("<script type=\"module\" src=\"./counter.mjs\">"), "{html}");
+        assert!(html.contains("<link id=\"buri-styles\" rel=\"stylesheet\" href=\"counter.css\">"), "{html}");
+        assert!(html.contains("<body>"), "{html}");
+
+        // No static styles: no file, and nothing linked. An empty stylesheet
+        // would be a request a browser makes for nothing.
+        let bare = web_companions(&module, &web, "");
+        assert_eq!(bare.len(), 1);
+        assert!(!bare[0].1.contains("stylesheet"), "{}", bare[0].1);
+
+        // A JS output is one file, as it has always been.
+        let js = Output::js(Span::NONE);
+        assert!(web_companions(&module, &js, ".p-r1{padding:1rem}").is_empty());
+    }
+
+    /// The artifact name reaches the shell's `<title>` and its `src`, and it is
+    /// a string a person writes in a build file, so it is escaped.
+    #[test]
+    fn the_shell_escapes_the_artifact_name() {
+        let module = PathBuf::from("/out/web/cmd/x/a<b&c.mjs");
+        let web = Output::for_platform(Platform::Web, Span::NONE);
+        let files = web_companions(&module, &web, "");
+        let html = &files[0].1;
+        assert!(html.contains("<title>a&lt;b&amp;c</title>"), "{html}");
+        assert!(!html.contains("<title>a<b"), "{html}");
+    }
+
+    /// Every JavaScript platform writes an `.mjs`. The catch-all this replaced
+    /// would have given a WEB artifact no extension at all.
+    #[test]
+    fn every_javascript_platform_is_emitted_by_the_js_backend() {
+        for platform in Platform::ALL {
+            let chosen = backend::select(Target { platform, arch: None }, Profile::Debug);
+            assert_eq!(
+                chosen.is_ok() && chosen.map(|b| b.name() == "js").unwrap_or(false),
+                platform.is_javascript(),
+                "`{}` and the js backend disagree about each other",
+                platform.proto()
+            );
+        }
     }
 }

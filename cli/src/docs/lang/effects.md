@@ -117,8 +117,9 @@ and stop. You never scan a signature.
 
 The platform. `core/host` exports one value per effect the platform grants —
 `host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`, `host.net`,
-`host.clock`, `host.rand`, `host.env`, `host.proc` — and it is importable only
-from the module that exports `main`. `main` assembles them into the one context
+`host.clock`, `host.rand`, `host.env`, `host.proc`, and on a platform with a
+document `host.ui`, `host.watch`, `host.fetch` — and it is importable only from
+the module that exports `main`. `main` assembles them into the one context
 the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"

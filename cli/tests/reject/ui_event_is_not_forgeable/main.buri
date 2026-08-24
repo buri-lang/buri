@@ -6,6 +6,7 @@
 // which keeps "this ran because somebody pressed it" true. The same shape as
 // `Scope`, and for the same reason.
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Event, Ui, Watch };
 from "ui/node" import * as ui;

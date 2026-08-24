@@ -23,6 +23,7 @@
 // until mount, which is the whole reason a theme is a parameter of `mount`
 // rather than a fact about a module.
 from "core/effect" import { Alloc, Stdout };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };

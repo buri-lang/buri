@@ -8,6 +8,13 @@ export struct Entry {
   export amount: Cents,
 }
 
+// `Eq` because a list of entries is rendered by `ui.each`, which bounds its
+// element type with it (SPEC rule 5: an unbounded type parameter could be a
+// context, and the closures a keyed list holds capture one of these). `Show`
+// because a suite that asserts on an entry has to be able to print the one it
+// got. Both are the derives; neither is a decision this type makes for itself.
+derive Eq, Show for Entry;
+
 export fn entry(memo: Str, amount: Cents): Entry {
   Entry { memo, amount }
 }

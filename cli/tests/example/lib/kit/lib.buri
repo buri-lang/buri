@@ -1,0 +1,10 @@
+// The public surface of //lib/kit, complete: three components, and the two
+// halves of a token vocabulary.
+//
+// `Token` is on the surface because an app has to match on it — the `match` an
+// app writes is the compatibility check — and `themed` is on it because an app
+// has to hand the result to `mount`. Everything else, including every `Style`
+// the components are built out of, stops at this line.
+
+from "//lib/kit/card" export { card, pill, meter };
+from "//lib/kit/tokens" export { Token, themed };

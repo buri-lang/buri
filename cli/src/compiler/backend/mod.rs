@@ -269,7 +269,9 @@ pub trait Linker {
 /// compiler was installed is the same class of bug as an unpinned toolchain.
 pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, String> {
     match (target.platform, profile) {
-        (Platform::Js, _) => Ok(Box::new(js::Js)),
+        // `Web` joins `Js` here because the question this match asks is
+        // "which backend emits this artifact", and a page is JavaScript.
+        (Platform::Js | Platform::Web, _) => Ok(Box::new(js::Js)),
         #[cfg(feature = "backend-cranelift")]
         (Platform::Linux | Platform::Macos, Profile::Debug) => {
             Ok(Box::new(cranelift::Cranelift))

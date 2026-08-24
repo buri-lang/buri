@@ -13,6 +13,7 @@ const $k11=[180,'lay-row'];
 const $k12=[$k11];
 const $k13=[5,$k12];
 $ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.bg-16a34a{background-color:rgb(22,163,74)}\n.bg-dc2626{background-color:rgb(220,38,38)}\n';
+$tree_declare_hook=$tree_declare;
 function __cmd_x_main$main(){
   const ctx_0=[[],[],[],[]];
   const lit_1=[$host_HostUi_signal(ctx_0[2],false)];

@@ -70,6 +70,42 @@ pub const REPO_BURI: &str =
 /// repositories are.
 pub const JS_BINARY: &str = "binary {\n  outputs: [{ platform: JS }]\n}\n";
 
+/// The same for a page. A program that binds `Ui` builds only here, because a
+/// platform is the set of effects its host exports and `JS` exports no `ui`.
+pub const WEB_BINARY: &str = "binary {\n  outputs: [{ platform: WEB }]\n}\n";
+
+/// The annotation a corpus program writes to ask for a platform other than
+/// `JS`: `// PLATFORM: WEB` on a line of its own.
+///
+/// It is in the program rather than in a second file because a program's
+/// platform is a fact about the program — one that binds `Ui: host.ui` builds
+/// for WEB and nothing else — so it reads beside the context that needs it.
+pub const PLATFORM_ANNOTATION: &str = "// PLATFORM:";
+
+/// The platform a corpus program asks for: the first word after the
+/// annotation, so the rest of the line can say why.
+fn asked_platform(source: &str) -> Option<String> {
+    let line = annotation(source, PLATFORM_ANNOTATION)?;
+    Some(line.split_whitespace().next().unwrap_or_default().to_string())
+}
+
+/// The build file a corpus program asks for.
+pub fn build_file_for(source: &str) -> &'static str {
+    match asked_platform(source).as_deref() {
+        Some("WEB") => WEB_BINARY,
+        Some("JS") | None => JS_BINARY,
+        Some(other) => panic!("`{PLATFORM_ANNOTATION} {other}` is not a platform a case can ask for"),
+    }
+}
+
+/// The `.buri/out` directory a corpus program's artifact lands in.
+pub fn output_dir_for(source: &str) -> &'static str {
+    match asked_platform(source).as_deref() {
+        Some("WEB") => "web",
+        _ => "js",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Running the CLI
 // ---------------------------------------------------------------------------
@@ -357,9 +393,13 @@ impl Scratch {
         self.write(rel, &after);
     }
 
-    /// A single-package JS binary at `<path>`: a `BUILD.buri` and a `main.buri`.
+    /// A single-package binary at `<path>`: a `BUILD.buri` and a `main.buri`.
+    ///
+    /// The platform is the program's — `JS` unless it carries a
+    /// `// PLATFORM: WEB` line — so a corpus case that binds a UI effect needs
+    /// no second file and no per-suite table to say so.
     pub fn binary_package(&self, path: &str, source: &str) {
-        self.write(&format!("{path}/BUILD.buri"), JS_BINARY);
+        self.write(&format!("{path}/BUILD.buri"), build_file_for(source));
         self.write(&format!("{path}/main.buri"), source);
     }
 
@@ -373,14 +413,27 @@ impl Scratch {
 
     /// The artifact `//<pkg_path>` builds to, under the JS runtime.
     pub fn artifact(&self, pkg_path: &str) -> PathBuf {
+        self.artifact_in("js", pkg_path)
+    }
+
+    /// The same, in a named output directory — `web` for a page, whose module
+    /// is the same `.mjs` under a different platform's roof.
+    pub fn artifact_in(&self, dir: &str, pkg_path: &str) -> PathBuf {
         let leaf = pkg_path.rsplit('/').next().unwrap();
-        self.path(&format!(".buri/out/js/{pkg_path}/{leaf}.mjs"))
+        self.path(&format!(".buri/out/{dir}/{pkg_path}/{leaf}.mjs"))
     }
 
     /// Runs that artifact. Not through `buri run`, because several suites need
     /// the artifact's own exit code and streams rather than the CLI's.
     pub fn exec_js(&self, pkg_path: &str) -> Run {
-        let artifact = self.artifact(pkg_path);
+        self.exec_js_in("js", pkg_path)
+    }
+
+    /// The same, from a named output directory. A page runs headlessly here:
+    /// the runtime supplies a document where the host has none, so `mount`
+    /// mounts and whatever `main` printed is printed.
+    pub fn exec_js_in(&self, dir: &str, pkg_path: &str) -> Run {
+        let artifact = self.artifact_in(dir, pkg_path);
         let out = Command::new(js_runtime())
             .arg(&artifact)
             .output()

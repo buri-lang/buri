@@ -1,0 +1,14 @@
+error: a WEB output has no architecture
+ --> cmd/counter/BUILD.buri:3:32
+  |
+3 |         { platform: WEB  arch: ARM64  js { module: CJS } },
+  |                                ^^^^^
+  |
+  = fix: remove `arch`; a page is not built per machine
+error: a WEB output has no `js` block
+ --> cmd/counter/BUILD.buri:3:42
+  |
+3 |         { platform: WEB  arch: ARM64  js { module: CJS } },
+  |                                          ^^^^^^^^^^^^^^^
+  |
+  = fix: remove it; a page is always an ES module, which is what a browser's `<script type="module">` loads

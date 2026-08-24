@@ -40,6 +40,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("effect-outside-platform", "Only a platform module declares an effect"),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
     e!("expression-statement", "An expression statement is legal only in a test"),
+    e!("host-not-granted", "A platform grants the effects its host exports"),
     e!("if-without-else", "`if` is an expression, so it needs an `else`"),
     e!("impl-fn-without-self", "Everything in an `impl` takes `self`"),
     e!("impl-method-export", "An `impl` method is not separately exported"),

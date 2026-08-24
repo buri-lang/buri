@@ -22,6 +22,7 @@ const $k20=[180,'lay-col'];
 const $k21=[$k20];
 const $k22=[5,$k21];
 $ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.px-r0_5{padding-inline:0.5rem}\n.bg-t_app_bg{background-color:var(--app-bg)}\n.bg-t_cardlib_surface{background-color:var(--cardlib-surface)}\n.hover_bg-t_cardlib_danger:hover{background-color:var(--cardlib-danger)}\n.fg-t_app_fg{color:var(--app-fg)}\n.fg-t_cardlib_onSurface{color:var(--cardlib-onSurface)}\n.r-6{border-radius:6px}\n';
+$ui_theme_hook=$ui_theme_install;
 function __cmd_x_main$main(){
   const ctx_0=[[],[],[],[]];
   const dark_1=[$host_HostUi_signal(ctx_0[2],false)];

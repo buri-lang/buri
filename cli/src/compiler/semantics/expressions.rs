@@ -1286,6 +1286,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
         }
 
+        // `host.ui` where this output's platform grants no `Ui`. Asked here,
+        // between "is it a namespace member" and "is it a field", because by
+        // here the name is known not to be a member and the base is still a
+        // namespace rather than a value — which is the one moment both halves
+        // of the answer are in hand.
+        if self.host_grant_refused(base, name, name_span) {
+            return self.error_expr(span);
+        }
+
         let b = self.check_expr(base, None);
         let bty = self.resolve(&b.ty);
         match &bty {
@@ -1321,6 +1330,27 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.error_expr(span)
             }
         }
+    }
+
+    /// Whether `base.name` names a `core/host` export this output's platform
+    /// withholds, reporting it when it does.
+    ///
+    /// Without this the refusal reads "there is nothing named `host` in
+    /// scope", pointing at the namespace rather than at the effect and telling
+    /// a reader to check a spelling that is correct.
+    fn host_grant_refused(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
+        let V::Ident { name: head, .. } = self.tree().expr(base) else { return false };
+        let head = head.to_string();
+        if self.lookup_local(&head).is_some() {
+            return false;
+        }
+        let Some(ns) = self.c.scope(self.module).namespaces.get(&head).copied() else {
+            return false;
+        };
+        if self.c.loaded.module(ns).path != crate::compiler::standard_library::HOST_MODULE {
+            return false;
+        }
+        self.c.report_host_not_granted(name_span, name)
     }
 
     /// The derivable trait that declares `name`, when `con` does not implement
@@ -1535,6 +1565,17 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => None,
         };
         let Some(con) = self.struct_lit_head(head) else {
+            // `host.HostNet {}` where this output's platform grants no `Net`.
+            // The implementation struct is withheld with the value it
+            // implements, and this is the one other place a program can name
+            // one — so it gets the refusal that names the platform rather than
+            // one that says the type is not a type.
+            if let V::Field { base, name, .. } = self.tree().expr(head) {
+                let name = name.to_string();
+                if self.host_grant_refused(base, &name, head_span) {
+                    return self.error_expr(span);
+                }
+            }
             self.err(head_span, "this is not a struct or an enum variant")
                 .fix("name a struct, or an enum variant that has fields");
             return self.error_expr(span);

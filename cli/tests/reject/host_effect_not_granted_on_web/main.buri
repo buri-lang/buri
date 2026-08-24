@@ -1,0 +1,24 @@
+// EXPECT: `WEB` does not grant `net`
+//
+// The other direction, and the one that makes the rule a rule rather than a
+// list of things the browser happens to have: `Net.fetch` blocks until the
+// response arrives, which freezes a page, so a page's host does not export it
+// and the blocking path is unreachable from a browser by construction rather
+// than by convention. `Fetch` is the shape WEB grants instead.
+//
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/effect" import { Alloc, Net, Stdout };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Net: host.net,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let _ = ctx.println("a page does not open sockets");
+  .Ok(())
+}

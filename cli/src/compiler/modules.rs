@@ -73,7 +73,22 @@ pub struct ModuleData {
 #[derive(Clone, Debug)]
 pub struct Unit {
     pub target: Option<TargetId>,
-    pub platform: Platform,
+    /// The output this unit is being built for, when there is one.
+    ///
+    /// `Some(p)` subsets `core/host` to the effects `p` grants, which is what
+    /// makes a platform *be* the set of effects its host exports rather than a
+    /// claim a comment makes: binding `Ui: host.ui` under `platform: LINUX` is
+    /// then an unresolved name at the line that asked for it, and so is
+    /// `Net: host.net` under `platform: WEB`.
+    ///
+    /// `None` is an analysis that is not building an artifact — `buri lint`,
+    /// the language server, the documentation harness, `buri test` — and it
+    /// grants the whole host. Those commands ask the same questions of the
+    /// same modules for every output a target declares at once, so refusing a
+    /// program on behalf of one of them would report a build error in a place
+    /// that is not building. **The check belongs to the build, per output**,
+    /// which is where `design/ui-reactivity.md` §Targets puts it.
+    pub platform: Option<Platform>,
     /// Compile the target's `test.sources` too, and run them.
     pub with_tests: bool,
 }
@@ -83,6 +98,10 @@ pub struct Loaded {
     pub by_path: HashMap<String, ModuleId>,
     /// Modules that are test sources, in declaration order.
     pub test_sources: Vec<ModuleId>,
+    /// The output this compilation is for, carried over from [`Unit::platform`]
+    /// so that the checker can subset `core/host` to what that platform
+    /// grants. `None` for every analysis that is not building one.
+    pub platform: Option<Platform>,
 }
 
 impl Loaded {
@@ -107,6 +126,8 @@ pub struct Loader<'a> {
     by_path: HashMap<String, ModuleId>,
     /// Modules currently being loaded, for the circular-import diagnostic.
     stack: Vec<String>,
+    /// See [`Loaded::platform`].
+    platform: Option<Platform>,
     test_sources: Vec<ModuleId>,
     /// The schema each `.proto` module was generated from, kept because a
     /// schema importing another needs that one's declarations to resolve its
@@ -131,6 +152,7 @@ impl<'a> Loader<'a> {
             stack: Vec::new(),
             test_sources: Vec::new(),
             schemas: HashMap::default(),
+            platform: None,
         }
     }
 
@@ -139,12 +161,19 @@ impl<'a> Loader<'a> {
             modules: self.modules,
             by_path: self.by_path,
             test_sources: self.test_sources,
+            platform: self.platform,
         }
     }
 
     /// Loads every module of a unit: the target's entry point, its declared
     /// sources, and everything they import.
     pub fn load_unit(&mut self, unit: &Unit) {
+        // The first unit's, and every unit batched into one compilation shares
+        // it: `analyze_all` batches test suites, which build no output and
+        // carry `None` for exactly that reason.
+        if self.platform.is_none() {
+            self.platform = unit.platform;
+        }
         // The modules that define the built-in types, and no others. A method
         // needs no import (SPEC 6.7.3), so `[T]`'s and `Str`'s defining modules
         // have to be present for `xs.map(...)` and `s.trim()` to resolve in a

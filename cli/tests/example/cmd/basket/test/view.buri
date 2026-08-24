@@ -1,0 +1,364 @@
+// The page itself, rendered.
+//
+// `ui/testing` renders with the renderer `mount` uses, into a document the
+// runtime supplies rather than a browser's — so what these tests exercise is
+// the shipping reconciler and not a substitute for it. What a browser keeps for
+// itself is layout, painting, focus, and its own dispatch of a press; nothing
+// below asserts a pixel, and `submit` and `press` stand in for the two events
+// the browser would have delivered.
+//
+// The response body is recorded rather than fetched. A suite that needed
+// //cmd/server running would be a suite that fails for reasons that have
+// nothing to do with the page, and `Fetch` is an effect, so the way to supply
+// one is to write one.
+
+from "//cmd/basket/main" import {
+  appThemed, day, kitTheme, newState, night, page, settledFraction,
+};
+from "//lib/kit" import { themed };
+from "//lib/ledger" import { Entry, entry };
+from "//lib/money" import { fromCents };
+from "core/effect" import { Alloc, NetResponse };
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { alloc };
+from "ui/effect" import { Fetch, FetchError, Request, Ui, Watch };
+from "ui/prop" import { memo };
+from "ui/signal" import { signal, watch };
+from "ui/testing" import {
+  headless, install, noFetch, observer, recorder, render, variables,
+};
+from "ui/theme" import * as theme;
+
+/// What //cmd/server's `/entries` route answers, recorded — the same three
+/// lines test/model.buri parses directly.
+const RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
+
+/// A platform that answers every request with the recording.
+///
+/// An effect is an interface, and a test supplies its own implementation the
+/// same way the runner supplies `MemFs`: there is no distinction between the
+/// runner's implementations and yours. `done` is called before `fetch` returns
+/// here, which a real one would not do — and the page does not care, because
+/// the only thing it promises is that the callback arrives with a context.
+struct Recorded {}
+
+impl Fetch for Recorded {
+  fn fetch(
+    self: Recorded,
+    request: Request,
+    done: fn(Recorded, Result<NetResponse, FetchError>) => (),
+  ): () {
+    done(self, .Ok(NetResponse { status: 200, body: RECORDED }))
+  }
+}
+
+/// A platform whose server is there but unhappy.
+struct Broken {}
+
+impl Fetch for Broken {
+  fn fetch(
+    self: Broken,
+    request: Request,
+    done: fn(Broken, Result<NetResponse, FetchError>) => (),
+  ): () {
+    done(self, .Ok(NetResponse { status: 503, body: "" }))
+  }
+}
+
+// --- the basket ----------------------------------------------------------------------
+
+test "an empty basket says so, and puts no list on the page" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  assert.isTrue(seen.text().contains("Nothing in the basket"));
+  // `choose` builds one subtree or the other. The list is not hidden; it is
+  // not there.
+  assert.eq(seen.count("li"), 0);
+}
+
+test "typing a line and submitting the form adds it" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+
+  // Addressed by label, which is what a reader addresses them by — and the
+  // reason `ui.field` has no unlabelled form.
+  let _ = seen.fill("Item", "coffee");
+  let _ = seen.fill("Amount in dollars", "4.50");
+  // Pressing Enter in a field is what a browser turns into this.
+  let _ = seen.submit(0);
+
+  assert.eq(seen.count("li"), 1);
+  assert.isTrue(seen.text().contains("coffee"));
+  assert.isTrue(seen.text().contains("\$4.50"));
+  // The fields are cleared, so the next line starts from nothing.
+  assert.isFalse(seen.text().contains("Nothing in the basket"));
+}
+
+test "the Add button does what submitting the form does" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  let _ = seen.fill("Item", "books");
+  let _ = seen.fill("Amount in dollars", "32.00");
+  let _ = seen.press("Add");
+  assert.eq(seen.count("li"), 1);
+  assert.isTrue(seen.text().contains("books"));
+}
+
+test "an amount nobody can read is quoted back, and nothing is added" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  let _ = seen.fill("Item", "coffee");
+  let _ = seen.fill("Amount in dollars", "free");
+  let _ = seen.press("Add");
+
+  assert.eq(seen.count("li"), 0);
+  assert.isTrue(seen.text().contains("\"free\" is not an amount"));
+  // An alert interrupts; a status waits. A wrong amount is worth interrupting.
+  assert.isTrue(seen.markup().contains("role=\"alert\""));
+}
+
+test "there is no live region at all while there is nothing to say" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  assert.isFalse(seen.markup().contains("role=\"alert\""));
+}
+
+// --- the keyed list ------------------------------------------------------------------
+
+test "settling a line moves the row rather than rebuilding it" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let state = newState(ctx);
+  let seen = render(ctx, page(ctx, state));
+  let _ = seen.press("Load the ledger");
+  assert.eq(seen.count("li"), 3);
+
+  // The identity the runtime gave each row when it created it. A rebuild
+  // changes it; a move does not, and a move is what keeps focus and scroll
+  // position where they were.
+  let first = seen.identity("li", 0);
+  let second = seen.identity("li", 1);
+
+  let _ = seen.press("settle coffee");
+
+  assert.eq(seen.identity("li", 0), first);
+  assert.eq(seen.identity("li", 1), second);
+  assert.eq(seen.count("li"), 3);
+}
+
+test "what changes about a settled row is its class and nothing else" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let state = newState(ctx);
+  let seen = render(ctx, page(ctx, state));
+  let _ = seen.press("Load the ledger");
+  let before = seen.markup();
+
+  let _ = seen.press("settle coffee");
+  let after = seen.markup();
+
+  // Both branches of the style's `When` were extracted at compile time; what
+  // happened here is that the runtime chose the other precomputed class.
+  assert.notEq(before, after);
+  assert.isTrue(seen.text().contains("coffee"));
+  assert.isTrue(seen.text().contains("1 settled"));
+
+  // And pressing it again puts it back exactly.
+  let _ = seen.press("settle coffee");
+  assert.eq(seen.markup(), before);
+}
+
+test "the running total is the sum of the lines, announced politely" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  assert.isTrue(seen.text().contains("\$0.00"));
+
+  let _ = seen.press("Load the ledger");
+  assert.isTrue(seen.text().contains("\$39.25"));
+  // A status is the polite live region: without one, a total that changed
+  // while nobody was looking at it would be silent.
+  assert.isTrue(seen.markup().contains("role=\"status\""));
+}
+
+test "the meter's width is inline, and follows what is settled" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  let _ = seen.press("Load the ledger");
+  assert.isTrue(seen.markup().contains("width: 0%"));
+
+  let _ = seen.press("settle coffee");
+  let _ = seen.press("settle books");
+  let _ = seen.press("settle tram");
+  assert.isTrue(seen.markup().contains("width: 100%"));
+}
+
+// --- the request ---------------------------------------------------------------------
+
+test "a refused request says why, and leaves the basket alone" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: noFetch(),
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  let _ = seen.press("Load the ledger");
+  assert.isTrue(seen.text().contains("the server refused the connection"));
+  assert.eq(seen.count("li"), 0);
+}
+
+test "a response that is not a 200 is reported as the number it was" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Broken {},
+  };
+  let seen = render(ctx, page(ctx, newState(ctx)));
+  let _ = seen.press("Load the ledger");
+  assert.isTrue(seen.text().contains("the server answered 503"));
+  assert.eq(seen.count("li"), 0);
+}
+
+// --- the theme -----------------------------------------------------------------------
+
+test "dark mode rewrites the values and changes no class" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let state = newState(ctx);
+  // Exactly what main.buri hands to `mount`: one theme per package whose
+  // tokens this program uses, with //lib/kit's resolved through this app's.
+  let installed = install([
+    themed(kitTheme),
+    theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
+  ]);
+  assert.isTrue(installed.contains("--kit-surface"));
+  assert.isTrue(installed.contains("--basket-bg"));
+
+  let seen = render(ctx, page(ctx, state));
+  let light = seen.markup();
+
+  let _ = seen.flip("Dark mode");
+
+  // The custom properties are different, and every class on every element is
+  // the same. That is the claim dark mode makes here, and it is why it is one
+  // block of values rather than a second stylesheet.
+  assert.notEq(variables(), installed);
+  // The one thing in the document that did change is the box the reader
+  // ticked. Take that back out and the page is character for character what it
+  // was: no class was recomputed, no rule was written, and no element moved.
+  assert.eq(seen.markup().replace(ctx, " checked", ""), light);
+}
+
+test "a library's token follows the app's theme without knowing it exists" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  let state = newState(ctx);
+  let installed = install([
+    themed(kitTheme),
+    theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
+  ]);
+  // `kitTheme` answers this app's tokens rather than colours, so the chain is
+  // //lib/kit's `Surface` to this app's `Raised` to a value — followed once,
+  // here, at install.
+  assert.isTrue(installed.contains("--kit-surface"));
+  assert.isFalse(installed.contains("--kit-surface: var("));
+}
+
+// --- reactivity ----------------------------------------------------------------------
+
+test "a memo recomputes once per change, however many things read it" {
+  let ctx = context {
+    Alloc: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Fetch: Recorded {},
+  };
+  // A reactive closure is handed a `Scope`, which grants reading the graph and
+  // nothing else — so it cannot write a signal to say that it ran. A recorder
+  // is how a test sees when something ran, for the same reason captured stdout
+  // is how it sees what something printed.
+  let log = recorder();
+  let ticked = signal(ctx, ["coffee"]);
+  let lines = signal(ctx, [entryless()]);
+
+  let share = memo(ctx, fn(scope) => {
+    let _ = log.record("computed");
+    settledFraction(lines.get(scope), ticked.get(scope))
+  });
+
+  // Lazy: a memo nothing has read has not run.
+  assert.isTrue(log.recorded().isEmpty());
+
+  let _ = watch(ctx, fn(scope) => log.note(reading(share.read(scope))));
+  let _ = watch(ctx, fn(scope) => log.note(reading(share.read(scope))));
+  assert.eq(log.recorded(), ["computed"]);
+
+  // One write, one recomputation, two watchers told.
+  let _ = ticked.set(ctx, []);
+  assert.eq(log.recorded(), ["computed", "computed"]);
+  assert.eq(log.noted().len(), 4);
+}
+
+/// One line, built without an allocator so the test above needs no context to
+/// make its list.
+fn entryless(): Entry {
+  entry("coffee", fromCents(450))
+}
+
+/// A fraction as something a recorder can note. `note` takes an `Int` because
+/// a computation holds a `Scope` and cannot allocate a string to record.
+fn reading(share: Float): Int {
+  if (share > 0.0) { 1 } else { 0 }
+}

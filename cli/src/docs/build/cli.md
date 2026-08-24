@@ -47,6 +47,25 @@ convenience symlink `out/` points at the most recent:
 .buri/out/js/cmd/web/web.mjs
 ```
 
+A `WEB` output writes three files rather than one, because a page is three
+things:
+
+```
+.buri/out/web/cmd/counter/counter.mjs    the program
+.buri/out/web/cmd/counter/counter.css    the stylesheet its static styles extracted to
+.buri/out/web/cmd/counter/counter.html   the entry shell that loads both
+```
+
+Open the `.html` and the page runs — the module script is deferred, so the body
+exists by the time `mount` looks for it, and the `<link>` carries
+`id="buri-styles"`, which is the id the runtime's own injection looks for, so the
+rules are in the page before the first paint and the module has nothing to do
+about them. The `.mjs` alone is still a complete program: loaded without the
+shell it installs the sheet itself. `main` returning `.Ok(())` does not exit —
+the entry wrapper exits only on an `.Err` — so a mounted page stays live and its
+listeners go on running. A program with no static styles writes no `.css` and
+links none.
+
 Tags are not in the path, because they are not in the cache key: a tag decides
 whether a build is permitted, never what it produces.
 
@@ -55,8 +74,10 @@ configuration, are part of the cache key, and default to `--debug`.
 
 `--check-reproducible` builds every requested binary twice, from two freshly
 opened sessions, with the cache turned off, into two separate directories, and
-compares the artifacts byte for byte. Silent and exit `0` when they agree; exit
-`1` naming the artifact and the first differing byte when they do not. It writes
+compares the artifacts byte for byte — every file an output writes, so a `WEB`
+binary's stylesheet and entry shell are compared alongside its module. Silent and
+exit `0` when they agree; exit `1` naming the file and the first differing byte
+when they do not. It writes
 no artifact of its own — a check must not double as a build
 ([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md#reproducibility)).
 
@@ -178,6 +199,7 @@ Build-graph rules — always errors, not configurable:
 | `no-such-module` | A path that names no module. There are two kinds and no others: `core/...` and `//...`. |
 | `module-outside-repository` | A `//...` path used where there is no repository to be relative to. |
 | `host-import` | An import of `core/host` from a module other than the one exporting `main`. The context `main` builds is the program's whole effect budget; a second module able to import `core/host` would be a second place authority enters. |
+| `host-not-granted` | A `main` binding an effect the output's platform does not grant — `Ui: host.ui` under `platform: JS`, `Net: host.net` under `platform: WEB`. A platform *is* the set of effects its host exports, so the name is simply not there, and the fix names the platforms that do grant it. |
 | `internal-import` | An import of a module internal to another library — another package's, or the one sharing a package with the importing binary. The boundary is the *rule's*, not the directory's. |
 | `binary-entry-import` | An import of a binary's entry point from outside that binary's own test sources. |
 | `test-only-import` | A non-test source importing a path with a `testing` segment. |

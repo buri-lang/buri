@@ -1,0 +1,115 @@
+// The suite for //lib/kit. It imports the library by label, exactly as
+// //cmd/basket does, so it can only assert on what a consumer can call.
+//
+// `ui/testing` renders with the same renderer `mount` uses, against a document
+// the runtime supplies instead of a browser's. What that cannot see is what
+// only a browser does — layout, painting, and the browser's own dispatch of a
+// press — so nothing here asserts a pixel. What it can see is the whole of what
+// this library decides: which element each role became, which class reached
+// which element, and what the stylesheet says that class means.
+
+from "//lib/kit" import { card, meter, pill, themed, Token };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/style" import { Color };
+from "ui/testing" import { headless, install, observer, render, stylesheet };
+
+/// The mapping an app writes. Its `match` is the compatibility check, and the
+/// day //lib/kit adds a token this function stops compiling — which is the
+/// whole of the contract, asserted here by the fact that this file builds.
+fn plain(t: Token): Color {
+  match (t) {
+    .Surface => .Rgb(255, 255, 255),
+    .OnSurface => .Rgb(24, 24, 27),
+    .Edge => .Rgb(228, 228, 231),
+    .Accent => .Rgb(37, 99, 235),
+  }
+}
+
+test "a card is a labelled group, not a landmark" {
+  let ctx = context {
+    Ui: headless(),
+    Watch: observer(),
+  };
+  let tree = card(.Const("Coffee"), [ui.text(.Const("4.50"))]);
+  let seen = render(ctx, tree);
+  // `Group` lowers to a `div` carrying the role, because HTML has no element
+  // that means "a labelled cluster of related controls".
+  assert.eq(seen.count("div"), 3);
+  assert.eq(seen.text(), "Coffee 4.50");
+}
+
+test "the card's surface is a class, and the class is in the stylesheet" {
+  let ctx = context {
+    Ui: headless(),
+    Watch: observer(),
+  };
+  let markup = render(ctx, card(.Const("Coffee"), [])).markup();
+  // Nothing about the card's appearance is in the element: what is there is a
+  // class name, and the rules behind it were written at compile time.
+  assert.isTrue(markup.contains("class="));
+  assert.isFalse(markup.contains("style="));
+
+  let sheet = stylesheet();
+  // A token is a custom property, namespaced by the package that owns it, so
+  // //lib/kit's `surface` and an app's could never collide.
+  assert.isTrue(sheet.contains("var(--kit-surface)"));
+  // Hover is a pseudo-class in the sheet. There is no listener anywhere.
+  assert.isTrue(sheet.contains(":hover"));
+}
+
+test "a class does not depend on what its token is worth" {
+  let ctx = context {
+    Ui: headless(),
+    Watch: observer(),
+  };
+  let before = render(ctx, card(.Const("Coffee"), [])).markup();
+  // Installing a theme writes one block of custom properties. It is the only
+  // thing that changes: the element's classes are what the compiler decided.
+  let variables = install([themed(plain)]);
+  assert.isTrue(variables.contains("--kit-surface"));
+  let after = render(ctx, card(.Const("Coffee"), [])).markup();
+  assert.eq(before, after);
+}
+
+test "a pill says what it says and claims to be nothing" {
+  let ctx = context {
+    Ui: headless(),
+    Watch: observer(),
+  };
+  let seen = render(ctx, pill(.Const("3 left")));
+  assert.eq(seen.text(), "3 left");
+  // No role attribute at all: a pill is appearance.
+  assert.isFalse(seen.markup().contains("role="));
+}
+
+test "a meter's width is inline, and the sheet knows nothing about it" {
+  let ctx = context {
+    Ui: headless(),
+    Watch: observer(),
+  };
+  let filled = signal(ctx, 0.25);
+  let seen = render(ctx, meter(.Cell(filled)));
+  // The computed tier is applied to the element and re-serialised on change.
+  assert.isTrue(seen.markup().contains("width: 25%"));
+
+  let _ = filled.set(ctx, 0.75);
+  assert.isTrue(seen.markup().contains("width: 75%"));
+
+  // And it is deliberately absent from the stylesheet: there is no class for
+  // "however wide it is right now".
+  assert.isFalse(stylesheet().contains("width: 25%"));
+}
+
+test "a fraction outside the range is clamped rather than refused" {
+  let ctx = context {
+    Ui: headless(),
+    Watch: observer(),
+  };
+  let over = render(ctx, meter(.Const(1.5)));
+  assert.isTrue(over.markup().contains("width: 100%"));
+  let under = render(ctx, meter(.Const(-0.5)));
+  assert.isTrue(under.markup().contains("width: 0%"));
+}

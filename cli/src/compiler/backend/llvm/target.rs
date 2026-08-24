@@ -36,7 +36,7 @@ pub fn triple(target: Target) -> Result<String, String> {
         // toolchain refuse to link on a newer SDK.
         Platform::Macos => Ok(format!("{arch}-apple-darwin")),
         Platform::Linux => Ok(format!("{arch}-unknown-linux-gnu")),
-        Platform::Js => Err(String::from(
+        Platform::Js | Platform::Web => Err(String::from(
             "the LLVM backend does not emit JavaScript; that is the `js` backend",
         )),
     }

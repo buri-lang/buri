@@ -6,6 +6,7 @@
 // they are indexing, so `each` carries the bound and a caller who has not
 // carried it is told where it stopped.
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;

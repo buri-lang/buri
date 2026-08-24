@@ -81,6 +81,11 @@ pub struct Checked {
     /// `ui/style`'s `Style`, when this compilation loaded it. The link step
     /// needs it to tell which of the rules above a program actually reaches.
     pub style_con: Option<TyConId>,
+    /// `ui/theme`'s `Theme`, when this compilation loaded it. Beside
+    /// `style_con` and for the same kind of reason: the link step needs it to
+    /// tell whether a program can build one at all, which is what lets the
+    /// backend leave the theme half of the runtime out of one that cannot.
+    pub theme_con: Option<TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `unreachable-export` needs
     /// it to ask the opposite question — what is exported and reaches nobody.
@@ -179,6 +184,7 @@ impl<'a> Checker<'a> {
     pub fn run(mut self) -> Checked {
         self.register_primitives();
         self.collect_declarations();
+        self.withhold_ungranted_host_effects();
         self.resolve_scopes();
         self.register_known_names();
         self.elaborate_signatures();
@@ -207,6 +213,21 @@ impl<'a> Checker<'a> {
             &mut self.const_values,
             self.diags,
         );
+        // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
+        // up `Style`: by module path in the loaded set, then by name in that
+        // module's own scope. `None` for every compilation that did not load
+        // the module, which is every program that is not a user interface.
+        let theme_con = self
+            .loaded
+            .modules
+            .iter()
+            .position(|m| m.path == "ui/theme")
+            .and_then(|i| self.scopes.get(i))
+            .and_then(|s| s.own.get("Theme"))
+            .and_then(|s| match s {
+                Sym::Ty(id) => Some(*id),
+                _ => None,
+            });
         Checked {
             tables: self.tables,
             scopes: self.scopes,
@@ -216,6 +237,7 @@ impl<'a> Checker<'a> {
             tests: self.tests,
             styles,
             style_con,
+            theme_con,
             surfaces: self.surfaces,
         }
     }
@@ -496,6 +518,67 @@ impl<'a> Checker<'a> {
     // Phase 2: scopes
     // -----------------------------------------------------------------------
 
+    /// Removes from `core/host`'s exports every name the output's platform
+    /// does not grant.
+    ///
+    /// **This is the whole of per-output host subsetting**, and it is one
+    /// removal rather than a check bolted onto every use, because the property
+    /// wanted is the one `design/ui-reactivity.md` §Targets states: *a platform
+    /// is the set of effects its host exports; there is no second declaration.*
+    /// A name that is not exported cannot be imported, cannot be reached
+    /// through the namespace, and cannot be re-exported — so a program that
+    /// never names `host.net` cannot open a socket, for the same reason and by
+    /// the same mechanism that a program that never names it could not before.
+    ///
+    /// Both halves of a grant go — the implementation struct as well as the
+    /// value — because `HostNet {}` has no private field and would otherwise
+    /// be constructible by name from the one module that can see it.
+    ///
+    /// Runs between `collect_declarations` (which fills the exports) and
+    /// `resolve_scopes` (which is the first pass to read them), so every later
+    /// reader sees the subset and none of them has to know this happened.
+    fn withhold_ungranted_host_effects(&mut self) {
+        let Some(platform) = self.loaded.platform else { return };
+        let Some(host) = self.loaded.find(standard_library::HOST_MODULE) else { return };
+        let withheld: Vec<String> = self
+            .scope(host)
+            .exports
+            .keys()
+            .filter(|name| standard_library::host_withholds(platform, name))
+            .cloned()
+            .collect();
+        for name in withheld {
+            self.scope_mut(host).exports.remove(&name);
+        }
+    }
+
+    /// Reports naming a `core/host` export that this output's platform does not
+    /// grant, answering whether it did.
+    ///
+    /// `true` means the caller has nothing left to say: the name is missing on
+    /// purpose, and "does not export" would send a reader to look for a
+    /// spelling mistake in a file that spells it correctly.
+    pub fn report_host_not_granted(&mut self, span: Span, name: &str) -> bool {
+        let Some(platform) = self.loaded.platform else { return false };
+        let Some(grant) = standard_library::host_grant_of(name) else { return false };
+        if grant.platforms.contains(&platform) {
+            return false;
+        }
+        let (effect, because) = (grant.effect, grant.because);
+        let elsewhere = grant.platforms_phrase();
+        self.err(span, format!("`{}` does not grant `{name}`", platform.proto()))
+            .code("host-not-granted")
+            .fix(format!(
+                "drop `{effect}` from the context, or build this target for a platform that \
+                 grants it: {elsewhere}"
+            ))
+            .notes
+            .push(format!(
+                "a platform is the set of effects its host exports; {because}"
+            ));
+        true
+    }
+
     fn resolve_scopes(&mut self) {
         // Type aliases are transparent, so they are not symbols: an alias
         // resolves to whatever it names at elaboration time. They are recorded
@@ -546,6 +629,14 @@ impl<'a> Checker<'a> {
                     let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                         let module_path = imp.path.clone();
                         let name = t.name(spec.name).to_string();
+                        // A name `core/host` withholds is missing on purpose,
+                        // and saying "does not export it" would send a reader
+                        // looking for a typo in a file that spells it right.
+                        if module_path == standard_library::HOST_MODULE
+                            && self.report_host_not_granted(spec.name.span, &name)
+                        {
+                            continue;
+                        }
                         let mut note = None;
                         // A name that exists but is not exported is a
                         // different mistake from a name that does not exist.

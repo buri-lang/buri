@@ -1,7 +1,7 @@
 error: this `match` does not cover `.Danger` [match-not-exhaustive]
-  --> cmd/ui_theme_unmapped_token/main.buri:52:3
+  --> cmd/ui_theme_unmapped_token/main.buri:53:3
    |
-52 |   match (t) {
+53 |   match (t) {
    |   ^^^^^^^^^^^ not covered
    |
    = every `match` must cover its scrutinee's type

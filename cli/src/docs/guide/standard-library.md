@@ -216,7 +216,7 @@ put reactivity in the tree, and each re-runs the smallest thing it can:
 | `computed(build)` | the subtree `build` answers, when anything `build` read changes. The coarse instrument: reach for a `Prop` on a leaf when only a string is changing |
 | `each(items, key, row)` | O(n) in the list, and **no row that is still there**: a row is keyed, so a reorder moves it and never rebuilds it. That is what keeps the focus, the scroll position and the computations inside a row alive |
 
-`choose` is what `design/ui-reactivity.md` calls `when`; `when` is a reserved
+`choose` was first written `when`, which it cannot be: `when` is a reserved
 word, held for a language feature nobody has taken yet, so no function may be
 called one.
 

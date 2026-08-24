@@ -1,0 +1,29 @@
+# //lib/kit — the interface vocabulary //cmd/basket is built out of, and the
+# first library here that owns a set of design tokens.
+#
+# It styles itself against its own closed `Token` enum and against nothing
+# else. What each token is *worth* is the app's answer, given once at mount,
+# and exhaustiveness is the whole contract: the day a variant is added to
+# `tokens.buri`, every app that themes this library stops compiling until its
+# mapping covers the new one. There is no registry, no default, and no runtime
+# lookup to get wrong.
+#
+# Tagged `client` for the reason //lib/store is tagged `server`: it is one half
+# of the deployment boundary, stated on the library rather than on each binary
+# that reaches it. `server` forbids `client`, and `forbids` is symmetric, so
+# this one line also keeps //lib/kit out of //cmd/server.
+library {
+    sources: ["tokens.buri", "card.buri"]
+    tags: ["client"]
+    visibility: ["//cmd/..."]
+
+    test {
+        sources: ["test/card.buri"]
+
+        # A suite that renders a tree names where it runs. The reactive graph
+        # and the document a rendered tree goes into are intrinsics of the
+        # JavaScript backend, and no native backend has either — so the host's
+        # own platform is the one place this suite could not run.
+        platforms: [WEB]
+    }
+}

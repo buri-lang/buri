@@ -143,21 +143,32 @@ message Output {
   // closure that declares `platforms` must admit it.
   Platform platform = 1;
 
-  // Ignored, and must be unset, when platform is JS.
+  // Ignored, and must be unset, when platform is JS or WEB.
   Arch arch = 2;
 
   // Artifact filename. Defaults to the package's directory name (plus `.mjs`
-  // for JS).
+  // for JS and WEB).
   string artifact_name = 3;
 
+  // Rejected when platform is WEB: a page is always an ES module, which is
+  // what a browser's `<script type="module">` loads.
   JsOptions js = 4;
 }
 
+// A platform is the set of effects its host exports, which is why WEB is one
+// of these and not a mode of JS. Both emit the same JavaScript; they differ in
+// what `core/host` grants, and that difference is checked per output when
+// `main` builds its context.
 enum Platform {
   PLATFORM_UNSPECIFIED = 0;
   LINUX = 1;
   MACOS = 2;
   JS = 3;
+  // A page in a browser: an `.mjs`, a `.css`, and an `.html` entry shell that
+  // loads them. Grants the reactive graph (`Ui`, `Watch`) and the
+  // non-blocking request shape (`Fetch`); grants no filesystem, socket,
+  // standard input, environment or process to exit.
+  WEB = 4;
 }
 
 enum Arch {

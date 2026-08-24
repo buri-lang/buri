@@ -1,0 +1,155 @@
+# What `buri build` produces for `platform: WEB`, and what a `main` may bind
+# there.
+#
+# Two claims, and they are the same claim from two sides.
+#
+# **A page is three artifacts.** BUILD-FILES.md and CLI.md say a WEB output
+# writes an `.mjs`, a `.css` and an `.html`, and that the `.html` is loadable in
+# a browser as it stands. The `file { contains }` steps below are the whole of
+# what "loadable" means mechanically: a module script that names the module
+# beside it, and a stylesheet link carrying `id="buri-styles"` — the id the
+# runtime's own injection looks for, so the rules are in the page before the
+# first paint and the module has nothing left to do about them.
+#
+# **A platform is the set of effects its host exports.** `Ui: host.ui` resolves
+# under WEB and under nothing else; `Net: host.net` resolves everywhere else and
+# not under WEB. Both directions are edited in below, because a rule that fires
+# in one direction is a rule nobody can rely on.
+#
+# The artifact is pinned with `contains` rather than a whole-file golden for the
+# reason the manifest schema gives: an `.mjs` is mostly runtime, so a golden of
+# it would move on every unrelated backend change and say nothing about this.
+# The `.css` and the `.html` are small and are the compiler's own text, so they
+# are recorded whole.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a WEB output writes a module, a stylesheet and an entry shell, and main's context is checked against what WEB grants"
+
+run {
+  args: ["build", "//cmd/counter"]
+  exit: 0
+  golden: "built.txt"
+}
+
+file {
+  path: ".buri/out/web/cmd/counter/counter.css"
+  golden: "counter.css"
+}
+
+file {
+  path: ".buri/out/web/cmd/counter/counter.html"
+  golden: "counter.html"
+}
+
+# The module is a module: it does not import `node:module`, because nothing a
+# page can bind needs node's `require`. That is the grant table showing up in
+# the artifact rather than only in a diagnostic.
+file {
+  path: ".buri/out/web/cmd/counter/counter.mjs"
+  absent: "node:module"
+}
+
+# Built twice from two fresh sessions with the cache off, and all three files
+# compared. A companion artifact that was not a function of its inputs would be
+# a cache that silently serves a stale stylesheet.
+run {
+  args: ["build", "//cmd/counter", "--check-reproducible"]
+  exit: 0
+}
+
+# Direction one: the same program, asked for as a script. `JS` grants no `ui`,
+# so the binding is an unresolved name at the line that asked for it.
+edit {
+  file: "cmd/counter/BUILD.buri"
+  replace: "platform: WEB"
+  with: "platform: JS"
+}
+
+run {
+  args: ["build", "//cmd/counter"]
+  exit: 1
+  golden: "ui_under_js.txt"
+}
+
+edit {
+  file: "cmd/counter/BUILD.buri"
+  replace: "platform: JS"
+  with: "platform: WEB"
+}
+
+# Direction two: a page reaching for a socket. `Net.fetch` blocks until the
+# response arrives, which freezes a page, so WEB grants `Fetch` instead and does
+# not export `net` at all.
+edit {
+  file: "cmd/counter/main.buri"
+  replace: "    Ui: host.ui,"
+  with: "    Net: host.net,\n    Ui: host.ui,"
+}
+
+edit {
+  file: "cmd/counter/main.buri"
+  replace: "import { Alloc, Stdout };"
+  with: "import { Alloc, Net, Stdout };"
+}
+
+run {
+  args: ["build", "//cmd/counter"]
+  exit: 1
+  golden: "net_under_web.txt"
+}
+
+# And the implementation struct goes with the value. A host struct has no
+# private field, so exporting `HostNet` while withholding `net` would leave the
+# authority one `Net: host.HostNet {}` away.
+edit {
+  file: "cmd/counter/main.buri"
+  replace: "    Net: host.net,"
+  with: "    Net: host.HostNet {},"
+}
+
+run {
+  args: ["build", "//cmd/counter"]
+  exit: 1
+  golden: "forged_host_under_web.txt"
+}
+
+edit {
+  file: "cmd/counter/main.buri"
+  replace: "    Net: host.HostNet {},\n"
+  with: ""
+}
+
+edit {
+  file: "cmd/counter/main.buri"
+  replace: "import { Alloc, Net, Stdout };"
+  with: "import { Alloc, Stdout };"
+}
+
+# A WEB output takes neither of the two fields a JS output can: an `arch` is
+# meaningless for JavaScript, and a page is always an ES module.
+edit {
+  file: "cmd/counter/BUILD.buri"
+  replace: "{ platform: WEB }"
+  with: "{ platform: WEB  arch: ARM64  js { module: CJS } }"
+}
+
+run {
+  args: ["build", "//cmd/counter"]
+  exit: 2
+  golden: "web_has_no_arch_or_module.txt"
+}
+
+edit {
+  file: "cmd/counter/BUILD.buri"
+  replace: "{ platform: WEB  arch: ARM64  js { module: CJS } }"
+  with: "{ platform: WEB }"
+}
+
+# And back, which is a cache hit: nothing about the tree moved, so the artifact
+# is the one already recorded.
+run {
+  args: ["build", "//cmd/counter"]
+  exit: 0
+  golden: "built_again.txt"
+}

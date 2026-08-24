@@ -32,7 +32,7 @@ fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: b
     let Some(id) = ws.pkg_by_path(pkg) else { panic!("no package {pkg}") };
     let unit = buri::compiler::modules::Unit {
         target: Some(buri::build::workspace::TargetId { pkg: id, kind }),
-        platform: buri::build::buildfile::Platform::Js,
+        platform: None,
         with_tests,
     };
     let mut cache = buri::parsing::parser::Cache::new();
@@ -48,7 +48,7 @@ fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: b
 fn every_library_checks() {
     use buri::build::workspace::RuleKind::Library;
     let mut out = String::new();
-    for pkg in ["lib/money", "lib/ledger", "lib/store", "tools/report"] {
+    for pkg in ["lib/money", "lib/ledger", "lib/store", "lib/kit", "tools/report"] {
         out.push_str(&check_target(Library, pkg, true));
     }
     assert!(out.is_empty(), "the example libraries do not check:\n{out}");
@@ -58,7 +58,7 @@ fn every_library_checks() {
 fn every_binary_checks() {
     use buri::build::workspace::RuleKind::Binary;
     let mut out = String::new();
-    for pkg in ["cmd/server", "cmd/web", "tools/report"] {
+    for pkg in ["cmd/server", "cmd/web", "cmd/basket", "tools/report"] {
         out.push_str(&check_target(Binary, pkg, true));
     }
     assert!(out.is_empty(), "the example binaries do not check:\n{out}");

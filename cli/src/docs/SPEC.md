@@ -1652,8 +1652,9 @@ and stop. You never scan a signature.
 
 The platform. `core/host` exports one value per effect the platform grants —
 `host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`, `host.net`,
-`host.clock`, `host.rand`, `host.env`, `host.proc` — and it is importable only
-from the module that exports `main`. `main` assembles them into the one context
+`host.clock`, `host.rand`, `host.env`, `host.proc`, and on a platform with a
+document `host.ui`, `host.watch`, `host.fetch` — and it is importable only from
+the module that exports `main`. `main` assembles them into the one context
 the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -2002,7 +2003,7 @@ one value rather than a new collection.
 | Module | Needs | Functions |
 |---|---|---|
 | `core/effect` | — | the effect declarations themselves |
-| `core/host` | — | `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — the platform's implementations, importable only by the module exporting `main` |
+| `core/host` | — | `alloc`, `stdout`, `stderr`, `clock`, `rand` on every platform; `stdin`, `fs`, `net`, `env`, `proc` where there is an operating system under the program; `ui`, `watch`, `fetch` where there is a document over it — the platform's implementations, importable only by the module exporting `main` |
 | `core/alloc` | — | `generalPurpose`, `arena`, `fixedBuffer` — counting implementations of `Alloc`, importable anywhere, because an `Alloc` grants no authority |
 | `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
 | `core/fs` | `Fs` | `readText`, `writeText`, `exists`, `listDir`, and the `IoError` type |
@@ -2532,7 +2533,14 @@ Contexts (Section 11.3):
 33. Each binding's left side names a declared effect, bound at most once across
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
-34. `"core/host"` is importable only from the module that exports `main`.
+34. `"core/host"` is importable only from the module that exports `main`, and
+    what it exports is **what the output's platform grants**. A platform is the
+    set of effects its host exports; a name it does not grant is not exported,
+    so binding one is an ordinary unresolved name at the line that asked
+    (`host-not-granted`). Both halves of a grant are withheld together — the
+    implementation struct as well as the value — so there is nothing left to
+    construct by name. The check is per output: the same `main` may compile for
+    one of a binary's outputs and not for another.
 
 Modules and tests:
 

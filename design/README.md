@@ -19,6 +19,7 @@ here.
 |---|---|
 | [`TODO.md`](./TODO.md) | What is not done: open gaps, deferred work with its reasons, and the decisions to keep saying no to. Completed work is not recorded there. Cite it by heading anchor, never by line number. |
 | [`STANDARD-LIBRARY.md`](./STANDARD-LIBRARY.md) | Why `core/*` contains what it contains, and what the deliberate absences would cost to close. |
+| [`ui-reactivity.md`](./ui-reactivity.md) | Why `ui/*` is shaped the way it is: signals as inert handles, meaning as a role and arrangement as a style, two style tiers, and exhaustive themes. It has shipped, so it keeps the argument and points at the reference; its "As built" section records where compiling it overruled it. |
 | [`LLVM-tips.md`](./LLVM-tips.md) | Four lines of instruction that the native codegen documents treat as normative. |
 | [`native/`](./native/) | The native backend's design: architecture, value model, memory, the two code generators, build and watch, and the open questions. |
 

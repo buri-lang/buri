@@ -1,0 +1,35 @@
+# //cmd/basket — the same language and the same libraries as //cmd/server, and
+# an output that is a page.
+#
+# `platform: WEB` is not a flag on the JavaScript output: it is a different set
+# of effects. `core/host` exports `ui`, `watch` and `fetch` there and nowhere
+# else, and exports no `fs`, `net`, `stdin`, `env` or `proc` there at all — so
+# main.buri below builds for this output and would not build for //cmd/web's,
+# and //cmd/server/main.buri is the same refusal the other way round. A WEB
+# output takes no `arch` (JavaScript has none) and no `js { module }` (a browser
+# loads an ES module; there is no other kind), and naming either is a build-file
+# error rather than a field the toolchain then ignores.
+#
+# Three files, one artifact each: `basket.mjs`, `basket.css` — the styles the
+# compiler extracted, deduped across every package in the build — and
+# `basket.html`, a shell that links the one and loads the other.
+binary {
+    sources: ["model.buri", "state.buri", "theme.buri", "view.buri"]
+    dependencies: ["//lib/kit", "//lib/ledger", "//lib/money"]
+    tags: ["client"]
+
+    outputs: [
+        { platform: WEB },
+    ]
+
+    test {
+        sources: ["test/model.buri", "test/view.buri"]
+
+        # The reactive graph and the document a rendered tree goes into are
+        # intrinsics of the JavaScript backend. `ui/testing` runs the shipping
+        # runtime against a document the runtime supplies rather than a
+        # browser's, so these suites run headlessly — but they cannot run on a
+        # backend that has no graph at all.
+        platforms: [WEB]
+    }
+}

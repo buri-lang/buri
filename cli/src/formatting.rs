@@ -877,21 +877,15 @@ impl Comments {
 
     /// The same, over the runs that carry no documentation.
     ///
-    /// One caller, [`Build::module`]'s per-declaration sweep, and one reason.
-    /// That sweep is the only place in this file that prints comments and is
-    /// *not* immediately followed by a token: what comes after it is either the
-    /// next declaration's own comments or the module's closing sweep, both of
-    /// which print comments too. Comments concatenate — the next read of the
-    /// file lexes the lot as one run above the next token, and prints the
-    /// comments in the order they arrive, which is the order they were printed
-    /// in. Doc lines do not: they are printed *after* every comment in the run,
-    /// so a `///` printed by this sweep and a `//` printed by whatever follows
-    /// come back swapped, and `format` is not a fixed point.
+    /// One caller, [`Build::lead_trivia`], and one reason: a `///` stranded
+    /// inside a declaration is documentation *of* something, and printing it
+    /// in the gap above the next declaration makes it that declaration's
+    /// documentation the next time the file is read.
     ///
     /// So a stranded run holding a `///` is left unclaimed here and comes back
-    /// at the module's closing sweep instead, which is one emission with a
-    /// token straight after it. That is also where the next read of the file
-    /// puts it, so the second run agrees with the first.
+    /// at the module's closing sweep instead, which is one emission with EOF
+    /// straight after it. That is also where the next read of the file puts
+    /// it, so the second run agrees with the first.
     fn drain_undocumented(&mut self, lo: u32, hi: u32) -> Vec<Trivia> {
         self.drain_where(lo, hi, |t| !t.documented())
     }
@@ -1138,14 +1132,6 @@ impl<'t> Build<'t> {
         self.flushed(&ts)
     }
 
-    /// The same, leaving behind any run that carries a `///`. Only
-    /// [`Build::module`]'s per-declaration sweep, for the reason
-    /// [`Comments::drain_undocumented`] gives.
-    fn flush_undocumented(&mut self, lo: u32, hi: u32) -> Option<Doc> {
-        let ts = self.tv.drain_undocumented(lo, hi);
-        self.flushed(&ts)
-    }
-
     fn flushed(&mut self, ts: &[Trivia]) -> Option<Doc> {
         if ts.is_empty() {
             return None;
@@ -1175,17 +1161,51 @@ impl<'t> Build<'t> {
         cat(parts)
     }
 
+    /// The whole gap above a declaration, as **one** emission: what the
+    /// declaration before it stranded, and then what was written directly
+    /// above it.
+    ///
     /// Comments and blank lines above a declaration come back where they were.
-    fn decl_trivia(&mut self, at: u32, first: bool) -> Doc {
-        let Some(t) = self.tv.take(at) else {
-            return if first { Doc::Nil } else { Doc::Blank };
+    /// The blank line is the printer's, not the author's — declarations are
+    /// separated by one — so it is asked of `first` alone rather than of the
+    /// trivia, which is what the three cases this replaces all did anyway.
+    ///
+    /// `stranded` is the previous declaration's span, and it is why this takes
+    /// a range at all. A comment written somewhere inside a declaration that no
+    /// printer reaches — between a parameter list and its body, say — has to
+    /// come back somewhere, and the only place it can go is after that
+    /// declaration, which is *this* gap. Printing it in an emission of its own
+    /// is what made `format` not a fixed point: the two emissions of one gap
+    /// were each internally canonical and their concatenation was not. The
+    /// sweep printed the run with nothing above it, this printed the mandatory
+    /// blank line under it, and the next read of the file lexed the lot as one
+    /// run above this declaration — which comes back with the blank line
+    /// *above* it. `const e: Int = [ //` / `];` was exactly that, and moved on
+    /// every other run forever.
+    ///
+    /// So the gap is drained here and printed through one `trivia_doc` call,
+    /// which is the same thing [`Build::flush`] does for the gaps that end in a
+    /// token, and for the same reason.
+    ///
+    /// Undocumented, because a `///` stranded in the previous declaration is
+    /// documentation of *something*, and printing it here would make it this
+    /// declaration's the next time the file is read. It is left unclaimed and
+    /// comes back at the module's closing sweep instead; see
+    /// [`Comments::drain_undocumented`].
+    fn lead_trivia(&mut self, stranded: Option<(u32, u32)>, at: u32, first: bool) -> Doc {
+        let mut ts = match stranded {
+            Some((lo, hi)) => self.tv.drain_undocumented(lo, hi),
+            None => Vec::new(),
         };
+        if let Some(t) = self.tv.take(at) {
+            ts.push(t);
+        }
         let mut parts = Vec::new();
-        if (t.blank() || t.is_run()) && !first {
+        if !first {
             parts.push(Doc::Blank);
         }
-        if t.is_run() {
-            parts.push(self.trivia_doc(std::slice::from_ref(&t)));
+        if ts.iter().any(Trivia::is_run) {
+            parts.push(self.trivia_doc(&ts));
             parts.push(Doc::HardLine);
         }
         cat(parts)
@@ -1258,6 +1278,14 @@ impl<'t> Build<'t> {
         // where it *reads* is against the declaration it is about, the way an
         // attribute would.
         let rest: Vec<&Item> = declarations.iter().collect();
+        // The span of the declaration the previous turn printed. A comment
+        // written somewhere inside it that no printer reached — between a
+        // parameter list and its body, say — belongs to the gap *above the
+        // next declaration*, so it is drained there rather than here and the
+        // gap stays one emission; [`Build::lead_trivia`] says what that buys.
+        // The last turn's is never drained, which is what leaves the last
+        // declaration's stranded comments to the closing sweep.
+        let mut stranded: Option<(u32, u32)> = None;
         for (i, (derives, decl)) in derive_groups(self.tree(), &rest).into_iter().enumerate() {
             // The derives lead and the declaration's own documentation stays
             // directly on the declaration. It cannot be the other way round: a
@@ -1266,40 +1294,29 @@ impl<'t> Build<'t> {
             // next time the file is read, and formatting would not be a fixed
             // point.
             let first = i == 0 && m.docs.is_empty() && run == 0;
-            if derives.is_empty() {
-                let t = self.decl_trivia(decl.span().start, first);
+            // What the group leads with is the token the gap above it ends at.
+            let head = derives.first().map_or(decl, |d| d).span().start;
+            let t = self.lead_trivia(stranded.take(), head, first);
+            parts.push(t);
+            for d in derives {
+                // Nothing between a derive and the declaration it is about,
+                // not even the paragraph break it was typed with. The first
+                // derive's own run has already been claimed by `lead_trivia`,
+                // so this is `Doc::Nil` for it.
+                let t = self.import_trivia(d.span().start, true);
                 parts.push(t);
-            } else {
-                if !first {
-                    parts.push(Doc::Blank);
-                }
-                for d in derives {
-                    // Nothing between a derive and the declaration it is
-                    // about, not even the paragraph break it was typed with.
-                    let t = self.import_trivia(d.span().start, true);
-                    parts.push(t);
-                    let doc = self.item(d);
-                    parts.push(doc);
-                    parts.push(Doc::HardLine);
-                }
-                let t = self.import_trivia(decl.span().start, true);
-                parts.push(t);
+                let doc = self.item(d);
+                parts.push(doc);
+                parts.push(Doc::HardLine);
             }
+            // Likewise claimed already when there are no derives, and the run
+            // between the last derive and the declaration when there are.
+            let t = self.import_trivia(decl.span().start, true);
+            parts.push(t);
             let d = self.item(decl);
             parts.push(d);
             parts.push(Doc::HardLine);
-            // A comment written somewhere inside the declaration that no
-            // printer reaches — between a parameter list and its body, say —
-            // comes back under it rather than not at all.
-            //
-            // Undocumented, because what follows this is more comments rather
-            // than a token — the next declaration's, or the module's closing
-            // sweep — and a `///` printed here would come back after them.
-            // `drain_undocumented` is where that is spelled out.
-            if let Some(c) = self.flush_undocumented(decl.span().start, decl.span().end) {
-                parts.push(c);
-                parts.push(Doc::HardLine);
-            }
+            stranded = Some((decl.span().start, decl.span().end));
         }
 
         // A comment below the last declaration is attached to end-of-file and
@@ -1625,6 +1642,16 @@ impl<'t> Build<'t> {
     /// The lines of a block: its statements, its tail, and every comment
     /// written among them. Joined with `HardLine`, and with no break of its
     /// own at either end, so the block that holds it decides its braces.
+    ///
+    /// **A blank line above the first line is not one of them.** `blank` never
+    /// writes a line directly under an opening brace — a gap between `{` and
+    /// what is in it is not a paragraph break — so a `Doc::Blank` there prints
+    /// nothing. It still *breaks*, though, because every hard break forces the
+    /// group around it, and a block that broke for a reason it did not print is
+    /// a block the next read of the file lays out flat: `if (n == 0) {` /
+    /// blank / `y }` came back as `if (n == 0) { y }`, and `format` moved the
+    /// file on every other run. A break has to be visible in the output that
+    /// caused it, so the blank is dropped where it would not be written.
     fn block_lines(&mut self, id: BlockId) -> Doc {
         let b = self.tree().block(id);
         let lo = b.span.start;
@@ -1632,8 +1659,9 @@ impl<'t> Build<'t> {
         for s in self.tree().stmts_at(b.stmts_start, b.stmts_len) {
             // A blank line between two statements is a paragraph break inside
             // a function, and grouping the steps of a long one is what it is
-            // for. One of them, however many were typed.
-            let gap = self.tv.blank_at(s.span.start);
+            // for. One of them, however many were typed, and none at all above
+            // the first line of the block — see this function's own doc.
+            let gap = self.tv.blank_at(s.span.start) && !lines.is_empty();
             // Everything written above this statement, including anything
             // stranded inside the statement before it.
             match self.flush(lo, s.span.start) {
@@ -1660,7 +1688,7 @@ impl<'t> Build<'t> {
         }
         if let Some(t) = self.tree().opt(b.tail) {
             let at = self.tree().span(t).start;
-            let gap = self.tv.blank_at(at);
+            let gap = self.tv.blank_at(at) && !lines.is_empty();
             match self.flush(lo, at) {
                 Some(c) => lines.push(c),
                 None if gap => lines.push(Doc::Blank),
@@ -1943,6 +1971,17 @@ impl<'t> Build<'t> {
             // head against `" => {"` and does not break it. Inside the
             // candidates both runs ask the head the same question, which is
             // what makes the output a fixed point.
+            //
+            // The braces are [`block_doc`]'s and not this function's, for the
+            // other half of the same reason. Braces written here as a `{`, a
+            // `HardLine` and a `}` are braces that can only break — and the
+            // next read of the file finds a `Kind::Block` body, takes the
+            // branch above, and prints it through `block_doc`, which *can* be
+            // flat. A head long enough to rule out the first candidate on its
+            // own, with a body that would fit beside the arrow, therefore came
+            // out broken once and flat the second time, forever: a wrapped
+            // guard over `""` printed `=> {` / `""` / `}` and then
+            // `=> { "" }`. One document for both runs is the whole of the fix.
             let head = cat(h);
             let body = self.expr(ExprId(a.body));
             let arm = if self.tree().kind(ExprId(a.body)) == Kind::Block {
@@ -1950,13 +1989,7 @@ impl<'t> Build<'t> {
             } else {
                 alt(
                     cat(vec![head.clone(), text(" => "), body.clone()]),
-                    cat(vec![
-                        head,
-                        text(" => {"),
-                        nest(cat(vec![Doc::HardLine, body])),
-                        Doc::HardLine,
-                        text("}"),
-                    ]),
+                    cat(vec![head, text(" => "), block_doc(body)]),
                 )
             };
             lines.push(cat(vec![arm, text(",")]));
@@ -2723,6 +2756,16 @@ mod tests {
             "from \"core/list\" export {\n  fold,\n  /// stranded\n};\n// below everything\n",
             "// a heading\n/// documented\n\nfrom \"core/str\" import * as s;\n\
              // about the other one\nfrom \"core/list\" import * as l;\n",
+            // The same class again, in the blank line rather than in the
+            // order: a comment with nowhere to go inside `[]`, printed by one
+            // emission, and the mandatory blank line above the next
+            // declaration printed by the next. The gap came back with the
+            // blank on the other side of the comment, so `format` moved the
+            // file on every other run. The second is the shape with the run
+            // above the next declaration already there, which the first pass
+            // has to agree with.
+            "const e: List<Int> = [\n  // nothing in it\n];\nconst g: List<Int> = [];\n",
+            "const e: List<Int> = [\n  // nothing in it\n];\n// about g\nconst g: List<Int> = [];\n",
         ] {
             stable(src);
         }

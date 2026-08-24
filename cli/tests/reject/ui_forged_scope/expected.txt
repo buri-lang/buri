@@ -1,7 +1,7 @@
 error: field `0` of `Scope` is private to its module [private-to-module]
-  --> cmd/ui_forged_scope/main.buri:14:9
+  --> cmd/ui_forged_scope/main.buri:15:9
    |
-14 |   n.get(Scope(0))
+15 |   n.get(Scope(0))
    |         ^^^^^^^^
    |
    = a struct with any private field cannot be constructed or destructured elsewhere, though functional update still works because it never names the hidden fields

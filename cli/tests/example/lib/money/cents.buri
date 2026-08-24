@@ -35,6 +35,19 @@ impl Cents {
     str.format(ctx, "\$${whole}.${pad}${rest}")
   }
 
+  /// The amount split at the decimal point: whole units, then hundredths.
+  ///
+  /// Pure, and that is the whole reason it sits beside `format` rather than
+  /// inside it. Turning an interpolation into a `Str` allocates, so `format`
+  /// takes an allocator — and a reactive computation is handed a `Scope`, which
+  /// grants reading the signal graph and nothing else. A running total on a
+  /// page is rendered out of this one; //cmd/basket is where.
+  ///
+  /// Both halves carry the amount's sign, because that is what division and
+  /// remainder do. A caller rendering a negative amount takes the sign off the
+  /// front itself.
+  export fn parts(self: Cents): (I64, I64) { (self.0 / 100, self.0 % 100) }
+
   /// Exported from this module so //lib/money/parse can bounds-check a value it
   /// built, and absent from lib.buri, so it stops at the library boundary.
   /// `c.toCents()` outside //lib/money does not resolve.

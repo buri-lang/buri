@@ -178,6 +178,18 @@ impl ActionKey {
         &self.0
     }
 
+    /// A second entry belonging to the same action, named by what it holds.
+    ///
+    /// An action whose result is more than one file — a WEB link, which writes
+    /// a module, a stylesheet and a page — needs every part in the cache or a
+    /// hit reproduces some of the output and leaves the rest stale. Deriving
+    /// the companion's key from the action's own means the two are invalidated
+    /// together by construction: whatever moved the module's key moved this
+    /// one, because this one is a hash of it.
+    pub fn companion(&self, what: &str) -> ActionKey {
+        ActionKey::of(format!("{}\u{0}companion\u{0}{what}", self.0).as_bytes())
+    }
+
     /// The first twelve hex digits, which is what `--explain` prints.
     fn short(&self) -> &str {
         self.0.get(..12).unwrap_or(&self.0)

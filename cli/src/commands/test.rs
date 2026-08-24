@@ -420,7 +420,7 @@ fn run_suite(
         // answer the wrong thing — silently, since an empty filesystem is a
         // filesystem (`cli/runtime/testing.rs`'s header states the divergence
         // and what would close it).
-        if wanted != Platform::Js && suite(s, target).is_some_and(|x| !x.data.is_empty()) {
+        if wanted.is_native() && suite(s, target).is_some_and(|x| !x.data.is_empty()) {
             notices.suite(
                 &s.ws.label(target),
                 "a native test binary has no runner to hand it `test { data }`, so its \
@@ -433,7 +433,7 @@ fn run_suite(
     };
     let mut outcome = Outcome::default();
     for (platform, chosen) in runs {
-        if platform != Platform::Js && !native_ready(platform, &args.flags) {
+        if platform.is_native() && !native_ready(platform, &args.flags) {
             let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
             diags.push(
                 Diagnostic::error(
@@ -495,7 +495,11 @@ fn run_on(
         &key,
     );
 
-    let unit = Unit { target: Some(target), platform, with_tests: true };
+    // `None`, not `platform`: the platform a suite *runs* on and the platform
+    // whose host grant a program is checked against are different questions,
+    // and a test never binds `core/host` — only the entry point a batched
+    // binary happens to drag in does. See `Unit::platform`.
+    let unit = Unit { target: Some(target), platform: None, with_tests: true };
     let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
@@ -531,7 +535,7 @@ fn run_on(
     // Only a *defaulted* platform gives way. A suite that named one gets the
     // refusal it asked for, which is what `platform-not-implemented` and
     // `repositories/testing/suite_platforms` are for.
-    if platform != Platform::Js && chosen == Chosen::Default {
+    if platform.is_native() && chosen == Chosen::Default {
         if let Some(reason) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
         {
             notices.suite(&s.ws.label(target), &reason);
@@ -543,7 +547,7 @@ fn run_on(
         }
     }
 
-    if platform != Platform::Js {
+    if platform.is_native() {
         let out = run_native(s, target, platform, args, sink, &key, program, &analysis, skipped);
         // The checked program is tens of milliseconds of `free` at a hundred
         // thousand lines, and by here the verdict already exists. `Loaded`
@@ -689,7 +693,7 @@ fn warm_linker(args: &arguments::Args) {
         Some(p) => p,
         None => crate::compiler::driver::host_native_platform(),
     };
-    if platform == Platform::Js || !native_ready(platform, &args.flags) {
+    if !platform.is_native() || !native_ready(platform, &args.flags) {
         return;
     }
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
@@ -1181,7 +1185,7 @@ fn run_batches(
         return pre;
     }
     let platform = default_platform(&args.flags, notices);
-    if platform == Platform::Js || !native_ready(platform, &args.flags) {
+    if !platform.is_native() || !native_ready(platform, &args.flags) {
         return pre;
     }
     // Two filters, and the cache goes first: it is the answer for every suite
@@ -1354,7 +1358,7 @@ fn run_batch(
     // sources load in and therefore the order the binary's blocks come out in.
     let units: Vec<Unit> = members
         .iter()
-        .map(|&target| Unit { target: Some(target), platform, with_tests: true })
+        .map(|&target| Unit { target: Some(target), platform: None, with_tests: true })
         .collect();
     let analysis =
         crate::compiler::driver::analyze_all(Some(&s.ws), &mut s.map, &mut s.parsed, &units);

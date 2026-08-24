@@ -235,9 +235,9 @@ export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
 
 /// Somewhere to type, and what it is for.
 ///
-/// The label is required. `design/ui-reactivity.md` wrote this one as
-/// `field(value)`, which contradicts the document's own rule that an
-/// accessibility-critical parameter is a parameter; an unlabelled input is the
+/// The label is required. This one was first designed as `field(value)`, which
+/// contradicted the design's own rule that an accessibility-critical parameter
+/// is a parameter; an unlabelled input is the
 /// commonest accessibility failure there is and, unlike a missing `alt`, it
 /// has no visual fallback.
 ///
@@ -274,8 +274,8 @@ export fn form<C>(
 /// its computations disposed with it — and the other is built. When it does
 /// not change, nothing here runs at all.
 ///
-/// Named `choose` rather than `when`, which is the name
-/// `design/ui-reactivity.md` gives it: `when` is a reserved word, held for a
+/// Named `choose` rather than `when`, which is what it was first called:
+/// `when` is a reserved word, held for a
 /// language feature that has not been taken yet, so no function may be called
 /// one. This is the same substitution `watch` makes for `effect` in
 /// `ui/signal`, and for the same reason.

@@ -1,6 +1,9 @@
 # REPO-CONFIG.md: "`Platform` is a closed enum in the schema — `LINUX`, `MACOS`,
-# `JS` — and `Arch` likewise. Adding one is a compiler change, not a
+# `JS`, `WEB` — and `Arch` likewise. Adding one is a compiler change, not a
 # configuration change, so there is nothing to declare here."
+#
+# The goldens name every platform, which is the point of recording them: adding
+# one is meant to show up here as a diff a reviewer reads, and `WEB` did.
 #
 # Closed means an unknown name is rejected rather than ignored. Three places can
 # write one — an output's `platform`, an output's `arch`, and a tag's

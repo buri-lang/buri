@@ -237,6 +237,158 @@ pub fn defining_module(p: Prim) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// What each platform's host grants
+// ---------------------------------------------------------------------------
+
+/// The path of the one module whose exports vary by platform.
+pub const HOST_MODULE: &str = "core/host";
+
+/// One effect `core/host` can grant, and the platforms that grant it.
+///
+/// **This table is what makes a platform *be* the set of effects its host
+/// exports** (`design/ui-reactivity.md` §Targets). A platform that does not
+/// grant an effect does not export the names for it, so asking for one is an
+/// unresolved name at the line that asked — not a run-time failure, and not a
+/// convention.
+pub struct HostGrant {
+    /// The effect this implements, as `core/effect` or `ui/effect` spells it.
+    /// It is the name a reader wrote on the left of the context binding that
+    /// failed, so it is what the diagnostic leads with.
+    pub effect: &'static str,
+    /// The names `core/host` exports for it: the implementation struct, and
+    /// the value `main` binds.
+    ///
+    /// **Both are withheld together**, and that is load-bearing rather than
+    /// tidy. A struct with no private field can be constructed by name from
+    /// anywhere that can see it, so withholding `net` while exporting
+    /// `HostNet` would leave the authority one `Net: host.HostNet {}` away.
+    pub exports: &'static [&'static str],
+    /// The platforms that grant it. Order follows [`Platform::ALL`], so the
+    /// list a diagnostic prints reads the same way the schema does.
+    pub platforms: &'static [Platform],
+    /// Why the platforms outside that list do not grant it, in one clause. A
+    /// refusal that says only "not granted" tells a reader what happened and
+    /// not what to do about it.
+    pub because: &'static str,
+}
+
+use crate::build::buildfile::Platform;
+
+/// Granted everywhere. Written once rather than repeated on five rows.
+const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
+
+/// Everything a platform's host can grant, and who grants it.
+///
+/// The rows in the first group are granted by every platform, so they never
+/// produce a diagnostic; they are here so that the table is the whole of
+/// `core/host` rather than the interesting half of it, and so that a name
+/// added to `host.buri` and forgotten here is caught by
+/// `every_host_export_is_in_the_grant_table`.
+pub const HOST_GRANTS: &[HostGrant] = &[
+    HostGrant {
+        effect: "Alloc",
+        exports: &["HostAlloc", "alloc"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform can allocate",
+    },
+    HostGrant {
+        effect: "Stdout",
+        exports: &["HostStdout", "stdout"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform has somewhere to write a line",
+    },
+    HostGrant {
+        effect: "Stderr",
+        exports: &["HostStderr", "stderr"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform has somewhere to write a line",
+    },
+    HostGrant {
+        effect: "Clock",
+        exports: &["HostClock", "clock"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform can read a clock",
+    },
+    HostGrant {
+        effect: "Rand",
+        exports: &["HostRand", "rand"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform has a source of randomness",
+    },
+    // The two halves that vary. A page has no operating system under it, and
+    // nothing but a page has a document over it.
+    HostGrant {
+        effect: "Fs",
+        exports: &["HostFs", "fs"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "a page has no filesystem to read",
+    },
+    HostGrant {
+        effect: "Net",
+        exports: &["HostNet", "net"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "`Net.fetch` blocks until the response arrives, which freezes a page; WEB \
+                  grants `Fetch` instead, which is the same request with a callback",
+    },
+    HostGrant {
+        effect: "Stdin",
+        exports: &["HostStdin", "stdin"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "a page has no standard input",
+    },
+    HostGrant {
+        effect: "Env",
+        exports: &["HostEnv", "env"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "a page has no command line and no environment",
+    },
+    HostGrant {
+        effect: "Proc",
+        exports: &["HostProc", "proc"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "a page has no process to exit; a mounted interface stays live",
+    },
+    HostGrant {
+        effect: "Ui",
+        exports: &["HostUi", "ui"],
+        platforms: &[Platform::Web],
+        because: "the reactive graph drives a document, and only a page has one",
+    },
+    HostGrant {
+        effect: "Watch",
+        exports: &["HostWatch", "watch"],
+        platforms: &[Platform::Web],
+        because: "reading the reactive graph is meaningless where nothing writes it",
+    },
+    HostGrant {
+        effect: "Fetch",
+        exports: &["HostFetch", "fetch"],
+        platforms: &[Platform::Web],
+        because: "a callback that lands later needs an event loop that outlives `main`, which \
+                  is what a page has and a script does not",
+    },
+];
+
+/// The grant a `core/host` export belongs to, or `None` for a name that is not
+/// one of them.
+pub fn host_grant_of(export: &str) -> Option<&'static HostGrant> {
+    HOST_GRANTS.iter().find(|g| g.exports.contains(&export))
+}
+
+/// Whether `platform` withholds `export` from `core/host`.
+pub fn host_withholds(platform: Platform, export: &str) -> bool {
+    host_grant_of(export).is_some_and(|g| !g.platforms.contains(&platform))
+}
+
+impl HostGrant {
+    /// `LINUX, MACOS, JS` — the platforms that do grant this, as a diagnostic
+    /// writes them.
+    pub fn platforms_phrase(&self) -> String {
+        self.platforms.iter().map(|p| p.proto()).collect::<Vec<_>>().join(", ")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +423,53 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(before, seen.len(), "two entries share a path");
+    }
+
+    /// Every name `core/host` exports is in the grant table.
+    ///
+    /// The table decides what a platform withholds, so a name missing from it
+    /// is granted by every platform silently — which is exactly the shape of
+    /// the bug this whole mechanism exists to make impossible. Read off the
+    /// source text rather than from a second list, so the two cannot drift.
+    #[test]
+    fn every_host_export_is_in_the_grant_table() {
+        let src = source(HOST_MODULE).expect("core/host is a module");
+        for line in src.lines() {
+            let name = if let Some(rest) = line.strip_prefix("export struct ") {
+                rest.split([' ', '{', '(', ';']).next().unwrap_or("")
+            } else if let Some(rest) = line.strip_prefix("export const ") {
+                rest.split([':', ' ']).next().unwrap_or("")
+            } else {
+                continue;
+            };
+            assert!(
+                host_grant_of(name).is_some(),
+                "`{name}` is exported by core/host and is in no HostGrant row, so every \
+                 platform grants it by omission"
+            );
+        }
+    }
+
+    /// And the other direction: a row naming an export that is not there would
+    /// withhold nothing.
+    #[test]
+    fn every_grant_names_exports_that_exist() {
+        let src = source(HOST_MODULE).expect("core/host is a module");
+        for grant in HOST_GRANTS {
+            assert!(!grant.exports.is_empty(), "`{}` withholds nothing", grant.effect);
+            assert!(
+                !grant.platforms.is_empty(),
+                "`{}` is granted by no platform, so nothing can ever bind it",
+                grant.effect
+            );
+            for name in grant.exports {
+                assert!(
+                    src.contains(&format!("export struct {name} "))
+                        || src.contains(&format!("export const {name}:")),
+                    "`{name}` is in a HostGrant row and core/host does not export it"
+                );
+            }
+        }
     }
 
     /// Every type a primitive can be must have a module that exists.

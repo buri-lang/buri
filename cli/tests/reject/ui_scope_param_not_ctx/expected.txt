@@ -1,7 +1,7 @@
 error: `s` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
-  --> cmd/ui_scope_param_not_ctx/main.buri:13:9
+  --> cmd/ui_scope_param_not_ctx/main.buri:14:9
    |
-13 | fn peek(s: Scope, n: Signal<Int>): Int {
+14 | fn peek(s: Scope, n: Signal<Int>): Int {
    |         ^^^^^^^^
    |
    = `Scope` implements the effect `Watch`, so holding one is holding the capability

@@ -6,6 +6,7 @@
 // and constructible nowhere, and reading a signal outside a computation the
 // runtime started is not expressible rather than merely discouraged.
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/signal" import { Signal, signal };

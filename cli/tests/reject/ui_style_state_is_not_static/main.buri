@@ -8,6 +8,7 @@
 // The fix the diagnostic names is the real one: hover on a value that varies is
 // the reactive tier's job, and the reactive tier is applied inline.
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;

@@ -1,0 +1,65 @@
+// Both halves of the user-interface runtime that nothing in a program names,
+// in one artifact — which is the case the other four `ui_*` cases cannot make.
+//
+// The backend leaves the inline-tier lowering out of a program whose styles are
+// all static, and the theme machinery out of a program that can build no theme.
+// `ui_counter` and `ui_styles` drop both, `ui_styles_dynamic` keeps only the
+// first and `ui_theme` only the second — so this is the one that says the two
+// decisions are independent and that a program needing both gets both.
+//
+// What to read in `expected.mjs`: `$tree_declare` is there, because the width
+// below comes from a signal and no compile-time value can be folded for it;
+// `$ui_theme_install` is there, because `mount` is handed a theme; and both
+// arrive through the two assignments the backend writes above the program,
+// which are the only references to either.
+from "core/effect" import { Alloc, Stdout };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+enum Token {
+  Bg,
+}
+
+impl Token {
+  fn color(self: Token): Color {
+    match (self) {
+      .Bg => style.token("both", "bg"),
+    }
+  }
+}
+
+fn tokenThemed(f: fn(Token) => Color): Theme {
+  theme.themed([(Token.Bg.color(), f(.Bg))])
+}
+
+// Exhaustive over the vocabulary, which is the whole of the contract.
+fn light(t: Token): Color {
+  match (t) {
+    .Bg => .Rgb(255, 255, 255),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let width = signal(ctx, 40);
+  let _ = io.println(ctx, "both");
+  // The background folds to a class naming `var(--both-bg)`; the width cannot
+  // fold at all and is written on the element, every time the signal changes.
+  let page = ui.column([.Background(Token.Bg.color())], [
+    ui.row([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []),
+  ]);
+  ui.mount(ctx, page, [tokenThemed(light)])
+}

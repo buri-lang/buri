@@ -6,6 +6,7 @@
 // a class reaches an element is by having been emitted — which is the whole of
 // "nothing is generated at run time".
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;

@@ -142,7 +142,9 @@ impl State {
         let target = self.target_for(&session, path);
         let unit = Unit {
             target,
-            platform: crate::compiler::driver::host_platform(),
+            // The editor is not building an output, and a file open in it
+            // belongs to every output its target declares. See `Unit::platform`.
+            platform: None,
             // A test source is a source an editor opens like any other, so the
             // server would be blind in exactly the files most often edited.
             with_tests: true,

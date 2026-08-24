@@ -137,6 +137,16 @@ pub struct Block {
     /// document showing an `effect` declaration is showing a platform module,
     /// and one showing a `test` is showing a test source.
     pub role: Option<Role>,
+    /// The output's platform this block is checked against, when the block is
+    /// *about* what a platform grants.
+    ///
+    /// `None` — the default, and every block but one — grants the whole host,
+    /// because a snippet builds no output and a document about `core/fs` must
+    /// not fail because the harness picked a platform without a filesystem.
+    /// Writing `platform=JS` is how a document says "and this is what does not
+    /// compile there", which is the only way an error page for
+    /// `host-not-granted` can carry a program that provokes it.
+    pub platform: Option<crate::build::buildfile::Platform>,
     /// The text to compile: hidden `# ` markers removed, `// ERROR:` lines
     /// blanked (they are compiled separately).
     pub source: String,
@@ -414,6 +424,31 @@ fn parse_block(
             ));
         }
     }
+    // `platform=` names one of the closed enum's values. An unknown one is a
+    // mistake in the document rather than a silent fall back to "grant
+    // everything", which is the answer that would make the block pass while
+    // proving nothing.
+    let platform = match info.get("platform") {
+        None => None,
+        Some(name) => match crate::build::buildfile::Platform::parse(name) {
+            Some(p) => Some(p),
+            None => {
+                return Err(fail(
+                    format!("`{name}` is not a platform"),
+                    &format!(
+                        "the platforms are {}",
+                        crate::build::buildfile::Platform::names_phrase()
+                    ),
+                ))
+            }
+        },
+    };
+    if platform.is_some() && mode == "ignore" {
+        return Err(fail(
+            "`platform=` says nothing in an `ignore` block".into(),
+            "nothing is compiled there, so nothing is checked against a platform",
+        ));
+    }
 
     Ok(Block {
         claim,
@@ -424,6 +459,7 @@ fn parse_block(
         repo,
         pkg,
         role,
+        platform,
         source,
         original,
         origin: origin.clone(),
@@ -721,8 +757,16 @@ pub fn run_block_in(
         Err(f) => return vec![f],
     };
     let name = format!("{}", block.origin);
-    let analysis =
-        driver::analyze_snippet_as(ws, pkg, map, cache, &name, &base.text, base.role);
+    let analysis = driver::analyze_snippet_on(
+        ws,
+        pkg,
+        map,
+        cache,
+        &name,
+        &base.text,
+        base.role,
+        block.platform,
+    );
     let diags: Vec<String> = analysis
         .diags
         .items
@@ -803,8 +847,16 @@ pub fn run_block_in(
                 continue;
             }
         };
-        let a =
-            driver::analyze_snippet_as(ws, pkg, map, cache, &name, &variant.text, variant.role);
+        let a = driver::analyze_snippet_on(
+            ws,
+            pkg,
+            map,
+            cache,
+            &name,
+            &variant.text,
+            variant.role,
+            block.platform,
+        );
         let got: Vec<String> = a
             .diags
             .items

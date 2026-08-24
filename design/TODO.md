@@ -47,10 +47,19 @@ holds what it holds, and what the deliberate absences would cost to close.
   the example's `REPO.buri` and carried by no target, so that whole path is
   unexercised.
 
-- **`main.buri` is the only module that may import `core/host`, and its context
-  is checked against each output's platform — untested.** A `main` binding
-  `Fs: host.fs` under `platform: JS` must be an unresolved name at the entry
-  point.
+- **A page's vocabulary has no per-target subsetting.** A style or widget with
+  no meaning on some target — hover in an email — degrades in the backend and
+  says nothing at compile time. `design/ui-reactivity.md` §Targets leaves this
+  open deliberately; it wants a real second UI platform before it is worth the
+  machinery.
+
+- **The non-UI half of the host grant is the same on every non-`WEB` platform.**
+  `LINUX`, `MACOS` and `JS` all grant `fs`, `net`, `stdin`, `env` and `proc`,
+  which is right for the first two and generous for the third: a `.mjs` run
+  under `bun` does have all five, but the table cannot say that a platform
+  *without* an operating system is different from one with a different one. The
+  mechanism is there — `standard_library::HOST_GRANTS` — so this is a table
+  edit and a reject case when a platform earns it, not new machinery.
 
 - **The corpus reformat has not been run.** The formatter is ready and proved:
   `corpus::formatting_the_corpus_preserves_what_it_means` formats the whole

@@ -367,7 +367,8 @@ impl Workspace {
         for target in ws.targets() {
             let unit = crate::compiler::modules::Unit {
                 target: Some(target),
-                platform: crate::compiler::driver::host_platform(),
+                // A reference page is not an output. See `Unit::platform`.
+                platform: None,
                 with_tests: false,
             };
             let analysis =

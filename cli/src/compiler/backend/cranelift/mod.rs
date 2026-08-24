@@ -352,7 +352,7 @@ fn triple_of(target: crate::compiler::backend::Target) -> Result<target_lexicon:
     let text = match target.platform {
         Platform::Macos => format!("{arch}-apple-darwin"),
         Platform::Linux => format!("{arch}-unknown-linux-gnu"),
-        Platform::Js => {
+        Platform::Js | Platform::Web => {
             return Err(String::from("the Cranelift backend does not target JavaScript"))
         }
     };

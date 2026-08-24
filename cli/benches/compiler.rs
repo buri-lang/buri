@@ -393,7 +393,9 @@ fn parse_target(name: &str) -> Option<Target> {
 
 fn target_name(t: Target) -> String {
     let platform = match t.platform {
+        // Neither carries an arch, so neither has a second half to name.
         Platform::Js => return "js".to_string(),
+        Platform::Web => return "web".to_string(),
         Platform::Macos => "macos",
         Platform::Linux => "linux",
     };
@@ -1481,7 +1483,7 @@ fn do_record(args: &Args, name: &str, seed: u64, pinned: bool) {
     }
     // A pin taken with `--targets=js` records a corpus the scale tier measures
     // through the JavaScript backend only.
-    let native = args.targets.iter().any(|t| t.platform != Platform::Js);
+    let native = args.targets.iter().any(|t| t.platform.is_native());
     let written = if pinned {
         corpus::pin(&root, name, &profile_name, &params, &program, native)
     } else {

@@ -1057,28 +1057,79 @@ fn digest(text: &str) -> String {
 // Walking
 // ---------------------------------------------------------------------------
 
-/// The classes an expression's already-extracted styles name.
+/// What a walk over the functions a program kept found out about its styles.
+#[derive(Default)]
+pub struct Reached {
+    /// The classes the program's already-extracted styles name, so that the
+    /// stylesheet holds the rules a program reaches and no others.
+    pub classes: HashSet<String>,
+    /// Whether any style in the program can reach the **inline tier** — the
+    /// run-time lowering of one property to a `style=` declaration, which the
+    /// runtime spells `$tree_declare` and which is 3.5 KB of an artifact.
+    ///
+    /// True for a `Computed`, whose list is built per run and so cannot be
+    /// extracted, and for any bare property left standing: extraction rewrites
+    /// a style it could evaluate *in place* into an `Extracted`, so a property
+    /// variant that survives to here is one the compiler could not fold and
+    /// which degrades to inline rather than failing.
+    ///
+    /// An over-approximation is safe and an under-approximation is not, so the
+    /// question is asked of the tags rather than of what a tag might hold: a
+    /// property inside a `Computed`'s closure is one of these too, and counting
+    /// it twice costs nothing. Complete because a `Style` has no constructor
+    /// but an enum literal — a value reaching a `Computed` from anywhere at all
+    /// was written down somewhere in the program.
+    pub inline: bool,
+}
+
+/// The styles an expression names, gathered for [`Reached`].
 ///
-/// Read after monomorphization, over the functions a program actually kept, so
-/// that the stylesheet holds the rules a program reaches and no others.
-pub fn collect_classes(
-    e: &mut typed::Expr,
-    style_con: TyConId,
-    out: &mut HashSet<String>,
-) {
+/// Read after monomorphization, over the functions a program actually kept.
+pub fn collect(e: &mut typed::Expr, style_con: TyConId, out: &mut Reached) {
     if let ExprKind::EnumLit { con, variant, args, .. } = &e.kind {
-        if *con == style_con && *variant == STYLE_EXTRACTED {
-            if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = args.first() {
-                for item in items {
-                    let ExprKind::Tuple(pair) = &item.kind else { continue };
-                    if let Some(typed::Expr { kind: ExprKind::Str(class), .. }) = pair.get(1) {
-                        out.insert(class.clone());
+        if *con == style_con {
+            match *variant {
+                STYLE_EXTRACTED => {
+                    if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = args.first() {
+                        for item in items {
+                            let ExprKind::Tuple(pair) = &item.kind else { continue };
+                            if let Some(typed::Expr { kind: ExprKind::Str(class), .. }) =
+                                pair.get(1)
+                            {
+                                out.classes.insert(class.clone());
+                            }
+                        }
                     }
                 }
+                // `Group` is transparent and `When` holds two lists that were
+                // extracted like any other; neither is a property of its own.
+                // `On` and `At` exist only in the stylesheet — one that reached
+                // the runtime aborts there — so they are not the inline tier
+                // either, and the checker has already refused the shapes that
+                // could produce one.
+                STYLE_GROUP | STYLE_WHEN | STYLE_ON | STYLE_AT => {}
+                _ => out.inline = true,
             }
         }
     }
-    children_mut(e, &mut |child| collect_classes(child, style_con, out));
+    children_mut(e, &mut |child| collect(child, style_con, out));
+}
+
+/// Whether an expression builds a `ui/theme` `Theme`.
+///
+/// The same question as [`Reached::inline`] and asked the same way: a `Theme`
+/// is an opaque enum with two variants and no constructor but a literal of one
+/// of them, both of which are written inside `themed` and `switching`. A
+/// program that monomorphized neither can hand `mount` nothing but an empty
+/// list, and the whole theme half of the runtime — resolution, rendering, the
+/// `:root` block, the switch's computation — is unreachable.
+pub fn builds_a_theme(e: &mut typed::Expr, theme_con: TyConId) -> bool {
+    if matches!(&e.kind, ExprKind::EnumLit { con, .. } if *con == theme_con) {
+        return true;
+    }
+    let mut found = false;
+    children_mut(e, &mut |child| found |= builds_a_theme(child, theme_con));
+    found
 }
 
 /// Every sub-expression of one expression, by mutable reference.

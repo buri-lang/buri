@@ -1,7 +1,7 @@
 error: a lambda may not capture `ctx`, which carries an effect [lambda-captures-effect]
-  --> cmd/ui_lambda_captures_ui_context/main.buri:14:3
+  --> cmd/ui_lambda_captures_ui_context/main.buri:15:3
    |
-14 |   fn(by) => n.update(ctx, fn(v) => v + by)
+15 |   fn(by) => n.update(ctx, fn(v) => v + by)
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a lambda that could close over authority would make the capture rule meaningless

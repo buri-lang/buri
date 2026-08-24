@@ -7,6 +7,7 @@
 // is no answer to choose between them, so the runtime refuses at the point it
 // happens and names the key (SPEC 6.10).
 from "core/effect" import { Alloc, Stdout };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;

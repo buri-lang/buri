@@ -186,7 +186,11 @@ fn crashing_programs_crash() {
         let text = std::fs::read_to_string(path).unwrap();
         let expect = require_annotation(&text, "// CRASH:", &name);
         scratch.binary_package(&format!("cmd/{name}"), &text);
-        cases.push((name, expect));
+        // A case that binds a UI effect declares `// PLATFORM: WEB`, so its
+        // artifact lands under a different roof. It still crashes under the
+        // JavaScript runtime: a page runs headlessly here, and an abort is an
+        // abort wherever the document came from.
+        cases.push((name, expect, output_dir_for(&text)));
     }
 
     // These must compile: a crash is a runtime claim, and a program that does
@@ -194,8 +198,8 @@ fn crashing_programs_crash() {
     scratch.run(&["build", "//..."]).ok();
 
     let mut failures = Vec::new();
-    for (name, expect) in &cases {
-        let run = scratch.exec_js(&format!("cmd/{name}"));
+    for (name, expect, out_dir) in &cases {
+        let run = scratch.exec_js_in(out_dir, &format!("cmd/{name}"));
         if run.code == 0 {
             failures.push(format!("{name}: exited 0, but should have crashed"));
         } else if !run.stderr.contains(expect.as_str()) {
@@ -241,6 +245,63 @@ fn monorepo_binaries_produce_their_golden_output() {
         "//cmd/web printed something other than its transcript"
     );
     eprintln!("golden: //cmd/web matched its transcript");
+}
+
+/// The worked monorepo's page, built as the three files a WEB output is.
+///
+/// `//cmd/basket` is the example repository's application: a keyed list, a
+/// form, both style tiers, a design-token vocabulary in one package themed by
+/// another, and a request that answers through a callback. This is the test
+/// that it is a *build artifact* and not only a program that checks — a page
+/// with no stylesheet beside it, or with a stale one, is a page that does not
+/// look like itself.
+///
+/// The three claims here are the three that no `.buri` suite can make, because
+/// each is about what the build wrote rather than about what the program means.
+#[test]
+fn the_monorepo_page_builds_as_a_web_artifact() {
+    let example = Scratch::copy_of("basket-web", &example_repo());
+
+    example.run(&["build", "//cmd/basket", "--force"]).ok();
+
+    // `--check-reproducible` builds twice, into two directories of its own, and
+    // compares *every file each output wrote* by name. That is what covers a
+    // companion artifact: a `.css` present in one round and not the other is
+    // its own failure rather than a difference nobody looked for.
+    example.run(&["build", "//cmd/basket", "--check-reproducible", "--force"]).ok();
+
+    let module = example.artifact_in("web", "cmd/basket");
+    let dir = module.parent().unwrap();
+    let sheet = std::fs::read_to_string(dir.join("basket.css")).expect("the stylesheet is written");
+    let shell = std::fs::read_to_string(dir.join("basket.html")).expect("the shell is written");
+
+    // The shell is what makes "loadable in a browser" mean something. The link
+    // carries the id the runtime's own installer looks for, so the rules are in
+    // the page before the first paint and `mount` finds them there and does
+    // nothing — no duplication and no flash of unstyled content.
+    assert!(shell.contains(r#"<link id="buri-styles" rel="stylesheet" href="basket.css">"#));
+    assert!(shell.contains(r#"<script type="module" src="./basket.mjs"></script>"#));
+
+    // Two packages' tokens, each namespaced by the package that owns it, so a
+    // library's `surface` and an app's could never collide.
+    assert!(sheet.contains("var(--kit-surface)"), "the library's token is not in the sheet");
+    assert!(sheet.contains("var(--basket-bg)"), "the app's token is not in the sheet");
+    // Hover is a pseudo-class and a breakpoint is a media query: both exist
+    // only in the static tier, and neither costs anything at run time.
+    assert!(sheet.contains(":hover"), "hover did not reach the sheet");
+    assert!(sheet.contains("@media (min-width:"), "a breakpoint did not reach the sheet");
+    // And the computed tier is deliberately not there. The meter's width is
+    // serialised onto its element; there is no class for "however wide it is".
+    assert!(!sheet.contains("width: "), "an inline-tier value leaked into the sheet:\n{sheet}");
+
+    // A page runs headlessly: there is no document, so the runtime supplies
+    // one. It mounts, registers its listeners, and has nothing to say — the
+    // budget in `main.buri` does not include `Stdout`, and could not print if
+    // it wanted to.
+    let run = example.exec_js_in("web", "cmd/basket");
+    run.ok();
+    assert_eq!("", run.stdout, "a mounted page has nothing to say on the way out");
+    eprintln!("web: //cmd/basket built as .mjs + .css + .html, reproducibly");
 }
 
 /// The same artifact has to behave identically on an engine without native

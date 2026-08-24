@@ -21,6 +21,7 @@
 //
 // What it prints is one line. A mounted page has nothing to say on the way out.
 from "core/effect" import { Alloc, Stdout };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Scope, Ui, Watch };

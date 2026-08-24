@@ -6,6 +6,7 @@
 // effect budget and can be called from anywhere, including from inside a
 // reactive computation that was handed read authority and nothing else.
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/signal" import { Signal, signal };

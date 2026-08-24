@@ -158,9 +158,41 @@ pub fn analyze_snippet_as(
     text: &str,
     role: crate::compiler::modules::Role,
 ) -> Analysis {
+    analyze_snippet_on(ws, pkg, map, cache, name, text, role, None)
+}
+
+/// The same, checked against one platform's host grant.
+///
+/// A snippet has no output, so by default it is checked with the whole host
+/// granted — a document about `core/fs` must not fail because the harness
+/// picked a platform with no filesystem. A document *about* the grant needs the
+/// opposite, and says so with `platform=` on its fence: that is what lets the
+/// error page for `host-not-granted` carry a program that actually provokes it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the eighth is the platform, and the other seven are `analyze_snippet_as`'s \
+              already. Bundling them into a struct would give every caller a builder to \
+              fill in for the one field it varies, and the seven are what a snippet *is*: \
+              where it stands, what it is called, what it says, and what it is compiled as."
+)]
+pub fn analyze_snippet_on(
+    ws: Option<&Workspace>,
+    pkg: Option<crate::build::workspace::PkgId>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    name: &str,
+    text: &str,
+    role: crate::compiler::modules::Role,
+    platform: Option<Platform>,
+) -> Analysis {
     let mut diags = Diagnostics::new();
     let loaded = {
         let mut loader = Loader::new(ws, map, &mut diags, cache);
+        loader.load_unit(&crate::compiler::modules::Unit {
+            target: None,
+            platform,
+            with_tests: false,
+        });
         loader.load_all_std();
         loader.load_source_in(name, role, text.to_string(), pkg);
         loader.finish()

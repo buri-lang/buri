@@ -92,7 +92,14 @@ Contexts (Section 11.3):
 33. Each binding's left side names a declared effect, bound at most once across
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
-34. `"core/host"` is importable only from the module that exports `main`.
+34. `"core/host"` is importable only from the module that exports `main`, and
+    what it exports is **what the output's platform grants**. A platform is the
+    set of effects its host exports; a name it does not grant is not exported,
+    so binding one is an ordinary unresolved name at the line that asked
+    (`host-not-granted`). Both halves of a grant are withheld together — the
+    implementation struct as well as the value — so there is nothing left to
+    construct by name. The check is per output: the same `main` may compile for
+    one of a binary's outputs and not for another.
 
 Modules and tests:
 

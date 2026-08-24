@@ -236,8 +236,24 @@ binary {
 the signature [`SPEC.md` §11](./cli/src/docs/SPEC.md) requires: no parameters, returning
 `Result<(), Str>`. It is also the only module in the binary that may import
 `core/host`, and the context it builds there is checked against the platform for
-each output — a `main` binding `Fs: host.fs` under `platform: JS` is an
-unresolved name at the entry point, not a runtime failure in a browser.
+**each output**.
+
+A platform *is* the set of effects its host exports: a platform that does not
+grant one does not export the name for it, so asking for it is an ordinary
+unresolved name at the line that asked, reported as `host-not-granted`. A `main`
+binding `Ui: host.ui` under `platform: JS` does not compile, and neither does one
+binding `Net: host.net` under `platform: WEB` — a blocking request would freeze a
+page, so `WEB` grants `Fetch` instead. Both halves of a grant are withheld
+together, the implementation struct as well as the value, so there is nothing
+left to construct by name.
+
+What each platform grants:
+
+| Effect | LINUX | MACOS | JS | WEB |
+|---|---|---|---|---|
+| `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand` | yes | yes | yes | yes |
+| `Fs`, `Net`, `Stdin`, `Env`, `Proc` | yes | yes | yes | no |
+| `Ui`, `Watch`, `Fetch` | no | no | no | yes |
 
 `outputs` is a list because one entry point commonly ships several ways. Each
 entry names a platform, and the whole dependency graph is checked against it

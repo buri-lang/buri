@@ -1,7 +1,7 @@
 error: variant `Text` of `Node` is private to its module [private-to-module]
-  --> cmd/ui_node_variant_is_private/main.buri:14:3
+  --> cmd/ui_node_variant_is_private/main.buri:15:3
    |
-14 |   .Text(.Const("hello"))
+15 |   .Text(.Const("hello"))
    |   ^^^^^
    |
    = fix: add `export` to `Text`, or build the value through a function `Node`'s module provides

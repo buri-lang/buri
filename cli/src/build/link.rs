@@ -445,7 +445,11 @@ fn choose(platform: Platform) -> Flavour {
         // was archived in November 2024 with its author recommending Apple's
         // linker instead.
         Platform::Macos => &[Flavour::Lld],
-        _ => &[Flavour::Mold, Flavour::Lld],
+        Platform::Linux => &[Flavour::Mold, Flavour::Lld],
+        // Exhaustive rather than a catch-all, which would have handed a WEB
+        // target a native linker to probe for. A JavaScript artifact is not
+        // linked; nothing reaches this with one, and now nothing can.
+        Platform::Js | Platform::Web => &[],
     };
     match forced.as_str() {
         "cc" | "system" => return Flavour::System,
@@ -935,7 +939,11 @@ mod tests {
     /// object file for the wrong machine.
     #[test]
     fn only_the_host_is_linkable() {
+        // Neither JavaScript platform is linked at all, and `Web` is the one
+        // that could plausibly have been mistaken for a native target by a
+        // predicate spelled `!= Js`.
         assert!(!can_link(Target { platform: Platform::Js, arch: None }));
+        assert!(!can_link(Target { platform: Platform::Web, arch: None }));
         let Some(host) = host_platform() else { return };
         assert!(can_link(Target { platform: host, arch: None }));
         assert!(can_link(Target { platform: host, arch: host_arch() }));

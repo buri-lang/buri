@@ -355,7 +355,9 @@ fn derive_dependencies(
         let target = crate::build::workspace::TargetId { pkg, kind };
         let unit = crate::compiler::modules::Unit {
             target: Some(target),
-            platform: crate::build::buildfile::Platform::Js,
+            // Regeneration reads a target's imports; it builds nothing. See
+            // `Unit::platform`.
+            platform: None,
             with_tests: true,
         };
         let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);

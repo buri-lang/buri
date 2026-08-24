@@ -5,6 +5,7 @@
 // lives, rather than being open to whoever imports the type. A program that
 // could build its own variant could build one no backend has a lowering for.
 from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;

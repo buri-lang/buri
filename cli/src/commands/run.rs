@@ -53,7 +53,11 @@ pub fn cmd_run(args: &arguments::Args) -> i32 {
         );
         return 2;
     };
-    let native = output.platform() != crate::build::buildfile::Platform::Js;
+    // What follows this asks whether the artifact is a process or a module a
+    // JavaScript runtime is handed, and a WEB artifact is the latter: it runs
+    // headlessly under `bun` and `node`, which is what makes `buri run` on a
+    // page mean something rather than being refused.
+    let native = output.platform().is_native();
 
     let artifact = match actions::build_target(&mut s, target, &output, &args.flags) {
         Ok(a) => a,
@@ -113,7 +117,10 @@ fn choose(
     outputs
         .iter()
         .find(|o| o.platform() == host && runnable(o))
-        .or_else(|| outputs.iter().find(|o| o.platform() == crate::build::buildfile::Platform::Js))
+        // Any JavaScript output is runnable here, `WEB` included: the runtime
+        // supplies a document where there is none, so a page runs to its first
+        // paint and prints whatever `main` printed.
+        .or_else(|| outputs.iter().find(|o| o.platform().is_javascript()))
         // A target that declares only an output this toolchain cannot produce
         // is built anyway, so that the refusal is the build's — which names the
         // platform, the backend and the feature — rather than a sentence this

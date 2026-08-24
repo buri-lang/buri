@@ -67,8 +67,8 @@ quietly means nothing. So `internal` declared twice is rejected rather than
 meaning whichever was parsed first, and `internal` declared nowhere is rejected
 rather than turning a typo into an unchecked build.
 
-`Platform` is a closed enum in the schema — `LINUX`, `MACOS`, `JS` — and `Arch`
-likewise. Adding one is a compiler change, not a configuration change, so there
+`Platform` is a closed enum in the schema — `LINUX`, `MACOS`, `JS`, `WEB` — and
+`Arch` likewise. Adding one is a compiler change, not a configuration change, so there
 is nothing to declare here. A repository that does not ship to JS does not need
 to say so: with no library or tag naming a platform, nothing constrains anything,
 and a JS build is only attempted if some binary lists a JS output.

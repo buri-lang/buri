@@ -38,6 +38,13 @@ pub enum Platform {
     Linux,
     Macos,
     Js,
+    /// A page in a browser. The artifact is JavaScript, so it is built by the
+    /// same backend `Js` is, but it is a different *platform* because a
+    /// platform is the set of effects its host exports: `Web` grants the
+    /// reactive graph and the non-blocking request shape, and grants no
+    /// filesystem, no socket, no standard input, no environment and no
+    /// process to exit.
+    Web,
 }
 
 impl Platform {
@@ -46,6 +53,7 @@ impl Platform {
             "LINUX" => Platform::Linux,
             "MACOS" => Platform::Macos,
             "JS" => Platform::Js,
+            "WEB" => Platform::Web,
             _ => return None,
         })
     }
@@ -56,6 +64,7 @@ impl Platform {
             Platform::Linux => "linux",
             Platform::Macos => "macos",
             Platform::Js => "js",
+            Platform::Web => "web",
         }
     }
 
@@ -64,10 +73,47 @@ impl Platform {
             Platform::Linux => "LINUX",
             Platform::Macos => "MACOS",
             Platform::Js => "JS",
+            Platform::Web => "WEB",
         }
     }
 
-    pub const ALL: [Platform; 3] = [Platform::Linux, Platform::Macos, Platform::Js];
+    /// Whether this platform's artifact is JavaScript.
+    ///
+    /// **This is the question almost every `platform` test in the toolchain is
+    /// really asking**, and it used to be spelled `!= Platform::Js` back when
+    /// there was one JavaScript platform and the two questions could not come
+    /// apart. They can now: a `Web` artifact is emitted by the `js` backend,
+    /// is written as an `.mjs`, runs no native linker and needs no runtime
+    /// archive — so every site that meant "not native" must ask this rather
+    /// than compare against one variant.
+    pub fn is_javascript(self) -> bool {
+        matches!(self, Platform::Js | Platform::Web)
+    }
+
+    /// Whether this platform is built by a native backend, linked, and run as
+    /// a process. The complement of [`Platform::is_javascript`], written out
+    /// so that a reader of a call site does not have to negate anything.
+    pub fn is_native(self) -> bool {
+        !self.is_javascript()
+    }
+
+    pub const ALL: [Platform; 4] =
+        [Platform::Linux, Platform::Macos, Platform::Js, Platform::Web];
+
+    /// Every platform's schema spelling, in declaration order.
+    ///
+    /// Derived from [`Platform::ALL`] rather than written out beside it, so
+    /// that adding a variant cannot leave a diagnostic naming three platforms
+    /// when there are four. Three diagnostics offer this list and all three
+    /// read it from here.
+    pub fn proto_names() -> Vec<&'static str> {
+        Platform::ALL.iter().map(|p| p.proto()).collect()
+    }
+
+    /// `LINUX, MACOS, JS, WEB` — the list as a diagnostic writes it.
+    pub fn names_phrase() -> String {
+        Platform::proto_names().join(", ")
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
@@ -136,6 +182,11 @@ impl NativePlatform {
 pub enum OutputTarget {
     Native { platform: NativePlatform, arch: Option<Sp<Arch>> },
     Js { module: JsModule },
+    /// A browser page. It carries neither an `arch` nor a module kind: a
+    /// machine architecture is meaningless for JavaScript, and a browser
+    /// loads an ES module — there is no `<script type="commonjs">` — so the
+    /// one field `Js` has would have exactly one legal value here.
+    Web,
 }
 
 /// One entry of a binary's `outputs`.
@@ -166,6 +217,7 @@ impl Output {
             Platform::Macos => {
                 OutputTarget::Native { platform: NativePlatform::Macos, arch: None }
             }
+            Platform::Web => OutputTarget::Web,
         };
         Output { target, artifact_name: None, span }
     }
@@ -174,20 +226,22 @@ impl Output {
         match &self.target {
             OutputTarget::Native { platform, .. } => platform.platform(),
             OutputTarget::Js { .. } => Platform::Js,
+            OutputTarget::Web => Platform::Web,
         }
     }
 
     pub fn arch(&self) -> Option<Arch> {
         match &self.target {
             OutputTarget::Native { arch, .. } => arch.as_ref().map(|a| a.value),
-            OutputTarget::Js { .. } => None,
+            OutputTarget::Js { .. } | OutputTarget::Web => None,
         }
     }
 
-    /// `linux-x86_64`, `js` — the directory under `.buri/out/`.
+    /// `linux-x86_64`, `js`, `web` — the directory under `.buri/out/`.
     pub fn dir(&self) -> String {
         match &self.target {
             OutputTarget::Js { .. } => "js".to_string(),
+            OutputTarget::Web => "web".to_string(),
             OutputTarget::Native { platform, arch: Some(a) } => {
                 format!("{}-{}", platform.platform().slug(), a.value.slug())
             }
@@ -388,10 +442,13 @@ impl Reader {
                         None => {
                             let mut d =
                                 Diagnostic::error(*sp, format!("`{s}` is not a platform"));
-                            let known = ["LINUX", "MACOS", "JS"];
+                            let known = Platform::proto_names();
                             d = match nearest(s, &known) {
                                 Some(n) => d.with_fix(format!("did you mean `{n}`?")),
-                                None => d.with_fix("the platforms are LINUX, MACOS, JS"),
+                                None => d.with_fix(format!(
+                                    "the platforms are {}",
+                                    Platform::names_phrase()
+                                )),
                             };
                             // `Platform` is a closed enum in the schema. Adding
                             // one is a compiler change, not a configuration
@@ -489,7 +546,7 @@ impl Reader {
                             self.err(
                                 *sp,
                                 format!("`{s}` is not a platform"),
-                                "the platforms are LINUX, MACOS, JS",
+                                format!("the platforms are {}", Platform::names_phrase()),
                             );
                             None
                         }
@@ -498,7 +555,7 @@ impl Reader {
                         self.err(
                             other.span(),
                             "`platform` names a platform",
-                            "write a bare word: LINUX, MACOS, or JS",
+                            format!("write a bare word: {}", Platform::names_phrase()),
                         );
                         None
                     }
@@ -527,7 +584,9 @@ impl Reader {
 
                 let artifact_name = self.string(m, "artifact_name");
                 let mut js_module = JsModule::Esm;
-                if let Some((jm, _)) = self.sub_msg(m, "js") {
+                let mut js_block: Option<Span> = None;
+                if let Some((jm, js_span)) = self.sub_msg(m, "js") {
+                    js_block = Some(js_span);
                     self.check_known(jm, &["module"], "a `js` block");
                     if let Some(mf) = jm.get("module") {
                         match &mf.value {
@@ -556,7 +615,7 @@ impl Reader {
                     self.err(
                         *span,
                         "an output must name a platform",
-                        "add `platform: LINUX`, `MACOS`, or `JS`",
+                        "add `platform: LINUX`, `MACOS`, `JS`, or `WEB`",
                     );
                     continue;
                 };
@@ -577,6 +636,31 @@ impl Reader {
                     }
                     Platform::Macos => {
                         OutputTarget::Native { platform: NativePlatform::Macos, arch }
+                    }
+                    Platform::Web => {
+                        // The same two refusals as JS, and one more. An `arch`
+                        // is meaningless for JavaScript; a `js { module }` is
+                        // meaningless for a page, because a browser loads an
+                        // ES module and there is no other kind of script tag
+                        // to put a CommonJS artifact in. Saying so here is
+                        // what keeps a field the rest of the toolchain then
+                        // ignores from being writable.
+                        if let Some(a) = &arch {
+                            self.errors.push(
+                                Diagnostic::error(a.span, "a WEB output has no architecture")
+                                    .with_fix("remove `arch`; a page is not built per machine"),
+                            );
+                        }
+                        if let Some(js_span) = js_block {
+                            self.errors.push(
+                                Diagnostic::error(js_span, "a WEB output has no `js` block")
+                                    .with_fix(
+                                        "remove it; a page is always an ES module, which is what \
+                                         a browser's `<script type=\"module\">` loads",
+                                    ),
+                            );
+                        }
+                        OutputTarget::Web
                     }
                 };
                 out.push(Output { target, artifact_name, span: *span });
@@ -840,6 +924,50 @@ library {
         assert_eq!(b.outputs.len(), 2);
         assert_eq!(b.outputs[0].dir(), "linux-x86_64");
         assert_eq!(b.outputs[1].dir(), "js");
+    }
+
+    /// Every platform round-trips through its schema spelling, and the two
+    /// questions a call site can ask about one partition it.
+    ///
+    /// The second half is the whole reason `is_javascript` exists: `!= Js` was
+    /// a correct spelling of "native" only while there was one JavaScript
+    /// platform, and a variant that answered neither question — or both —
+    /// would make every site that asks one of them wrong in silence.
+    #[test]
+    fn the_platform_enum_is_total() {
+        for p in Platform::ALL {
+            assert_eq!(Platform::parse(p.proto()), Some(p), "`{}` does not round-trip", p.proto());
+            assert!(!p.slug().is_empty());
+            assert_ne!(
+                p.is_javascript(),
+                p.is_native(),
+                "`{}` is neither a JavaScript platform nor a native one, or is both",
+                p.proto()
+            );
+        }
+        assert!(Platform::Web.is_javascript());
+        assert!(!Platform::Web.is_native());
+        assert_eq!(Platform::names_phrase(), "LINUX, MACOS, JS, WEB");
+    }
+
+    /// A WEB output carries neither field a JS output can, and both refusals
+    /// name the reason rather than dropping the value silently.
+    #[test]
+    fn a_web_output_has_no_arch_and_no_module_kind() {
+        let src = "binary {\n  outputs: [\n    { platform: WEB },\n  ]\n}\n";
+        let r = read_build_file(src, FileId(0));
+        assert!(r.errors.is_empty(), "{:#?}", r.errors);
+        let b = r.value.binary.unwrap();
+        assert_eq!(b.outputs[0].dir(), "web");
+        assert_eq!(b.outputs[0].platform(), Platform::Web);
+        assert_eq!(b.outputs[0].arch(), None);
+        assert!(b.outputs[0].matches_selector("web"));
+
+        let src = "binary {\n  outputs: [{ platform: WEB  arch: ARM64  js { module: CJS } }]\n}\n";
+        let r = read_build_file(src, FileId(0));
+        assert_eq!(r.errors.len(), 2, "{:#?}", r.errors);
+        assert!(r.errors.iter().any(|e| e.message.contains("no architecture")));
+        assert!(r.errors.iter().any(|e| e.message.contains("no `js` block")));
     }
 
     #[test]

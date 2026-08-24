@@ -209,6 +209,34 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         }));
     }
 
+    // The two halves of the user-interface runtime that nothing in the program
+    // *names*, filled in here or left out entirely.
+    //
+    // Both are reached through a hole in `runtime.js` rather than by name, and
+    // the assignment below is the only thing that ever fills one. A statement
+    // that is not a declaration is a dead-code root, so the assignment is what
+    // keeps the machinery alive — and its absence is what lets `eliminate_dead`
+    // take the machinery out. The alternative is what was there before: a call
+    // by name, which dead-code elimination cannot argue with, so a program
+    // whose styles are all static shipped the 3.5 KB inline lowering and one
+    // with no design tokens shipped the 1.7 KB of theme resolution.
+    //
+    // Asked of the program rather than of the platform: a `JS` test binary
+    // rendering a headless tree is as much a user interface as a `WEB` output,
+    // and a `WEB` output with no computed style is as free of the tier as any
+    // other program.
+    for (flag, hole, filling) in [
+        (program.inline_styles, "$tree_declare_hook", "$tree_declare"),
+        (program.themes, "$ui_theme_hook", "$ui_theme_install"),
+    ] {
+        if flag {
+            stmts.push(Stmt::Expr(Expr::Assign {
+                target: Box::new(Expr::ident(hole)),
+                value: Box::new(Expr::ident(filling)),
+            }));
+        }
+    }
+
     // Type descriptors, for the structural operations `derive` stands for.
     // Declared empty first and filled afterwards, because a recursive type's
     // descriptor names itself and a mutually recursive pair names each other.

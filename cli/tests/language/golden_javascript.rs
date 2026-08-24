@@ -169,11 +169,17 @@ fn generated_javascript_matches_its_record() {
 
         let scratch = Scratch::repo(&format!("golden-js-{name}"));
         scratch.binary_package("cmd/x", &source);
+        // A case that binds a UI effect declares `// PLATFORM: WEB`, and its
+        // artifact lands under `.buri/out/web/`. Everything recorded below is
+        // the same recording either way: the module a page loads and the module
+        // a script loads are the same bytes, and it is the *host grant* the two
+        // platforms differ in.
+        let out_dir = output_dir_for(&source);
 
         // Debug first: it is what `expected.mjs` records, and unmangled names
         // are what make the diff readable.
         scratch.run(&["build", "//cmd/x", "--force"]).ok();
-        let debug = std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap();
+        let debug = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
         let generated = program_only(&debug);
         g.check(
             &case.join("expected.mjs"),
@@ -200,12 +206,12 @@ fn generated_javascript_matches_its_record() {
             g.check(&css, &format!("golden_javascript/{name}/expected.css"), &sheet);
         }
 
-        let debug_out = scratch.exec_js("cmd/x");
+        let debug_out = scratch.exec_js_in(out_dir, "cmd/x");
         debug_out.ok();
 
         scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
-        let release = std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap();
-        let release_out = scratch.exec_js("cmd/x");
+        let release = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
+        let release_out = scratch.exec_js_in(out_dir, "cmd/x");
         release_out.ok();
 
         // Per case, what `release_and_debug_agree` asserts for the suite as a

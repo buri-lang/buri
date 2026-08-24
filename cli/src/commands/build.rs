@@ -82,11 +82,19 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
         // what `buri build //lib/money` means.
         if target.kind == RuleKind::Library {
             let mut diags = crate::diagnostics::Diagnostics::new();
+            // A library declares no outputs, so there is no platform this is
+            // *for*; `Js` is the toolchain's default and is what this asked
+            // before there was a fourth platform to pick wrongly. The only
+            // thing it decides is a tag's `requires { platforms }`, which a
+            // library is asked about again — per output — by every binary that
+            // depends on it.
             actions::check_policy(&s, target, crate::build::buildfile::Platform::Js, &mut diags);
             if !diags.has_errors() {
                 let unit = crate::compiler::modules::Unit {
                     target: Some(target),
-                    platform: crate::build::buildfile::Platform::Js,
+                    // A library is checked, not built for an output, and it
+                    // cannot import `core/host` at all. See `Unit::platform`.
+                    platform: None,
                     with_tests: false,
                 };
                 let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
@@ -166,7 +174,7 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
 
     for entry in plan {
         let Entry { label, path, pkg_path, artifact, platform, output } = entry;
-        if platform != crate::build::buildfile::Platform::Js {
+        if platform.is_native() {
             if !actions::native_ready(actions::target_of(&output), actions::profile_of(&flags)) {
                 eprintln!("error: the {} backend is not implemented", platform.slug());
                 eprintln!("  = this toolchain emits JavaScript; check `--output=js`");
@@ -181,7 +189,11 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                 Err(code) => return code,
             }
         }
-        let mut bytes: Vec<Vec<u8>> = Vec::new();
+        // Every file the output writes, named, not just the module: a WEB
+        // output is a page, a stylesheet and a module, and "reproducible" has
+        // to mean all three or it means the interesting two thirds are
+        // unchecked.
+        let mut rounds: Vec<Vec<(String, Vec<u8>)>> = Vec::new();
         for round in ["a", "b"] {
             // Two directories, thrown away as soon as the bytes are read back.
             // Outside the repository, because a check must not double as a
@@ -207,9 +219,9 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                 return 2;
             };
             let mut diags = crate::diagnostics::Diagnostics::new();
-            let source = match actions::compile_artifact(&mut s, target, platform, &flags, &mut diags)
+            let compiled = match actions::compile_artifact(&mut s, target, platform, &flags, &mut diags)
             {
-                Ok(source) => source,
+                Ok(compiled) => compiled,
                 Err(diags) => {
                     s.print(&diags);
                     return 1;
@@ -219,46 +231,93 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             // different absolute paths, so that a path which leaked into an
             // artifact leaks differently in the two rounds.
             let written = round_dir.join(&pkg_path).join(&artifact);
-            let staged = written
-                .parent()
-                .map(std::fs::create_dir_all)
-                .unwrap_or(Ok(()))
-                .and_then(|()| std::fs::write(&written, source.as_bytes()))
-                .and_then(|()| std::fs::read(&written));
-            match staged {
-                Ok(read_back) => bytes.push(read_back),
-                Err(e) => {
-                    eprintln!("error: cannot write {}: {e}", written.display());
-                    return 2;
+            let mut files: Vec<(String, String)> =
+                vec![(artifact.clone(), compiled.module.clone())];
+            for (companion, text) in
+                actions::web_companions(&written, &output, &compiled.stylesheet)
+            {
+                let name = companion
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                files.push((name, text));
+            }
+            let mut staged: Vec<(String, Vec<u8>)> = Vec::new();
+            for (name, text) in files {
+                let at = written.with_file_name(&name);
+                let read_back = at
+                    .parent()
+                    .map(std::fs::create_dir_all)
+                    .unwrap_or(Ok(()))
+                    .and_then(|()| std::fs::write(&at, &text))
+                    .and_then(|()| std::fs::read(&at));
+                match read_back {
+                    Ok(b) => staged.push((name, b)),
+                    Err(e) => {
+                        eprintln!("error: cannot write {}: {e}", at.display());
+                        return 2;
+                    }
                 }
             }
+            rounds.push(staged);
             let _ = std::fs::remove_dir_all(&round_dir);
         }
 
         compared += 1;
-        // The loop above either pushes one artifact per round or returns, so
-        // there are exactly the two rounds' worth to compare.
-        let [round_a, round_b] = bytes.as_slice() else {
-            crate::ice!("each round of --check-reproducible pushes exactly one artifact")
+        // The loop above either pushes one round's files or returns, so there
+        // are exactly the two rounds' worth to compare.
+        let [round_a, round_b] = rounds.as_slice() else {
+            crate::ice!("each round of --check-reproducible pushes exactly one artifact set")
         };
-        match actions::first_difference(round_a, round_b) {
-            None => {
-                if args.flags.verbose {
-                    println!("{label} is reproducible ({} bytes)", round_a.len());
-                }
-            }
-            Some(at) => {
+        // A file present in one round and not the other is the same failure as
+        // a byte that moved, and it is the one a companion artifact can newly
+        // produce, so it is reported rather than skipped over.
+        if round_a.len() != round_b.len() {
+            differed = true;
+            eprintln!("error: {label} is not reproducible");
+            eprintln!(
+                "  = two builds of the same tree wrote {} files and {} files",
+                round_a.len(),
+                round_b.len()
+            );
+            continue;
+        }
+        let mut total = 0usize;
+        let mut moved = false;
+        for ((name_a, a), (name_b, b)) in round_a.iter().zip(round_b) {
+            total = total.saturating_add(a.len());
+            if name_a != name_b {
+                moved = true;
                 differed = true;
                 eprintln!("error: {label} is not reproducible");
                 eprintln!(
-                    "  = {} differs between two builds of the same tree, first at byte {at}",
-                    path
+                    "  = two builds of the same tree wrote `{name_a}` and `{name_b}`"
+                );
+                continue;
+            }
+            if let Some(at) = actions::first_difference(a, b) {
+                moved = true;
+                differed = true;
+                eprintln!("error: {label} is not reproducible");
+                // `path` names the module; a companion sits beside it, so the
+                // report names the sibling rather than the one file the plan
+                // happened to record.
+                let sibling = match path.rsplit_once('/') {
+                    Some((dir, _)) => format!("{dir}/{name_a}"),
+                    None => name_a.clone(),
+                };
+                eprintln!(
+                    "  = {sibling} differs between two builds of the same tree, first at \
+                     byte {at}"
                 );
                 eprintln!(
                     "  = an artifact that is not a function of its declared inputs cannot be \
                      cached safely; this is a toolchain bug, not a problem with your repository"
                 );
             }
+        }
+        if !moved && args.flags.verbose {
+            println!("{label} is reproducible ({total} bytes)");
         }
     }
 

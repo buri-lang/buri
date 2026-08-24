@@ -625,6 +625,8 @@ mod tests {
             ctx_layouts: Default::default(),
             shapes: Default::default(),
             stylesheet: String::new(),
+            inline_styles: false,
+            themes: false,
         }
     }
 
