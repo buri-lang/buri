@@ -38,15 +38,15 @@
 //! prints. Outside a test binary nothing is driving the process and that call
 //! is a load and a branch.
 //!
-//! ## What is missing, and who owns it
+//! ## What is missing
 //!
 //! CODEGEN-CRANELIFT.md §5 wants an abort to print a stack trace by walking the
 //! frame-pointer chain and resolving each return address against a
-//! `.buri_symbols` section. That section is emitted by the Cranelift backend
-//! from `ObjectProduct.functions`, so the walk cannot be written before the
-//! thing it reads exists. It is wave 2a's, and it is additive: it hangs off
-//! [`buri_rt_abort`] without changing the message or the status, so nothing
-//! pinned above moves when it lands.
+//! `.buri_symbols` section. That section would come from the Cranelift
+//! backend's `ObjectProduct.functions`, and the backend does not emit one yet,
+//! so the walk cannot be written before the thing it reads exists. It is
+//! additive when it arrives: it hangs off [`buri_rt_abort`] without changing
+//! the message or the status, so nothing pinned above moves.
 
 use crate::host::buri_rt_flush;
 use std::io::Write;

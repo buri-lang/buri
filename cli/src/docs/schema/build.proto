@@ -75,7 +75,7 @@ message Library {
   // Every entry must name a `tag` block in REPO.buri. An undeclared tag is an
   // error, never a no-op — a tag that silently means nothing is a policy that
   // silently is not enforced, and `tags: ["sever"]` should not be the quiet
-  // difference between a checked build and an unchecked one. See TAGS.md.
+  // difference between a checked build and an unchecked one. See `buri docs build/tags`.
   repeated string tags = 3;
 
   // The platforms this library can be built for. Unset means all of them, which
@@ -201,7 +201,7 @@ message TestSuite {
 
   // Files the test may read through the runner's in-memory `Fs`, rooted at the
   // package directory. Nothing else on disk is visible. `buri test --accept`
-  // rewrites these in the source tree; see HERMETICITY-AND-CACHING.md.
+  // rewrites these in the source tree; see `buri docs build/hermeticity`.
   repeated string data = 3;
 
   // Wall-clock ceiling per test declaration. Unset means the runner's built-in

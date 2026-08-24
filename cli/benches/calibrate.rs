@@ -21,7 +21,7 @@
 //!
 //! # The interpretation rule, written down before the numbers arrived
 //!
-//! Quoted verbatim from the wave-3 design (`flat-ast-design.md` §4, stage 0),
+//! Quoted verbatim from the design (`flat-ast-design.md` §4, stage 0),
 //! so that the reading of the result is not chosen after seeing it:
 //!
 //! > **The interpretation rule, written down before the numbers arrive:** if

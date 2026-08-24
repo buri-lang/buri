@@ -29,9 +29,10 @@ autobenches = false
 # build is still `cargo build -p buri --no-default-features`, and every one is a
 # code generator this repository could not reasonably write.
 #
-# Both blocks land in wave 2a even though only the first is 2a's code: two
-# agents editing one manifest is a merge conflict for no gain, and the versions
-# have to be chosen together anyway (design/native/BUILD-AND-WATCH.md §2, §7).
+# The two backend blocks below are chosen together rather than one at a time:
+# each carries its version into `Backend::identity()`'s cache keys, so a bump on
+# either side is an event to schedule against the other
+# (design/native/BUILD-AND-WATCH.md §2, §7).
 [dependencies]
 
 # -- backend-cranelift --------------------------------------------------------

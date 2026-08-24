@@ -1,4 +1,4 @@
-//! The value model, as a computed table. **Wave 1b.**
+//! The value model, as a computed table.
 //!
 //! Sizes, alignments, strides, field offsets, discriminant encodings and the
 //! two niches, computed once per type and memoised. It is in the middle end
@@ -9,12 +9,12 @@
 //! It is also the reason this directory is called `middle` and not `transform`.
 //! A layout table is not a transformation of anything.
 //!
-//! # The interface, agreed in wave 0
+//! # The interface, fixed before the content
 //!
-//! Wave 1a (`middle::lower`) depends on this module's *interface* and not its
-//! content — the lowering asks for sizes and offsets and does not care how they
-//! were computed. So the signature is fixed here and both waves proceed against
-//! it (`design/native/BUILD-AND-WATCH.md` §5, wave 1's note):
+//! `middle::lower` depends on this module's *interface* and not its content —
+//! the lowering asks for sizes and offsets and does not care how they were
+//! computed. So the signature is stated here, and everything that reads a
+//! layout is written against it (`design/native/BUILD-AND-WATCH.md` §5):
 //!
 //! ```text
 //! pub struct Layout {
@@ -37,10 +37,10 @@
 //! layout, and a recursive one is behind a pointer by VALUE-MODEL.md §4.
 //!
 //! [`Layout`] carries one field beyond the four agreed — [`Layout::repr`],
-//! which says *what shape* the four numbers describe. Wave 1a can ignore it;
-//! the backends cannot, because "24 bytes at alignment 8" does not say which
-//! of the three words is the pointer a `decref` takes, and neither backend
-//! should be rediscovering that from the `Ty`.
+//! which says *what shape* the four numbers describe. `middle::lower` ignores
+//! it; the backends cannot, because "24 bytes at alignment 8" does not say
+//! which of the three words is the pointer a `decref` takes, and neither
+//! backend should be rediscovering that from the `Ty`.
 //!
 //! # What is decided here, and where each rule comes from
 //!

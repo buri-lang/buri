@@ -24,7 +24,7 @@ message RepoConfig {
   // something else.
   reserved 1;
 
-  // The whole tag vocabulary, and the whole of build policy. See TAGS.md.
+  // The whole tag vocabulary, and the whole of build policy. See `buri docs build/tags`.
   repeated Tag tag = 2;
 }
 

@@ -91,7 +91,7 @@ Here is what catches that class instead:
 |---|---|
 | A library or test reaching for ambient state | The type system, at compile time. `host-import` and the effect bounds on `ctx`; the reject corpus pins both. |
 | A test depending on a real clock, a real `Rand`, or a real filesystem | It cannot: those capabilities are injected fakes, and a suite that wanted a real one would have to be handed it. |
-| A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing — `buri build --check-reproducible`, and `builds_are_reproducible` in the toolchain's own suite. This is the check the model rests on. |
+| A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing — `buri build --check-reproducible`, and `two_checkouts_of_one_tree_build_identical_bytes` in the toolchain's own suite. This is the check the model rests on. |
 | A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock, checked by building and testing under a perturbed parent environment (`build/hermeticity.rs`). |
 | A stale cache entry | The key: content, never timestamps, and every input in it. |
 
@@ -192,9 +192,10 @@ artifacts. What that requires, beyond the deterministic spawn above:
   Debug info records repository-relative paths.
 
 Reproducibility is a property of the compiler rather than of your repository, so
-it is checked in the compiler's own test suite — `builds_are_reproducible`, and
+it is checked in the compiler's own test suite — by
 `two_checkouts_of_one_tree_build_identical_bytes`, which builds the same commit
-in two separate directories and compares the artifacts byte for byte.
+in two separate directories and compares the artifacts byte for byte, and then
+asks `--check-reproducible` the same question in debug and in release.
 
 **This is where the weight of the model above sits.** Since the toolchain applies
 no operating-system confinement, a toolchain bug that read something it should

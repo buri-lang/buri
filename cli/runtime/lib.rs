@@ -129,11 +129,11 @@
 //!
 //! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
 //!
-//! Rule 3 has said "`0 ..= n` is the error variant's index" since wave 2b and
+//! Rule 3 says "`0 ..= n` is the error variant's index", and for a long time
 //! nothing used the range: every fallible entry was an `Option`, and `0` was
-//! `.None`. Two waves recorded `Result<T, E>` as deferred for the same reason
-//! each time — *a typed error needs the error variant's payload, and there is
-//! only one out-pointer*. That is the whole of the open question, and the
+//! `.None`. `Result<T, E>` was recorded as deferred more than once, for the same
+//! reason each time — *a typed error needs the error variant's payload, and
+//! there is only one out-pointer*. That is the whole of the open question, and the
 //! answer is that **the range is enough on its own**, because the discriminant
 //! `0 ..= n` already names a variant and a variant with no fields is fully
 //! determined by which one it is.

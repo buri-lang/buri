@@ -1,4 +1,4 @@
-//! The LLVM backend. **Wave 2b.**
+//! The LLVM backend.
 //!
 //! The release backend: chosen for `(Linux | Macos, Release)`. Through
 //! `inkwell`, against LLVM 21.
@@ -36,10 +36,10 @@
 //! and lowering a tree that has not been through it produces
 //! `ir::Inst::Structural` placeholders and unlifted lambdas. A caller that has
 //! not run `middle::native` therefore gets a diagnostic naming the pass rather
-//! than an object file that is quietly wrong. Wiring `middle::native` into
-//! `actions::emit` beside the `middle::run` already there is wave 2c's, and
-//! [`emit_lowered`] is the entry point that takes an already-lowered
-//! `ir::Program` for anything that has done it.
+//! than an object file that is quietly wrong. `actions::prepare` is where the
+//! composition lives — `middle::run`, then `middle::native` on a native
+//! target — and [`emit_lowered`] is the entry point that takes an
+//! already-lowered `ir::Program` for anything that has done it.
 //!
 //! # Two things this backend deliberately does not emit
 //!
@@ -47,11 +47,13 @@
 //!    sorted `(address, name)` array so `buri_rt_abort` can walk the
 //!    frame-pointer chain and name the frames. It is a *debug* feature — the
 //!    same section says the escape hatch for release is DWARF, which
-//!    CODEGEN-LLVM.md §7 gives this backend from wave 3 — and this backend is
+//!    CODEGEN-LLVM.md §7 specifies for this backend — and this backend is
 //!    only ever selected for `--release`. There is also nothing to be in parity
-//!    with yet: wave 2a's Cranelift backend lists the section in its header and
-//!    does not write one.
-//!  * **Debug info.** CODEGEN-LLVM.md §7, from wave 3 onward.
+//!    with: the Cranelift backend lists the section in its header and does not
+//!    write one either.
+//!  * **Debug info.** CODEGEN-LLVM.md §7 specifies it and none is emitted yet,
+//!    which is the same gap `cranelift/mod.rs` and `stencil/mod.rs` record for
+//!    themselves.
 //!
 //! Design: `design/native/CODEGEN-LLVM.md`, `BUILD-AND-WATCH.md` §2, §2.1.
 
@@ -196,9 +198,10 @@ fn uses_template(f: &monomorphize::Func) -> bool {
 /// One object file per codegen unit, from an already-lowered program.
 ///
 /// This is the real entry point: [`Backend::emit`] is a thin wrapper that
-/// lowers first, and everything that already holds an `ir::Program` — the
-/// tests, and wave 2c's action graph once `middle::native` is wired in — calls
-/// this.
+/// lowers first, and the native tests, which already hold an `ir::Program`,
+/// call this directly. It is deliberately not on `Backend`, so the build's
+/// action graph reaches it through [`Backend::emit_units`] rather than around
+/// it (`build/actions.rs`).
 ///
 /// The partition is the middle end's: a codegen unit is the set of
 /// monomorphized functions whose declaration came from one source module

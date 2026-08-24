@@ -1,5 +1,4 @@
 //! Reference counting: own/borrow inference, elision, and in-place reuse.
-//! **Wave 1e.**
 //!
 //! Non-atomic reference counting with static elision, over a size-class
 //! allocator. Non-atomic because the language has no threads, which is a
@@ -24,8 +23,8 @@
 //! # Where the operations go, and why this pass does not emit them
 //!
 //! `incref` and `decref` are **IR instructions**, not tree nodes:
-//! [`ir::Inst::IncRef`] and [`ir::Inst::DecRef`] are in wave 1a's instruction
-//! set, marked "emitted by wave 1e's `middle::rc`", and both backends
+//! [`ir::Inst::IncRef`] and [`ir::Inst::DecRef`] are in `middle::ir`'s
+//! instruction set, marked as placed from this pass's plan, and both backends
 //! open-code them (MEMORY.md §5.1). The layer-A tree has nowhere to put one —
 //! there is no statement form for "run this for effect on a value that has
 //! already been computed" that is not also a value — so materialising them
@@ -45,7 +44,7 @@
 //! * **[`FuncPlan::facts`] fills [`ir::Facts`]** — the ownership column, the
 //!   purity fixpoint and `can_abort` — which `lower` copies onto `ir::Func`
 //!   rather than recomputing. `Facts` documents these as conservative out of
-//!   `lower` "until `middle::rc` does"; this is that.
+//!   `lower` alone; this pass is what makes them exact.
 //! * **[`FuncPlan::sites`] is keyed by [`NodeId`]**, and a `NodeId` is *the
 //!   index of an expression in `typed::walk`'s pre-order over the function
 //!   body*, counting from zero at the body itself. [`preorder`] is that
@@ -62,14 +61,14 @@
 //!   no `Tables`). [`FuncPlan::sites`] names the local, and the local's type is
 //!   `Func::locals[l].ty`, which is all `Layouts::of` needs.
 //!
-//! ## The one place this and wave 1a's `lower` have to agree
+//! ## The one place this and `lower` have to agree
 //!
 //! `lower`'s header says "`middle::rc` inserts them over the CFG, where the
 //! basic blocks it needs exist". The pipeline says otherwise and the pipeline
-//! is right: `middle::native` — wave 0's file, which neither wave owns — calls
-//! `rc::run(program)` on the *tree*, before a CFG exists, and it does so
-//! because ownership is a whole-program fixpoint over the call graph and
-//! `lower` runs one function at a time. So the split is: the analysis here, the
+//! is right: `middle::native` calls `rc::run(program)` on the *tree*, before a
+//! CFG exists, and it does so because ownership is a whole-program fixpoint
+//! over the call graph and `lower` runs one function at a time. So the split
+//! is: the analysis here, the
 //! placement in `lower`, and this plan is the interface between them.
 //!
 //! What `lower` has to add is small and mechanical, because it is already
@@ -3686,7 +3685,7 @@ export fn main(): Result<(), Str> {
     /// of `env`, and what frees an environment is the closure value's own drop.
     /// So every closure a program ever called leaked its environment, and a
     /// closure it merely built and dropped did not — which is why the shape hid
-    /// in the corpus for two waves.
+    /// in the corpus for so long.
     ///
     /// `collect_consuming` had it right all along: its `CallValue` arm consumes
     /// `args` and not `callee`. The two functions describe one convention and

@@ -1,5 +1,5 @@
 //! The `buri_rt_*` boundary: which intrinsics this backend has a symbol for,
-//! and what that symbol's C signature is. **Wave 3d.**
+//! and what that symbol's C signature is.
 //!
 //! `cli/runtime/lib.rs`'s module comment is the contract; this file is the
 //! transcription of it that generated code is emitted against. A disagreement

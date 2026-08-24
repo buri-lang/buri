@@ -468,10 +468,10 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
     let selector = format!("--output={host}");
     let first = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
     if first.all().contains("backend is not implemented") {
-        // The gate wave 3c flips. Refused, and refused in the words the
-        // repository case pins — a toolchain that started half-building a
-        // native artifact would fail here rather than in a golden file nobody
-        // reran.
+        // The half that holds until the CLI is wired to a native backend:
+        // refused, and refused in the words the repository case pins — a
+        // toolchain that started half-building a native artifact would fail
+        // here rather than in a golden file nobody reran.
         first.exits(1);
         assert!(
             first.stderr.contains(&format!("the {host} backend is not implemented")),

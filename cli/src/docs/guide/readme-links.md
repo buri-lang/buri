@@ -26,3 +26,9 @@ Two things are documentation but not user documentation, and they live apart:
 [`design/`](./design/) holds the working notes, roadmaps and design documents
 that contributors write for each other, and [`formal/`](./formal/) holds the
 Lean 4 formalisation of the type system.
+
+## License
+
+MIT. The text is in [`LICENSE`](./LICENSE) at the root of this repository, and
+it covers everything here — the toolchain, the standard library, the
+documentation, and the editor integrations.

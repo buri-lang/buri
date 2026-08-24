@@ -50,8 +50,9 @@ pub struct Flags {
     /// Apply the findings that have one mechanical answer. `buri lint` only.
     pub fix: bool,
     pub force: bool,
-    /// Build twice in separate sandboxes and compare the artifacts byte for
-    /// byte. `buri build` only.
+    /// Build twice — a fresh session each time, the cache bypassed, into two
+    /// separate output directories — and compare the artifacts byte for byte.
+    /// `buri build` only.
     pub check_reproducible: bool,
     pub accept: bool,
     pub outputs_only: bool,

@@ -1,4 +1,4 @@
-//! The LLVM backend, driven the way a build drives it. **Wave 2b.**
+//! The LLVM backend, driven the way a build drives it.
 //!
 //! Every test here goes through the **whole real pipeline** — parse, check,
 //! monomorphize, `middle::run`, `middle::native`, `middle::lower`, then
@@ -55,11 +55,10 @@ struct Lowered {
 
 /// Source text through the whole middle end.
 ///
-/// This is `actions::emit`'s path plus the one call that is not in it yet:
+/// This is `actions::prepare`'s path, spelled out: `middle::run` and then
 /// `middle::native`. `Backend::emit` takes the program by shared reference and
-/// `middle::native` needs `&mut`, so the backend cannot run it — wiring it into
-/// `actions::emit` beside the `middle::run` already there is wave 2c's, and
-/// until then this is where it happens.
+/// `middle::native` needs `&mut`, so the backend cannot run it — the build
+/// composes the two, and so does this.
 fn lower(source: &str) -> Lowered {
     let mut map = SourceMap::new();
     let mut cache = buri::parsing::parser::Cache::new();
@@ -177,7 +176,7 @@ fn cc() -> String {
 ///
 /// The link is a plain `cc` over the emitted objects and the runtime archive,
 /// which is exactly the command `native/runtime.rs`'s module comment writes
-/// out. Wave 2c owns the real `Linker`; until it lands, this is the same
+/// out. `build/link.rs` owns the real linker selection; this is the same
 /// command line spelled in the test that needs it.
 fn build_and_run(name: &str, source: &str) -> (String, String, Option<i32>) {
     build_and_run_with(name, source, None)
@@ -1227,7 +1226,7 @@ export fn main(): Result<(), Str> {
 
     // `core/list` has no gap left: every key in `list.buri` is either a row in
     // `llvm/runtime.rs`'s table or a loop in `emit::Unit`, and `map`, `sortBy`,
-    // `zip` and `flatten` are the three waves that closed it. So the example
+    // `zip` and `flatten` were the last of it to land. So the example
     // this test is built around moved out of `core/list`, and then twice more:
     // to `char.isDigit`, to `bytes.toUtf8`, and now past both. `core/char` and
     // `core/bytes` have archive bodies (`cli/runtime/char.rs`,
@@ -1406,7 +1405,7 @@ export fn main(): Result<(), Str> {
 }
 
 // ---------------------------------------------------------------------------
-// The intrinsic surface — wave 3d
+// The intrinsic surface
 // ---------------------------------------------------------------------------
 
 /// A template hole at every primitive `ir::Inst::Structural { op: Show }` can
@@ -2273,17 +2272,18 @@ export fn main(): Result<(), Str> {
 }
 
 // ---------------------------------------------------------------------------
-// Closures, and the drop glue — the wave-2 seam
+// Closures, and the drop glue
 // ---------------------------------------------------------------------------
 
 /// A lambda that captures a value, called through the closure it became.
 ///
-/// This is the shape wave 2b refused. `middle::closures` lifts the lambda to a
-/// top-level function whose *first* parameter is a tuple of the captures, and
-/// under VALUE-MODEL.md §5.1 an aggregate parameter is its **leaves** — which a
-/// call site holding `{ code, env }` cannot produce. So `code` is a generated
-/// thunk that takes the environment as a pointer and loads those leaves out of
-/// it, which is wave 2a's convention and now this backend's.
+/// This is the shape this backend used to refuse. `middle::closures` lifts the
+/// lambda to a top-level function whose *first* parameter is a tuple of the
+/// captures, and under VALUE-MODEL.md §5.1 an aggregate parameter is its
+/// **leaves** — which a call site holding `{ code, env }` cannot produce. So
+/// `code` is a generated thunk that takes the environment as a pointer and
+/// loads those leaves out of it, which is the Cranelift backend's convention
+/// and now this one's.
 ///
 /// Both shapes are here: a capture-free lambda is an `FnRef` by the time it
 /// reaches the backend and still gets a thunk, because the call site cannot

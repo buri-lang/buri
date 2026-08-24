@@ -167,12 +167,12 @@ const NATIVES: &[Native] = &[
         name: "stencil",
         profile: Profile::Debug,
         partial: Some(
-            "wave 1 of the copy-and-patch productization, and its surface is \
-             narrower than Cranelift's: drop glue, `Ret::Res`, `Ret::Tag` and \
-             a `[T]` whose element carries a reference count are all refused \
-             rather than emitted wrongly (`backend/stencil/mod.rs`'s header). A \
-             row it refuses is skipped here; the gate on taking Cranelift's \
-             seat is that this list is empty",
+            "the copy-and-patch backend, which `backend::select` does not \
+             answer with: an IR shape it does not compile is refused with a \
+             diagnostic naming the shape rather than emitted wrongly \
+             (`backend/stencil/mod.rs`'s header). A row it refuses is skipped \
+             here; the gate on taking Cranelift's seat is that this list is \
+             empty",
         ),
     },
     #[cfg(feature = "backend-llvm")]
@@ -180,7 +180,7 @@ const NATIVES: &[Native] = &[
         name: "llvm",
         profile: Profile::Release,
         partial: Some(
-            "wave 2b, and its surface is narrower than Cranelift's: \
+            "the release backend, and its surface is narrower than Cranelift's: \
                  `num.minValue`/`num.maxValue` have no body, so some rows \
                  cannot be asked of it. The `..rest` array pattern that used \
                  to be the other half of this sentence is emitted now \
@@ -200,9 +200,9 @@ impl Native {
     /// the feature that carries the backend, and the `Ok` arm takes over
     /// the day `select` grows the arm.
     fn backend(self) -> Box<dyn Backend> {
-        // `select` still sends every native debug build to Cranelift, which is
-        // wave 1's deliberate non-change, so this backend is the one row here
-        // that is named rather than selected.
+        // `select` still sends every native debug build to Cranelift — the
+        // stencil backend has not taken that seat — so this backend is the one
+        // row here that is named rather than selected.
         #[cfg(feature = "backend-stencil")]
         if self.name == "stencil" {
             return Box::new(backend::stencil::Stencil);
@@ -1407,8 +1407,8 @@ export fn main(): Result<(), Str> {
 /// Derived `Hash`: the *numbers*, not merely the verdicts.
 ///
 /// A hash is the one derive whose output is a value a program can print, so
-/// "agrees" means the same integer rather than the same partition. Wave 3d
-/// landed `deriveHash` at every primitive and claimed it matched `$hash`
+/// "agrees" means the same integer rather than the same partition.
+/// `deriveHash` is emitted at every primitive and claims to match `$hash`
 /// byte for byte; this pins that end to end, through a struct and an enum
 /// rather than only at the primitives.
 #[test]

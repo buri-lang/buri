@@ -126,8 +126,8 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
     assert!(!diags.has_errors(), "monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     // The native branch: derives, closure conversion, reference counting.
-    // Wave 2c calls this from `build/actions.rs`; here the test does, and
-    // the backend is handed exactly what it will be handed there.
+    // A real build calls this from `build/actions.rs`; here the test does, and
+    // the backend is handed exactly what it is handed there.
     middle::native(&mut program);
     (program, analysis.checked.tables)
 }

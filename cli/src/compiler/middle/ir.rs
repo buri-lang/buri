@@ -1,4 +1,4 @@
-//! Block-argument SSA, native backends only. **Wave 1a.**
+//! Block-argument SSA, native backends only.
 //!
 //! A per-function control-flow graph of basic blocks with **block parameters**
 //! and no phi instruction, every value defined once. That is Cranelift's own IR
@@ -42,8 +42,8 @@
 //!  * **Aggregates are values.** The sketch says a signature carries flattened
 //!    scalar leaves (VALUE-MODEL.md §5.1). Flattening an *enum* into leaves is
 //!    a statement about its bytes — the payload is a union — so it cannot be
-//!    done without the layout table, and the interface wave 0 agreed for
-//!    [`super::layout`] answers sizes and field offsets rather than leaves. So
+//!    done without the layout table, and the interface [`super::layout`]
+//!    presents answers sizes and field offsets rather than leaves. So
 //!    this IR keeps a struct, list, closure or context as one SSA value of
 //!    [`Type::Agg`], carrying the source `Ty` whose layout it has, and each
 //!    backend flattens at the ABI boundary from `Layouts`. A lowering that
@@ -59,12 +59,12 @@
 //!
 //! # What is opaque on purpose
 //!
-//! [`Inst::IncRef`], [`Inst::DecRef`] and [`Inst::Structural`] are placeholders
-//! for passes that land later. Wave 1e's `middle::rc` emits the first two, and
-//! wave 1e's `middle::derives` replaces the third with a call to a generated
-//! function. They are in the instruction set now so that the backends written
-//! in wave 2 have something to lower and so that the shape of the pass that
-//! fills them is fixed rather than negotiated.
+//! [`Inst::IncRef`], [`Inst::DecRef`] and [`Inst::Structural`] carry no
+//! meaning of their own here. `middle::rc` decides where the first two go, and
+//! `middle::derives` replaces the third with a call to a generated function.
+//! They are in the instruction set rather than in those passes' private
+//! vocabularies so that the backends have one shape to lower and the passes
+//! that fill them write to a fixed target rather than a negotiated one.
 
 use std::fmt::{self, Write as _};
 
@@ -232,9 +232,9 @@ impl BinOp {
 }
 
 /// A structural operation at a type, before `middle::derives` has generated
-/// the function that implements it. **Wave 1e replaces every one of these with
-/// an ordinary [`Inst::Call`]** (VALUE-MODEL.md §9), so a backend that meets
-/// one has been handed a tree the native branch did not finish.
+/// the function that implements it. **`middle::derives` replaces every one of
+/// these with an ordinary [`Inst::Call`]** (VALUE-MODEL.md §9), so a backend
+/// that meets one has been handed a tree the native branch did not finish.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StructuralOp {
     Eq,
@@ -360,7 +360,8 @@ pub enum Inst {
         key: String,
         args: Vec<ValueId>,
     },
-    /// See [`StructuralOp`]: wave 1e turns this into a [`Inst::Call`].
+    /// See [`StructuralOp`]: `middle::derives` turns this into a
+    /// [`Inst::Call`].
     Structural {
         dest: ValueId,
         op: StructuralOp,
@@ -370,12 +371,12 @@ pub enum Inst {
 
     // -- reference counting -------------------------------------------------
     /// A saturating increment of the header count (MEMORY.md §5.1). Open-coded
-    /// by both backends, never called. **Emitted by wave 1e's `middle::rc`.**
+    /// by both backends, never called. **Placed from `middle::rc`'s plan.**
     IncRef {
         value: ValueId,
     },
     /// A decrement, with the per-type `drop` to call on the cold path where
-    /// the count reaches zero. **Emitted by wave 1e's `middle::rc`.**
+    /// the count reaches zero. **Placed from `middle::rc`'s plan.**
     DecRef {
         value: ValueId,
         drop: Option<FuncIdx>,
@@ -572,12 +573,13 @@ pub enum Purity {
 
 /// What a backend may assume about a function.
 ///
-/// Every field is *conservative* out of `lower`: owning every parameter,
+/// Every field is *conservative* out of `lower` alone: owning every parameter,
 /// `Effectful`, and abort-capable are all the answer that costs performance
-/// and cannot be wrong. `middle::rc` (wave 1e) computes the ownership column
-/// and the purity fixpoint; until it does, LLVM emits fewer attributes and
-/// Cranelift emits more reference counting, which is the correct direction to
-/// be wrong in.
+/// and cannot be wrong. `middle::rc` computes the ownership column and the
+/// purity fixpoint, and `lower` copies them on from its plan; where a field
+/// keeps the conservative answer, LLVM emits fewer attributes and Cranelift
+/// emits more reference counting, which is the correct direction to be wrong
+/// in.
 ///
 /// `nounwind` is not a field. It is true of every function in the language —
 /// there is no unwinding at all (SPEC 6.10) — and a constant stored per
@@ -1144,7 +1146,7 @@ fn dominators(code: &Code) -> Vec<Vec<bool>> {
 
 /// The IR as text, which is the form a human reads and a cache key hashes.
 ///
-/// Wave 2c's `codegen` key is `H(the unit's lowered IR)` (ARCHITECTURE.md
+/// The build's `codegen` key is `H(the unit's lowered IR)` (ARCHITECTURE.md
 /// §6.2), and this rendering is a faithful, total and deterministic function
 /// of the IR — no hash order anywhere, every name derived from the program —
 /// so hashing these bytes per unit is a correct way to compute it and is the

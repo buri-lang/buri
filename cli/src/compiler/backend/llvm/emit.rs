@@ -1,4 +1,4 @@
-//! One codegen unit, as an LLVM module. **Wave 3d.**
+//! One codegen unit, as an LLVM module.
 //!
 //! CODEGEN-LLVM.md §2: direct SSA, and no `alloca`. Block parameters become
 //! phis mechanically ([`Function::phis`]); an aggregate is built with
@@ -28,9 +28,9 @@
 //! # Closures, and the environment block
 //!
 //! VALUE-MODEL.md §7 is `{ code, env }`, and this keeps that with the two
-//! additions the flattened calling convention forces — wave 2a's convention
-//! (`cranelift/emit.rs`'s header), adopted here so that one artifact's closures
-//! have one shape whichever backend built them:
+//! additions the flattened calling convention forces — the Cranelift backend's
+//! convention (`cranelift/emit.rs`'s header), adopted here so that one
+//! artifact's closures have one shape whichever backend built them:
 //!
 //!  * **`code` is always a thunk.** A closure's callee cannot be the lifted
 //!    lambda itself, because `middle::closures` gives the lambda its captures
@@ -213,8 +213,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// at a call that owns its argument and no drop in the callee. Retaining on
     /// the layout's answer where rc retains on nothing adds one half of a pair
     /// nothing completes, which is one leaked block per element of a
-    /// `list.map`. The Cranelift wave measured 199 of them over a 200-element
-    /// `[Str]`.
+    /// `list.map`. The same mistake in the Cranelift backend leaked 199 of them
+    /// over a 200-element `[Str]`.
     ///
     /// Without an oracle the layout answer stands in, and the direction is what
     /// makes that safe rather than merely convenient: rc's `Yes` is a subset of
@@ -2515,11 +2515,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///   store p[-16] = rc - 1
     /// ```
     ///
-    /// `drop_T` is `glue`, and it is the half wave 3d filled in: the block goes
-    /// back to the allocator *after* whatever it held has been released, so a
-    /// `[Str]` that dies takes its strings with it. `None` is still the common
-    /// answer — a `Str`'s bytes, an `[Int]`, a struct of scalars hold nothing —
-    /// and it costs no call.
+    /// `drop_T` is `glue`, and it is what makes the free complete: the block
+    /// goes back to the allocator *after* whatever it held has been released,
+    /// so a `[Str]` that dies takes its strings with it. `None` is still the
+    /// common answer — a `Str`'s bytes, an `[Int]`, a struct of scalars hold
+    /// nothing — and it costs no call.
     ///
     /// The free path gets `cold` on the call, which is the highest-value item
     /// on CODEGEN-LLVM.md §6's list: reference counting puts a rarely-taken
@@ -7054,7 +7054,7 @@ pub fn numeric_op(key: &str) -> bool {
     // `middle::lower` runs — so `Bounded` is still two segments there and three
     // by the time `Unit::numeric` sees it (`lower.rs`'s `bounded_key`). Both
     // spellings answer yes, because both describe an operation this backend
-    // compiles; `cranelift/emit.rs`'s `numeric_op` has said so since the wave
+    // compiles; `cranelift/emit.rs`'s `numeric_op` has said so since the change
     // that found it, and this table had drifted from it.
     if key == "num.minValue" || key == "num.maxValue" {
         return true;

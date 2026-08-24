@@ -636,9 +636,9 @@ pub fn target_of(output: &Output) -> Target {
 /// member the same empty prefix. Adding the term does invalidate every existing
 /// `codegen` and therefore every `link` entry, once.
 ///
-/// Wave 2c is what calls this, once `middle::lower` exists to produce the two
-/// hashes. It is here in wave 0 so that nothing later has to reshape the
-/// key-building surface.
+/// The native object path is what calls this: it runs the front end and the
+/// middle end, asks `unit_hashes` for a unit's IR and layout hashes, and gets
+/// one key per unit back.
 pub fn codegen_key(
     output: &Output,
     flags: &Flags,
@@ -720,8 +720,9 @@ fn runtime_archive_hash() -> &'static str {
 ///
 /// Three questions, and a `false` from any of them means the build refuses with
 /// the diagnostic it refused with before any of this existed. That is the gate
-/// wave 3c flips: nothing here changes what a `--output=linux/x86_64` build
-/// does on a toolchain with no native backend compiled in.
+/// every native build passes through: nothing here changes what a
+/// `--output=linux/x86_64` build does on a toolchain with no native backend
+/// compiled in.
 pub fn native_ready(target: Target, profile: Profile) -> bool {
     target.platform.is_native()
         && backend::select(target, profile).is_ok()

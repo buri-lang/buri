@@ -1,5 +1,4 @@
 //! A generated `Show`, `Eq`, `Ord`, `Hash` and `ToJson` per type.
-//! **Wave 1e.**
 //!
 //! JavaScript walks a type descriptor at run time — `$D0`, `$D1`, and the
 //! generic `$eq`/`$show`/`$json_of` that read them — because a megamorphic walk
@@ -29,8 +28,9 @@
 //!   a value.
 //!
 //! This pass replaces the first two with direct calls to generated functions
-//! and reports the third, which is a wave-2 seam rather than a rewrite (§ *What
-//! is scaffolded*).
+//! and answers the third without generating a walker for it: `json.decode`'s
+//! descriptor is recorded, and the test reporter's becomes a call to a
+//! generated `Show` (§ *What is scaffolded*).
 //!
 //! # The shape of a generated function
 //!
@@ -86,8 +86,8 @@
 //! | `deriveArrayHash` | `(U64, [T], fn(U64, T) -> U64) -> U64` — mixes the length, then each element |
 //!
 //! Eight names in total, and they are the entire run-time surface a derived
-//! conformance needs. That is the contract wave 2a and 2b implement; it is
-//! stated here because this pass is the only thing that emits them.
+//! conformance needs. That is the contract both native backends implement; it
+//! is stated here because this pass is the only thing that emits them.
 //!
 //! ## Agreement with JavaScript
 //!
@@ -127,11 +127,13 @@
 //!   table (`middle::native` takes no `Tables`). Encoding needs no such thing
 //!   because `Json`'s own type constructor arrives on the `structuralToJson`
 //!   call site; decoding has no call site to read one from. Closing it is a
-//!   change to `middle::native`'s signature, which is wave 0's file.
+//!   change to `middle::native`'s signature.
 //! * **The test reporter.** `testing_assert.report` is handed a descriptor the
-//!   same way; the `Show` instances it needs are generated and listed in
-//!   [`Derives::reporter_show`], so wave 2 can hand it a code pointer instead
-//!   of a descriptor.
+//!   same way, and this pass answers it in place: where a `Show` was generated
+//!   at that descriptor's type, `reporter_body` gives the intrinsic a body that
+//!   calls it, so what reaches the runtime is a rendered `Str` rather than a
+//!   value and a walk. Only a descriptor with no generated `Show` is left as it
+//!   arrived.
 //! * **`ExprKind::StructuralCmp`** is left alone: nothing in the front end
 //!   constructs one today (`monomorphize` only rewrites it), so generating for
 //!   it would be generating for a shape no test could reach.

@@ -1,4 +1,4 @@
-//! The target machine and the pass pipeline. **Wave 2b.**
+//! The target machine and the pass pipeline.
 //!
 //! CODEGEN-LLVM.md §4. Four targets: `x86_64` and `aarch64`, Darwin and Linux,
 //! selected by `Target::from_triple` from the `Options::target` the build

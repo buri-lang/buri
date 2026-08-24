@@ -163,8 +163,8 @@ fn the_value_contract_holds() {
 /// The rendering surface — `cli/runtime/fmt.rs` and `hash.rs`.
 ///
 /// Every string and every number here is what the JavaScript runtime produces
-/// for the same input, which VALUE-MODEL.md §12 asks for and which nothing
-/// pinned natively until wave 3d. The float corpus lives next door in
+/// for the same input, which VALUE-MODEL.md §12 asks for and which this test is
+/// what pins natively. The float corpus lives next door in
 /// `native/float_parity.rs`, where four million values are checked against a
 /// JavaScript engine; these are the ones a reader would look up.
 #[test]

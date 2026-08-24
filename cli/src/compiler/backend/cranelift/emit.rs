@@ -147,7 +147,7 @@ pub enum Helper {
     ReleaseElems { name: Rc<str> },
     /// Take a reference on everything *one* element of a `[T]` holds.
     ///
-    /// The mirror of `Release`, and the only new helper wave 3d needs. It
+    /// The mirror of `Release`, over one element rather than a whole block. It
     /// exists because `cli/runtime/list.rs` copies element bytes and cannot
     /// know what is counted inside them: `lib.rs` §3 says a result is owned, so
     /// something has to take the `n` new references a copied `[Str]` now holds,

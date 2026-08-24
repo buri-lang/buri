@@ -76,8 +76,8 @@ pub enum Action {
     /// reformatting a comment changes a file's bytes and not one instruction of
     /// its IR.
     ///
-    /// See `design/native/ARCHITECTURE.md` §6. Wave 2c stores entries under it;
-    /// wave 0 adds the variant so that no later wave has to edit this enum.
+    /// See `design/native/ARCHITECTURE.md` §6. A native build stores one entry
+    /// under it per unit, keyed by `actions::codegen_key`.
     Codegen,
     Link,
     Test,

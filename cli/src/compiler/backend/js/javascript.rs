@@ -2586,8 +2586,8 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
 //    own depth, is still exactly one array.
 
 /// A table, printed, so two of them can be compared for a fixed point. The
-/// order has to be stable or `builds_are_reproducible` would depend on how a
-/// hash map happened to iterate.
+/// order has to be stable or `two_checkouts_of_one_tree_build_identical_bytes`
+/// would depend on how a hash map happened to iterate.
 fn print_table(table: &HashMap<String, Vec<Expr>>) -> String {
     let mut names: Vec<&String> = table.keys().collect();
     names.sort();
@@ -2918,7 +2918,7 @@ fn extract_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
 
 /// How many times the local passes may run over one body.
 ///
-/// The bound matters for more than termination: `builds_are_reproducible`
+/// The bound matters for more than termination: `two_checkouts_of_one_tree_build_identical_bytes`
 /// compares bytes, so the number of rounds has to be a property of the input
 /// rather than of anything that varies between runs.
 const CLEANUP_ROUNDS: usize = 4;

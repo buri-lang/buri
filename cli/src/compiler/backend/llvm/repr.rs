@@ -1,4 +1,4 @@
-//! The value model, in LLVM types. **Wave 3d.**
+//! The value model, in LLVM types.
 //!
 //! `middle::ir` hands a backend a struct, list, `Str`, closure, context or enum
 //! as **one SSA value** of [`ir::Type::Agg`] naming the source type whose

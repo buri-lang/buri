@@ -44,10 +44,10 @@
 //!
 //! # The module list is deliberately complete
 //!
-//! Every module the native-backend waves add is declared here, in wave 0, as a
-//! stub carrying the wave that fills it. That is what makes waves 1a–1e
-//! collision-free: five agents add files under `middle/` and none of them has
-//! to edit this file. See `design/native/BUILD-AND-WATCH.md` §5.
+//! Every module of the middle end is declared here, in one list, so the
+//! pipeline above can be read against it: a pass no arrow mentions, or an arrow
+//! with no module behind it, is visible from this file alone. See
+//! `design/native/BUILD-AND-WATCH.md` §5.
 
 pub mod closures;
 pub mod dce;
@@ -145,7 +145,8 @@ struct Node {
 ///
 /// Iterative rather than recursive so a deep graph cannot exhaust the stack.
 /// Each group is sorted, and the groups come out in a deterministic order,
-/// because build output is compared byte for byte (`builds_are_reproducible`).
+/// because build output is compared byte for byte
+/// (`two_checkouts_of_one_tree_build_identical_bytes`).
 ///
 /// An edge naming a node the graph does not have is skipped: nothing in this
 /// compiler produces one, and dropping it is what the bounds check that used to

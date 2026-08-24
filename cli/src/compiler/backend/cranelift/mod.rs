@@ -1,4 +1,4 @@
-//! The Cranelift backend. **Wave 2a.**
+//! The Cranelift backend.
 //!
 //! The dev backend: `buri build`, `buri run`, and every `buri test` on a native
 //! platform. Chosen for `(Linux | Macos, Debug)` because compile time is the

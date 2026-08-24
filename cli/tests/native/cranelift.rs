@@ -7,10 +7,10 @@
 //! it prints. Everything short of that is a claim about an intermediate
 //! representation, and this compiler has enough of those already.
 //!
-//! The link is a plain `cc <objects> libburi_rt.a` here. Wave 2c replaces it
-//! with `build/actions.rs`'s real link step, which selects mold or lld and
-//! caches the result (CODEGEN-CRANELIFT.md §7); nothing in this file depends on
-//! which linker ran, so it keeps working when that lands.
+//! The link is a plain `cc <objects> libburi_rt.a` here rather than
+//! `build/link.rs`'s real link step, which selects mold or lld and caches the
+//! result (CODEGEN-CRANELIFT.md §7); nothing in this file depends on which
+//! linker ran, so the rows say the same thing under either.
 //!
 //! `main.rs` declares this module behind `backend-cranelift`. With the
 //! feature off there is no module and the suite is silent rather than red,
@@ -109,8 +109,8 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     assert!(!diags.has_errors(), "monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     // The native branch: derives, closure conversion, reference counting.
-    // Wave 2c calls this from `build/actions.rs`; here the test does, and
-    // the backend is handed exactly what it will be handed there.
+    // A real build calls this from `build/actions.rs`; here the test does, and
+    // the backend is handed exactly what it is handed there.
     middle::native(&mut program);
 
     let target = Target { platform: host_platform(), arch: None };
@@ -754,10 +754,10 @@ fn emit_units(source: &str) -> Vec<(String, String, Vec<u8>)> {
 }
 
 // -----------------------------------------------------------------------
-// Wave 3d: the intrinsic surface
+// The intrinsic surface
 // -----------------------------------------------------------------------
 
-/// `Float` rendering, which is the headline correctness item of wave 3d.
+/// `Float` rendering, which is the headline correctness item of that surface.
 ///
 /// Every string here is what `bun` prints for the same value — the four
 /// presentation cases of ECMA-262 §6.1.6.1.20 and the three non-finite
@@ -983,8 +983,9 @@ export fn main(): Result<(), Str> {
 }
 
 /// `checked*` and `saturating*`, which answer an `Option<T>` and a clamped
-/// value: the two shapes wave 2a named as absent because "constructing one
-/// needs the layout of a type the intrinsic table does not name".
+/// value: the two shapes this backend once listed as absent because
+/// "constructing one needs the layout of a type the intrinsic table does not
+/// name", and emits now.
 #[test]
 fn checked_and_saturating_arithmetic() {
     if !supported() {

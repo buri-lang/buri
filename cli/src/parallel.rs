@@ -13,9 +13,9 @@
 //! is only usable where the per-item function is a pure function of the item:
 //! `Fn` rather than `FnMut`, `Sync` rather than `Send`, so a closure carrying
 //! mutable state does not compile. Build output is compared byte for byte
-//! (`builds_are_reproducible`), and a pass whose output depended on how the
-//! work was divided would be a pass that had to be measured rather than
-//! trusted.
+//! (`two_checkouts_of_one_tree_build_identical_bytes`), and a pass whose output
+//! depended on how the work was divided would be a pass that had to be measured
+//! rather than trusted.
 //!
 //! **Not whether the work happens.** A worker that could not be started, or one
 //! that did not finish, leaves its items to be computed here, in order, on the

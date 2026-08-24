@@ -13,9 +13,9 @@
 //! It does not. The file is compiled exactly as it is, with
 //! `monomorphize::Roots::Tests`, and the Cranelift backend emits a `main` that
 //! calls every `test` block in order (`cranelift/mod.rs`'s
-//! `test_entry_point`) — which is wave 3d's other half of this: without a
-//! native test entry point there was nothing to run, and without
-//! `core/testing/assert`'s three bodies there was nothing to assert.
+//! `test_entry_point`) — which is the other half of what this file needs:
+//! without a native test entry point there is nothing to run, and without
+//! `core/testing/assert`'s three bodies there is nothing to assert.
 //!
 //! A failed assertion **ends the process**, because SPEC 6.10 says an abort is
 //! a write and an `_exit` and there is nothing to catch. So the exit status is
@@ -77,8 +77,8 @@
 //! # What the backend gained to take the rest
 //!
 //!  * **`cli/runtime/lib.rs` §2.1, a `Result<T, E>` a runtime entry can
-//!    answer** — the shape two waves recorded as deferred. `MemFs`'s four
-//!    methods are the first entries to use it, and they are what
+//!    answer** — the shape that was recorded as deferred twice over. `MemFs`'s
+//!    four methods are the first entries to use it, and they are what
 //!    `semantics/effects.buri` and `semantics/evaluation.buri` were waiting
 //!    for.
 //!  * **`core/char`'s eight** (`cli/runtime/char.rs`), including `\p{L}` as a

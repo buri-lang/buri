@@ -1,4 +1,4 @@
-## What's in v0.2
+## What's in v0.3
 
 Primitives with explicit widths, arrays, tuples, structs (with per-field
 visibility), enums, functions, methods, traits, and `effect` declarations.

@@ -1,4 +1,4 @@
-//! The attribute discipline. **Wave 2b.**
+//! The attribute discipline.
 //!
 //! `design/native/CODEGEN-LLVM.md` §0's third instruction, answered in its §3.
 //! The effect system supplies

@@ -1,4 +1,4 @@
-//! The layer-A tree into the layer-B CFG. **Wave 1a.**
+//! The layer-A tree into the layer-B CFG.
 //!
 //! Takes the `typed::Expr` bodies that `middle::run` and `middle::native` have
 //! finished with and produces [`super::ir`]: one `ir::Func` per
@@ -70,7 +70,8 @@
 //!   a property of an evaluation order the CFG has already flattened — while
 //!   the tree has no statement form to hang an `incref` on and a block does.
 //! * **The drop glue a `decref` calls.** Generated per layout, so
-//!   [`ir::Inst::DecRef`]'s `drop` is left `None` for wave 2 to fill.
+//!   [`ir::Inst::DecRef`]'s `drop` is left `None` and each backend fills it
+//!   from its own layout table (`cranelift/helpers.rs`'s `Helper::Release`).
 //! * **`monomorphize::Func::desc`.** The descriptor a `testing_assert.report`
 //!   or a `json.decode` is handed. No descriptor reaches a native artifact at
 //!   all (VALUE-MODEL.md §9), so it is dropped here and `middle::derives`
@@ -2180,12 +2181,10 @@ export fn step(n: Int): Int {
     /// `middle::rc`'s plan is placed, not ignored.
     ///
     /// The plan is built here rather than taken from `rc::analyze`, and that
-    /// is the point: the pass's own oracle cannot yet classify a `Str`
-    /// (`FuncPlan::unclassified`, which empties when wave 2 hands it a
-    /// `Layouts`-backed one), so a test that waited for it to emit a site
-    /// would be testing that pass rather than this contract. What is asserted
-    /// is the half that lives here: a site at a node names a value, and the
-    /// instruction lands at that node, before or after, in plan order.
+    /// is the point: a test that waited for the analysis to emit a site at
+    /// this program would be testing that pass rather than this contract. What
+    /// is asserted is the half that lives here: a site at a node names a value,
+    /// and the instruction lands at that node, before or after, in plan order.
     #[test]
     fn a_plan_site_becomes_an_instruction_at_its_node() {
         let (program, analysis) = compiled(

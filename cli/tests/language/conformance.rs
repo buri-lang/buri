@@ -416,43 +416,6 @@ fn release_and_debug_agree() {
 }
 
 // ---------------------------------------------------------------------------
-// Reproducibility
-// ---------------------------------------------------------------------------
-
-/// Two builds of the same sources in the same configuration produce
-/// byte-identical artifacts. Symbol names are derived from labels and module
-/// paths rather than from compilation order, and iteration is by sorted key.
-///
-/// **A strict subset of `build::hermeticity::two_checkouts_of_one_tree_build_identical_bytes`,**
-/// which copies the same repository to two paths, builds `//cmd/web` in each,
-/// compares the bytes, and then asks `--check-reproducible` the same question
-/// in debug and release. Deleting this one is the right call and is worth two
-/// release builds of the example monorepo; what holds it here is that the name
-/// is cited from five places, two of them in `cli/src/docs/build/hermeticity.md`
-/// — so the deletion belongs to a pass that can re-point the shipped
-/// documentation as it goes.
-#[test]
-fn builds_are_reproducible() {
-    // The worked monorepo, copied to two different paths and built in each. A
-    // real dependency graph rather than a toy, so an ordering that came from a
-    // hash map would show up as a difference — and two directories, so would a
-    // path that leaked into the output.
-    let mut artifacts = Vec::new();
-    for _ in 0..2 {
-        let scratch = Scratch::copy_of("repro", &example_repo());
-        scratch.run(&["build", "//cmd/web", "--release"]).ok();
-        artifacts.push(std::fs::read(scratch.artifact("cmd/web")).unwrap());
-    }
-    assert!(
-        artifacts[0] == artifacts[1],
-        "two builds of the same source produced different artifacts ({} vs {} bytes)",
-        artifacts[0].len(),
-        artifacts[1].len()
-    );
-    eprintln!("reproducible: identical artifacts from two directories");
-}
-
-// ---------------------------------------------------------------------------
 // The worked monorepo
 // ---------------------------------------------------------------------------
 

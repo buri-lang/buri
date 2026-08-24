@@ -250,7 +250,7 @@ pub const TOPICS: &[Topic] = &[
         &["guide/goals"],
     ),
     t("guide/goals", "Goals", Kind::Guide, include_str!("../docs/guide/goals.md")),
-    t("guide/whats-in", "What's in v0.2", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
+    t("guide/whats-in", "What's in v0.3", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
     t("guide/three-ideas", "Three ideas", Kind::Guide, include_str!("../docs/guide/three-ideas.md")),
     t("guide/numbers", "Numbers: two names, one set of types", Kind::Guide, include_str!("../docs/guide/numbers.md")),
     t(

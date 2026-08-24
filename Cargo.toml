@@ -37,8 +37,8 @@ resolver = "2"
 # declared source set rather than watching the filesystem
 # (design/native/BUILD-AND-WATCH.md §1.2).
 #
-# All of them are in the lockfile as of wave 2a, and all of them are optional,
-# so `cargo build -p buri --no-default-features` still resolves nothing and the
+# All of them are in the lockfile, and all of them are optional, so
+# `cargo build -p buri --no-default-features` still resolves nothing and the
 # gates are still compiled both ways. `cli/tests/language/corpus.rs`'s
 # `dependencies_stay_behind_the_bar` is what holds the paragraph above to a
 # closed set rather than to a habit.
@@ -135,7 +135,8 @@ panic = "abort"
 # and digesting the whole sweep, half of it a million lines, is twenty minutes,
 # and this gate has to stay something somebody runs before a commit
 # (`benches/compiler.rs`, `Tier`). `--set=scale-full` is the flag that takes the
-# whole sweep. Its whole output is a boolean, and it is run on every wave. But a
+# whole sweep. Its whole output is a boolean, and it runs before every change
+# lands. But a
 # bench target is built under `[profile.bench]`, which inherits `[profile.release]`
 # above — so that boolean was costing a link-time-optimized, one-codegen-unit
 # build of the entire toolchain. Measured, cold, on an M-series mac:
@@ -144,7 +145,7 @@ panic = "abort"
 #   the same with `lto = false, codegen-units = 16`               98 s
 #   `-- --validate` itself                                  12 s → 13 s
 #
-# Seventy seconds a wave, for a check that measures nothing, and the second
+# Seventy seconds a run, for a check that measures nothing, and the second
 # 1.3 s is the validation running through a slightly less optimized compiler.
 #
 #   cargo bench -p buri --bench compiler --profile validate -- --validate

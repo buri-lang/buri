@@ -9,7 +9,7 @@
 //! | [`Helper::Concat`] | `str.concat` has no `buri_rt_*` entry, and the sequence is a uniqueness test, a copy, and an allocation on the path that needs one (MEMORY.md §5.3). |
 //! | [`Helper::ShowInt`] | `derivePrimShow`'s integer arm (`middle/derives.rs`). |
 //! | [`Helper::ShowBool`] | The same, for `Bool`. |
-//! | [`Helper::Release`] | The per-type drop glue `Inst::DecRef` leaves `None` for wave 2 to fill (`middle/lower.rs`). |
+//! | [`Helper::Release`] | The per-type drop glue `Inst::DecRef` leaves `None` for the backend to fill in, because it is generated per layout (`middle/lower.rs`). |
 //! | [`Helper::ReleaseElems`] | The same for a `[T]` block, whose element count is `cap / stride`. |
 //! | [`Helper::RetainElem`] | The mirror, for one element, handed to `cli/runtime/list.rs` as a function pointer so a copied `[Str]` takes its counts. |
 //! | [`Helper::EnvGlue`] | The one indirection that lets a closure environment carry its own drop glue (`emit.rs`'s header). |
