@@ -1,6 +1,6 @@
 # The native value model
 
-`runtime.js:7-30` documents the JavaScript one: every integer is a double, a
+`runtime.js` documents the JavaScript one: every integer is a double, a
 struct is an array, an enum is a number or `[tag, ...payload]`, `None` is
 `undefined`. This document is the other one — sized integers, a struct layout, a
 tagged union — and the language-visible consequences of the change, which
@@ -22,13 +22,13 @@ implementation and both consume it.
 | `U8 … U128` | `i8 … i128` | same bits, different operations |
 | `F32`, `F64` | `f32`, `f64` | IEEE-754, as SPEC 6.2 already requires |
 | `Char` | `i32` | a Unicode scalar value, not a code unit |
-| `Int` | `i64` | `Int` is `I64` (`runtime.js:11`), and now it is |
+| `Int` | `i64` | `Int` is `I64` (`runtime.js`), and now it is |
 | `Template` | `Str` | see §3.3 |
 
 `Int = I64` for real. The consequence is the whole of §7.
 
 `Char` as `u32` rather than as a small string is not a choice — `Char` is one
-Unicode scalar (`str.buri:73` returns `[Char]` from `chars`, and `char.toU32()`
+Unicode scalar (`str.buri` returns `[Char]` from `chars`, and `char.toU32()`
 is exact per SPEC 6.2.1). The JS backend spells it as a one-scalar string because
 JavaScript has no character type, and `Char` comparison there is string
 comparison. Natively it is an integer comparison, which is the same answer by a
@@ -84,8 +84,8 @@ other heap value uses, which is §2's whole reason for having one header shape.
 UTF-8, immutable, and **sliceable** — which is the requirement that decides the
 shape. `core/str`'s own header says it: "`trim`, `slice`, and `splitOnce` are
 pure because it is immutable and sliceable: they return views, not copies"
-(`str.buri:3-4`), and `splitOnce` is documented as pure "because neither half is
-a copy" (`str.buri:42-43`). A view's `ptr` is in the middle of somebody else's
+(`str.buri`), and `splitOnce` is documented as pure "because neither half is
+a copy" (`str.buri`). A view's `ptr` is in the middle of somebody else's
 allocation, so the reference count cannot be found by subtracting 16 from it.
 `base` is what the count is on.
 
@@ -95,7 +95,7 @@ literal string is three immediate constants and touches no allocator.
 ### 3.1 `len` is scalars, and the top bit of `len` says how much that costs
 
 `str.len()` is "the number of Unicode scalar values, not the number of UTF-8
-bytes" (`str.buri:17-18`). So the byte length in the value and the number the
+bytes" (`str.buri`). So the byte length in the value and the number the
 language reports are different numbers, and one of them has to be computed.
 
 The field holds the **byte** length in its low 63 bits — a view has to know
@@ -108,7 +108,7 @@ means the scalar count is computed by counting bytes with `(b & 0xC0) != 0x80` �
 a loop that vectorizes to one compare and one popcount per 16 or 32 bytes.
 
 This mirrors the JavaScript backend exactly. `$str_len` is `$wide(s) ? $chars(s).length : s.length`
-(`runtime.js:695-697`): O(1) when the string is in the basic plane, O(n)
+(`runtime.js`): O(1) when the string is in the basic plane, O(n)
 otherwise. Native is O(1) for ASCII and O(n) otherwise. The boundary is drawn in
 a different place — JavaScript's fast path is "no astral characters", ours is
 "no non-ASCII" — but the shape is the same, and no program's asymptotics change
@@ -136,7 +136,7 @@ UTF-8), which nothing here forecloses.
 ### 3.3 `Template`
 
 `Template` is `Str`. The backend renders every hole from its static type and
-joins the parts (`runtime.js:22-23`), which is a middle-end rewrite of
+joins the parts (`runtime.js`), which is a middle-end rewrite of
 `ExprKind::Template` into a `str.concat` chain and is already what happens; there
 is no `Template` value at run time on either backend.
 
@@ -149,11 +149,11 @@ struct List { ptr: *const T, len: u64 }                    // 16 bytes
 Elements are contiguous, at `layout(T).stride`. The header is at `ptr - 16`,
 because unlike `Str` a list is **never a view**: every one of `slice`, `take`,
 `drop`, `concat`, `push`, `reverse` and `filter` in `core/list` is bounded by
-`Alloc` (`list.buri:94-120`), which is the language saying they allocate. So
+`Alloc` (`list.buri`), which is the language saying they allocate. So
 `ptr` is always a payload start and 16 bytes suffice.
 
 `len` is the element count, exactly. There is no ASCII-flag equivalent because
-`list.len()` is the element count and always O(1) (`list.buri:18`).
+`list.len()` is the element count and always O(1) (`list.buri`).
 
 ### 4.1 A flat array, not a persistent vector
 
@@ -162,11 +162,11 @@ on append.
 
 The stdlib's list surface is bulk producers — `map`, `filter`, `fold`, `range`,
 `repeat`, `zip`, `flatten` — which build a whole array at once and read it
-linearly. There is a `push` (`list.buri:100`) and it is `Alloc`-bounded, which
+linearly. There is a `push` (`list.buri`) and it is `Alloc`-bounded, which
 is the language stating that it copies. Making `push` cheap by making every other
 operation indirect is the wrong trade for this library.
 
-More decisively: `sum` (`list.buri:148`) and `core/simd` want a contiguous
+More decisively: `sum` (`list.buri`) and `core/simd` want a contiguous
 `i64*`. A flat array is the only representation where a fold over `[Int]`
 compiles to a vectorizable loop, and vectorizing folds is most of what a native
 backend is for here.
@@ -227,7 +227,7 @@ spelled them with one number would have to be re-read the day a packed
 representation makes them differ.
 
 Reordering to close padding is the obvious optimization and it is not taken in
-v1, because `Desc::Struct` (`monomorphize.rs:120`) carries `fields` in
+v1, because `Desc::Struct` (`monomorphize.rs`) carries `fields` in
 declaration order and every derived operation is a fold over that order —
 `derive Show` prints them in it, `derive ToJson` writes a positional struct as an
 array in it (and that array's element order is *wire
@@ -317,16 +317,16 @@ uninhabited, has no value, and occupies nothing.
 Two niches, both on day one, both because the IR already assumes them:
 
 - **An enum whose payload area is empty is a bare integer.** `Desc::payloadless`
-  already exists and already means exactly this (`monomorphize.rs:141-147`), and
+  already exists and already means exactly this (`monomorphize.rs`), and
   the JS backend already compiles equality on one to `a === b`
-  (`generate.rs:374-377`). Stated in bytes rather than in fields, so that
+  (`generate.rs`). Stated in bytes rather than in fields, so that
   `Option<()>` — one variant with a zero-sized field — is a byte too, rather than
   a byte of tag and a payload area of nothing after it.
 - **`Option<T>` where `T`'s layout has a pointer field with a known-nonnull
   invariant is the pointer, with null for `.None`.** `Option` already has no tag
   in the IR: `Desc::Option(inner)` says only what the payload is, because "`None`
-  is `undefined` and `Some(x)` is `x`" (`monomorphize.rs:969-979`,
-  `runtime.js:22-27`). The niche keeps that true natively for the case that
+  is `undefined` and `Some(x)` is `x`" (`monomorphize.rs`,
+  `runtime.js`). The niche keeps that true natively for the case that
   matters — `Option<Str>`, `Option<Box-shaped struct>` — at zero cost.
 
 "A pointer field with a known-nonnull invariant" is a short list, and it is
@@ -354,7 +354,7 @@ not read. So `Option<Str>` is 24 bytes, exactly a `Str`, and testing it is one
 compare against zero.
 
 Everything else gets a tag. In particular **`Option<Option<T>>` gets a tag**, and
-that is a semantic improvement over JavaScript rather than a cost: `runtime.js:24-27`
+that is a semantic improvement over JavaScript rather than a cost: `runtime.js`
 records that `Some(None)` and `None` collide there, and that the collision is why
 `Option<T>` in JSON does not round-trip. Natively it does
 not collide. §8 lists the test.
@@ -373,7 +373,7 @@ struct Closure { code: *const fn, env: *const Env }        // 16 bytes
 `middle::closures` (ARCHITECTURE.md §2.2) lifts every lambda to a top-level
 function taking `env` as an extra first parameter, and builds `Env` as an
 ordinary struct of the captured locals — which `ExprKind::Lambda { captures }`
-already lists (`typed.rs:194`).
+already lists (`typed.rs`).
 
 A lambda that captures nothing has a null `env`, and the middle end rewrites a
 call through a known-empty closure into a direct call, so `xs.map(ctx, double)`
@@ -429,17 +429,17 @@ value that is copied far more often than the block is allocated.
 ## 8. Contexts cost nothing
 
 A context is "an array of implementations, in binding order" on JavaScript
-(`runtime.js:29`). Natively it is usually **nothing at all**.
+(`runtime.js`). Natively it is usually **nothing at all**.
 
 Monomorphization resolves every effect call to a direct call: `resolve_trait_call`
 reads the implementation type out of the context type's layout and dispatches on
-it statically (`monomorphize.rs:709-741`), and `Program::ctx_layouts` records the
-exact `Vec<TraitId>` per context type (`monomorphize.rs:186-187`). So by the time
+it statically (`monomorphize.rs`), and `Program::ctx_layouts` records the
+exact `Vec<TraitId>` per context type (`monomorphize.rs`). So by the time
 anything is laid out, a `CtxGet` has a statically known answer and the only
 question is whether the *implementation value* carries data.
 
 Every implementation `core/host` exports is a zero-sized struct — `struct HostFs {}`,
-`struct HostStdout {}`, ten of them (`host.buri:18-75`). A context of zero-sized
+`struct HostStdout {}`, ten of them (`host.buri`). A context of zero-sized
 values is zero-sized. So in a program built on `core/host`, **`ctx` is not a
 parameter**: it is dropped from every signature in the program by the layout pass,
 which drops zero-sized parameters everywhere.
@@ -467,10 +467,10 @@ rule, not a special case for contexts.
 ## 9. Descriptors and derives: generated, not walked
 
 The JS backend has it both ways. `derive Eq` is compiled per type into its own
-function (`generate.rs:221-232`: "compiled at the type, a two-field struct is
+function (`generate.rs`: "compiled at the type, a two-field struct is
 `a[0]===b[0]&&a[1]===b[1]` — no dispatch left at all"), while `Show`, `Hash`,
 `ToJson` and `FromJson` go through a runtime walker over a `Desc` value
-(`monomorphize.rs:820-841`). The walker is the right call
+(`monomorphize.rs`). The walker is the right call
 there: it keeps one `$show` in the artifact instead of one per type, and artifact
 size is what a JavaScript build is judged on.
 
@@ -478,7 +478,7 @@ size is what a JavaScript build is judged on.
 
 The reasons are the ones CODEGEN-LLVM.md §0 lists. A descriptor walk is an
 interpreter: an indirect dispatch on `Desc`'s tag per field per element, which is
-the single megamorphic call site `generate.rs:222-227` already identifies as the
+the single megamorphic call site `generate.rs` already identifies as the
 problem in the JavaScript version. It defeats `readnone`/`readonly` attribution
 (CODEGEN-LLVM.md §3) because the walker reads a global table. It defeats DCE,
 because everything reachable from any descriptor is reachable. And it costs code
@@ -486,16 +486,16 @@ size in the one place code size does not matter — a native binary that is 40 K
 larger and does not interpret its own type table is the better artifact.
 
 So `Desc` stays in the middle end as the **fold input** it already is — the
-recursion-terminating `Desc::Reserved` slot (`monomorphize.rs:128-131`) is
+recursion-terminating `Desc::Reserved` slot (`monomorphize.rs`) is
 exactly what a code generator needs to emit a recursive type's `show` without
 looping — and `middle::derives` emits one function per (trait, type) pair. Two
 consequences:
 
-- `Func::desc` (`monomorphize.rs:52`) is consumed at codegen time and never
+- `Func::desc` (`monomorphize.rs`) is consumed at codegen time and never
   becomes data. The test runner's `report`, which is the one thing that needs a
-  descriptor at run time (`monomorphize.rs:49-52`), gets a generated `show` for
+  descriptor at run time (`monomorphize.rs`), gets a generated `show` for
   the type instead.
-- `json.decode` (`monomorphize.rs:408-415`), which takes its type from an
+- `json.decode` (`monomorphize.rs`), which takes its type from an
   annotation and is handed a descriptor rather than a value, becomes a generated
   `decode_T` selected the same way.
 
@@ -540,7 +540,7 @@ The alternatives and why not:
   time, which is a heavier dependency than the Rust one it already has.
 
 The boundary is narrow by construction: everything above the intrinsics is
-generated Buri, and `check_intrinsics` (`generate.rs:2669`) becomes
+generated Buri, and `check_intrinsics` (`generate.rs`) becomes
 `Backend::missing_intrinsics` (ARCHITECTURE.md §3), so a runtime that is missing
 `str.splitAny` is a build error naming it, per backend, exactly as the roadmap
 asks.
@@ -551,13 +551,15 @@ the thing that makes reference counting slow. MEMORY.md §5 gives the sequences.
 
 ## 11. The SPEC amendment
 
-`cli/src/docs/SPEC.md:910-916` and `cli/src/docs/SPEC.md:1001-1006` are written as though JavaScript were
-the only backend. They are the amendment.
+SPEC §6.2 and §6.2.2 were written as though JavaScript were the only backend.
+The amendment that fixed them **shipped in wave 3c**, so the text is not
+reproduced here: `buri docs lang/expressions` serves it, and SPEC §6.2, §6.2.1
+and §6.2.2 are where it landed. It was written to the sources rather than to the
+assembled `SPEC.md`, which `buri docs assemble` would have edited back out on
+the next run.
 
-**Applied in wave 3c**, to the sources rather than to `cli/src/docs/SPEC.md` — the document is
-assembled from `cli/src/docs/lang/expressions.md` by `buri docs assemble`, and
-editing the output would be edited back out by the next run. Three consequential
-notes on the landing:
+What is worth keeping is the reasoning, which is not in the specification and
+should not be:
 
 - The amendment **does not make the backends agree**, and it is not a plan to.
   It says what each does and declines to promise either, which is what makes
@@ -570,72 +572,17 @@ notes on the landing:
   amended with it: `docs/build/proto.md`'s 64-bit caveat, which is now the
   JavaScript backend's rather than the language's, and `core/num`'s own module
   comment, which the roadmap named as the file that would have to change.
-- §11.4's float-rendering promise is now in the SPEC and is **not yet checked**.
-  It is a promise about digits — `1.0 / 3.0` prints the same characters on every
-  backend — and the test that holds it is §12's, which does not exist. A promise
-  in a specification with no test behind it is a claim; this one is written down
-  as such rather than assumed.
-
-### 11.1 §6.2, replacing the paragraph at cli/src/docs/SPEC.md:910-916
-
-> Undefined does not mean unbounded in practice, and what it means in practice
-> depends on the backend.
->
-> On a **native** backend every integer type is its own width and integer
-> arithmetic is two's complement, so the observable consequence of overflow is a
-> wrapped value. On the **JavaScript** backend every integer type compiles to a
-> `number`, which represents every integer up to 2^53 - 1 exactly and no integer
-> above it, so the observable consequence is lost precision. Neither is promised
-> and neither is a definition — a program that overflows is wrong, and these are
-> descriptions of two implementations rather than a specification of one.
->
-> That the two differ is the reason overflow is undefined rather than
-> implementation-defined: a language that pinned one of them would be pinning a
-> backend. Code that needs an exact answer above 2^53 has two ways to ask for one
-> that are defined on every backend: the `Checked` methods, which answer `.None`
-> rather than a value they cannot hold, and `core/bits`, which computes on the
-> bit pattern.
-
-### 11.2 §6.2.1, adding after cli/src/docs/SPEC.md:946-950
-
-> `I64 → F64` is lossy above 2^53 on every backend, and `toF64` rounds. On the
-> JavaScript backend the *source* is a double already, so the conversion is the
-> identity and the loss happened earlier; the answer is the same either way.
-
-### 11.3 §6.2.2, replacing the paragraph at cli/src/docs/SPEC.md:1001-1006
-
-**Shipped.** This is the text in `cli/src/docs/lang/expressions.md` and in
-`cli/src/docs/SPEC.md` §6.2.2, after the ruling recorded in `OPEN-QUESTIONS.md`.
-
-> A `Checked` method answers `.None` whenever it cannot hand back the true result
-> — outside the type's range, or above what the backend represents exactly. The
-> second bound is the backend's, and it is the numbers that backend has. On a
-> native backend there is no second bound: `.None` means "outside the type's
-> range" and nothing else, so `checkedAdd` on `I64` reports two's-complement
-> overflow and nothing more. On the JavaScript backend the second bound is
-> 2^53 - 1, well below `maxValue<I64>()`, because past it a `number` can no
-> longer say which integer it is.
->
-> So `(1 << 60).checkedAdd(1)` is `.Some` natively and `.None` on JavaScript, and
-> both are correct, because both are the same promise kept over different
-> numbers: `.Some(v)` means `v` is the exact true result as that backend
-> represents numbers, and `.None` means that backend will not name a value it
-> cannot hold.
->
-> A program whose behaviour depends on which of those it gets is a program
-> relying on a `Checked` method to *fail*, which is not what the trait is for.
-
-The alternative — a native backend that also stops at 2^53 — was implemented,
-shipped for a wave, and reversed: it makes `Checked` useless on `I64` natively,
-which is exactly where a program reaches for it, and it buys portability of a
-result nobody should be branching on. The cost of the ruling is one row on the
-divergence list, and that row is pinned in both directions.
-
-### 11.4 §6.2, adding after cli/src/docs/SPEC.md:918-919
-
-> Floating point follows IEEE-754 on every backend, and the rendering of a float
-> is the shortest decimal that round-trips. That is a promise about digits, not
-> only about values: `1.0 / 3.0` prints the same characters on every backend.
+- **The alternative was implemented, shipped for a wave, and reversed.** A
+  native backend that also stopped at 2^53 makes `Checked` useless on `I64`
+  natively, which is exactly where a program reaches for it, and it buys
+  portability of a result nobody should be branching on. The ruling is that a
+  `Checked` method is bounded by the numbers the *backend* has, so `.None`
+  natively means "outside the type's range" and nothing else. Its cost is one
+  row on the divergence list, and that row is pinned in both directions.
+- The float-rendering promise — that the rendering of a float is the shortest
+  decimal that round-trips, so `1.0 / 3.0` prints the same characters on every
+  backend — is in the SPEC and is a promise about digits rather than about
+  values. §12 is what holds it.
 
 ## 12. JavaScript ↔ native deltas, and what pins them
 
@@ -651,20 +598,20 @@ and fails if a row names a test that is not there, so the column cannot rot.
 
 | # | Behaviour | JavaScript | Native | Verdict | Pinned by |
 |---|---|---|---|---|---|
-| 1 | `Int` overflow | precision loss above 2^53 | two's-complement wrap | Undefined on both (§11.1). **Divergence, listed.** | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
-| 2 | `checkedAdd` above 2^53, within `I64` | `.None` | `.Some` | **Divergence, listed** — and settled by a ruling, after a wave in which it was not. `Checked` is bounded by the numbers the *backend* has: `exact_int_range` on JavaScript (`js/intrinsics.rs`), `int_range` natively (`cranelift/emit.rs`'s `checked`, `llvm/emit.rs`'s `checked`, `buri_rt_i128_checked` at 128). Both are the same promise — `.Some(v)` is the exact true result as that backend represents numbers — kept over different numbers, and §11.3 is the SPEC text. The band between the two bounds is the divergence and it lives *only* here: it came out of `conformance/lib/numbers/test/integers.buri`, which `native/conformance.rs` runs natively and which therefore may only assert what both backends answer. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
+| 1 | `Int` overflow | precision loss above 2^53 | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed.** | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
+| 2 | `checkedAdd` above 2^53, within `I64` | `.None` | `.Some` | **Divergence, listed** — and settled by a ruling, after a wave in which it was not. `Checked` is bounded by the numbers the *backend* has: `exact_int_range` on JavaScript (`js/intrinsics.rs`), `int_range` natively (`cranelift/emit.rs`'s `checked`, `llvm/emit.rs`'s `checked`, `buri_rt_i128_checked` at 128). Both are the same promise — `.Some(v)` is the exact true result as that backend represents numbers — kept over different numbers, and SPEC §6.2.2 is the text. The band between the two bounds is the divergence and it lives *only* here: it came out of `conformance/lib/numbers/test/integers.buri`, which `native/conformance.rs` runs natively and which therefore may only assert what both backends answer. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
 | 3 | `wrappingMul` at 64 bits | exact while the *intermediate* stays inside 2^53 | exact, native | Must agree — and **the row as written was false**. `$wrapTo` wrapped a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles, not a 2^53 ceiling. `$wrapOp` computes in `BigInt` wherever the type's *whole range* is exact, which is every width up to 32 bits. At 64 and 128 it deliberately does not: the operands there may already be rounded — `maxValue<U64>()` is 2^64 — so exactness downstream is not a repair, and the compensating rounding is what makes `maxValue<U64>().wrappingAdd(1) == 0` on that backend, which the conformance corpus pins. So the true statement of this row is: **agrees at every width up to 32 bits, and above that agrees wherever the intermediate stays inside 2^53**. `(2^62 + 1024).wrappingMul(4)` is 4096 natively and 0 on JavaScript, and that case is row 1. Row 2's ruling does not touch this row: natively `wrapping*` **is** `iadd`/`isub`/`imul` (`cranelift/emit.rs`, and `llvm/emit.rs` where `wrappingAdd` and `add` are the same instruction because §3.4 emits no `nsw`/`nuw`), so it was exact at the type's width before the ruling and after it. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | inexact above 2^53 | exact | **Divergence, listed.** The native answer is the correct one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
 | 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | ~~Divergence~~ — **must agree, and does.** `.Some(.None)` collided with `.None` before the depth counter landed; it does not now, at any nesting depth, through `match`, `Eq` or `Show`. | `row_05_nested_option_is_distinct` |
 | 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
-| 7 | `str.slice` past the end | clamps (`runtime.js:709-712`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
-| 8 | Float rendering | JS `Number#toString` | shortest round-trip (§11.4) | Must agree, character for character. The runtime implements Ryū rather than trusting a libc `printf`. The corpus is `native/float_parity.rs`'s 3.8 million doubles; the row here is the end-to-end variant. | `row_08_float_rendering` |
+| 7 | `str.slice` past the end | clamps (`runtime.js`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
+| 8 | Float rendering | JS `Number#toString` | shortest round-trip (SPEC §6.2) | Must agree, character for character. The runtime implements Ryū rather than trusting a libc `printf`. The corpus is `native/float_parity.rs`'s 3.8 million doubles; the row here is the end-to-end variant. | `row_08_float_rendering` |
 | 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Eq`, `Ord` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
 | 10 | `derive ToJson` output | runtime walker | **absent** | Must agree, byte for byte. It is a wire format. Not reachable yet: `derivePrimJson` has no native body at any primitive, so the row is a named gap with the agreement test beside it, `#[ignore]`d. | `row_10_derived_tojson_is_a_gap`, `row_10_derived_tojson` |
-| 11 | Division by zero | aborts (`runtime.js:44-47`) | aborts | Must agree, including the message. The *whole* stream does not: JavaScript writes `e.stack` after the message because there is a stack to write, so what is compared is the first line and the status. | `row_11_division_by_zero` |
+| 11 | Division by zero | aborts (`runtime.js`) | aborts | Must agree, including the message. The *whole* stream does not: JavaScript writes `e.stack` after the message because there is a stack to write, so what is compared is the first line and the status. | `row_11_division_by_zero` |
 | 12 | `Alloc` accounting | not implemented | not implemented | Must agree once both exist, which is why the model is *defined* rather than measured. A named gap on both sides today: `host.HostAlloc.allocate` has no native body, and the JavaScript one hands the byte count back without accumulating anything. | `row_12_alloc_accounting_is_a_gap`, `row_12_alloc_accounting` |
 | 13 | Tail calls in constant stack | rewritten to a loop | rewritten to a loop | Must agree. **A merged group's forwarders were labelled `()` until wave 4b**, so a mutually recursive `Bool` came back as nothing: natively `even(3)` printed the empty string, and used as a condition it panicked inside Cranelift. | `row_13_tail_calls_run_in_constant_stack` |
-| 14 | Abort message and exit status | stderr, exit 1 (`generate.rs:302-308`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
+| 14 | Abort message and exit status | stderr, exit 1 (`generate.rs`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
 | 15 | `char.toUpper` / `toLower` where the full case mapping is not one scalar | `"SS"` — a `Char` of two scalars | `'S'` — the **first** scalar of the full mapping | **Divergence, listed**, and the JavaScript side is the one outside the type: `Char` is one Unicode scalar value (`char.buri`), and `"ß".toUpperCase()` is two characters. There is no single scalar equal to `"SS"`, so this could not be transcribed and the choice was measured rather than assumed — the *simple* case mapping (`'ß'` unchanged) was the tidier answer and disagrees with JavaScript at `toU32` as well, where the first scalar agrees. So the divergence is confined to **rendering the whole `Char`**, and every use that reads it as a scalar agrees. `cli/runtime/char.rs` §3. | `row_15_char_case_of_a_multi_scalar_mapping` |
 
 Rows 8, 9 and 10 are the ones that actually cost work, and they are the ones

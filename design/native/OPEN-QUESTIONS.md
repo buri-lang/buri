@@ -55,7 +55,7 @@ behaviour depends on which answer it gets is relying on a `Checked` method to
   — natively it *is* `iadd`/`isub`/`imul`.
 - SPEC: `cli/src/docs/lang/expressions.md` §6.2.2, assembled into `cli/src/docs/SPEC.md`,
   states both bounds concretely and keeps the closing line about relying on
-  `Checked` to fail. VALUE-MODEL.md §11.3 is the same text; §12 row 2 is a listed
+  `Checked` to fail. VALUE-MODEL.md §11 has the reasoning; §12 row 2 is a listed
   divergence again and row 3 records that `Wrapping` was checked against the
   ruling and did not move.
 - Tests: the divergent band left the shared conformance corpus, which

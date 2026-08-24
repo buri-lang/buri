@@ -354,11 +354,11 @@ discovered:
 ### 4.1 Watch mode is a loop over the cache
 
 The incremental test cache already exists and already does the hard part.
-`run_on` (`test.rs:263-305`) computes `test_key`, consults `Cache`, and returns
+`run_on` (`test.rs`) computes `test_key`, consults `Cache`, and returns
 cached results with `Provenance::Cache` when the key hits; the summary already
-prints "`n` cached" (`test.rs:161-165`). Only a clean run is cached, deliberately
+prints "`n` cached" (`test.rs`). Only a clean run is cached, deliberately
 — "a failure is what you are trying to fix, and re-running it should re-run it"
-(`test.rs:397-400`) — which is exactly the behaviour a watch loop wants.
+(`test.rs`) — which is exactly the behaviour a watch loop wants.
 
 So **watch mode is a loop around `cmd_test`, and the incrementality is the
 cache's rather than the loop's**. There is no "affected target" computation to
@@ -387,7 +387,7 @@ Per selected target, the union of:
 
 - every path `contribute` enumerates for every member of the target's closure —
   the rule's entry point, its `sources`, its `proto_sources`, and its
-  `testing/` sources (`actions.rs:190-213`);
+  `testing/` sources (`actions.rs`);
 - every path `test_key` enumerates — the suite's `sources`, its `data`, and the
   closure of every library its `test { dependencies }` and
   `testing { dependencies }` name;
@@ -402,7 +402,7 @@ produced both.
 The last two are not in any key's *input* list but change the graph itself: a new
 dependency edge, a new source, a changed tag vocabulary. A change to either
 re-opens the `Session`, because `Workspace::load` is what reads them
-(`session.rs:46-60`) and a `Session` holds a loaded graph rather than a
+(`session.rs`) and a `Session` holds a loaded graph rather than a
 directory.
 
 The parse cache (`Session::parsed`) is discarded on reopen and kept otherwise,
@@ -422,10 +422,10 @@ here is a flag nobody can choose a value for.
 Three combinations are refused, at argument parsing, with exit 2:
 
 - **`--watch --force`.** `--force` turns every cache hit into a run
-  (`test.rs:278`), so every keystroke would re-run every suite in the selection.
+  (`test.rs`), so every keystroke would re-run every suite in the selection.
   That is the opposite of the mode.
 - **`--watch --accept`.** `--accept` is "the one mode that writes to the source
-  tree" (`test.rs:398-400`). A mode that rewrites golden files on a timer is a
+  tree" (`test.rs`). A mode that rewrites golden files on a timer is a
   mode that silently accepts a regression while you are reading the failure.
 - **`--watch` without a TTY.** A watch loop in CI is a hung job. The check is on
   stdout being a terminal, and the diagnostic says so and names `buri test`.
@@ -437,7 +437,7 @@ Three combinations are refused, at argument parsing, with exit 2:
   is separated by a rule with the time on it, which is one line and is greppable:
   `── 14:02:31 ─────`.
 - **One summary line per run**, in the format `cmd_test` already prints
-  (`test.rs:165`): `12 passed, 1 failed, 0 skipped (0.4s, 8 cached)`. Failures
+  (`test.rs`): `12 passed, 1 failed, 0 skipped (0.4s, 8 cached)`. Failures
   print above it exactly as they do without `--watch`, through `report_failure`,
   so a suite's output does not depend on which mode it was run in.
 - **A run with nothing to do prints nothing at all.** If every suite was served
@@ -446,7 +446,7 @@ Three combinations are refused, at argument parsing, with exit 2:
 - **`--explain` works**, and in watch mode it is the most useful it has ever been:
   one `test` line per suite per run with `cached` or `run`, which is the
   incrementality claim being observable rather than asserted
-  (`arguments.rs:76-79`).
+  (`arguments.rs`).
 - **Ctrl-C exits 0**, whatever the last run said. The exit status of a watch loop
   is about the loop; a red suite is on the screen, and encoding it in `$?` would
   make `buri test --watch` unusable in a shell with a prompt that shows the last

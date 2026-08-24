@@ -34,10 +34,10 @@ and before lowering, so the module handed to LLVM contains no unreachable functi
 and no unused local. Three things make that stronger here than in most compilers:
 
 - Monomorphization is reachability-driven, so an instance nothing calls is never
-  created (`monomorphize.rs:12-14`) — the standard library costs nothing in a
+  created (`monomorphize.rs`) — the standard library costs nothing in a
   program that touches two functions of it.
 - The call graph is exact: no dynamic dispatch anywhere in the language
-  (`monomorphize.rs:8-10`), so "unreachable" is a fact, not an approximation.
+  (`monomorphize.rs`), so "unreachable" is a fact, not an approximation.
 - Descriptors do not reach the artifact (VALUE-MODEL.md §9), which is what stops
   every type in the program from being transitively reachable from a runtime
   walker.
@@ -106,13 +106,13 @@ what makes it eligible for that treatment at all.
 The obvious place a frontend needs mutable slots is the loop that
 `middle::tail_calls` produces from a self-recursive tail call: the parameters are
 rebound each iteration, and in JavaScript that is literally assignment
-(`generate.rs:809-840`, `retarget_assigns`).
+(`generate.rs`, `retarget_assigns`).
 
 In block-argument SSA it is not assignment. The loop header block takes the
 parameters as block parameters, and "rebind and continue" is a `Jump` back to the
 header with the new values as arguments — which is a phi, in the right place,
 with no slot involved. The same holds for the merged dispatch function of a
-mutually-recursive group (`tail_calls.rs:47-51`), whose dispatch variable is one
+mutually-recursive group (`tail_calls.rs`), whose dispatch variable is one
 more block parameter carrying the member index.
 
 So the construct that would have forced mutable-slot emulation is the construct
@@ -174,7 +174,7 @@ that difference is §3.2.1.
 
 `nounwind` on every function is the single most valuable one and it costs no
 analysis: the language has no `throw`, no `panic` that unwinds, and no
-`catch`. An abort is `write` then `_exit` (`generate.rs:326-334` is the
+`catch`. An abort is `write` then `_exit` (`generate.rs` is the
 JavaScript spelling of the same contract). LLVM without `nounwind` has to assume
 every call is a potential unwind edge, which pessimizes everything downstream of
 it.
@@ -315,7 +315,7 @@ undefined behaviour, and `nsw` is exactly how LLVM spells that, so setting it
 would be *correct*. It is still not set, for a reason that is about the language
 rather than about LLVM:
 
-VALUE-MODEL.md §11.1 amends SPEC 6.2 to describe two backends whose overflow
+VALUE-MODEL.md §11 records the SPEC 6.2 amendment describing two backends whose overflow
 behaviour differs — precision loss on JavaScript, two's-complement wrap natively.
 "Two's-complement wrap" is a description a program can be debugged against.
 `nsw` makes it "whatever the optimizer inferred from the assumption that it never
@@ -330,7 +330,7 @@ needs no widening at all.
 
 **`inbounds` on `getelementptr`** *is* set, everywhere, without exception. Every
 projection in the language is either a field of a struct whose layout is known or
-an index that `list.get` bounds-checked into an `Option` (`list.buri:24-27`:
+an index that `list.get` bounds-checked into an `Option` (`list.buri`:
 there is no way to index out of bounds). Unlike `nsw`, the premise is enforced by
 the type system rather than assumed away.
 
@@ -405,8 +405,8 @@ not needed at all** and neither is `tailcc`.
 
 **What the middle end delivers.** `middle::tail_calls` rewrites a self-recursive
 tail call into a loop and a mutually tail-recursive SCC into one dispatching
-function (`tail_calls.rs:9-16`). Both are exact — "the emitted loop is what a
-hand-written loop would have been" (`tail_calls.rs:18`) — and both reach LLVM as
+function (`tail_calls.rs`). Both are exact — "the emitted loop is what a
+hand-written loop would have been" (`tail_calls.rs`) — and both reach LLVM as
 ordinary CFG loops with phis (§2.4).
 
 **What is left, and why it needs nothing.** A tail call to a function *outside*
@@ -448,7 +448,7 @@ sets both, and nothing else in the backend names a convention number.
 
 **The one real gap**, named so it is not rediscovered: an *indirect* tail call —
 a closure tail-calling itself through a value — is not eliminated on any backend,
-because `tail_callees` collects only `ExprKind::CallFn` (`tail_calls.rs:82`). It
+because `tail_callees` collects only `ExprKind::CallFn` (`tail_calls.rs`). It
 is a middle-end gap that predates this design, and the fix is a middle-end one.
 
 ## 6. Cache locality and basic-block size
@@ -465,14 +465,14 @@ is a middle-end gap that predates this design, and the fix is a middle-end one.
   (ARCHITECTURE.md §2.2) produces one block per distinct outcome, not one per
   test, so a six-variant match is one `switch` and six blocks rather than six
   compare-and-branch blocks. This is a direct improvement on the current
-  arm chain (`generate.rs:1429-1470`), where a six-variant enum performs six
-  comparisons to reach its sixth arm — `generate.rs:1453-1458` says so.
+  arm chain (`generate.rs`), where a six-variant enum performs six
+  comparisons to reach its sixth arm — `generate.rs` says so.
 - **The unit is a source module** (ARCHITECTURE.md §5.1), so functions that call
   each other land in one `.text` section next to each other. Within a unit,
   emission order is the middle end's function order, which is the
   monomorphization worklist's — deterministic, and derived from the reachability
   walk out of the entry point rather than from a hash order
-  (`monomorphize.rs:247-248`). That is a free first approximation of a
+  (`monomorphize.rs`). That is a free first approximation of a
   call-order layout: a callee is instantiated when its caller is reached, so
   related functions are adjacent. A measured layout, from `--explain` counts or a
   profile, is a later item and would replace only the ordering, not the
@@ -486,8 +486,8 @@ is a middle-end gap that predates this design, and the fix is a middle-end one.
 DWARF via inkwell's `DebugInfoBuilder`, in the release backend, from wave 3
 onward. It is cheaper here than in Cranelift (CODEGEN-CRANELIFT.md §5) because
 LLVM emits the sections; the frontend supplies `DILocation`s from
-`typed::Expr::span`, which every node already carries (`typed.rs:29-33`), and
-`DISubprogram`s from `Func::debug_name` (`monomorphize.rs:316`).
+`typed::Expr::span`, which every node already carries (`typed.rs`), and
+`DISubprogram`s from `Func::debug_name` (`monomorphize.rs`).
 
 Two constraints from ARCHITECTURE.md §7: `DW_AT_comp_dir` is the repository root
 spelled relatively, and on Mach-O the `N_OSO` entries name repository-relative
