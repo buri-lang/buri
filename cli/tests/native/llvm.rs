@@ -1595,30 +1595,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// A C shim that reports the runtime's *allocation* counters, so that the
-/// optimization can be pinned by counting rather than by reading the emitted
-/// IR.
-const ALLOC_PROBE: &str = r#"
-#include <stdio.h>
-#include <stdint.h>
-typedef struct { uint64_t live_blocks, live_bytes, total_blocks, total_bytes; } Stats;
-extern void buri_rt_heap_stats(Stats *out);
-__attribute__((destructor)) static void buri_probe(void) {
-  Stats s; buri_rt_heap_stats(&s);
-  fprintf(stderr, "blocks=%llu live=%llu\n",
-          (unsigned long long)s.total_blocks, (unsigned long long)s.live_blocks);
-}
-"#;
-
-/// `(total_blocks, live_blocks)` from an [`ALLOC_PROBE`]-linked run.
-fn probed(stderr: &str) -> (u64, u64) {
-    let line = stderr
-        .lines()
-        .find_map(|l| l.strip_prefix("blocks="))
-        .unwrap_or_else(|| panic!("the probe printed nothing: {stderr:?}"));
-    let (total, rest) = line.split_once(" live=").unwrap();
-    (total.trim().parse().unwrap(), rest.trim().parse().unwrap())
-}
+use crate::shared::{probed, Ran, ALLOC_PROBE};
 
 /// MEMORY.md §5.3, pinned by allocation count on this backend too.
 ///

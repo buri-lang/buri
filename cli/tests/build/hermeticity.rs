@@ -98,26 +98,18 @@ fn a_perturbed_parent_environment_changes_neither_the_bytes_nor_the_verdict() {
     let clean = Scratch::copy_of("perturbed-clean", &example_repo());
     let dirty = Scratch::copy_of("perturbed-dirty", &example_repo());
 
+    // A time zone half a day away, a locale, and a variable whose name nothing
+    // should know — the three shapes of ambient state a build could
+    // accidentally read.
+    const PERTURBED: &[(&str, &str)] = &[
+        ("TZ", "Pacific/Auckland"),
+        ("LANG", "tr_TR.UTF-8"),
+        ("LC_ALL", "tr_TR.UTF-8"),
+        ("BURI_HERMETICITY_JUNK", "this must not reach an artifact"),
+        ("SOURCE_DATE_EPOCH", "1700000000"),
+    ];
     let run = |scratch: &Scratch, args: &[&str], perturb: bool| -> Run {
-        let mut cmd = Command::new(buri());
-        cmd.args(args).arg("--color=never").current_dir(&scratch.root);
-        if perturb {
-            // A time zone half a day away, a locale, and a variable whose name
-            // nothing should know — the three shapes of ambient state a build
-            // could accidentally read.
-            cmd.env("TZ", "Pacific/Auckland");
-            cmd.env("LANG", "tr_TR.UTF-8");
-            cmd.env("LC_ALL", "tr_TR.UTF-8");
-            cmd.env("BURI_HERMETICITY_JUNK", "this must not reach an artifact");
-            cmd.env("SOURCE_DATE_EPOCH", "1700000000");
-        }
-        let out = cmd.output().expect("the buri binary runs");
-        Run {
-            code: out.status.code().unwrap_or(-1),
-            stdout: strip_ansi(&String::from_utf8_lossy(&out.stdout)),
-            stderr: strip_ansi(&String::from_utf8_lossy(&out.stderr)),
-            what: format!("buri {}", args.join(" ")),
-        }
+        scratch.run_with_env(args, if perturb { PERTURBED } else { &[] })
     };
 
     run(&clean, &["build", "//cmd/web"], false).ok();

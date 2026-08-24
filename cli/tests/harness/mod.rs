@@ -39,8 +39,32 @@ pub fn example_repo() -> PathBuf {
     repo_root().join("cli/tests/example")
 }
 
+/// The JavaScript runtime the toolchain's own artifacts run on.
+///
+/// `BURI_JS` wins; otherwise the first of `bun` and `node` that answers
+/// `--version`. Probing rather than defaulting to `bun`, because a host with
+/// only `node` is a host this suite can run on — and cached, because the
+/// answer cannot change inside one process and every artifact run asks.
 pub fn js_runtime() -> String {
-    std::env::var("BURI_JS").unwrap_or_else(|_| "bun".to_string())
+    static FOUND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            if let Ok(named) = std::env::var("BURI_JS") {
+                return named;
+            }
+            for candidate in ["bun", "node"] {
+                let ran = Command::new(candidate)
+                    .arg("--version")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                if ran.is_ok_and(|s| s.success()) {
+                    return candidate.to_string();
+                }
+            }
+            panic!("neither `bun` nor `node` is on PATH; a JavaScript artifact needs one to run")
+        })
+        .clone()
 }
 
 /// The `REPO.buri` every scratch repository gets: no tags, and nothing else to
@@ -238,12 +262,26 @@ pub fn run_in(dir: &Path, args: &[&str]) -> Run {
     run_in_with_stdin(dir, args, None)
 }
 
+/// The same, with variables added to the parent environment the CLI inherits.
+///
+/// Perturbing the environment is what `hermeticity` asserts against, and it
+/// used to hand-roll the whole of `run_in` to do it — a second copy of the
+/// `--color=never` placement, the ANSI stripping and the `what` string, which
+/// is three ways for a perturbed run to stop being comparable with a clean one.
+pub fn run_in_with_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
+    run_in_full(dir, args, None, env)
+}
+
 /// The same, with bytes on standard input.
 ///
 /// `buri lsp` is the only command that reads stdin, and it reads until the
 /// stream closes — so the input has to be handed over whole and the pipe shut,
 /// which `Command::output` does not do on its own.
 pub fn run_in_with_stdin(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Run {
+    run_in_full(dir, args, stdin, &[])
+}
+
+fn run_in_full(dir: &Path, args: &[&str], stdin: Option<&[u8]>, env: &[(&str, &str)]) -> Run {
     let mut cmd = Command::new(buri());
     // `--color=never` belongs to `buri`, so it goes *before* any `--`.
     // Appended, it would land in the argument list `buri run` hands to the
@@ -261,6 +299,9 @@ pub fn run_in_with_stdin(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Run
         }
     }
     cmd.args(&argv).current_dir(dir);
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
     let out = match stdin {
         None => cmd.output().expect("the buri binary runs"),
         Some(bytes) => {
@@ -392,6 +433,11 @@ impl Scratch {
 
     pub fn run_with_stdin(&self, args: &[&str], stdin: &[u8]) -> Run {
         run_in_with_stdin(&self.root, args, Some(stdin))
+    }
+
+    /// The same, with variables added to the environment the CLI inherits.
+    pub fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
+        run_in_with_env(&self.root, args, env)
     }
 
     /// The artifact `//<pkg_path>` builds to, under the JS runtime.

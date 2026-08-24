@@ -47,6 +47,12 @@
 #[path = "../harness/sweep.rs"]
 mod sweep;
 
+// What more than one backend suite needs: the allocation probe, the shape a
+// run produces, and the conformance corpus as a repository. One copy, because
+// what those suites assert is that the backends agree.
+#[cfg(any(feature = "backend-cranelift", feature = "backend-llvm", feature = "backend-stencil"))]
+mod shared;
+
 #[cfg(any(feature = "backend-cranelift", feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
 #[cfg(feature = "backend-cranelift")]

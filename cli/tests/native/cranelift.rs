@@ -82,42 +82,10 @@ fn archive() -> &'static Path {
     })
 }
 
-/// What running one program produced.
-struct Ran {
-    status: i32,
-    stdout: String,
-    stderr: String,
-}
-
 /// A C shim linked beside the program, whose destructor reports the
 /// runtime's allocation counters once `main` has returned.
 ///
-/// `buri_rt_heap_stats` is not reachable from Buri and should not be, so
-/// an assertion about *how many times a program allocated* has to be made
-/// from outside it. A destructor rather than a wrapper around `main`: the
-/// emitted entry point is the one `cli/runtime/lib.rs` §6 describes, and
-/// replacing it would be measuring a different program.
-const ALLOC_PROBE: &str = r#"
-#include <stdio.h>
-#include <stdint.h>
-typedef struct { uint64_t live_blocks, live_bytes, total_blocks, total_bytes; } Stats;
-extern void buri_rt_heap_stats(Stats *out);
-__attribute__((destructor)) static void buri_probe(void) {
-  Stats s; buri_rt_heap_stats(&s);
-  fprintf(stderr, "blocks=%llu live=%llu\n",
-          (unsigned long long)s.total_blocks, (unsigned long long)s.live_blocks);
-}
-"#;
-
-/// `(total_blocks, live_blocks)` from an [`ALLOC_PROBE`]-linked run.
-fn probed(stderr: &str) -> (u64, u64) {
-    let line = stderr
-        .lines()
-        .find_map(|l| l.strip_prefix("blocks="))
-        .unwrap_or_else(|| panic!("the probe printed nothing: {stderr:?}"));
-    let (total, rest) = line.split_once(" live=").unwrap();
-    (total.trim().parse().unwrap(), rest.trim().parse().unwrap())
-}
+use crate::shared::{probed, Ran, ALLOC_PROBE};
 
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
@@ -208,13 +176,7 @@ fn run(name: &str, source: &str) -> Ran {
 }
 
 fn run_with(name: &str, source: &str, probe: Option<&str>) -> Ran {
-    let binary = build_with(name, source, probe);
-    let out = Command::new(&binary).output().unwrap();
-    Ran {
-        status: out.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-    }
+    crate::shared::ran(&build_with(name, source, probe))
 }
 
 /// The first program. It prints, it exits zero, and every claim this

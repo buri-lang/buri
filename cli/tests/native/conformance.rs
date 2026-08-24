@@ -372,18 +372,7 @@ fn corpus() -> PathBuf {
 /// loader, because [`the_native_set_can_fail`] edits one assertion and
 /// recompiles, and a file re-read from disk would silently undo that.
 fn repository() -> Option<&'static Workspace> {
-    static WS: OnceLock<Option<Workspace>> = OnceLock::new();
-    WS.get_or_init(|| {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
-        let mut map = SourceMap::new();
-        let mut diags = Diagnostics::new();
-        let ws = Workspace::load(&root, &mut map, &mut diags).ok()?;
-        if diags.has_errors() {
-            return None;
-        }
-        Some(ws)
-    })
-    .as_ref()
+    crate::shared::conformance_repository()
 }
 
 /// One conformance file, loaded and checked as a test source of its own

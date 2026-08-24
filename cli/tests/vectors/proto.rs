@@ -142,22 +142,6 @@ fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// The runtime the toolchain's own artifacts run on.
-fn js_runtime() -> String {
-    for candidate in ["bun", "node"] {
-        if Command::new(candidate)
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-        {
-            return candidate.to_string();
-        }
-    }
-    panic!("neither `bun` nor `node` is on PATH; the emitted artifact needs one to run")
-}
-
 /// The framing is the one thing in the testee that is not generated, so it is
 /// the one thing worth asserting on its own: a length that does not match its
 /// body would make every vector above fail for one reason and say nothing about
