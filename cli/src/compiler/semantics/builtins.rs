@@ -167,15 +167,7 @@ impl<'a> Checker<'a> {
     /// The check reads the real impl table rather than a list, so it cannot
     /// drift from what was registered.
     fn assert_i64_is_trait_maximal(&self) {
-        let traits_of = |p: Prim| -> std::collections::BTreeSet<String> {
-            let con = self.tables.prim_id(p);
-            self.tables
-                .impls
-                .keys()
-                .filter(|(_, c)| *c == con)
-                .map(|(t, _)| self.tables.trait_(*t).name.clone())
-                .collect()
-        };
+        let traits_of = |p: Prim| crate::compiler::semantics::types::traits_of(&self.tables, self.tables.prim_id(p));
         let i64_traits = traits_of(Prim::I64);
         for &p in Prim::all() {
             if !p.is_integer() || p == Prim::I64 {

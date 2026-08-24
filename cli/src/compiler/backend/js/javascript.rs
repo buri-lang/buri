@@ -972,22 +972,15 @@ pub fn quote(s: &str) -> String {
 // Minification
 // ---------------------------------------------------------------------------
 
-pub struct MinifyOptions {
-    pub mangle: bool,
-    pub fold: bool,
-    pub drop_unreachable: bool,
-}
-
-impl Default for MinifyOptions {
-    fn default() -> Self {
-        MinifyOptions { mangle: true, fold: true, drop_unreachable: true }
-    }
-}
-
 /// Runs the optimisation passes over a whole program.
-pub fn minify(stmts: Vec<Stmt>, roots: &[String], opts: &MinifyOptions) -> Vec<Stmt> {
+///
+/// `mangle` is the one thing a caller varies: a debug build keeps its names,
+/// because a name is what makes a stack trace useful. Folding and
+/// dead-code elimination are not optional — a program that ran them only
+/// sometimes would be two programs.
+pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
     let mut stmts = stmts;
-    if opts.fold {
+    {
         // Sharing a constant aggregate hides its contents from the folder:
         // `[3, 'x'][0]` is `3`, but `$k0[0]` is an array read. The table lets
         // the folder see through the declaration; whichever declarations
@@ -1005,10 +998,8 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], opts: &MinifyOptions) -> Vec<S
         // folding and inlining are still seen as the same.
         stmts = merge_identical(stmts, roots);
     }
-    if opts.drop_unreachable {
-        stmts = eliminate_dead(stmts, roots);
-    }
-    if opts.mangle {
+    stmts = eliminate_dead(stmts, roots);
+    if mangle {
         stmts = mangle_program(stmts, roots);
     }
     stmts
@@ -4008,7 +3999,7 @@ mod tests {
             params: vec!["parameterOne".into()],
             body: vec![Stmt::Return(Some(Expr::ident("parameterOne")))],
         }];
-        let out = print(&minify(stmts, &[], &MinifyOptions::default()), false);
+        let out = print(&minify(stmts, &[], true), false);
         assert!(!out.contains("someLongName"), "{out}");
         assert!(!out.contains("parameterOne"), "{out}");
     }
@@ -4016,7 +4007,7 @@ mod tests {
     #[test]
     fn roots_are_never_renamed() {
         let stmts = vec![Stmt::Func { name: "main".into(), params: vec![], body: vec![] }];
-        let out = print(&minify(stmts, &["main".to_string()], &MinifyOptions::default()), false);
+        let out = print(&minify(stmts, &["main".to_string()], true), false);
         assert!(out.contains("function main("), "{out}");
     }
 

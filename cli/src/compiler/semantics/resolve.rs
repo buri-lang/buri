@@ -2137,11 +2137,6 @@ impl<'a> Checker<'a> {
 
     /// Every trait a type is known to satisfy, for diagnostics.
     pub fn traits_of(&self, con: TyConId) -> BTreeSet<String> {
-        self.tables
-            .impls
-            .keys()
-            .filter(|(_, c)| *c == con)
-            .map(|(t, _)| self.tables.trait_(*t).name.clone())
-            .collect()
+        crate::compiler::semantics::types::traits_of(&self.tables, con)
     }
 }

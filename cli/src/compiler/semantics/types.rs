@@ -1429,6 +1429,21 @@ pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
     }
 }
 
+/// Every trait a type constructor is known to satisfy, by name.
+///
+/// Reads the real impl table rather than a list, so it cannot drift from what
+/// was registered — which is what both callers want it for: one reports the
+/// set in a diagnostic, the other asserts `I64`'s is maximal among the
+/// integers.
+pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<String> {
+    tables
+        .impls
+        .keys()
+        .filter(|(_, c)| *c == con)
+        .map(|(t, _)| tables.trait_(*t).name.clone())
+        .collect()
+}
+
 /// Where `Ok` and `Err` sit in a `Result`'s variant list, and what `Err`
 /// carries.
 ///

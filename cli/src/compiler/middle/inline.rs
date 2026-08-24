@@ -41,11 +41,10 @@ impl Default for Options {
 /// why the ceiling can be a constant rather than something a caller tunes.
 const ROUNDS: usize = 3;
 
+/// What a run of the pipeline changed.
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Stats {
-    pub rounds: usize,
     pub inlined: usize,
-    pub folded: usize,
 }
 
 /// A body at or below this many nodes is inlined wherever it is called: a
@@ -75,7 +74,6 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         program.funcs.iter().map(|f| body_size(f) * 2 + GROWTH).collect();
 
     for _ in 0..ROUNDS {
-        stats.rounds += 1;
         let facts = Facts::collect(program, &limits);
         let n = inline_round(program, &facts);
         stats.inlined += n;
@@ -83,7 +81,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         // folding below possible, so it runs after rather than before.
         for f in program.funcs.iter_mut() {
             if let Some(body) = f.body_mut() {
-                stats.folded += fold_expr(body);
+                fold_expr(body);
             }
         }
         if n == 0 {

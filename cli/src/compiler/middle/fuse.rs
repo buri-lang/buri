@@ -126,27 +126,31 @@ enum Comb {
     All,
 }
 
+/// The combinators this pass fuses, and the intrinsic key each is.
+///
+/// One table rather than two matches, because the two are inverses and a row
+/// present in one and absent from the other is a combinator this pass would
+/// recognise and be unable to write back.
+const KEYS: &[(Comb, &str)] = &[
+    (Comb::Map, "list.map"),
+    (Comb::Filter, "list.filter"),
+    (Comb::Fold, "list.fold"),
+    (Comb::Count, "list.count"),
+    (Comb::Any, "list.any"),
+    (Comb::All, "list.all"),
+];
+
 impl Comb {
     fn of(key: &str) -> Option<Comb> {
-        match key {
-            "list.map" => Some(Comb::Map),
-            "list.filter" => Some(Comb::Filter),
-            "list.fold" => Some(Comb::Fold),
-            "list.count" => Some(Comb::Count),
-            "list.any" => Some(Comb::Any),
-            "list.all" => Some(Comb::All),
-            _ => None,
-        }
+        KEYS.iter().find(|(_, k)| *k == key).map(|(c, _)| *c)
     }
 
     fn key(self) -> &'static str {
-        match self {
-            Comb::Map => "list.map",
-            Comb::Filter => "list.filter",
-            Comb::Fold => "list.fold",
-            Comb::Count => "list.count",
-            Comb::Any => "list.any",
-            Comb::All => "list.all",
+        match KEYS.iter().find(|(c, _)| *c == self) {
+            Some((_, k)) => k,
+            // Unreachable: `KEYS` has a row per variant, and `Comb::of` is the
+            // only way one is made.
+            None => "",
         }
     }
 

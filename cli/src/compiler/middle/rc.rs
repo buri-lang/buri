@@ -3808,10 +3808,10 @@ export fn main(): Result<(), Str> {
     /// called it, no artifact could move.
     #[test]
     fn the_tree_is_unchanged() {
-        let mut program = compile(PROGRAM);
+        let program = compile(PROGRAM);
         let before: Vec<String> =
             program.funcs.iter().map(|f| format!("{:?}", f.body())).collect();
-        let plan = run(&mut program);
+        let plan = run(&program);
         let after: Vec<String> =
             program.funcs.iter().map(|f| format!("{:?}", f.body())).collect();
         assert_eq!(before, after);

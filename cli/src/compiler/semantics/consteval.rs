@@ -402,10 +402,7 @@ const OPTION_NONE: usize = 1;
 /// Binds an irrefutable pattern. `None` when the pattern is one this does not
 /// model, which makes the whole fold give up rather than bind wrongly.
 fn bind(p: &typed::Pattern, v: &Value, env: &mut Env) -> Option<()> {
-    let mut scratch = Env { locals: std::mem::take(&mut env.locals) };
-    let ok = matches_pattern(p, v, &mut scratch);
-    env.locals = scratch.locals;
-    ok.then_some(())
+    matches_pattern(p, v, env).then_some(())
 }
 
 /// Whether a pattern matches a value, binding as it goes.
@@ -490,24 +487,12 @@ fn prim_op(op: PrimOp, prim: Prim, args: &[Value]) -> Option<Value> {
                 PrimOp::Mul => narrow(prim, x * y),
                 PrimOp::Div => narrow(prim, x / y),
                 PrimOp::Rem => narrow(prim, x % y),
-                PrimOp::Eq => Some(Value::Bool(x == y)),
-                PrimOp::Ne => Some(Value::Bool(x != y)),
-                PrimOp::Lt => Some(Value::Bool(x < y)),
-                PrimOp::Le => Some(Value::Bool(x <= y)),
-                PrimOp::Gt => Some(Value::Bool(x > y)),
-                PrimOp::Ge => Some(Value::Bool(x >= y)),
-                _ => None,
+                _ => compare(op, &x, &y),
             }
         }
         (_, [Value::Str(x), Value::Str(y)]) => match op {
             PrimOp::Add => Some(Value::Str(format!("{x}{y}"))),
-            PrimOp::Eq => Some(Value::Bool(x == y)),
-            PrimOp::Ne => Some(Value::Bool(x != y)),
-            PrimOp::Lt => Some(Value::Bool(x < y)),
-            PrimOp::Le => Some(Value::Bool(x <= y)),
-            PrimOp::Gt => Some(Value::Bool(x > y)),
-            PrimOp::Ge => Some(Value::Bool(x >= y)),
-            _ => None,
+            _ => compare(op, x, y),
         },
         (_, [Value::Bool(x), Value::Bool(y)]) => match op {
             PrimOp::Eq => Some(Value::Bool(x == y)),
@@ -523,16 +508,29 @@ fn prim_op(op: PrimOp, prim: Prim, args: &[Value]) -> Option<Value> {
             PrimOp::BitAnd => Some(Value::Int(x & y)),
             PrimOp::BitOr => Some(Value::Int(x | y)),
             PrimOp::BitXor => Some(Value::Int(x ^ y)),
-            PrimOp::Eq => Some(Value::Bool(x == y)),
-            PrimOp::Ne => Some(Value::Bool(x != y)),
-            PrimOp::Lt => Some(Value::Bool(x < y)),
-            PrimOp::Le => Some(Value::Bool(x <= y)),
-            PrimOp::Gt => Some(Value::Bool(x > y)),
-            PrimOp::Ge => Some(Value::Bool(x >= y)),
-            _ => None,
+            _ => compare(op, x, y),
         },
         _ => None,
     }
+}
+
+/// The six comparisons, at whichever type the operands are.
+///
+/// `PartialOrd` rather than `Ord` because `F64` is one of the three callers
+/// and NaN is the reason the distinction exists; `<` on `f64` is what `Lt`
+/// means, and this is that operator and not a re-derivation of it. Anything
+/// that is not a comparison answers `None`, which is the arm each caller had
+/// written out below its own arithmetic.
+fn compare<T: PartialOrd + ?Sized>(op: PrimOp, x: &T, y: &T) -> Option<Value> {
+    Some(Value::Bool(match op {
+        PrimOp::Eq => x == y,
+        PrimOp::Ne => x != y,
+        PrimOp::Lt => x < y,
+        PrimOp::Le => x <= y,
+        PrimOp::Gt => x > y,
+        PrimOp::Ge => x >= y,
+        _ => return None,
+    }))
 }
 
 /// A float result, at the width the operation was performed at.

@@ -150,21 +150,7 @@ impl Backend for Llvm {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let missing = self.missing_intrinsics(program, tables);
-        if !missing.is_empty() {
-            let mut diags = Diagnostics::new();
-            diags.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!("the native runtime has no implementation of {}", missing.join(", ")),
-                )
-                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
-            );
-            return Err(diags);
-        }
-        let root = root_of(program);
-        let lowered = lower::run(program, tables);
-        emit_selected(&lowered, tables, opts, root, Units::All, Some(&oracle(program)))
+        self.emit_units(program, tables, opts, Units::All)
     }
 
     /// The unit loop is already per unit; what `units` adds is the parameter
