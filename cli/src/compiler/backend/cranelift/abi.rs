@@ -213,11 +213,6 @@ impl<'a> Abi<'a> {
         })
     }
 
-    /// Whether a value of this type is carried as a pointer to its bytes.
-    pub fn is_indirect(&mut self, program: &ir::Program, t: ir::Type) -> bool {
-        matches!(t, ir::Type::Agg(_)) && self.layout(program, t).size > 0
-    }
-
     /// How many bytes a value of this type occupies.
     pub fn size(&mut self, program: &ir::Program, t: ir::Type) -> u32 {
         self.layout(program, t).size

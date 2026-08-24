@@ -495,8 +495,6 @@ pub mod show {
     /// A `Str`, quoted and escaped — the derived one. A template hole needs no
     /// call at all, because the answer is the argument.
     pub const STR_QUOTED: &str = "buri_rt_show_str";
-    /// Decimal, for every integer at 64 bits or below.
-    pub const INT: &str = "buri_rt_str_from_int";
 }
 
 /// The hashers `derivePrimHash` and `Hash::hash` reach.

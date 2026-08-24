@@ -1066,18 +1066,6 @@ impl<'a> Jit<'a> {
     pub fn entry_of(&self, f: usize) -> u64 {
         ent(&self.entries, f, 0)
     }
-    /// Every function's entry, for `cache::Image::capture`.
-    pub fn dirty_raw(&self) -> &[bool] {
-        &self.dirty
-    }
-
-    pub fn entries_raw(&self) -> &[u64] {
-        &self.entries
-    }
-    /// `f`'s frame size, from the same table [`Jit::frame_sig_of`] reads.
-    pub fn frame_of(&self, f: usize) -> u32 {
-        self.frames.get(f).map_or(0, |fs| fs.size)
-    }
     pub fn reasons(&self) -> &[String] {
         &self.reasons
     }

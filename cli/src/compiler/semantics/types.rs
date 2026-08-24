@@ -1179,10 +1179,6 @@ impl Subst {
         *self.spans.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
     }
 
-    pub fn var_count(&self) -> usize {
-        self.slots.len()
-    }
-
     pub fn get(&self, id: TyVarId) -> Option<&Ty> {
         self.slots.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh").as_ref()
     }

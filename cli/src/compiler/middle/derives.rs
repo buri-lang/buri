@@ -270,14 +270,6 @@ pub struct Derives {
     pub reporter_show: Vec<(usize, FuncIdx)>,
 }
 
-impl Derives {
-    /// The generated function for one operation at one descriptor, if there is
-    /// one.
-    pub fn instance(&self, op: Op, desc: usize) -> Option<FuncIdx> {
-        self.routes.iter().find(|(o, d, _)| *o == op && *d == desc).map(|(_, _, f)| *f)
-    }
-}
-
 /// Adds one derived function per shape per structural operation the program
 /// reaches, and rewrites every derive call site to a direct call.
 pub fn run(program: &mut Program) -> Derives {

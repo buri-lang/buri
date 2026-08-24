@@ -71,20 +71,6 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     })
 }
 
-/// The comparison that is true exactly when this one is false. Integer only:
-/// `!(a < b)` is not `a >= b` when a `Float` is NaN.
-pub fn inv_binop(op: BinOp) -> Option<BinOp> {
-    Some(match op {
-        BinOp::Eq => BinOp::Ne,
-        BinOp::Ne => BinOp::Eq,
-        BinOp::Lt => BinOp::Ge,
-        BinOp::Ge => BinOp::Lt,
-        BinOp::Gt => BinOp::Le,
-        BinOp::Le => BinOp::Gt,
-        _ => return None,
-    })
-}
-
 pub fn binop_name(op: BinOp) -> &'static str {
     match op {
         BinOp::Add => "add",
@@ -2640,11 +2626,6 @@ fn prim_of_name(s: &str) -> Option<Prim> {
         "Template" => Prim::Template,
         _ => return None,
     })
-}
-
-/// Scalar widths, for the enum-tag loads.
-pub fn scalar_bytes(s: Scalar) -> u32 {
-    s.size()
 }
 
 impl Jit<'_> {

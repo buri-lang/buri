@@ -135,7 +135,7 @@ pub mod runtime;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
-use crate::compiler::backend::{Backend, Emitted, Options, Profile, Units};
+use crate::compiler::backend::{Backend, Emitted, Options, Units};
 use crate::compiler::middle::layout::{EnumRepr, Layouts, Repr};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
 use crate::compiler::middle::{ir, lower};
@@ -733,15 +733,6 @@ fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> Option<asm
             asm::MainResult { tag: (*null_at, 8), niche: Some(*null_at), message }
         }
     })
-}
-
-/// A debug build is the only profile this backend is for.
-///
-/// Stated as a function rather than as an assertion because nothing calls it
-/// yet: `select` still sends every native build to Cranelift or LLVM, and this
-/// wave deliberately does not change that.
-pub fn profile_is_debug(profile: Profile) -> bool {
-    profile == Profile::Debug
 }
 
 #[cfg(test)]
