@@ -583,7 +583,11 @@ fn every_rejected_program_names_the_rule_it_broke() {
 /// run and compared.
 #[test]
 fn a_repository_can_test_its_own_documentation() {
-    let example = repo_root().join("cli/tests/example");
+    // A copy under `CARGO_TARGET_TMPDIR`, not the checked-in tree. The second
+    // half of this test corrupts the README on purpose, and doing that in
+    // place meant a panic between the write and the restore left a corrupted
+    // tracked file in the working copy.
+    let example = copy_of_the_example_monorepo();
 
     let ok = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
         .args(["docs", "test", "--color=never"])
@@ -611,7 +615,6 @@ fn a_repository_can_test_its_own_documentation() {
         .current_dir(&example)
         .output()
         .expect("the buri binary runs");
-    std::fs::write(&readme, &original).expect("restoring the README");
 
     assert_eq!(bad.status.code(), Some(1), "a wrong transcript must fail");
     let err = String::from_utf8_lossy(&bad.stderr);
@@ -619,6 +622,36 @@ fn a_repository_can_test_its_own_documentation() {
         err.contains("prints something else"),
         "expected the transcript mismatch to be named:\n{err}"
     );
+    let _ = std::fs::remove_dir_all(&example);
+}
+
+/// The worked monorepo, copied somewhere a test may write.
+///
+/// Named for this process, so two runs do not share a tree, and `.buri`/`out`
+/// are skipped because they are build output rather than repository.
+fn copy_of_the_example_monorepo() -> PathBuf {
+    let to = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("buri-docs-example-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&to);
+    copy_tree(&repo_root().join("cli/tests/example"), &to);
+    to
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("the scratch tree is creatable");
+    for entry in std::fs::read_dir(from).expect("the source tree is readable") {
+        let entry = entry.expect("a directory entry");
+        let name = entry.file_name();
+        if name == ".buri" || name == "out" || name == "target" {
+            continue;
+        }
+        let (src, dst) = (entry.path(), to.join(&name));
+        if entry.file_type().expect("a file type").is_dir() {
+            copy_tree(&src, &dst);
+        } else {
+            std::fs::copy(&src, &dst).expect("a file copies");
+        }
+    }
 }
 
 /// Every diagnostic code the compiler can emit is documented somewhere.

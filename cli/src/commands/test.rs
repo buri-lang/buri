@@ -1090,8 +1090,10 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 // cold `buri test //...`, and what is left is three charges paid *per suite*:
 // one `cc` invocation (~100 ms, three quarters of it the C driver working out
 // where libc is), one macOS first execution of a file nothing has run before
-// (~200 ms, and it does not parallelise), and one front end.
-// `scratchpad/suite-cost-report.md` §1 and §6 measure all three.
+// (~200 ms, and it does not parallelise), and one front end. All three figures
+// are measurements taken on that repository, on an M-series mac, rather than
+// estimates: what makes the strategy below worth its complexity is that the
+// per-suite charges are most of a cold run and the compiler is 1% of it.
 //
 // One binary for several suites collects the first two at once, and this is it.
 // It is an **execution strategy and nothing else**: the same programs, the same

@@ -31,7 +31,7 @@
 //!  * **Row 2 went the other way and came back.** Both native backends briefly
 //!    narrowed `Checked` to `exact_int_range` so that `.None` above 2^53 was a
 //!    property of the *language*; the ruling in
-//!    `design/native/OPEN-QUESTIONS.md` is that `Checked` is bounded by the
+//!    `design/native/DECISIONS.md` is that `Checked` is bounded by the
 //!    numbers the **backend** has, so a native `checkedAdd` reports
 //!    two's-complement overflow and nothing else. The row is a listed
 //!    divergence again, [`row_02_checked_above_the_exact_range`] pins both

@@ -1209,9 +1209,9 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 /// that is a measurement rather than a tidy-up. macOS charges about 200 ms the
 /// first time a *newly created* file is executed; the charge is on the file's
 /// identity, so a file that has been executed once costs about 4 ms however many
-/// times it is rewritten with different bytes afterwards
-/// (`scratchpad/suite-cost-report.md` §2, and the same effect `link::place` is
-/// written against). A test binary per package meant a cold `buri test //...`
+/// times it is rewritten with different bytes afterwards — measured, and the
+/// same effect `link::place` is written against. A test binary per package
+/// meant a cold `buri test //...`
 /// created five files that had never been executed and paid the charge five
 /// times — more than half of that run.
 ///

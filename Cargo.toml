@@ -128,8 +128,13 @@ panic = "abort"
 
 # The profile the **validation** gate is built with, and nothing else.
 #
-# `cargo bench -- --validate` compiles every pinned corpus and asserts that it
-# compiles. Its whole output is a boolean, and it is run on every wave. But a
+# `cargo bench -- --validate` compiles a corpus and asserts that it compiles:
+# the generated work set, every saved corpus under `benches/corpora/`, and the
+# one *anchor* pinned manifest. Not all forty pinned manifests — regenerating
+# and digesting the whole sweep, half of it a million lines, is twenty minutes,
+# and this gate has to stay something somebody runs before a commit
+# (`benches/compiler.rs`, `Tier`). `--set=scale-full` is the flag that takes the
+# whole sweep. Its whole output is a boolean, and it is run on every wave. But a
 # bench target is built under `[profile.bench]`, which inherits `[profile.release]`
 # above — so that boolean was costing a link-time-optimized, one-codegen-unit
 # build of the entire toolchain. Measured, cold, on an M-series mac:
