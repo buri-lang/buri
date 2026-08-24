@@ -131,15 +131,23 @@ written a moment ago, however small it is. That is most of the domain's wall
 time on a mac and almost none of it on Linux. `--skip float_parity` is not
 where the time is.
 
+That the cost is the *host* and not the toolchain is measurable rather than
+asserted: `native`'s wall clock is flat at 40.7, 39.1 and 38.1 seconds under
+`--test-threads=4`, `10` and `20`. Five times the threads buys 6 %, because
+what the threads are waiting for is `cc` and a child process, not a core. So
+"make the suite more parallel" is not a lever here, and neither is making the
+compiler faster: a whole front end plus monomorphization plus `middle` over
+the standard library and a conformance file measures **≈ 20 ms**, against
+**≈ 400 ms** to emit, link and run that same file.
+
 ### The five-minute budget
 
-The whole verification bar — this suite, the `backend-llvm` feature suite, the
-fuzz binary twice, `--validate`, `--check-reproducible`, and clippy — runs in
-**under five minutes**, and that is a policy rather than an observation. A
-change that pushes it over owes either an optimization that brings it back or
-a written justification beside the change; the ledger of past offenders says
-the optimization is usually there to find (an exponential scan in `rc.rs` was
-once 96% of an 829-second run, and the fix was also a product bug's fix).
+The whole verification bar runs in **under five minutes**, and that is a
+policy rather than an observation. A change that pushes it over owes either an
+optimization that brings it back or a written justification beside the change;
+the ledger of past offenders says the optimization is usually there to find (an
+exponential scan in `rc.rs` was once 96 % of an 829-second run, and the fix was
+also a product bug's fix).
 
 Two rules keep the budget honest. **Coverage never pays for it**: the way
 under the line is faster mechanics — build profiles, caching, shared
@@ -147,6 +155,103 @@ analysis, deduplicating a binary that literally re-runs tests another suite
 already ran — never running less. And **the number is measured, not
 asserted**: a wave that touches this suite's cost reports the bar's wall time
 against the budget in its verification section.
+
+#### What "the bar" is
+
+A budget with no canonical command is a budget nobody can reproduce, so here is
+the sequence, and it is the one the number below was taken from:
+
+```
+cargo test -p buri
+cargo test -p buri --features backend-llvm --lib compiler::backend::llvm::
+cargo test -p buri --features backend-llvm --test native -- llvm:: agreement::
+cargo test -p buri --features backend-llvm --test fuzz
+cargo bench  -p buri --bench compiler --profile validate -- --validate
+cargo clippy -p buri --all-targets
+cargo clippy -p buri --all-targets --features backend-llvm
+```
+
+`LLVM_SYS_211_PREFIX` has to be set for the three feature lines and for the
+second clippy. The fuzz binary runs **twice** — once in the first line, once in
+the fourth — and `--check-reproducible` runs inside `build`'s forty-nine, so
+neither needs a line of its own.
+
+**Why the feature leg is three lines rather than one.** A plain
+`cargo test -p buri --features backend-llvm` runs 917 tests, of which 843 are
+the ones the first line has just run, with the same code, to the same answer.
+The delta is 74 tests by name — fifteen `backend::llvm` unit tests and the 59
+in `native::llvm` — plus two suites that keep a `NATIVES` table which *gains* an
+`llvm` row under the feature, so their existing tests do more work rather than
+appearing as new ones: `native::agreement` and the whole `fuzz` binary. Those
+four selections are the delta, and running them instead of the other 788 is
+**dedup, not less coverage**.
+
+It is only dedup while the delta stays where it is said to be, so that is a
+test: `language::corpus::the_llvm_feature_is_confined_to_the_files_the_bar_names`
+reads every `.rs` file under `cli/src` and `cli/tests` and fails if a
+`cfg(feature = "backend-llvm")` appears outside those files. There is one hole
+it cannot cover and the honest place for it is here: `backend::select` answers
+with LLVM for a *native release* build, so a test that drove one through the CLI
+would differ under the feature with no `cfg` of its own. Every `--release` in
+the suite today builds a `platform: JS` output, and `native_ready` rejects `Js`
+before `select` is reached — but a wave that adds a native `--release` test owes
+this paragraph a second look.
+
+**CI is not this.** CI runs everything under both feature sets, on both hosts.
+The sequence above is the local wave loop, where the only thing being taken away
+is the same run happening a second time on the same machine a minute later.
+
+#### The measured number
+
+Sequentially, on a quiet ten-core M-series mac (8P + 2E, macOS 25.5, the nix
+devshell), against `d0d83ff`:
+
+| leg | warm | after a `cli/src` edit |
+|---|---:|---:|
+| `cargo test -p buri` (843 tests) | 71.1 s | 80.1 s |
+| the three `backend-llvm` lines (129 tests) | 39.8 s | 50.1 s |
+| `-- --validate` | 10.6 s | 36.6 s |
+| clippy, both feature sets | 0.3 s | 8.9 s |
+| **the bar** | **122.0 s** | **175.9 s** |
+
+Two warm runs, 122.0 s and 128.1 s; the slower one had clippy's cache cold for a
+file the run before had just edited, which is 2 s of the 6.
+
+"After a `cli/src` edit" is the column that matters, because it is the loop:
+the compiler is rebuilt, ten test binaries are relinked, and `--validate`'s
+`opt-level = 3` build has no incremental cache to fall back on, which is 26 of
+its 36.6 seconds all by itself.
+
+Cold, in the sense that matters — `cargo clean -p buri`, so every artifact of
+this crate is rebuilt for both feature sets and for clippy twice, with the
+dependency graph still cached — the bar is **253 s**, and about **279 s** once
+`[profile.validate]`'s own 26-second build is added, which `cargo clean -p` does
+not reach. Still inside the line, with the build being four fifths of it.
+
+A *fully* cold bar, in an empty `CARGO_TARGET_DIR`, is not measured here and the
+reason is worth keeping: it needs on the order of fifteen gigabytes, and this
+directory has filled a disk mid-measurement twice already. It is also not the
+budget. The budget is the loop a wave actually runs, which is the second column
+above: a warm target directory and an edited `cli/src`.
+
+Two entries in that table are worth naming, because both were bought rather
+than found. `--validate` is 10.5 s instead of 11.7 s *plus a 169-second
+link-time-optimized build*, because it runs under `[profile.validate]` rather
+than `[profile.bench]` — the root `Cargo.toml` states why that cannot change a
+verdict. And the feature leg is 41.8 s instead of the 94 s a second full suite
+costs, which is the dedup above: **56 seconds a wave, for zero tests.**
+
+#### Things that were priced and are not worth doing
+
+Recorded so they are priced once rather than proposed again. All three were
+worth minutes before `rc.rs`'s exponential scan was fixed; the fix took the
+pipeline they all target from seconds to milliseconds, and took them with it.
+
+| lever | measured | |
+|---|---:|---|
+| Drop the duplicate pipeline in `conformance::the_native_set_passes` (it ran the front end twice per file) | **0.15 s** of that test's 10.9 s, and 0 s of `native`'s 38 s | implemented, measured, reverted |
+| Share one `SourceMap` + `parser::Cache` across the corpus walkers | bounded above by the one above: a whole pipeline is ~20 ms, and this removes only its parse | not attempted |
+| Batch the two stencil corpus tests onto one emit | `the_corpus_census_is_a_ratchet` is **0.556 s** in total | not attempted |
 
 ## Why each shape exists
 

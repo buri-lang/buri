@@ -55,6 +55,22 @@ fn buri_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Every `.rs` file under `dir`, for the tests that read this repository's own
+/// source rather than its corpora.
+fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            rust_sources(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            out.push(p);
+        }
+    }
+}
+
 /// The files whose text is Buri source rather than textproto.
 fn corpus(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -377,6 +393,89 @@ fn the_editor_integration_is_whole() {
         !repo_root().join("editors/tree-sitter-buri/queries").exists(),
         "there are two copies of the highlight queries; there must be one"
     );
+}
+
+/// **The `backend-llvm` delta is confined to the files the verification bar
+/// names**, so the bar may run the feature suite as a *delta* rather than as a
+/// second copy of the default one.
+///
+/// `cli/tests/README.md`'s "The five-minute budget" defines the bar, and its
+/// feature leg runs only the LLVM-gated tests: the fifteen `backend::llvm` unit
+/// tests, `native::llvm`, `native::agreement`, and the whole `fuzz` binary.
+/// Everything else in a `--features backend-llvm` run is byte-for-byte the same
+/// work the default leg just did, and running it twice buys nothing — which is
+/// **dedup, not less coverage**, and only while this test passes.
+///
+/// The claim it holds is the one that makes that safe: a `cfg` on
+/// `backend-llvm` exists nowhere but here. If it did exist somewhere else, some
+/// test outside the delta would behave differently under the feature, the local
+/// bar would stop exercising that behaviour, and nothing would say so. Now
+/// something does, and the fix is either to widen the bar's feature leg or to
+/// move the gate.
+///
+/// Two things this deliberately does **not** try to be:
+///
+///  * It is not a reachability analysis. `backend::select` returns the LLVM
+///    backend for `(native, Release)` under the feature, so a test that drives
+///    a native `--release` build through the CLI would differ without any `cfg`
+///    of its own. Every `--release` in the suite today targets a `platform: JS`
+///    output, and `native_ready` refuses `Js` before `select` is consulted, so
+///    there is no such test — but that is an argument in the report and in the
+///    README, not something this file can check.
+///  * It is not CI's bar. **CI runs everything under both feature sets**; this
+///    is the local wave loop, where the same run happening twice is the whole
+///    of what is being removed.
+#[test]
+fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
+    /// Every file allowed to gate on the feature. A prefix matches a directory:
+    /// the backend's own modules are compiled only under it, so a `cfg` inside
+    /// one cannot widen anything.
+    const GATED: &[&str] = &[
+        // `mod llvm`, and `select`'s release arm.
+        "cli/src/compiler/backend/mod.rs",
+        "cli/src/compiler/backend/llvm/",
+        // The module declarations; `llvm` is the 59 tests.
+        "cli/tests/native/main.rs",
+        "cli/tests/native/llvm.rs",
+        // Same-named tests that do *more* under the feature: both hold a
+        // `NATIVES` table that gains an `llvm` row, so both are in the delta.
+        "cli/tests/native/agreement.rs",
+        "cli/tests/fuzz.rs",
+    ];
+
+    // Spelled in two pieces so that this file is not its own first hit, and so
+    // the guard covers the file the guard is written in.
+    let needle = format!("feature = {q}backend-llvm{q}", q = '"');
+
+    let mut sources = Vec::new();
+    rust_sources(&repo_root().join("cli/src"), &mut sources);
+    rust_sources(&repo_root().join("cli/tests"), &mut sources);
+    assert!(sources.len() > 50, "found {} Rust sources; the walk is broken", sources.len());
+
+    let mut gates = 0;
+    for path in &sources {
+        let rel = path.strip_prefix(repo_root()).unwrap_or(path).to_string_lossy().to_string();
+        let text = std::fs::read_to_string(path).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            // Prose names the feature all over the repository, and prose
+            // cannot change what a test does.
+            if line.trim_start().starts_with("//") || !line.contains(&needle) {
+                continue;
+            }
+            gates += 1;
+            assert!(
+                GATED.iter().any(|g| rel.starts_with(g)),
+                "{rel}:{} gates on `backend-llvm`, and that file is not in the \
+                 verification bar's feature leg. Either move the gate into one of \
+                 {GATED:?}, or widen the leg in cli/tests/README.md's \
+                 \"The five-minute budget\" and add the file here — but do not \
+                 leave the local bar silently not running it.",
+                n + 1
+            );
+        }
+    }
+    assert!(gates > 0, "no `backend-llvm` gate found at all; this test is asserting nothing");
+    eprintln!("llvm delta: {gates} gates, all inside the bar's feature leg");
 }
 
 // ---------------------------------------------------------------------------
