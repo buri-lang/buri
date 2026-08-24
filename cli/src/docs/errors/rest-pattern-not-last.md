@@ -6,31 +6,21 @@ error: a rest pattern must come last [rest-pattern-not-last]
 
 ## What to do
 
-move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an array pattern does
+Move `..` to the end: `[first, ..rest]` is legal, `[..init, last]` is not.
 
 ## Why
 
-`[first, ..rest]` is legal; `[..init, last]` is not
+An array pattern matches a prefix and then binds the remainder. Allowing a rest
+in the middle would make matching a search rather than a walk, and the cost
+would be paid on every array pattern in the language.
 
 ## A program that provokes it
 
 ```buri fail code=rest-pattern-not-last
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 fn lastOf(xs: [Int]): Int {
   match (xs) {
     [..init, last] => last,
     _ => 0,
   }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${lastOf([1, 2, 3])}");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `rest-pattern-not-last` — so
-this page cannot describe an error the compiler has stopped emitting.

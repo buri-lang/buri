@@ -6,16 +6,20 @@ error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show
 
 ## What to do
 
-split it in two: a type is either part of the world or part of your data
+Split it in two: a type is either part of the world or part of your data.
+
+## Why
+
+The two kinds of interface are kept apart so that a type parameter bounded by
+an ordinary trait can never be instantiated at a context type. That is what
+makes `xs.any(fn(x) => x == needle)` legal while a lambda capturing a context
+is not.
 
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-from "core/effect" import { Alloc, Stdout };
-from "core/order" import { Show };
-from "core/str" import * as str;
-from "core/host" import * as host;
-
+# from "core/effect" import { Alloc, Stdout };
+# from "core/order" import { Show };
 struct SilentOut {}
 
 impl Stdout for SilentOut {
@@ -27,13 +31,4 @@ impl Stdout for SilentOut {
 impl Show for SilentOut {
   fn show<C: Alloc>(self: SilentOut, ctx: C): Str { "silent" }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `effect-and-trait` — so
-this page cannot describe an error the compiler has stopped emitting.

@@ -12,14 +12,14 @@ set of inputs to a declared set of outputs. There are four kinds:
 
 | Action | Inputs | Outputs |
 |---|---|---|
-| `interface` | A library's `lib.buri`, and the `interface` outputs of its deps | `<lib>.bi` — every exported name with its full type |
-| `compile` | One target's sources, the `interface` outputs of its deps, the platform | `<target>.bo` — the compiled module set |
-| `link` | A binary's `compile` output and those of its transitive deps | The artifact: an executable, or a `.mjs` |
+| `interface` | A library's `lib.buri`, and the `interface` outputs of its dependencies | `<lib>.bi` — every exported name with its full type |
+| `compile` | One target's sources, the `interface` outputs of its dependencies, the platform | `<target>.bo` — the compiled module set |
+| `link` | A binary's `compile` output and those of its transitive dependencies | The artifact: an executable, or a `.mjs` |
 | `test` | A suite's `compile` output, the target's `compile` output, the `compile` output of every library the suite's own `dependencies` name, `test.data` | A pass/fail record and captured output |
 
 Splitting `interface` out from `compile` is the one structural decision here,
 and it is the language that makes it cheap. Top-level signatures are mandatory
-([`SPEC.md` §9](./cli/src/docs/SPEC.md)), so a library's interface is derivable by parsing
+([`SPEC.md` §9](../SPEC.md)), so a library's interface is derivable by parsing
 `lib.buri` and the modules it re-exports from — no inference, no body checking,
 no dependency on how anything is implemented. The consequence:
 
@@ -41,14 +41,14 @@ leaving as an absence:
   language. Reading the clock, the environment, a file, or a socket happens
   through a `$host_*` intrinsic and nowhere else.
 - **Only `main` can name one.** `core/host` is importable only from the module
-  that exports `main` ([`SPEC.md` §11](./cli/src/docs/SPEC.md)). A library, an inner module,
+  that exports `main` ([`SPEC.md` §11](../SPEC.md)). A library, an inner module,
   and a test source that write `from "core/host" import …` are rejected —
   `host-import`, pinned by the reject corpus. So no code that participates in an
   action has a *name* for ambient state.
 - **A test's capabilities are fakes.** A suite is handed a context the runner
   builds: an in-memory `Fs` holding exactly `test { data: [...] }`, a clock the
   test sets, a seeded `Rand`, an `Env` of the test's own pairs
-  ([`TESTING.md`](./cli/src/docs/build/testing.md)). There is no real capability
+  ([`testing.md`](./testing.md)). There is no real capability
   to withhold.
 - **The action set is closed.** Four kinds — `interface`, `compile`, `link`,
   `test` — all of them this toolchain's own code, with no way for a repository
@@ -78,22 +78,14 @@ hermetic; running a program is the point at which you stop building.
 ### What is not enforced, and what catches it instead
 
 **The toolchain confines nothing at the operating-system level.** No namespace,
-no seccomp filter, no `sandbox-exec` profile, on any platform. An earlier version
-of this document promised one; it was built, and then removed, because measuring
-what it actually bought made the trade clear.
-
-What it would have bought is a second opinion about *toolchain* bugs — an
-intrinsic that read something it should not, a code generator that embedded a
-path. It would not have bought anything about repository code, which has no name
-for ambient state to begin with. And it would have bought that second opinion
-only on macOS, only for writes and the network, and not for reads at all: a
-profile tight enough to deny reads outside an action's directory also denies the
-JavaScript runtime its own binary, and the runtime aborts before the action
-starts. On Linux it would have needed user namespaces or `seccomp` — privileges,
-or a dependency, or both.
-
-So: a partial second opinion, on one platform, about a class of bug it would
-catch late and unevenly. That is not what catches this class of bug here.
+no seccomp filter, no `sandbox-exec` profile, on any platform. One was built and
+then removed: it would have bought a second opinion about *toolchain* bugs and
+nothing at all about repository code, which has no name for ambient state to
+begin with — and it would have bought that only on macOS, only for writes and
+the network, since a profile tight enough to deny reads outside an action's
+directory also denies the JavaScript runtime its own binary. A partial second
+opinion, on one platform, about a class of bug it would catch late and unevenly.
+Here is what catches that class instead:
 
 | The bug | What catches it |
 |---|---|
@@ -122,7 +114,7 @@ key = H(
   platform, arch,          // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
   H(content of each input file),
-  key(each input action),  // deps enter as their keys, not their contents
+  key(each input action),  // dependencies enter as keys, not contents
 )
 ```
 
@@ -136,7 +128,7 @@ bug:
   produce identical keys, which is what lets a cache be shared at all.
 - **Dependencies enter as keys, not contents.** A dependent's key changes only
   when its dependency's *output-determining* inputs change, and a `compile`
-  action depends on its deps' `interface` actions — so a body edit does not
+  action depends on its dependencies' `interface` actions — so a body edit does not
   propagate.
 - **The platform is in the key, and tags are not.** The same library built for
   `linux/x86_64` and for `js` is two entries, and nothing is reused or confused
@@ -150,7 +142,7 @@ build` after a no-op edit is a hash comparison and no compiler invocations.
 
 A native artifact adds one action kind and one directory. `codegen` is one
 action per codegen unit — the object file for one source module's worth of
-functions — and its key is the unit's *lowered IR* rather than the source it
+functions — and its key is the unit's *lowered intermediate representation* rather than the source it
 came from, so reformatting a comment produces an identical key and the object is
 reused, while a change to a type another module requested an instantiation of
 does not slip past. The objects a link ran over are staged under
@@ -193,7 +185,7 @@ artifacts. What that requires, beyond the deterministic spawn above:
 - **Deterministic code generation**: iteration over hash maps is by sorted key;
   monomorphization order follows source order; symbol names are derived from
   labels and module paths rather than from compilation order.
-- **Deterministic evaluation semantics**: [`SPEC.md` §8.2](./cli/src/docs/SPEC.md) specifies
+- **Deterministic evaluation semantics**: [`SPEC.md` §8.2](../SPEC.md) specifies
   evaluation order rather than leaving it to the backend, so constant folding
   cannot differ between targets or between runs.
 - **No embedded environment**: no paths, no timestamps, no hostname, no user.
@@ -237,7 +229,7 @@ catch.
 `REPO.buri` used to name the toolchain as well — an exact version and the
 SHA-256 of the compiler that had to build the repository, refused with exit `2`
 before anything was compiled — and both halves went into the key. That pin was
-removed ([`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md#what-is-not-here)):
+removed ([`repo-config.md`](./repo-config.md#what-is-not-here)):
 a pin earns its keep where a toolchain is fetched, and nothing fetches one. The
 key lost nothing a live repository could vary, because a repository that named a
 toolchain this was not never got as far as computing a key.
@@ -252,14 +244,10 @@ version is the whole answer.
 
 It is not the whole answer for anyone who **builds this compiler from source**.
 Two `buri` binaries built from different code at the same version compute the
-same keys, so a repository built by the first will serve its cached objects to
-the second, and only the units whose IR moved will be re-emitted. If you are
-comparing one repository's artifacts across a change to the compiler — a new
-optimization, a backend edit — then compare on a fresh tree, or pass `--force`,
-or `buri clean` in between. Otherwise the first build after a rebuilt compiler
-is a mix of both compilers' output, and it is the only build that is: every
-build after it agrees with itself, which is what makes the trap easy to
-dismiss as noise.
+same keys, so the first build after a rebuilt compiler is a mix of both
+compilers' output — and it is the only build that is, which is what makes the
+trap easy to dismiss as noise. Compare on a fresh tree, pass `--force`, or
+`buri clean` in between.
 
 ## The cache is local, for now
 

@@ -6,26 +6,16 @@ error: `Bogus` is not a trait or effect [not-a-trait]
 
 ## What to do
 
-name a declared trait or effect, or declare `Bogus` as one
+Name a declared trait or effect, or declare the one you meant.
 
 ## Why
 
-a bound names a declared trait; there are no where clauses
+A bound is resolved to a declaration and then checked as a table lookup. There
+are no `where` clauses and no structural constraints, so there is nothing a
+bound could name except a trait or an effect.
 
 ## A program that provokes it
 
 ```buri fail code=not-a-trait
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 fn measure<T: Bogus>(x: T): Int { 1 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${measure(1)}");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `not-a-trait` — so
-this page cannot describe an error the compiler has stopped emitting.

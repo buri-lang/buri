@@ -6,32 +6,18 @@ error: `unit` is in an `impl` block but takes no `self` [impl-fn-without-self]
 
 ## What to do
 
-give it a `self` parameter, or move it out of the `impl` block
+Give it a `self` parameter, or move it out of the `impl` block.
 
 ## Why
 
-an `impl` block declares methods; a function with no receiver is declared at the top level
+An `impl` block declares methods, and a method is found through its receiver's
+type. A constructor-shaped function has no receiver, so it is an ordinary
+top-level declaration.
 
 ## A program that provokes it
 
-```buri fail code=impl-fn-without-self
-// The converse rule: an `impl` block declares methods, so everything in one
-// has a receiver. A constructor-shaped function is an ordinary declaration.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
-struct Square { export side: Int }
-
+```buri fail code=impl-fn-without-self use=errors
 impl Square {
   fn unit(): Square { Square { side: 1 } }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `impl-fn-without-self` — so
-this page cannot describe an error the compiler has stopped emitting.

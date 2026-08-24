@@ -159,7 +159,7 @@ pub const FLAGS: &[Flag] = &[
         name: "check-reproducible",
         value: Value::None,
         choices: &[],
-        blurb: "build twice in separate sandboxes and compare the artifacts byte for byte",
+        blurb: "build twice in separate directories and compare the artifacts byte for byte",
         global: false,
         set: |f, _| {
             f.check_reproducible = true;
@@ -170,7 +170,7 @@ pub const FLAGS: &[Flag] = &[
         name: "accept",
         value: Value::None,
         choices: &[],
-        blurb: "rerun the suite ignoring cached results",
+        blurb: "rewrite the golden files a suite declares in `test { data }` from what it produced",
         global: false,
         set: |f, _| {
             f.accept = true;

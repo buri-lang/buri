@@ -14,18 +14,17 @@ Those goals are why the design looks the way it does:
 
 Where they pull against each other, the compiler absorbs it rather than the
 language: guaranteed tail calls become loops on a JS target, since no engine but
-JavaScriptCore implements them natively ([SPEC.md §8.3.1](./cli/src/docs/SPEC.md)). `I64` on
-JS is the one genuinely unresolved tension — see [SPEC.md §15](./cli/src/docs/SPEC.md).
+JavaScriptCore implements them natively ([SPEC.md §8.3.1](../SPEC.md)). `I64` on
+JS is the one genuinely unresolved tension — see [SPEC.md §15](../SPEC.md).
 
-[SPEC.md §13](./cli/src/docs/SPEC.md) states the invariants that make the compile-speed goal
+[SPEC.md §13](../SPEC.md) states the invariants that make the compile-speed goal
 reachable, so a future feature can be measured against them rather than
 quietly eroding them.
 
 **This repository is the specification and the toolchain that implements it.**
-Every example in these pages is compiled by `cargo test`, and the ones that
-print something are run and their output compared — so the documentation cannot
-drift from the language. `buri docs` serves all of it from the binary; the
-[README](./README.md) says where each part lives.
+`buri docs` serves all of it from the binary, and every example in it is
+compiled — `buri docs cli docs` says what that guarantees and how. The
+[README](../../../../README.md) says where each part lives.
 
 ```buri run
 from "core/effect" import { Alloc, Stdout };
@@ -68,3 +67,8 @@ export fn main(): Result<(), Str> {
 ```stdout
 total area: 9.14159
 ```
+
+### The name
+
+Búri, in Norse myth, is the first god — the one the others are descended from.
+The language is named for the ambition, not the achievement.

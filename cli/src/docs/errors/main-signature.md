@@ -6,20 +6,18 @@ error: `main` declares no generic parameters [main-signature]
 
 ## What to do
 
-drop them: `main` is called by the runtime, so there is nothing to infer them from
+Drop them. `main` takes no parameters, declares no generic parameters, and
+returns `Result<(), Str>`.
+
+## Why
+
+`main` is called by the runtime rather than by a program, so there is no call
+site to infer a type argument from and nothing to pass an argument in.
 
 ## A program that provokes it
 
 ```buri fail code=main-signature
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 export fn main<T>(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
   .Ok(())
 }
 ```
-
-Compiled by the test suite, which checks that it still produces `main-signature` — so
-this page cannot describe an error the compiler has stopped emitting.

@@ -6,24 +6,18 @@ error: an expression statement is legal only in a test source [expression-statem
 
 ## What to do
 
-bind it: `let _ = ...;`, or make it the block's result expression
+Bind it — `let _ = ...;` — or make it the block's result expression.
 
 ## Why
 
-a block is `let`s followed by a result expression
+A block is `let`s followed by a result expression, and there is no third
+statement form. That is the hole that must-use closes: with no expression
+statements, `let _ =` is the only way to discard a value, so `Result` cannot be
+dropped by accident. A test source is the one exception, which is what lets
+`assert.eq(...)` stand alone.
 
 ## A program that provokes it
 
-```buri fail code=expression-statement
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  ctx.println("hi");
-  .Ok(())
-}
+```buri fail code=expression-statement wrap=body
+ctx.println("ready");
 ```
-
-Compiled by the test suite, which checks that it still produces `expression-statement` — so
-this page cannot describe an error the compiler has stopped emitting.

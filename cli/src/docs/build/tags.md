@@ -177,7 +177,7 @@ it runs once.
 
 ## What a failure looks like
 
-Take the [`example/`](./cli/tests/example/) repository, and suppose `//lib/ledger` grows a
+Take the [`example/`](../../../tests/example/) repository, and suppose `//lib/ledger` grows a
 dependency on `//lib/store` — a reasonable-looking edge, added by someone who was
 not thinking about the browser build:
 
@@ -197,7 +197,7 @@ error: //cmd/web cannot contain both "client" and "server" code
    = "client" is carried by //cmd/web itself
    = "server" is carried by //lib/store
        reached by: //cmd/web -> //lib/ledger -> //lib/store
-       the edge that introduces it: lib/ledger/BUILD.buri:9 deps "//lib/store"
+       the edge that introduces it: lib/ledger/BUILD.buri:9 dependencies "//lib/store"
    = "client": ships to a user's machine or browser
    = "server": runs on infrastructure we operate
 ```
@@ -226,42 +226,19 @@ Two rules, two diagnostics, and the second one is the reason the first is not
 load-bearing: a repository states its deployment policy on the `server` tag once
 and gets both.
 
-An unsatisfiable target is an error at the target itself, before any binary asks
-for it:
+An unsatisfiable target — one carrying `client` and depending on something
+tagged `server` — is reported the same way at the *library* itself, before any
+binary asks for it. Catching it there is worth the extra pass: otherwise the
+mistake surfaces as a confusing failure in whichever binary happens to reach it
+first.
 
-```
-error: //lib/edge_cache can never be built
-  --> lib/edge_cache/BUILD.buri:4:9
-   |
- 4 |   tags: ["client"]
-   |         ^^^^^^^^^^
-   |
-   = it carries "client", and depends on //lib/store, which carries "server"
-   = "client" and "server" forbid each other
-```
-
-Catching that at the library is worth the extra pass: otherwise the mistake
-surfaces as a confusing failure in whichever binary happens to reach it first.
-
-Maturity reads identically, which is the point:
-
-```
-error: //cmd/server cannot contain both "stable" and "experimental" code
-  --> cmd/server/BUILD.buri:15:9
-   |
-15 |   tags: ["stable"]
-   |         ^^^^^^^^^^
-   |
-   = "stable" is carried by //cmd/server itself
-   = "experimental" is carried by //lib/vector_index
-       reached by: //cmd/server -> //lib/search -> //lib/vector_index
-   = "experimental": API may change without a deprecation period
-```
-
-Note that `stable` is opt-in. Nothing is defaulted, so a binary that
-says nothing about maturity is not checked for it; a binary that refuses to ship
-unfinished code says so. That is a real loss of enforcement compared to a
-mandatory axis, traded for there being no resolution algorithm to reason about.
+A `stable` binary reaching an `experimental` library reads identically, which
+is the point: one mechanism, one diagnostic shape, whether the question is
+deployment or maturity. Note that `stable` is opt-in. Nothing is defaulted, so
+a binary that says nothing about maturity is not checked for it; a binary that
+refuses to ship unfinished code says so. That is a real loss of enforcement
+compared to a mandatory axis, traded for there being no resolution algorithm to
+reason about.
 
 ## Tags and tests
 
@@ -286,7 +263,7 @@ library {
 
 That is the mechanism for "this must behave identically on both backends," which
 for a language targeting a native binary and JavaScript is the test you most want
-to be able to write. `I64` on the JS target ([`SPEC.md` §15](./cli/src/docs/SPEC.md)) is the
+to be able to write. `I64` on the JS target ([`SPEC.md` §15](../SPEC.md)) is the
 standing reason it exists. A platform listed here must be one the target admits —
 asking for a JS run of a `[LINUX, MACOS]` library is an error, not a skip.
 

@@ -212,7 +212,7 @@ pub const TOPICS: &[Topic] = &[
         Kind::Build,
         include_str!("../docs/build/cli.md"),
         &["command", "flag", "exit code", "build", "run", "query"],
-        &[],
+        &["build/repo-config"],
     ),
     tagged(
         "build/proto",
@@ -240,6 +240,7 @@ pub const TOPICS: &[Topic] = &[
         Kind::Guide,
         include_str!("../docs/guide/readme-intro.md"),
     ),
+    t("guide/installing", "Installing", Kind::Guide, include_str!("../docs/guide/installing.md")),
     tagged(
         "guide/readme-links",
         "Where the documentation is",
@@ -249,6 +250,7 @@ pub const TOPICS: &[Topic] = &[
         &["guide/goals"],
     ),
     t("guide/goals", "Goals", Kind::Guide, include_str!("../docs/guide/goals.md")),
+    t("guide/whats-in", "What's in v0.2", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
     t("guide/three-ideas", "Three ideas", Kind::Guide, include_str!("../docs/guide/three-ideas.md")),
     t("guide/numbers", "Numbers: two names, one set of types", Kind::Guide, include_str!("../docs/guide/numbers.md")),
     t(
@@ -263,19 +265,21 @@ pub const TOPICS: &[Topic] = &[
         Kind::Guide,
         include_str!("../docs/guide/restricting-effects.md"),
     ),
-    t("guide/errors", "Errors are not ignorable", Kind::Guide, include_str!("../docs/guide/errors.md")),
-    t("guide/imports", "Imports name the module first", Kind::Guide, include_str!("../docs/guide/imports.md")),
-    t("guide/whats-in", "What's in v0.2", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
-    t("guide/installing", "Installing", Kind::Guide, include_str!("../docs/guide/installing.md")),
-    t("guide/status", "Status and open questions", Kind::Guide, include_str!("../docs/guide/status.md")),
-    t("guide/naming", "Naming", Kind::Guide, include_str!("../docs/guide/naming.md")),
     tagged(
         "guide/standard-library",
         "The standard library",
         Kind::Guide,
         include_str!("../docs/guide/standard-library.md"),
         &["core", "stdlib", "std", "list", "map", "json", "crypto", "alloc", "allocator", "simd"],
-        &["lang/effects"],
+        &["lang/effects", "guide/user-interfaces"],
+    ),
+    tagged(
+        "guide/user-interfaces",
+        "User interfaces",
+        Kind::Guide,
+        include_str!("../docs/guide/user-interfaces.md"),
+        &["ui", "signal", "reactive", "node", "style", "theme", "dom", "browser", "web"],
+        &["guide/standard-library"],
     ),
 ];
 

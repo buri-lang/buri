@@ -1,0 +1,15 @@
+// The type the error catalog's examples are written against. A struct with one
+// exported field and one method is the smallest thing that lets a page show a
+// method resolved, a method missing, a field shadowed, or a receiver in the
+// wrong place — and one harness is one declaration rather than six copies of it
+// competing to be read as part of the mistake.
+
+export struct Square {
+  export side: Int,
+}
+
+impl Square {
+  export fn area(self: Square): Int {
+    self.side * self.side
+  }
+}

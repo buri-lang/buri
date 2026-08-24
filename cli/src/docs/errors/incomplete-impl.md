@@ -6,18 +6,17 @@ error: `Bag`'s `impl Measurable` is missing `isEmptyThing` [incomplete-impl]
 
 ## What to do
 
-add `isEmptyThing` to the block, with the signature `Measurable` declares
+Add `isEmptyThing` to the block, with the signature `Measurable` declares.
 
 ## Why
 
-an `impl` supplies every method its trait declares
+There are no default method bodies, so a trait's method list is the whole of
+what an `impl` owes it. A partial conformance would be a value that satisfies a
+bound and aborts when the bound is used.
 
 ## A program that provokes it
 
 ```buri fail code=incomplete-impl
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 trait Measurable {
   fn size(self: Self): Int;
   fn isEmptyThing(self: Self): Bool;
@@ -28,13 +27,4 @@ struct Bag { export count: Int }
 impl Measurable for Bag {
   fn size(self: Bag): Int { self.count }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${Bag { count: 1 }.size()}");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `incomplete-impl` — so
-this page cannot describe an error the compiler has stopped emitting.

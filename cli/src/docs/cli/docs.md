@@ -5,12 +5,15 @@ reference — from the binary, so what you read is what this toolchain does.
 There is no website to fall out of date and no second copy to forget.
 
 ```text
-buri docs                       every topic, grouped
-buri docs lang/effects          one topic
-buri docs cli build             one command, flags generated from the dispatch table
-buri docs search <words>        every page at once
-buri docs manifest              every id and output shape, for an agent
-buri docs assemble              regenerate cli/src/docs/SPEC.md and README.md
+buri docs                          every page, grouped
+buri docs lang/effects             one topic
+buri docs cli build                one command, flags generated from the dispatch table
+buri docs error result-discarded   one diagnostic, with a program that provokes it
+buri docs core/list                a standard library module, rendered from its source
+buri docs core/list.map            one item of one module
+buri docs search <words>           every page at once
+buri docs manifest                 every id and output shape, for an agent
+buri docs assemble                 regenerate cli/src/docs/SPEC.md and README.md
 ```
 
 It works outside a repository: the prose ships inside the executable.

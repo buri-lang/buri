@@ -16,6 +16,7 @@
 pub const HARNESSES: &[(&str, &str)] = &[
     ("shapes", include_str!("../docs/harness/shapes.buri")),
     ("money", include_str!("../docs/harness/money.buri")),
+    ("errors", include_str!("../docs/harness/errors.buri")),
 ];
 
 /// The preamble text for a name, if there is one.

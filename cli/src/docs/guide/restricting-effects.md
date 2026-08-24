@@ -22,28 +22,10 @@ export fn main(): Result<(), Str> {
 No copy, no wrapper, no runtime cost, and confinement is transitive — `C` is
 opaque at every downstream call site. When you want the value itself to lack the
 effect rather than merely be unable to name it, wrap the context in a type
-that satisfies fewer traits ([SPEC.md §10.8](./cli/src/docs/SPEC.md)).
+that satisfies fewer traits ([SPEC.md §10.8](../SPEC.md)).
 
-One more thing falls out of effects being ordinary interfaces: **a test double is
-a struct with methods.** A test builds a context the same way `main` does, and
-binds whichever implementations it wants — the runner's in-memory filesystem, or
-its own:
-
-```buri role=test
-# from "core/effect" import { Alloc, Fs, IoError };
-# from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic, files };
-# struct Config(export Int);
-# derive Eq, Show for Config;
-# fn fallback(): Config { Config(0) }
-# fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, IoError> {
-#   let text = ctx.readFile(path)?;
-#   .Ok(Config(text.len()))
-# }
-test "falls back when the config is missing" {
-  let ctx = context { ..Hermetic(), Fs: files([]) };
-  assert.eq(loadConfig(ctx, "config.toml").withDefault(fallback()), fallback());
-}
-```
-
-No mocking framework, and the call site does not change.
+One more thing falls out of effects being ordinary interfaces: **a test double
+is a struct with methods.** A test builds a context the same way `main` does and
+binds whichever implementations it wants, so there is no mocking framework and
+the call site does not change. [`build/testing.md`](../build/testing.md#the-runners-context)
+has the runner's own implementations and a worked fake.

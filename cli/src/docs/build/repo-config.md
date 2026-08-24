@@ -6,7 +6,7 @@ against the directory containing it, and the CLI walks up from the working
 directory to find it.
 
 It parses as `buri.build.v1.RepoConfig`
-([`schema/repo.proto`](./cli/src/docs/schema/repo.proto)) — its own schema file, separate from
+([`schema/repo.proto`](../schema/repo.proto)) — its own schema file, separate from
 the one `BUILD.buri` uses.
 
 **The whole file:**
@@ -46,7 +46,7 @@ argued about once, rather than an open list of strings nobody can enumerate.
 ## `tag`
 
 The tag vocabulary and, on the same block, everything that follows from carrying
-a tag. Fully documented in [`TAGS.md`](./cli/src/docs/build/tags.md); the summary is two blocks
+a tag. Fully documented in [`tags.md`](./tags.md); the summary is two blocks
 named for their polarity, so what a tag rules out and what it demands are
 distinguishable at a glance:
 
@@ -56,7 +56,7 @@ distinguishable at a glance:
 | `requires { platforms: [...] }` | The only platforms code carrying this tag may be built for. A whitelist; unset means all. |
 
 Those are the only two fields either block accepts. `forbids` takes no platforms
-and `requires` takes no tags, both for reasons `TAGS.md` gives. There is nothing
+and `requires` takes no tags, both for reasons [`tags.md`](./tags.md) gives. There is nothing
 else — no axes, no composition modes, no defaults, and no separate block for
 cross-cutting policy.
 
@@ -95,7 +95,7 @@ toolchain cannot silently widen code written before it existed — the reason
   their package directory, and a name here would be a second identifier
   competing with the directory the repository is checked out into. Rules in a
   `BUILD.buri` have no `name` either, for the same reason
-  ([`BUILD-FILES.md`](./cli/src/docs/build/build-files.md#labels)).
+  ([`build-files.md`](./build-files.md#labels)).
 - **No defaults block.** Visibility is private unless a rule says otherwise, and
   that is a fixed rule of the language rather than a repository setting. A
   repository that could flip the default to public would be one where reading
@@ -104,7 +104,7 @@ toolchain cannot silently widen code written before it existed — the reason
   There is likewise no repository-wide test timeout: a suite that needs longer
   writes `timeout_seconds` where the person reading that suite will see it.
 - **No lint configuration.** `buri lint` has one catalogue and one severity for
-  each check ([`CLI.md`](./cli/src/docs/build/cli.md#lint)), the same in every repository. A
+  each check ([`cli.md`](./cli.md#lint)), the same in every repository. A
   configurable linter means "does this code pass" is a question you cannot answer
   from the code, and a per-repository `allow` list is how a check that should have
   been argued about once gets silenced quietly instead. Several build-graph
@@ -120,7 +120,7 @@ toolchain cannot silently widen code written before it existed — the reason
   is a flag on the command, part of the cache key, and not a thing a repository
   configures per-target.
 - **No environment.** Actions run with an empty environment
-  ([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md)). There is
+  ([`hermeticity.md`](./hermeticity.md)). There is
   nowhere to set a variable because nothing reads one.
 - **No rule definitions.** Two rule kinds, both in the schema. A build system
   that lets a repository define rules is a build system where reading a

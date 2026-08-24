@@ -6,31 +6,21 @@ error: this arm is unreachable [unreachable-arm]
 
 ## What to do
 
-delete it, or move it above the arm that subsumes it
+Delete it, or move it above the arm that subsumes it.
 
 ## Why
 
-the arms before it already cover everything it matches
+Arms are tried in order, so an arm the ones above it already cover can never
+run. Reported rather than ignored because the usual cause is an arm in the
+wrong place, and a silently dead arm reads as handled.
 
 ## A program that provokes it
 
 ```buri fail code=unreachable-arm
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 fn describe(o: Option<Int>): Int {
   match (o) {
     anything => 1,
     .None => 0,
   }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${describe(.None)}");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `unreachable-arm` — so
-this page cannot describe an error the compiler has stopped emitting.

@@ -39,7 +39,7 @@ library {
 ```
 
 `buri gen` manages `proto_sources` exactly as it manages `sources`, and a
-schema no rule lists is [`undeclared-source`](./cli/src/docs/build/cli.md), the
+schema no rule lists is [`undeclared-source`](./cli.md), the
 same error a stray `.buri` gets — with the fix naming `proto_sources` rather
 than `sources`.
 
@@ -188,7 +188,7 @@ which a bare `Note` would not, and a `oneof` named `contact` inside
 
 **The 64-bit caveat, on the JavaScript backend.** An `Int` is an `I64` on every
 backend, and on the JavaScript one an `I64` is a double
-([`core/num`](./cli/src/docs/guide/standard-library.md)), so it holds every integer up to 2^53
+([`core/num`](../guide/standard-library.md)), so it holds every integer up to 2^53
 exactly and nothing above it. A `uint64` or `int64` field carrying a larger
 value survives the round trip only to that precision. This is the same caveat
 every double-backed protobuf implementation carries; it is stated here rather
@@ -300,7 +300,7 @@ export fn dark(): Everything {
 }
 ```
 
-`ProtoError` is [`core/proto`](./cli/src/docs/guide/standard-library.md)'s, and every case of it
+`ProtoError` is [`core/proto`](../guide/standard-library.md)'s, and every case of it
 carries a byte offset or a field number, because a decoder that says only
 "malformed" of a four-kilobyte message is a decoder you debug by bisection.
 
@@ -386,7 +386,7 @@ field-number order. JSON objects are unordered, no conforming reader can
 notice, and the alternative is an interleave that buys nothing.
 
 A failure names the path it happened at, written the way
-[`core/json`](./cli/src/docs/guide/standard-library.md)'s is — `$` for the document, `.name` for a
+[`core/json`](../guide/standard-library.md)'s is — `$` for the document, `.name` for a
 member — so `$.home.city` is a place a reader can find in the text in front of
 them.
 
@@ -441,22 +441,18 @@ somewhere else.
 CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
 ```
 
-The skips are the message types the testee does not implement, and the expected
-failures are dominated by two things the vendored schema had removed from it,
-`map<>` and the well-known types, plus the 64-bit precision caveat above.
-`cli/tests/proto/README.md` lists all seven reasons and the defects the suite
-found.
+Every expected failure is filed under one of seven reasons in
+[`cli/tests/proto/README.md`](../../../tests/proto/README.md), along with the
+defects the suite found. One of the seven is worth naming here because it is
+not a gap: the reference implementation is proto3 and the schema under test is
+edition 2026, so the two disagree about whether a field set to its zero value is
+written. They are both right about their own schema, and that difference is what
+this page is mostly about.
 
-One of those seven is worth naming here, because it is not a gap: the reference
-implementation is proto3 and the schema under test is edition 2026, so the two
-disagree about whether a field set to its zero value is written. They are both
-right about their own schema, and the difference is the one this page is mostly
-about.
-
-It is not part of `cargo test`, because a suite that needs a C++ build of
-another project is a suite that does not run. `cli/tests/vectors/proto.rs`
-replays recorded exchanges through the same testee under cargo, which is the
-half that can be hermetic.
+The conformance run is not part of `cargo test`, because a suite that needs a
+C++ build of another project is a suite that does not run.
+`cli/tests/vectors/proto.rs` replays recorded exchanges through the same testee
+under cargo, which is the half that can be hermetic.
 
 ## Caching
 

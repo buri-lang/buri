@@ -6,25 +6,20 @@ error: `?` on a `Result` needs a `Result` return type, not `I64` [question-mark-
 
 ## What to do
 
-return a `Result` from this function, or handle the error here with `match` or `??`
+Return a `Result` from this function, or handle the error here with `match` or
+`??`.
+
+## Why
+
+`?` is an early return of the error, so the function it appears in has to be
+able to return one. A version that aborted instead would make every `?` a
+possible crash, which is the property this language does not want.
 
 ## A program that provokes it
 
 ```buri fail code=question-mark-mismatch
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 fn unwrap(r: Result<Int, Str>): Int {
   let n = r?;
   n
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${unwrap(.Ok(1))}");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `question-mark-mismatch` — so
-this page cannot describe an error the compiler has stopped emitting.

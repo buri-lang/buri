@@ -6,26 +6,16 @@ error: `return` is a reserved word and may not be used as an identifier [reserve
 
 ## What to do
 
-pick another name; `return` is not available
+Pick another name.
 
 ## Why
 
-reserved for a future version of Buri; see grammar.ebnf, ReservedWord
+The word is reserved for a future version of the language rather than used by
+this one, so it is refused now instead of becoming a source-breaking change
+later. `buri docs grammar` lists the whole set under `ReservedWord`.
 
 ## A program that provokes it
 
 ```buri fail code=reserved-word
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 fn return(n: Int): Int { n }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `reserved-word` — so
-this page cannot describe an error the compiler has stopped emitting.

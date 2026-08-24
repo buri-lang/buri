@@ -6,20 +6,23 @@ error: `HostStdout` does not implement `Alloc` [missing-conformance]
 
 ## What to do
 
-bind a value whose type has `impl Alloc for ...`; an effect is an ordinary interface, so a test double is a struct with those methods
+Bind a value whose type has `impl Alloc for ...`.
+
+## Why
+
+Conformance is declared and never inferred, so a type with all the right
+methods still does not satisfy an effect until an `impl` says it does. An
+effect is an ordinary interface, which is why a test double is a struct with
+those methods and an `impl` block.
 
 ## A program that provokes it
 
 ```buri fail code=missing-conformance
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
+# from "core/effect" import { Alloc, Stdout };
+# from "core/host" import * as host;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
-  let _ = ctx.println("hi");
+  let _ = ctx.println("ready");
   .Ok(())
 }
 ```
-
-Compiled by the test suite, which checks that it still produces `missing-conformance` — so
-this page cannot describe an error the compiler has stopped emitting.
