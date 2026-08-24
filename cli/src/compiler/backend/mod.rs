@@ -32,6 +32,11 @@ pub mod intrinsic_keys;
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;
 
+/// Which `buri_rt_*` entry a key names, and what shape the call has, for the
+/// two backends that emit the call the same way.
+#[cfg(any(feature = "backend-cranelift", feature = "backend-stencil"))]
+pub mod runtime_table;
+
 #[cfg(feature = "backend-cranelift")]
 pub mod cranelift;
 
