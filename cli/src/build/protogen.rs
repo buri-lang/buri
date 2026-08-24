@@ -439,7 +439,7 @@ pub fn generate(
     origin: &str,
     schema: &Schema,
     deps: &[(String, Schema)],
-    diags: &mut Vec<Diagnostic>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> Generated {
     let mut table = Table::default();
     table.collect(schema, None, origin);
@@ -467,7 +467,7 @@ pub fn generate(
         if first.module.is_none() && second.module.is_none() {
             d = d.with_sub(first.span, "first declared here");
         }
-        diags.push(d);
+        diagnostics.push(d);
     }
 
     let mut g = Gen {
@@ -478,7 +478,7 @@ pub fn generate(
         features: schema.features.over(Features::edition_defaults()),
         out: String::new(),
         used: BTreeMap::new(),
-        diags,
+        diagnostics,
     };
 
     for e in &schema.enums {
@@ -559,7 +559,7 @@ struct Gen<'a> {
     out: String,
     /// Every type actually referenced, so the import lines name exactly those.
     used: BTreeMap<String, Entry>,
-    diags: &'a mut Vec<Diagnostic>,
+    diagnostics: &'a mut Vec<Diagnostic>,
 }
 
 /// An `if`/`else if`/`else` chain, written once so no generator has to get the
@@ -625,7 +625,7 @@ impl<'a> Gen<'a> {
                             .map(|c| format!("{} in {}", c.buri, c.origin))
                             .collect::<Vec<_>>();
                         where_.sort();
-                        self.diags.push(
+                        self.diagnostics.push(
                             Diagnostic::error(
                                 f.span,
                                 format!("`{named}` is ambiguous"),
@@ -644,7 +644,7 @@ impl<'a> Gen<'a> {
                 }
                 None => {
                     let name = name.clone();
-                    self.diags.push(
+                    self.diagnostics.push(
                         Diagnostic::error(f.span, format!("`{name}` names no message or enum"))
                             .with_code("proto-unknown-type")
                             .with_fix(
@@ -1573,9 +1573,9 @@ mod tests {
     fn gen(src: &str) -> String {
         let parsed = protoschema::parse(src, FileId(0));
         assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
-        let mut diags = Vec::new();
-        let out = generate("x.proto", &parsed.schema, &[], &mut diags);
-        assert!(diags.is_empty(), "{diags:#?}");
+        let mut diagnostics = Vec::new();
+        let out = generate("x.proto", &parsed.schema, &[], &mut diagnostics);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
         out.source
     }
 
@@ -1656,17 +1656,17 @@ mod tests {
             "edition = \"2026\";\npackage p;\nmessage Dup { int32 b = 1; }\n",
             FileId(0),
         );
-        let mut diags = Vec::new();
+        let mut diagnostics = Vec::new();
         generate(
             "here.proto",
             &here.schema,
             &[("//there.proto".to_string(), other)],
-            &mut diags,
+            &mut diagnostics,
         );
-        let d = diags
+        let d = diagnostics
             .iter()
             .find(|d| d.code.as_deref() == Some("proto-duplicate-type"))
-            .unwrap_or_else(|| panic!("{diags:#?}"));
+            .unwrap_or_else(|| panic!("{diagnostics:#?}"));
         assert!(d.message.contains("`p.Dup` is declared twice"), "{d:#?}");
         assert!(d.notes.iter().any(|n| n.contains("here.proto") && n.contains("//there.proto")));
         assert!(d.fix.is_some());
@@ -1685,12 +1685,12 @@ mod tests {
             "edition = \"2026\";\npackage a;\nmessage Status { int32 a = 1; }\n             message Use { Status s = 1; }\n",
             FileId(0),
         );
-        let mut diags = Vec::new();
-        generate("here.proto", &here.schema, &deps, &mut diags);
-        let d = diags
+        let mut diagnostics = Vec::new();
+        generate("here.proto", &here.schema, &deps, &mut diagnostics);
+        let d = diagnostics
             .iter()
             .find(|d| d.code.as_deref() == Some("proto-ambiguous-type"))
-            .unwrap_or_else(|| panic!("{diags:#?}"));
+            .unwrap_or_else(|| panic!("{diagnostics:#?}"));
         assert!(d.message.contains("`Status` is ambiguous"), "{d:#?}");
         assert!(d.notes.iter().any(|n| n.contains("here.proto") && n.contains("//other.proto")));
 
@@ -1699,9 +1699,9 @@ mod tests {
             "edition = \"2026\";\npackage a;\nmessage Status { int32 a = 1; }\n             message Use { a.Status s = 1; }\n",
             FileId(0),
         );
-        let mut diags = Vec::new();
-        let out = generate("here.proto", &here.schema, &deps, &mut diags);
-        assert!(diags.is_empty(), "{diags:#?}");
+        let mut diagnostics = Vec::new();
+        let out = generate("here.proto", &here.schema, &deps, &mut diagnostics);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
         assert!(out.source.contains("export s: Option<Status>,"), "{}", out.source);
     }
 

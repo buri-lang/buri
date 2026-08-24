@@ -99,14 +99,14 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     );
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
         paths,
-        &mut diags,
+        &mut diagnostics,
         monomorphize::Roots::Main(entry),
     );
-    assert!(!diags.has_errors(), "monomorphization failed");
+    assert!(!diagnostics.has_errors(), "monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     // The native branch: derives, closure conversion, reference counting.
     // A real build calls this from `build/actions.rs`; here the test does, and
@@ -731,11 +731,11 @@ fn emit_units(source: &str) -> Vec<(String, String, Vec<u8>)> {
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
         paths,
-        &mut diags,
+        &mut diagnostics,
         monomorphize::Roots::Main(entry),
     );
     middle::run(&mut program, &middle::Options::default());
@@ -1206,11 +1206,11 @@ export fn main(): Result<(), Str> {
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     let Some(entry) = analysis.checked.entry else { return };
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
         paths,
-        &mut diags,
+        &mut diagnostics,
         monomorphize::Roots::Main(entry),
     );
     middle::run(&mut program, &middle::Options::default());

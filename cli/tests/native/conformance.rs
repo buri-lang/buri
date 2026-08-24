@@ -432,10 +432,10 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
         return None;
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
-    assert!(!diags.has_errors(), "{name}: monomorphization failed");
+        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    assert!(!diagnostics.has_errors(), "{name}: monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
     let blocks = program.roots.tests().len();
@@ -511,10 +511,10 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
             .join("; "));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
-    if diags.has_errors() {
+        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    if diagnostics.has_errors() {
         return Err(String::from("monomorphization failed"));
     }
     middle::run(&mut program, &middle::Options::default());
@@ -551,10 +551,10 @@ fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
             .join("; "));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
-    if diags.has_errors() {
+        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    if diagnostics.has_errors() {
         return Err(String::from("monomorphization failed"));
     }
     middle::run(&mut program, &middle::Options::default());

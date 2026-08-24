@@ -289,8 +289,8 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
                     }
                 }
             }
-            Err(diags) => {
-                hard_error |= s.print(&diags);
+            Err(diagnostics) => {
+                hard_error |= s.print(&diagnostics);
             }
         }
     }
@@ -372,7 +372,7 @@ fn run_suite(
     notices: &mut Notices,
     pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     // A suite inherits its target's tags and platform restrictions, so a suite
     // for a `server` library is checked as server code without saying
     // anything. A suite that names no platforms runs once on the host, and the
@@ -388,10 +388,10 @@ fn run_suite(
     // run of a `[LINUX, MACOS]` library is an error, not a skip
     // (TAGS.md, "Tags and tests").
     for p in &checked {
-        actions::check_policy(s, target, *p, &mut diags);
+        actions::check_policy(s, target, *p, &mut diagnostics);
     }
-    if diags.has_errors() {
-        return Err(diags);
+    if diagnostics.has_errors() {
+        return Err(diagnostics);
     }
     if let Some(outcome) = pre.take(target) {
         return Ok(outcome);
@@ -446,7 +446,7 @@ fn run_suite(
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
             let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(
                     span,
                     format!("the {} backend is not implemented", platform.slug()),
@@ -466,11 +466,11 @@ fn run_suite(
                 outcome.skipped += one.skipped;
                 outcome.accepted += one.accepted;
             }
-            Err(d) => diags.extend(d.items),
+            Err(d) => diagnostics.extend(d.items),
         }
     }
-    if diags.has_errors() {
-        return Err(diags);
+    if diagnostics.has_errors() {
+        return Err(diagnostics);
     }
     Ok(outcome)
 }
@@ -491,7 +491,7 @@ fn run_on(
     notices: &mut Notices,
     pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
 
     let mut key = test_key_for(s, target, platform, args, pre);
     if let Some(cached) = served(s, target, platform, &key, args) {
@@ -519,9 +519,9 @@ fn run_on(
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut program =
-        monomorphize::run(&analysis.checked, module_paths, &mut diags, monomorphize::Roots::Tests);
-    if diags.has_errors() {
-        return Err(diags);
+        monomorphize::run(&analysis.checked, module_paths, &mut diagnostics, monomorphize::Roots::Tests);
+    if diagnostics.has_errors() {
+        return Err(diagnostics);
     }
     if program.roots.tests().is_empty() {
         return Ok(Outcome::default());
@@ -564,9 +564,9 @@ fn run_on(
         // thousand lines, and by here the verdict already exists. `Loaded`
         // holds its modules behind `Rc` — shared with the session's parse
         // cache — so it is not one of the things that can be handed over.
-        let crate::compiler::driver::Analysis { loaded, checked, diags } = analysis;
+        let crate::compiler::driver::Analysis { loaded, checked, diags: diagnostics } = analysis;
         drop(loaded);
-        drop(diags);
+        drop(diagnostics);
         crate::parallel::discard(checked);
         // The second half of the same rule, for the gaps `missing_intrinsics`
         // cannot see: a `deriveArray*` is an intrinsic *expression* inside a
@@ -576,8 +576,8 @@ fn run_on(
         // reason is a run that should not have been native, so it is taken
         // again on JavaScript rather than reported.
         return match out {
-            Err(diags) if chosen == Chosen::Default && is_backend_gap(&diags) => {
-                let reason = diags
+            Err(diagnostics) if chosen == Chosen::Default && is_backend_gap(&diagnostics) => {
+                let reason = diagnostics
                     .items
                     .first()
                     .map(|d| d.message.clone())
@@ -594,7 +594,7 @@ fn run_on(
         &analysis.checked.tables,
         crate::compiler::backend::Target { platform: Platform::Js, arch: None },
         &args.flags,
-        &mut diags,
+        &mut diagnostics,
     )?;
 
     // The runner's in-memory `Fs` contains exactly `test { data: [...] }`, and
@@ -620,11 +620,11 @@ fn run_on(
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("test.mjs");
     if let Err(e) = std::fs::write(&path, &source) {
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
                 .with_fix("check the directory exists and is writable"),
         );
-        return Err(diags);
+        return Err(diagnostics);
     }
 
     let limit = suite(s, target).and_then(|x| x.timeout_seconds);
@@ -632,11 +632,11 @@ fn run_on(
         Ok(Execution::Finished(out)) => out,
         Ok(Execution::TimedOut) => return Err(timed_out(s, target, limit)),
         Err(e) => {
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
                     .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
             );
-            return Err(diags);
+            return Err(diagnostics);
         }
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -647,12 +647,12 @@ fn run_on(
     locate(s, &program, &mut cases);
     if cases.is_empty() && !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(Span::NONE, "the test binary did not run")
                 .with_fix("read the runtime's own message below; it is what failed")
                 .with_note(err.trim().to_string()),
         );
-        return Err(diags);
+        return Err(diagnostics);
     }
     let accepted = if args.flags.accept { accept_goldens(s, target, &cases, sink) } else { 0 };
     Ok(Outcome { cases, skipped, accepted })
@@ -801,9 +801,9 @@ fn native_gap(
 /// entry. A failure with anything else among its errors is a failure, and is
 /// reported: falling back on one would turn a toolchain bug into a suite that
 /// quietly passes somewhere else.
-fn is_backend_gap(diags: &Diagnostics) -> bool {
-    !diags.items.is_empty()
-        && diags.items.iter().all(|d| d.message.contains("has no implementation of"))
+fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
+    !diagnostics.items.is_empty()
+        && diagnostics.items.iter().all(|d| d.message.contains("has no implementation of"))
 }
 
 /// What the batch prepass left for the loop that reports the suites.
@@ -931,7 +931,7 @@ fn run_native(
     analysis: &crate::compiler::driver::Analysis,
     skipped: usize,
 ) -> Result<Outcome, Diagnostics> {
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     if let Some(filter) = &args.flags.filter {
         if let monomorphize::ProgramRoots::Tests(tests) = &mut program.roots {
             tests.retain(|t| t.name.contains(filter.as_str()));
@@ -959,7 +959,7 @@ fn run_native(
         &args.flags,
         &mut program,
         &analysis.checked.tables,
-        &mut diags,
+        &mut diagnostics,
     )?;
 
     let limit = suite(s, target).and_then(|x| x.timeout_seconds);
@@ -969,11 +969,11 @@ fn run_native(
         Ok(Some(blocks)) => blocks,
         Ok(None) => return Err(timed_out(s, target, limit)),
         Err(e) => {
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
                     .with_fix("the link produced it, so this is a toolchain bug"),
             );
-            return Err(diags);
+            return Err(diagnostics);
         }
     };
     let objects: Vec<String> = selected
@@ -1208,9 +1208,9 @@ fn run_batches(
         // `run_suite` below, which checks the same three; what it must not do
         // first is contribute its closure to a binary the rule exists to
         // prevent.
-        let mut diags = Diagnostics::new();
-        actions::check_policy(s, target, platform, &mut diags);
-        if diags.has_errors() {
+        let mut diagnostics = Diagnostics::new();
+        actions::check_policy(s, target, platform, &mut diagnostics);
+        if diagnostics.has_errors() {
             continue;
         }
         fresh.push(target);
@@ -1371,10 +1371,10 @@ fn run_batch(
     }
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, module_paths, &mut diags, monomorphize::Roots::Tests);
-    if diags.has_errors() || program.roots.tests().is_empty() {
+        monomorphize::run(&analysis.checked, module_paths, &mut diagnostics, monomorphize::Roots::Tests);
+    if diagnostics.has_errors() || program.roots.tests().is_empty() {
         return;
     }
     // The gap probe, asked of the batch. It cannot say *which* member reaches
@@ -1451,7 +1451,7 @@ fn run_batch(
         &args.flags,
         &mut program,
         &analysis.checked.tables,
-        &mut diags,
+        &mut diagnostics,
     ) {
         Ok(binary) => binary,
         Err(_) => return,
@@ -1600,10 +1600,10 @@ fn locate(s: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
 
 /// The diagnostic a suite that ran past its own `timeout_seconds` gets.
 fn timed_out(s: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
     let seconds = limit.unwrap_or(0);
-    diags.push(
+    diagnostics.push(
         Diagnostic::error(span, format!("{}'s test suite ran longer than {seconds}s", s.workspace.label(target)))
             .with_code("test-timeout")
             .with_label("the timeout this suite declares")
@@ -1616,7 +1616,7 @@ fn timed_out(s: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
                  never returns is a loop with no exit, since nothing here blocks on I/O",
             ),
     );
-    diags
+    diagnostics
 }
 
 enum Execution {
@@ -2005,11 +2005,11 @@ mod tests {
     #[test]
     fn only_a_backend_gap_falls_back() {
         let of = |messages: &[&str]| {
-            let mut diags = Diagnostics::new();
+            let mut diagnostics = Diagnostics::new();
             for m in messages {
-                diags.push(Diagnostic::error(Span::NONE, (*m).to_string()));
+                diagnostics.push(Diagnostic::error(Span::NONE, (*m).to_string()));
             }
-            is_backend_gap(&diags)
+            is_backend_gap(&diagnostics)
         };
         assert!(of(&["the cranelift backend has no implementation of char.isDigit"]));
         assert!(of(&["the native runtime has no implementation of `json.decode`"]));

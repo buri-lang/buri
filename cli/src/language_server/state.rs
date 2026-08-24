@@ -161,7 +161,7 @@ impl State {
     /// `driver::analyze` does.
     pub fn lint(&self, path: &Path) -> Option<(Session, crate::diagnostics::Diagnostics)> {
         let mut session = session::open(&Flags::default()).ok()?;
-        if session.diags.has_errors() {
+        if session.diagnostics.has_errors() {
             return None;
         }
         for (p, text) in &self.open {
@@ -169,8 +169,8 @@ impl State {
             session.map.add(rel, p.clone(), text.clone());
         }
         let target = self.target_for(&session, path)?;
-        let diags = crate::commands::lint::findings_for(&mut session, &[target]);
-        Some((session, diags))
+        let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
+        Some((session, diagnostics))
     }
 
     /// The target whose closure contains `path`. A file can belong to a library

@@ -69,15 +69,15 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
         // Only a binary produces an artifact; a library is checked, which is
         // what `buri build //lib/money` means.
         if target.kind == RuleKind::Library {
-            let mut diags = crate::diagnostics::Diagnostics::new();
+            let mut diagnostics = crate::diagnostics::Diagnostics::new();
             // A library declares no outputs, so there is no platform this is
             // *for*; `Js` is the toolchain's default and is what this asked
             // before there was a fourth platform to pick wrongly. The only
             // thing it decides is a tag's `requires { platforms }`, which a
             // library is asked about again — per output — by every binary that
             // depends on it.
-            actions::check_policy(&s, target, crate::build::buildfile::Platform::Js, &mut diags);
-            if !diags.has_errors() {
+            actions::check_policy(&s, target, crate::build::buildfile::Platform::Js, &mut diagnostics);
+            if !diagnostics.has_errors() {
                 let unit = crate::compiler::modules::Unit {
                     target: Some(target),
                     // A library is checked, not built for an output, and it
@@ -86,9 +86,9 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                     with_tests: false,
                 };
                 let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
-                diags.extend(analysis.diags.items);
+                diagnostics.extend(analysis.diags.items);
             }
-            failed |= s.print(&diags);
+            failed |= s.print(&diagnostics);
             continue;
         }
         for output in actions::selected_outputs(&s, target, &args.flags) {
@@ -99,8 +99,8 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                     let note = if a.cached { ", cached" } else { "" };
                     println!("{} ({} bytes{note})", rel.display(), a.bytes);
                 }
-                Err(diags) => {
-                    failed |= s.print(&diags);
+                Err(diagnostics) => {
+                    failed |= s.print(&diagnostics);
                 }
             }
         }
@@ -195,12 +195,12 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                 Ok(both) => both,
                 Err(code) => return code,
             };
-            let mut diags = crate::diagnostics::Diagnostics::new();
-            let compiled = match actions::compile_artifact(&mut s, target, platform, &flags, &mut diags)
+            let mut diagnostics = crate::diagnostics::Diagnostics::new();
+            let compiled = match actions::compile_artifact(&mut s, target, platform, &flags, &mut diagnostics)
             {
                 Ok(compiled) => compiled,
-                Err(diags) => {
-                    s.print(&diags);
+                Err(diagnostics) => {
+                    s.print(&diagnostics);
                     return 1;
                 }
             };
@@ -403,11 +403,11 @@ fn check_native(
             std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
         let _ = std::fs::remove_dir_all(&round_dir);
         let (mut s, target) = round_session(label, flags)?;
-        let mut diags = crate::diagnostics::Diagnostics::new();
-        let objects = match actions::compile_objects(&mut s, target, output, flags, &mut diags) {
+        let mut diagnostics = crate::diagnostics::Diagnostics::new();
+        let objects = match actions::compile_objects(&mut s, target, output, flags, &mut diagnostics) {
             Ok(objects) => objects,
-            Err(diags) => {
-                s.print(&diags);
+            Err(diagnostics) => {
+                s.print(&diagnostics);
                 return Err(1);
             }
         };
@@ -431,8 +431,8 @@ fn check_native(
             target: actions::target_of(output),
             unit_prefix: &prefix,
         };
-        if let Err(diags) = link::run(&objects.units, &objects.rows, &linker, &written, &opts) {
-            s.print(&diags);
+        if let Err(diagnostics) = link::run(&objects.units, &objects.rows, &linker, &written, &opts) {
+            s.print(&diagnostics);
             return Err(1);
         }
         let exe = match std::fs::read(&written) {

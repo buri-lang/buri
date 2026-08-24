@@ -70,13 +70,13 @@ fn two_suites(name: &str) -> Scratch {
 /// directory is shared by every test in it.
 fn declared_set(root: &Path) -> Vec<PathBuf> {
     let mut map = SourceMap::new();
-    let mut diags = Diagnostics::new();
-    let workspace = Workspace::load(root, &mut map, &mut diags).expect("the workspace loads");
+    let mut diagnostics = Diagnostics::new();
+    let workspace = Workspace::load(root, &mut map, &mut diagnostics).expect("the workspace loads");
     let s = Session {
         root: root.to_path_buf(),
         map,
         parsed: buri::parsing::parser::Cache::new(),
-        diags,
+        diagnostics,
         workspace,
         rendering: Rendering::Human { color: false },
     };

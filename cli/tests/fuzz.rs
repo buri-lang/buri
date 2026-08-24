@@ -899,9 +899,9 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
     let mut map = SourceMap::new();
     match driver::run_snippet(&mut map, &format!("fuzz_{n}"), input) {
         Ok(out) => Ok(Some(out)),
-        Err(diags) => Err(format!(
+        Err(diagnostics) => Err(format!(
             "the JavaScript backend produced no answer:\n{}",
-            indent(&diags.items.iter().map(|d| map.render(d, false)).collect::<String>())
+            indent(&diagnostics.items.iter().map(|d| map.render(d, false)).collect::<String>())
         )),
     }
 }
@@ -1035,14 +1035,14 @@ mod native {
             analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
         let mut out = Vec::new();
         for (name, profile) in NATIVES {
-            let mut diags = Diagnostics::new();
+            let mut diagnostics = Diagnostics::new();
             let mut program = monomorphize::run(
                 &analysis.checked,
                 paths.clone(),
-                &mut diags,
+                &mut diagnostics,
                 monomorphize::Roots::Main(entry),
             );
-            if diags.has_errors() {
+            if diagnostics.has_errors() {
                 return None;
             }
             let target = host_target();
@@ -1925,9 +1925,9 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
     use buri::diagnostics::Diagnostics;
     let mut map = SourceMap::new();
     let mut cache = buri::parsing::parser::Cache::new();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let loaded = {
-        let mut loader = Loader::new(None, &mut map, &mut diags, &mut cache);
+        let mut loader = Loader::new(None, &mut map, &mut diagnostics, &mut cache);
         loader.load_builtin_modules();
         let last = program.modules.len().saturating_sub(1);
         for (i, m) in program.modules.iter().enumerate() {
@@ -1936,8 +1936,8 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
         }
         loader.finish()
     };
-    let checked = Checker::new(&loaded, None, &mut diags).run();
-    let errors: Vec<String> = diags
+    let checked = Checker::new(&loaded, None, &mut diagnostics).run();
+    let errors: Vec<String> = diagnostics
         .items
         .iter()
         .filter(|d| matches!(d.severity, Severity::Error))

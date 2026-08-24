@@ -366,8 +366,8 @@ impl Workspace {
         let cwd = std::env::current_dir().ok()?;
         let root = crate::build::workspace::find_root(&cwd)?;
         let mut map = crate::diagnostics::SourceMap::new();
-        let mut diags = crate::diagnostics::Diagnostics::new();
-        let workspace = crate::build::workspace::Workspace::load(&root, &mut map, &mut diags).ok()?;
+        let mut diagnostics = crate::diagnostics::Diagnostics::new();
+        let workspace = crate::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).ok()?;
 
         // Every library in the repository, checked together, so a page shows
         // what an importer would actually see.

@@ -1164,8 +1164,8 @@ fn alloc_row(program: &Program, label: &str) -> AllocRow {
         ));
         let mut map = SourceMap::new();
         let mut cache = parser::Cache::new();
-        let mut diags = Diagnostics::new();
-        let loaded = load(program, &mut map, &mut cache, &mut diags);
+        let mut diagnostics = Diagnostics::new();
+        let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
         phases.push((
             "sema",
             allocations_of(|| {
@@ -1307,8 +1307,8 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
 
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
-    let mut diags = Diagnostics::new();
-    let loaded = load(program, &mut map, &mut cache, &mut diags);
+    let mut diagnostics = Diagnostics::new();
+    let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let mut d = Diagnostics::new();
     let checked = Checker::new(&loaded, None, &mut d).run();
     if phase == "sema" {
@@ -1872,8 +1872,8 @@ fn measure(
     // `Checked` each time, so no repetition sees another's work.
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
-    let mut diags = Diagnostics::new();
-    let loaded = load(program, &mut map, &mut cache, &mut diags);
+    let mut diagnostics = Diagnostics::new();
+    let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let (median, dispersion, fastest, reps) = bench(cfg, || {
         let mut d = Diagnostics::new();
         let checked = Checker::new(&loaded, None, &mut d).run();
@@ -1937,8 +1937,8 @@ fn measure(
             continue;
         }
         let opts = Options { profile, target, unit_prefix: "" };
-        if let Err(diags) = selected.emit(&probe, &checked.tables, &opts) {
-            let reason = diags
+        if let Err(diagnostics) = selected.emit(&probe, &checked.tables, &opts) {
+            let reason = diagnostics
                 .items
                 .first()
                 .map_or_else(|| String::from("emission failed"), |d| d.message.clone());
@@ -1982,9 +1982,9 @@ fn measure(
 fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Target, Profile)]) {
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
-    let mut diags = Diagnostics::new();
-    let loaded = load(program, &mut map, &mut cache, &mut diags);
-    let checked = &Checker::new(&loaded, None, &mut diags).run();
+    let mut diagnostics = Diagnostics::new();
+    let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
+    let checked = &Checker::new(&loaded, None, &mut diagnostics).run();
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let Some(entry) = checked.entry else { return };
     let flags = Flags::default();
@@ -2069,9 +2069,9 @@ fn load(
     program: &Program,
     map: &mut SourceMap,
     cache: &mut parser::Cache,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Loaded {
-    let mut loader = Loader::new(None, map, diags, cache);
+    let mut loader = Loader::new(None, map, diagnostics, cache);
     loader.load_builtin_modules();
     let last = program.modules.len().saturating_sub(1);
     for (i, m) in program.modules.iter().enumerate() {
@@ -2085,10 +2085,10 @@ fn load(
 fn validate(program: &Program) -> Result<(), Vec<String>> {
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
-    let mut diags = Diagnostics::new();
-    let loaded = load(program, &mut map, &mut cache, &mut diags);
-    let checked = Checker::new(&loaded, None, &mut diags).run();
-    let mut problems: Vec<String> = diags
+    let mut diagnostics = Diagnostics::new();
+    let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
+    let checked = Checker::new(&loaded, None, &mut diagnostics).run();
+    let mut problems: Vec<String> = diagnostics
         .items
         .iter()
         .filter(|d| matches!(d.severity, buri::diagnostics::Severity::Error))
@@ -2118,16 +2118,16 @@ fn validate(program: &Program) -> Result<(), Vec<String>> {
 fn reach(program: &Program) -> (usize, usize) {
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
-    let mut diags = Diagnostics::new();
-    let loaded = load(program, &mut map, &mut cache, &mut diags);
-    let checked = Checker::new(&loaded, None, &mut diags).run();
+    let mut diagnostics = Diagnostics::new();
+    let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
+    let checked = Checker::new(&loaded, None, &mut diagnostics).run();
     let Some(entry) = checked.entry else { return (0, 0) };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut prog = monomorphize::run(&checked, module_paths, &mut diags, Roots::Main(entry));
+    let mut prog = monomorphize::run(&checked, module_paths, &mut diagnostics, Roots::Main(entry));
     let funcs = prog.funcs.len();
     let flags = Flags::default();
     let target = Target { platform: Platform::Js, arch: None };
-    let emitted = actions::emit(&mut prog, &checked.tables, target, &flags, &mut diags)
+    let emitted = actions::emit(&mut prog, &checked.tables, target, &flags, &mut diagnostics)
         .map(|s| s.len())
         .unwrap_or(0);
     (funcs, emitted)
@@ -2175,8 +2175,8 @@ fn floor_costs() -> Floor {
 
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
-    let mut diags = Diagnostics::new();
-    let loaded = load(&program, &mut map, &mut cache, &mut diags);
+    let mut diagnostics = Diagnostics::new();
+    let loaded = load(&program, &mut map, &mut cache, &mut diagnostics);
     let (sema, ..) = bench(&cfg, || {
         let mut d = Diagnostics::new();
         std::hint::black_box(Checker::new(&loaded, None, &mut d).run());

@@ -360,10 +360,10 @@ fn prepared(
     target: Target,
 ) -> monomorphize::Program {
     let entry = checked.entry.expect("the program exports `main`");
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(checked, paths.to_vec(), &mut diags, monomorphize::Roots::Main(entry));
-    assert!(!diags.has_errors(), "{row}: monomorphization failed");
+        monomorphize::run(checked, paths.to_vec(), &mut diagnostics, monomorphize::Roots::Main(entry));
+    assert!(!diagnostics.has_errors(), "{row}: monomorphization failed");
     // The product's own seam: `middle::run` for everybody, `middle::native`
     // for the platforms that are not JavaScript.
     actions::prepare(&mut program, target);
@@ -374,8 +374,8 @@ fn cc() -> String {
     std::env::var("CC").unwrap_or_else(|_| String::from("cc"))
 }
 
-fn messages(diags: &Diagnostics) -> String {
-    diags.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
+fn messages(diagnostics: &Diagnostics) -> String {
+    diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
 }
 
 /// Compile through the JavaScript backend and run the artifact.

@@ -580,23 +580,23 @@ impl Linker for Cc {
         out: &Path,
         _opts: &LinkOptions<'_>,
     ) -> Result<(), Diagnostics> {
-        let mut diags = Diagnostics::new();
+        let mut diagnostics = Diagnostics::new();
         if units.is_empty() {
-            diags.push(Diagnostic::error(
+            diagnostics.push(Diagnostic::error(
                 Span::NONE,
                 String::from("internal error: the backend emitted no codegen unit to link"),
             ));
-            return Err(diags);
+            return Err(diagnostics);
         }
         if let Err(e) = std::fs::create_dir_all(&self.dir) {
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(
                     Span::NONE,
                     format!("cannot create {}: {e}", self.dir.display()),
                 )
                 .with_fix("check the directory exists and is writable"),
             );
-            return Err(diags);
+            return Err(diagnostics);
         }
 
         // One unit per worker. Every unit writes its own file and reads nothing
@@ -641,8 +641,8 @@ impl Linker for Cc {
             match one {
                 Ok(path) => objects.push(path),
                 Err(d) => {
-                    diags.push(d);
-                    return Err(diags);
+                    diagnostics.push(d);
+                    return Err(diagnostics);
                 }
             }
         }
@@ -653,11 +653,11 @@ impl Linker for Cc {
                 != Some(runtime_native::ARCHIVE.len() as u64);
             if stale {
                 if let Err(e) = std::fs::write(&archive, runtime_native::ARCHIVE) {
-                    diags.push(Diagnostic::error(
+                    diagnostics.push(Diagnostic::error(
                         Span::NONE,
                         format!("cannot write {}: {e}", archive.display()),
                     ));
-                    return Err(diags);
+                    return Err(diagnostics);
                 }
             }
         }
@@ -724,23 +724,23 @@ impl Linker for Cc {
                 let bytes = match std::fs::read(&staged) {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        diags.push(Diagnostic::error(
+                        diagnostics.push(Diagnostic::error(
                             Span::NONE,
                             format!("the link produced no {}: {e}", staged.display()),
                         ));
-                        return Err(diags);
+                        return Err(diagnostics);
                     }
                 };
                 let _ = std::fs::remove_file(&staged);
                 if let Err(e) = place(out, &bytes) {
-                    diags.push(
+                    diagnostics.push(
                         Diagnostic::error(
                             Span::NONE,
                             format!("cannot write {}: {e}", out.display()),
                         )
                         .with_fix("check the directory exists and is writable"),
                     );
-                    return Err(diags);
+                    return Err(diagnostics);
                 }
                 Ok(())
             }
@@ -753,21 +753,21 @@ impl Linker for Cc {
                 for line in text.lines().take(20) {
                     d = d.with_note(line.to_string());
                 }
-                diags.push(d.with_note(spelled).with_fix(
+                diagnostics.push(d.with_note(spelled).with_fix(
                     "if the C compiler does not understand the chosen linker, set \
                      `BURI_LINKER=cc` to use the system default",
                 ));
-                Err(diags)
+                Err(diagnostics)
             }
             Err(e) => {
-                diags.push(
+                diagnostics.push(
                     Diagnostic::error(
                         Span::NONE,
                         format!("cannot run {}: {e}", self.driver.display()),
                     )
                     .with_fix("install a C toolchain, or set `CC` to one"),
                 );
-                Err(diags)
+                Err(diagnostics)
             }
         }
     }

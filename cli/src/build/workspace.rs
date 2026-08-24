@@ -304,12 +304,12 @@ impl Workspace {
     pub fn load(
         root: &Path,
         map: &mut crate::diagnostics::SourceMap,
-        diags: &mut Diagnostics,
+        diagnostics: &mut Diagnostics,
     ) -> std::io::Result<Workspace> {
         let repo_path = root.join("REPO.buri");
         let repo_id = map.load("REPO.buri", &repo_path)?;
         let read = buildfile::read_repo_config(map.text(repo_id), repo_id);
-        diags.extend(read.errors);
+        diagnostics.extend(read.errors);
         let repo = read.value;
 
         let mut dirs = Vec::new();
@@ -327,9 +327,9 @@ impl Workspace {
             };
             let id = map.load(&rel, &build_path)?;
             let read = buildfile::read_build_file(map.text(id), id);
-            diags.extend(read.errors);
+            diagnostics.extend(read.errors);
             if read.value.library.is_none() && read.value.binary.is_none() {
-                diags.push(
+                diagnostics.push(
                     Diagnostic::error(
                         Span::point(id, 0),
                         format!("//{path} declares neither a library nor a binary"),
@@ -358,7 +358,7 @@ impl Workspace {
         sorted_paths.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
 
         let workspace = Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
-        workspace.check_package_module_collisions(diags);
+        workspace.check_package_module_collisions(diagnostics);
         Ok(workspace)
     }
 
@@ -379,7 +379,7 @@ impl Workspace {
     /// Rule 3 of LIBRARIES.md: a module path may not also be a package path.
     /// If `lib/money/cents/` is a package, then `lib/money/cents.buri` in the
     /// parent has two meanings, so the pair is rejected by name.
-    fn check_package_module_collisions(&self, diags: &mut Diagnostics) {
+    fn check_package_module_collisions(&self, diagnostics: &mut Diagnostics) {
         for p in &self.packages {
             if p.path.is_empty() {
                 continue;
@@ -388,7 +388,7 @@ impl Workspace {
             let Some(parent_id) = self.pkg_by_path(parent) else { continue };
             let sibling = self.pkg(parent_id).dir.join(format!("{last}.buri"));
             if sibling.is_file() {
-                diags.push(
+                diagnostics.push(
                     Diagnostic::error(
                         Span::point(p.build_file_id, 0),
                         format!(

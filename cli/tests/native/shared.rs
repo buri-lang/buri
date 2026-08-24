@@ -73,9 +73,9 @@ pub fn conformance_repository() -> Option<&'static Workspace> {
     REPOSITORY.get_or_init(|| {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
         let mut map = SourceMap::new();
-        let mut diags = Diagnostics::new();
-        let workspace = Workspace::load(&root, &mut map, &mut diags).ok()?;
-        if diags.has_errors() {
+        let mut diagnostics = Diagnostics::new();
+        let workspace = Workspace::load(&root, &mut map, &mut diagnostics).ok()?;
+        if diagnostics.has_errors() {
             return None;
         }
         Some(workspace)

@@ -10,8 +10,8 @@ fn example_root() -> PathBuf {
 fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: bool) -> String {
     let root = example_root();
     let mut map = buri::diagnostics::SourceMap::new();
-    let mut diags = buri::diagnostics::Diagnostics::new();
-    let workspace = buri::build::workspace::Workspace::load(&root, &mut map, &mut diags).unwrap();
+    let mut diagnostics = buri::diagnostics::Diagnostics::new();
+    let workspace = buri::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).unwrap();
     let Some(id) = workspace.pkg_by_path(pkg) else { panic!("no package {pkg}") };
     let unit = buri::compiler::modules::Unit {
         target: Some(buri::build::workspace::TargetId { pkg: id, kind }),
@@ -21,7 +21,7 @@ fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: b
     let mut cache = buri::parsing::parser::Cache::new();
     let analysis = buri::compiler::driver::analyze(Some(&workspace), &mut map, &mut cache, &unit);
     let mut out = String::new();
-    for d in diags.items.iter().chain(analysis.diags.items.iter()) {
+    for d in diagnostics.items.iter().chain(analysis.diags.items.iter()) {
         out.push_str(&map.render(d, false));
     }
     out

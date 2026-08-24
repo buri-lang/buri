@@ -32,7 +32,7 @@ pub struct Session {
     /// at a time and every target imports the standard library, so without
     /// this the same files are lexed and parsed once per target.
     pub parsed: crate::parsing::parser::Cache,
-    pub diags: Diagnostics,
+    pub diagnostics: Diagnostics,
     pub workspace: Workspace,
     pub rendering: Rendering,
 }
@@ -46,15 +46,15 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
         );
     };
     let mut map = SourceMap::new();
-    let mut diags = Diagnostics::new();
-    let workspace = Workspace::load(&root, &mut map, &mut diags).map_err(|e| e.to_string())?;
+    let mut diagnostics = Diagnostics::new();
+    let workspace = Workspace::load(&root, &mut map, &mut diagnostics).map_err(|e| e.to_string())?;
     let rendering = match flags.error_format {
         ErrorFormat::Json => Rendering::Json,
         ErrorFormat::Human => Rendering::Human {
             color: flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
         },
     };
-    Ok(Session { root, map, parsed: crate::parsing::parser::Cache::new(), diags, workspace, rendering })
+    Ok(Session { root, map, parsed: crate::parsing::parser::Cache::new(), diagnostics, workspace, rendering })
 }
 
 impl Session {
@@ -102,18 +102,18 @@ impl Session {
     /// Emits everything the session has collected, in source order, and
     /// empties it. `true` when any of it was an error.
     pub fn report(&mut self) -> bool {
-        self.diags.sort(&self.map);
-        let had_error = self.print(&self.diags);
-        self.diags.clear();
+        self.diagnostics.sort(&self.map);
+        let had_error = self.print(&self.diagnostics);
+        self.diagnostics.clear();
         had_error
     }
 
     /// The same for a set of diagnostics the session does not own, which is
     /// what an analysis hands back. Left in the order it arrived: only the
     /// session's own collection is a mixture of several passes' findings.
-    pub fn print(&self, diags: &Diagnostics) -> bool {
+    pub fn print(&self, diagnostics: &Diagnostics) -> bool {
         let mut had_error = false;
-        for d in &diags.items {
+        for d in &diagnostics.items {
             self.emit(d);
             had_error |= d.is_error();
         }

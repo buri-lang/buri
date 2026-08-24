@@ -64,8 +64,8 @@ fn workspace(name: &str) -> PathBuf {
 fn ok<T>(r: Result<T, buri::diagnostics::Diagnostics>) -> T {
     match r {
         Ok(value) => value,
-        Err(diags) => {
-            let text: Vec<String> = diags.items.iter().map(|d| d.message.clone()).collect();
+        Err(diagnostics) => {
+            let text: Vec<String> = diagnostics.items.iter().map(|d| d.message.clone()).collect();
             panic!("{}", text.join("\n"))
         }
     }
@@ -75,7 +75,7 @@ fn ok<T>(r: Result<T, buri::diagnostics::Diagnostics>) -> T {
 fn failed<T>(r: Result<T, buri::diagnostics::Diagnostics>) -> buri::diagnostics::Diagnostics {
     match r {
         Ok(_) => panic!("the call succeeded where it was supposed to report"),
-        Err(diags) => diags,
+        Err(diagnostics) => diagnostics,
     }
 }
 

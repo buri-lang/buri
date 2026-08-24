@@ -38,13 +38,13 @@ pub fn build_target(
     output: &Output,
     flags: &Flags,
 ) -> Result<Artifact, Diagnostics> {
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let platform = output.platform();
 
     // Every check the graph can answer before a line is compiled.
-    check_policy(s, target, platform, &mut diags);
-    if diags.has_errors() {
-        return Err(diags);
+    check_policy(s, target, platform, &mut diagnostics);
+    if diagnostics.has_errors() {
+        return Err(diagnostics);
     }
 
     // "Is there a linker and an object file at the end of this?" — not "is
@@ -58,16 +58,16 @@ pub fn build_target(
         // gets, unchanged in wording, which is what
         // `repositories/cli/output_selection` pins.
         if native_ready(target_of(output), profile_of(flags)) {
-            return build_native(s, target, output, flags, diags);
+            return build_native(s, target, output, flags, diagnostics);
         }
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(
                 output.span,
                 format!("the {} backend is not implemented", platform.slug()),
             )
             .with_fix("this toolchain emits JavaScript; build with `--output=js`"),
         );
-        return Err(diags);
+        return Err(diagnostics);
     }
 
     // The key covers everything that can affect the artifact, so a hit means
@@ -105,7 +105,7 @@ pub fn build_target(
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if std::fs::write(&path, &bytes).is_ok()
-                    && write_companions(&path, output, &stylesheet, &mut diags)
+                    && write_companions(&path, output, &stylesheet, &mut diagnostics)
                 {
                     explain_link(crate::build::cache::Status::Cached);
                     link_out_symlink(s, output);
@@ -116,7 +116,7 @@ pub fn build_target(
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let compiled = compile_artifact(s, target, platform, flags, &mut diags)?;
+    let compiled = compile_artifact(s, target, platform, flags, &mut diagnostics)?;
     cache.put(&key, compiled.module.as_bytes());
     if platform == Platform::Web {
         cache.put(&sheet_key, compiled.stylesheet.as_bytes());
@@ -125,14 +125,14 @@ pub fn build_target(
         let _ = std::fs::create_dir_all(parent);
     }
     if let Err(e) = std::fs::write(&path, &compiled.module) {
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
                 .with_fix("check the directory exists and is writable"),
         );
-        return Err(diags);
+        return Err(diagnostics);
     }
-    if !write_companions(&path, output, &compiled.stylesheet, &mut diags) {
-        return Err(diags);
+    if !write_companions(&path, output, &compiled.stylesheet, &mut diagnostics) {
+        return Err(diagnostics);
     }
     link_out_symlink(s, output);
     Ok(Artifact { target, path, bytes: compiled.module.len(), cached: false })
@@ -172,7 +172,7 @@ fn monomorphized_main(
     s: &mut Session,
     target: TargetId,
     platform: Platform,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
     // `Some`: a build is the per-output check. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
@@ -181,25 +181,25 @@ fn monomorphized_main(
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
-    diags.extend(std::mem::take(&mut analysis.diags.items));
+    diagnostics.extend(std::mem::take(&mut analysis.diags.items));
 
     let Some(entry) = analysis.checked.entry else {
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(
                 Span::NONE,
                 format!("{} exports no `main`", s.workspace.pkg(target.pkg).label()),
             )
             .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
         );
-        return Err(std::mem::take(diags));
+        return Err(std::mem::take(diagnostics));
     };
 
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let program =
-        monomorphize::run(&analysis.checked, module_paths, diags, monomorphize::Roots::Main(entry));
-    if diags.has_errors() {
-        return Err(std::mem::take(diags));
+        monomorphize::run(&analysis.checked, module_paths, diagnostics, monomorphize::Roots::Main(entry));
+    if diagnostics.has_errors() {
+        return Err(std::mem::take(diagnostics));
     }
     Ok((analysis, program))
 }
@@ -209,9 +209,9 @@ pub fn compile_artifact(
     target: TargetId,
     platform: Platform,
     flags: &Flags,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
-    let (analysis, mut program) = monomorphized_main(s, target, platform, diags)?;
+    let (analysis, mut program) = monomorphized_main(s, target, platform, diagnostics)?;
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
@@ -221,7 +221,7 @@ pub fn compile_artifact(
     // the `.css` a WEB output writes and the `<style>` `mount` installs are
     // one string produced once.
     let stylesheet = program.stylesheet.clone();
-    let module = emit(&mut program, &analysis.checked.tables, target, flags, diags)?;
+    let module = emit(&mut program, &analysis.checked.tables, target, flags, diagnostics)?;
     Ok(Compiled { module, stylesheet })
 }
 
@@ -480,7 +480,7 @@ pub fn emit(
     tables: &crate::compiler::semantics::types::Tables,
     target: Target,
     flags: &Flags,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
     let profile = profile_of(flags);
     prepare(program, target);
@@ -488,19 +488,19 @@ pub fn emit(
     let mut backend = match backend::select(target, profile) {
         Ok(b) => b,
         Err(message) => {
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(Span::NONE, message)
                     .with_fix("this toolchain emits JavaScript; build with `--output=js`"),
             );
-            return Err(std::mem::take(diags));
+            return Err(std::mem::take(diagnostics));
         }
     };
     let opts = BackendOptions { profile, target, unit_prefix: "" };
     let units = match backend.emit(program, tables, &opts) {
         Ok(units) => units,
         Err(errors) => {
-            diags.extend(errors.items);
-            return Err(std::mem::take(diags));
+            diagnostics.extend(errors.items);
+            return Err(std::mem::take(diagnostics));
         }
     };
     // One unit, and this is the backend for which that is always true. The
@@ -508,20 +508,20 @@ pub fn emit(
     // unit; taking element zero here is what the JavaScript `Linker` does, and
     // it does it in one place rather than two.
     let Some(unit) = units.into_iter().next() else {
-        diags.push(Diagnostic::error(
+        diagnostics.push(Diagnostic::error(
             Span::NONE,
             String::from("internal error: the backend emitted no codegen unit"),
         ));
-        return Err(std::mem::take(diags));
+        return Err(std::mem::take(diagnostics));
     };
     match String::from_utf8(unit.bytes) {
         Ok(source) => Ok(source),
         Err(_) => {
-            diags.push(Diagnostic::error(
+            diagnostics.push(Diagnostic::error(
                 Span::NONE,
                 String::from("internal error: the backend emitted bytes that are not text"),
             ));
-            Err(std::mem::take(diags))
+            Err(std::mem::take(diagnostics))
         }
     }
 }
@@ -891,12 +891,12 @@ where
         }
         let wanted = object_name(name);
         let Some(unit) = fresh.iter().find(|e| e.name == wanted || e.name == *name) else {
-            let mut diags = Diagnostics::new();
-            diags.push(Diagnostic::error(
+            let mut diagnostics = Diagnostics::new();
+            diagnostics.push(Diagnostic::error(
                 Span::NONE,
                 format!("internal error: the backend emitted no object for unit `{name}`"),
             ));
-            return Err(diags);
+            return Err(diagnostics);
         };
         cache.put(key, &unit.bytes);
         out.push((
@@ -949,11 +949,11 @@ pub struct Objects {
 /// One function because the refusal is one refusal: `cc` is how a native link
 /// is driven, so a host without one cannot link, and saying so twice in two
 /// wordings would be two answers to one question.
-fn linker_for(output: &Output, diags: &mut Diagnostics) -> Option<link::Cc> {
+fn linker_for(output: &Output, diagnostics: &mut Diagnostics) -> Option<link::Cc> {
     match link::select(target_of(output)) {
         Ok(l) => Some(l),
         Err(message) => {
-            diags.push(Diagnostic::error(output.span, message).with_fix(
+            diagnostics.push(Diagnostic::error(output.span, message).with_fix(
                 "install a C toolchain — the link is driven through `cc`, which is what knows \
                  where this platform's libc and startup files live",
             ));
@@ -967,11 +967,11 @@ pub fn compile_objects(
     target: TargetId,
     output: &Output,
     flags: &Flags,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     let platform = output.platform();
-    let (analysis, mut program) = monomorphized_main(s, target, platform, diags)?;
-    objects_of(s, target, output, flags, &mut program, &analysis.checked.tables, diags)
+    let (analysis, mut program) = monomorphized_main(s, target, platform, diagnostics)?;
+    objects_of(s, target, output, flags, &mut program, &analysis.checked.tables, diagnostics)
 }
 
 /// The middle end, the codegen keys and the objects, over a program somebody
@@ -990,7 +990,7 @@ pub fn objects_of(
     flags: &Flags,
     program: &mut monomorphize::Program,
     tables: &Tables,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     // Repository-relative, so that two checkouts in different directories put
     // the same string in a debug section. This is the same rule `action_key`
@@ -998,7 +998,7 @@ pub fn objects_of(
     // ARCHITECTURE.md §7 calls out by name.
     let prefix = s.workspace.pkg(target.pkg).path.clone();
     let label = s.workspace.label(target);
-    objects_named(s, &prefix, &label, output, flags, program, tables, diags)
+    objects_named(s, &prefix, &label, output, flags, program, tables, diagnostics)
 }
 
 /// [`objects_of`] with the two things it takes a target for named directly: the
@@ -1022,7 +1022,7 @@ fn objects_named(
     flags: &Flags,
     program: &mut monomorphize::Program,
     tables: &Tables,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     let platform = output.platform();
     let profile = profile_of(flags);
@@ -1050,20 +1050,20 @@ fn objects_named(
     let mut backend = match backend::select(back_target, profile) {
         Ok(b) => b,
         Err(message) => {
-            diags.push(Diagnostic::error(output.span, message));
-            return Err(std::mem::take(diags));
+            diagnostics.push(Diagnostic::error(output.span, message));
+            return Err(std::mem::take(diagnostics));
         }
     };
     let missing = backend.missing_intrinsics(program, tables);
     if !missing.is_empty() {
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(
                 Span::NONE,
                 format!("the {} backend has no implementation of {}", backend.name(), missing.join(", ")),
             )
             .with_fix("report it: this is a toolchain bug, not a problem with your program"),
         );
-        return Err(std::mem::take(diags));
+        return Err(std::mem::take(diagnostics));
     }
 
     let name = backend.name().to_string();
@@ -1110,14 +1110,14 @@ fn build_native(
     target: TargetId,
     output: &Output,
     flags: &Flags,
-    mut diags: Diagnostics,
+    mut diagnostics: Diagnostics,
 ) -> Result<Artifact, Diagnostics> {
     let platform = output.platform();
     let path = artifact_path(s, target, output);
-    let Some(linker) = linker_for(output, &mut diags) else { return Err(diags) };
+    let Some(linker) = linker_for(output, &mut diagnostics) else { return Err(diagnostics) };
 
     explain_closure(s, target, output, flags);
-    let objects = compile_objects(s, target, output, flags, &mut diags)?;
+    let objects = compile_objects(s, target, output, flags, &mut diagnostics)?;
     let key = link_key(output, flags, &linker, &objects.keys);
     let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
     let label = s.workspace.label(target);
@@ -1150,17 +1150,17 @@ fn build_native(
         unit_prefix: &prefix,
     };
     if let Err(errors) = link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
-        diags.extend(errors.items);
-        return Err(diags);
+        diagnostics.extend(errors.items);
+        return Err(diagnostics);
     }
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) => {
-            diags.push(Diagnostic::error(
+            diagnostics.push(Diagnostic::error(
                 Span::NONE,
                 format!("the link produced no {}: {e}", path.display()),
             ));
-            return Err(diags);
+            return Err(diagnostics);
         }
     };
     cache.put(&key, &bytes);
@@ -1298,14 +1298,14 @@ pub fn native_test_binary(
     flags: &Flags,
     program: &mut monomorphize::Program,
     tables: &Tables,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
     let prefix = s.workspace.pkg(target.pkg).path.clone();
     let label = s.workspace.label(target);
     let dir = s.root.join(".buri/out").join(output.dir());
     let private = dir.join(&s.workspace.pkg(target.pkg).path).join("test");
     test_binary_named(
-        s, &prefix, &label, private, output, flags, program, tables, diags,
+        s, &prefix, &label, private, output, flags, program, tables, diagnostics,
     )
 }
 
@@ -1345,7 +1345,7 @@ pub fn native_test_batch(
     flags: &Flags,
     program: &mut monomorphize::Program,
     tables: &Tables,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
     let label = targets.iter().map(|t| s.workspace.label(*t)).collect::<Vec<_>>().join(",");
     // The first member's own path, so that a batch that cannot take the shared
@@ -1356,7 +1356,7 @@ pub fn native_test_batch(
         Some(t) => dir.join(&s.workspace.pkg(t.pkg).path).join("test"),
         None => dir.join("test"),
     };
-    test_binary_named(s, "", &label, private, output, flags, program, tables, diags)
+    test_binary_named(s, "", &label, private, output, flags, program, tables, diagnostics)
 }
 
 /// The body of both: link this program, cache it, and put it where it can be
@@ -1376,10 +1376,10 @@ fn test_binary_named(
     flags: &Flags,
     program: &mut monomorphize::Program,
     tables: &Tables,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let Some(linker) = linker_for(output, diags) else { return Err(std::mem::take(diags)) };
-    let objects = objects_named(s, prefix, label, output, flags, program, tables, diags)?;
+    let Some(linker) = linker_for(output, diagnostics) else { return Err(std::mem::take(diagnostics)) };
+    let objects = objects_named(s, prefix, label, output, flags, program, tables, diagnostics)?;
     let key = link_key(output, flags, &linker, &objects.keys);
     let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
     let explain_link = |status: crate::build::cache::Status| {
@@ -1402,8 +1402,8 @@ fn test_binary_named(
     let opts =
         LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: prefix };
     if let Err(errors) = link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
-        diags.extend(errors.items);
-        return Err(std::mem::take(diags));
+        diagnostics.extend(errors.items);
+        return Err(std::mem::take(diagnostics));
     }
     if let Ok(bytes) = std::fs::read(&path) {
         cache.put(&key, &bytes);
@@ -1529,11 +1529,11 @@ fn write_companions(
     module: &Path,
     output: &Output,
     stylesheet: &str,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) -> bool {
     for (path, text) in web_companions(module, output, stylesheet) {
         if let Err(e) = std::fs::write(&path, &text) {
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
                     .with_fix("check the directory exists and is writable"),
             );
@@ -1564,14 +1564,14 @@ pub fn check_policy(
     s: &Session,
     target: TargetId,
     platform: Platform,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
-    check_visibility(s, target, diags);
-    check_tags(s, target, diags);
-    check_platform(s, target, platform, diags);
+    check_visibility(s, target, diagnostics);
+    check_tags(s, target, diagnostics);
+    check_platform(s, target, platform, diagnostics);
 }
 
-pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) {
+pub fn check_visibility(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     // Production edges are checked across the whole closure: a violation
     // anywhere in it is a reason this target may not be linked. Test edges are
     // checked on the target itself only — a suite is not linked into anything
@@ -1592,7 +1592,7 @@ pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) 
             let from = s.workspace.pkg(member.pkg).label();
             let to = s.workspace.label(dep);
             let to_path = s.workspace.pkg(dep.pkg).path.clone();
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
                     .with_code("visibility-violation")
                     .with_label("not visible")
@@ -1609,7 +1609,7 @@ pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) 
 /// dependency closure. The path is printed because in a repository of any size
 /// the interesting question is never "which library is tagged `server`" but
 /// "who dragged it in".
-pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
+pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     // A tag `REPO.buri` does not declare is an error, not a no-op.
     for member in s.workspace.closure(target) {
         for tag in s.workspace.tags(member) {
@@ -1631,7 +1631,7 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
                         d.with_fix("declare it with a `tag` block in REPO.buri, or drop it here")
                     }
                 };
-                diags.push(d);
+                diagnostics.push(d);
             }
         }
     }
@@ -1687,14 +1687,14 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
             d = d.with_note(format!("\"{name}\": {doc}"));
         }
     }
-    diags.push(d);
+    diagnostics.push(d);
 }
 
 pub fn check_platform(
     s: &Session,
     target: TargetId,
     platform: Platform,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
     let allowed = s.workspace.platforms(target);
     if allowed.contains(&platform) {
@@ -1737,7 +1737,7 @@ pub fn check_platform(
     } else if allowed.is_empty() {
         d = d.with_note("its dependency closure admits no platform at all");
     }
-    diags.push(d);
+    diagnostics.push(d);
 }
 
 /// The outputs a `build` invocation should produce for one target.

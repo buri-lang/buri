@@ -31,29 +31,29 @@ use std::path::{Path, PathBuf};
 /// there is no `lint` block in `REPO.buri`, no per-file suppression comment,
 /// and no way to promote or silence a check for one repository.
 pub fn cmd_lint(args: &arguments::Args) -> i32 {
-    let (mut s, diags) = match collect_findings(args) {
+    let (mut s, diagnostics) = match collect_findings(args) {
         Ok(v) => v,
         Err(code) => return code,
     };
 
     if args.flags.fix {
-        let applied = apply_fixes(&mut s, &diags);
+        let applied = apply_fixes(&mut s, &diagnostics);
         if applied > 0 {
             println!("fixed {applied} finding{}", if applied == 1 { "" } else { "s" });
             // Everything is computed again from the files on disk rather than
             // subtracted from what was just reported: an edit can uncover a
             // finding the first pass could not see, and a count arrived at by
             // arithmetic is one nobody can check.
-            let (mut s, diags) = match collect_findings(args) {
+            let (mut s, diagnostics) = match collect_findings(args) {
                 Ok(v) => v,
                 Err(code) => return code,
             };
-            return report_findings(&mut s, &diags);
+            return report_findings(&mut s, &diagnostics);
         }
         println!("nothing to fix");
     }
 
-    report_findings(&mut s, &diags)
+    report_findings(&mut s, &diagnostics)
 }
 
 /// Opens the repository and runs every check, in the order a reader would.
@@ -61,8 +61,8 @@ fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics), i3
     let (mut s, targets) =
         session::open_and_resolve(&args.flags, &args.targets).map_err(i32::from)?;
 
-    let diags = findings_for(&mut s, &targets);
-    Ok((s, diags))
+    let diagnostics = findings_for(&mut s, &targets);
+    Ok((s, diagnostics))
 }
 
 /// Every check `buri lint` runs, over the targets given.
@@ -71,31 +71,31 @@ fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics), i3
 /// does — an editor that showed only type errors would be showing half of what
 /// the toolchain knows, and the half that is easier to notice at the terminal.
 pub fn findings_for(s: &mut Session, targets: &[TargetId]) -> Diagnostics {
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
     for target in targets {
         if seen_packages.insert(target.pkg) {
-            check_sources_declared(s, target.pkg, &mut diags);
-            check_test_suites(s, target.pkg, &mut diags);
+            check_sources_declared(s, target.pkg, &mut diagnostics);
+            check_test_suites(s, target.pkg, &mut diagnostics);
         }
         // `lint` is not building, so it checks a binary against the platforms
         // its own `outputs` name, and a library against the question TAGS.md
         // asks at the target: can it be built at all?
-        crate::build::actions::check_visibility(s, *target, &mut diags);
-        crate::build::actions::check_tags(s, *target, &mut diags);
-        check_target_platforms(s, *target, &mut diags);
-        check_dependencies(s, *target, &mut diags);
+        crate::build::actions::check_visibility(s, *target, &mut diagnostics);
+        crate::build::actions::check_tags(s, *target, &mut diagnostics);
+        check_target_platforms(s, *target, &mut diagnostics);
+        check_dependencies(s, *target, &mut diagnostics);
     }
-    check_cycles(s, &mut diags);
+    check_cycles(s, &mut diagnostics);
 
-    diags.sort(&s.map);
-    diags
+    diagnostics.sort(&s.map);
+    diagnostics
 }
 
-fn report_findings(s: &mut Session, diags: &Diagnostics) -> i32 {
+fn report_findings(s: &mut Session, diagnostics: &Diagnostics) -> i32 {
     let mut errors = 0;
     let mut warnings = 0;
-    for d in &diags.items {
+    for d in &diagnostics.items {
         s.emit(d);
         if d.is_error() {
             errors += 1;
@@ -122,12 +122,12 @@ fn report_findings(s: &mut Session, diags: &Diagnostics) -> i32 {
 const REGENERABLE: &[&str] =
     &["missing-dep", "unused-dep", "undeclared-source", "duplicate-source"];
 
-fn regenerate_build_files(s: &mut Session, diags: &Diagnostics) -> usize {
+fn regenerate_build_files(s: &mut Session, diagnostics: &Diagnostics) -> usize {
     // Which package a finding is about. `missing-dep` points at the import in
     // a source file, not at the build file, so this is by path prefix — the
     // longest package path the file sits under.
     let mut packages: BTreeSet<PkgId> = BTreeSet::new();
-    for d in &diags.items {
+    for d in &diagnostics.items {
         if !d.code.as_deref().is_some_and(|c| REGENERABLE.contains(&c)) {
             continue;
         }
@@ -175,16 +175,16 @@ fn regenerate_build_files(s: &mut Session, diags: &Diagnostics) -> usize {
 /// answers was meant. The result is run through `formatting::source`, which returns
 /// `None` for anything that does not parse — the same guard the formatter uses
 /// on itself — and a file that fails it is left exactly as it was.
-fn apply_fixes(s: &mut Session, diags: &Diagnostics) -> usize {
+fn apply_fixes(s: &mut Session, diagnostics: &Diagnostics) -> usize {
     use std::collections::BTreeMap;
     let mut by_file: BTreeMap<u32, Vec<crate::diagnostics::Edit>> = BTreeMap::new();
-    for d in &diags.items {
+    for d in &diagnostics.items {
         for e in &d.edits {
             by_file.entry(e.at.file.0).or_default().push(e.clone());
         }
     }
 
-    let mut applied = regenerate_build_files(s, diags);
+    let mut applied = regenerate_build_files(s, diagnostics);
     for (file, edits) in by_file {
         let id = crate::diagnostics::FileId(file);
         // Sorting, overlap, bounds and character boundaries are all settled
@@ -220,7 +220,7 @@ fn apply_fixes(s: &mut Session, diags: &Diagnostics) -> usize {
 /// `platform-violation`. An unsatisfiable target is an error at the target
 /// itself, before any binary asks for it: otherwise the mistake surfaces as a
 /// confusing failure in whichever binary happens to reach it first.
-fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics) {
+fn check_target_platforms(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     let allowed = s.workspace.platforms(target);
     if allowed.is_empty() {
         let label = s.workspace.label(target);
@@ -230,7 +230,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
             .first()
             .map(|t| t.span)
             .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(span, format!("{label} can never be built"))
                 .with_code("platform-violation")
                 .with_fix("widen a tag's `requires { platforms }` in REPO.buri, or drop the dependency that narrows it to nothing")
@@ -245,7 +245,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
     for output in &bin.outputs {
         let p = output.platform();
         if !allowed.contains(&p) {
-            crate::build::actions::check_platform(s, target, p, diags);
+            crate::build::actions::check_platform(s, target, p, diagnostics);
         }
     }
 }
@@ -254,14 +254,14 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
 /// something is tested, backed by nothing — and it reads as coverage in every
 /// tool that walks the build graph. Writing the block is the deliberate act, so
 /// the empty one is a leftover rather than a decision.
-fn check_test_suites(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
+fn check_test_suites(s: &Session, pkg: PkgId, diagnostics: &mut Diagnostics) {
     let p = s.workspace.pkg(pkg);
     let mut report = |suite: Option<&crate::build::buildfile::TestSuite>, rule: &str| {
         let Some(suite) = suite else { return };
         if !suite.sources.is_empty() {
             return;
         }
-        diags.push(
+        diagnostics.push(
             Diagnostic::warning(
                 suite.span,
                 format!("this {rule}'s `test` block declares no sources"),
@@ -282,7 +282,7 @@ fn check_test_suites(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
 /// `undeclared-source` and `duplicate-source`: every `.buri` file in a package
 /// must appear in exactly one rule. A file that appears in none can be dropped
 /// from the build by a typo and never noticed.
-fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
+fn check_sources_declared(s: &Session, pkg: PkgId, diagnostics: &mut Diagnostics) {
     let p = s.workspace.pkg(pkg);
     let mut declared: Vec<(String, Span)> = Vec::new();
     let push = |list: &[crate::build::buildfile::Sp<String>], out: &mut Vec<(String, Span)>| {
@@ -311,7 +311,7 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
     for (i, (first_name, first_span)) in declared.iter().enumerate() {
         for (name, span) in declared.iter().skip(i + 1) {
             if first_name == name {
-                diags.push(
+                diagnostics.push(
                     Diagnostic::error(*span, format!("{name} is listed by two rules"))
                         .with_code("duplicate-source")
                         .with_fix("list it under one rule only")
@@ -337,7 +337,7 @@ fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
         // the fix has to say which — the rule is the same rule ("everything is
         // declared"), so the code is the same code.
         let field = if rel.ends_with(".proto") { "proto_sources" } else { "sources" };
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(
                 Span::point(p.build_file_id, 0),
                 format!("{}/{rel} is not declared by any rule", p.path),
@@ -383,19 +383,19 @@ fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
 
 /// `missing-dep` and `unused-dep`. Use is what requires a dep, and an import is
 /// not the only way to use: a method resolving into a library counts too.
-fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics) {
+fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagnostics) {
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, with_tests: true };
     let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
-        diags.extend(analysis.diags.items);
+        diagnostics.extend(analysis.diags.items);
         return;
     }
 
     // The hygiene rules ask about the same modules this analysis already
     // loaded, so they ride along rather than paying for a second one.
-    check_hygiene(s, target, &analysis, diags);
+    check_hygiene(s, target, &analysis, diagnostics);
 
     let declared: Vec<crate::build::buildfile::Sp<String>> = s.workspace.declared_deps(target).to_vec();
     let own = target.pkg;
@@ -424,7 +424,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
                 let importer = s.map.name(m.file).to_string();
                 let pkg_path = s.workspace.pkg(own).path.clone();
                 reported.insert(wanted.clone());
-                diags.push(
+                diagnostics.push(
                     Diagnostic::error(
                         span,
                         format!("{importer} imports {wanted}, which is not in dependencies"),
@@ -452,7 +452,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
         {
             continue;
         }
-        diags.push(
+        diagnostics.push(
             Diagnostic::error(
                 Span::point(s.workspace.pkg(own).build_file_id, 0),
                 format!("{own_label} uses {wanted}, which is not in dependencies"),
@@ -471,7 +471,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
 
     for d in &declared {
         if !used.contains(&d.value) {
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(d.span, format!("{} is declared but nothing uses it", d.value))
                     .with_code("unused-dep")
                     .with_fix("remove it from `dependencies`")
@@ -502,18 +502,18 @@ fn check_hygiene(
     s: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
     let own = target.pkg;
     for m in &analysis.loaded.modules {
         if m.pkg == Some(own) && !is_generated(&m.path) {
-            check_unused_imports(s, m, diags);
+            check_unused_imports(s, m, diagnostics);
         }
     }
-    check_unreachable_exports(s, target, analysis, diags);
-    check_discarded_results(own, analysis, diags);
-    check_tests_assert(own, analysis, diags);
-    check_test_titles(own, analysis, diags);
+    check_unreachable_exports(s, target, analysis, diagnostics);
+    check_discarded_results(own, analysis, diagnostics);
+    check_tests_assert(own, analysis, diagnostics);
+    check_test_titles(own, analysis, diagnostics);
 }
 
 /// `test-title-newline`. A title spanning lines is legal and reported — the
@@ -526,14 +526,14 @@ fn check_hygiene(
 fn check_test_titles(
     own: PkgId,
     analysis: &crate::compiler::driver::Analysis,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
     let mine = modules_of(analysis, own);
     for case in &analysis.checked.tests {
         if !mine.contains(&case.module) || !case.name.contains('\n') {
             continue;
         }
-        diags.push(
+        diagnostics.push(
             Diagnostic::warning(case.span, format!("test {:?} has a newline in its title", case.name))
                 .with_code("test-title-newline")
                 .with_fix("write the title on one line; a sentence is enough, and the body says the rest")
@@ -556,7 +556,7 @@ fn check_unreachable_exports(
     s: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
     // A binary has no surface — nothing may import its modules — so the rule
     // does not apply to one.
@@ -623,7 +623,7 @@ fn check_unreachable_exports(
                 continue;
             }
             let lib = format!("{}/lib.buri", s.workspace.pkg(own).path);
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(span, format!("`{name}` is exported and reaches nobody"))
                     .with_code("unreachable-export")
                     .with_fix(format!(
@@ -671,7 +671,7 @@ fn exported_name<'t>(
 /// severity — a shadowed binding or a field with the same spelling silences the
 /// finding rather than producing a wrong one. Reading tokens rather than the
 /// AST is what makes it total: there is no expression form it can forget.
-fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
+fn check_unused_imports(s: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
     // The byte ranges the import statements occupy. An identifier inside one of
     // these is the binding, not a use of it.
     let mut import_ranges: Vec<(u32, u32)> = Vec::new();
@@ -759,7 +759,7 @@ fn check_unused_imports(s: &Session, m: &ModuleData, diags: &mut Diagnostics) {
                 );
                 first = false;
             }
-            diags.push(d);
+            diagnostics.push(d);
         }
     }
 }
@@ -784,10 +784,10 @@ fn line_end(text: &str, at: u32) -> u32 {
 fn check_discarded_results(
     own: PkgId,
     analysis: &crate::compiler::driver::Analysis,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
     for (span, _) in calls_into(analysis, own, "core/result", &["ignore"]) {
-        diags.push(
+        diagnostics.push(
             Diagnostic::warning(span, "this discards a `Result`")
                 .with_code("discarded-result")
                 .with_fix(
@@ -809,7 +809,7 @@ fn check_discarded_results(
 fn check_tests_assert(
     own: PkgId,
     analysis: &crate::compiler::driver::Analysis,
-    diags: &mut Diagnostics,
+    diagnostics: &mut Diagnostics,
 ) {
     use crate::compiler::semantics::types::FnId;
     let mine = modules_of(analysis, own);
@@ -853,7 +853,7 @@ fn check_tests_assert(
         if found {
             continue;
         }
-        diags.push(
+        diagnostics.push(
             Diagnostic::warning(case.span, format!("test {:?} asserts nothing", case.name))
                 .with_code("test-without-assertion")
                 .with_fix("assert what the test is for, or delete it")
@@ -949,7 +949,7 @@ fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
 /// and that set is the same set whichever edge of the cycle is walked first.
 /// So the set is what deduplicates, and the first edge to reach it is the one
 /// the diagnostic points at.
-fn check_cycles(s: &Session, diags: &mut Diagnostics) {
+fn check_cycles(s: &Session, diagnostics: &mut Diagnostics) {
     let mut reported: BTreeSet<Vec<TargetId>> = BTreeSet::new();
     for t in s.workspace.targets() {
         for (dep, span) in s.workspace.dep_edges(t) {
@@ -971,7 +971,7 @@ fn check_cycles(s: &Session, diags: &mut Diagnostics) {
             }
             let a = s.workspace.label(t);
             let b = s.workspace.label(dep);
-            diags.push(
+            diagnostics.push(
                 Diagnostic::error(
                     span.unwrap_or(Span::point(s.workspace.pkg(t.pkg).build_file_id, 0)),
                     format!("{a} and {b} depend on each other"),

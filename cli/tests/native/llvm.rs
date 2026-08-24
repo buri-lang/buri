@@ -69,14 +69,14 @@ fn lower(source: &str) -> Lowered {
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
 
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program = middle::monomorphize::run(
         &analysis.checked,
         module_paths,
-        &mut diags,
+        &mut diagnostics,
         middle::monomorphize::Roots::Main(entry),
     );
-    assert!(!diags.has_errors(), "{}", render(&diags, &map));
+    assert!(!diagnostics.has_errors(), "{}", render(&diagnostics, &map));
 
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
@@ -101,15 +101,15 @@ fn lower(source: &str) -> Lowered {
 fn expect<T>(what: Result<T, Diagnostics>) -> T {
     match what {
         Ok(value) => value,
-        Err(diags) => panic!(
+        Err(diagnostics) => panic!(
             "the LLVM backend refused the program: {}",
-            diags.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
+            diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
         ),
     }
 }
 
-fn render(diags: &Diagnostics, map: &SourceMap) -> String {
-    diags.items.iter().map(|d| map.render(d, false)).collect::<Vec<_>>().join("\n")
+fn render(diagnostics: &Diagnostics, map: &SourceMap) -> String {
+    diagnostics.items.iter().map(|d| map.render(d, false)).collect::<Vec<_>>().join("\n")
 }
 
 fn host_target() -> Target {
@@ -1209,11 +1209,11 @@ export fn main(): Result<(), Str> {
     let entry = analysis.checked.entry.unwrap();
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut mono = middle::monomorphize::run(
         &analysis.checked,
         module_paths,
-        &mut diags,
+        &mut diagnostics,
         middle::monomorphize::Roots::Main(entry),
     );
     middle::run(&mut mono, &middle::Options::default());
@@ -1274,11 +1274,11 @@ export fn main(): Result<(), Str> {
     let entry = analysis.checked.entry.unwrap();
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut mono = middle::monomorphize::run(
         &analysis.checked,
         module_paths,
-        &mut diags,
+        &mut diagnostics,
         middle::monomorphize::Roots::Main(entry),
     );
     middle::run(&mut mono, &middle::Options::default());

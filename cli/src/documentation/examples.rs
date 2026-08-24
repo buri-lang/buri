@@ -762,7 +762,7 @@ fn run_block_in(
         base.role,
         block.platform,
     );
-    let diags: Vec<String> = analysis
+    let diagnostics: Vec<String> = analysis
         .diags
         .items
         .iter()
@@ -791,7 +791,7 @@ fn run_block_in(
                         detail: if got.is_empty() {
                             format!(
                                 "it produced no coded diagnostic; got:\n{}",
-                                if diags.is_empty() { "nothing".into() } else { diags.join("\n") }
+                                if diagnostics.is_empty() { "nothing".into() } else { diagnostics.join("\n") }
                             )
                         } else {
                             format!("it produced: {}", got.join(", "))
@@ -799,7 +799,7 @@ fn run_block_in(
                     });
                 }
             }
-            if diags.is_empty() && errors.is_empty() {
+            if diagnostics.is_empty() && errors.is_empty() {
                 failures.push(Failure {
                     origin: block.origin.clone(),
                     what: "this block is marked `fail` but compiles".into(),
@@ -809,25 +809,25 @@ fn run_block_in(
                 });
             }
             for want in messages {
-                if !diags.iter().any(|d| d.contains(want.as_str())) {
+                if !diagnostics.iter().any(|d| d.contains(want.as_str())) {
                     failures.push(Failure {
                         origin: block.origin.clone(),
                         what: format!("no diagnostic contains `{want}`"),
-                        detail: if diags.is_empty() {
+                        detail: if diagnostics.is_empty() {
                             "it compiled cleanly".into()
                         } else {
-                            diags.join("\n")
+                            diagnostics.join("\n")
                         },
                     });
                 }
             }
         }
         _ => {
-            if !diags.is_empty() {
+            if !diagnostics.is_empty() {
                 failures.push(Failure {
                     origin: block.origin.clone(),
                     what: "this example does not compile".into(),
-                    detail: diags.join("\n"),
+                    detail: diagnostics.join("\n"),
                 });
             }
         }
@@ -971,11 +971,11 @@ fn run_file_with(
             None => None,
             Some(rel) => {
                 if !repos.contains_key(rel) {
-                    let mut diags = crate::diagnostics::Diagnostics::new();
+                    let mut diagnostics = crate::diagnostics::Diagnostics::new();
                     let loaded = crate::build::workspace::Workspace::load(
                         &root.join(rel),
                         &mut map,
-                        &mut diags,
+                        &mut diagnostics,
                     )
                     .ok();
                     repos.insert(rel.clone(), loaded);

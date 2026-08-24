@@ -116,14 +116,14 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
     );
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
         paths,
-        &mut diags,
+        &mut diagnostics,
         monomorphize::Roots::Main(entry),
     );
-    assert!(!diags.has_errors(), "monomorphization failed");
+    assert!(!diagnostics.has_errors(), "monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     // The native branch: derives, closure conversion, reference counting.
     // A real build calls this from `build/actions.rs`; here the test does, and
@@ -874,10 +874,10 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
         return Err(String::from("the front end refused it"));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
-    if diags.has_errors() {
+        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    if diagnostics.has_errors() {
         return Err(String::from("monomorphization failed"));
     }
     middle::run(&mut program, &middle::Options::default());
@@ -1011,10 +1011,10 @@ fn run_corpus(path: &str, source: &str) -> Ran {
         driver::analyze_snippet_as(repository, pkg, &mut map, &mut cache, "main", source, Role::TestSource);
     assert!(!analysis.diags.has_errors(), "`{path}`: the front end refused it");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
-    assert!(!diags.has_errors(), "`{path}`: monomorphization failed");
+        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    assert!(!diagnostics.has_errors(), "`{path}`: monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
 
@@ -1255,10 +1255,10 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
         analysis.diags.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
     );
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diags = Diagnostics::new();
+    let mut diagnostics = Diagnostics::new();
     let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Tests);
-    assert!(!diags.has_errors(), "monomorphization failed");
+        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    assert!(!diagnostics.has_errors(), "monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
 

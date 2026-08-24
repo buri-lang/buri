@@ -51,8 +51,8 @@ pub fn cmd_run(args: &arguments::Args) -> i32 {
 
     let artifact = match actions::build_target(&mut s, target, &output, &args.flags) {
         Ok(a) => a,
-        Err(diags) => {
-            s.print(&diags);
+        Err(diagnostics) => {
+            s.print(&diagnostics);
             return 1;
         }
     };
