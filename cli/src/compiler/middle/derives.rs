@@ -246,11 +246,13 @@ pub enum Declined {
     NoResultType,
 }
 
-/// What the pass did, for the backends and for the tests.
+/// What the pass did.
 ///
-/// Returned rather than stored: `Program` has no field for it and
-/// `monomorphize.rs` is not this wave's file. `middle::native` discards it
-/// today; wave 2 calls [`run`] itself and keeps it.
+/// Returned rather than stored: the pass writes its answers into the program
+/// itself, and this is the record of *which* answers it wrote. `middle::native`
+/// drops it — nothing downstream reads a row — and what keeps every field here
+/// is this file's own tests, which are where "one function per shape" and
+/// "a declined shape is still handled by the walker" are checked at all.
 #[derive(Default, Debug)]
 pub struct Derives {
     /// Every generated function, in generation order.
@@ -265,9 +267,6 @@ pub struct Derives {
     /// Descriptors `json.decode` was handed. `FromJson` is not generated — see
     /// the module docs.
     pub from_json: Vec<usize>,
-    /// `(descriptor, generated Show)` for each intrinsic that carries a
-    /// descriptor for rendering — the test runner's `report`.
-    pub reporter_show: Vec<(usize, FuncIdx)>,
 }
 
 /// Adds one derived function per shape per structural operation the program
@@ -1982,7 +1981,6 @@ fn rewrite(
     out.rewritten = rewritten;
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
-    let mut reporter: Vec<(usize, FuncIdx)> = Vec::new();
     for i in 0..program.funcs.len() {
         let Some(f) = program.funcs.get(i) else { continue };
         let (Some(key), Some(d)) = (f.intrinsic_key().map(str::to_owned), f.desc) else { continue };
@@ -1990,12 +1988,10 @@ fn rewrite(
             continue;
         }
         let Some(show) = routed.get(&(Op::Show, d)).copied() else { continue };
-        reporter.push((d, show));
         if let Some(f) = program.funcs.get_mut(i) {
             reporter_body(f, &key, show);
         }
     }
-    out.reporter_show = reporter;
 }
 
 /// Gives the test runner's two reporting intrinsics a body that renders their
