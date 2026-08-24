@@ -1,6 +1,6 @@
 # Stage 0 findings
 
-Results of the five hand-written experiments that precede any Lean work. Each
+Results of the six hand-written experiments that precede any Lean work. Each
 was predicted by reading `cli/src/` and `cli/src/docs/SPEC.md`; each was then run against a
 build of the toolchain at commit `1b0a711`. Reproducers are in `cases/`.
 

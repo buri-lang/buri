@@ -43,7 +43,7 @@ cannot happen:
   top-level `fn`, which the middle end resolves to a code pointer
   (`monomorphize.rs`, `Callee::Func`). A code pointer is not reference counted.
 - **A lambda cannot refer to itself.** `ExprKind::Lambda` captures a list of
-  already-bound locals (`typed.rs:194`); there is no `let rec`, and a `let f = fn(x) => f(x)`
+  already-bound locals (`typed.rs`); there is no `let rec`, and a `let f = fn(x) => f(x)`
   fails name resolution because `f` is not in scope in its own initialiser.
 - **A context cannot close a cycle.** SPEC 10.6 again: nothing effect-carrying
   is ever captured, so a context never ends up inside a value that the context
@@ -55,11 +55,19 @@ left over that a collector would have to find. Refcounting in a language with
 mutation is a memory leak with extra steps; in this language it is a complete
 collector.
 
-It is worth defending the lemma with a test rather than only with an argument.
-`cli/tests/native/memory.rs` runs a corpus of the shapes that would break it — a
-recursive enum, a rose tree, a closure over a closure, a context stored in a
-struct — and asserts that every allocation is freed at exit. A future language
-feature that introduces a cycle will fail there rather than in production.
+It is worth defending the lemma with tests rather than only with an argument,
+and two things do it from opposite ends. `cli/tests/conformance/lib/memory/`
+runs on every backend and pins the cost model §7.1 defines, so the charge a
+program is told about is the same integer natively and on JavaScript. The leak
+half — which no `test` block can assert from inside the language, because
+`buri_rt_heap_stats` is not reachable from Buri and should not be — is in
+`cli/tests/native/stencil.rs`: `nothing_is_leaked` and `the_glue_balances` link
+a probe against the runtime, run a program over the shapes that would break the
+lemma (a `Str` in a struct, a `Str` in an enum payload, a closure environment
+carrying its own release function, a `[Str]` whose elements are released by the
+block's own glue, a boxed field) and assert **zero live blocks at exit** with a
+nonzero total. A future language feature that introduces a cycle fails there
+rather than in production.
 
 There is no "runtime built with leak checking on" to arrange: `buri_rt_alloc`
 and `buri_rt_free` keep the four counters `buri_rt_heap_stats` reports, always,
@@ -67,12 +75,13 @@ because a relaxed add beside a `malloc` is not a cost anybody can measure and a
 diagnostic that only exists in a special build is a diagnostic nobody runs. An
 immortal block is removed from the live count when it is marked
 (`buri_rt_make_immortal`), so a leak check does not report every string literal.
-`cli/tests/native/runtime.rs` already asserts the property on a corpus of one,
-from C; `cli/tests/native/memory.rs` is the same assertion over Buri programs.
+`cli/tests/native/runtime.rs` asserts the property on a corpus of one, from C;
+`cli/tests/native/stencil.rs`'s leak tests are the same assertion over compiled
+Buri programs.
 
 ## 3. Why not a tracing GC
 
-Direct conflict with `design/LLVM-tips.md:2`.
+Direct conflict with CODEGEN-LLVM.md §0's second instruction.
 
 A tracing collector has to find the roots, which means knowing which stack slots
 and which registers hold pointers at every point a collection can happen. There
@@ -81,7 +90,8 @@ are two ways to have that in LLVM, and both are excluded:
 - **Precise, via `gc.statepoint`.** Every GC-reachable pointer has to live in a
   stack slot the runtime can enumerate at a safepoint, which is `alloca` +
   reload around every call. That is exactly the `alloca` form
-  `design/LLVM-tips.md:2` says not to generate, and running `mem2reg` over it
+  CODEGEN-LLVM.md §0's second instruction says not to generate, and running
+  `mem2reg` over it
   does not help — the whole point of a statepoint is that the value is *not* in a
   register across the call. The instruction and the collector are incompatible,
   and the instruction is the one with a reason behind it.
@@ -108,11 +118,11 @@ answer is that the effect system does not carry the information it would need.
 An arena needs a scope: a point at which everything allocated since some earlier
 point becomes unreachable, all at once. Look for one:
 
-- `Alloc` is a **bound on a context** (`effect.buri:18-20`), and a bound propagates.
+- `Alloc` is a **bound on a context** (`effect.buri`), and a bound propagates.
   `list.map` is `<C: Alloc>`, so every caller of `map` is `Alloc`-bounded, and so
   is every caller of *those*. In any program that maps a list, `main` is
   `Alloc`-bounded and the "Alloc scope" is the program.
-- `Region` is a **value** (`effect.buri:16`: `export struct Region(export I64)`),
+- `Region` is a **value** (`effect.buri`: `export struct Region(export I64)`),
   returned by `allocate` and freely storable in a struct, returnable from a
   function, and placeable in a list. It is not a scope and it does not nest.
 - There is no `with`, no `using`, no scoped-context expression. A context is
@@ -189,7 +199,7 @@ it:
 - A parameter is **owned** otherwise, and the caller transfers a count.
 
 The analysis is a fixpoint over the call graph, which is exact
-(`monomorphize.rs:8-10`) — so, unlike in a language with dynamic dispatch, the
+(`monomorphize.rs`) — so, unlike in a language with dynamic dispatch, the
 answer is a fact and not a conservative approximation. `xs.fold(f, init)`,
 `xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.len()`: every pure,
 non-constructing operation in the standard library borrows everything, and
@@ -200,7 +210,7 @@ On top of that, three local rules:
 - **Drop the increment/decrement pair around a value that is dead immediately
   after.** The last use of a local transfers rather than copies.
 - **`IMMORTAL` at compile time.** A literal, an interned constant aggregate
-  (`generate.rs:457`'s `intern` moves to the middle end and applies to both
+  (`generate.rs`'s `intern` moves to the middle end and applies to both
   backends), and any zero-sized value get no reference operations emitted at all,
   because the compiler knows they are immortal — the runtime `IMMORTAL` check
   is for values that reached a generic path.
@@ -209,7 +219,7 @@ On top of that, three local rules:
   consumed within one function, never stored and never returned, becomes an
   `alloca` (LLVM) / stack slot (Cranelift) with no header and no counts. This is
   the one place `alloca` is emitted, and it is emitted for a value that is never
-  reloaded through a pointer, so `design/LLVM-tips.md:2`'s instruction is not
+  reloaded through a pointer, so CODEGEN-LLVM.md §0's second instruction is not
   violated — see CODEGEN-LLVM.md §2.3.
 
 ### 5.3 Reuse, which is where the copying goes
@@ -424,12 +434,11 @@ are:
   the shape most exposed to this.
 - **`Str` views keep their parent alive.** `s.splitOnce(",")` on a 10 MB string
   and keeping one 3-byte half retains all 10 MB. This is a real footgun and it
-  is the price of `slice` being pure (`str.buri:3-4`). It is documentable rather
+  is the price of `slice` being pure (`str.buri`). It is documentable rather
   than fixable — a copying `slice` would have to name `Alloc`, which is a
   language change — and `core/str` now says so where `slice` is declared.
 
-  **Ruled on, and closed.** This was carried in `OPEN-QUESTIONS.md` as a
-  language question because the two alternatives — copying above a ratio, or
+  **Ruled on, and closed.** This was carried as a language question because the two alternatives — copying above a ratio, or
   copying on a proven retention — change `slice`'s and `splitOnce`'s signatures
   or the middle end's obligations. The ruling is that it is **neither**: slicing
   keeps the parent, and *how* a view's storage is managed is an implementation
@@ -476,7 +485,7 @@ which is a breaking change by construction and says so here.
 Two rows deserve their reasons:
 
 - **A view charges nothing** because the language says so: `slice`, `trim` and
-  `splitOnce` are declared without an `Alloc` bound (`str.buri:26-45`). The
+  `splitOnce` are declared without an `Alloc` bound (`str.buri`). The
   accounting has to agree with the type system or the type system is lying.
 - **A fixed-size construction charges nothing** even when the implementation
   heap-allocates, because SPEC 10.5 says "fixed-size construction — struct
@@ -516,7 +525,7 @@ accounting policies over the one real allocator. They are not three allocators.
   because the handle is the identity.
 - **`FixedBuffer(n)`** — a budget of *n* bytes. Exceeding it **aborts**. This is
   forced, and it is the right answer: `allocate` returns `Region`, not
-  `Result<Region, _>` (`effect.buri:19`), so there is no value to report failure
+  `Result<Region, _>` (`effect.buri`), so there is no value to report failure
   with; and SPEC 10.5 already says `Alloc` "can fail (out of memory)", while SPEC
   6.10 says an abort is what a failure with no value to return does. So exceeding
   a `FixedBuffer` is `$abort("allocation budget exhausted")`, with the budget and
@@ -542,7 +551,7 @@ it needs no change to any signature.
 
 Natively there is one refinement. VALUE-MODEL.md §8 says a context of zero-sized
 implementations is itself zero-sized and is dropped from every signature, and
-`HostAlloc` is `struct HostAlloc {}` (`host.buri:18`) — zero-sized. So on the
+`HostAlloc` is `struct HostAlloc {}` (`host.buri`) — zero-sized. So on the
 default host context, the allocator argument is dropped and the intrinsics call
 the global allocator directly, which is correct and free. A `FixedBuffer` or a
 counting `GeneralPurpose` is *not* zero-sized — it holds a budget and a total —

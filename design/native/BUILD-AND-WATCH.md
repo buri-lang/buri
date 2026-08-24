@@ -28,6 +28,13 @@ What belongs here is what the bar admitted, and why each one clears it.
 That is the whole list. `Cargo.lock` names those packages plus their closures,
 and the flake carries a `cargoHash` because there is now something to hash.
 
+The third native backend admits nothing at all. `backend-stencil`
+(CODEGEN-STENCIL.md) is on by default and its feature list is empty: the
+copy-and-patch code generator is written in this repository, and the one thing
+it needs from outside is a host `cc` — a platform interface in exactly the sense
+the bar means, already required by the link step, and absent from the lockfile.
+§2 has what having it on costs.
+
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
 `notify` is the obvious dependency for `--watch`, and it does not clear the bar —
@@ -92,22 +99,40 @@ rust-analyzer all pair `notify` with a poll watcher for the cases it fails on).
 
 ```toml
 [features]
-default          = ["backend-cranelift"]
+default           = ["backend-cranelift", "backend-stencil"]
 backend-cranelift = ["dep:cranelift-codegen", "dep:cranelift-frontend",
                      "dep:cranelift-module", "dep:cranelift-object",
-                     "dep:cranelift-native"]
+                     "dep:cranelift-native", "dep:target-lexicon"]
+backend-stencil   = []
 backend-llvm      = ["dep:inkwell"]
 ```
 
 There is no `backend-js` feature. The JavaScript backend is always compiled in:
-it needs nothing, it is what `host_platform()` still returns (`driver.rs:228-232`),
-and a feature whose only possible value is "on" is a flag nobody should have to
-read.
+it needs nothing, it is what `driver::host_platform` still returns, and a
+feature whose only possible value is "on" is a flag nobody should have to read.
 
 **`backend-cranelift` is on by default.** Cranelift is pure Rust with no system
 dependency and cross-compiles anywhere Rust does, so having it on costs a
 contributor nothing but compile time, and having it off would mean the default
 toolchain cannot build a native artifact at all.
+
+**`backend-stencil` is on by default and adds no crate.** Its feature list is
+empty: the copy-and-patch backend (CODEGEN-STENCIL.md) is written here, and what
+it needs from outside is a host `cc`, which is the same tool `build/link.rs`
+already shells out to in order to produce an artifact at all. What being on
+*does* cost is build time. `cli/build.rs` generates about twenty-three thousand
+C functions, compiles them with the host `cc` in twelve parallel shards, reads
+the objects back and extracts one stencil per exported symbol — and does that
+three times, once per target (CODEGEN-STENCIL.md §3, §3.2). That is an
+install-time cost paid once per toolchain build rather than a cost inside the
+loop, which is the same argument `libburi_rt.a` is built on, and it is the
+reason the feature is worth having a name.
+
+It degrades rather than breaks: a host with no `cc`, or a non-arm64 host, gets
+an **empty** library, `stencil::AVAILABLE` reads the emptiness, and the backend
+reports itself unavailable exactly as `runtime_native::AVAILABLE` does for the
+archive. Nothing else in a build changes, because `backend::select` never
+returns `stencil` in the first place (ARCHITECTURE.md §4).
 
 **`backend-llvm` is off by default.** It needs LLVM 21 installed and
 `LLVM_SYS_211_PREFIX` set (CODEGEN-LLVM.md §8). `cargo install buri` must not
@@ -240,21 +265,38 @@ fetches four crates and their closures.
 
 ### 3.3 CI
 
-The existing `test` job (`.github/workflows/ci.yml`) runs on `ubuntu-latest` and
-`macos-latest` and installs nothing but Rust, bun and node. It gains:
+`.github/workflows/ci.yml` runs on push, on pull request and on demand, and it
+is eight jobs. The three that this document is about:
 
-- `mold` on the Linux runner (`apt-get install -y mold`) and nothing on the macOS
-  runner, which has Apple's `ld` and no need for another.
-- LLVM 21 on both, via `KyleMayes/install-llvm-action` or `brew install llvm@21`
-  / `apt.llvm.org`, with `LLVM_SYS_211_PREFIX` exported.
-- `cargo test -p buri --no-fail-fast --features backend-llvm`, so both backends
-  are exercised. `cranelift_and_llvm_agree` (ARCHITECTURE.md §4) is the test that
-  makes the second feature worth turning on.
+- **`test`** — the whole Rust suite, on every host this toolchain supports:
+  `macos-latest` (arm64), `ubuntu-24.04` (x86_64) and `ubuntu-24.04-arm`. Each
+  leg sets `CC: clang` and therefore builds its own stencil library, which
+  `.github/scripts/assert-stencils.sh` then holds to being non-empty. There is
+  deliberately no leg without `clang`: it would be the same suite with the
+  native tests silently skipped, and that is the one shape of green this
+  workflow exists to refuse.
+- **`minimal`** — `cargo build -p buri --no-default-features` on
+  `ubuntu-latest`. It is the test that `cargo install buri` still works on a
+  machine carrying no LLVM, and it is a job rather than an assertion because
+  "it builds without the optional system library" is only true if something
+  builds it that way. The default-feature build needs no job of its own: every
+  `test` leg is one.
+- **`release`** — the only leg that turns `backend-llvm` on. x86-64 only, and
+  **advisory** (`continue-on-error: true`). The reason is named in the workflow
+  rather than left to be discovered: LLVM 21 is not in Ubuntu 24.04 — noble
+  ships 18 — so the job depends on apt.llvm.org, which is third-party
+  infrastructure with no uptime guarantee, and a red X caused by a 404 teaches
+  people to ignore a red X. arm64 is not attempted, because apt.llvm.org's
+  architecture coverage per release is not something to discover inside a
+  required job. The version is asserted rather than assumed, which is §8.1's
+  one-supported-LLVM policy enforced where it can be.
 
-A third job, `no-llvm`, runs `cargo build -p buri` with default features on
-ubuntu with no LLVM installed. It is the test that `cargo install buri` still
-works, and it is a job rather than an assertion because "it builds without the
-optional system library" is only true if something builds it that way.
+Two further native jobs, `linux-arm64` and `linux-x86_64`, run the artifacts
+rather than only compiling them, and CODEGEN-STENCIL.md §10 is where they are
+described. `lean`, `tree-sitter` and `nix` complete the eight.
+
+The cross-backend agreement oracle is not a CI feature: `cli/tests/native/agreement.rs`
+runs in the ordinary suite on every leg (ARCHITECTURE.md §4).
 
 ### 3.4 Without nix
 
@@ -268,7 +310,10 @@ it is the state a contributor is in unless they go looking for the other one.
 step drives the platform C compiler (CODEGEN-CRANELIFT.md §7.3) and
 `cli/tests/native/runtime.rs` already compiled a C driver against the runtime
 archive before this wave. It is Xcode's command-line tools on macOS
-(`xcode-select --install`) and `build-essential` on Debian-likes.
+(`xcode-select --install`) and `build-essential` on Debian-likes. `cli/build.rs`
+now also uses it to generate the stencil library (§2); a host without it still
+builds, and gets an empty library and a backend that reports itself
+unavailable.
 
 Everything below is for the two things the default build does not do: build the
 **LLVM** backend, and link with something faster than the system linker.
@@ -309,11 +354,11 @@ discovered:
 ### 4.1 Watch mode is a loop over the cache
 
 The incremental test cache already exists and already does the hard part.
-`run_on` (`test.rs:263-305`) computes `test_key`, consults `Cache`, and returns
+`run_on` (`test.rs`) computes `test_key`, consults `Cache`, and returns
 cached results with `Provenance::Cache` when the key hits; the summary already
-prints "`n` cached" (`test.rs:161-165`). Only a clean run is cached, deliberately
+prints "`n` cached" (`test.rs`). Only a clean run is cached, deliberately
 — "a failure is what you are trying to fix, and re-running it should re-run it"
-(`test.rs:397-400`) — which is exactly the behaviour a watch loop wants.
+(`test.rs`) — which is exactly the behaviour a watch loop wants.
 
 So **watch mode is a loop around `cmd_test`, and the incrementality is the
 cache's rather than the loop's**. There is no "affected target" computation to
@@ -342,7 +387,7 @@ Per selected target, the union of:
 
 - every path `contribute` enumerates for every member of the target's closure —
   the rule's entry point, its `sources`, its `proto_sources`, and its
-  `testing/` sources (`actions.rs:190-213`);
+  `testing/` sources (`actions.rs`);
 - every path `test_key` enumerates — the suite's `sources`, its `data`, and the
   closure of every library its `test { dependencies }` and
   `testing { dependencies }` name;
@@ -357,7 +402,7 @@ produced both.
 The last two are not in any key's *input* list but change the graph itself: a new
 dependency edge, a new source, a changed tag vocabulary. A change to either
 re-opens the `Session`, because `Workspace::load` is what reads them
-(`session.rs:46-60`) and a `Session` holds a loaded graph rather than a
+(`session.rs`) and a `Session` holds a loaded graph rather than a
 directory.
 
 The parse cache (`Session::parsed`) is discarded on reopen and kept otherwise,
@@ -377,10 +422,10 @@ here is a flag nobody can choose a value for.
 Three combinations are refused, at argument parsing, with exit 2:
 
 - **`--watch --force`.** `--force` turns every cache hit into a run
-  (`test.rs:278`), so every keystroke would re-run every suite in the selection.
+  (`test.rs`), so every keystroke would re-run every suite in the selection.
   That is the opposite of the mode.
 - **`--watch --accept`.** `--accept` is "the one mode that writes to the source
-  tree" (`test.rs:398-400`). A mode that rewrites golden files on a timer is a
+  tree" (`test.rs`). A mode that rewrites golden files on a timer is a
   mode that silently accepts a regression while you are reading the failure.
 - **`--watch` without a TTY.** A watch loop in CI is a hung job. The check is on
   stdout being a terminal, and the diagnostic says so and names `buri test`.
@@ -392,7 +437,7 @@ Three combinations are refused, at argument parsing, with exit 2:
   is separated by a rule with the time on it, which is one line and is greppable:
   `── 14:02:31 ─────`.
 - **One summary line per run**, in the format `cmd_test` already prints
-  (`test.rs:165`): `12 passed, 1 failed, 0 skipped (0.4s, 8 cached)`. Failures
+  (`test.rs`): `12 passed, 1 failed, 0 skipped (0.4s, 8 cached)`. Failures
   print above it exactly as they do without `--watch`, through `report_failure`,
   so a suite's output does not depend on which mode it was run in.
 - **A run with nothing to do prints nothing at all.** If every suite was served
@@ -401,7 +446,7 @@ Three combinations are refused, at argument parsing, with exit 2:
 - **`--explain` works**, and in watch mode it is the most useful it has ever been:
   one `test` line per suite per run with `cached` or `run`, which is the
   incrementality claim being observable rather than asserted
-  (`arguments.rs:76-79`).
+  (`arguments.rs`).
 - **Ctrl-C exits 0**, whatever the last run said. The exit status of a watch loop
   is about the loop; a red suite is on the screen, and encoding it in `$?` would
   make `buri test --watch` unusable in a shell with a prompt that shows the last
@@ -427,33 +472,15 @@ ARCHITECTURE.md §2 and the action graph in ARCHITECTURE.md §6.
 
 What is kept is the **legend**, because the wave labels are still module headers
 in the source (`//! ... **Wave 2b.**`) and a reader who meets one needs
-somewhere to look it up:
-
-| Wave | What it was |
-|---|---|
-| 0 | `transform` → `middle`; the `Backend`/`Linker` traits and `Emitted`; `Action::Codegen`; the cargo features; `middle/mod.rs` declaring every module the later waves fill in |
-| 1a | `middle::ir` and `middle::lower` — the block-argument SSA CFG |
-| 1b | `middle::layout` — the value model as a memoised table, plus the `Alloc` cost model |
-| 1c | `cli/runtime` — the C-ABI runtime, and the `build.rs` that builds it |
-| 1d | `middle::{decision, closures, dce, tail_calls}` — the tree passes, and the tail-call *rewrite* that replaced the emitter consulting a `Plan` |
-| 1e | `middle::{derives, rc}` — generated derives, and own/borrow inference with reuse |
-| 2a | The Cranelift backend |
-| 2b | The LLVM backend |
-| 2c | The link step, the object cache, and the manifest |
-| 3a | Native `--check-reproducible` |
-| 3b | `buri test --watch` |
-| 3c | The `host_platform()` switch, the SPEC amendment, and the golden re-record |
-| 3d | The `buri_rt_*` runtime surface as both backends call it |
-| 4 | The allocator types and `Alloc` accounting |
-
-One thing from wave 3c did **not** land: the golden re-record for a *Linux*
-host. Two fixtures name `linux` as the platform this toolchain cannot produce,
-and on a Linux machine it now can. ARCHITECTURE.md §4's last paragraph has it.
+somewhere to look it up. It is one table for the whole corpus rather than one
+per document, so it lives at
+[`design/README.md`](../README.md), under "Wave numbering", together with the
+one piece of wave 3c that did not land.
 
 ### What is not in any wave
 
 DWARF (CODEGEN-LLVM.md §7 sketches it, CODEGEN-CRANELIFT.md §5 declines it),
-cross-compilation (ARCHITECTURE.md §9 refuses it), ThinLTO (ARCHITECTURE.md §5.2
+cross-*linking* (ARCHITECTURE.md §9 refuses it), ThinLTO (ARCHITECTURE.md §5.2
 leaves the door open), general niche discovery (VALUE-MODEL.md §6), and
 small-string optimization (VALUE-MODEL.md §3.2). Each is named where it is
 declined so that a later reader finds the reason next to the decision rather than

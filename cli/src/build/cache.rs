@@ -448,7 +448,7 @@ mod tests {
     /// The toolchain's identity is in every key, and since `REPO.buri` stopped
     /// naming a toolchain it is `arguments::VERSION` and nothing else. A
     /// release moves every key in every repository, which is the row
-    /// HERMETICITY-AND-CACHING.md promises and what the pin used to carry.
+    /// `buri docs build/hermeticity` promises and what the pin used to carry.
     ///
     /// It is asserted by rebuilding the key field by field rather than by
     /// moving the version, because there is nothing left in a repository to
@@ -485,7 +485,7 @@ mod tests {
     // Key composition
     // -----------------------------------------------------------------------
     //
-    // The four properties HERMETICITY-AND-CACHING.md names, each asserted on
+    // The four properties `buri docs build/hermeticity` names, each asserted on
     // the builder rather than through a build, because "the platform is in the
     // key" is a claim about the key and a build can only show its shadow.
 

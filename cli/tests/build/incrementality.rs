@@ -4,9 +4,9 @@
 //! rather than manifests: a repository case runs commands against one tree,
 //! and the claims here are about what changes *between* two states of it.
 //!
-//! The incrementality table at HERMETICITY-AND-CACHING.md:107-118 is written
-//! in terms of *which actions run*, which nothing could observe from outside
-//! the toolchain until `--explain`. These read that transcript. Keys are
+//! The incrementality table under "What incrementality looks like" in
+//! `buri docs build/hermeticity` is written in terms of *which actions run*,
+//! which nothing could observe from outside the toolchain until `--explain`. These read that transcript. Keys are
 //! compared between two states of one tree and never recorded, because a key
 //! includes the toolchain version and would move on every release.
 
@@ -139,9 +139,9 @@ fn rewriting_a_file_with_its_own_bytes_rebuilds_nothing() {
 // Which actions an edit reaches
 // ---------------------------------------------------------------------------
 
-/// The rows of HERMETICITY-AND-CACHING.md:107-118 that this toolchain can
-/// currently answer: an edit reaches the target it is in and the binary above
-/// it, and nothing sideways.
+/// The rows of `buri docs build/hermeticity`'s incrementality table that this
+/// toolchain can currently answer: an edit reaches the target it is in and the
+/// binary above it, and nothing sideways.
 ///
 /// The worked monorepo rather than a toy, because "the sibling did not change"
 /// is only evidence when there is a sibling that could have.
@@ -205,8 +205,8 @@ fn adding_a_tag_recompiles_nothing() {
 }
 
 // The toolchain is part of every key, because an artifact built by a different
-// compiler is a different artifact (HERMETICITY:116) — and there is no test for
-// it here any more. There used to be: `REPO.buri` pinned a toolchain by
+// compiler is a different artifact (`buri docs build/hermeticity`) — and there
+// is no test for it here any more. There used to be: `REPO.buri` pinned a toolchain by
 // `sha256`, the pin went into the key, and moving it between *unpinned* and
 // *pinned to this executable* was a change of toolchain identity a live
 // repository could be walked through. The pin was removed, so a repository has
@@ -221,7 +221,7 @@ fn adding_a_tag_recompiles_nothing() {
 
 /// A test suite's sources reach the suite and nothing else. This is the row
 /// the design is proudest of: editing a test may not cost a rebuild of the
-/// thing under test (HERMETICITY:117).
+/// thing under test (`buri docs build/hermeticity`).
 #[test]
 fn editing_a_test_source_reaches_only_its_suite() {
     let example = Scratch::copy_of("explain-test-edit", &example_repo());

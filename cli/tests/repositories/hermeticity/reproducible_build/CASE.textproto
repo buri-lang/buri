@@ -1,4 +1,4 @@
-# HERMETICITY-AND-CACHING.md: "Two builds of the same commit in the same
+# `buri docs build/hermeticity`: "Two builds of the same commit in the same
 # configuration produce byte-identical artifacts."
 #
 # `--check-reproducible` asks that of one repository rather than of the

@@ -121,7 +121,7 @@ sparse:                          a balanced binary tree of  icmp / brif
 used rather than reimplemented.
 
 For an enum, `default` is `None`: exhaustiveness is proved
-(`exhaustiveness.rs`), and `Profile::defensive_aborts` (`generate.rs:54`) decides
+(`exhaustiveness.rs`), and `Profile::defensive_aborts` (`generate.rs`) decides
 whether an unreachable default block calling `buri_rt_abort_unreachable` is
 emitted anyway. On
 the Cranelift path `defensive_aborts` is on, because this is the debug backend
@@ -165,7 +165,7 @@ ordinary branch plus an ordinary call relocation
 
 1. **There is nothing left for it to do.** `middle::tail_calls` rewrites a
    self-recursive tail call into a loop and a mutually-recursive group into one
-   dispatching function (`tail_calls.rs:9-16`). What remains is a tail call to a
+   dispatching function (`tail_calls.rs`). What remains is a tail call to a
    function *outside* the caller's tail-call SCC — and after SCC merging the
    tail-call graph is a DAG, so any such chain is bounded by the DAG's longest
    path, a compile-time constant. Constant stack (SPEC 8.3) is delivered by the
@@ -186,7 +186,7 @@ ordinary branch plus an ordinary call relocation
 
 What we lose: an *indirect* tail call — a closure tail-calling itself through a
 value — is not eliminated. `tail_callees` collects only `ExprKind::CallFn`
-(`tail_calls.rs:82`), so this is already the state on the JavaScript backend and
+(`tail_calls.rs`), so this is already the state on the JavaScript backend and
 is not a native regression. It is a middle-end gap, and the fix, when someone
 wants it, is a middle-end one: an indirect tail call in a function whose only
 indirect callee is itself is a loop.
@@ -194,7 +194,7 @@ indirect callee is itself is a loop.
 ### 3.4 Effects and context calls
 
 There is nothing to lower. `monomorphize::resolve_trait_call`
-(`monomorphize.rs:709-741`) has already turned every effect method into a direct
+(`monomorphize.rs`) has already turned every effect method into a direct
 call, and a context of zero-sized implementations is dropped entirely by the
 layout pass (VALUE-MODEL.md §8). A context that does carry state is an ordinary
 struct parameter, flattened like any other.
@@ -226,7 +226,7 @@ variant's index otherwise.
 ```
 
 The `b_free` block is marked with `set_cold_block`, which moves it out of the hot
-path in the final layout — `design/LLVM-tips.md:4`'s cache-locality instruction, and
+path in the final layout — CODEGEN-LLVM.md §0's cache-locality instruction, and
 Cranelift gives it directly.
 
 The saturating increment is three nodes rather than one because Cranelift's
@@ -260,7 +260,7 @@ messages beside it — `buri_rt_abort_div_zero`, `buri_rt_abort_shift`,
 message pinned by `cli/tests/crash/` lives in the runtime rather than in two
 backends' string tables. Cranelift has no `noreturn`
 attribute, so the call is followed by `trap(TrapCode::UnreachableCodeReached)`
-and the block terminates. Division by zero (`runtime.js:44-47`, SPEC 6.2) is a
+and the block terminates. Division by zero (`runtime.js`, SPEC 6.2) is a
 `brif` on the divisor into a cold block that calls it.
 
 ## 4. Settings
@@ -277,11 +277,15 @@ all three are set explicitly rather than inherited:
 | `unwind_info` | `true` | `false` | §5. |
 | `enable_alias_analysis` | `true` | — | Only effective at `opt_level != none`, so inert here. |
 
-`regalloc_algorithm` (`backtracking` vs `single_pass`) is the more useful
-compile-speed dial than `opt_level` at this setting, and is set to `single_pass`
-where the pinned version offers it. It is the one knob whose value should be
-re-measured rather than assumed, because it trades compile time for spills in a
-profile where the generated code still has to be usable.
+`regalloc_algorithm` looked like the more useful compile-speed dial than
+`opt_level` at this setting, and it is **set and has no effect**: the pinned
+Cranelift's enum holds only `backtracking` — 0.123 withdrew `single_pass`
+because it cannot allocate for exception handling — so `set` rejects the value.
+The line is left as a statement of intent for the version that has it back, and
+`design/PERFORMANCE.md` §6 lists it among the dead ends. The dial that does move
+was measured rather than assumed: `opt_level = "speed"` costs `enum-heavy/10k`
+20% (455 ms to 547 ms), because the egraph pass is more than the register
+allocation it saves.
 
 The aegraph mid-end (GVN, constant folding, ISLE rewrites, LICM, alias analysis
 with redundant-load elimination) is entirely skipped at `opt_level = none` —
@@ -291,7 +295,7 @@ LLVM are for. It is also what `rustc_codegen_cranelift` does — `opt_level = "n
 for debug builds — so the shape is battle-tested.
 
 `Context::inline` (0.123 / wasmtime 36) exists and is not called. Inlining
-happened in the middle end over an exact call graph (`monomorphize.rs:8-10`);
+happened in the middle end over an exact call graph (`monomorphize.rs`);
 re-deriving it here with less information would cost compile time in the profile
 that has none to spend.
 
@@ -306,7 +310,7 @@ wave of its own and it is not this one.
 cranelift-object 0.133.0 and emits `.eh_frame` on ELF and COFF; on Mach-O it is
 **not implemented and `finish()` panics**. Since the language has no exceptions —
 an abort is a write to stderr and `_exit`, not an unwind (SPEC 6.10,
-`generate.rs:326-334`) — there is nothing to unwind, and a feature that panics on
+`generate.rs`) — there is nothing to unwind, and a feature that panics on
 one of the two target platforms is not one to build on.
 
 What replaces both: `preserve_frame_pointers = true`, and `buri_rt_abort` walking
@@ -317,7 +321,7 @@ about eighty lines and gives an abort a stack trace with function names, which i
 the whole of what a debug build needs. Line numbers wait for DWARF.
 
 The escape hatch when someone needs a real debugger is the JavaScript backend,
-which keeps names and structure (`generate.rs:44-46`), and `--release`, which
+which keeps names and structure (`generate.rs`), and `--release`, which
 will get DWARF from LLVM for free when CODEGEN-LLVM.md §7 lands.
 
 ## 6. Object emission
@@ -370,7 +374,7 @@ these bytes:
 
 - **Symbol and section order is a function of declaration order**, and declaration
   order is the middle end's function order, which is source order
-  (`monomorphize.rs:247-248`). Nothing in the emission path iterates a `HashMap`.
+  (`monomorphize.rs`). Nothing in the emission path iterates a `HashMap`.
 - **No timestamps.** `object::write` writes none for ELF or Mach-O relocatable
   objects. The archive step (§7) is where a timestamp could enter, and it is
   zeroed there.
@@ -389,7 +393,7 @@ and the third is the one that settles it here:
 > binaries even if you are compiling the same source tree.
 
 That is a direct contradiction of this toolchain's central claim
-(`build.rs:128-133`). An incremental linker and
+(`build.rs`). An incremental linker and
 `--check-reproducible` cannot both be right. The author's conclusion — "I wanted
 to make full link as fast as possible, so that we don't have to think about how
 to work around the slowness of full link" — is the plan.
@@ -492,10 +496,10 @@ main           8b2e01f4c7a9...  run
 ```
 
 It is written by the link step and read by `--explain`, which prints one
-`codegen` line per unit in the existing format (`cache.rs:238-268`). It is the
+`codegen` line per unit in the existing format (`cache.rs`). It is the
 answer to "which objects changed", and it is the thing that makes the claim in
 §7.2 observable from outside — which is the standard the rest of this build
-system already holds itself to (`arguments.rs:76-79`: the build system's claims are
+system already holds itself to (`arguments.rs`: the build system's claims are
 about which actions run, and a claim nothing can observe is not one anybody can
 hold the toolchain to).
 
@@ -528,7 +532,7 @@ lines offer. `Context::inline` is in 0.123 and is not used (§4). `declare_var`'
 current signature is in 0.122 and is not used either (§2.1).
 
 `all-arch` rather than the default `host-arch`, so that the ISA is selected by
-triple and the refusal to cross-compile (ARCHITECTURE.md §9) is a decision about
+triple and the refusal to cross-*link* (ARCHITECTURE.md §9) is a decision about
 the runtime archive rather than a limitation of the backend. `cranelift-native`
 supplies `infer_native_flags` for host CPU features.
 

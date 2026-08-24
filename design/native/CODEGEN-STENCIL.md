@@ -367,8 +367,13 @@ back to the relocation it started from, once there is a linker to honour it.
 The unit that owns `main` also carries a zero-filled `__DATA,__bss` section for
 the Buri stack (§8).
 
-`stencil/object.rs` is the Mach-O writer. There is no ELF one, which is why
-`Platform::Linux` is refused with a sentence rather than half-attempted.
+`stencil/object.rs` is the Mach-O writer and `stencil/elf.rs` is the ELF one;
+§3.2's target table says which reader, extractor and writer each of the three
+targets uses. The paragraph that used to stand here said there was no ELF writer
+and that `Platform::Linux` was refused because of it. Both halves stopped being
+true when the Linux targets landed: `elf.rs` writes objects that `ld.lld`
+statically links with every relocation resolving, and what is still refused is
+the *link* on a foreign host rather than the emission (ARCHITECTURE.md §9).
 
 ## 5. The runtime boundary
 
@@ -713,10 +718,10 @@ six conformance files:
 * **x86-64 execution.** The stencils are built and extracted (§3.2) and
   `elf.rs` writes the container, but `asm.rs`'s two hand-written shims have no
   SysV counterpart, so `mod.rs::supported` refuses the target with that sentence
-  rather than emitting an object with arm64 bytes in `main`. §10.2 is the list.
-* **Linux execution, on any architecture.** `linux-arm64` emits objects that a
-  real linker accepts and fully resolves, and that is as far as *this* machine
-  can go — §10 says why in detail, and what a Linux CI run has to confirm.
+  rather than emitting an object with arm64 bytes in `main`. §10.3 is the list.
+* **Linux execution from this host.** `linux-arm64` emits objects that a real
+  linker accepts and fully resolves, and that is as far as *this* machine can
+  go — §10.1 says why. CI runs the programs (§10.2).
 * **Debug information** — neither DWARF nor `.buri_symbols`, which is the gap
   `cranelift/mod.rs` records for itself too.
 * **In-place `str.concat`.** `cranelift/helpers.rs`'s appends into the left
@@ -790,46 +795,51 @@ derived from whatever the objects themselves leave undefined. That is honest
 about what it proves: the *shape* of every reference, and nothing about what the
 referent does.
 
-### 10.2 The checklist a Linux CI run must confirm
+### 10.2 What a Linux run had to confirm, and where it is confirmed
 
-**aarch64-unknown-linux-gnu**, in order, each one a thing this host could not
-ask:
+The aarch64 column is discharged. `.github/workflows/ci.yml` is where it stopped
+being prose: the suite runs on `macos-latest`, `ubuntu-24.04` and
+`ubuntu-24.04-arm`, and the `linux-arm64` job runs the artifacts rather than
+only compiling them — the stack guard's `mprotect` and Linux's signal
+disposition for a `PROT_NONE` page, the corpus at macOS parity, leak parity
+through `buri_rt_heap_stats`, `--check-reproducible` on a linked Linux artifact,
+and both linkers' idea of an ELF image. Three scripts hold the parts a green
+exit would otherwise hide: `assert-stencils.sh` reads the blob sizes
+`available_for` reads (and asserts the reverse degrade — on a Linux host the
+`macos-arm64` library must be empty), `assert-suite-ran.sh` requires the corpus
+census's own output, because every test in `stencil.rs` opens with
+`if !supported() { return; }` and a runner with no stencils would otherwise pass
+the suite having run nothing, and `assert-elf.sh` checks the linked image for a
+defined `buri$stencil$stack`, a `.bss` still `NOBITS`, and a `PT_GNU_STACK`
+without `E`. The workflow's own comments carry the reasoning; this document does
+not keep a second copy of them.
 
-1. The toolchain builds and `stencil::available_for(Tgt::LinuxArm64)` is true —
-   i.e. the CI image's clang can produce its own objects. (Native, so no
-   cross-compile is involved; the interesting failure is the reverse one, that
-   a Linux host cannot build the `macos-arm64` library and must degrade.)
-2. `cargo test -p buri` green, including every `stencil::` test above, which on a
-   Linux host exercise the *host* path rather than the cross one.
-3. `cli/tests/native/stencil.rs`'s main suite — which today guards on
-   `cfg!(target_os = "macos")` — run with that guard widened. Every one of those
-   tests **runs a program**, which is the whole point.
-4. The 997-file conformance corpus through `buri test`, at parity with the macOS
-   column, refusing the same six packages for the same three reasons.
-5. Leak parity: `buri_rt_heap_stats` on the same nine measurable packages,
-   against Cranelift on the same box.
-6. `--check-reproducible` on a linked Linux artifact.
-7. **The stack guard actually faults.** `asm::install_guard` calls `mprotect`;
-   §8.1's claim is that a runaway recursion hits a `PROT_NONE` page rather than
-   walking past the block, and on Linux that is an untested syscall path with an
-   untested signal disposition. The message a program prints when it runs out
-   (§8.2) must be byte-identical to the macOS one.
-8. **`-Wl,--gc-sections` does not collect anything live.** `build/link.rs`
-   passes it on every Linux link. A unit emits one `.text`, so section-granular
-   collection cannot take a function out from under a baked branch the way
-   `-dead_strip` could on Mach-O — but the `.bss` holding the Buri stack is kept
-   only because the shim relocates against it, and that is worth seeing rather
-   than reasoning about.
-9. No executable-stack warning: `elf.rs` writes an empty `.note.GNU-stack`, and
-   its *absence* is what makes a Linux linker mark the stack executable.
-10. **mold as well as `ld.lld`.** `link::choose` prefers mold on Linux and this
-    host has none, so every ELF byte in this port has been accepted by exactly
-    one linker.
-11. The kernels, against Cranelift `opt_level=none` and LLVM `-O0` on the same
-    machine — the §1 numbers are macOS/arm64's and no Linux number exists.
+Two things there remain **uncovered**, and neither is a step that could be
+renamed into existence:
 
-**x86_64-unknown-linux-gnu** needs all eleven of those *and*, before any of them
-can be asked, the emitter half that is not written:
+* **Leak parity as §9 states it.** What runs is heap-stats accounting on both
+  suites on one box. "Both backends leave *exactly the same* blocks" is not
+  something a leak checker's own accounting can state; the nine-package
+  comparison in §9 was made by hand and has no harness here.
+* **The run-side kernels.** `cli/benches/compiler.rs` measures compile phases,
+  and the four kernels behind §1's 1.38× have no harness in this repository —
+  nor is stencil a selectable emitter for the benchmark's `lower+*` rows. Both
+  are repo-side hooks.
+
+Two decisions inside those jobs are worth naming because they are load-bearing
+rather than tidy. They use **apt and not the flake**, because the question is
+whether *the CI image's* clang can produce objects and a `nix develop` would
+answer for nixpkgs' clang instead — the flake is held green by the same file's
+`nix` job. And they export **`CC=clang`**: `sources::compile_flags` passes
+`--target=` and `-print-resource-dir` for both Linux targets including the
+host's own, gcc understands neither, and `cli/build.rs` degrades to an empty
+library rather than failing — so a run with gcc as `cc` is a green run that
+checked nothing.
+
+### 10.3 The x86-64 emitter, which is not written
+
+**x86_64-unknown-linux-gnu** needs everything the aarch64 column needed and,
+before any of it can be asked, six pieces:
 
 1. **`asm.rs`: a SysV entry point.** `program_entry`, `test_entry` and
    `install_guard`, hand-encoded, with `rdi` as the frame pointer. This is the
@@ -872,43 +882,10 @@ can be asked, the emitter half that is not written:
    fall-through arm is worth an instruction-motion pass on this ISA is a
    measurement, and it needs a machine that can run one.
 
-### 10.3 Who asks the checklist, and which parts of it
-
-`.github/workflows/ci.yml` is where §10.2 stops being prose. It runs the suite
-on `macos-latest`, `ubuntu-24.04` and `ubuntu-24.04-arm`, and its `linux-arm64`
-job is the aarch64 column above, item by item. This table is the join between the two, and
-it exists so that a checklist item and the step that discharges it cannot drift
-apart silently: **a step renamed here must be renamed there.**
-
-| § 10.2 item | covered by | how |
-|---|---|---|
-| 1. clang builds this target's objects | `linux-arm64` → *The stencil libraries are not empty* | `.github/scripts/assert-stencils.sh` reads the blob sizes in `OUT_DIR`, which is what `available_for` reads. It also asserts the **reverse** degrade the item names: on a Linux host the `macos-arm64` library must be empty. |
-| 2. `cargo test -p buri` green | `test (arm64, ubuntu-24.04-arm)` | the whole suite, with `CC=clang` so that the `stencil::` tests are not vacuous |
-| 3. the main suite runs, with its guard widened | `linux-arm64` → *The suite was live…* then *The programs run* | already widened in the tree — the guard is `stencil::AVAILABLE`, not `cfg!(target_os = "macos")`. What CI adds is the **liveness assertion**, and it runs *first*: every test in the file opens `if !supported() { return; }`, so a runner with no stencils passes the suite having run nothing. `assert-suite-ran.sh` requires the corpus census's `println!`, which is only reachable past that guard. |
-| 4. the corpus at macOS parity | `linux-arm64` → *The suite was live, and the corpus is at macOS parity* | the ratchet and `the_corpus_files_it_compiles_pass` from inside; from outside, the census line must read `(6 refused, 0 not asked)` and the six refused paths must be the six named in `native/conformance.rs` |
-| 5. leak parity on nine packages | `linux-arm64` → *Leak parity through buri_rt_heap_stats* | **PARTIAL.** heap-stats and not valgrind, which is what this item asks for and what §9's claim needs — "both backends leave *exactly the same* blocks" is not something a leak checker's own accounting can state. What runs is every `ALLOC_PROBE`-linked test in both suites on one box. The nine-package comparison in §9 was made by hand and **has no harness in this repository**; adding one is a repo-side change. |
-| 6. `--check-reproducible` on a linked artifact | `linux-arm64` → *--check-reproducible on a linked Linux artifact* | `buri build //cmd/app --output=linux/arm64 --check-reproducible` on a four-line repository the step writes into `mktemp -d` — both native binaries in `cli/tests/example` are refused for missing host capabilities, and a program that only prints has bytes as reproducible as any other. Cranelift, because `backend::select` does not choose stencil (§4) — the claim is about the *linked Linux artifact*, and stencil's own byte-for-byte reproducibility is `emission_is_deterministic` and `a_cross_emission_is_reproducible`. |
-| 7. the stack guard actually faults | `linux-arm64` → *The programs run* | `a_runaway_recursion_faults_at_the_guard` and `a_deep_recursion_inside_the_stack_still_answers`, which on this runner exercise Linux's `mprotect` and Linux's signal disposition for the first time. §8.2's message parity is the *absence* of a message, and it is what the first test asserts by asserting the process was killed by a signal. |
-| 8. `--gc-sections` collects nothing live | `linux-arm64` → *Both linkers, and the image each produces* | `.github/scripts/assert-elf.sh` on the artifact `the_products_own_link_produces_a_program_that_runs` leaves behind — the one linked through `build/link.rs` with the product's flags. `buri$stencil$stack` must be defined and `.bss` must still be `NOBITS` and still 65 MiB. Checked once per linker. |
-| 9. no executable stack | same step | `PT_GNU_STACK` must be present and must not carry `E`, plus the link log must carry no `missing .note.GNU-stack` warning. Absence is the failure mode here, so both halves are asked. |
-| 10. mold as well as `ld.lld` | same step | the product link is run twice under `BURI_LINKER`, and the assertion is on the `linked with cc+<name>` the test prints — what happened, not what was asked for. Item 8's and item 9's checks are repeated on each linker's own output. |
-| 11. the kernels, against Cranelift and LLVM | **NOT COVERED** | `cli/benches/compiler.rs` measures compile phases — grep it for `kernel` and there is nothing. The four run-side kernels behind §1's 1.38× have no harness in this repository, and stencil is not a selectable emitter for the benchmark's `lower+*` rows either (`phase_name` and the backend selection there). Both are repo-side hooks. The `test` jobs do run `cargo bench -- --validate --quick`, which is a Linux **compile-side** gate where none existed, and it is deliberately not offered as this item. |
-
-The **x86-64** column of §10.2 is not started, and the workflow says so rather
-than staying quiet: its `linux-x86_64` job asserts that
+None of that is started, and the workflow says so rather than staying quiet.
+Its `linux-x86_64` job asserts that
 `an_unsupported_cross_target_is_refused_with_a_reason` runs and passes on an
 x86-64 Linux host, and that the executing suite **skips** there. A census
 printed on x86-64 would mean `stencil::AVAILABLE` had become true without
-`asm.rs` gaining the SysV entry point item 1 of that column asks for, which is
-the one way this port could go wrong quietly.
-
-Two things about those jobs are decisions rather than defaults, and both are
-argued where they are made. They use **apt and not the flake**, because §10.2
-item 1 asks whether *the CI image's* clang can produce objects and a `nix
-develop` would answer for nixpkgs' clang instead — the flake is already held
-green by the same file's `nix` job. And they export **`CC=clang`**, which is
-load-bearing rather than tidy: `sources::compile_flags` passes `--target=` and
-`-print-resource-dir` for both Linux targets *including the host's own*, gcc
-understands neither, and `cli/build.rs` degrades to an empty library rather than
-failing — so a run with gcc as `cc` is a green run that checked nothing. That is
-the failure this section's first row exists to catch.
+`asm.rs` gaining the SysV entry point item 1 asks for, which is the one way this
+port could go wrong quietly.
