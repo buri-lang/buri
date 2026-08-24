@@ -4,3 +4,12 @@ out
 # `nix build`'s symlink to the store path it produced.
 result
 result-*
+# macOS and direnv droppings.
+.DS_Store
+.direnv/
+# Machine-local Claude Code state.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+# Kept locally, not distributed: vendored papers and the blog draft.
+reference/*.pdf
+blog/
