@@ -1,18 +1,17 @@
-# This repository is its own Homebrew tap: `brew tap <owner>/buri
-# https://github.com/<owner>/buri.git` makes `Formula/` the tap's formula
-# directory, and `brew install <owner>/buri/buri` installs what is below.
+# This repository is its own Homebrew tap: `brew tap buri-lang/buri
+# https://github.com/buri-lang/buri.git` makes `Formula/` the tap's formula
+# directory, and `brew install buri-lang/buri/buri` installs what is below.
 class Buri < Formula
-  # The one owner/repo string in this file. PLACEHOLDER: `nickmazuk` stands in
-  # for wherever this repository finally lives; change it here and the stable
-  # url, the head spec, and the homepage all follow.
-  REPO = "https://github.com/nickmazuk/buri"
+  # The one owner/repo string in this file: change it here and the stable url,
+  # the head spec, and the homepage all follow.
+  REPO = "https://github.com/buri-lang/buri"
 
   desc "Buri toolchain: compiler, build system, test runner, formatter, and linter"
   homepage REPO
 
   # There is no release yet, so this names a tag that does not exist and the
   # sha256 is a placeholder. Until one is cut, the working install is
-  # `brew install --HEAD <owner>/buri/buri`, which uses the `head` spec below.
+  # `brew install --HEAD buri-lang/buri/buri`, which uses the `head` spec below.
   #
   # Cutting a release, in the order it has to happen:
   #
@@ -25,9 +24,9 @@ class Buri < Formula
   #   4. paste it below, and bump the version in the url to match the tag.
   url "#{REPO}/archive/refs/tags/v0.3.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000" # PLACEHOLDER: see above
-  # `license` goes here once the repository has a LICENSE file. Homebrew wants
-  # an SPDX id, and a license asserted in a formula that the repository does
-  # not state would be an assertion nothing backs.
+  # The SPDX id Homebrew wants, matching the repository's own `LICENSE` and the
+  # `license` field in `cli/Cargo.toml`.
+  license "MIT"
 
   head "#{REPO}.git", branch: "main"
 

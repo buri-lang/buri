@@ -64,7 +64,7 @@ pub fn ice(what: &str) -> ! {
     eprintln!("internal compiler error: {what}");
     eprintln!("  = this is a bug in the Buri toolchain, not in the code it was given");
     eprintln!("  = fix: please report it, with the input that produced it, at");
-    eprintln!("         https://github.com/nickmazuk/buri/issues");
+    eprintln!("         https://github.com/buri-lang/buri/issues");
     std::process::exit(70)
 }
 

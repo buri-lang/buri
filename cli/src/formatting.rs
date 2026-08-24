@@ -12,7 +12,8 @@
 //! — and a second pass lays that out. Nothing measures by rendering a string
 //! and looking at it, and nothing writes output it may have to take back.
 //!
-//! The paper is vendored at `reference/wadler-prettier-printer.pdf`.
+//! The paper is Philip Wadler's *A prettier printer* (1998), linked from
+//! `reference/README.md`.
 //!
 //! Wadler's algebra, with his names in brackets:
 //!

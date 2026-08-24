@@ -11,6 +11,11 @@
 name = "zed-buri"
 version = "0.3.0"
 edition = "2021"
+# The repository's `LICENSE`, stated here too because this crate is outside the
+# workspace and so inherits nothing from it. `publish = false` — a Zed
+# extension is installed by Zed, not by cargo — so this is documentation rather
+# than registry metadata.
+license = "MIT"
 publish = false
 
 [lib]

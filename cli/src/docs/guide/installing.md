@@ -6,15 +6,15 @@ the same binary and differ only in what supplies the Rust toolchain.
 **Nix.** This repository is a flake, and its default package is `buri`:
 
 ```sh
-nix run github:<owner>/buri -- version   # run it once, install nothing
-nix profile install github:<owner>/buri  # keep it
+nix run github:buri-lang/buri -- version   # run it once, install nothing
+nix profile install github:buri-lang/buri  # keep it
 ```
 
 **Homebrew.** This repository is also its own tap:
 
 ```sh
-brew tap <owner>/buri https://github.com/<owner>/buri.git
-brew install --HEAD <owner>/buri/buri
+brew tap buri-lang/buri https://github.com/buri-lang/buri.git
+brew install --HEAD buri-lang/buri/buri
 ```
 
 `--HEAD` builds the `main` branch and is required until a release is tagged;

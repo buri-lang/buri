@@ -1757,7 +1757,7 @@ last 1.66×.
 | `--set=native`, 13 rows | `enum-heavy/10k` **444.1 ms** (485.1 before the wave), `wide-match/10k` **316.4 k lines/s**, `mixed/10k` 60.9 k — all within the ±10% run-to-run band |
 | every kernel's own assertion | K1 283,146 · K2 14,200 · K3 > 0 · K4 4,114,354,282,000, identical under dev, release, `speed` and bun |
 | temporary knob | removed; `git diff cli/src/compiler/backend/cranelift/mod.rs` is empty |
-| tree footprint | `git status --porcelain` is 73 lines at the end as at the start; no tracked file was written by this round outside this document and `blog/` |
+| tree footprint | `git status --porcelain` is 73 lines at the end as at the start; no tracked file was written by this round outside this document |
 
 ---
 

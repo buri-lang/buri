@@ -50,8 +50,9 @@ the two.
 
 `cranelift-frontend`'s `FunctionBuilder` runs the Braun et al. algorithm over
 `declare_var`/`def_var`/`use_var` and inserts block parameters for you
-(`cranelift/frontend/src/ssa.rs` cites the paper, vendored at
-[../../reference/braun-ssa-construction.pdf](../../reference/braun-ssa-construction.pdf)).
+(`cranelift/frontend/src/ssa.rs` cites the paper; it is Braun et al.,
+*Simple and Efficient Construction of Static Single Assignment Form*, linked
+from [../../reference/README.md](../../reference/README.md)).
 We do not use any of it.
 
 The IR is already in SSA. Every value is either a block parameter or an

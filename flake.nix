@@ -83,18 +83,19 @@
 
           meta = {
             inherit (cargoToml.package) description;
-            # No `homepage`. `nix run github:<owner>/<repo>` names the
+            # No `homepage`. `nix run github:buri-lang/buri` names the
             # repository at the call site, so a flake never has to know where
-            # it is hosted -- and the one place that does, `Formula/buri.rb`,
-            # is then the only place a move has to be reflected.
+            # it is hosted -- and the two places that do, `Formula/buri.rb` and
+            # `cli/Cargo.toml`, are then the only places a move has to be
+            # reflected.
             mainProgram = "buri";
-            # No `license` until the repository has a LICENSE file; a license
-            # asserted here would be an assertion nothing backs.
+            # The repository's own `LICENSE`, as nixpkgs spells it.
+            license = pkgs.lib.licenses.mit;
             platforms = pkgs.lib.platforms.unix;
           };
         };
 
-        # `nix run github:<owner>/<repo> -- version`.
+        # `nix run github:buri-lang/buri -- version`.
         apps.default = {
           type = "app";
           program = "${self.packages.${system}.default}/bin/buri";

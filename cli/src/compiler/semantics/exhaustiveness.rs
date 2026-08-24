@@ -10,8 +10,8 @@
 //! matrix when it matches some value the matrix does not. An arm is
 //! unreachable when it is not useful against the arms before it, and a match
 //! is non-exhaustive when a wildcard row is still useful against all of them.
-//! It is Maranget's, from *Warnings for pattern matching* (JFP 2007), vendored
-//! at `reference/maranget-warnings-for-pattern-matching.pdf`.
+//! It is Maranget's, from *Warnings for pattern matching* (JFP 2007), linked
+//! from `reference/README.md`.
 
 use std::borrow::Cow;
 

@@ -45,7 +45,8 @@
 //!
 //! # Why this rather than a hand-rolled Ryū
 //!
-//! (Adams' paper is vendored at `reference/ryu-float-to-string.pdf`.)
+//! (Ulf Adams, *Ryū: Fast Float-to-String Conversion*, PLDI 2018; linked from
+//! `reference/README.md`.)
 //!
 //! The dependency bar (workspace `Cargo.toml`) is about *crates*, and `std` is
 //! not one: this runtime already uses `String::from_utf8_lossy`, `std::alloc`

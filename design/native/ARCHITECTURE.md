@@ -318,9 +318,10 @@ statement about programs and not about JavaScript, and it grows nothing.
 ```
 
 The published measurements this split was weighed against — Cranelift's standing
-between LLVM `-O0` and a template JIT — are vendored at
-[../../reference/xu-kjolstad-copy-and-patch.pdf](../../reference/xu-kjolstad-copy-and-patch.pdf)
-and [../../reference/tpde-fast-compiler-backend.pdf](../../reference/tpde-fast-compiler-backend.pdf).
+between LLVM `-O0` and a template JIT — are Xu and Kjolstad's *Copy-and-Patch
+Compilation* and Schwarz, Kamm and Engelke's *TPDE: A Fast Adaptable Compiler
+Back-End Framework*, both linked from
+[../../reference/README.md](../../reference/README.md).
 
 Two knobs on top:
 

@@ -5,8 +5,8 @@ import Buri.Patterns.Measure
 
 `Ctx::useful` (`exhaustiveness.rs`), as a total function -- no fuel, no
 partiality. `Measure.lean` is the argument that it is one.
-The algorithm is Maranget's, from *Warnings for pattern matching*, vendored at
-`reference/maranget-warnings-for-pattern-matching.pdf`.
+The algorithm is Maranget's, from *Warnings for pattern matching* (JFP 2007),
+linked from `reference/README.md`.
 -/
 
 namespace Buri

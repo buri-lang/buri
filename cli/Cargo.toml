@@ -3,6 +3,19 @@ name = "buri"
 version = "0.3.0"
 edition = "2021"
 description = "The Buri toolchain: compiler, build system, test runner, formatter, and linter."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+# The root `README.md` is assembled from the topics under `src/docs/guide/`
+# (`buri docs assemble`), so the crate page on docs.rs and crates.io shows the
+# same introduction a reader meets on GitHub rather than a second copy of it.
+readme = "../README.md"
+# Two floors, and this is the higher of them. Cranelift 0.123 — the wasmtime 36
+# LTS line, with its reasoning under `[dependencies]` below — wants 1.86; the
+# toolchain's own code wants 1.87, for `is_multiple_of` in the stencil
+# backend's ELF and region writers. Clippy's `incompatible_msrv` is what holds
+# this number to the tree rather than to a memory of it: raise a use above the
+# floor and `cargo clippy --all-targets` names the line.
+rust-version = "1.87"
 
 # `benches/generate.rs` and `benches/corpus.rs` are *modules* of the `compiler`
 # bench target, not bench targets. Cargo infers a target from every `.rs` file

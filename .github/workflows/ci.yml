@@ -43,10 +43,21 @@ name: CI
 #   `llvm-readelf` that `cli/tests/native/stencil.rs::cross_tools` probes before
 #   it will run the cross-link tests — without them those tests skip.
 #
-# `push:` with no branch filter: every push to every branch, and no second run
-# per pull request.
+# `push:` with no branch filter: every push to every branch in this repository.
+# `pull_request:` is what covers the case `push:` cannot see — a pull request
+# from a **fork**, whose branch lives in someone else's repository and pushes
+# nothing here. Without it a contributor's first pull request would arrive with
+# no CI at all, which is the one situation where CI is worth the most.
+#
+# The cost is a duplicate run on a pull request opened from a branch in this
+# repository: the push and the pull request are two events about the same
+# commits. That is accepted rather than filtered, because the filters that
+# remove it (`push: branches: [main]`, or a paths filter) also remove the
+# every-push coverage that catches a break before a pull request exists. The
+# `concurrency` group below still collapses superseded runs of each.
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 # One run per ref. A push that supersedes another cancels it, because the

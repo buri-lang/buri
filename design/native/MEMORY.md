@@ -174,8 +174,10 @@ free from `nonnull` (CODEGEN-LLVM.md §3).
 Naive reference counting increments on every parameter pass and decrements on
 every scope exit, and it is slow. The fix is the one Koka's Perceus and Lean 4's
 runtime both use, and this language is a better fit for it than either, because
-it has no mutation at all. The algorithm's full details are in the paper, vendored
-at [../../reference/perceus-algorithm.pdf](../../reference/perceus-algorithm.pdf).
+it has no mutation at all. The algorithm's full details are in the paper —
+Reinking, Xie, de Moura and Leijen, *Perceus: Garbage Free Reference Counting
+with Reuse*, linked from
+[../../reference/README.md](../../reference/README.md).
 
 `middle::rc` computes, per parameter, whether the callee **owns** or **borrows**
 it:

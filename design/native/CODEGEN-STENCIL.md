@@ -34,9 +34,8 @@ everything else is to this repository.
 
 The backend was called **cpjit** — copy-and-patch JIT — until it was renamed to
 `stencil`, because it emits object files ahead of time and never was a JIT.
-`design/PERFORMANCE.md`'s historical sections, `blog/dev-mode-compilation-speed.md`
-and `reference/README.md` are records of that campaign and keep the old
-vocabulary; this document, the code, and CI use `stencil`.
+`design/PERFORMANCE.md`'s historical sections are the record of that campaign
+and keep the old vocabulary; this document, the code, and CI use `stencil`.
 
 ## 1. What copy-and-patch is
 
