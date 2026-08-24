@@ -7,7 +7,7 @@
 //! `Session::emit`, which is why `--error-format=json` is one decision taken
 //! in one place rather than a flag each command has to remember.
 
-use crate::build::workspace::{find_root, Pattern, RuleKind, TargetId, Workspace};
+use crate::build::workspace::{find_root, Pattern, TargetId, Workspace};
 use crate::commands::arguments::{ErrorFormat, Flags};
 use crate::diagnostics::{Diagnostics, SourceMap};
 use std::path::PathBuf;
@@ -23,12 +23,6 @@ use std::path::PathBuf;
 pub enum Rendering {
     Human { color: bool },
     Json,
-}
-
-impl Rendering {
-    pub fn color(self) -> bool {
-        matches!(self, Rendering::Human { color: true })
-    }
 }
 
 pub struct Session {
@@ -103,14 +97,6 @@ impl Session {
         out.sort();
         out.dedup();
         Ok(out)
-    }
-
-    pub fn label(&self, t: TargetId) -> String {
-        let base = self.ws.pkg(t.pkg).label();
-        match t.kind {
-            RuleKind::Library => base,
-            RuleKind::Binary => base,
-        }
     }
 
     pub fn report(&mut self) -> bool {

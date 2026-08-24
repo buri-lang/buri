@@ -1,6 +1,6 @@
 //! The one table that describes the CLI.
 //!
-//! `main` dispatches through it, `arguments::usage()` is printed from it, and
+//! `main` dispatches through it, `usage()` below is printed from it, and
 //! `buri docs cli <command>` is rendered from it. There is no second list to
 //! keep in step, so the help text, the reference, and what the binary actually
 //! does cannot disagree — which they did: `--fix` and `--shuffle` parsed and
@@ -58,23 +58,6 @@ pub struct Flag {
     pub set: fn(&mut Flags, Option<&str>) -> Result<(), String>,
 }
 
-/// What a command does with its non-flag arguments.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Targets {
-    /// Takes none.
-    None,
-    /// Labels and patterns; with none, the package containing the cwd.
-    Any,
-    /// Exactly one binary target.
-    OneBinary,
-    /// A query expression, as in `deps(//cmd/server)`.
-    Expression,
-    /// Paths on disk rather than labels.
-    Paths,
-    /// A documentation id, a subcommand, or nothing.
-    DocId,
-}
-
 pub struct Command {
     pub name: &'static str,
     /// How the synopsis line shows the argument.
@@ -86,10 +69,6 @@ pub struct Command {
     pub doc: &'static str,
     /// Which entries in `FLAGS` this command accepts, beyond the global ones.
     pub flags: &'static [&'static str],
-    pub targets: Targets,
-    /// `docs` and `version` answer without a repository; everything else needs
-    /// one, and says so rather than failing obscurely.
-    pub needs_repo: bool,
     pub run: fn(&Args) -> i32,
     /// Listed in the reference but not in the short help.
     pub hidden: bool,
@@ -337,8 +316,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "compile",
         doc: include_str!("../docs/cli/build.md"),
         flags: &["release", "debug", "output", "force", "explain", "check-reproducible"],
-        targets: Targets::Any,
-        needs_repo: true,
         run: build::cmd_build,
         hidden: false,
     },
@@ -348,8 +325,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "compile and run test suites",
         doc: include_str!("../docs/cli/test.md"),
         flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch"],
-        targets: Targets::Any,
-        needs_repo: true,
         run: test::cmd_test,
         hidden: false,
     },
@@ -359,8 +334,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "build one binary and execute it",
         doc: include_str!("../docs/cli/run.md"),
         flags: &["release", "debug", "output", "force", "explain"],
-        targets: Targets::OneBinary,
-        needs_repo: true,
         run: run::cmd_run,
         hidden: false,
     },
@@ -370,8 +343,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "format .buri sources and BUILD.buri files",
         doc: include_str!("../docs/cli/format.md"),
         flags: &["check"],
-        targets: Targets::Paths,
-        needs_repo: true,
         run: format::cmd_format,
         hidden: false,
     },
@@ -381,8 +352,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "static checks beyond type checking",
         doc: include_str!("../docs/cli/lint.md"),
         flags: &["fix"],
-        targets: Targets::Any,
-        needs_repo: true,
         run: lint::cmd_lint,
         hidden: false,
     },
@@ -392,8 +361,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "regenerate sources/deps in existing BUILD.buri files",
         doc: include_str!("../docs/cli/gen.md"),
         flags: &["check"],
-        targets: Targets::Any,
-        needs_repo: true,
         run: generate::cmd_gen,
         hidden: false,
     },
@@ -403,8 +370,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "ask about the build graph",
         doc: include_str!("../docs/cli/query.md"),
         flags: &[],
-        targets: Targets::Expression,
-        needs_repo: true,
         run: query::cmd_query,
         hidden: false,
     },
@@ -414,8 +379,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "the language, the build system, and this CLI",
         doc: include_str!("../docs/cli/docs.md"),
         flags: &["format", "dense", "check"],
-        targets: Targets::DocId,
-        needs_repo: false,
         run: crate::documentation::cmd_docs,
         hidden: false,
     },
@@ -425,8 +388,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "language server, over stdio",
         doc: include_str!("../docs/cli/lsp.md"),
         flags: &[],
-        targets: Targets::None,
-        needs_repo: true,
         run: crate::language_server::cmd_lsp,
         hidden: false,
     },
@@ -436,8 +397,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "drop the local cache",
         doc: include_str!("../docs/cli/clean.md"),
         flags: &["outputs"],
-        targets: Targets::None,
-        needs_repo: true,
         run: clean::cmd_clean,
         hidden: false,
     },
@@ -447,8 +406,6 @@ pub const COMMANDS: &[Command] = &[
         blurb: "toolchain version, and --verbose its executable's hash",
         doc: include_str!("../docs/cli/version.md"),
         flags: &["self-check"],
-        targets: Targets::None,
-        needs_repo: false,
         run: version::cmd_version,
         hidden: false,
     },

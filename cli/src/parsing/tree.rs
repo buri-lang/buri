@@ -97,19 +97,6 @@ impl Item {
         }
     }
 
-    /// The name a declaration introduces, if it introduces one.
-    pub fn declared_name(&self) -> Option<Name> {
-        match self {
-            Item::Fn(d) => Some(d.name),
-            Item::Struct(d) => Some(d.name),
-            Item::Enum(d) => Some(d.name),
-            Item::TypeAlias(d) => Some(d.name),
-            Item::Const(d) => Some(d.name),
-            Item::Trait(d) => Some(d.name),
-            Item::Context(d) => Some(d.name),
-            _ => None,
-        }
-    }
 
     pub fn is_exported(&self) -> bool {
         match self {
@@ -212,16 +199,6 @@ pub struct FnDecl {
     pub exported: bool,
     pub span: Span,
     pub docs: Vec<String>,
-}
-
-impl FnDecl {
-    pub fn is_method(&self) -> bool {
-        matches!(self.params.first().map(|p| p.kind), Some(ParamKind::SelfParam))
-    }
-
-    pub fn ctx_param(&self) -> Option<&Param> {
-        self.params.iter().find(|p| p.kind == ParamKind::CtxParam)
-    }
 }
 
 #[derive(Clone, Debug)]

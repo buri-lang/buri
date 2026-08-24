@@ -89,26 +89,6 @@ impl Scalar {
             _ => return None,
         })
     }
-
-    pub fn proto_name(self) -> &'static str {
-        match self {
-            Scalar::Int32 => "int32",
-            Scalar::Int64 => "int64",
-            Scalar::Uint32 => "uint32",
-            Scalar::Uint64 => "uint64",
-            Scalar::Sint32 => "sint32",
-            Scalar::Sint64 => "sint64",
-            Scalar::Fixed32 => "fixed32",
-            Scalar::Fixed64 => "fixed64",
-            Scalar::Sfixed32 => "sfixed32",
-            Scalar::Sfixed64 => "sfixed64",
-            Scalar::Bool => "bool",
-            Scalar::Str => "string",
-            Scalar::Bytes => "bytes",
-            Scalar::Double => "double",
-            Scalar::Float => "float",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -243,10 +223,6 @@ pub struct EnumDef {
     pub name: String,
     pub span: Span,
     pub values: Vec<EnumValue>,
-    /// Declared on the enum itself. Only `repeated_field_encoding` and
-    /// `field_presence` are modelled and neither targets an enum, so this
-    /// exists to be resolved through rather than read.
-    pub features: Features,
 }
 
 #[derive(Clone, Debug)]
@@ -293,17 +269,6 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
     let mut p = Parser { src: text.as_bytes(), text, pos: 0, file, errors: Vec::new(), depth: 0 };
     let schema = p.file();
     Parsed { schema, errors: p.errors }
-}
-
-/// Where a `features.…` was written. Kept because protobuf restricts each
-/// feature to a set of targets, and a reader that took `field_presence` on an
-/// enum would be accepting a file protoc rejects.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum TargetScope {
-    File,
-    Message,
-    Enum,
-    Field,
 }
 
 struct Parser<'a> {
@@ -562,7 +527,7 @@ impl<'a> Parser<'a> {
     /// A `features.…` one is read; everything else is skipped, because an
     /// ordinary option is how a schema talks to code generators that are not
     /// this one and says nothing about the shape of a message.
-    fn feature_option(&mut self, scope: TargetScope) -> Option<Features> {
+    fn feature_option(&mut self) -> Option<Features> {
         self.skip_trivia();
         let start = self.pos;
         let name = match self.next() {
@@ -615,7 +580,7 @@ impl<'a> Parser<'a> {
             }
         };
         let span = Span::new(self.file, start, self.pos);
-        let out = self.feature(&feature, &value, span, scope);
+        let out = self.feature(&feature, &value, span);
         self.expect(';', "an option");
         out
     }
@@ -625,13 +590,7 @@ impl<'a> Parser<'a> {
     /// Every value protobuf's `FeatureSet` admits is named here, and each one
     /// is either honoured or refused *by name*. A feature silently ignored is a
     /// schema that means something other than what it says.
-    fn feature(
-        &mut self,
-        name: &str,
-        value: &str,
-        span: Span,
-        scope: TargetScope,
-    ) -> Option<Features> {
+    fn feature(&mut self, name: &str, value: &str, span: Span) -> Option<Features> {
         let mut out = Features::default();
         match (name, value) {
             ("field_presence", "EXPLICIT") => out.field_presence = Some(Presence::Explicit),
@@ -721,7 +680,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        let _ = scope;
         Some(out)
     }
 
@@ -875,7 +833,7 @@ impl<'a> Parser<'a> {
                         self.expect(';', "the import");
                     }
                     "option" => {
-                        if let Some(f) = self.feature_option(TargetScope::File) {
+                        if let Some(f) = self.feature_option() {
                             schema.features = f.over(schema.features);
                         }
                     }
@@ -1037,7 +995,7 @@ impl<'a> Parser<'a> {
                     }
                     "option" => {
                         self.next();
-                        if let Some(f) = self.feature_option(TargetScope::Message) {
+                        if let Some(f) = self.feature_option() {
                             m.features = f.over(m.features);
                         }
                     }
@@ -1140,7 +1098,7 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Word(w) if w == "option" => {
                     self.next();
-                    let _ = self.feature_option(TargetScope::Field);
+                    self.feature_option();
                 }
                 _ => match self.field() {
                     // The one place a field becomes a case, and the only place
@@ -1296,9 +1254,7 @@ impl<'a> Parser<'a> {
                                     Tok::Word(v) => v,
                                     other => other.describe(),
                                 };
-                                if let Some(f) =
-                                    self.feature(&feature, &value, span, TargetScope::Field)
-                                {
+                                if let Some(f) = self.feature(&feature, &value, span) {
                                     features = f.over(features);
                                 }
                             }
@@ -1324,7 +1280,7 @@ impl<'a> Parser<'a> {
         if !self.expect('{', "an enum name") {
             return None;
         }
-        let mut e = EnumDef { name, span, values: Vec::new(), features: Features::default() };
+        let mut e = EnumDef { name, span, values: Vec::new() };
         loop {
             self.skip_trivia();
             let start = self.pos;
@@ -1346,9 +1302,10 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Word(w) if w == "option" => {
                     self.next();
-                    if let Some(f) = self.feature_option(TargetScope::Enum) {
-                        e.features = f.over(e.features);
-                    }
+                    // Read for its diagnostics: only `field_presence` and
+                    // `repeated_field_encoding` are modelled and neither
+                    // targets an enum, so there is nothing here to keep.
+                    self.feature_option();
                 }
                 Tok::Word(w) if w == "reserved" => {
                     self.next();

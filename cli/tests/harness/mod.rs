@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod case;
 pub mod sweep;
-pub use case::{load_case, run_case, run_corpus, Case, Step, Stream};
+pub use case::{load_case, run_case, run_corpus, Case, Step};
 
 // ---------------------------------------------------------------------------
 // Where things are
@@ -538,10 +538,6 @@ impl Golden {
             blessed: 0,
             failures: Vec::new(),
         }
-    }
-
-    pub fn blessing(&self) -> bool {
-        self.bless
     }
 
     pub fn fail(&mut self, msg: String) {

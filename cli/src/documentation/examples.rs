@@ -706,13 +706,8 @@ fn declares_main(source: &str) -> bool {
 // Running
 // ---------------------------------------------------------------------------
 
-/// Compiles one block and reports every way it did not do what it claimed.
-pub fn run_block(block: &Block, reg: &Registry, map: &mut SourceMap) -> Vec<Failure> {
-    let mut cache = crate::parsing::parser::Cache::new();
-    run_block_in(None, block, reg, map, &mut cache)
-}
-
-/// The same, against a repository the block named with `repo=`.
+/// Compiles one block, against a repository the block named with `repo=`, and
+/// reports every way it did not do what it claimed.
 pub fn run_block_in(
     ws: Option<&crate::build::workspace::Workspace>,
     block: &Block,
@@ -932,10 +927,7 @@ fn describe(
 
 /// Every block in one document, in order, with `name=` bindings visible to the
 /// blocks that follow.
-pub fn run_file(file: &str, text: &str) -> Vec<Failure> {
-    run_file_at(std::path::Path::new("."), file, text)
-}
-
+///
 /// `root` is the directory a block's `repo=` path is resolved against — the
 /// documentation repository's own root.
 pub fn run_file_at(root: &std::path::Path, file: &str, text: &str) -> Vec<Failure> {
@@ -1086,7 +1078,7 @@ mod tests {
 
     /// Runs a synthetic document and returns its failures, rendered.
     fn check(doc: &str) -> String {
-        report(&run_file("test.md", doc))
+        report(&run_file_at(std::path::Path::new("."), "test.md", doc))
     }
 
     #[test]

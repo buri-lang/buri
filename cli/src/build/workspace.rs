@@ -25,15 +25,6 @@ pub enum RuleKind {
     Binary,
 }
 
-impl RuleKind {
-    pub fn name(self) -> &'static str {
-        match self {
-            RuleKind::Library => "library",
-            RuleKind::Binary => "binary",
-        }
-    }
-}
-
 /// A target is a package plus a rule kind. There is no `:name` syntax to learn
 /// because a package holds at most one of each.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -71,7 +62,6 @@ impl Package {
 pub struct Workspace {
     pub root: PathBuf,
     pub repo: RepoConfig,
-    pub repo_file_id: FileId,
     pub packages: Vec<Package>,
     by_path: HashMap<String, PkgId>,
     /// Package paths longest-first, for resolving a module path to the package
@@ -343,7 +333,7 @@ impl Workspace {
         // Longest first, so `//lib/money/cents` finds `lib/money` before `lib`.
         sorted_paths.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
 
-        let ws = Workspace { root: root.to_path_buf(), repo, repo_file_id: repo_id, packages, by_path, sorted_paths };
+        let ws = Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
         ws.check_package_module_collisions(diags);
         Ok(ws)
     }

@@ -85,14 +85,6 @@ impl Value {
         }
     }
 
-    pub fn as_f64(&self) -> Option<f64> {
-        match self {
-            Value::Int(n) => Some(*n as f64),
-            Value::Float(n) => Some(n.get()),
-            _ => None,
-        }
-    }
-
     /// The protocol's integers arrive as JSON numbers. A position or an id that
     /// is not a whole number is a malformed message, so this returns `None`
     /// rather than truncating — and now that whole numbers have their own

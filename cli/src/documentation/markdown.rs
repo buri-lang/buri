@@ -195,9 +195,6 @@ pub struct Fence<'a> {
     /// 1-based line of the block's first content line.
     pub body_line: usize,
     pub indent: usize,
-    /// Byte range of the whole block, opener through closer.
-    pub start: usize,
-    pub end: usize,
 }
 
 /// Every fenced block, in order.
@@ -209,7 +206,7 @@ pub struct Fence<'a> {
 pub fn fences(text: &str) -> Vec<Fence<'_>> {
     let mut out = Vec::new();
     let mut state = FenceState::default();
-    let mut open: Option<(usize, usize, usize, &str, usize)> = None; // start, line, indent, info, body_start
+    let mut open: Option<(usize, usize, &str, usize)> = None; // line, indent, info, body_start
     for (line_no, offset, line) in lines(text) {
         let trimmed = line.trim_start();
         let indent = line.len().saturating_sub(trimmed.len());
@@ -219,9 +216,9 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
         match open.take() {
             None => {
                 let rest = trimmed.strip_prefix("```").unwrap_or("");
-                open = Some((offset, line_no, indent, rest, offset + line.len() + 1));
+                open = Some((line_no, indent, rest, offset + line.len() + 1));
             }
-            Some((start, open_line, open_indent, raw_info, body_start)) => {
+            Some((open_line, open_indent, raw_info, body_start)) => {
                 let raw = text.get(body_start..offset.max(body_start)).unwrap_or("");
                 out.push(Fence {
                     lang: info_lang(raw_info),
@@ -231,15 +228,13 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
                     line: open_line,
                     body_line: open_line + 1,
                     indent: open_indent,
-                    start,
-                    end: offset + line.len(),
                 });
             }
         }
     }
     // An unterminated fence runs to the end of the document. Reporting it is
     // the caller's job; losing its contents would be worse.
-    if let Some((start, line, indent, raw_info, body_start)) = open {
+    if let Some((line, indent, raw_info, body_start)) = open {
         // A fence opened on the last line of a document that does not end in a
         // newline has a body that starts one byte past the end of the text.
         let raw = text.get(body_start..).unwrap_or("");
@@ -251,8 +246,6 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
             line,
             body_line: line + 1,
             indent,
-            start,
-            end: text.len(),
         });
     }
     out
@@ -295,7 +288,6 @@ pub struct Heading<'a> {
     pub level: usize,
     pub title: &'a str,
     pub line: usize,
-    pub start: usize,
 }
 
 /// An ATX heading's level and title, or `None` if the line is not one.
@@ -322,12 +314,12 @@ fn atx(trimmed: &str) -> Option<(usize, &str)> {
 pub fn headings(text: &str) -> Vec<Heading<'_>> {
     let mut out = Vec::new();
     let mut state = FenceState::default();
-    for (line_no, offset, line) in lines(text) {
+    for (line_no, _, line) in lines(text) {
         if state.feed(line) != Where::Outside {
             continue;
         }
         let Some((level, title)) = atx(line.trim_start()) else { continue };
-        out.push(Heading { level, title, line: line_no, start: offset });
+        out.push(Heading { level, title, line: line_no });
     }
     out
 }
@@ -346,80 +338,6 @@ pub fn slug(title: &str) -> String {
         } else if c == ' ' {
             out.push('-');
         }
-    }
-    out
-}
-
-/// Adds `by` to every heading level outside a fenced block.
-pub fn shift_headings(text: &str, by: isize) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut state = FenceState::default();
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        let outside = state.feed(line) == Where::Outside;
-        let Some((hashes, title)) = outside.then(|| atx(trimmed)).flatten() else {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        };
-        let level = (hashes as isize).saturating_add(by).clamp(1, 6) as usize;
-        let indent = line.strip_suffix(trimmed).unwrap_or("");
-        let _ = writeln!(out, "{indent}{} {title}", "#".repeat(level));
-    }
-    out
-}
-
-/// Prefixes each heading with its section number: the shallowest heading gets
-/// `prefix`, the next level down `prefix.1`, `prefix.2`, and so on.
-///
-/// Numbering is positional *within one topic*, which is safe — a topic is a
-/// unit somebody edits as a whole. Numbering across topics is not, which is
-/// why `doc_assemble` pins the top-level number by hand.
-pub fn number_headings(text: &str, prefix: &str) -> String {
-    let base = headings(text).iter().map(|h| h.level).min().unwrap_or(1);
-    let mut counters: Vec<usize> = Vec::new();
-    let mut out = String::with_capacity(text.len());
-    let mut state = FenceState::default();
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        let outside = state.feed(line) == Where::Outside;
-        let Some((hashes, title)) = outside.then(|| atx(trimmed)).flatten() else {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        };
-        let depth = hashes.saturating_sub(base);
-        // The truncate and the pushes together leave `depth` as the last slot,
-        // whichever side of it the previous heading's depth was on.
-        counters.truncate(depth + 1);
-        while counters.len() <= depth {
-            counters.push(0);
-        }
-        if let Some(n) = counters.last_mut() {
-            *n += 1;
-        }
-        let number = if depth == 0 {
-            prefix.to_string()
-        } else {
-            let tail: Vec<String> =
-                counters.get(1..=depth).unwrap_or(&[]).iter().map(usize::to_string).collect();
-            format!("{prefix}.{}", tail.join("."))
-        };
-        let _ = writeln!(out, "{} {number} {title}", "#".repeat(hashes));
-    }
-    out
-}
-
-/// A bulleted table of contents linking to every heading between level 2 and
-/// `max_level` inclusive.
-pub fn toc(text: &str, max_level: usize) -> String {
-    let mut out = String::new();
-    for h in headings(text) {
-        if h.level < 2 || h.level > max_level {
-            continue;
-        }
-        let indent = "  ".repeat(h.level.saturating_sub(2));
-        let _ = writeln!(out, "{indent}- [{}](#{})", h.title, slug(h.title));
     }
     out
 }
@@ -1053,8 +971,6 @@ mod tests {
             let _ = links(text);
             let _ = summary(text);
             let _ = dense(text);
-            let _ = number_headings(text, "1");
-            let _ = shift_headings(text, 1);
             let _ = to_terminal(text, super::super::Width::default(), true);
         }
     }
@@ -1080,24 +996,6 @@ mod tests {
         assert_eq!(h[0].title, "Title");
         assert_eq!(h[1].title, "Real");
         assert_eq!(h[1].line, 7);
-    }
-
-    #[test]
-    fn shifting_headings_is_invertible() {
-        let shifted = shift_headings(SPEC, 1);
-        let back = shift_headings(&shifted, -1);
-        // `#` cannot shift below 1, so compare the levels we did not clamp.
-        let original: Vec<usize> = headings(SPEC).iter().map(|h| h.level).collect();
-        let round: Vec<usize> = headings(&back).iter().map(|h| h.level).collect();
-        assert_eq!(original, round);
-    }
-
-    #[test]
-    fn headings_are_numbered_within_a_topic() {
-        let text = "# Effects\n\n## The model\n\n### Detail\n\n## The rule\n";
-        let numbered = number_headings(text, "10");
-        let got: Vec<&str> = headings(&numbered).iter().map(|h| h.title).collect();
-        assert_eq!(got, vec!["10 Effects", "10.1 The model", "10.1.1 Detail", "10.2 The rule"]);
     }
 
     #[test]

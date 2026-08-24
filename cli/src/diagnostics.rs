@@ -135,10 +135,6 @@ impl Span {
         self.file == FileId::NONE
     }
 
-    pub fn start_point(&self) -> Span {
-        Span { file: self.file, start: self.start, end: self.start }
-    }
-
     /// The span covering both, assuming they are in the same file.
     pub fn to(self, other: Span) -> Span {
         if self.is_none() {
@@ -518,10 +514,6 @@ impl SourceFile {
             .get(*start as usize..end)
             .unwrap_or("")
             .trim_end_matches(['\n', '\r'])
-    }
-
-    pub fn line_count(&self) -> usize {
-        self.line_starts.len()
     }
 
     /// The byte offset a 1-based line begins at, 0 for a line this file has
@@ -998,10 +990,6 @@ impl Diagnostics {
 
     pub fn has_errors(&self) -> bool {
         self.items.iter().any(|d| d.is_error())
-    }
-
-    pub fn error_count(&self) -> usize {
-        self.items.iter().filter(|d| d.is_error()).count()
     }
 
     pub fn is_empty(&self) -> bool {

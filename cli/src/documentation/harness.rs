@@ -18,8 +18,3 @@ pub const HARNESSES: &[(&str, &str)] = &[
     ("money", include_str!("../docs/harness/money.buri")),
     ("errors", include_str!("../docs/harness/errors.buri")),
 ];
-
-/// The preamble text for a name, if there is one.
-pub fn source(name: &str) -> Option<&'static str> {
-    HARNESSES.iter().find(|(n, _)| *n == name).map(|(_, text)| *text)
-}

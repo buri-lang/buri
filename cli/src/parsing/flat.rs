@@ -673,10 +673,6 @@ impl Tree {
         self.span_of(self.types.get(id.index()).map(|t| t.span).unwrap_or_default())
     }
 
-    pub fn type_kind(&self, id: TypeId) -> TKind {
-        self.types.get(id.index()).map_or(TKind::Unit, |t| t.kind)
-    }
-
     /// The trailing segment of a named type's path — the name itself.
     pub fn type_head(&self, id: TypeId) -> Option<&str> {
         match self.ty(id) {

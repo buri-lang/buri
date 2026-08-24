@@ -8,13 +8,6 @@
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The short help. Generated from `commands::COMMANDS`, so it cannot list a
-/// command that does not exist or omit one that does.
-pub fn usage() -> String {
-    crate::commands::usage()
-}
-
-
 pub struct Args {
     pub command: String,
     pub targets: Vec<String>,

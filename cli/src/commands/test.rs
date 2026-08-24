@@ -82,7 +82,6 @@ struct Case {
     /// `None` when the runner reported no span for the test — which is a
     /// different thing from a location that is the empty string.
     location: Option<String>,
-    ms: u64,
     verdict: Verdict,
 }
 
@@ -1820,7 +1819,6 @@ fn parse_results(text: &str) -> Vec<Case> {
     for chunk in split_objects(json) {
         let name = field(&chunk, "name").unwrap_or_default();
         let module = field(&chunk, "module").unwrap_or_default();
-        let ms = field_raw(&chunk, "ms").and_then(|s| s.parse().ok()).unwrap_or(0);
         let verdict = if chunk.contains("\"ok\":true") {
             Verdict::Passed
         } else {
@@ -1836,7 +1834,6 @@ fn parse_results(text: &str) -> Vec<Case> {
             provenance: Provenance::Ran,
             name,
             module,
-            ms,
             verdict,
             location: None,
         });
@@ -1959,7 +1956,6 @@ fn report_failure(
     if let Some(loc) = &c.location {
         out.line(&format!("  --> {loc}"));
     }
-    let _ = c.ms;
 }
 
 #[cfg(test)]
