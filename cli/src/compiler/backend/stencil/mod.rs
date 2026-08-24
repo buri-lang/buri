@@ -47,7 +47,8 @@
 //!   sources.rs  the stencil generators — compiled by `cli/build.rs` only
 //!   extract.rs  clang's object into stencils, and the four folds — likewise
 //!   machobj.rs  a Mach-O reader, for `extract` — likewise
-//!   elfobj.rs   an ELF reader, for `extract` — likewise
+//!   elfobj.rs   an ELF reader, for `extract` — likewise, and by `elf.rs`
+//!               under `cfg(test)`, which is what checks the writer
 //!   x86.rs      the x86-64 half of `extract` — likewise
 //! ```
 //!

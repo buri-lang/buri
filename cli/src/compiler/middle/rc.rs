@@ -609,7 +609,7 @@ impl Counted for Syntactic {
 ///
 /// Returns the plan rather than changing the tree: the operations are IR
 /// instructions, and `lower` places them. See the module docs for the contract.
-pub fn run(program: &mut Program) -> Plan {
+pub fn run(program: &Program) -> Plan {
     let mut counted = Syntactic::new(program);
     analyze(program, &mut counted, &Options::default())
 }

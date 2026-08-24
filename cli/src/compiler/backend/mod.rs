@@ -7,18 +7,23 @@
 //!
 //! ```text
 //! backend/
-//!   mod.rs        this file
-//!   js/           always compiled in
-//!   cranelift/    behind `backend-cranelift`, on by default   (wave 2a)
-//!   llvm/         behind `backend-llvm`, off by default       (wave 2b)
-//!   stencil/      behind `backend-stencil`, on by default
+//!   mod.rs             this file
+//!   intrinsic_keys.rs  how an intrinsic key is classified, shared
+//!   runtime_native.rs  the `libburi_rt.a` archive, and the symbol rule
+//!   runtime_table.rs   which keys have a `buri_rt_*` symbol, and its shape
+//!   js/                always compiled in
+//!   cranelift/         behind `backend-cranelift`, on by default
+//!   llvm/              behind `backend-llvm`, off by default
+//!   stencil/           behind `backend-stencil`, compiled in by default and
+//!                      never selected
 //! ```
 //!
-//! `stencil` is compiled in and **not selected**: [`select`] still answers
-//! `cranelift` for every native debug build. It is held to this file's traits
-//! so that the seat it is meant to take is a decision about parity rather than
-//! about plumbing, and `design/native/CODEGEN-STENCIL.md` §9 is the list that
-//! decision is waiting on.
+//! [`select`] still answers `cranelift` for every native debug build, so the
+//! stencil backend is compiled into every toolchain and reached by no build.
+//! It is held to this file's traits so that the seat it is meant to take is a
+//! decision about parity rather than about plumbing, and
+//! `design/native/CODEGEN-STENCIL.md` §9 is the list that decision is waiting
+//! on.
 //!
 //! Design: `design/native/ARCHITECTURE.md` §3.
 

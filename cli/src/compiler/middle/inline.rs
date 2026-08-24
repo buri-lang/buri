@@ -26,17 +26,20 @@ use crate::compiler::middle::strongly_connected;
 
 pub struct Options {
     pub inline: bool,
-    /// How many times the pipeline may run. Inlining exposes calls that were
-    /// not visible before, so one round is not enough; the loop also stops
-    /// early once a round changes nothing.
-    pub rounds: usize,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { inline: true, rounds: 3 }
+        Options { inline: true }
     }
 }
+
+/// How many times the pipeline may run.
+///
+/// Inlining exposes calls that were not visible before, so one round is not
+/// enough; the loop also stops early once a round changes nothing, which is
+/// why the ceiling can be a constant rather than something a caller tunes.
+const ROUNDS: usize = 3;
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Stats {
@@ -71,7 +74,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
     let limits: Vec<usize> =
         program.funcs.iter().map(|f| body_size(f) * 2 + GROWTH).collect();
 
-    for _ in 0..opts.rounds {
+    for _ in 0..ROUNDS {
         stats.rounds += 1;
         let facts = Facts::collect(program, &limits);
         let n = inline_round(program, &facts);

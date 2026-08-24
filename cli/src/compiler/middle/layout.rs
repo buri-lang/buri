@@ -753,6 +753,15 @@ impl<'a> Layouts<'a> {
     // asserting one is not flaky. The rows that are zero are zero because the
     // language says so: a `Str` view has no `Alloc` bound (`str.buri:26-45`),
     // and SPEC 10.5 says fixed-size construction never requires `Alloc`.
+    //
+    // **Nothing in the compiler calls these, and that is not a reason to
+    // delete them.** MEMORY.md §7.1 names the table three times over — here,
+    // in `core/effect`'s source above the `Alloc` declaration, and in
+    // `core/alloc`'s `strBytes`, `listBytes` and `closureBytes` — and calls a
+    // change to any row a breaking change to observable behaviour. The
+    // charge a running program accounts for is `core/alloc`'s spelling; this
+    // one is the model as the layout table computes it, and the tests below
+    // are what would notice the two spellings parting company.
 
     /// `16 + n * stride(T)` for a `[T]` of `n` elements.
     pub fn charge_list(&mut self, element: &Ty, n: u64) -> u64 {
