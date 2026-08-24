@@ -770,6 +770,21 @@ impl Trivia {
     fn is_run(&self) -> bool {
         matches!(self, Trivia::Run { .. })
     }
+
+    /// Whether a blank line was written between this run and its token. A
+    /// blank line and nothing else is not a run, so the question does not
+    /// arise there.
+    fn detached(&self) -> bool {
+        matches!(self, Trivia::Run { detached: true, .. })
+    }
+
+    /// Whether any `///` line was written in this run.
+    fn documented(&self) -> bool {
+        match self {
+            Trivia::Blank { .. } => false,
+            Trivia::Run { docs, .. } => !docs.lines().is_empty(),
+        }
+    }
 }
 
 /// One entry of [`Comments`]: what was written, and whether it has been put
@@ -821,12 +836,22 @@ impl Comments {
         Comments { entries }
     }
 
-    /// Whether the comment above the token at `at` is separated from it by a
-    /// blank line.
-    fn is_detached(&self, at: u32) -> bool {
+    /// Whether the run above the token at `at` is a comment about the file
+    /// rather than about that token: ordinary comments, separated from it by a
+    /// blank line, and no `///`.
+    ///
+    /// The blank line is what a person means by it. The absence of `///` is
+    /// what the printer needs: a run that documents something is printed with
+    /// the thing it documents, and a header is printed at the top of the file
+    /// while the import it was written above is sorted somewhere else. Splitting
+    /// a documented run out would leave its `///` at the top of the file with
+    /// another import's comments printed under it — and comments print before
+    /// doc lines, so the next read of the file would swap the two and `format`
+    /// would not be a fixed point.
+    fn is_file_header(&self, at: u32) -> bool {
         self.entries.iter().any(|e| match &e.trivia {
             Trivia::Run { at: a, comments, detached, .. } => {
-                *a == at && !comments.is_empty() && *detached
+                *a == at && !comments.is_empty() && *detached && !e.trivia.documented()
             }
             Trivia::Blank { .. } => false,
         })
@@ -847,10 +872,40 @@ impl Comments {
     /// dropped: paragraph breaks are the printer's decision everywhere except
     /// above a comment, where the comment keeps the break it was given.
     fn drain(&mut self, lo: u32, hi: u32) -> Vec<Trivia> {
+        self.drain_where(lo, hi, |_| true)
+    }
+
+    /// The same, over the runs that carry no documentation.
+    ///
+    /// One caller, [`Build::module`]'s per-declaration sweep, and one reason.
+    /// That sweep is the only place in this file that prints comments and is
+    /// *not* immediately followed by a token: what comes after it is either the
+    /// next declaration's own comments or the module's closing sweep, both of
+    /// which print comments too. Comments concatenate — the next read of the
+    /// file lexes the lot as one run above the next token, and prints the
+    /// comments in the order they arrive, which is the order they were printed
+    /// in. Doc lines do not: they are printed *after* every comment in the run,
+    /// so a `///` printed by this sweep and a `//` printed by whatever follows
+    /// come back swapped, and `format` is not a fixed point.
+    ///
+    /// So a stranded run holding a `///` is left unclaimed here and comes back
+    /// at the module's closing sweep instead, which is one emission with a
+    /// token straight after it. That is also where the next read of the file
+    /// puts it, so the second run agrees with the first.
+    fn drain_undocumented(&mut self, lo: u32, hi: u32) -> Vec<Trivia> {
+        self.drain_where(lo, hi, |t| !t.documented())
+    }
+
+    fn drain_where(
+        &mut self,
+        lo: u32,
+        hi: u32,
+        keep: impl Fn(&Trivia) -> bool,
+    ) -> Vec<Trivia> {
         let mut out = Vec::new();
         for e in &mut self.entries {
             let at = e.trivia.at();
-            if e.claimed || at < lo || at > hi {
+            if e.claimed || at < lo || at > hi || !keep(&e.trivia) {
                 continue;
             }
             e.claimed = true;
@@ -967,18 +1022,39 @@ impl<'t> Build<'t> {
     /// comments' own — a section heading and the sentence under it are two
     /// paragraphs — and so is the one below it, which is what separates a
     /// heading from the declaration it introduces.
+    ///
+    /// **Every ordinary comment first, then every doc line, over the whole
+    /// slice rather than run by run.** The lexer keeps a token's `///` lines
+    /// and its `//` comments in two vectors, so what was written between them
+    /// is already gone by the time this is called and *some* order has to be
+    /// chosen; comments then docs is the one that reads right, because a
+    /// section heading introduces the documentation under it.
+    ///
+    /// Doing that per run rather than per slice is what made `format` not a
+    /// fixed point. Everything a caller prints from one slice comes out
+    /// adjacent, with no token between any two of the runs — that is what a
+    /// [`Build::flush`] is — so the next read of the output lexes the whole
+    /// lot as *one* run above whatever token follows, and re-prints it in this
+    /// order. A slice printed run by run therefore comes back reordered:
+    /// `from ""export{///` / `d,d//` / `};` printed its stranded `///` above
+    /// its stranded `//`, and the second run swapped them.
     fn trivia_doc(&mut self, ts: &[Trivia]) -> Doc {
         // Whatever encloses a comment cannot be flat: a line that holds a
         // whole body has nowhere to put one. Every construct used to ask this
         // question for itself; now the comment answers it, once, for all of
         // them.
         let mut lines: Vec<Doc> = vec![Doc::BreakParent];
+        // How many ordinary comments have been printed, across every run so
+        // far. The count rather than the position inside one run, because the
+        // blank line above the *first* comment printed belongs to the caller
+        // and every later one is a paragraph break of its own.
+        let mut printed = 0usize;
         for t in ts {
             // A blank line has no lines to print. Which of the two a `Trivia`
             // is, is the variant, so there is no `is_empty()` to forget.
-            let Trivia::Run { comments, docs, detached, .. } = t else { continue };
-            for (i, c) in comments.iter().enumerate() {
-                if c.blank_before && i > 0 {
+            let Trivia::Run { comments, .. } = t else { continue };
+            for c in comments {
+                if c.blank_before && printed > 0 {
                     lines.push(Doc::Blank);
                 }
                 // A block comment written over several lines is one comment,
@@ -1007,18 +1083,35 @@ impl<'t> Build<'t> {
                     }
                 }
                 lines.push(Doc::HardLine);
+                printed = printed.saturating_add(1);
             }
-            if docs.blank_above() && !comments.is_empty() {
+        }
+        let mut documented = false;
+        for t in ts {
+            let Trivia::Run { docs, .. } = t else { continue };
+            if docs.lines().is_empty() {
+                continue;
+            }
+            // Only above the first doc line printed: the gap the author left
+            // is the one between the comments and the documentation, and the
+            // runs after the first were never separated from anything.
+            if !documented && docs.blank_above() && printed > 0 {
                 lines.push(Doc::Blank);
             }
+            documented = true;
             for d in docs.lines() {
                 let d = format!("/// {d}");
                 lines.push(text(d.trim_end().to_string()));
                 lines.push(Doc::HardLine);
             }
-            if *detached {
-                lines.push(Doc::Blank);
-            }
+        }
+        // The gap between the run and its token, which is what tells a file
+        // header from a comment about the first import. The *last* run's,
+        // because the runs before it are no longer above a token of their own
+        // once they have been printed here — the next read sees one run, and
+        // one gap under it.
+        if ts.iter().rfind(|t| t.is_run()).is_some_and(|t| t.detached()) {
+            lines.push(Doc::Blank);
         }
         // Every line above ends with its own break; the caller joins this with
         // what follows, so the last one is dropped.
@@ -1030,21 +1123,38 @@ impl<'t> Build<'t> {
 
     /// Every comment still unclaimed inside `lo ..= hi`, as one line unit, or
     /// nothing when there is none.
+    /// One line unit and not one per run, because that is what the output is:
+    /// the runs land next to each other with no token between them, so the
+    /// next read of the file lexes them as one. [`Build::trivia_doc`] is
+    /// therefore asked once, about all of them — asking it once per run is
+    /// what printed a `///` above a `//` that the second run would swap.
+    ///
+    /// The blank line above the first run is still put back here, for the
+    /// reason it always was: what is above the run belongs to the caller. The
+    /// blanks above the later runs are on their own first comment, and
+    /// `trivia_doc` prints those.
     fn flush(&mut self, lo: u32, hi: u32) -> Option<Doc> {
         let ts = self.tv.drain(lo, hi);
+        self.flushed(&ts)
+    }
+
+    /// The same, leaving behind any run that carries a `///`. Only
+    /// [`Build::module`]'s per-declaration sweep, for the reason
+    /// [`Comments::drain_undocumented`] gives.
+    fn flush_undocumented(&mut self, lo: u32, hi: u32) -> Option<Doc> {
+        let ts = self.tv.drain_undocumented(lo, hi);
+        self.flushed(&ts)
+    }
+
+    fn flushed(&mut self, ts: &[Trivia]) -> Option<Doc> {
         if ts.is_empty() {
             return None;
         }
         let mut parts = Vec::new();
-        for t in ts {
-            if t.blank() {
-                parts.push(Doc::Blank);
-            }
-            let d = self.trivia_doc(std::slice::from_ref(&t));
-            parts.push(d);
-            parts.push(Doc::HardLine);
+        if ts.first().is_some_and(Trivia::blank) {
+            parts.push(Doc::Blank);
         }
-        parts.pop();
+        parts.push(self.trivia_doc(ts));
         Some(cat(parts))
     }
 
@@ -1116,7 +1226,7 @@ impl<'t> Build<'t> {
         let mut header = false;
         if let Some(first) = imports.first() {
             let at = first.span().start;
-            if self.tv.is_detached(at) {
+            if self.tv.is_file_header(at) {
                 if let Some(t) = self.tv.take(at) {
                     let d = self.trivia_doc(std::slice::from_ref(&t));
                     parts.push(d);
@@ -1181,7 +1291,12 @@ impl<'t> Build<'t> {
             // A comment written somewhere inside the declaration that no
             // printer reaches — between a parameter list and its body, say —
             // comes back under it rather than not at all.
-            if let Some(c) = self.flush(decl.span().start, decl.span().end) {
+            //
+            // Undocumented, because what follows this is more comments rather
+            // than a token — the next declaration's, or the module's closing
+            // sweep — and a `///` printed here would come back after them.
+            // `drain_undocumented` is where that is spelled out.
+            if let Some(c) = self.flush_undocumented(decl.span().start, decl.span().end) {
                 parts.push(c);
                 parts.push(Doc::HardLine);
             }
@@ -2596,6 +2711,18 @@ mod tests {
             "export fn f(): Int {\n  let x = if (true) {\n    // inside a branch\n    1\n  } else { 2 };\n  x\n}\n",
             "export fn f(): Int {\n  /* a block comment */\n  1\n}\n",
             "//! the module\n\n// and a declaration\nexport fn f(): Int { 1 }\n",
+            // A run the printer has nowhere to put, so it is moved. All three
+            // of these once printed a `///` above a `//` that the *next* run
+            // swapped, because a gap between two tokens was printed in more
+            // than one piece and only each piece was in the order the next
+            // read of the file produces. The first is one sweep, the second is
+            // two — a declaration's and the module's — and the third is a
+            // documented run that used to be split off as a file header while
+            // another import's comments printed under it.
+            "from \"core/list\" export {\n  /// documented\n  fold,\n  // and a comment\n};\n",
+            "from \"core/list\" export {\n  fold,\n  /// stranded\n};\n// below everything\n",
+            "// a heading\n/// documented\n\nfrom \"core/str\" import * as s;\n\
+             // about the other one\nfrom \"core/list\" import * as l;\n",
         ] {
             stable(src);
         }
