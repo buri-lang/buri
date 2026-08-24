@@ -106,7 +106,7 @@ impl Platform {
     /// that adding a variant cannot leave a diagnostic naming three platforms
     /// when there are four. Three diagnostics offer this list and all three
     /// read it from here.
-    pub fn proto_names() -> Vec<&'static str> {
+    fn proto_names() -> Vec<&'static str> {
         Platform::ALL.iter().map(|p| p.proto()).collect()
     }
 
@@ -695,7 +695,7 @@ pub fn nearest<'a>(word: &str, known: &[&'a str]) -> Option<&'a str> {
     best.map(|(_, k)| k)
 }
 
-pub fn edit_distance(a: &str, b: &str) -> usize {
+fn edit_distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut prev: Vec<usize> = (0..=b.len()).collect();
     let mut cur: Vec<usize> = Vec::with_capacity(prev.len());

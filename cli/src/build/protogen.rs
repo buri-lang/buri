@@ -187,7 +187,7 @@ const TAKEN: &[&str] = &[
 /// protoc's rule, exactly: drop each `_` and capitalise what follows it.
 /// Nothing else changes case, so a schema's `URL` stays `URL` and the JSON
 /// name this produces is the one protoc would put in the descriptor.
-pub fn camel_case(name: &str) -> String {
+fn camel_case(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut up = false;
     for c in name.chars() {

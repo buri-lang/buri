@@ -474,7 +474,7 @@ impl Workspace {
     /// package, because a library is the only thing that can be depended on.
     /// `//lib/ledger/testing` names the testing surface, which lives in the
     /// same package's library rule.
-    pub fn dep_target(&self, label: &str) -> Option<TargetId> {
+    fn dep_target(&self, label: &str) -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
         if let Some(id) = self.pkg_by_path(path) {
             if self.pkg(id).has_library() {

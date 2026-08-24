@@ -297,7 +297,7 @@ const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 const STALE: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Lock {
-    pub fn acquire(dir: &Path) -> LockOutcome {
+    fn acquire(dir: &Path) -> LockOutcome {
         let path = dir.join(".lock");
         let deadline = std::time::Instant::now() + PATIENCE;
         loop {

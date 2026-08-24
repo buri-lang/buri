@@ -155,7 +155,7 @@ pub struct Annotations {
 }
 
 impl Annotations {
-    pub fn is_inline(&self) -> bool {
+    fn is_inline(&self) -> bool {
         self.shape == Shape::Inline
     }
 

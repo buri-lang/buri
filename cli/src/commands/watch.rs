@@ -48,7 +48,7 @@ use std::time::{Duration, SystemTime};
 /// coalesced into one pass. It is not configurable: this is a sweep interval
 /// rather than a debounce, and a flag here is a flag nobody could choose a
 /// value for (BUILD-AND-WATCH.md §4.3).
-pub const SWEEP: Duration = Duration::from_millis(150);
+const SWEEP: Duration = Duration::from_millis(150);
 
 // ---------------------------------------------------------------------------
 // What is watched

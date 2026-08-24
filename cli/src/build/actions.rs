@@ -314,7 +314,7 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
 /// but it is the quantity the incrementality table in
 /// `buri docs build/hermeticity` is written in terms of, so `--explain` reports
 /// it and the tests compare it between two states of one tree.
-pub fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
+fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Compile, flags.mode);
     k.platform(output.platform(), output.arch());
     contribute(s, target, &mut k);
@@ -349,7 +349,7 @@ pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
 /// The platform is in it for the same reason it is in every other key, even
 /// though generation does not vary along it today: a key that leaves out
 /// something a future action varies on is the shape of a stale-cache bug.
-pub fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
+fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Proto, flags.mode);
     k.platform(output.platform(), output.arch());
     let pkg = s.ws.pkg(target.pkg);
@@ -365,7 +365,7 @@ pub fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) 
 /// Reports every action a build of `target` involves, deepest first: one
 /// `proto` line per rule that declares a schema, one `compile` line per closure
 /// member, then the `link` that consumed them.
-pub fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags) {
+fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags) {
     if !flags.explain {
         return;
     }
@@ -837,7 +837,7 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 /// says it is, a statement about which of the backend's inputs the bytes depend
 /// on, and that statement enters here through `Backend::identity`, which is in
 /// every `codegen` key.
-pub fn codegen_units_for<F>(
+fn codegen_units_for<F>(
     cache: &Cache,
     keys: &[(String, ActionKey)],
     force: bool,

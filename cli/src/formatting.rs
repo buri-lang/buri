@@ -2541,7 +2541,7 @@ fn quote(s: &str) -> String {
     out
 }
 
-pub fn pattern_str(t: &Tree, p: PatId) -> String {
+fn pattern_str(t: &Tree, p: PatId) -> String {
     match t.pat(p) {
         PatView::Wild { .. } => "_".into(),
         PatView::Bind { name, sub, .. } => match sub {

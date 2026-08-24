@@ -141,7 +141,7 @@ fn info_words(raw: &str) -> Result<Vec<String>, String> {
 /// Readable whether or not the rest of the info string parses, which is what
 /// lets a malformed ```` ```buri ```` fence still be routed to the code that
 /// knows how to complain about it.
-pub fn info_lang(raw: &str) -> &str {
+fn info_lang(raw: &str) -> &str {
     raw.split_whitespace().next().unwrap_or("")
 }
 

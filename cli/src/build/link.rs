@@ -160,7 +160,7 @@ impl Row {
 /// core_list  3f9a1c2b8d4e...  cached
 /// main       8b2e01f4c7a9...  run
 /// ```
-pub fn manifest_text(rows: &[Row]) -> String {
+fn manifest_text(rows: &[Row]) -> String {
     let width = rows.iter().map(|r| r.unit.len()).max().unwrap_or(0);
     let mut out = String::new();
     for row in rows {
@@ -498,10 +498,6 @@ impl Cc {
     /// The directory the objects are written into.
     pub fn dir(&self) -> &Path {
         &self.dir
-    }
-
-    pub fn flavour(&self) -> Flavour {
-        self.flavour
     }
 
     /// The object's filename for one unit, rejecting anything that is not one.

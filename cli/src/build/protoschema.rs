@@ -114,7 +114,7 @@ pub enum Label {
 /// that a feature takes the default of the closest edition at or before it, and
 /// no such default was introduced after 2023 — so moving the requirement
 /// forward is this line and the fixtures, and nothing in the mapping.
-pub const REQUIRED_EDITION: &str = "2026";
+const REQUIRED_EDITION: &str = "2026";
 
 /// `features.field_presence`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

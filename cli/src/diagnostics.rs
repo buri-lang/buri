@@ -505,7 +505,7 @@ impl SourceFile {
     }
 
     /// The text of a 1-based line, empty for a line this file does not have.
-    pub fn line_text(&self, line: usize) -> &str {
+    fn line_text(&self, line: usize) -> &str {
         let Some(start) = line.checked_sub(1).and_then(|i| self.line_starts.get(i)) else {
             return "";
         };
@@ -531,7 +531,7 @@ impl SourceFile {
 /// bytes each is what makes that affordable. So four gigabytes is the size of
 /// file this can describe, and one byte more has to be turned away at the door
 /// rather than silently given offsets that wrapped.
-pub const MAX_SOURCE_BYTES: u64 = u32::MAX as u64;
+const MAX_SOURCE_BYTES: u64 = u32::MAX as u64;
 
 pub struct SourceMap {
     files: Vec<SourceFile>,

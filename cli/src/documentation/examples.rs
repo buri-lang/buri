@@ -559,7 +559,7 @@ impl Compiland {
     /// Maps a 1-based line in the compiland back to a 1-based line in the
     /// document. Lines the harness generated map to the fence's own opening
     /// line, so a diagnostic in the wrapper still points somewhere real.
-    pub fn document_line(&self, origin: &Origin, reported: usize) -> usize {
+    fn document_line(&self, origin: &Origin, reported: usize) -> usize {
         if reported <= self.prefix_lines {
             return origin.line.saturating_sub(1).max(1);
         }
@@ -708,7 +708,7 @@ fn declares_main(source: &str) -> bool {
 
 /// Compiles one block, against a repository the block named with `repo=`, and
 /// reports every way it did not do what it claimed.
-pub fn run_block_in(
+fn run_block_in(
     ws: Option<&crate::build::workspace::Workspace>,
     block: &Block,
     reg: &Registry,
@@ -1012,7 +1012,7 @@ pub fn report(failures: &[Failure]) -> String {
 /// A ```textproto block has to parse *and* satisfy the schema its document
 /// claims, which is what keeps `BUILD-FILES.md` honest about fields that no
 /// longer exist.
-pub fn run_proto(proto: &ProtoBlock) -> Vec<Failure> {
+fn run_proto(proto: &ProtoBlock) -> Vec<Failure> {
     let mut map = SourceMap::new();
     let name = format!("{}", proto.origin);
     let file = map.add(name, std::path::PathBuf::new(), proto.source.clone());

@@ -38,6 +38,7 @@ pub mod reference;
 pub mod topics;
 
 use crate::commands::arguments;
+use crate::commands::arguments::Format;
 use crate::diagnostics::Invariant as _;
 use crate::documentation::topics::{Kind, Topic};
 use std::fmt::Write as _;
@@ -76,8 +77,8 @@ pub struct Width(usize);
 impl Width {
     /// Narrower than this and a signature will not fit; wider and prose stops
     /// being readable.
-    pub const NARROWEST: usize = 40;
-    pub const WIDEST: usize = 100;
+    const NARROWEST: usize = 40;
+    const WIDEST: usize = 100;
 
     pub fn new(columns: usize) -> Width {
         Width(columns.clamp(Width::NARROWEST, Width::WIDEST))
@@ -1052,10 +1053,6 @@ fn repo_root_of(from: &std::path::Path) -> Option<std::path::PathBuf> {
 fn terminal_width() -> usize {
     std::env::var("COLUMNS").ok().and_then(|c| c.parse().ok()).unwrap_or(80)
 }
-
-/// Where `--format` came from, so `cmd_docs` can ask for it without importing
-/// the whole flag module.
-pub use crate::commands::arguments::Format;
 
 #[cfg(test)]
 mod tests {

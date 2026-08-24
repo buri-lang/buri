@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 ///
 /// The name decides, not the extension: a build file is `.buri` too, because a
 /// repository has one kind of file in it and one command that formats them.
-pub fn is_build_file(name: &str) -> bool {
+fn is_build_file(name: &str) -> bool {
     name == "BUILD.buri" || name == "REPO.buri"
 }
 
