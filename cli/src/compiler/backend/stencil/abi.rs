@@ -43,7 +43,7 @@ impl Loc {
 /// the emitted object has to spell them back. Three combinations are built, and
 /// the fourth — x86-64 macOS — is deliberately not, because nothing runs it.
 ///
-/// This lives beside [`NREGS`] for the same reason [`NREGS`] does: the build
+/// This lives beside [`CPS_REGISTER_COUNT`] for the same reason [`CPS_REGISTER_COUNT`] does: the build
 /// script picks a target to compile *for* and the emitter picks a target to
 /// look a library *up* by, and the two must agree on the spelling or the
 /// toolchain would silently emit arm64 bytes into an x86-64 object.
@@ -103,16 +103,19 @@ impl Tgt {
 /// SysV x86-64 is narrower and is what actually binds a three-target
 /// toolchain: `rdi` is the frame pointer and `rsi`, `rdx`, `rcx`, `r8`, `r9`
 /// are the rest, so **five** integers against AAPCS64's seven, with eight
-/// doubles in `xmm0`–`xmm7` either way. [`NREGS`] is three, which is inside
-/// both and is why one width serves all three libraries — see its header for
-/// why three is where the library stops growing for nothing.
-const CAP_REGS: usize = 7;
-const CAP_REGS_SYSV: usize = 5;
+/// doubles in `xmm0`–`xmm7` either way. [`CPS_REGISTER_COUNT`] is three, which
+/// is inside both and is why one width serves all three libraries — see its
+/// header for why three is where the library stops growing for nothing.
+const AAPCS64_REGISTER_CAPACITY: usize = 7;
+const SYSV_REGISTER_CAPACITY: usize = 5;
 
-/// [`NREGS`] must fit the narrowest convention any target uses, or the stencil
-/// prototype would spill on that target and a continuation call would stop
-/// being one jump.
-const _: () = assert!(NREGS <= CAP_REGS_SYSV && NREGS <= CAP_REGS);
+/// [`CPS_REGISTER_COUNT`] must fit the narrowest convention any target uses, or
+/// the stencil prototype would spill on that target and a continuation call
+/// would stop being one jump.
+const _: () = assert!(
+    CPS_REGISTER_COUNT <= SYSV_REGISTER_CAPACITY
+        && CPS_REGISTER_COUNT <= AAPCS64_REGISTER_CAPACITY
+);
 
 /// How many CPS registers this toolchain's stencil library is built for.
 ///
@@ -127,7 +130,7 @@ const _: () = assert!(NREGS <= CAP_REGS_SYSV && NREGS <= CAP_REGS);
 /// A library built at one width is not interchangeable with an emitter at
 /// another — the width is spelled into every key — which is why this is one
 /// constant both sides compile rather than a knob set in two places.
-pub const NREGS: usize = 3;
+pub const CPS_REGISTER_COUNT: usize = 3;
 
 /// How wide a runtime call this backend can make.
 ///

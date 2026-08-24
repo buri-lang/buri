@@ -33,7 +33,7 @@
 //! The measured consequence is in the report: it is small, because the register
 //! pressure in a stencil is 2–3 values.
 
-use super::abi::{Loc, Tgt, NREGS};
+use super::abi::{Loc, Tgt, CPS_REGISTER_COUNT};
 use super::elfobj as elf;
 use super::extract::{
     extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms,
@@ -341,7 +341,7 @@ struct Out {
 impl Out {
     fn new(tgt: Tgt) -> Out {
         Out {
-            head: format!("{}{HELPERS}", prelude(NREGS, tgt)),
+            head: format!("{}{HELPERS}", prelude(CPS_REGISTER_COUNT, tgt)),
             bodies: Vec::new(),
             keys: Vec::new(),
             names: Vec::new(),
@@ -693,7 +693,7 @@ fn locs_for(level: Level) -> Vec<Loc> {
         v.push(Loc::Imm);
     }
     if level >= Level::Reg {
-        for k in 0..NREGS {
+        for k in 0..CPS_REGISTER_COUNT {
             v.push(Loc::Reg(k as u8));
         }
     }
@@ -703,7 +703,7 @@ fn locs_for(level: Level) -> Vec<Loc> {
 fn dsts_for(level: Level) -> Vec<Loc> {
     let mut v = vec![Loc::Frame];
     if level >= Level::Reg {
-        for k in 0..NREGS {
+        for k in 0..CPS_REGISTER_COUNT {
             v.push(Loc::Reg(k as u8));
         }
     }
@@ -1100,7 +1100,7 @@ fn regmoves(o: &mut Out, level: Level) {
     if level < Level::M2r {
         return;
     }
-    for k in 0..NREGS {
+    for k in 0..CPS_REGISTER_COUNT {
         o.push(
             &format!("ld/r{k}"),
             format!("void $NAME(ARGS) {{ r{k} = AT(uint64_t, _JIT_A); TAIL; }}"),
@@ -1121,7 +1121,7 @@ fn regmoves(o: &mut Out, level: Level) {
             &format!("immr/r{k}"),
             format!("void $NAME(ARGS) {{ r{k} = (uint64_t)OFF(_JIT_N); TAIL; }}"),
         );
-        for j in 0..NREGS {
+        for j in 0..CPS_REGISTER_COUNT {
             if j == k {
                 continue;
             }
@@ -1800,7 +1800,7 @@ pub fn can_build(cc: &str, dir: &std::path::Path, tgt: Tgt) -> bool {
     let src = format!(
         "{}\nuint64_t *st_probe(ARGS) {{ AT(uint64_t, _JIT_D) = \
          AT(uint64_t, _JIT_A) + (uintptr_t)_JIT_R; TAIL; }}\n",
-        prelude(NREGS, tgt)
+        prelude(CPS_REGISTER_COUNT, tgt)
     );
     if std::fs::write(&c, src).is_err() {
         return false;
@@ -1900,5 +1900,5 @@ const MAX_DROPPED_PER_SHARD: usize = 40;
 /// compiler's own version is not here — it is hashed in, along with everything
 /// else, by `cli/build.rs`, which has the library in front of it.
 pub fn config(tgt: Tgt) -> String {
-    format!("{} {} r{NREGS}", tgt.slug(), Level::Tag.name())
+    format!("{} {} r{CPS_REGISTER_COUNT}", tgt.slug(), Level::Tag.name())
 }

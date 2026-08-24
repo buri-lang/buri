@@ -1399,8 +1399,8 @@ impl<'a> Jit<'a> {
         wt: &mut [bool],
     ) -> (usize, usize) {
         let nb = code.blocks.len();
-        let nregs = super::abi::NREGS;
-        if nregs < 2 || nb == 0 {
+        let register_count = super::abi::CPS_REGISTER_COUNT;
+        if register_count < 2 || nb == 0 {
             return (0, 0);
         }
         let barrier: Vec<bool> =
@@ -1543,7 +1543,7 @@ impl<'a> Jit<'a> {
                 continue;
             }
             let k = if float { &mut rf } else { &mut ri };
-            if *k + 1 >= nregs {
+            if *k + 1 >= register_count {
                 continue;
             }
             put(out, p.index(), Some(Loc::Reg(*k as u8)));
@@ -1692,11 +1692,11 @@ impl<'a> Jit<'a> {
 
             // The registers cross-block promotion took are not the local
             // allocator's to hand out.
-            let nr = super::abi::NREGS;
+            let register_count = super::abi::CPS_REGISTER_COUNT;
             let mut busy: Vec<Option<u32>> =
-                (0..nr).map(|k| (k < taken.0).then_some(u32::MAX)).collect();
+                (0..register_count).map(|k| (k < taken.0).then_some(u32::MAX)).collect();
             let mut busyf: Vec<Option<u32>> =
-                (0..nr).map(|k| (k < taken.1).then_some(u32::MAX)).collect();
+                (0..register_count).map(|k| (k < taken.1).then_some(u32::MAX)).collect();
             let (base, basef) = (taken.0, taken.1);
             for (k, i) in block.insts.iter().enumerate() {
                 // Free every register whose value was last used here.
