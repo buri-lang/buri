@@ -463,11 +463,11 @@ fn test_entry_point(u: &mut emit::Unit<'_>, tests: &[usize]) {
         let (Some(argc), Some(argv)) = (params.first().copied(), params.get(1).copied()) else {
             return;
         };
-        let init = cx.rt_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
+        let init = cx.runtime_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
         cx.builder.ins().call(init, &[argc, argv]);
         for (i, idx) in tests.iter().enumerate() {
             let Some(callee) = cx.func_ref(*idx) else { continue };
-            let enter = cx.rt_ref("buri_rt_test_enter", &[types::I64], &[types::I32]);
+            let enter = cx.runtime_ref("buri_rt_test_enter", &[types::I64], &[types::I32]);
             let index = cx.iconst(types::I64, i as i64);
             let Some(run) = cx.call1(enter, &[index]) else { continue };
             let body = cx.builder.create_block();
@@ -478,7 +478,7 @@ fn test_entry_point(u: &mut emit::Unit<'_>, tests: &[usize]) {
             cx.jump(next, &[]);
             cx.builder.switch_to_block(next);
         }
-        let flush = cx.rt_ref("buri_rt_flush", &[], &[]);
+        let flush = cx.runtime_ref("buri_rt_flush", &[], &[]);
         cx.builder.ins().call(flush, &[]);
         let zero = cx.iconst(types::I32, 0);
         cx.builder.ins().return_(&[zero]);
@@ -534,10 +534,10 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
         let (Some(argc), Some(argv)) = (params.first().copied(), params.get(1).copied()) else {
             return;
         };
-        let init = cx.rt_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
+        let init = cx.runtime_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
         cx.builder.ins().call(init, &[argc, argv]);
 
-        let flush = cx.rt_ref("buri_rt_flush", &[], &[]);
+        let flush = cx.runtime_ref("buri_rt_flush", &[], &[]);
         let Some(l) = layout.filter(|l| l.size > 0) else {
             if let Some(callee) = cx.func_ref(idx) {
                 cx.builder.ins().call(callee, &[]);
@@ -606,7 +606,7 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
         let masked =
             cx.builder.ins().band_imm(len, crate::compiler::middle::layout::STR_LEN_MASK as i64);
         let write =
-            cx.rt_ref("buri_rt_host_stderr_eprintln", &[PTR, PTR, types::I64], &[]);
+            cx.runtime_ref("buri_rt_host_stderr_eprintln", &[PTR, PTR, types::I64], &[]);
         cx.builder.ins().call(write, &[base, ptr, masked]);
         cx.builder.ins().call(flush, &[]);
         let one = cx.iconst(types::I32, 1);

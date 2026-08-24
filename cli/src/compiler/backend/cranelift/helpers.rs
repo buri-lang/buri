@@ -26,7 +26,7 @@ use cranelift_module::Module;
 
 use crate::compiler::backend::cranelift::abi::{Leaf, PTR};
 use crate::compiler::backend::cranelift::emit::{
-    mem, word, Cx, Helper, Pending, Unit, ENV_FIELDS,
+    mem_flags, word, Cx, Helper, Pending, Unit, ENV_FIELDS,
 };
 use crate::compiler::middle::ir::Ownership;
 use crate::compiler::middle::layout::{
@@ -276,8 +276,8 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
     cx.brif(has_base, probe, &[], check, &[none, none]);
 
     cx.builder.switch_to_block(probe);
-    let rc = cx.builder.ins().load(types::I64, mem(), a_base, HEADER_RC_OFFSET);
-    let cap = cx.builder.ins().load(types::I64, mem(), a_base, HEADER_CAP_OFFSET);
+    let rc = cx.builder.ins().load(types::I64, mem_flags(), a_base, HEADER_RC_OFFSET);
+    let cap = cx.builder.ins().load(types::I64, mem_flags(), a_base, HEADER_CAP_OFFSET);
     // `IMMORTAL` is `u64::MAX` and fails this by construction, which is what
     // keeps a literal and an interned constant out of both fast paths.
     let is_one = cx.builder.ins().icmp_imm(IntCC::Equal, rc, 1);
@@ -394,7 +394,7 @@ fn show_int(mut cx: Cx<'_, '_, '_>, signed: bool) {
     let ch = cx.builder.ins().iadd_imm(digit, 48);
     let byte = cx.builder.ins().ireduce(types::I8, ch);
     let addr = cx.builder.ins().iadd(buf, at);
-    cx.builder.ins().store(mem(), byte, addr, 0);
+    cx.builder.ins().store(mem_flags(), byte, addr, 0);
     let done = cx.builder.ins().icmp_imm(IntCC::Equal, rest, 0);
     let then = [at];
     let els = [at, rest];
@@ -410,7 +410,7 @@ fn show_int(mut cx: Cx<'_, '_, '_>, signed: bool) {
     let minus_at = cx.builder.ins().iadd_imm(sp, -1);
     let minus = cx.iconst(types::I8, 45);
     let maddr = cx.builder.ins().iadd(buf, minus_at);
-    cx.builder.ins().store(mem(), minus, maddr, 0);
+    cx.builder.ins().store(mem_flags(), minus, maddr, 0);
     let arg = [minus_at];
     cx.jump(fin, &arg);
 
@@ -489,7 +489,7 @@ fn release_elems(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
     let Some(addr) = p.first().copied() else { return };
     if let Some(elem) = ty {
         let stride = cx.unit.abi.layouts.shared(&elem).stride.max(1);
-        let cap = cx.builder.ins().load(types::I64, mem(), addr, HEADER_CAP_OFFSET);
+        let cap = cx.builder.ins().load(types::I64, mem_flags(), addr, HEADER_CAP_OFFSET);
         let count = cx.builder.ins().udiv_imm(cap, i64::from(stride));
         cx.each_element(addr, count, stride, &elem, false);
     }

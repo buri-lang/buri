@@ -113,7 +113,7 @@ pub const ENV_FIELDS: u32 = 8;
 /// aegraph mid-end — GVN, LICM, alias analysis — switched off entirely. Both
 /// of those would have to change before the flag could be considered, and
 /// then it would have to be per-access rather than shared.
-pub fn mem() -> MemFlags {
+pub fn mem_flags() -> MemFlags {
     MemFlags::new().with_notrap()
 }
 
@@ -348,7 +348,7 @@ impl<'a> Unit<'a> {
     /// A `buri_rt_*` entry, with a signature spelled at the call site rather
     /// than derived: the runtime's ABI is C and the program's is not
     /// (`cli/runtime/lib.rs` §2).
-    pub fn rt(&mut self, symbol: &str, params: &[ClifType], rets: &[ClifType]) -> FuncId {
+    pub fn runtime_func(&mut self, symbol: &str, params: &[ClifType], rets: &[ClifType]) -> FuncId {
         let mut sig = Signature::new(self.abi.call_conv);
         for p in params {
             sig.params.push(AbiParam::new(*p));
@@ -539,12 +539,12 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
 
     pub fn load_at(&mut self, ty: ClifType, addr: Value, offset: u32) -> Value {
         let off = i32::try_from(offset).unwrap_or(0);
-        self.builder.ins().load(ty, mem(), addr, off)
+        self.builder.ins().load(ty, mem_flags(), addr, off)
     }
 
     pub fn store_at(&mut self, addr: Value, offset: u32, v: Value) {
         let off = i32::try_from(offset).unwrap_or(0);
-        self.builder.ins().store(mem(), v, addr, off);
+        self.builder.ins().store(mem_flags(), v, addr, off);
     }
 
     pub fn offset(&mut self, addr: Value, by: u32) -> Value {
@@ -569,7 +569,8 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         }
         let cfg = self.unit.module.isa().frontend_config();
         let a = u8::try_from(align.min(16)).unwrap_or(1);
-        self.builder.emit_small_memory_copy(cfg, dest, src, u64::from(size), a, a, true, mem());
+        self.builder
+            .emit_small_memory_copy(cfg, dest, src, u64::from(size), a, a, true, mem_flags());
     }
 
     pub fn jump(&mut self, block: Block, args: &[Value]) {
@@ -583,8 +584,8 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         self.builder.ins().brif(c, t, &ta, f, &fa);
     }
 
-    pub fn rt_ref(&mut self, symbol: &str, params: &[ClifType], rets: &[ClifType]) -> FuncRef {
-        let id = self.unit.rt(symbol, params, rets);
+    pub fn runtime_ref(&mut self, symbol: &str, params: &[ClifType], rets: &[ClifType]) -> FuncRef {
+        let id = self.unit.runtime_func(symbol, params, rets);
         self.unit.module.declare_func_in_func(id, self.builder.func)
     }
 
@@ -604,7 +605,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     }
 
     pub fn alloc(&mut self, bytes: Value) -> Value {
-        let f = self.rt_ref("buri_rt_alloc", &[types::I64], &[PTR]);
+        let f = self.runtime_ref("buri_rt_alloc", &[types::I64], &[PTR]);
         self.call1(f, &[bytes]).unwrap_or(bytes)
     }
 
@@ -614,7 +615,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         let gv = self.unit.module.declare_data_in_func(data, self.builder.func);
         let ptr = self.builder.ins().symbol_value(PTR, gv);
         let len = self.iconst(types::I64, message.len() as i64);
-        let f = self.rt_ref("buri_rt_abort", &[PTR, types::I64], &[]);
+        let f = self.runtime_ref("buri_rt_abort", &[PTR, types::I64], &[]);
         self.builder.ins().call(f, &[ptr, len]);
         self.builder.ins().trap(UNREACHABLE);
     }
@@ -848,11 +849,11 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         let is_null = self.builder.ins().icmp_imm(IntCC::Equal, p, 0);
         self.brif(is_null, done, &[], live, &[]);
         self.builder.switch_to_block(live);
-        let rc = self.builder.ins().load(types::I64, mem(), p, HEADER_RC_OFFSET);
+        let rc = self.builder.ins().load(types::I64, mem_flags(), p, HEADER_RC_OFFSET);
         let sum = self.builder.ins().iadd_imm(rc, 1);
         let immortal = self.builder.ins().icmp_imm(IntCC::Equal, rc, IMMORTAL as i64);
         let n = self.builder.ins().select(immortal, rc, sum);
-        self.builder.ins().store(mem(), n, p, HEADER_RC_OFFSET);
+        self.builder.ins().store(mem_flags(), n, p, HEADER_RC_OFFSET);
         self.jump(done, &[]);
         self.builder.switch_to_block(done);
     }
@@ -873,7 +874,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         let is_null = self.builder.ins().icmp_imm(IntCC::Equal, p, 0);
         self.brif(is_null, done, &[], live, &[]);
         self.builder.switch_to_block(live);
-        let rc = self.builder.ins().load(types::I64, mem(), p, HEADER_RC_OFFSET);
+        let rc = self.builder.ins().load(types::I64, mem_flags(), p, HEADER_RC_OFFSET);
         let above_one = self.builder.ins().icmp_imm(IntCC::UnsignedGreaterThan, rc, 1);
         let immortal = self.iconst(types::I64, IMMORTAL as i64);
         let mortal = self.builder.ins().icmp(IntCC::NotEqual, rc, immortal);
@@ -883,7 +884,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
 
         self.builder.switch_to_block(fast);
         let n = self.builder.ins().iadd_imm(rc, -1);
-        self.builder.ins().store(mem(), n, p, HEADER_RC_OFFSET);
+        self.builder.ins().store(mem_flags(), n, p, HEADER_RC_OFFSET);
         self.jump(done, &[]);
 
         self.builder.switch_to_block(slow);
@@ -891,7 +892,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
             Some(r) => self.builder.ins().func_addr(PTR, r),
             None => self.iconst(PTR, 0),
         };
-        let f = self.rt_ref("buri_rt_decref", &[PTR, PTR], &[]);
+        let f = self.runtime_ref("buri_rt_decref", &[PTR, PTR], &[]);
         self.builder.ins().call(f, &[p, g]);
         self.jump(done, &[]);
 
@@ -1617,7 +1618,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         self.cx.brif(is_zero, bad, &[], ok, &[]);
         self.cx.builder.set_cold_block(bad);
         self.cx.builder.switch_to_block(bad);
-        let abort = self.cx.rt_ref("buri_rt_abort_div_zero", &[], &[]);
+        let abort = self.cx.runtime_ref("buri_rt_abort_div_zero", &[], &[]);
         self.cx.builder.ins().call(abort, &[]);
         self.cx.builder.ins().trap(UNREACHABLE);
         self.cx.builder.switch_to_block(ok);
@@ -1643,7 +1644,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let signed = self.cx.iconst(types::I8, i64::from(signed_prim(prim)));
         let quot = self.cx.slot(16, 8);
         let rem = self.cx.slot(16, 8);
-        let f = self.cx.rt_ref(
+        let f = self.cx.runtime_ref(
             "buri_rt_i128_divmod",
             &[types::I64, types::I64, types::I64, types::I64, types::I8, PTR, PTR],
             &[],
@@ -1929,7 +1930,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let count = self.cx.builder.ins().isub(len, start);
         let out = self.alloc_slot(dest, self.code.ty_of(dest));
         let stride_v = self.cx.iconst(types::I64, i64::from(stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let fresh = self.cx.call1(new, &[count, stride_v, out]).unwrap_or(base);
         let scaled = self.cx.builder.ins().imul_imm(start, i64::from(stride));
         let src = self.cx.builder.ins().iadd(base, scaled);
@@ -1949,7 +1950,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let out = self.alloc_slot(dest, ty);
         let count = self.cx.iconst(types::I64, elems.len() as i64);
         let stride_v = self.cx.iconst(types::I64, i64::from(stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let p = self.cx.call1(new, &[count, stride_v, out]).unwrap_or(out);
         for (i, e) in elems.iter().enumerate() {
             let offset = u32::try_from(i).unwrap_or(0).saturating_mul(stride);
@@ -2253,7 +2254,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
 
         match entry.ret {
             runtime::Ret::Void | runtime::Ret::NoReturn => {
-                let r = self.cx.rt_ref(entry.symbol, &params, &[]);
+                let r = self.cx.runtime_ref(entry.symbol, &params, &[]);
                 self.cx.builder.ins().call(r, &vals);
             }
             runtime::Ret::Scalar => {
@@ -2264,14 +2265,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                         rets.push(leaf.ty);
                     }
                 }
-                let r = self.cx.rt_ref(entry.symbol, &params, &rets);
+                let r = self.cx.runtime_ref(entry.symbol, &params, &rets);
                 let inst = self.cx.builder.ins().call(r, &vals);
                 let results = self.cx.builder.inst_results(inst).to_vec();
                 self.gather(dests, &results);
             }
             runtime::Ret::Tag => {
                 let Some(dest) = dests.first().copied() else { return };
-                let r = self.cx.rt_ref(entry.symbol, &params, &[types::I32]);
+                let r = self.cx.runtime_ref(entry.symbol, &params, &[types::I32]);
                 let raw = self.cx.call1(r, &vals);
                 let Some(raw) = raw else { return };
                 let want = self.tag_ty(dest).unwrap_or(types::I32);
@@ -2293,7 +2294,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let out = self.alloc_slot(dest, dty);
                 vals.push(out);
                 params.push(PTR);
-                let r = self.cx.rt_ref(entry.symbol, &params, &[]);
+                let r = self.cx.runtime_ref(entry.symbol, &params, &[]);
                 self.cx.builder.ins().call(r, &vals);
             }
             runtime::Ret::Opt => {
@@ -2374,7 +2375,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             vals.push(out);
             params.push(PTR);
         }
-        let r = self.cx.rt_ref(entry.symbol, params, &[types::I32]);
+        let r = self.cx.runtime_ref(entry.symbol, params, &[types::I32]);
         let Some(disc) = self.cx.call1(r, vals) else { return };
 
         let good = self.cx.builder.create_block();
@@ -2505,7 +2506,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let out = self.cx.offset(slot, payload_at);
         vals.push(out);
         params.push(PTR);
-        let r = self.cx.rt_ref(symbol, params, &[types::I32]);
+        let r = self.cx.runtime_ref(symbol, params, &[types::I32]);
         let Some(disc) = self.cx.call1(r, vals) else { return };
 
         let present = self.cx.builder.create_block();
@@ -2746,7 +2747,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         vals.push(out);
         let mut params = tys.to_vec();
         params.push(PTR);
-        let r = self.cx.rt_ref(symbol, &params, &[]);
+        let r = self.cx.runtime_ref(symbol, &params, &[]);
         self.cx.builder.ins().call(r, &vals);
     }
 
@@ -2759,7 +2760,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let base = self.cx.load_at(PTR, v, word(STR_BASE));
                 let ptr = self.cx.load_at(PTR, v, word(STR_PTR));
                 let raw = self.cx.load_at(types::I64, v, word(STR_LEN));
-                let r = self.cx.rt_ref(
+                let r = self.cx.runtime_ref(
                     runtime::hash::STR,
                     &[types::I64, PTR, PTR, types::I64],
                     &[types::I64],
@@ -2769,7 +2770,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             // A `Char` is a one-character *string* on JavaScript, so it takes
             // the string arm and an astral scalar is two mixes.
             Prim::Char => {
-                let r = self.cx.rt_ref(runtime::hash::CHAR, &[types::I64, types::I32], &[types::I64]);
+                let r = self.cx.runtime_ref(
+                    runtime::hash::CHAR,
+                    &[types::I64, types::I32],
+                    &[types::I64],
+                );
                 self.cx.call1(r, &[acc, v])
             }
             Prim::F32 | Prim::F64 => {
@@ -2778,12 +2783,20 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 } else {
                     v
                 };
-                let r = self.cx.rt_ref(runtime::hash::F64, &[types::I64, types::F64], &[types::I64]);
+                let r = self.cx.runtime_ref(
+                    runtime::hash::F64,
+                    &[types::I64, types::F64],
+                    &[types::I64],
+                );
                 self.cx.call1(r, &[acc, wide])
             }
             _ => {
                 let low = self.low_u32(v);
-                let r = self.cx.rt_ref(runtime::hash::MIX, &[types::I64, types::I32], &[types::I64]);
+                let r = self.cx.runtime_ref(
+                    runtime::hash::MIX,
+                    &[types::I64, types::I32],
+                    &[types::I64],
+                );
                 self.cx.call1(r, &[acc, low])
             }
         };
@@ -2956,7 +2969,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     } else {
                         x
                     };
-                    let r = self.cx.rt_ref(
+                    let r = self.cx.runtime_ref(
                         runtime::hash::F64,
                         &[types::I64, types::F64],
                         &[types::I64],
@@ -2967,7 +2980,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     }
                 } else {
                     let low = self.low_u32(x);
-                    let r = self.cx.rt_ref(
+                    let r = self.cx.runtime_ref(
                         runtime::hash::MIX,
                         &[types::I64, types::I32],
                         &[types::I64],
@@ -3064,7 +3077,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 ) else {
                     return false;
                 };
-                let r = self.cx.rt_ref(
+                let r = self.cx.runtime_ref(
                     "buri_rt_char_compare",
                     &[types::I32, types::I32],
                     &[types::I32],
@@ -3087,7 +3100,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 };
                 let seed = self.cx.iconst(types::I64, runtime::hash::SEED);
                 let out = if prim == Prim::Char {
-                    let r = self.cx.rt_ref(
+                    let r = self.cx.runtime_ref(
                         runtime::hash::CHAR,
                         &[types::I64, types::I32],
                         &[types::I64],
@@ -3095,7 +3108,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     self.cx.call1(r, &[seed, x])
                 } else {
                     let low = self.low_u32(x);
-                    let r = self.cx.rt_ref(
+                    let r = self.cx.runtime_ref(
                         runtime::hash::MIX,
                         &[types::I64, types::I32],
                         &[types::I64],
@@ -3168,7 +3181,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         self.cx.brif(bad, out_of_range, &[], ok, &[]);
         self.cx.builder.switch_to_block(out_of_range);
         self.cx.builder.set_cold_block(out_of_range);
-        let abort = self.cx.rt_ref("buri_rt_abort_shift", &[], &[]);
+        let abort = self.cx.runtime_ref("buri_rt_abort_shift", &[], &[]);
         self.cx.builder.ins().call(abort, &[]);
         self.cx.builder.ins().trap(UNREACHABLE);
         self.cx.builder.switch_to_block(ok);
@@ -3524,7 +3537,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let (b_lo, b_hi) = self.cx.builder.ins().isplit(y);
         let code = self.cx.iconst(types::I8, i64::from(op));
         let signed = self.cx.iconst(types::I8, i64::from(from.is_signed()));
-        let r = self.cx.rt_ref(
+        let r = self.cx.runtime_ref(
             "buri_rt_i128_checked",
             &[types::I8, types::I64, types::I64, types::I64, types::I64, types::I8, PTR],
             &[types::I32],
@@ -3554,7 +3567,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let (b_lo, b_hi) = self.cx.builder.ins().isplit(y);
         let code = self.cx.iconst(types::I8, i64::from(op));
         let signed = self.cx.iconst(types::I8, i64::from(from.is_signed()));
-        let r = self.cx.rt_ref(
+        let r = self.cx.runtime_ref(
             "buri_rt_i128_saturating",
             &[types::I8, types::I64, types::I64, types::I64, types::I64, types::I8, PTR],
             &[],
@@ -3681,7 +3694,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let args = [xb, xp, xl, yb, yp, yl];
         let params = [PTR, PTR, types::I64, PTR, PTR, types::I64];
         if matches!(op, BinOp::Eq | BinOp::Ne) {
-            let f = self.cx.rt_ref("buri_rt_str_eq", &params, &[types::I8]);
+            let f = self.cx.runtime_ref("buri_rt_str_eq", &params, &[types::I8]);
             let Some(same) = self.cx.call1(f, &args) else { return };
             let v = if op == BinOp::Eq {
                 same
@@ -3691,7 +3704,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             self.set(dest, Some(v));
             return;
         }
-        let f = self.cx.rt_ref("buri_rt_str_compare", &params, &[types::I32]);
+        let f = self.cx.runtime_ref("buri_rt_str_compare", &params, &[types::I32]);
         let Some(order) = self.cx.call1(f, &args) else { return };
         let cc = match op {
             BinOp::Lt => IntCC::SignedLessThan,
@@ -3809,7 +3822,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 self.cx.builder.switch_to_block(fast);
                 self.cx.jump(done, &[bytes]);
                 self.cx.builder.switch_to_block(slow);
-                let f = self.cx.rt_ref(
+                let f = self.cx.runtime_ref(
                     "buri_rt_str_scalar_len",
                     &[PTR, types::I64],
                     &[types::I64],
@@ -3899,7 +3912,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let (kind, actual, expected) =
                     (self.str_arg(kind), self.str_arg(actual), self.str_arg(expected));
                 let (Some(k), Some(a), Some(e)) = (kind, actual, expected) else { return false };
-                let r = self.cx.rt_ref(
+                let r = self.cx.runtime_ref(
                     "buri_rt_test_fail_compared",
                     &[PTR, types::I64, PTR, types::I64, PTR, types::I64],
                     &[],
@@ -3915,7 +3928,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let (Some(k), Some(v)) = (self.str_arg(kind), self.str_arg(shown)) else {
                     return false;
                 };
-                let r = self.cx.rt_ref(
+                let r = self.cx.runtime_ref(
                     "buri_rt_test_fail_expected",
                     &[PTR, types::I64, PTR, types::I64],
                     &[],
@@ -4180,7 +4193,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let rets: Vec<ClifType> = out_leaves.iter().map(|l| l.ty).collect();
         let slot = self.alloc_slot(dest, dty);
         let stride_v = self.cx.iconst(types::I64, i64::from(out_stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[src.len, stride_v, slot]).unwrap_or(slot);
 
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
@@ -4265,7 +4278,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         self.cx.builder.switch_to_block(done);
         let kept = self.cx.builder.block_params(done).first().copied().unwrap_or(zero);
         let stride_v = self.cx.iconst(types::I64, i64::from(stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[kept, stride_v, slot]).unwrap_or(slot);
         let some = self.cx.builder.create_block();
         let end = self.cx.builder.create_block();
@@ -4519,7 +4532,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let n = src.len;
         let stride_v = self.cx.iconst(word, i64::from(stride));
         let bytes = self.cx.builder.ins().imul_imm(n, i64::from(stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[word, word, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[word, word, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[n, stride_v, slot]).unwrap_or(slot);
         let scratch = self.cx.alloc(bytes);
         let zero = self.cx.iconst(word, 0);
@@ -4873,7 +4886,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let n = self.cx.builder.ins().umin(a.len, b.len);
         let slot = self.alloc_slot(dest, dty);
         let stride_v = self.cx.iconst(types::I64, i64::from(out_stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[n, stride_v, slot]).unwrap_or(slot);
 
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
@@ -4952,7 +4965,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let n = self.cx.builder.block_params(counted).first().copied().unwrap_or(zero);
         let slot = self.alloc_slot(dest, dty);
         let stride_v = self.cx.iconst(types::I64, i64::from(out_stride));
-        let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
+        let new = self.cx.runtime_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[n, stride_v, slot]).unwrap_or(slot);
 
         // -- pass two: the elements ------------------------------------------
@@ -5142,7 +5155,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         self.cx.jump(header, &[next]);
         self.cx.builder.switch_to_block(done);
 
-        let join = self.cx.rt_ref("buri_rt_show_list", &[PTR, types::I64, PTR], &[]);
+        let join = self.cx.runtime_ref("buri_rt_show_list", &[PTR, types::I64, PTR], &[]);
         self.cx.builder.ins().call(join, &[scratch, src.len, slot]);
 
         // -- the rendered strings, released ----------------------------------
@@ -5229,7 +5242,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// code after it is dead at run time and well-formed at compile time.
     fn abort_str(&mut self, message: ValueId, symbol: &str) {
         let Some((ptr, len)) = self.str_arg(message) else { return };
-        let r = self.cx.rt_ref(symbol, &[PTR, types::I64], &[]);
+        let r = self.cx.runtime_ref(symbol, &[PTR, types::I64], &[]);
         self.cx.builder.ins().call(r, &[ptr, len]);
     }
 
@@ -5473,7 +5486,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 // anyway, because this is the backend that wears a belt and
                 // the belt is cheap (§3.1).
                 if self.cx.unit.profile.defensive_aborts() {
-                    let f = self.cx.rt_ref("buri_rt_abort_unreachable", &[], &[]);
+                    let f = self.cx.runtime_ref("buri_rt_abort_unreachable", &[], &[]);
                     self.cx.builder.ins().call(f, &[]);
                 }
                 self.cx.builder.ins().trap(UNREACHABLE);
@@ -5554,7 +5567,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
             None => {
                 if self.cx.unit.profile.defensive_aborts() {
-                    let f = self.cx.rt_ref("buri_rt_abort_unreachable", &[], &[]);
+                    let f = self.cx.runtime_ref("buri_rt_abort_unreachable", &[], &[]);
                     self.cx.builder.ins().call(f, &[]);
                 }
                 self.cx.builder.ins().trap(UNREACHABLE);
