@@ -75,7 +75,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 /// a loop *and* a dispatch arm, and which one won depended on the order the
 /// backend happened to test them in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Strategy {
+enum Strategy {
     /// Emitted as an ordinary function.
     Plain,
     /// Tail-calls itself and nothing else in a cycle: emitted as a loop.
@@ -85,7 +85,7 @@ pub enum Strategy {
     Member { group: usize, index: usize },
 }
 
-pub struct Plan {
+struct Plan {
     /// Indexed by function. `strategy[f]` and `groups[g][i]` are built from
     /// one SCC result and agree by construction: `Member { group, index }`
     /// always satisfies `groups[group][index] == f`.
@@ -99,13 +99,13 @@ impl Plan {
         self.strategy.get(f).copied().unwrap_or(Strategy::Plain)
     }
 
-    pub fn is_self_loop(&self, f: usize) -> bool {
+    fn is_self_loop(&self, f: usize) -> bool {
         self.strategy(f) == Strategy::SelfLoop
     }
 }
 
 /// Collects the functions called in tail position.
-pub fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
+fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
     match &e.kind {
         ExprKind::CallFn { func, .. } => out.extend(func.func().map(|i| i.index())),
         ExprKind::Block { tail: Some(t), .. } => tail_callees(t, out),
@@ -135,7 +135,7 @@ pub fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
 
 /// Whether a call sits in tail position within this expression tree — used to
 /// decide, at each node, whether to recurse with the tail flag still set.
-pub fn analyze(program: &Program) -> Plan {
+fn analyze(program: &Program) -> Plan {
     let n = program.funcs.len();
     let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
     for (f, es) in program.funcs.iter().zip(edges.iter_mut()) {
@@ -457,7 +457,7 @@ fn snapshot_captures(
 }
 
 /// The locals a group member's parameters occupy, for the merged function.
-pub fn max_arity(program: &Program, group: &[usize]) -> usize {
+fn max_arity(program: &Program, group: &[usize]) -> usize {
     group.iter().filter_map(|f| program.funcs.get(*f)).map(|f| f.params.len()).max().unwrap_or(0)
 }
 

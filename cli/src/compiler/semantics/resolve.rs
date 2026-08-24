@@ -707,7 +707,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Follows re-export chains, guarding against a cycle.
-    fn lookup_export(&mut self, module: ModuleId, name: &str) -> Option<Sym> {
+    pub(crate) fn lookup_export(&mut self, module: ModuleId, name: &str) -> Option<Sym> {
         if let Some(sym) = self.scope(module).exports.get(name) {
             return Some(sym.clone());
         }
@@ -737,11 +737,6 @@ impl<'a> Checker<'a> {
             self.scope_mut(module).exports.insert(name.to_string(), sym.clone());
         }
         found
-    }
-
-    /// `lookup_export`, for the body checker.
-    pub fn lookup_export_pub(&mut self, module: ModuleId, name: &str) -> Option<Sym> {
-        self.lookup_export(module, name)
     }
 
     fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {

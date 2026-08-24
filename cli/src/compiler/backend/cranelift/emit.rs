@@ -585,7 +585,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         self.unit.module.declare_func_in_func(id, self.b.func)
     }
 
-    pub fn helper_ref(&mut self, key: Helper, ty: Option<Ty>) -> Option<FuncRef> {
+    fn helper_ref(&mut self, key: Helper, ty: Option<Ty>) -> Option<FuncRef> {
         let id = self.unit.helper(key, ty)?;
         Some(self.unit.module.declare_func_in_func(id, self.b.func))
     }
@@ -606,7 +606,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     }
 
     /// The abort, and the trap behind it (§3.7).
-    pub fn abort_with(&mut self, message: &str) {
+    fn abort_with(&mut self, message: &str) {
         let Some(data) = self.unit.bytes(message) else { return };
         let gv = self.unit.module.declare_data_in_func(data, self.b.func);
         let ptr = self.b.ins().symbol_value(PTR, gv);
@@ -672,7 +672,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     /// keeps the inline form for the shapes it is worth it for — a `Str`, a
     /// list, a closure, a small record of them — because a call for those is
     /// more instructions than the walk.
-    pub fn wide_rc(&mut self, ty: &Ty) -> bool {
+    fn wide_rc(&mut self, ty: &Ty) -> bool {
         if let Some(known) = self.unit.wide_rc.get(ty) {
             return *known;
         }
@@ -5672,7 +5672,7 @@ pub fn list_closure_key(key: &str) -> bool {
 /// They are not in [`list_call`] because they have no step to call: what keeps
 /// them out of `cli/runtime/list.rs` is a second *layout* rather than a
 /// closure, and that file's header says which one each needs.
-pub fn list_build_key(key: &str) -> bool {
+fn list_build_key(key: &str) -> bool {
     matches!(key, "list.zip" | "list.flatten")
 }
 

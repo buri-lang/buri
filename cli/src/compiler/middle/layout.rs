@@ -801,7 +801,8 @@ impl<'a> Layouts<'a> {
 
     /// Several types, one block each, newline separated and with no trailing
     /// newline — the shape a golden test compares.
-    pub fn describe_all(&mut self, tys: &[Ty]) -> String {
+    #[cfg(test)]
+    fn describe_all(&mut self, tys: &[Ty]) -> String {
         let mut out = String::new();
         for (i, ty) in tys.iter().enumerate() {
             if i > 0 {

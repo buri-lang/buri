@@ -39,7 +39,7 @@ pub enum Role {
 }
 
 impl Role {
-    pub fn is_test_context(self) -> bool {
+    fn is_test_context(self) -> bool {
         matches!(self, Role::TestSource | Role::TestOnly)
     }
 
@@ -245,7 +245,7 @@ impl<'a> Loader<'a> {
 
     /// The prelude's modules are in scope in every module, so they are always
     /// part of a compilation whether or not anything imports them.
-    pub fn load_prelude(&mut self) {
+    fn load_prelude(&mut self) {
         for path in standard_library::prelude_modules() {
             self.load_std(path, Span::NONE);
         }

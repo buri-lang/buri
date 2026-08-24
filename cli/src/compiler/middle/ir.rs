@@ -876,7 +876,7 @@ impl Program {
 /// Critical edges are *not* checked for, because the design does not forbid
 /// them: a per-edge argument list is what makes them harmless
 /// (CODEGEN-LLVM.md §2.1).
-pub fn verify_func(program: &Program, func: &Func) -> Vec<String> {
+fn verify_func(program: &Program, func: &Func) -> Vec<String> {
     let mut errs = Vec::new();
     let Some(code) = func.code() else { return errs };
     let name = &func.debug_name;

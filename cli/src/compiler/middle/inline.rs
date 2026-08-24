@@ -211,7 +211,7 @@ struct FuncFacts {
 /// length and index-aligned — five here and a `limits` vector built separately
 /// in `run` — so an index was bounds-checked against one and then used on
 /// another.
-pub struct Facts {
+struct Facts {
     per_func: Vec<FuncFacts>,
 }
 

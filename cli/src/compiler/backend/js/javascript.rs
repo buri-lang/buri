@@ -3189,7 +3189,7 @@ fn collect_idents(e: &Expr, out: &mut HashSet<String>) {
     clippy::indexing_slicing,
     reason = "each index is a remainder by the length of the very table being indexed"
 )]
-pub fn short_name(mut n: usize) -> String {
+fn short_name(mut n: usize) -> String {
     const FIRST: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
     const REST: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
     let mut out = String::new();

@@ -106,8 +106,8 @@ impl Tgt {
 /// doubles in `xmm0`–`xmm7` either way. [`NREGS`] is three, which is inside
 /// both and is why one width serves all three libraries — see its header for
 /// why three is where the library stops growing for nothing.
-pub const CAP_REGS: usize = 7;
-pub const CAP_REGS_SYSV: usize = 5;
+const CAP_REGS: usize = 7;
+const CAP_REGS_SYSV: usize = 5;
 
 /// [`NREGS`] must fit the narrowest convention any target uses, or the stencil
 /// prototype would spill on that target and a continuation call would stop

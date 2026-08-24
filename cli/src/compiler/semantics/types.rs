@@ -137,11 +137,11 @@ impl Prim {
     /// the image of two different integers, so the last safe one is below it.
     /// Beyond this an integer type's arithmetic is undefined rather than
     /// wrong-but-defined.
-    pub const EXACT_INTEGER_LIMIT: u128 = (1 << 53) - 1;
+    const EXACT_INTEGER_LIMIT: u128 = (1 << 53) - 1;
 
     /// The same limit as the matching lower bound. Written as its own constant
     /// so the negation happens once, in a context the compiler evaluates.
-    pub const EXACT_INTEGER_FLOOR: i128 = -((1_i128 << 53) - 1);
+    const EXACT_INTEGER_FLOOR: i128 = -((1_i128 << 53) - 1);
 
     /// The range `Checked` answers about **on the JavaScript backend**: the
     /// type's own range, narrowed to what a double still represents exactly. A

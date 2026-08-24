@@ -177,13 +177,13 @@ enum ModRef {
 
 /// A `memory(...)` bitmask under construction.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
-pub struct MemoryEffects(u64);
+struct MemoryEffects(u64);
 
 impl MemoryEffects {
     /// Every location, at `ModRef` — the default a function with no `memory`
     /// attribute already has, spelled explicitly for the one caller that wants
     /// to say so.
-    pub fn everything() -> MemoryEffects {
+    fn everything() -> MemoryEffects {
         MemoryEffects::default()
             .with(Location::ArgMem, ModRef::RefMod)
             .with(Location::InaccessibleMem, ModRef::RefMod)
@@ -194,13 +194,13 @@ impl MemoryEffects {
     /// `memory(none)`: reads nothing, writes nothing. Zero in every LLVM
     /// version, which is why it is the one form that can be trusted across a
     /// bump.
-    pub fn none() -> MemoryEffects {
+    fn none() -> MemoryEffects {
         MemoryEffects(0)
     }
 
     /// `memory(argmem: read)` — reads the heap through its parameters and
     /// nothing else. Every `[T]`, `Str` and struct pointer.
-    pub fn arg_read() -> MemoryEffects {
+    fn arg_read() -> MemoryEffects {
         MemoryEffects::default().with(Location::ArgMem, ModRef::Ref)
     }
 
@@ -208,14 +208,14 @@ impl MemoryEffects {
     /// at `p - 16` for a `p` the parameter list supplied. See the module
     /// header: the count is argument memory, and `read` has no carve-out for a
     /// write nothing can observe.
-    pub fn arg_readwrite() -> MemoryEffects {
+    fn arg_readwrite() -> MemoryEffects {
         MemoryEffects::default().with(Location::ArgMem, ModRef::RefMod)
     }
 
     /// Adds `inaccessiblemem: write`: the function may write somewhere the
     /// caller cannot observe except by not returning. That is what an abort
     /// is (CODEGEN-LLVM.md §3.1).
-    pub fn and_may_abort(self) -> MemoryEffects {
+    fn and_may_abort(self) -> MemoryEffects {
         self.with(Location::InaccessibleMem, ModRef::Mod)
     }
 
@@ -239,7 +239,7 @@ impl MemoryEffects {
     ///    carve-out either, because the block escapes through the return.
     ///  * **`errnomem`, at `ModRef`.** The allocator is `malloc` underneath and
     ///    `malloc` sets `errno`.
-    pub fn and_allocates(self) -> MemoryEffects {
+    fn and_allocates(self) -> MemoryEffects {
         self.with(Location::InaccessibleMem, ModRef::RefMod)
             .with(Location::ErrnoMem, ModRef::RefMod)
             .with(Location::Other, ModRef::Mod)
@@ -248,7 +248,7 @@ impl MemoryEffects {
     /// Adds the default location at these bits: a reference count adjusted
     /// through a pointer that is not based on a parameter, or an element read
     /// out of a block this function allocated. See [`Observed::writes_far`].
-    pub fn and_far(self, read: bool, write: bool) -> MemoryEffects {
+    fn and_far(self, read: bool, write: bool) -> MemoryEffects {
         let mut out = self;
         if read {
             out = out.with(Location::Other, ModRef::Ref);
@@ -402,7 +402,7 @@ impl Observed {
 /// The whole of CODEGEN-LLVM.md §3.1's table, in one expression, with the
 /// module header's correction applied: `Purity::Pure` is only `memory(none)`
 /// when nothing can abort.
-pub fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
+fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
     if observed.opaque {
         return MemoryEffects::everything();
     }
@@ -449,7 +449,7 @@ pub fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
 /// to the computation of the pointer's value". So a blob parameter is a pointer
 /// parameter wearing an integer's type, and the only signature this narrows to
 /// `memory(none)` is one that is genuinely all-scalar.
-pub fn narrow_for_params(effects: MemoryEffects, params: &[Slot]) -> MemoryEffects {
+fn narrow_for_params(effects: MemoryEffects, params: &[Slot]) -> MemoryEffects {
     let reaches_memory =
         params.iter().any(|s| s.ty.is_pointer() || matches!(s.ty, SlotTy::Blob(_)));
     if effects.is_everything() || reaches_memory {

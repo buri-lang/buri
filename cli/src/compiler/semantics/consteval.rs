@@ -153,7 +153,7 @@ impl<'a> Folder<'a> {
     /// The `Alloc` question is asked of the bounds rather than of the body,
     /// because that is where the answer is: a function that allocates says so
     /// in its signature, and one that does not cannot start.
-    pub fn is_foldable_fn(&self, id: FnId) -> bool {
+    fn is_foldable_fn(&self, id: FnId) -> bool {
         let info = self.tables.fun(id);
         if info.intrinsic {
             return false;

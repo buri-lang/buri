@@ -1031,7 +1031,7 @@ pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `middle::layout` chose for the `Option` — can be driven by something that is
 /// not an [`ENTRIES`] row: this operation has no intrinsic key of its own, it is
 /// the 128-bit arm of `num.I128.checkedAdd`.
-pub const I128_CHECKED: &str = "buri_rt_i128_checked";
+const I128_CHECKED: &str = "buri_rt_i128_checked";
 pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 
 /// The shape [`I128_CHECKED`] answers in, as an [`Entry`] so the sum-returning

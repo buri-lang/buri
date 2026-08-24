@@ -276,7 +276,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => self.c.scope(module).names.get(head).cloned(),
             Some(second) => {
                 match self.c.scope(module).namespaces.get(head).copied() {
-                    Some(ns) => self.c.lookup_export_pub(ns, t.text(*second)),
+                    Some(ns) => self.c.lookup_export(ns, t.text(*second)),
                     None => self.c.scope(module).names.get(head).cloned(),
                 }
             }

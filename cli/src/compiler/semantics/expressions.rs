@@ -638,7 +638,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         // `list.map` — a member of a namespace import.
         if let Some(ns) = self.c.scope(self.module).namespaces.get(head).copied() {
-            return match self.c.lookup_export_pub(ns, name)? {
+            return match self.c.lookup_export(ns, name)? {
                 Sym::Fn(f) => Some(Static::Fn(f)),
                 Sym::Context(c) => Some(Static::Context(c)),
                 Sym::Const(c) => Some(Static::Const(c)),
@@ -1711,7 +1711,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Field { base, name, .. } => {
                 let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
                 let ns = self.c.scope(self.module).namespaces.get(head).copied()?;
-                match self.c.lookup_export_pub(ns, name)? {
+                match self.c.lookup_export(ns, name)? {
                     Sym::Ty(c) => Some(c),
                     _ => None,
                 }

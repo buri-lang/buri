@@ -87,7 +87,7 @@ use crate::compiler::semantics::types::{Tables, Ty};
 pub const PTR: ClifType = types::I64;
 
 /// How many flattened results come back in registers; see this file's header.
-pub const MAX_RET_LEAVES: usize = 2;
+const MAX_RET_LEAVES: usize = 2;
 
 /// Whether these flattened results travel through an out-pointer.
 ///
