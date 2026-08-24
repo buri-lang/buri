@@ -60,11 +60,11 @@
 //!     `rustc`'s and the exception table's — and make a rustc upgrade able to
 //!     change `isAlpha` without anything in this repository changing.
 //!   * It does not table the **case** mappings. `str.toUpper` has used Rust's
-//!     `str::to_uppercase` against JavaScript's `String#toUpperCase` since the
-//!     first wave (`text.rs`), because those are the same Unicode operation
-//!     implemented from the same specification, and `isUpper`, `isLower`,
-//!     `toUpper` and `toLower` here are that same trust applied one scalar at a
-//!     time. `isAlpha` was never that: `is_alphabetic` and `\p{L}` are
+//!     `str::to_uppercase` against JavaScript's `String#toUpperCase` since it
+//!     was first written (`text.rs`), because those are the same Unicode
+//!     operation implemented from the same specification, and `isUpper`,
+//!     `isLower`, `toUpper` and `toLower` here are that same trust applied one
+//!     scalar at a time. `isAlpha` was never that: `is_alphabetic` and `\p{L}` are
 //!     different *properties*, not two implementations of one.
 //!
 //! ## 2. The other seven are transcriptions

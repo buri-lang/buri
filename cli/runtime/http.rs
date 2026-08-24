@@ -16,8 +16,9 @@
 //! The growth path is a `net-tls` cargo feature over `rustls`, which clears the
 //! bar on all three clauses (a platform interface this repository could not
 //! reasonably write, behind a feature the default build turns off, and its
-//! absence degrades `fetch` rather than breaking the toolchain). It is a wave of
-//! its own, and it is named here so nobody has to rediscover the shape of it.
+//! absence degrades `fetch` rather than breaking the toolchain). It is a piece
+//! of work in its own right, and it is named here so nobody has to rediscover
+//! the shape of it.
 //!
 //! What *is* here is complete for cleartext: absolute-URI parsing, `Host`,
 //! request bodies with `Content-Length`, chunked and identity response bodies,

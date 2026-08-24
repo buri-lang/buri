@@ -92,7 +92,7 @@ export fn noFetch(): NoFetch {
 ///   to HTML rather than to attributes on a `div`.
 ///
 /// Each of those needs a real browser driven from the outside, which is a suite
-/// this repository does not have yet and a wave of its own.
+/// this repository does not have yet.
 export struct Rendered(I64);
 
 /// Renders `root` into a document of its own.

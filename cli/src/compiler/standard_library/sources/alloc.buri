@@ -35,12 +35,13 @@
 //!     the ABI itself (`cranelift/runtime.rs`), so the runtime function that
 //!     builds the list never learns which allocator asked for it.
 //!
-//! Closing that gap is a wave of its own, and it has to close on both backends
-//! at once or the numbers stop agreeing — which is the one property this
-//! module exists to have. Until then a program that wants the other rows
-//! counted charges them itself, which is what `strBytes` and its neighbours below
-//! are for: `ctx.allocate(alloc.listBytes(xs.len(), 8))` is exactly the
-//! model's `16 + n * stride(T)`, and it is the same number natively.
+//! Closing that gap is a piece of work in its own right, and it has to close on
+//! both backends at once or the numbers stop agreeing — which is the one
+//! property this module exists to have. Until then a program that wants the
+//! other rows counted charges them itself, which is what `strBytes` and its
+//! neighbours below are for: `ctx.allocate(alloc.listBytes(xs.len(), 8))` is
+//! exactly the model's `16 + n * stride(T)`, and it is the same number
+//! natively.
 //!
 //! ## The counters live outside the values
 //!
