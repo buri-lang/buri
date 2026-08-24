@@ -129,6 +129,13 @@ impl Pattern {
         match self {
             Pattern::All => true,
             Pattern::Package(p) => p == pkg_path,
+            // `p` empty means every package, which is how `///...` — the one
+            // spelling that parses to `Recursive("")` — selects the whole
+            // repository. `Visibility::allows` deliberately does *not* read an
+            // empty prefix that way, so the same string selects everything as a
+            // target pattern and nothing but the root package as a visibility.
+            // The asymmetry is load-bearing until somebody decides which of the
+            // two is wrong; merging the arms is not a behaviour-preserving edit.
             Pattern::Recursive(p) => {
                 pkg_path == p
                     || (p.is_empty() || pkg_path.starts_with(&format!("{p}/")))
@@ -194,6 +201,10 @@ impl Visibility {
             Visibility::Private => false,
             Visibility::Everything => true,
             Visibility::Package(p) => p == pkg_path,
+            // No `p.is_empty()` arm, unlike `Pattern::matches` above: a
+            // `Recursive("")` visibility grants the root package and nothing
+            // else, where the same shape as a target pattern selects every
+            // package. See the note there — the two are not merged on purpose.
             Visibility::Recursive(p) => pkg_path == p || pkg_path.starts_with(&format!("{p}/")),
         }
     }
@@ -595,6 +606,28 @@ impl Workspace {
     }
 
     // -- module resolution --------------------------------------------------
+
+    /// The dependency label an import path names, seen from `own`.
+    ///
+    /// `None` four ways, all of them meaning "not a cross-package dependency":
+    /// a relative path, a path that resolves to nothing, one that lands
+    /// outside a package, and one that lands back in `own`. `lint`, `gen` and
+    /// `gen`'s on-disk import scan each walked these same steps, and a
+    /// `/testing` suffix decided in three places is one place for the rule to
+    /// be forgotten.
+    pub fn dependency_label(&self, own: PkgId, path: &str) -> Option<String> {
+        if !path.starts_with("//") {
+            return None;
+        }
+        let Ok(ModuleLoc::InPackage(loc)) = self.resolve_module(path) else {
+            return None;
+        };
+        if loc.pkg == own {
+            return None;
+        }
+        let label = self.pkg(loc.pkg).label();
+        Some(if is_test_only_path(path) { format!("{label}/testing") } else { label })
+    }
 
     /// Resolves a module path written in an import.
     pub fn resolve_module(&self, path: &str) -> Result<ModuleLoc, String> {

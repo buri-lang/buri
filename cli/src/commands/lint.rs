@@ -418,21 +418,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
                 crate::parsing::tree::Item::ReExport(r) => (r.path.clone(), r.path_span),
                 _ => continue,
             };
-            if !path.starts_with("//") {
-                continue;
-            }
-            let Ok(crate::build::workspace::ModuleLoc::InPackage(loc)) =
-                s.ws.resolve_module(&path)
-            else {
-                continue;
-            };
-            let other = loc.pkg;
-            if other == own {
-                continue;
-            }
-            let label = s.ws.pkg(other).label();
-            let testing = crate::build::workspace::is_test_only_path(&path);
-            let wanted = if testing { format!("{label}/testing") } else { label.clone() };
+            let Some(wanted) = s.ws.dependency_label(own, &path) else { continue };
             used.insert(wanted.clone());
             if !declared.iter().any(|d| d.value == wanted) && !in_test_deps(s, target, &wanted) {
                 let importer = s.map.name(m.file).to_string();

@@ -403,24 +403,9 @@ fn derive_dependencies(
                     crate::parsing::tree::Item::ReExport(r) => r.path.clone(),
                     _ => continue,
                 };
-                if !path.starts_with("//") {
-                    continue;
+                if let Some(label) = s.ws.dependency_label(pkg, &path) {
+                    into.insert(label);
                 }
-                let Ok(crate::build::workspace::ModuleLoc::InPackage(loc)) =
-                    s.ws.resolve_module(&path)
-                else {
-                    continue;
-                };
-                let other = loc.pkg;
-                if other == pkg {
-                    continue;
-                }
-                let label = s.ws.pkg(other).label();
-                into.insert(if crate::build::workspace::is_test_only_path(&path) {
-                    format!("{label}/testing")
-                } else {
-                    label
-                });
             }
         }
         // A test source is loaded because a rule lists it, so on the run that
@@ -540,24 +525,9 @@ fn imported_labels(s: &Session, pkg: PkgId, dir: &Path, files: &[String]) -> BTr
     let mut out = BTreeSet::new();
     for f in files {
         for path in imports_of(dir, f) {
-            if !path.starts_with("//") {
-                continue;
+            if let Some(label) = s.ws.dependency_label(pkg, &path) {
+                out.insert(label);
             }
-            let Ok(crate::build::workspace::ModuleLoc::InPackage(loc)) =
-                s.ws.resolve_module(&path)
-            else {
-                continue;
-            };
-            let other = loc.pkg;
-            if other == pkg {
-                continue;
-            }
-            let label = s.ws.pkg(other).label();
-            out.insert(if crate::build::workspace::is_test_only_path(&path) {
-                format!("{label}/testing")
-            } else {
-                label
-            });
         }
     }
     out
