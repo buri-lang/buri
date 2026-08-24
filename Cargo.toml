@@ -130,7 +130,8 @@ panic = "abort"
 #
 # `cargo bench -- --validate` compiles a corpus and asserts that it compiles:
 # the generated work set, every saved corpus under `benches/corpora/`, and the
-# one *anchor* pinned manifest. Not all forty pinned manifests — regenerating
+# *anchor* point's pinned manifests (`mixed-100k` and `mixed-1M`, at the time of
+# writing). Not all forty pinned manifests — regenerating
 # and digesting the whole sweep, half of it a million lines, is twenty minutes,
 # and this gate has to stay something somebody runs before a commit
 # (`benches/compiler.rs`, `Tier`). `--set=scale-full` is the flag that takes the
