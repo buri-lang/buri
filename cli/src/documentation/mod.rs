@@ -538,8 +538,7 @@ pub fn cmd_docs(args: &arguments::Args) -> i32 {
 /// Every diagnostic code, for `buri docs error` with no argument.
 fn error_index(ctx: &DocCtx) -> String {
     let mut out = String::new();
-    let (bold, dim, reset) =
-        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
     let _ = write!(out, "{bold}buri docs error <code>{reset} — one diagnostic in full\n\n");
     for e in crate::documentation::errors::ERRORS {
         let _ = writeln!(out, "  {:<28} {}", e.code, e.title);
@@ -556,8 +555,7 @@ fn error_index(ctx: &DocCtx) -> String {
 /// Every command, for `buri docs cli` with no argument.
 fn command_index(ctx: &DocCtx) -> String {
     let mut out = String::new();
-    let (bold, dim, reset) =
-        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
     let _ = write!(out, "{bold}buri docs cli <command>{reset} — one command in full\n\n");
     for c in crate::commands::COMMANDS {
         let _ = writeln!(out, "  cli/{:<10} {}", c.name, c.blurb);
@@ -647,8 +645,7 @@ fn index(ctx: &DocCtx) -> String {
     }
 
     let mut out = String::new();
-    let (bold, dim, reset) =
-        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
     let _ = writeln!(out, "{bold}buri docs{reset} — the language, the build system, and this CLI\n");
 
     for (kind, heading) in [
@@ -802,8 +799,7 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
         eprintln!("  = `buri docs` lists every topic");
         return 1;
     }
-    let (bold, dim, reset) =
-        if ctx.render.color() { ("\x1b[1m", "\x1b[2m", "\x1b[0m") } else { ("", "", "") };
+    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
     let mut listing = String::new();
     for (_, id, title, summary) in &hits {
         let _ = writeln!(listing, "{bold}{id}{reset}  {title}");
@@ -960,7 +956,7 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
     let files_checked = checked;
 
     if failures.is_empty() {
-        let (dim, reset) = if ctx.render.color() { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
+        let (_, dim, reset) = markdown::emphasis(ctx.render.color());
         arguments::out(&format!(
             "{blocks} example(s) in {files_checked} document(s) compile{dim} — and the ones \
              that print something were run{reset}\n"

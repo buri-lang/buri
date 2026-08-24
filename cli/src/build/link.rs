@@ -623,15 +623,9 @@ impl Linker for Cc {
             // disk — if there is one — already holds them. Everything else is
             // written unconditionally.
             //
-            // The bytes are compared, not the length and not the caller's word
-            // for it: `unchanged` is a hint about work to skip and never a
-            // licence to link stale bytes, which is what
-            // `an_unchanged_object_is_left_where_it_was` holds this to. The
-            // length is checked first only so that an object that genuinely
-            // moved is not read back before being overwritten.
-            let already = skip.contains(&i)
-                && std::fs::metadata(&path).is_ok_and(|m| m.len() == unit.bytes.len() as u64)
-                && std::fs::read(&path).is_ok_and(|on_disk| on_disk == unit.bytes);
+            // `unchanged` is a hint about work to skip, so the bytes are
+            // checked rather than taken on the caller's word.
+            let already = skip.contains(&i) && already_holds(&path, &unit.bytes);
             if !already {
                 if let Err(e) = std::fs::write(&path, &unit.bytes) {
                     return Err(Diagnostic::error(
@@ -779,6 +773,18 @@ impl Linker for Cc {
     }
 }
 
+/// Whether the file already holds exactly these bytes.
+///
+/// The length is checked first, so the common case — a file whose contents
+/// genuinely moved — is not read back before being overwritten. The *bytes*
+/// are then compared rather than the length alone: skipping a write is a
+/// saving and never a licence to leave stale bytes, which is what
+/// `an_unchanged_object_is_left_where_it_was` holds this to.
+fn already_holds(path: &Path, bytes: &[u8]) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.len() == bytes.len() as u64)
+        && std::fs::read(path).is_ok_and(|on_disk| on_disk == bytes)
+}
+
 /// Writes an executable over whatever is at `path`, keeping that file's
 /// identity, and makes it executable.
 ///
@@ -789,11 +795,8 @@ pub fn place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // A write the file does not need is a write worth not doing. The charge
     // above is on the first execution *after a write*, so an artifact whose
     // bytes did not move — every rebuild whose edit the optimiser removed, and
-    // every rebuild of a target the edit did not reach — runs for nothing. The
-    // length is checked first so that the common case of a genuinely different
-    // artifact does not read the old one back.
-    let settled = std::fs::metadata(path).is_ok_and(|m| m.len() == bytes.len() as u64)
-        && std::fs::read(path).is_ok_and(|on_disk| on_disk == bytes);
+    // every rebuild of a target the edit did not reach — runs for nothing.
+    let settled = already_holds(path, bytes);
     if !settled {
         std::fs::write(path, bytes)?;
     }

@@ -661,10 +661,24 @@ fn collapse_blank_runs(text: &str) -> String {
 // Terminal rendering
 // ---------------------------------------------------------------------------
 
-const BOLD: &str = "\x1b[1m";
-const DIM: &str = "\x1b[2m";
+pub const BOLD: &str = "\x1b[1m";
+pub const DIM: &str = "\x1b[2m";
 const BLUE: &str = "\x1b[1;34m";
-const RESET: &str = "\x1b[0m";
+pub const RESET: &str = "\x1b[0m";
+
+/// The escape triple every listing in `documentation/mod.rs` opens with, or
+/// three empty strings when colour is off.
+///
+/// One function because "bold, dim, reset — unless `--color=never`" was
+/// written out at five places, and an escape sequence spelled by hand at five
+/// places is five chances to spell it wrong once.
+pub fn emphasis(color: bool) -> (&'static str, &'static str, &'static str) {
+    if color {
+        (BOLD, DIM, RESET)
+    } else {
+        ("", "", "")
+    }
+}
 
 /// Markdown as a terminal reader wants it: headings bold, code indented and
 /// dim, paragraphs wrapped, tables and lists left alone.

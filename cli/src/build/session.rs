@@ -99,17 +99,18 @@ impl Session {
         Ok(out)
     }
 
+    /// Emits everything the session has collected, in source order, and
+    /// empties it. `true` when any of it was an error.
     pub fn report(&mut self) -> bool {
         self.diags.sort(&self.map);
-        let mut had_error = false;
-        for d in &self.diags.items {
-            self.emit(d);
-            had_error |= d.is_error();
-        }
+        let had_error = self.print(&self.diags);
         self.diags.clear();
         had_error
     }
 
+    /// The same for a set of diagnostics the session does not own, which is
+    /// what an analysis hands back. Left in the order it arrived: only the
+    /// session's own collection is a mixture of several passes' findings.
     pub fn print(&self, diags: &Diagnostics) -> bool {
         let mut had_error = false;
         for d in &diags.items {
