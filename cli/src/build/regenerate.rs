@@ -655,7 +655,7 @@ fn set_list(
 ) {
     let Some((leaf, blocks)) = path.split_last() else { return };
     let Some(rule_field) = doc.fields.iter_mut().find(|f| f.name == rule) else { return };
-    let Value::Msg(msg, span) = &mut rule_field.value else { return };
+    let Value::Msg(msg, _) = &mut rule_field.value else { return };
     let mut target: &mut Msg = msg;
     for seg in blocks {
         let i = match target.fields.iter().position(|f| f.name == *seg) {
@@ -716,7 +716,6 @@ fn set_list(
             );
         }
     }
-    let _ = span;
 
     let added: Vec<&String> = after.difference(&before).collect();
     let removed: Vec<&String> = before.difference(&after).collect();

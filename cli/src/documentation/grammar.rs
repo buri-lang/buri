@@ -1268,7 +1268,6 @@ impl Gen<'_> {
                                 level.production
                             ));
                         };
-                        let _ = number;
                         choices.push(Js::Atom(format!("$.{}", self.node_of(name))));
                     }
                     let target = self.node_of(&level.production).to_string();

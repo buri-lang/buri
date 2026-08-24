@@ -1392,7 +1392,7 @@ impl<'a> Gen<'a> {
 
     /// A oneof's cases, read in order: the first member present wins, which is
     /// what a document holding two of them means to every other implementation.
-    fn oneof_json_fn(&mut self, name: &str, o: &ROneof) {
+    fn oneof_json_fn(&mut self, o: &ROneof) {
         self.line(&format!(
             "fn read{}<C: Alloc>(\n  ctx: C,\n  doc: Json,\n  path: Str,\n): Result<Option<{}>, ProtoError> {{",
             o.enum_name, o.enum_name
@@ -1422,12 +1422,11 @@ impl<'a> Gen<'a> {
         }
         self.line("}");
         self.line("");
-        let _ = name;
     }
 
     fn json_decode_fn(&mut self, name: &str, fields: &[RField], oneofs: &[ROneof]) {
         for o in oneofs {
-            self.oneof_json_fn(name, o);
+            self.oneof_json_fn(o);
         }
         self.line("/// Reads a proto3 JSON document. An absent member and a `null` one mean the");
         self.line("/// same thing, which is what the mapping says.");

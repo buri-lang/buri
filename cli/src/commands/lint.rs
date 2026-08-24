@@ -527,9 +527,9 @@ fn check_hygiene(
         }
     }
     check_unreachable_exports(s, target, analysis, diags);
-    check_discarded_results(s, own, analysis, diags);
-    check_tests_assert(s, own, analysis, diags);
-    check_test_titles(s, own, analysis, diags);
+    check_discarded_results(own, analysis, diags);
+    check_tests_assert(own, analysis, diags);
+    check_test_titles(own, analysis, diags);
 }
 
 /// `test-title-newline`. A title spanning lines is legal and reported — the
@@ -540,7 +540,6 @@ fn check_hygiene(
 /// A warning rather than an error, because it is a matter of taste about the
 /// text and not a rule about the program: `duplicate-test-name` is the rule.
 fn check_test_titles(
-    s: &Session,
     own: PkgId,
     analysis: &crate::compiler::driver::Analysis,
     diags: &mut Diagnostics,
@@ -566,7 +565,6 @@ fn check_test_titles(
                 ),
         );
     }
-    let _ = s;
 }
 
 /// `unreachable-export`. Inside a library, `export` means "visible to the rest
@@ -806,7 +804,6 @@ fn line_end(text: &str, at: u32) -> u32 {
 /// promoted to a warning so it appears in a report rather than only when
 /// somebody thinks to look.
 fn check_discarded_results(
-    s: &Session,
     own: PkgId,
     analysis: &crate::compiler::driver::Analysis,
     diags: &mut Diagnostics,
@@ -825,7 +822,6 @@ fn check_discarded_results(
                 ),
         );
     }
-    let _ = s;
 }
 
 /// `test-without-assertion`. Read syntactically — "the body contains no
@@ -833,7 +829,6 @@ fn check_discarded_results(
 /// is most of the ones worth writing. So it is transitive: a test passes if
 /// anything reachable from it calls into `core/testing/assert`.
 fn check_tests_assert(
-    s: &Session,
     own: PkgId,
     analysis: &crate::compiler::driver::Analysis,
     diags: &mut Diagnostics,
@@ -896,7 +891,6 @@ fn check_tests_assert(
                 ),
         );
     }
-    let _ = s;
 }
 
 /// Every call site in `own`'s code that lands on one of `names` in `module`.
