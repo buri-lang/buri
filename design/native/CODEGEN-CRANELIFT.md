@@ -226,7 +226,7 @@ variant's index otherwise.
 ```
 
 The `b_free` block is marked with `set_cold_block`, which moves it out of the hot
-path in the final layout — `design/LLVM-tips.md:4`'s cache-locality instruction, and
+path in the final layout — CODEGEN-LLVM.md §0's cache-locality instruction, and
 Cranelift gives it directly.
 
 The saturating increment is three nodes rather than one because Cranelift's

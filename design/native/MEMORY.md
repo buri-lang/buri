@@ -72,7 +72,7 @@ from C; `cli/tests/native/memory.rs` is the same assertion over Buri programs.
 
 ## 3. Why not a tracing GC
 
-Direct conflict with `design/LLVM-tips.md:2`.
+Direct conflict with CODEGEN-LLVM.md §0's second instruction.
 
 A tracing collector has to find the roots, which means knowing which stack slots
 and which registers hold pointers at every point a collection can happen. There
@@ -81,7 +81,8 @@ are two ways to have that in LLVM, and both are excluded:
 - **Precise, via `gc.statepoint`.** Every GC-reachable pointer has to live in a
   stack slot the runtime can enumerate at a safepoint, which is `alloca` +
   reload around every call. That is exactly the `alloca` form
-  `design/LLVM-tips.md:2` says not to generate, and running `mem2reg` over it
+  CODEGEN-LLVM.md §0's second instruction says not to generate, and running
+  `mem2reg` over it
   does not help — the whole point of a statepoint is that the value is *not* in a
   register across the call. The instruction and the collector are incompatible,
   and the instruction is the one with a reason behind it.
@@ -209,7 +210,7 @@ On top of that, three local rules:
   consumed within one function, never stored and never returned, becomes an
   `alloca` (LLVM) / stack slot (Cranelift) with no header and no counts. This is
   the one place `alloca` is emitted, and it is emitted for a value that is never
-  reloaded through a pointer, so `design/LLVM-tips.md:2`'s instruction is not
+  reloaded through a pointer, so CODEGEN-LLVM.md §0's second instruction is not
   violated — see CODEGEN-LLVM.md §2.3.
 
 ### 5.3 Reuse, which is where the copying goes

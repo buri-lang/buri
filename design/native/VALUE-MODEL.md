@@ -476,7 +476,7 @@ size is what a JavaScript build is judged on.
 
 **Natively, all of them are generated and no descriptor reaches the artifact.**
 
-The reasons are the ones `design/LLVM-tips.md` lists. A descriptor walk is an
+The reasons are the ones CODEGEN-LLVM.md §0 lists. A descriptor walk is an
 interpreter: an indirect dispatch on `Desc`'s tag per field per element, which is
 the single megamorphic call site `generate.rs:222-227` already identifies as the
 problem in the JavaScript version. It defeats `readnone`/`readonly` attribution

@@ -154,7 +154,7 @@ below, and so the reasons are findable.
 
 | Decision | Where | The alternative that lost |
 |---|---|---|
-| Reference counting, not a GC | MEMORY.md §3 | A tracing GC needs statepoints or conservative scanning; the first contradicts `design/LLVM-tips.md:2`, the second makes the heap data-dependent and irreproducible. |
+| Reference counting, not a GC | MEMORY.md §3 | A tracing GC needs statepoints or conservative scanning; the first contradicts CODEGEN-LLVM.md §0's second instruction, the second makes the heap data-dependent and irreproducible. |
 | No arena per `Alloc` scope | MEMORY.md §4 | `Alloc` is a propagating bound and `Region` is a value; there is no scope to hang an arena on. |
 | The middle end owns tail-call elimination; neither backend uses its own | CODEGEN-LLVM.md §5, CODEGEN-CRANELIFT.md §3.3 | `musttail`/`tailcc` and `return_call` are both viral, both incompatible with a C-ABI runtime, and both unnecessary once the tail-call graph is a DAG. |
 | Neither linker links incrementally; recompile granularity is the codegen unit | CODEGEN-CRANELIFT.md §7 | mold rejected incremental linking partly *because it is not reproducible*, which this toolchain cannot accept. |

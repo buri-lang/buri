@@ -5,17 +5,32 @@ The release backend: `buri build --release` for `Linux` and `Macos`
 between them do not — instruction selection, scheduling, register allocation and
 vectorization at production quality.
 
-`design/LLVM-tips.md` is normative for this document, and its four lines are answered in
-order: dead code elimination before LLVM IR is §1; optimized SSA without mem2reg
-is §2; comprehensive attributes is §3; cache locality and basic-block size is §5.
-
 Facts about LLVM and inkwell were checked against inkwell 0.10.0 (2026-08-06),
 `llvm-sys` 211.x, and LLVM 21.1, which is what §8 pins.
 
+## 0. The four instructions
+
+Four instructions govern what a frontend owes LLVM, and this document is
+organised around answering them. They are normative for every native codegen
+document in `design/native/`, and the compiler cites them where it obeys them.
+
+1. **Do dead code elimination before it reaches LLVM IR.** Answered in §1.
+2. **Avoid `mem2reg`; generate optimized SSA form.** Answered in §2, and it is
+   the reason the middle end has a block-argument IR at all
+   (ARCHITECTURE.md §2.1).
+3. **Supply comprehensive LLVM attributes** — `noalias`, `nounwind`, `readnone`,
+   `readonly`, `nonnull`, `align`. Answered in §3, where the effect system turns
+   out to supply most of them for free.
+4. **Structure for cache locality and basic-block size.** Answered in §6.
+
+They are stated as instructions rather than as goals because each is a thing a
+frontend either did or did not do before LLVM was handed a module, and each has
+a section below that says which.
+
 ## 1. Dead code elimination happens before this file runs
 
-`design/LLVM-tips.md:1`. `middle::dce` (ARCHITECTURE.md §2.2) runs after inlining and
-before lowering, so the module handed to LLVM contains no unreachable function
+§0's first instruction. `middle::dce` (ARCHITECTURE.md §2.2) runs after inlining
+and before lowering, so the module handed to LLVM contains no unreachable function
 and no unused local. Three things make that stronger here than in most compilers:
 
 - Monomorphization is reachability-driven, so an instance nothing calls is never
@@ -33,7 +48,7 @@ per-unit compile time in `--release` is what dominates a release build.
 
 ## 2. Direct SSA, and no `alloca`
 
-`design/LLVM-tips.md:2`: avoid mem2reg, generate optimized SSA form.
+§0's second instruction: avoid `mem2reg`, generate optimized SSA form.
 
 ### 2.1 Block parameters become phis, mechanically
 
@@ -67,7 +82,7 @@ entry block's allocas, finds none, and returns.
 
 The counter-design — emit an `alloca` per local, `store` on definition, `load` on
 use, and let mem2reg sort it out — is what most hand-written LLVM frontends do
-and it is what `design/LLVM-tips.md:2` names. Its cost is not just the pass: it is that
+and it is what §0's second instruction names. Its cost is not just the pass: it is that
 every intermediate value passes through memory in the IR the *inliner* and the
 early simplification passes see, so the decisions those passes take are taken on
 a worse program.
@@ -78,7 +93,7 @@ Escape analysis (MEMORY.md §5.2) promotes a struct that is constructed and
 consumed within one function, never stored into a heap value and never returned,
 into stack memory. That is an `alloca` in the entry block.
 
-It is not the case `design/LLVM-tips.md:2` is about. The instruction is about using
+It is not the case §0's second instruction is about. The instruction is about using
 memory as a stand-in for SSA values — an `alloca` whose whole purpose is to be
 promoted back. This one is a genuine aggregate in memory whose fields are
 accessed by `getelementptr`, exactly as a C local struct would be, and SROA
@@ -107,7 +122,7 @@ the emission (ARCHITECTURE.md §2.2), which was the reason to move it.
 
 ## 3. Attributes
 
-`design/LLVM-tips.md:3`. The effect system supplies most of this for free, and it is
+§0's third instruction. The effect system supplies most of this for free, and it is
 worth saying so plainly: **a language where "does this function touch the world?"
 is a syntactic property of its signature is a language that can answer LLVM's
 memory-effect questions without an analysis.** SPEC 10.4's purity theorem is an
@@ -438,7 +453,7 @@ is a middle-end gap that predates this design, and the fix is a middle-end one.
 
 ## 6. Cache locality and basic-block size
 
-`design/LLVM-tips.md:4`.
+§0's fourth instruction.
 
 - **Cold blocks are marked cold.** Every abort path, every `decref` free path
   (MEMORY.md §5.1), every `.None` arm of a `?` (SPEC 6.8), and every
@@ -501,8 +516,9 @@ inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
 Ruled on, and it settles what `OPEN-QUESTIONS.md` asked:
 
 - **Exactly one supported LLVM at any moment.** Not a range, not a minimum, not a
-  set of `#[cfg]`-selected encodings. `strict-versioning` below is this policy
-  enforced by the build rather than by a promise.
+  set of `#[cfg]`-selected encodings. `strict-versioning` below is what would
+  enforce that in the build rather than by a promise, and §8.3 records why it is
+  not on yet.
 - **The pin is the latest LLVM that inkwell *and* the flake's nixpkgs both
   carry.** Both, because a pin either side cannot supply is a pin nobody can
   build: inkwell is where the feature flag comes from and nixpkgs is where the
@@ -571,11 +587,19 @@ What 22 would buy is `musttail` on RISC-V, which §5 declines to use on any
 target — so there is nothing to want, and the pin moves when the flake does,
 through §8.2.
 
-**`strict-versioning` is on.** `llvm-sys` will otherwise build against any LLVM
-at least as new as its target, so a machine with LLVM 22 installed would silently
-produce a toolchain that generates different code from one built against 21.
-For a compiler whose central claim is byte-identical output, "at least as new" is
-not a version policy.
+**`strict-versioning` is asked for and is not on.** `llvm-sys` will otherwise
+build against any LLVM at least as new as its target, so a machine with LLVM 22
+installed would silently produce a toolchain that generates different code from
+one built against 21, and for a compiler whose central claim is byte-identical
+output "at least as new" is not a version policy. What blocks it is the
+dependency bar rather than the argument: inkwell's `llvm21-1` expands to
+`llvm-sys-211` and nothing else, so reaching the flag would mean a second direct
+dependency on `llvm-sys` for one setting. Standing in for it until that is
+decided: `Backend::identity()` puts the LLVM version into every release
+`codegen` key, so two toolchains built against different LLVMs never share a
+cached object, and `llvm-config --version` is what a contributor checks.
+`cli/Cargo.toml` and BUILD-AND-WATCH.md §3.4 both say so where the decision is
+made.
 
 **Linking mode.** `llvm-sys` defaults to `prefer-static` since 191. On macOS
 there is an open bug (`llvm-sys` GitLab #80): `llvm-config --system-libs
