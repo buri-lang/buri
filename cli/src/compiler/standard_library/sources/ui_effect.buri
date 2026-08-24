@@ -87,6 +87,24 @@ impl Watch for Scope {
   fn read<T>(self: Scope, id: Int): T;
 }
 
+/// Something a reader did.
+///
+/// Opaque in this version, and deliberately: it exists so that a handler that
+/// later wants to know *where* a press landed, or whether a modifier key was
+/// down, gains an accessor rather than a new signature. There are two shapes
+/// of handler in the vocabulary — a press, on a button, and a submission, on a
+/// form — and both are handed one of these.
+///
+/// A change is not among them, and that is not an omission: a field and a
+/// toggle are bound to a `Signal`, so what the reader typed is in the signal
+/// already. Hover, focus and pressed are not among them either, because they
+/// are appearance rather than events, and belong to `ui/style` — a hover that
+/// wrote a signal would put a render in the path of every mouse move.
+///
+/// Holds no authority, so a lambda may capture one. Its field is private, so
+/// only the runtime can mint one.
+export struct Event(Int);
+
 /// What a `Fetch` is asked to do.
 export struct Request {
   export method: Str,

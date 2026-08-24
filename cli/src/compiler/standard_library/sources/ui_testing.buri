@@ -16,6 +16,7 @@
 //! cells it made.
 
 from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
+from "ui/node" import { Node };
 from "core/effect" import { NetResponse };
 
 /// Creates and writes signals, and runs computations, with no rendering.
@@ -59,6 +60,87 @@ impl Fetch for NoFetch {
 /// A `Fetch` that refuses.
 export fn noFetch(): NoFetch {
   NoFetch {}
+}
+
+/// A tree that has been rendered, and can be looked at and acted on.
+///
+/// The renderer behind it is the one `ui/node`'s `mount` uses, against a
+/// document the runtime supplies rather than a browser: there is no second
+/// reconciler to be right about, and what these tests exercise is the shipping
+/// one. Which element each role became, which style reached which element,
+/// what a press did, and which rows a keyed list moved rather than rebuilt are
+/// all answerable here.
+///
+/// What is left is what only a browser does, and it is a short list, kept here
+/// so that it is a list rather than a silence:
+///
+/// - **Layout and painting.** A style is asserted as the declaration it became,
+///   not as pixels. Whether `flex-grow: 1` actually took the leftover room is
+///   the browser's answer to give.
+/// - **The browser's own dispatch.** That Enter and Space on a button produce
+///   a press, that Enter in a field submits the form around it, and that a
+///   press inside a label reaches the input it wraps — all three are why the
+///   vocabulary lowers to `button`, `form` and `label` rather than to
+///   listeners on a `div`, and all three are the browser keeping its side.
+/// - **Focus and selection.** That a moved row keeps the focus and the caret
+///   is the reason rows are keyed; what is asserted here is the identity that
+///   makes it possible.
+/// - **What assistive technology announces.** A role is asserted as the
+///   element it became. Whether a reader says "list, five items" is that
+///   reader's contract with HTML, which is the whole reason meaning is lowered
+///   to HTML rather than to attributes on a `div`.
+///
+/// Each of those needs a real browser driven from the outside, which is a suite
+/// this repository does not have yet and a wave of its own.
+export struct Rendered(I64);
+
+/// Renders `root` into a document of its own.
+///
+/// The context is the one the tree's handlers are given, exactly as `mount`
+/// hands over the context it was called with.
+export fn render<C: Ui>(ctx: C, root: Node<C>): Rendered;
+
+impl Rendered {
+  /// The tree as markup: elements, their attributes, their styles and their
+  /// text, in order.
+  ///
+  /// The runtime's own bookkeeping — the markers it puts around a region that
+  /// can change — is left out, because it is not what a reader sees and not
+  /// what a test should be pinned to.
+  export fn markup(self: Rendered): Str;
+
+  /// Every run of text in the tree, in order, separated by a space.
+  export fn text(self: Rendered): Str;
+
+  /// Presses the button whose label is `label`.
+  ///
+  /// Addressed by label rather than by position because that is what a reader
+  /// addresses it by, and because a test that says which button it meant does
+  /// not quietly start pressing another one. Aborts when no button carries
+  /// that label.
+  export fn press(self: Rendered, label: Str): ();
+
+  /// Types `value` into the field labelled `label`, as a reader replacing what
+  /// was there.
+  export fn fill(self: Rendered, label: Str, value: Str): ();
+
+  /// Flips the toggle labelled `label`.
+  export fn flip(self: Rendered, label: Str): ();
+
+  /// Submits the `index`th form, oldest first — what pressing Enter in one of
+  /// its fields does.
+  export fn submit(self: Rendered, index: Int): ();
+
+  /// How many elements of this kind the tree holds. The name is the one
+  /// `markup` shows.
+  export fn count(self: Rendered, name: Str): Int;
+
+  /// What the `index`th element of this kind is, as a number the runtime gives
+  /// an element when it creates it and never gives to another.
+  ///
+  /// This is how a test says that a keyed list *moved* a row rather than
+  /// rebuilding it: the identity survives a reorder and a rebuild changes it.
+  export fn identity(self: Rendered, name: Str, index: Int): Int;
 }
 
 /// An ordered log, for asserting on *when* something ran.

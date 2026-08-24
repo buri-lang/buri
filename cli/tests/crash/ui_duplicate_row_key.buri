@@ -1,0 +1,37 @@
+// CRASH: two rows share the key "milk"
+//
+// `ui.each` takes its key as a parameter because keying a list by position
+// silently corrupts it the moment the list is reordered. A key that is not
+// unique gives up the same guarantee more quietly still: whichever row wins the
+// lookup, the other one is wrong, and the list goes on rebuilding both. There
+// is no answer to choose between them, so the runtime refuses at the point it
+// happens and names the key (SPEC 6.10).
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+
+fn itself(item: Str): Str {
+  item
+}
+
+fn rows<C>(items: Prop<[Str]>): Node<C> {
+  ui.region(.List, [], [
+    ui.each(items, itself, fn(c, item, index) =>
+      ui.region(.ListItem, [], [ui.text(.Const(item))])),
+  ])
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let _ = ctx.println("mounting");
+  let shopping: Prop<[Str]> = .Const(["milk", "eggs", "milk"]);
+  ui.mount(ctx, rows(shopping), [])
+}

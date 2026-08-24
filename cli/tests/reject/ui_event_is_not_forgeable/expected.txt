@@ -1,0 +1,8 @@
+error: field `0` of `Event` is private to its module [private-to-module]
+  --> cmd/ui_event_is_not_forgeable/main.buri:16:53
+   |
+16 |   ui.button(.Const("twice"), fn(c, e) => onPress(c, Event(0)))
+   |                                                     ^^^^^^^^
+   |
+   = a struct with any private field cannot be constructed or destructured elsewhere, though functional update still works because it never names the hidden fields
+   = fix: add `export` to the field, or go through a method `Event` provides

@@ -164,10 +164,11 @@ importable only from a test source.
 
 ### User interfaces
 
-`ui/effect` declares `Watch`, `Ui` and `Fetch`, and the `Scope` a reactive
-closure is handed. `ui/signal` is `Signal<T>` — `get`, `set`, `update` — plus
-`signal` and `watch`; `ui/prop` is `Prop<T>` and `memo`. `ui/testing` is a
-headless platform, importable only from a test source.
+`ui/effect` declares `Watch`, `Ui` and `Fetch`, the `Scope` a reactive closure
+is handed, and the `Event` a handler is handed. `ui/signal` is `Signal<T>` —
+`get`, `set`, `update` — plus `signal` and `watch`; `ui/prop` is `Prop<T>` and
+`memo`. `ui/testing` is a headless platform and a renderer to look at what a
+tree became, importable only from a test source.
 
 The whole of it rests on one idea: **a signal handle is inert data, and the
 authority to read or write it travels through `ctx`** — the same split `Alloc`
@@ -186,6 +187,56 @@ Tracking is automatic and exact: dependencies are collected afresh on every
 run, so a read behind an `if` subscribes to the branch taken and not to the
 other one. Writing a value identical to the one already there is not a change
 and re-runs nothing.
+
+#### The tree
+
+`ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
+seventeen functions that build one. `ui/style` is how a container arranges and
+paints what is inside it, and `mount` — the eighteenth — puts a tree on the
+screen and leaves it there.
+
+Two rules run through the vocabulary and are worth knowing before reading it.
+**Meaning is the role and arrangement is the style**: `region(.List, ...)` says
+what a group of children *is*, so a screen reader announces a list of five
+items, while `.Layout(.Row)` says only how it is arranged and means nothing to
+anybody but a display. No constructor is named after an HTML element and there
+is no tag-string escape hatch. And **a parameter an assistive technology cannot
+do without is a parameter**: `image` takes its `alt`, `link` its `dest`, and
+`field` and `toggle` their `label`. A field with no label is not something this
+vocabulary can express, which is what makes the commonest accessibility failure
+on the web a compile error.
+
+A component is an ordinary function and it runs **once**. Three constructors
+put reactivity in the tree, and each re-runs the smallest thing it can:
+
+| | What re-runs |
+|---|---|
+| a `Prop` on a leaf | one run of text, or one attribute. Nothing else in the tree is touched, and a `Prop.Const` registers nothing at all |
+| `choose(cond, then, otherwise)` | one of two subtrees, when the condition changes. The subtree that goes is disposed, and the computations inside it go with it |
+| `computed(build)` | the subtree `build` answers, when anything `build` read changes. The coarse instrument: reach for a `Prop` on a leaf when only a string is changing |
+| `each(items, key, row)` | O(n) in the list, and **no row that is still there**: a row is keyed, so a reorder moves it and never rebuilds it. That is what keeps the focus, the scroll position and the computations inside a row alive |
+
+`choose` is what `design/ui-reactivity.md` calls `when`; `when` is a reserved
+word, held for a language feature nobody has taken yet, so no function may be
+called one.
+
+Handlers — `button`'s `onPress` and `form`'s `onSubmit` — take their context as
+a parameter, because a lambda may not capture one, and the runtime hands each
+the very context the tree was mounted with. Everything one press writes is one
+update: the handler runs inside a transaction, so three writes cause one pass
+over the watchers rather than three. A field and a toggle have no change event
+at all, because they are bound to a `Signal` and what the reader typed is in it.
+
+What is not here yet, and what it is waiting for. `ui/style` is the first tier
+of `design/ui-reactivity.md` §Styling — one property, one value, applied to the
+element it belongs to. The *static* tier (`On(State, ...)` for hover and focus,
+`At(Screen, ...)` for breakpoints) needs compile-time extraction into one atomic
+class per distinct value, since a pseudo-class and a media query cannot be
+written into an element's own style, and the *reactive* tier (`When`,
+`Computed`) waits with it so that the two arrive with one conflict-resolution
+rule rather than two. `ui/theme` has the `Theme` that `mount` takes and nothing
+that builds one, which is why the list to pass today is the empty one: a design
+token is a name resolved against a theme, and both halves arrive together.
 
 ### Allocators
 

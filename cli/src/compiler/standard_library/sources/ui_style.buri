@@ -1,0 +1,163 @@
+//! ui/style — how a container arranges and paints what is inside it.
+//!
+//! A `Style` is a property or a group of them, and it is inert data: building
+//! one needs no context, no allocator and no authority (SPEC 10.5). That is
+//! what lets a pure component describe its appearance and hand the description
+//! to whoever renders it.
+//!
+//! Two things this vocabulary refuses, both deliberate. **No property is named
+//! after a CSS declaration** — `AlignMain` and `AlignCross` name the axis
+//! rather than the writing direction, so a right-to-left page and a column
+//! stack mean the same thing by them — and **arrangement is style while meaning
+//! is the role**, so nothing here says what a region *is*. `ui/node` owns that.
+//!
+//! This is the vocabulary's first tier: every variant below is a single
+//! property with a single value, and the runtime applies it to the element it
+//! belongs to. `design/ui-reactivity.md` §Styling describes two more tiers that
+//! are not here yet, and both need machinery rather than more variants: the
+//! *static* tier (`On(State, [Style])` for hover and focus, `At(Screen,
+//! [Style])` for breakpoints) has to be extracted at compile time into one
+//! atomic class per distinct property value, since a pseudo-class and a media
+//! query cannot be written into an element's own style; and the *reactive* tier
+//! (`When(Prop<Bool>, ...)`, `Computed(fn(Scope) => [Style])`) waits with it, so
+//! that the two arrive with one conflict-resolution rule rather than two. Both
+//! are additive: a variant added to `Style` later changes no signature here.
+
+/// One appearance property, or a group of them.
+///
+/// The variants are ordered, and the order is load-bearing: the JavaScript
+/// runtime reads a `Style` by its tag, the same way it reads a `FetchError`.
+export enum Style {
+  /// Several properties as one value. Composition, with no allocator: an array
+  /// literal is fixed-size construction.
+  export Group([Style]),
+  /// How this container arranges its children.
+  export Layout(Layout),
+  /// The space between children.
+  export Gap(Length),
+  /// Space inside every edge.
+  export Padding(Length),
+  /// Space inside the two edges the text direction runs along.
+  export PaddingX(Length),
+  /// Space inside the top and bottom edges.
+  export PaddingY(Length),
+  /// How wide.
+  export Width(Length),
+  /// How tall.
+  export Height(Length),
+  /// Where the children sit along the axis the layout runs along.
+  export AlignMain(Align),
+  /// Where the children sit across that axis.
+  export AlignCross(Align),
+  /// How much of the leftover space along the main axis this child takes,
+  /// relative to its siblings. `0` is "none of it".
+  export Grow(Int),
+  /// What is painted behind the content.
+  export Background(Color),
+  /// What the text is painted in.
+  export Foreground(Color),
+  /// How thick the border is. A width with no `BorderColor` draws in the
+  /// foreground colour, which is what every other toolkit does.
+  export BorderWidth(Length),
+  /// What colour the border is.
+  export BorderColor(Color),
+  /// How rounded the corners are.
+  export Radius(Length),
+  /// How large the text is.
+  export FontSize(Length),
+  /// How heavy the text is.
+  export FontWeight(Weight),
+  /// What the pointer looks like over this element.
+  export Cursor(Cursor),
+}
+
+/// How a container arranges its children.
+///
+/// `Column` is the default, because a document is a column: a container with
+/// no `Layout` stacks its children downwards.
+export enum Layout {
+  /// Children run down the page.
+  export Column,
+  /// Children run along it.
+  export Row,
+}
+
+/// A distance.
+export enum Length {
+  /// Device-independent pixels.
+  export Px(Int),
+  /// Multiples of the root text size, so it follows a reader who has made
+  /// text larger.
+  export Rem(Float),
+  /// A fraction of the containing space, as a percentage.
+  export Percent(Float),
+  /// Whatever the content needs.
+  export Auto,
+  /// All of the containing space.
+  export Full,
+}
+
+/// A colour.
+///
+/// `Token` is not here yet: a design token is a name resolved at mount against
+/// the themes an app passes, and both halves of that arrive with `ui/theme`.
+export enum Color {
+  /// Red, green and blue, each 0-255.
+  export Rgb(Int, Int, Int),
+  /// Red, green and blue, and how opaque, 0.0 to 1.0.
+  export Rgba(Int, Int, Int, Float),
+  /// Nothing is painted, and whatever is behind shows through.
+  export Transparent,
+  /// Whatever the containing element uses.
+  export Inherit,
+}
+
+/// Where something sits along an axis.
+///
+/// The three `Space*` values distribute the *leftover* room between children
+/// and mean nothing for a single one.
+export enum Align {
+  /// Where the axis begins.
+  export Start,
+  /// The middle.
+  export Center,
+  /// Where the axis ends.
+  export End,
+  /// Filling the axis.
+  export Stretch,
+  /// The leftover room divided between the children, none at either end.
+  export SpaceBetween,
+  /// The leftover room divided around the children, half of a share at each
+  /// end.
+  export SpaceAround,
+  /// The leftover room divided evenly, including at the ends.
+  export SpaceEvenly,
+}
+
+/// How heavy text is.
+///
+/// Named rather than numeric, because a name is what a font family actually
+/// has: a weight of 637 maps to nothing on any platform, and `Semibold` maps
+/// to a face on every one.
+export enum Weight {
+  /// Body text.
+  export Regular,
+  /// A little heavier than body text.
+  export Medium,
+  /// Heavier again — the usual weight for a heading.
+  export Semibold,
+  /// The heaviest of the four.
+  export Bold,
+}
+
+/// What the pointer looks like.
+export enum Cursor {
+  /// Whatever the platform would have chosen.
+  export Default,
+  /// Something to press.
+  export Pointer,
+  /// Something to select.
+  export Text,
+  /// Something that would refuse.
+  export NotAllowed,
+}

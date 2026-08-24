@@ -2,11 +2,16 @@ library {
     sources: []
 
     test {
-        sources: ["test/reactivity.buri", "test/fetch.buri"]
+        sources: [
+            "test/reactivity.buri",
+            "test/fetch.buri",
+            "test/tree.buri",
+        ]
 
-        # JS only, and not for the usual reason: the reactive graph is a
-        # runtime intrinsic, and no native backend has one. `native::conformance`
-        # records both files as excluded, with that reason.
+        # JS only, and not for the usual reason: the reactive graph and the
+        # document under the tree are runtime intrinsics, and no native backend
+        # has either. `native::conformance` records all three files as
+        # excluded, with that reason.
         platforms: [JS]
     }
 }

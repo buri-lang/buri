@@ -1,0 +1,22 @@
+//! ui/theme — what a package's design tokens mean, decided by the app.
+//!
+//! A library that uses tokens declares its own closed vocabulary as an
+//! ordinary enum and styles itself against that; the app that uses the library
+//! closes the loop at mount with one theme per library, mapping that library's
+//! tokens to its own or to raw values. Exhaustiveness is the whole contract:
+//! when a library adds a token, every consumer fails to compile until its
+//! theme maps it (`design/ui-reactivity.md` §Design tokens).
+//!
+//! **A `Theme` cannot be built yet, and that is deliberate rather than
+//! unfinished.** The type is here because `mount` takes a list of them, and a
+//! signature that gains a parameter later is a breaking change while a type
+//! that gains a constructor later is not. What is missing is the other half of
+//! tokens — `Color::Token(TokenReference)` in `ui/style`, and the resolution
+//! step that turns a chain of them into a value at mount — so the only list a
+//! program can pass today is the empty one, which is exactly what an app with
+//! no tokens wants to pass. Until then, a colour is written out.
+
+/// One package's tokens, resolved to values.
+///
+/// Opaque, and with no constructor: see the module note above.
+export struct Theme(Int);

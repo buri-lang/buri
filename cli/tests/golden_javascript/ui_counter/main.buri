@@ -1,0 +1,56 @@
+// design/ui-reactivity.md, "Example", compiled. The whole of the tree
+// vocabulary is ordinary Buri building an enum, so what the backend emits for a
+// component is array literals and closures — and the one call into the runtime
+// is `mount`, which is where a value meets a document.
+//
+// The two things worth reading in the output: a pure component
+// (`__cmd_x_main$badge`) takes no context and no allocator, because a tree is
+// fixed-size construction; and the press handler is a plain arrow function
+// taking its context as its first parameter, which is what "a lambda may not
+// capture a context" looks like once it has been compiled.
+//
+// What it prints is one line. A mounted page has nothing to say on the way out:
+// `main` answers `.Ok(())`, the entry wrapper exits only on an `.Err`, and the
+// listeners this registered are what happens next. Under `bun` there is no
+// document, so the runtime supplies one — see `$dom_body`.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Event, Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { Signal, signal };
+from "ui/style" import { Style };
+
+const badgeStyle: Style = .Group([
+  .PaddingX(.Rem(0.5)),
+  .Radius(.Px(6)),
+  .Background(.Rgb(240, 240, 245)),
+]);
+
+// Pure: no ctx. It cannot tell whether either prop varies.
+fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
+  ui.row([badgeStyle], [ui.text(title), ui.text(.Computed(fn(c) => "${count.read(c)}"))])
+}
+
+fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
+  let count = signal(ctx, 0);
+
+  ui.column([], [
+    ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
+    badge(.Const(label), .Cell(count)),
+    badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+  ])
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let _ = io.println(ctx, "mounted");
+  ui.mount(ctx, counter(ctx, "clicks"), [])
+}

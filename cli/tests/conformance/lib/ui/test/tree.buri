@@ -1,0 +1,759 @@
+// design/ui-reactivity.md, "The tree". What `ui/node` builds and what the
+// runtime makes of it, asserted against a rendered document rather than
+// against a picture of one:
+//
+//   - meaning is the role, and every role lowers to the element that carries
+//     it, with `role=` where HTML has none;
+//   - arrangement is the style, and a style is applied to the element it
+//     belongs to;
+//   - an accessibility-critical parameter is a parameter: a button has its
+//     label, an image its alt, a field and a toggle their label;
+//   - a handler receives its context as a parameter and never captures one;
+//   - and the three reactive constructors each re-run the smallest thing they
+//     can — `choose` and `computed` rebuild one subtree, `each` moves the rows
+//     that are still there and builds only the ones that are not.
+//
+// `ui/testing`'s renderer is the one `mount` uses, against a document the
+// runtime supplies. What it cannot cover is what only a browser does — layout,
+// painting, focus order, and the browser's own dispatch of a press — and that
+// needs a browser rather than a substitute for one.
+
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { Signal, signal, watch };
+from "ui/style" import { Style };
+from "ui/testing" import { headless, observer, recorder, render };
+from "ui/theme" import { Theme };
+
+// --- helpers -------------------------------------------------------------------------
+
+/// A reactive closure answers a value, and a `fn(Scope) => ()` has nowhere to
+/// put it.
+fn ignore(value: Int): () {
+    let _ = value;
+}
+
+/// A row of a keyed list: the item is the key and the text, so that what the
+/// document shows says which row it is.
+fn labelRow<C>(ctx: C, item: Str, index: Int): Node<C> {
+    ui.region(.ListItem, [], [ui.text(.Const(item))])
+}
+
+/// The key of a row is the item itself. Two rows with one key is a mistake the
+/// runtime refuses, and this is the shape that never makes it.
+fn itself(item: Str): Str {
+    item
+}
+
+/// A heading whose text does not depend on `value`, so that what changes when
+/// `value` changes is only whether the subtree was built again.
+fn headingFor<C>(value: Int): Node<C> {
+    ui.heading(1, .Const("head"))
+}
+
+// --- structure -----------------------------------------------------------------------
+
+test "a stack is arrangement with no meaning, and text is a bare run" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [ui.text(.Const("hello"))]);
+    assert.eq(render(ctx, tree).markup(), "<div>hello</div>");
+}
+
+test "nothing renders nothing at all" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [ui.nothing(), ui.text(.Const("only")), ui.nothing()]);
+    assert.eq(render(ctx, tree).markup(), "<div>only</div>");
+}
+
+test "a row runs along the axis and a column runs down the page" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.eq(
+        render(ctx, ui.row([], [])).markup(),
+        "<div style=\"display: flex; flex-direction: row\" />",
+    );
+    assert.eq(
+        render(ctx, ui.column([], [])).markup(),
+        "<div style=\"display: flex; flex-direction: column\" />",
+    );
+}
+
+test "a caller's own layout wins over the sugar's" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.row([.Layout(.Column)], []);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div style=\"display: flex; flex-direction: column\" />",
+    );
+}
+
+test "a spacer takes what is left over" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.eq(render(ctx, ui.spacer()).markup(), "<div style=\"flex-grow: 1\" />");
+}
+
+test "every role lowers to the element that carries it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let landmarks = ui.stack([], [
+        ui.region(.Navigation, [], []),
+        ui.region(.Main, [], []),
+        ui.region(.Banner, [], []),
+        ui.region(.ContentInfo, [], []),
+        ui.region(.Complementary, [], []),
+        ui.region(.Article, [], []),
+        ui.region(.Search, [], []),
+    ]);
+    assert.eq(
+        render(ctx, landmarks).markup(),
+        "<div><nav /><main /><header /><footer /><aside /><article /><search role=\"search\" /></div>",
+    );
+
+    let structure = ui.stack([], [
+        ui.region(.List, [], [ui.region(.ListItem, [], [])]),
+        ui.region(.Group, [], []),
+        ui.region(.Separator, [], []),
+    ]);
+    assert.eq(
+        render(ctx, structure).markup(),
+        "<div><ul><li /></ul><div role=\"group\" /><hr /></div>",
+    );
+
+    let live = ui.stack([], [ui.region(.Status, [], []), ui.region(.Alert, [], [])]);
+    assert.eq(
+        render(ctx, live).markup(),
+        "<div><div role=\"status\" aria-live=\"polite\" /><div role=\"alert\" aria-live=\"assertive\" /></div>",
+    );
+}
+
+test "a data table is roles, and its headers say which way they head" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.region(.Table, [], [
+        ui.region(.TableRow, [], [
+            ui.region(.ColumnHeader, [], [ui.text(.Const("name"))]),
+            ui.region(.ColumnHeader, [], [ui.text(.Const("owed"))]),
+        ]),
+        ui.region(.TableRow, [], [
+            ui.region(.RowHeader, [], [ui.text(.Const("ada"))]),
+            ui.region(.Cell, [], [ui.text(.Const("3"))]),
+        ]),
+    ]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<table><tr><th scope=\"col\">name</th><th scope=\"col\">owed</th></tr><tr><th scope=\"row\">ada</th><td>3</td></tr></table>",
+    );
+}
+
+test "a heading is an outline level, and there is no seventh" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [
+        ui.heading(1, .Const("top")),
+        ui.heading(3, .Const("inner")),
+        ui.heading(9, .Const("clamped")),
+        ui.heading(0, .Const("also clamped")),
+    ]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><h1>top</h1><h3>inner</h3><h6>clamped</h6><h1>also clamped</h1></div>",
+    );
+}
+
+// --- styling -------------------------------------------------------------------------
+
+test "every property lowers to the one declaration it names" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let everything: [Style] = [
+        .Group([.Layout(.Row), .Gap(.Px(8))]),
+        .Padding(.Rem(1.5)),
+        .PaddingX(.Percent(10.0)),
+        .PaddingY(.Auto),
+        .Width(.Full),
+        .Height(.Px(40)),
+        .AlignMain(.SpaceBetween),
+        .AlignCross(.Center),
+        .Grow(2),
+        .Background(.Rgb(1, 2, 3)),
+        .Foreground(.Rgba(4, 5, 6, 0.5)),
+        .BorderWidth(.Px(1)),
+        .BorderColor(.Transparent),
+        .Radius(.Px(6)),
+        .FontSize(.Rem(0.875)),
+        .FontWeight(.Semibold),
+        .Cursor(.Pointer),
+    ];
+    assert.eq(
+        render(ctx, ui.stack(everything, [])).markup(),
+        "<div style=\"display: flex; flex-direction: row; gap: 8px; padding: 1.5rem; padding-inline: 10%; padding-block: auto; width: 100%; height: 40px; justify-content: space-between; align-items: center; flex-grow: 2; background-color: rgb(1, 2, 3); color: rgba(4, 5, 6, 0.5); border-style: solid; border-width: 1px; border-color: transparent; border-radius: 6px; font-size: 0.875rem; font-weight: 600; cursor: pointer\" />",
+    );
+}
+
+test "the last value of a property is the one that survives" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], []);
+    assert.eq(render(ctx, tree).markup(), "<div style=\"background-color: inherit\" />");
+}
+
+test "the remaining alignments and weights and cursors each have a name" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [
+        ui.stack([.AlignMain(.Start), .AlignCross(.End), .FontWeight(.Regular)], []),
+        ui.stack([.AlignMain(.Stretch), .AlignCross(.SpaceAround), .FontWeight(.Medium)], []),
+        ui.stack([.AlignMain(.SpaceEvenly), .FontWeight(.Bold), .Cursor(.Default)], []),
+        ui.stack([.Cursor(.Text)], []),
+        ui.stack([.Cursor(.NotAllowed)], []),
+    ]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><div style=\"justify-content: flex-start; align-items: flex-end; font-weight: 400\" /><div style=\"justify-content: stretch; align-items: space-around; font-weight: 500\" /><div style=\"justify-content: space-evenly; font-weight: 700; cursor: default\" /><div style=\"cursor: text\" /><div style=\"cursor: not-allowed\" /></div>",
+    );
+}
+
+// --- widgets -------------------------------------------------------------------------
+
+test "a button carries its label, and a press runs its handler" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 0);
+    let tree = ui.button(.Const("add"), fn(c, e) => count.update(c, fn(n) => n + 1));
+    let page = render(ctx, tree);
+    assert.eq(page.markup(), "<button type=\"button\">add</button>");
+    let _ = page.press("add");
+    let _ = page.press("add");
+    assert.eq(count.get(ctx), 2);
+}
+
+test "a handler is handed the context the tree was rendered with" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let seen = signal(ctx, "");
+    // The handler captures the signal, which holds no authority, and takes the
+    // authority to write it as a parameter. Capturing the context instead is
+    // `lambda-captures-effect`, which is `cli/tests/reject/`'s business.
+    let page = render(ctx, ui.button(.Const("go"), fn(c, e) => seen.set(c, "pressed")));
+    let _ = page.press("go");
+    assert.eq(seen.get(ctx), "pressed");
+}
+
+test "a link says where it goes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.link(.Const("/prices"), [ui.text(.Const("prices"))]);
+    assert.eq(render(ctx, tree).markup(), "<a href=\"/prices\">prices</a>");
+}
+
+test "an attribute follows a prop that varies" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let dest = signal(ctx, "/one");
+    let page = render(ctx, ui.link(.Cell(dest), [ui.text(.Const("there"))]));
+    assert.eq(page.markup(), "<a href=\"/one\">there</a>");
+    let _ = dest.set(ctx, "/two");
+    assert.eq(page.markup(), "<a href=\"/two\">there</a>");
+}
+
+test "an image says what it shows" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let tree = ui.stack([], [
+        ui.image(.Const("/cat.png"), .Const("a cat, asleep")),
+        // The empty string is how a decorative image says it is decorative,
+        // which a reader has to be told and cannot guess.
+        ui.image(.Const("/rule.png"), .Const("")),
+    ]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><img src=\"/cat.png\" alt=\"a cat, asleep\" /><img src=\"/rule.png\" alt=\"\" /></div>",
+    );
+}
+
+test "a field is labelled, and what is typed into it is in its signal" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "ada");
+    let page = render(ctx, ui.field(.Const("name"), .Text, name));
+    assert.eq(
+        page.markup(),
+        "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
+    );
+    let _ = page.fill("name", "grace");
+    assert.eq(name.get(ctx), "grace");
+}
+
+test "a field follows its signal when something else writes it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "ada");
+    let page = render(ctx, ui.field(.Const("name"), .Text, name));
+    let _ = name.set(ctx, "grace");
+    assert.eq(
+        page.markup(),
+        "<label><span>name</span><input type=\"text\" value=\"grace\" /></label>",
+    );
+}
+
+test "a field kind is what the field accepts" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let value = signal(ctx, "");
+    let tree = ui.stack([], [
+        ui.field(.Const("story"), .Multiline, value),
+        ui.field(.Const("secret"), .Password, value),
+        ui.field(.Const("address"), .Email, value),
+        ui.field(.Const("how many"), .Number, value),
+        ui.field(.Const("query"), .Search, value),
+    ]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><label><span>story</span><textarea /></label><label><span>secret</span><input type=\"password\" /></label><label><span>address</span><input type=\"email\" /></label><label><span>how many</span><input type=\"number\" /></label><label><span>query</span><input type=\"search\" /></label></div>",
+    );
+}
+
+test "a toggle is two states and a label" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let done = signal(ctx, false);
+    let page = render(ctx, ui.toggle(.Const("done"), done));
+    assert.eq(
+        page.markup(),
+        "<label><input type=\"checkbox\" /><span>done</span></label>",
+    );
+    let _ = page.flip("done");
+    assert.isTrue(done.get(ctx));
+    assert.eq(
+        page.markup(),
+        "<label><input type=\"checkbox\" checked /><span>done</span></label>",
+    );
+    let _ = page.flip("done");
+    assert.isFalse(done.get(ctx));
+}
+
+test "a form is submitted, which is behaviour and so not a role" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let draft = signal(ctx, "");
+    let added = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(
+            fn(c, e) => added.set(c, draft.get(c)),
+            [],
+            [ui.field(.Const("what"), .Text, draft)],
+        ),
+    );
+    let _ = page.fill("what", "milk");
+    let _ = page.submit(0);
+    assert.eq(added.get(ctx), "milk");
+}
+
+// --- reactivity in the tree ----------------------------------------------------------
+
+test "text follows the cell it was given" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let label = signal(ctx, "before");
+    let page = render(ctx, ui.text(.Cell(label)));
+    assert.eq(page.text(), "before");
+    let _ = label.set(ctx, "after");
+    assert.eq(page.text(), "after");
+}
+
+test "a constant leaf registers nothing and never changes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let unrelated = signal(ctx, 0);
+    let page = render(ctx, ui.text(.Const("fixed")));
+    let _ = unrelated.set(ctx, 1);
+    assert.eq(page.text(), "fixed");
+}
+
+test "choose shows one subtree or the other" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let signedIn = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.choose(.Cell(signedIn), ui.text(.Const("welcome")), ui.text(.Const("sign in"))),
+    );
+    assert.eq(page.text(), "sign in");
+    let _ = signedIn.set(ctx, true);
+    assert.eq(page.text(), "welcome");
+    let _ = signedIn.set(ctx, false);
+    assert.eq(page.text(), "sign in");
+}
+
+test "the subtree choose removed is disposed with it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let showing = signal(ctx, true);
+    let n = signal(ctx, 1);
+    let page = render(
+        ctx,
+        ui.choose(
+            .Cell(showing),
+            ui.text(.Computed(fn(c) => "${log.note(n.get(c))}")),
+            ui.nothing(),
+        ),
+    );
+    assert.eq(log.noted(), [1]);
+    let _ = n.set(ctx, 2);
+    assert.eq(log.noted(), [1, 2]);
+
+    // The subtree is gone, so what it created is gone: writing what it read is
+    // no longer a reason for anything to run.
+    let _ = showing.set(ctx, false);
+    let _ = n.set(ctx, 3);
+    assert.eq(log.noted(), [1, 2]);
+    assert.eq(page.text(), "");
+}
+
+test "computed rebuilds its subtree from whatever it read" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.computed(fn(c) => ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, .Const("head"))),
+    );
+    assert.eq(page.count("h1"), 1);
+    assert.eq(page.count("h2"), 0);
+    let _ = count.set(ctx, 5);
+    assert.eq(page.count("h1"), 0);
+    assert.eq(page.count("h2"), 1);
+}
+
+test "a computed subtree is rebuilt, and a leaf prop is not" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let n = signal(ctx, 0);
+
+    // The coarse instrument: the whole subtree is built again, so the element
+    // is a different one.
+    let coarse = render(ctx, ui.computed(fn(c) => headingFor(n.get(c))));
+    let first = coarse.identity("h1", 0);
+    let _ = n.set(ctx, 1);
+    assert.notEq(coarse.identity("h1", 0), first);
+
+    // The fine one: the same element, with one run of text changed.
+    let fine = render(ctx, ui.heading(1, .Computed(fn(c) => "${n.get(c)}")));
+    let kept = fine.identity("h1", 0);
+    let _ = n.set(ctx, 2);
+    assert.eq(fine.identity("h1", 0), kept);
+    assert.eq(fine.text(), "2");
+}
+
+// --- keyed lists ---------------------------------------------------------------------
+
+test "each renders one row per item" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    assert.eq(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
+    assert.eq(page.count("li"), 3);
+}
+
+test "an empty list renders no rows" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items: Signal<[Str]> = signal(ctx, []);
+    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    assert.eq(page.count("li"), 0);
+    let _ = items.set(ctx, ["only"]);
+    assert.eq(page.markup(), "<ul><li>only</li></ul>");
+}
+
+test "inserting a row keeps the rows that were already there" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items = signal(ctx, ["a", "c"]);
+    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let a = page.identity("li", 0);
+    let c = page.identity("li", 1);
+
+    let _ = items.set(ctx, ["a", "b", "c"]);
+    assert.eq(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
+    assert.eq(page.identity("li", 0), a);
+    assert.notEq(page.identity("li", 1), a);
+    assert.eq(page.identity("li", 2), c);
+}
+
+test "removing a row keeps the others" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let a = page.identity("li", 0);
+    let c = page.identity("li", 2);
+
+    let _ = items.set(ctx, ["a", "c"]);
+    assert.eq(page.markup(), "<ul><li>a</li><li>c</li></ul>");
+    assert.eq(page.identity("li", 0), a);
+    assert.eq(page.identity("li", 1), c);
+}
+
+test "reordering moves the rows rather than rebuilding them" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let a = page.identity("li", 0);
+    let b = page.identity("li", 1);
+    let c = page.identity("li", 2);
+
+    let _ = items.set(ctx, ["c", "a", "b"]);
+    assert.eq(page.markup(), "<ul><li>c</li><li>a</li><li>b</li></ul>");
+    // Keyed: the same three elements, in the new order. This is the assertion
+    // the whole `key` parameter exists for — with rows keyed by position, all
+    // three would have been rebuilt and every one of these would fail.
+    assert.eq(page.identity("li", 0), c);
+    assert.eq(page.identity("li", 1), a);
+    assert.eq(page.identity("li", 2), b);
+}
+
+test "a row that leaves takes what it created with it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let items = signal(ctx, ["kept", "leaving"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(
+                .Cell(items),
+                itself,
+                fn(c, item, index) =>
+                    ui.region(.ListItem, [], [
+                        ui.text(.Computed(fn(s) => "${item} ${log.note(n.get(s))}")),
+                    ]),
+            ),
+        ]),
+    );
+    assert.eq(log.noted(), [1, 1]);
+
+    // Both rows read `n`, so both re-run.
+    let _ = n.set(ctx, 2);
+    assert.eq(log.noted(), [1, 1, 2, 2]);
+
+    // One row leaves. What it created is disposed with it, so the next write
+    // runs one computation rather than two.
+    let _ = items.set(ctx, ["kept"]);
+    let _ = n.set(ctx, 3);
+    assert.eq(log.noted(), [1, 1, 2, 2, 3]);
+    assert.eq(page.text(), "kept 3");
+}
+
+test "a row keeps its own reactive leaf across a reorder" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let suffix = signal(ctx, "!");
+    let items = signal(ctx, ["a", "b"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(
+                .Cell(items),
+                itself,
+                fn(c, item, index) =>
+                    ui.region(.ListItem, [], [
+                        ui.text(.Computed(fn(s) => "${item}${suffix.get(s)}")),
+                    ]),
+            ),
+        ]),
+    );
+    assert.eq(page.markup(), "<ul><li>a!</li><li>b!</li></ul>");
+    let _ = items.set(ctx, ["b", "a"]);
+    let _ = suffix.set(ctx, "?");
+    assert.eq(page.markup(), "<ul><li>b?</li><li>a?</li></ul>");
+}
+
+test "a list nested in a list reconciles on its own" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let inner = signal(ctx, ["x"]);
+    let outer = signal(ctx, ["a", "b"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(
+                .Cell(outer),
+                itself,
+                fn(c, item, index) =>
+                    ui.region(.ListItem, [], [
+                        ui.text(.Const(item)),
+                        ui.region(.List, [], [ui.each(.Cell(inner), itself, labelRow)]),
+                    ]),
+            ),
+        ]),
+    );
+    assert.eq(page.count("li"), 4);
+    let _ = inner.set(ctx, ["x", "y"]);
+    assert.eq(page.count("li"), 6);
+    assert.eq(page.text(), "a x y b x y");
+}
+
+// --- batching ------------------------------------------------------------------------
+
+test "one press is one update, however many signals it writes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let first = signal(ctx, 0);
+    let second = signal(ctx, 0);
+    let _ = watch(ctx, fn(s) => ignore(log.note(first.get(s) + second.get(s))));
+    assert.eq(log.noted(), [0]);
+
+    let page = render(
+        ctx,
+        ui.button(.Const("both"), fn(c, e) => writeBoth(c, first, second)),
+    );
+    let _ = page.press("both");
+
+    // Two writes, one pass over the watchers: the handler ran inside one
+    // transaction. Two passes would have noted 1 and then 3.
+    assert.eq(log.noted(), [0, 3]);
+}
+
+fn writeBoth<C: Ui>(ctx: C, first: Signal<Int>, second: Signal<Int>): () {
+    let _ = first.set(ctx, 1);
+    let _ = second.set(ctx, 2);
+}
+
+// --- the design's example ------------------------------------------------------------
+
+// design/ui-reactivity.md, "Example", as written there: a pure component that
+// cannot tell whether either of its props varies, an effectful one that owns
+// the signal, and a handler that captures the signal and takes its context as a
+// parameter. The badge's style is written out rather than reaching for a design
+// token, because a token is resolved against a theme and `ui/theme` has no way
+// to build one yet.
+
+const badgeStyle: Style = .Group([
+    .PaddingX(.Rem(0.5)),
+    .Radius(.Px(6)),
+    .Background(.Rgb(240, 240, 245)),
+]);
+
+fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
+    ui.row([badgeStyle], [ui.text(title), ui.text(.Computed(fn(c) => "${count.read(c)}"))])
+}
+
+fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
+    let count = signal(ctx, 0);
+
+    ui.column([], [
+        ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
+        badge(.Const(label), .Cell(count)),
+        badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+    ])
+}
+
+test "the counter counts, and both badges follow" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(ctx, counter(ctx, "clicks"));
+    assert.eq(page.text(), "clicks clicks 0 doubled 0");
+    let _ = page.press("clicks");
+    assert.eq(page.text(), "clicks clicks 1 doubled 2");
+    let _ = page.press("clicks");
+    let _ = page.press("clicks");
+    assert.eq(page.text(), "clicks clicks 3 doubled 6");
+}
+
+test "the counter mounts" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // Nothing can build a `Theme` yet, so the empty list is the only list there
+    // is — which is what an app with no design tokens passes in any case.
+    let themes: [Theme] = [];
+    assert.eq(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
+}

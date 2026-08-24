@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-six
-//! of the thirty-four files are in it** — the number the harness prints, and one
+//! of the thirty-five files are in it** — the number the harness prints, and one
 //! the prose had off by one before `semantics/generics.buri` joined them.
 //! `proto/binary.buri` is the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
@@ -52,7 +52,9 @@
 //!  4. **The reactive graph.** `ui/effect`'s `Ui` entries and `ui/testing`'s
 //!     recorder are `backend/js/runtime.js` and nowhere else, because no
 //!     native platform grants `Ui` — there is nothing on this side to render
-//!     to. `ui/reactivity.buri` and `ui/fetch.buri`.
+//!     to, and no document either: `ui/tree.buri` is the tree vocabulary and
+//!     the keyed reconciler under it. `ui/reactivity.buri`, `ui/fetch.buri`
+//!     and `ui/tree.buri`.
 //!
 //! `semantics/generics.buri` was a fourth until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
@@ -333,6 +335,14 @@ const PACKAGES: &[Case] = &[
              test double answers its own callback — so this file is one \
              intrinsic away from the native set the day a native platform has \
              a reason to record",
+    ),
+    excluded(
+        "ui/tree.buri",
+        "`ui/node`'s `mount` and `ui/testing`'s renderer, which are a \
+             *document* — an element tree, its listeners and a keyed \
+             reconciler over it. There is nothing on this side to render to, \
+             and a native backend that grew one would be rendering to \
+             something else",
     ),
 ];
 

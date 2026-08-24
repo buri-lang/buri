@@ -1,0 +1,23 @@
+// EXPECT: field `0` of `Event` is private to its module
+//
+// An `Event` is what a reader did, and only the runtime can say that a reader
+// did something. Its field is private, so a program cannot mint one: a handler
+// receives an event and cannot manufacture one to hand to another handler,
+// which keeps "this ran because somebody pressed it" true. The same shape as
+// `Scope`, and for the same reason.
+from "core/effect" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Event, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+
+fn pressTwice<C>(count: Signal<Int>, onPress: fn(C, Event) => ()): Node<C> {
+  ui.button(.Const("twice"), fn(c, e) => onPress(c, Event(0)))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let count = signal(ctx, 0);
+  ui.mount(ctx, pressTwice(count, fn(c, e) => count.update(c, fn(n) => n + 1)), [])
+}

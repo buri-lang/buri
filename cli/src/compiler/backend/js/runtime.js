@@ -1534,12 +1534,15 @@ function $host_HostProc_exitWith(self, code) {
 // schedules them, and dependencies are collected afresh on every run, so a
 // read behind an `if` is tracked exactly.
 //
-// One array of nodes, indexed by the `Int` a Buri `Signal<T>` carries. Three
+// One array of nodes, indexed by the `Int` a Buri `Signal<T>` carries. Four
 // kinds, told apart by `kind`:
 //
 //   0  cell        a value, written from outside
 //   1  memo        a value, computed from other nodes, lazily
 //   2  watcher     run for its effect on the world, eagerly
+//   3  owner       runs nothing; exists so that something else can be disposed
+//                  with it. A keyed list's rows hang off one of these, which is
+//                  what lets a row outlive the run that decided it belongs.
 //
 // A memo is lazy and a watcher is not, and that is the whole difference in
 // scheduling: an out-of-date memo recomputes when something reads it, while a
@@ -1551,9 +1554,14 @@ function $host_HostProc_exitWith(self, code) {
 
 const $ui = {
   nodes: [],
-  // The computation whose body is running, or -1. This is what makes tracking
-  // automatic: nothing is declared, `read` simply looks here.
+  // What a node created right now belongs to, or -1. Disposal is keyed on it.
   current: -1,
+  // What a read right now subscribes, or -1 for a read nobody is listening to.
+  // Separate from `current` because building a keyed list's row is two
+  // different questions at once: the row belongs to the list, and what the row
+  // read while it was being built is nobody's dependency — the list is already
+  // subscribed to the list.
+  tracking: -1,
   queue: [],
   // Open batches. A write inside one defers the drain, so N writes cause one
   // pass rather than N.
@@ -1564,7 +1572,7 @@ const $ui = {
 // a policy, it is the difference between a diagnosis and a hung tab.
 const $UI_STEPS = 100000;
 
-function $ui_node(kind, value, compute) {
+function $ui_cell(kind, value, compute) {
   const owner = $ui.current;
   $ui.nodes.push({
     kind,
@@ -1597,7 +1605,7 @@ function $ui_read(id) {
   // Reading is what makes a memo run: until then it has computed nothing, and
   // a memo nothing reads never runs at all.
   if (n.kind === 1 && n.dirty && !n.disposed) $ui_run(id);
-  const c = $ui.current;
+  const c = $ui.tracking;
   if (c >= 0 && c !== id) {
     if (!n.subs.includes(c)) n.subs.push(c);
     const reader = $ui.nodes[c];
@@ -1636,17 +1644,47 @@ function $ui_run(id) {
   // Per-run dependency re-collection: the edges are dropped before the body
   // runs, so what it reads this time is exactly what it is subscribed to.
   $ui_unsubscribe(id, n);
-  const outer = $ui.current;
+  const outerCurrent = $ui.current;
+  const outerTracking = $ui.tracking;
   $ui.current = id;
+  $ui.tracking = id;
   try {
     // The `Scope` a Buri closure receives: a one-field struct naming the
     // computation it belongs to.
     const v = n.compute([id]);
     if (n.kind === 1) n.value = v;
   } finally {
-    $ui.current = outer;
+    $ui.current = outerCurrent;
+    $ui.tracking = outerTracking;
     n.dirty = false;
   }
+}
+
+// Runs `body` with everything it creates belonging to `owner`, and with what
+// it reads subscribing nothing. Both halves are needed together exactly once:
+// a keyed list builds a row that must outlive the run that decided to build
+// it, and whose reads are the list's dependencies and not the row's.
+function $ui_under(owner, body) {
+  const outerCurrent = $ui.current;
+  const outerTracking = $ui.tracking;
+  $ui.current = owner;
+  $ui.tracking = -1;
+  try {
+    return body();
+  } finally {
+    $ui.current = outerCurrent;
+    $ui.tracking = outerTracking;
+  }
+}
+
+// Drops `id` from its owner's children, so that a list which adds and removes
+// a row a thousand times holds a thousand disposed nodes for no longer than it
+// holds the row.
+function $ui_forget(owner, id) {
+  const n = $ui.nodes[owner];
+  if (n === undefined) return;
+  const at = n.children.indexOf(id);
+  if (at >= 0) n.children.splice(at, 1);
 }
 
 // Marking out of date, transitively. A memo is only marked — it recomputes
@@ -1660,7 +1698,7 @@ function $ui_notify(n) {
         c.dirty = true;
         $ui_notify(c);
       }
-    } else if (!c.queued) {
+    } else if (c.kind === 2 && !c.queued) {
       c.queued = true;
       $ui.queue.push(s);
     }
@@ -1708,7 +1746,7 @@ function $ui_flush(f) {
 }
 
 function $host_HostUi_signal(self, initial) {
-  return $ui_node(0, initial, null);
+  return $ui_cell(0, initial, null);
 }
 
 function $host_HostUi_read(self, id) {
@@ -1720,14 +1758,14 @@ function $host_HostUi_write(self, id, value) {
 }
 
 function $host_HostUi_memo(self, compute) {
-  return $ui_node(1, undefined, compute);
+  return $ui_cell(1, undefined, compute);
 }
 
 function $host_HostUi_watch(self, run) {
   // Eager, and that is not an optimization: a watcher learns what it depends
   // on by running, so one that has never run is subscribed to nothing and
   // would never run again.
-  $ui_run($ui_node(2, undefined, run));
+  $ui_run($ui_cell(2, undefined, run));
   return 0;
 }
 
@@ -1757,6 +1795,646 @@ function $host_HostFetch_fetch(self, request, done) {
     settle($err([3, String((e && e.message) || e)]));
   }
   return 0;
+}
+
+// --- The document -----------------------------------------------------------
+//
+// There are two, and every operation below asks which one it was handed rather
+// than asking the program. In a browser a node is a real DOM node and each
+// operation is the DOM call it looks like. Everywhere else — `bun`, `node`, and
+// every test in this suite — there is no document, so the runtime supplies one:
+// plain objects carrying `$shim`, with the same handful of operations, which is
+// enough to build a tree, change it, fire a listener at it and write it out as
+// markup.
+//
+// The substitute is not a second renderer. `$tree_render` below is the only
+// renderer there is and it is the one a browser runs; a test drives the
+// shipping code against a document it can look at. What a substitute cannot
+// cover is only what a browser itself does — layout, painting, focus order, and
+// the browser's own dispatch of a press — and that needs a browser rather than
+// a stand-in for one.
+//
+// Only three kinds of node exist, because the tree vocabulary needs no more:
+// an element, a run of text, and a marker. A marker is a comment in a real
+// document; it holds the place of a region that can change, so that removing
+// what the region rendered last time is "everything between these two", which
+// stays right when regions nest.
+
+const $dom = { identities: 0, body: null };
+
+function $dom_make(kind, name) {
+  $dom.identities++;
+  return {
+    $shim: true,
+    // 0 element, 1 text, 2 marker.
+    kind,
+    name,
+    // Given once, at creation, and never given to another node. This is what
+    // lets a test tell a row that was moved from a row that was rebuilt.
+    identity: $dom.identities,
+    attributes: {},
+    styles: {},
+    children: [],
+    parent: null,
+    listeners: {},
+    data: "",
+    value: "",
+    checked: false,
+  };
+}
+
+// The three constructors take the parent they are destined for, because which
+// document a node belongs to is decided by what it will hang off rather than
+// by what the platform happens to have.
+function $dom_element(parent, name) {
+  return parent.$shim ? $dom_make(0, name) : document.createElement(name);
+}
+
+function $dom_text(parent, data) {
+  return parent.$shim ? $dom_data($dom_make(1, ""), data) : document.createTextNode(data);
+}
+
+function $dom_marker(parent) {
+  return parent.$shim ? $dom_make(2, "") : document.createComment("");
+}
+
+// A `Text` node has `data` in a real document too, so this is an assignment in
+// both. It answers the node so that a constructor can end with it.
+function $dom_data(node, data) {
+  node.data = data;
+  return node;
+}
+
+// Inserting a node that is already in the tree moves it, in both documents.
+// The keyed reconciler depends on that: a row that is still in the list is
+// moved, and moving it is what keeps it the same node.
+function $dom_insert(parent, node, before) {
+  if (!parent.$shim) {
+    parent.insertBefore(node, before);
+    return;
+  }
+  if (node.parent !== null) $dom_remove(node);
+  node.parent = parent;
+  const at = before === null ? parent.children.length : parent.children.indexOf(before);
+  parent.children.splice(at, 0, node);
+}
+
+function $dom_remove(node) {
+  if (!node.$shim) {
+    if (node.parentNode !== null) node.parentNode.removeChild(node);
+    return;
+  }
+  const parent = node.parent;
+  if (parent === null) return;
+  const at = parent.children.indexOf(node);
+  if (at >= 0) parent.children.splice(at, 1);
+  node.parent = null;
+}
+
+function $dom_next(parent, node) {
+  if (!parent.$shim) return node.nextSibling;
+  const at = parent.children.indexOf(node);
+  return at < 0 || at + 1 >= parent.children.length ? null : parent.children[at + 1];
+}
+
+// Everything strictly between two markers, which is exactly what a region
+// rendered last time — including whatever a region nested inside it rendered.
+function $dom_between(parent, start, end) {
+  const out = [];
+  if (!parent.$shim) {
+    for (let n = start.nextSibling; n !== null && n !== end; n = n.nextSibling) out.push(n);
+    return out;
+  }
+  const from = parent.children.indexOf(start);
+  const to = parent.children.indexOf(end);
+  for (let i = from + 1; i < to; i++) out.push(parent.children[i]);
+  return out;
+}
+
+function $dom_attribute(element, name, value) {
+  if (element.$shim) {
+    element.attributes[name] = value;
+    return;
+  }
+  element.setAttribute(name, value);
+}
+
+function $dom_style(element, property, value) {
+  if (element.$shim) {
+    element.styles[property] = value;
+    return;
+  }
+  element.style.setProperty(property, value);
+}
+
+function $dom_listen(element, type, handler) {
+  if (element.$shim) {
+    element.listeners[type] = handler;
+    return;
+  }
+  element.addEventListener(type, handler);
+}
+
+// Where `mount` puts a tree. A program built for a browser and run under `bun`
+// mounts into the substitute rather than failing: what it is being asked is
+// whether the tree builds and reacts, and that question has an answer without
+// a browser.
+function $dom_body() {
+  // A real document is always the real one, even when it has no body yet —
+  // mounting a page into a substitute because the browser had not parsed its
+  // body would be the worst of both, so that answers nothing and `mount`
+  // reports it.
+  if (typeof document !== "undefined") return document.body || null;
+  if ($dom.body === null) $dom.body = $dom_make(0, "body");
+  return $dom.body;
+}
+
+// --- Reading the substitute document ----------------------------------------
+//
+// Only the substitute: these are what `ui/testing` is, and a test holds one of
+// its trees. Markers are left out of the markup deliberately — they are the
+// runtime's own bookkeeping, not something a reader sees, and pinning a test to
+// them would pin it to how a region is anchored.
+
+function $dom_escape(text, quotes) {
+  let out = text.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+  if (quotes) out = out.split('"').join("&quot;");
+  return out;
+}
+
+function $dom_markup(node) {
+  if (node.kind === 2) return "";
+  if (node.kind === 1) return $dom_escape(node.data, false);
+  let out = "<" + node.name;
+  for (const name of Object.keys(node.attributes)) {
+    out += " " + name + '="' + $dom_escape(node.attributes[name], true) + '"';
+  }
+  if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
+  if (node.checked) out += " checked";
+  const styles = Object.keys(node.styles);
+  if (styles.length > 0) {
+    const parts = [];
+    for (const property of styles) parts.push(property + ": " + node.styles[property]);
+    out += ' style="' + $dom_escape(parts.join("; "), true) + '"';
+  }
+  let inner = "";
+  for (const child of node.children) inner += $dom_markup(child);
+  return inner === "" ? out + " />" : out + ">" + inner + "</" + node.name + ">";
+}
+
+// Every run of text, in order. Separate runs stay separate, because two runs
+// are what a reader is shown as two things.
+function $dom_runs(node, out) {
+  if (node.kind === 1) {
+    if (node.data !== "") out.push(node.data);
+  } else if (node.kind === 0) {
+    for (const child of node.children) $dom_runs(child, out);
+  }
+  return out;
+}
+
+// The text of one element, run together — what a reader would call the name of
+// a button.
+function $dom_label(node) {
+  return $dom_runs(node, []).join("");
+}
+
+function $dom_elements(node, name, out) {
+  if (node.kind === 0) {
+    if (node.name === name) out.push(node);
+    for (const child of node.children) $dom_elements(child, name, out);
+  }
+  return out;
+}
+
+// The first element of any of these kinds, in document order. A field is an
+// `input` or a `textarea` depending on its kind, and the test that fills one
+// should not have to know which.
+function $dom_first(node, names) {
+  if (node.kind === 0) {
+    if (names.indexOf(node.name) >= 0) return node;
+    for (const child of node.children) {
+      const found = $dom_first(child, names);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+function $dom_fire(node, type) {
+  const handler = node.listeners[type];
+  if (handler !== undefined) handler({ preventDefault() {}, target: node });
+}
+
+// --- The tree ---------------------------------------------------------------
+//
+// `ui/node`'s vocabulary, lowered. A node is `[tag, ...payload]` and the tags
+// are the order `ui/node` declares its variants in:
+//
+//   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
+//   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
+//
+// A component runs once. What re-runs is what the last three tags stand for,
+// and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
+// run of text or one attribute; `When` and `Computed` rebuild one subtree; and
+// `Each` moves the rows that are still there and builds only the rows that are
+// not.
+
+// Meaning, lowered. Each entry is an element name followed by attribute
+// name-and-value pairs — the `role=` fallback of design/ui-reactivity.md, used
+// wherever HTML has no element that carries the meaning by itself.
+const $TREE_ROLES = [
+  ["nav"],
+  ["main"],
+  ["header"],
+  ["footer"],
+  ["aside"],
+  ["article"],
+  ["search", "role", "search"],
+  ["ul"],
+  ["li"],
+  ["div", "role", "group"],
+  ["hr"],
+  ["div", "role", "status", "aria-live", "polite"],
+  ["div", "role", "alert", "aria-live", "assertive"],
+  ["table"],
+  ["tr"],
+  ["th", "scope", "row"],
+  ["th", "scope", "col"],
+  ["td"],
+];
+
+// `FieldKind`, lowered. `Multiline` is a `textarea` and has no type; the entry
+// keeps the arrays the same shape.
+const $TREE_FIELD_KINDS = ["text", "text", "password", "email", "number", "search"];
+
+const $TREE_WEIGHTS = ["400", "500", "600", "700"];
+
+const $TREE_ALIGNMENTS = [
+  "flex-start",
+  "center",
+  "flex-end",
+  "stretch",
+  "space-between",
+  "space-around",
+  "space-evenly",
+];
+
+const $TREE_CURSORS = ["default", "pointer", "text", "not-allowed"];
+
+function $tree_length(length) {
+  const tag = length[0];
+  if (tag === 0) return length[1] + "px";
+  if (tag === 1) return length[1] + "rem";
+  if (tag === 2) return length[1] + "%";
+  if (tag === 3) return "auto";
+  return "100%";
+}
+
+function $tree_color(color) {
+  const tag = color[0];
+  if (tag === 0) return "rgb(" + color[1] + ", " + color[2] + ", " + color[3] + ")";
+  if (tag === 1) {
+    return "rgba(" + color[1] + ", " + color[2] + ", " + color[3] + ", " + color[4] + ")";
+  }
+  if (tag === 2) return "transparent";
+  return "inherit";
+}
+
+function $tree_styles(element, styles) {
+  for (const style of styles) $tree_style(element, style);
+}
+
+// One property, applied to the element it belongs to. Last one wins, which
+// falls out of applying them in order.
+function $tree_style(element, style) {
+  const tag = style[0];
+  if (tag === 0) {
+    $tree_styles(element, style[1]);
+  } else if (tag === 1) {
+    // A stack is a flex container in both directions. `Column` is the default
+    // in the vocabulary and it is the default here.
+    $dom_style(element, "display", "flex");
+    $dom_style(element, "flex-direction", style[1] === 1 ? "row" : "column");
+  } else if (tag === 2) {
+    $dom_style(element, "gap", $tree_length(style[1]));
+  } else if (tag === 3) {
+    $dom_style(element, "padding", $tree_length(style[1]));
+  } else if (tag === 4) {
+    // Logical rather than left-and-right, so a right-to-left page is right by
+    // construction rather than by a second stylesheet.
+    $dom_style(element, "padding-inline", $tree_length(style[1]));
+  } else if (tag === 5) {
+    $dom_style(element, "padding-block", $tree_length(style[1]));
+  } else if (tag === 6) {
+    $dom_style(element, "width", $tree_length(style[1]));
+  } else if (tag === 7) {
+    $dom_style(element, "height", $tree_length(style[1]));
+  } else if (tag === 8) {
+    $dom_style(element, "justify-content", $TREE_ALIGNMENTS[style[1]]);
+  } else if (tag === 9) {
+    $dom_style(element, "align-items", $TREE_ALIGNMENTS[style[1]]);
+  } else if (tag === 10) {
+    $dom_style(element, "flex-grow", String(style[1]));
+  } else if (tag === 11) {
+    $dom_style(element, "background-color", $tree_color(style[1]));
+  } else if (tag === 12) {
+    $dom_style(element, "color", $tree_color(style[1]));
+  } else if (tag === 13) {
+    // A width with no style draws nothing in CSS, and a border nobody can see
+    // is not what asking for one means.
+    $dom_style(element, "border-style", "solid");
+    $dom_style(element, "border-width", $tree_length(style[1]));
+  } else if (tag === 14) {
+    $dom_style(element, "border-color", $tree_color(style[1]));
+  } else if (tag === 15) {
+    $dom_style(element, "border-radius", $tree_length(style[1]));
+  } else if (tag === 16) {
+    $dom_style(element, "font-size", $tree_length(style[1]));
+  } else if (tag === 17) {
+    $dom_style(element, "font-weight", $TREE_WEIGHTS[style[1]]);
+  } else {
+    $dom_style(element, "cursor", $TREE_CURSORS[style[1]]);
+  }
+}
+
+// A `Prop<T>` is `[tag, payload]`: 0 Const, 1 Cell, 2 Computed.
+function $tree_value(prop, scope) {
+  const tag = prop[0];
+  if (tag === 0) return prop[1];
+  if (tag === 1) return $ui_read(prop[1][0]);
+  return prop[1](scope);
+}
+
+// Applies a prop now, and again whenever it changes. A `Const` registers
+// nothing — that is the whole reason it is a visible constructor — so a static
+// interface holds no computations at all.
+function $tree_bind(prop, apply) {
+  if (prop[0] === 0) {
+    apply(prop[1]);
+    return;
+  }
+  $ui_run(
+    $ui_cell(2, undefined, (scope) => {
+      apply($tree_value(prop, scope));
+      return 0;
+    }),
+  );
+}
+
+function $tree_element(parent, name, anchor) {
+  const element = $dom_element(parent, name);
+  $dom_insert(parent, element, anchor);
+  return element;
+}
+
+function $tree_text(prop, parent, anchor) {
+  const node = $dom_text(parent, "");
+  $dom_insert(parent, node, anchor);
+  $tree_bind(prop, (value) => $dom_data(node, value));
+}
+
+function $tree_children(ctx, element, styles, children) {
+  $tree_styles(element, styles);
+  for (const child of children) $tree_render(ctx, child, element, null);
+}
+
+// A region whose contents are decided by something that can change. Two
+// markers hold the place; a re-run removes everything between them and renders
+// what `build` answers now. Everything the run created belongs to the run, so
+// the computations inside a subtree are disposed with the subtree.
+function $tree_dynamic(ctx, parent, anchor, build) {
+  const start = $dom_marker(parent);
+  $dom_insert(parent, start, anchor);
+  const end = $dom_marker(parent);
+  $dom_insert(parent, end, anchor);
+  $ui_run(
+    $ui_cell(2, undefined, (scope) => {
+      for (const node of $dom_between(parent, start, end)) $dom_remove(node);
+      $tree_render(ctx, build(scope), parent, end);
+      return 0;
+    }),
+  );
+}
+
+// One row of a keyed list: two markers of its own, so that moving it moves
+// whatever it rendered, and an owner of its own, so that disposing it disposes
+// what it created. The row is built under that owner and untracked — the list
+// is already subscribed to the list, and what a row read while it was being
+// built is not a reason to rebuild the list.
+function $tree_row(ctx, parent, anchor, owner, key, index, rowAt) {
+  const start = $dom_marker(parent);
+  $dom_insert(parent, start, anchor);
+  const end = $dom_marker(parent);
+  $dom_insert(parent, end, anchor);
+  const rowOwner = $ui_under(owner, () => $ui_cell(3, undefined, null));
+  $ui_under(rowOwner, () => {
+    $tree_render(ctx, rowAt(ctx, [rowOwner], index), parent, end);
+    return 0;
+  });
+  return { key, start, end, owner: rowOwner };
+}
+
+function $tree_detach(parent, row) {
+  const nodes = $dom_between(parent, row.start, row.end);
+  $dom_remove(row.start);
+  for (const node of nodes) $dom_remove(node);
+  $dom_remove(row.end);
+}
+
+function $tree_move(parent, row, anchor) {
+  if ($dom_next(parent, row.end) === anchor) return;
+  const nodes = $dom_between(parent, row.start, row.end);
+  $dom_insert(parent, row.start, anchor);
+  for (const node of nodes) $dom_insert(parent, node, anchor);
+  $dom_insert(parent, row.end, anchor);
+}
+
+// Keyed reconciliation. Walking backwards means the anchor for each row is the
+// row that follows it, which is already in place, so one pass positions
+// everything. A row whose key is still in the list is moved and never rebuilt:
+// that is what keyed means, and it is what keeps the focus, the scroll
+// position and the computations inside a row alive across a reorder.
+function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
+  const byKey = new Map();
+  for (const row of rows) byKey.set(row.key, row);
+  const next = new Array(keys.length);
+  let anchor = end;
+  for (let i = keys.length - 1; i >= 0; i--) {
+    const key = keys[i];
+    let row = byKey.get(key);
+    if (row === undefined) {
+      row = $tree_row(ctx, parent, anchor, owner, key, i, rowAt);
+    } else {
+      byKey.delete(key);
+      $tree_move(parent, row, anchor);
+    }
+    next[i] = row;
+    anchor = row.start;
+  }
+  for (const row of byKey.values()) {
+    $tree_detach(parent, row);
+    $ui_dispose(row.owner);
+    $ui_forget(owner, row.owner);
+  }
+  return next;
+}
+
+function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
+  const start = $dom_marker(parent);
+  $dom_insert(parent, start, anchor);
+  const end = $dom_marker(parent);
+  $dom_insert(parent, end, anchor);
+  // The rows hang off this rather than off the computation below, because that
+  // computation re-runs and a row must survive it.
+  const owner = $ui_cell(3, undefined, null);
+  let rows = [];
+  $ui_run(
+    $ui_cell(2, undefined, (scope) => {
+      const keys = [];
+      const seen = new Set();
+      const n = count(scope);
+      for (let i = 0; i < n; i++) {
+        const key = keyAt(scope, i);
+        // Two rows with one key is not a thing to resolve: whichever way it is
+        // resolved, one of the two rows is wrong, and the list will go on
+        // rebuilding both. Refusing it at the point it happens is the only
+        // report that names the key.
+        if (seen.has(key)) $abort('two rows share the key "' + key + '"');
+        seen.add(key);
+        keys.push(key);
+      }
+      rows = $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt);
+      return 0;
+    }),
+  );
+}
+
+// Renders one node into `parent`, before `anchor` — or at the end of `parent`
+// when there is none.
+function $tree_render(ctx, node, parent, anchor) {
+  const tag = node[0];
+  if (tag === 0) {
+    // Nothing: no element, no text, no place held. A `when` that answers this
+    // is a `when` whose region is empty, and its own markers hold the place.
+    return;
+  }
+  if (tag === 1) {
+    $tree_text(node[1], parent, anchor);
+    return;
+  }
+  if (tag === 2) {
+    // The level is the document's outline rather than a size. There is no
+    // seventh level to lower to, so it clamps.
+    const level = node[1] < 1 ? 1 : node[1] > 6 ? 6 : node[1];
+    $tree_text(node[2], $tree_element(parent, "h" + level, anchor), null);
+    return;
+  }
+  if (tag === 3) {
+    $tree_children(ctx, $tree_element(parent, "div", anchor), node[1], node[2]);
+    return;
+  }
+  if (tag === 4) {
+    const role = $TREE_ROLES[node[1]];
+    const element = $tree_element(parent, role[0], anchor);
+    for (let i = 1; i + 1 < role.length; i += 2) $dom_attribute(element, role[i], role[i + 1]);
+    $tree_children(ctx, element, node[2], node[3]);
+    return;
+  }
+  if (tag === 5) {
+    const element = $tree_element(parent, "button", anchor);
+    // Not a submit button: a form's submission is its own handler, and a
+    // button that submits the form it happens to be inside is the surprise
+    // this vocabulary exists to remove.
+    $dom_attribute(element, "type", "button");
+    $tree_text(node[1], element, null);
+    const onPress = node[2];
+    $dom_listen(element, "click", () =>
+      // One transaction, so that a handler which writes three signals causes
+      // one pass over the watchers rather than three.
+      $ui_flush(() => onPress(ctx, [0])),
+    );
+    return;
+  }
+  if (tag === 6) {
+    const element = $tree_element(parent, "a", anchor);
+    $tree_bind(node[1], (dest) => $dom_attribute(element, "href", dest));
+    $tree_children(ctx, element, [], node[2]);
+    return;
+  }
+  if (tag === 7) {
+    const element = $tree_element(parent, "img", anchor);
+    $tree_bind(node[1], (source) => $dom_attribute(element, "src", source));
+    $tree_bind(node[2], (alt) => $dom_attribute(element, "alt", alt));
+    return;
+  }
+  if (tag === 8) {
+    // The label wraps the field rather than pointing at it by an identifier,
+    // which is what makes the pair correct with nothing generated: there is no
+    // identifier to collide, and no way to render a field whose label is
+    // attached to something else.
+    const wrapper = $tree_element(parent, "label", anchor);
+    $tree_text(node[1], $tree_element(wrapper, "span", null), null);
+    const kind = node[2];
+    const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
+    if (kind !== 1) $dom_attribute(element, "type", $TREE_FIELD_KINDS[kind]);
+    const cell = node[3][0];
+    $tree_bind([1, node[3]], (value) => {
+      // Writing what is already there moves the caret in a real browser.
+      if (element.value !== value) element.value = value;
+    });
+    $dom_listen(element, "input", () => $ui_flush(() => $ui_write(cell, element.value)));
+    return;
+  }
+  if (tag === 9) {
+    const wrapper = $tree_element(parent, "label", anchor);
+    const element = $tree_element(wrapper, "input", null);
+    $dom_attribute(element, "type", "checkbox");
+    $tree_text(node[1], $tree_element(wrapper, "span", null), null);
+    const cell = node[2][0];
+    $tree_bind([1, node[2]], (value) => {
+      element.checked = value;
+    });
+    $dom_listen(element, "change", () => $ui_flush(() => $ui_write(cell, element.checked)));
+    return;
+  }
+  if (tag === 10) {
+    const element = $tree_element(parent, "form", anchor);
+    const onSubmit = node[1];
+    $dom_listen(element, "submit", (event) => {
+      // The page must not navigate: submission is the handler, and there is
+      // nowhere for a browser to post to.
+      if (event && event.preventDefault) event.preventDefault();
+      $ui_flush(() => onSubmit(ctx, [0]));
+    });
+    $tree_children(ctx, element, node[2], node[3]);
+    return;
+  }
+  if (tag === 11) {
+    const cond = node[1];
+    const then = node[2];
+    const otherwise = node[3];
+    $tree_dynamic(ctx, parent, anchor, (scope) => ($tree_value(cond, scope) ? then : otherwise));
+    return;
+  }
+  if (tag === 12) {
+    const build = node[1];
+    $tree_dynamic(ctx, parent, anchor, (scope) => build(scope));
+    return;
+  }
+  $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
+}
+
+// `ui/node`'s one operation with a body in the runtime. Everything else in that
+// module is ordinary Buri building a value; this is where the value meets a
+// document.
+function $ui_node_mount(ctx, root, themes) {
+  const body = $dom_body();
+  if (!body) return $err("there is nowhere to mount: this platform has no document");
+  $tree_render(ctx, root, body, null);
+  // The page stays live. The entry wrapper exits only on an `.Err`, and the
+  // listeners this registered go on running.
+  return $ok(0);
 }
 
 // --- The headless user-interface platform ------------------------------------
@@ -1801,6 +2479,78 @@ function $ui_testing_Recorder_note(self, value) {
 
 function $ui_testing_Recorder_noted(self) {
   return $slot(self).values.slice();
+}
+
+// A tree rendered into a document of its own, by the renderer `mount` uses.
+// The handle holds the root, which is a substitute element and never a real
+// one: a test asks what was rendered, and only the substitute can answer.
+
+function $ui_testing_render(ctx, root) {
+  const host = $dom_make(0, "root");
+  $tree_render(ctx, root, host, null);
+  return $handle(host);
+}
+
+function $ui_testing_Rendered_markup(self) {
+  let out = "";
+  for (const child of $slot(self).children) out += $dom_markup(child);
+  return out;
+}
+
+function $ui_testing_Rendered_text(self) {
+  return $dom_runs($slot(self), []).join(" ");
+}
+
+// Addressed by label, because that is what a reader addresses them by: a test
+// that says which control it meant does not quietly start pressing another one
+// when the tree changes. Not finding it is a failed test rather than a silent
+// no-op, which is the whole reason these abort.
+function $tree_labelled(self, name, label) {
+  for (const element of $dom_elements($slot(self), name, [])) {
+    if ($dom_label(element) === label) return element;
+  }
+  $abort("this tree has no " + name + ' labelled "' + label + '"');
+  return null;
+}
+
+function $ui_testing_Rendered_press(self, label) {
+  $dom_fire($tree_labelled(self, "button", label), "click");
+  return 0;
+}
+
+function $ui_testing_Rendered_fill(self, label, value) {
+  const field = $dom_first($tree_labelled(self, "label", label), ["input", "textarea"]);
+  if (field === null) $abort('the label "' + label + '" is not a field');
+  field.value = value;
+  $dom_fire(field, "input");
+  return 0;
+}
+
+function $ui_testing_Rendered_flip(self, label) {
+  const box = $dom_first($tree_labelled(self, "label", label), ["input"]);
+  if (box === null) $abort('the label "' + label + '" is not a toggle');
+  box.checked = !box.checked;
+  $dom_fire(box, "change");
+  return 0;
+}
+
+function $ui_testing_Rendered_submit(self, index) {
+  const forms = $dom_elements($slot(self), "form", []);
+  if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
+  $dom_fire(forms[index], "submit");
+  return 0;
+}
+
+function $ui_testing_Rendered_count(self, name) {
+  return $dom_elements($slot(self), name, []).length;
+}
+
+function $ui_testing_Rendered_identity(self, name, index) {
+  const elements = $dom_elements($slot(self), name, []);
+  if (index < 0 || index >= elements.length) {
+    $abort("this tree has no " + name + " " + index);
+  }
+  return elements[index].identity;
 }
 
 // --- The test platform ------------------------------------------------------------

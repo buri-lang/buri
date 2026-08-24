@@ -138,6 +138,9 @@ pub const MODULES: &[StdModule] = &[
     StdModule { platform: true, ..m("ui/effect", include_str!("sources/ui_effect.buri")) },
     m("ui/signal", include_str!("sources/ui_signal.buri")),
     m("ui/prop", include_str!("sources/ui_prop.buri")),
+    m("ui/style", include_str!("sources/ui_style.buri")),
+    m("ui/theme", include_str!("sources/ui_theme.buri")),
+    m("ui/node", include_str!("sources/ui_node.buri")),
     m("ui/testing", include_str!("sources/ui_testing.buri")),
 ];
 

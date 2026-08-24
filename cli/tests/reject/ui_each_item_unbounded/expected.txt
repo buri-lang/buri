@@ -1,0 +1,7 @@
+error: `T` does not satisfy `Eq` [missing-conformance]
+  --> cmd/ui_each_item_unbounded/main.buri:16:3
+   |
+16 |   ui.each(items, name, fn(c, item, index) => ui.text(.Const(name(item))))
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Eq`, or use a type that has one

@@ -1,0 +1,23 @@
+// EXPECT: `T` does not satisfy `Eq`
+//
+// design/ui-reactivity.md rule 5: a generic component that captures a
+// `Prop<T>` bounds `T` with an ordinary trait, because an unbounded type
+// parameter could be a context. `ui.each`'s three closures capture the list
+// they are indexing, so `each` carries the bound and a caller who has not
+// carried it is told where it stopped.
+from "core/effect" import { Alloc };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+
+fn rows<C, T>(items: Prop<[T]>, name: fn(T) => Str): Node<C> {
+  ui.each(items, name, fn(c, item, index) => ui.text(.Const(name(item))))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let empty: Prop<[Str]> = .Const([]);
+  ui.mount(ctx, rows(empty, fn(s) => s), [])
+}
