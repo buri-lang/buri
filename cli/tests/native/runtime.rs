@@ -24,21 +24,6 @@
 //!    the native one until now (VALUE-MODEL.md §12 row 14).
 //! 4. **The host capabilities work**, including the byte forms and the write
 //!    ordering between the buffered text stream and `writeBytes`.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
-              `Cargo.toml` pins a promise about the toolchain, and a harness \
-              that drives the toolchain is not the toolchain."
-)]
-
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};

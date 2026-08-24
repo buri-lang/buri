@@ -19,6 +19,23 @@
 //! cargo test -p buri --test language conformance::         # one of them
 //! ```
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
+              toolchain — that no input panics it — and a harness that drives \
+              the toolchain is not the toolchain. A test that unwraps fails on \
+              the line that broke, which is what a test is for, and threading \
+              `?` through an assertion buys nothing. `clippy.toml` exempts \
+              `#[test]` functions already; this covers the helpers around them."
+)]
+
 #[path = "../harness/mod.rs"]
 mod harness;
 

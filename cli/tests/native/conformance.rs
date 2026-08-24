@@ -91,21 +91,6 @@
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] compiles each
 //! refused file and asserts the backend still refuses it. A package that
 //! quietly becomes compilable is a failing test rather than a stale comment.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
-              `Cargo.toml` pins a promise about the toolchain, and a harness \
-              that drives the toolchain is not the toolchain."
-)]
-
 use buri::build::buildfile::Platform;
 use buri::build::workspace::Workspace;
 use buri::compiler::backend::cranelift::Cranelift;

@@ -21,21 +21,6 @@
 //! (no C compiler, or not arm64) has no backend to ask, and skips rather than
 //! fails. That is the "degrades rather than breaks" clause of the dependency
 //! bar applied to the suite.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
-              `Cargo.toml` pins a promise about the toolchain, and a harness \
-              that drives the toolchain is not the toolchain."
-)]
-
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;

@@ -11,23 +11,6 @@
 //! `tests/reject/` is left out on purpose — those files are supposed to be
 //! turned away, some of them by the parser, and each one's expectation is
 //! checked exactly by the reject harness in `language/conformance.rs`.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code. The lint set in `Cargo.toml` pins a promise about the \
-              toolchain — that no input panics it — and a harness that drives \
-              the toolchain is not the toolchain. A test that unwraps fails on \
-              the line that broke, which is what a test is for, and threading \
-              `?` through an assertion buys nothing. `clippy.toml` exempts \
-              `#[test]` functions already; this covers the helpers around them."
-)]
 use crate::harness;
 
 use std::path::{Path, PathBuf};

@@ -15,21 +15,6 @@
 //! `main.rs` declares this module behind `backend-cranelift`. With the
 //! feature off there is no module and the suite is silent rather than red,
 //! which is what "degrades rather than breaks" means for a test.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
-              `Cargo.toml` pins a promise about the toolchain, and a harness \
-              that drives the toolchain is not the toolchain."
-)]
-
 use buri::build::buildfile::Platform;
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Options, Profile, Target};

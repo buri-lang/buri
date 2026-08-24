@@ -38,21 +38,6 @@
 //! their own terms rather than to make the fast suite slow, and a module is a
 //! name prefix: `cargo test --test native -- --skip float_parity` leaves the
 //! rest of the domain fast, and `--test native float_parity` runs only this.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
-              `Cargo.toml` pins a promise about the toolchain, and a harness \
-              that drives the toolchain is not the toolchain."
-)]
-
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

@@ -28,21 +28,6 @@
 //! rather than fails: `cc` is not a new requirement — `tests/native/runtime.rs`
 //! already needs it, and the link step is driven through it — but a suite that
 //! cannot run is not a suite that failed.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::arithmetic_side_effects,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "test code, as in `tests/harness/mod.rs`: the lint set in \
-              `Cargo.toml` pins a promise about the toolchain, and a harness \
-              that drives the toolchain is not the toolchain."
-)]
-
 use buri::build::actions;
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::cache::{ActionKey, Cache};

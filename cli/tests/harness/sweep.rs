@@ -23,14 +23,6 @@
 //!   kept therefore survives that run and every run for hours after it, which is
 //!   when somebody is reading it — `cli/tests/README.md` states the contract and
 //!   this is the bound on it.
-
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stderr,
-    reason = "test code, on the same argument as `harness/mod.rs`'s header"
-)]
-
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
