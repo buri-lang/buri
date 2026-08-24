@@ -162,6 +162,48 @@ pub struct Compiled {
 /// and without an output directory, which is what `--check-reproducible` needs
 /// and what makes "two builds of the same commit produce identical bytes"
 /// something the toolchain can be asked rather than something a comment claims.
+/// Analyse, insist on a `main`, and monomorphize from it.
+///
+/// The front end `compile_artifact` and `compile_objects` both run before they
+/// part company over a backend. Two copies is two places for "a program is its
+/// `main`" to be spelled, and they had already drifted over how the missing-
+/// `main` diagnostic was laid out.
+fn monomorphized_main(
+    s: &mut Session,
+    target: TargetId,
+    platform: Platform,
+    diags: &mut Diagnostics,
+) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
+    // `Some`: a build is the per-output check. See `Unit::platform`.
+    let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
+    let mut analysis =
+        crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
+    if analysis.diags.has_errors() {
+        return Err(analysis.diags);
+    }
+    diags.extend(std::mem::take(&mut analysis.diags.items));
+
+    let Some(entry) = analysis.checked.entry else {
+        diags.push(
+            Diagnostic::error(
+                Span::NONE,
+                format!("{} exports no `main`", s.ws.pkg(target.pkg).label()),
+            )
+            .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
+        );
+        return Err(std::mem::take(diags));
+    };
+
+    let module_paths: Vec<String> =
+        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let program =
+        monomorphize::run(&analysis.checked, module_paths, diags, monomorphize::Roots::Main(entry));
+    if diags.has_errors() {
+        return Err(std::mem::take(diags));
+    }
+    Ok((analysis, program))
+}
+
 pub fn compile_artifact(
     s: &mut Session,
     target: TargetId,
@@ -169,33 +211,7 @@ pub fn compile_artifact(
     flags: &Flags,
     diags: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
-    // `Some`: a build is the per-output check. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
-    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
-    if analysis.diags.has_errors() {
-        return Err(analysis.diags);
-    }
-    diags.extend(analysis.diags.items);
-
-    let Some(entry) = analysis.checked.entry else {
-        diags.push(
-            Diagnostic::error(Span::NONE, format!("{} exports no `main`", s.ws.pkg(target.pkg).label()))
-                .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
-        );
-        return Err(std::mem::take(diags));
-    };
-
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut program = monomorphize::run(
-        &analysis.checked,
-        module_paths,
-        diags,
-        monomorphize::Roots::Main(entry),
-    );
-    if diags.has_errors() {
-        return Err(std::mem::take(diags));
-    }
+    let (analysis, mut program) = monomorphized_main(s, target, platform, diags)?;
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
@@ -927,6 +943,24 @@ pub struct Objects {
 /// `--check-reproducible` needs to run it twice with the cache off and compare
 /// the objects it produced, and a function that also wrote an executable could
 /// not be asked that.
+/// The linker for an output, or the diagnostic that says why there is none.
+///
+/// One function because the refusal is one refusal: `cc` is how a native link
+/// is driven, so a host without one cannot link, and saying so twice in two
+/// wordings would be two answers to one question.
+fn linker_for(output: &Output, diags: &mut Diagnostics) -> Option<link::Cc> {
+    match link::select(target_of(output)) {
+        Ok(l) => Some(l),
+        Err(message) => {
+            diags.push(Diagnostic::error(output.span, message).with_fix(
+                "install a C toolchain — the link is driven through `cc`, which is what knows \
+                 where this platform's libc and startup files live",
+            ));
+            None
+        }
+    }
+}
+
 pub fn compile_objects(
     s: &mut Session,
     target: TargetId,
@@ -935,32 +969,7 @@ pub fn compile_objects(
     diags: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     let platform = output.platform();
-    // `Some`: a build is the per-output check. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
-    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
-    if analysis.diags.has_errors() {
-        return Err(analysis.diags);
-    }
-    diags.extend(analysis.diags.items);
-
-    let Some(entry) = analysis.checked.entry else {
-        diags.push(
-            Diagnostic::error(
-                Span::NONE,
-                format!("{} exports no `main`", s.ws.pkg(target.pkg).label()),
-            )
-            .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
-        );
-        return Err(std::mem::take(diags));
-    };
-
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut program =
-        monomorphize::run(&analysis.checked, module_paths, diags, monomorphize::Roots::Main(entry));
-    if diags.has_errors() {
-        return Err(std::mem::take(diags));
-    }
+    let (analysis, mut program) = monomorphized_main(s, target, platform, diags)?;
     objects_of(s, target, output, flags, &mut program, &analysis.checked.tables, diags)
 }
 
@@ -1104,16 +1113,7 @@ fn build_native(
 ) -> Result<Artifact, Diagnostics> {
     let platform = output.platform();
     let path = artifact_path(s, target, output);
-    let linker = match link::select(target_of(output)) {
-        Ok(l) => l,
-        Err(message) => {
-            diags.push(Diagnostic::error(output.span, message).with_fix(
-                "install a C toolchain — the link is driven through `cc`, which is what knows \
-                 where this platform's libc and startup files live",
-            ));
-            return Err(diags);
-        }
-    };
+    let Some(linker) = linker_for(output, &mut diags) else { return Err(diags) };
 
     explain_closure(s, target, output, flags);
     let objects = compile_objects(s, target, output, flags, &mut diags)?;
@@ -1377,16 +1377,7 @@ fn test_binary_named(
     tables: &Tables,
     diags: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let linker = match link::select(target_of(output)) {
-        Ok(l) => l,
-        Err(message) => {
-            diags.push(Diagnostic::error(output.span, message).with_fix(
-                "install a C toolchain — the link is driven through `cc`, which is what knows \
-                 where this platform's libc and startup files live",
-            ));
-            return Err(std::mem::take(diags));
-        }
-    };
+    let Some(linker) = linker_for(output, diags) else { return Err(std::mem::take(diags)) };
     let objects = objects_named(s, prefix, label, output, flags, program, tables, diags)?;
     let key = link_key(output, flags, &linker, &objects.keys);
     let linker = linker.in_dir(link::dir(&s.root, key.as_str()));

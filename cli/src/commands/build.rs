@@ -140,6 +140,40 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
 /// - **Two different output directories.** An artifact that embedded the path
 ///   it was written to differs between them, which is the failure mode this is
 ///   most likely to catch.
+/// A round of `--check-reproducible` opens the repository for itself.
+///
+/// Each round has to start from a tree nobody has looked at yet — that is half
+/// of what the check claims — so the session is per round rather than shared,
+/// and the target is found again by label because the plan was resolved from a
+/// session that has since been dropped.
+fn round_session(
+    label: &str,
+    flags: &arguments::Flags,
+) -> Result<(session::Session, crate::build::workspace::TargetId), i32> {
+    let mut s = open_or_exit(flags).map_err(i32::from)?;
+    if s.report() {
+        return Err(2);
+    }
+    let Some(target) =
+        s.ws.targets().into_iter().find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
+    else {
+        eprintln!("error: {label} disappeared between two builds of one tree");
+        return Err(2);
+    };
+    Ok((s, target))
+}
+
+/// The two lines every irreproducibility is reported as: the verdict, then
+/// what moved.
+///
+/// One function because the verdict is one sentence. It was written out at
+/// seven places, which is seven chances for the wording a user greps for to
+/// stop being the same wording.
+fn not_reproducible(label: &str, detail: &str) {
+    eprintln!("error: {label} is not reproducible");
+    eprintln!("  = {detail}");
+}
+
 fn check_reproducible(args: &arguments::Args) -> i32 {
     let mut flags = arguments::Flags { force: true, ..arguments::Flags::default() };
     // Everything that is part of the configuration has to be carried across,
@@ -191,17 +225,9 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let round_dir = std::env::temp_dir()
                 .join(format!("buri-reproducible-{}-{round}", std::process::id()));
             let _ = std::fs::remove_dir_all(&round_dir);
-            let mut s = match open_or_exit(&flags) {
-                Ok(s) => s,
-                Err(c) => return c as i32,
-            };
-            if s.report() {
-                return 2;
-            }
-            let Some(target) = s.ws.targets().into_iter().find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
-            else {
-                eprintln!("error: {label} disappeared between two builds of one tree");
-                return 2;
+            let (mut s, target) = match round_session(&label, &flags) {
+                Ok(both) => both,
+                Err(code) => return code,
             };
             let mut diags = crate::diagnostics::Diagnostics::new();
             let compiled = match actions::compile_artifact(&mut s, target, platform, &flags, &mut diags)
@@ -259,11 +285,13 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
         // produce, so it is reported rather than skipped over.
         if round_a.len() != round_b.len() {
             differed = true;
-            eprintln!("error: {label} is not reproducible");
-            eprintln!(
-                "  = two builds of the same tree wrote {} files and {} files",
-                round_a.len(),
-                round_b.len()
+            not_reproducible(
+                &label,
+                &format!(
+                    "two builds of the same tree wrote {} files and {} files",
+                    round_a.len(),
+                    round_b.len()
+                ),
             );
             continue;
         }
@@ -274,16 +302,15 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             if name_a != name_b {
                 moved = true;
                 differed = true;
-                eprintln!("error: {label} is not reproducible");
-                eprintln!(
-                    "  = two builds of the same tree wrote `{name_a}` and `{name_b}`"
+                not_reproducible(
+                    &label,
+                    &format!("two builds of the same tree wrote `{name_a}` and `{name_b}`"),
                 );
                 continue;
             }
             if let Some(at) = actions::first_difference(a, b) {
                 moved = true;
                 differed = true;
-                eprintln!("error: {label} is not reproducible");
                 // `path` names the module; a companion sits beside it, so the
                 // report names the sibling rather than the one file the plan
                 // happened to record.
@@ -291,9 +318,12 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                     Some((dir, _)) => format!("{dir}/{name_a}"),
                     None => name_a.clone(),
                 };
-                eprintln!(
-                    "  = {sibling} differs between two builds of the same tree, first at \
-                     byte {at}"
+                not_reproducible(
+                    &label,
+                    &format!(
+                        "{sibling} differs between two builds of the same tree, first at byte \
+                         {at}"
+                    ),
                 );
                 eprintln!(
                     "  = an artifact that is not a function of its declared inputs cannot be \
@@ -372,19 +402,7 @@ fn check_native(
         let round_dir =
             std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
         let _ = std::fs::remove_dir_all(&round_dir);
-        let mut s = open_or_exit(flags).map_err(i32::from)?;
-        if s.report() {
-            return Err(2);
-        }
-        let Some(target) = s
-            .ws
-            .targets()
-            .into_iter()
-            .find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
-        else {
-            eprintln!("error: {label} disappeared between two builds of one tree");
-            return Err(2);
-        };
+        let (mut s, target) = round_session(label, flags)?;
         let mut diags = crate::diagnostics::Diagnostics::new();
         let objects = match actions::compile_objects(&mut s, target, output, flags, &mut diags) {
             Ok(objects) => objects,
@@ -437,34 +455,38 @@ fn check_native(
     let mut differed = false;
     if a_units.len() != b_units.len() {
         differed = true;
-        eprintln!("error: {label} is not reproducible");
-        eprintln!(
-            "  = two builds of the same tree produced {} and {} codegen units",
-            a_units.len(),
-            b_units.len()
+        not_reproducible(
+            label,
+            &format!(
+                "two builds of the same tree produced {} and {} codegen units",
+                a_units.len(),
+                b_units.len()
+            ),
         );
     }
     for ((name, a), (other, b)) in a_units.iter().zip(b_units) {
         if name != other {
             differed = true;
-            eprintln!("error: {label} is not reproducible");
-            eprintln!("  = two builds of the same tree named unit `{name}` and unit `{other}`");
+            not_reproducible(
+                label,
+                &format!("two builds of the same tree named unit `{name}` and unit `{other}`"),
+            );
             continue;
         }
         if let Some(at) = actions::first_difference(a, b) {
             differed = true;
-            eprintln!("error: {label} is not reproducible");
-            eprintln!(
-                "  = {name} differs between two builds of the same tree, first at byte {at}"
+            not_reproducible(
+                label,
+                &format!("{name} differs between two builds of the same tree, first at byte {at}"),
             );
         }
     }
     match actions::first_difference(a_exe, b_exe) {
         Some(at) => {
             differed = true;
-            eprintln!("error: {label} is not reproducible");
-            eprintln!(
-                "  = {path} differs between two builds of the same tree, first at byte {at}"
+            not_reproducible(
+                label,
+                &format!("{path} differs between two builds of the same tree, first at byte {at}"),
             );
             eprintln!(
                 "  = the objects above say whether this is a codegen difference or a link one"
