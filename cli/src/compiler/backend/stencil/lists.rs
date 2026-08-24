@@ -93,7 +93,8 @@ pub enum Step {
 
 /// One `core/list` key, with the argument positions the declaration fixes.
 /// Receiver first, context second, everything else after (SPEC 10.7) — the
-/// same table as `cranelift/emit.rs::list_call`, entry for entry.
+/// same rows as `backend/intrinsic_keys.rs`'s table, for the nine keys of it
+/// this backend open-codes.
 pub struct ListCall {
     pub kind: Step,
     /// The context, where the *step* takes one. `map` and `mapCtx` both have a

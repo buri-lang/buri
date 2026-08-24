@@ -24,6 +24,10 @@
 
 pub mod js;
 
+/// How an intrinsic key is classified, where every backend classifies it the
+/// same way.
+pub mod intrinsic_keys;
+
 /// The native runtime archive both native backends link against, built by
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;
@@ -95,6 +99,7 @@ pub struct Target {
     pub arch: Option<Arch>,
 }
 
+/// What an emission or a link is for.
 pub struct Options<'a> {
     pub profile: Profile,
     pub target: Target,
@@ -107,10 +112,34 @@ pub struct Options<'a> {
     pub unit_prefix: &'a str,
 }
 
-pub struct LinkOptions<'a> {
-    pub profile: Profile,
-    pub target: Target,
-    pub unit_prefix: &'a str,
+/// A link wants the same three answers an emission does, under the name the
+/// [`Linker`] trait reads better with.
+pub type LinkOptions<'a> = Options<'a>;
+
+/// The target triple a [`Target`] names, as text, or `None` for a platform no
+/// native backend emits for.
+///
+/// `arch: None` means the host's architecture — the same rule `cli/build.rs`
+/// uses to build the runtime archive the objects are linked against. One rule
+/// here rather than one per backend, so that an unqualified `--output=linux`
+/// cannot mean two things; the refusal is each backend's own sentence, which
+/// is why this answers `None` rather than an error.
+///
+/// No macOS deployment version: the object the linker is handed carries what
+/// `cc` puts on the command line, and pinning one here would make a toolchain
+/// refuse to link on a newer SDK.
+pub fn triple_text(target: Target) -> Option<String> {
+    let arch = match target.arch {
+        Some(Arch::X86_64) => "x86_64",
+        Some(Arch::Arm64) => "aarch64",
+        None if cfg!(target_arch = "aarch64") => "aarch64",
+        None => "x86_64",
+    };
+    match target.platform {
+        Platform::Macos => Some(format!("{arch}-apple-darwin")),
+        Platform::Linux => Some(format!("{arch}-unknown-linux-gnu")),
+        Platform::Js | Platform::Web => None,
+    }
 }
 
 /// Which codegen units an emission is for.

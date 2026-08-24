@@ -69,6 +69,9 @@ use inkwell::values::{
 };
 use inkwell::{FloatPredicate, IntPredicate};
 
+use crate::compiler::backend::intrinsic_keys::{
+    bits_op, derive_key, list_call, list_closure_key, Step,
+};
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
@@ -77,7 +80,7 @@ use crate::compiler::middle::layout::{
     STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::{FuncIdx, Prim, Tables, Ty};
+use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map;
 
@@ -3495,12 +3498,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
     ) -> Option<(usize, usize, u32, Ty)> {
-        let Some(Ty::Con(id, args)) = self.type_of(code.ty_of(dest)) else { return None };
-        let variants = self.tables.tycon(id).variants();
-        let ok = variants.iter().position(|v| v.name == "Ok")?;
-        let err = variants.iter().position(|v| v.name == "Err")?;
+        let source = self.type_of(code.ty_of(dest))?;
+        let (ok, err, err_ty) = types::result_shape(self.tables, &source)?;
+        let Ty::Con(_, args) = &source else { return None };
         let ok_bytes = self.reprs.of_ty(args.get(ok)?).layout.size;
-        Some((ok, err, ok_bytes, args.get(err)?.clone()))
+        Some((ok, err, ok_bytes, err_ty))
     }
 
     /// One constant discriminant, written into a buffer whose payload the
@@ -4755,24 +4757,6 @@ struct StepFn<'ctx> {
     rets: Vec<Slot>,
 }
 
-/// Which loop a closure-taking `list.*` key is.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Step {
-    Map,
-    Filter,
-    Fold,
-    /// `foldResult` and `foldResultCtx`: a fold that stops at the first `.Err`.
-    FoldResult,
-    Sort,
-    Any,
-    All,
-    Count,
-    /// `find`: the first element the predicate keeps, as an `Option<T>`.
-    Find,
-    /// `findIndex`: that element's index, as an `Option<Int>`.
-    FindIndex,
-}
-
 /// `Order.Greater`'s tag.
 ///
 /// `core/order` declares `Less`, `Equal`, `Greater` in that order and
@@ -4793,47 +4777,6 @@ struct ListArgs<'ctx> {
     step: StepFn<'ctx>,
     ctx: Option<ir::ValueId>,
     init: Option<ir::ValueId>,
-}
-
-/// Where the pieces of one of those calls are in its argument list.
-struct ListCall {
-    kind: Step,
-    /// The threaded context a `*Ctx` step takes first. **Not** the `C: Alloc`
-    /// bound of `map` and `filter`, which the step never sees.
-    ctx: Option<usize>,
-    func: usize,
-    init: Option<usize>,
-}
-
-/// The table, in `list.buri`'s order. Receiver first, context second,
-/// function, then `fold`'s initial accumulator.
-fn list_call(key: &str) -> Option<ListCall> {
-    let call = |kind, ctx, func, init| ListCall { kind, ctx, func, init };
-    Some(match key {
-        "list.fold" => call(Step::Fold, None, 1, Some(2)),
-        "list.foldCtx" => call(Step::Fold, Some(1), 2, Some(3)),
-        "list.foldResult" => call(Step::FoldResult, None, 1, Some(2)),
-        "list.foldResultCtx" => call(Step::FoldResult, Some(1), 2, Some(3)),
-        "list.find" => call(Step::Find, None, 1, None),
-        "list.findIndex" => call(Step::FindIndex, None, 1, None),
-        "list.any" => call(Step::Any, None, 1, None),
-        "list.all" => call(Step::All, None, 1, None),
-        "list.count" => call(Step::Count, None, 1, None),
-        "list.map" => call(Step::Map, None, 2, None),
-        "list.mapCtx" => call(Step::Map, Some(1), 2, None),
-        "list.filter" => call(Step::Filter, None, 2, None),
-        "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
-        // `sortBy(self, ctx, order)`: the `C: Alloc` bound is for the block the
-        // sort builds and the comparator never sees it, so `ctx` is `None` here
-        // for the same reason it is on `map`.
-        "list.sortBy" => call(Step::Sort, None, 2, None),
-        _ => return None,
-    })
-}
-
-/// The keys [`Unit::list_closure`] emits a loop for, asked ahead of emission.
-pub fn list_closure_key(key: &str) -> bool {
-    list_call(key).is_some()
 }
 
 /// One pass of [`Unit::list_sort`]: the run width, twice it, and the two blocks
@@ -7004,22 +6947,6 @@ pub fn implemented(key: &str) -> bool {
         || prim_leaf(key).is_some()
 }
 
-/// `derivePrimShow.U8` -> `("derivePrimShow", Prim::U8)`.
-///
-/// The **unqualified** spelling is not matched, on purpose. `middle::lower`'s
-/// `qualified_key` produces one only for a `derivePrim*` whose operand is not a
-/// primitive, which is a bug in `derives.rs` rather than in the program — and
-/// the way a compiler bug should surface is as a named missing intrinsic, not
-/// as a rendering chosen from an IR type that cannot tell `U64` from `I64`.
-fn derive_key(key: &str) -> Option<(&str, Prim)> {
-    let (name, target) = key.split_once('.')?;
-    if !matches!(name, "derivePrimShow" | "derivePrimHash") {
-        return None;
-    }
-    let prim = Prim::all().iter().copied().find(|p| p.name() == target)?;
-    Some((name, prim))
-}
-
 /// `str.show`, `char.eq`, `bool.compare` and their six siblings.
 ///
 /// `semantics/builtins.rs` declares `eq`, `compare`, `show` and `hash` on
@@ -7069,31 +6996,6 @@ fn conversion_target(from: Prim, op: &str) -> Option<(Prim, bool)> {
     }
     let to = numeric(op.strip_prefix("to")?)?;
     Some((to, conversion_is_exact(from, to)))
-}
-
-/// `core/bits`: fourteen operations, each one instruction behind a range check.
-///
-/// The whole module, because every entry is a machine operation and none of
-/// them needs a runtime body — which is also why there is no `buri_rt_bits_*`
-/// for the mangler to find.
-pub fn bits_op(key: &str) -> bool {
-    matches!(
-        key,
-        "bits.shl"
-            | "bits.shr"
-            | "bits.sar"
-            | "bits.popCount"
-            | "bits.leadingZeros"
-            | "bits.trailingZeros"
-            | "bits.rotateLeft"
-            | "bits.rotateRight"
-            | "bits.shlU8"
-            | "bits.shrU8"
-            | "bits.shlU32"
-            | "bits.shrU32"
-            | "bits.shlU64"
-            | "bits.shrU64"
-    )
 }
 
 /// The intrinsics this backend emits as instructions rather than as a call.

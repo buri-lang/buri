@@ -36,8 +36,9 @@
 //! rule in `lib.rs` §1 would happily produce `buri_rt_list_map` for `list.map`,
 //! which does not exist, and a program that used it would get a link error
 //! naming a symbol instead of [`super::Cranelift::missing_intrinsics`] naming
-//! the operation. The mangler is still here as [`symbol_for`], and it is used to
-//! *check* the table rather than to drive emission.
+//! the operation. The mangler lives in `backend/runtime_native.rs` as
+//! `symbol_for`, and it is used to *check* this table rather than to drive
+//! emission.
 
 /// The discriminant a fallible runtime entry returns for its success arm.
 ///
@@ -410,53 +411,6 @@ pub fn entry(key: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|e| e.key == key)
 }
 
-/// The symbol `cli/runtime/lib.rs` §1's rule names for a key.
-///
-/// Used to *check* the table rather than to drive emission — see the module
-/// header. The rule is "`buri_rt_` followed by `snake_case`", plus the one thing
-/// the contract states by example rather than in words: a segment that begins
-/// with the previous segment drops that prefix, so `host.HostStdout.println` is
-/// `buri_rt_host_stdout_println` and not `buri_rt_host_host_stdout_println`.
-pub fn symbol_for(key: &str) -> String {
-    let mut out = String::from(crate::compiler::backend::runtime_native::SYMBOL_PREFIX);
-    let mut previous = String::new();
-    for (i, segment) in key.split('.').enumerate() {
-        let mut piece = String::new();
-        snake_into(segment, &mut piece);
-        if !previous.is_empty() {
-            if let Some(rest) = piece.strip_prefix(&format!("{previous}_")) {
-                piece = rest.to_string();
-            }
-        }
-        if i > 0 {
-            out.push('_');
-        }
-        previous.clone_from(&piece);
-        out.push_str(&piece);
-    }
-    out
-}
-
-/// `HostFs` -> `host_fs`, `readFile` -> `read_file`, `nowMillis` ->
-/// `now_millis`. An underscore before an upper-case letter that follows a
-/// lower-case one or a digit; runs of capitals are not split, because no key
-/// has one.
-fn snake_into(segment: &str, out: &mut String) {
-    let mut previous_lower = false;
-    for c in segment.chars() {
-        if c.is_ascii_uppercase() {
-            if previous_lower {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-            previous_lower = false;
-        } else {
-            out.push(c);
-            previous_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // The symbols this backend emits without an intrinsic key behind them
 // ---------------------------------------------------------------------------
@@ -522,6 +476,7 @@ pub mod hash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::backend::runtime_native::symbol_for;
 
     /// Every entry's symbol is the one the contract's rule produces, so the
     /// table is a *subset* of the contract rather than a second opinion about

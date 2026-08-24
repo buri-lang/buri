@@ -23,6 +23,8 @@
 )]
 
 use super::abi::Loc;
+use crate::compiler::backend::intrinsic_keys::{bits_op, prim_trait_op};
+use crate::compiler::semantics::types::{field_types, variant_types};
 
 /// Where an edge's register half reads from.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,7 +36,7 @@ use super::jit::{Fn2, Jit, Plan, V};
 use super::rtcall::{Src, EQUAL, GREATER, LESS};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr, Scalar};
-use crate::compiler::semantics::types::{Prim, TyDef, Ty};
+use crate::compiler::semantics::types::{Prim, Ty};
 
 /// How deep the reference-count walk goes before it refuses.
 ///
@@ -265,7 +267,7 @@ impl<'a> Jit<'a> {
                     }
                     _ => return self.unsupported("MakeStruct of a non-aggregate".into()),
                 };
-                let ftys = self.field_types(&owner);
+                let ftys = field_types(self.tables, &owner);
                 for (i, f) in fields.iter().enumerate() {
                     let w = self.width_of(prog, code.ty_of(*f));
                     if w == 0 || i >= l.fields.len() {
@@ -287,7 +289,7 @@ impl<'a> Jit<'a> {
                     _ => return self.unsupported("GetField of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let ftys = self.field_types(&owner);
+                let ftys = field_types(self.tables, &owner);
                 if (*index as usize) < l.fields.len() {
                     let off = l.field(*index as usize);
                     let src = st.at(*agg) + off;
@@ -310,7 +312,7 @@ impl<'a> Jit<'a> {
                 };
                 let offs = l.variant(*variant as usize).to_vec();
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let ftys = self.variant_types(&owner, *variant as usize);
+                let ftys = variant_types(self.tables, &owner, *variant as usize);
                 match offs.get(*index as usize) {
                     Some(o) => {
                         let src = st.at(*agg) + *o;
@@ -557,7 +559,7 @@ impl<'a> Jit<'a> {
             ir::Type::Agg(id) => (self.layout_of(prog, id), prog.type_info(id).ty.clone()),
             _ => return self.unsupported("MakeEnum of a non-aggregate".into()),
         };
-        let ftys = self.variant_types(&owner, variant as usize);
+        let ftys = variant_types(self.tables, &owner, variant as usize);
         let d = st.at(dest);
         let Repr::Enum { repr, variants } = l.repr.clone() else {
             return self.unsupported("MakeEnum of a non-enum layout".into());
@@ -759,7 +761,7 @@ impl<'a> Jit<'a> {
             }
             Repr::Zero | Repr::Scalar(_) => Ok(()),
             Repr::Aggregate => {
-                for (i, f) in self.field_types(ty).iter().enumerate() {
+                for (i, f) in field_types(self.tables, ty).iter().enumerate() {
                     let off = l.fields.get(i).copied().unwrap_or(0);
                     if self.boxes(ty, f) {
                         self.rc_box(at + off, f, retain);
@@ -847,7 +849,7 @@ impl<'a> Jit<'a> {
     ) -> Result<(), String> {
         let done = st.label();
         for (v, offsets) in variants.iter().enumerate() {
-            let fields = self.variant_types(ty, v);
+            let fields = variant_types(self.tables, ty, v);
             let owned: Vec<(u32, Ty, bool)> = fields
                 .iter()
                 .enumerate()
@@ -974,41 +976,6 @@ impl<'a> Jit<'a> {
         }
     }
 
-    /// A struct's or a tuple's fields, as types, in declaration order.
-    ///
-    /// `cranelift/abi.rs::field_types` is the same walk of the same tables; two
-    /// backends asking a type table the same question is not duplication, and
-    /// the alternative is one of them reaching into the other's module.
-    fn field_types(&self, ty: &Ty) -> Vec<Ty> {
-        use crate::compiler::semantics::types as types;
-        match ty {
-            Ty::Tuple(elements) => elements.clone(),
-            Ty::Ctx(id) => {
-                self.tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect()
-            }
-            Ty::Con(id, args) => match &self.tables.tycon(*id).def {
-                TyDef::Struct { fields, .. } => {
-                    fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect()
-                }
-                TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
-            },
-            _ => Vec::new(),
-        }
-    }
-
-    /// One variant's fields, as types, in declaration order.
-    fn variant_types(&self, ty: &Ty, variant: usize) -> Vec<Ty> {
-        use crate::compiler::semantics::types as types;
-        let Ty::Con(id, args) = ty else { return Vec::new() };
-        match &self.tables.tycon(*id).def {
-            TyDef::Enum { .. } => match self.tables.tycon(*id).variants().get(variant) {
-                Some(v) => v.fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect(),
-                None => Vec::new(),
-            },
-            TyDef::Prim(_) | TyDef::Struct { .. } => Vec::new(),
-        }
-    }
-
     fn variant_count(&self, ty: &Ty) -> usize {
         let Ty::Con(id, _) = ty else { return 0 };
         self.tables.tycon(*id).variants().len()
@@ -1042,13 +1009,13 @@ impl<'a> Jit<'a> {
             // answer `cranelift/emit.rs::rc_sites` gives `Ty::Fn`.
             Repr::Str | Repr::List | Repr::Closure => true,
             Repr::Aggregate => {
-                let fields = self.field_types(ty);
+                let fields = field_types(self.tables, ty);
                 self.any_counted(ty, &fields, depth)
             }
             Repr::Enum { .. } => {
                 let n = self.variant_count(ty);
                 (0..n).any(|v| {
-                    let fields = self.variant_types(ty, v);
+                    let fields = variant_types(self.tables, ty, v);
                     self.any_counted(ty, &fields, depth)
                 })
             }
@@ -3605,50 +3572,6 @@ pub fn implemented(key: &str) -> bool {
         || key.strip_prefix("derivePrimShow.").is_some_and(|t| prim_of_name(t).is_some())
         || key.strip_prefix("derivePrimHash.").is_some_and(|t| prim_of_name(t).is_some())
         || numeric_key(key)
-}
-
-/// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
-/// `Char::toU32`, which are instructions rather than calls.
-///
-/// `str.*` is absent because every one of those is a runtime entry the table
-/// already claims; `str.show` is the exception, because it is the identity.
-fn prim_trait_op(key: &str) -> bool {
-    matches!(
-        key,
-        "bool.eq"
-            | "bool.compare"
-            | "bool.hash"
-            | "bool.show"
-            | "char.eq"
-            | "char.compare"
-            | "char.hash"
-            | "char.show"
-            | "char.toU32"
-            | "str.show"
-    )
-}
-
-/// `core/bits`. The six unsigned-width entries are spelled out rather than
-/// derived from a suffix, because `bits.buri` declares exactly these and a rule
-/// that accepted `shlU16` would claim something that does not exist.
-fn bits_op(key: &str) -> bool {
-    matches!(
-        key,
-        "bits.shl"
-            | "bits.shr"
-            | "bits.sar"
-            | "bits.popCount"
-            | "bits.leadingZeros"
-            | "bits.trailingZeros"
-            | "bits.rotateLeft"
-            | "bits.rotateRight"
-            | "bits.shlU8"
-            | "bits.shrU8"
-            | "bits.shlU32"
-            | "bits.shrU32"
-            | "bits.shlU64"
-            | "bits.shrU64"
-    )
 }
 
 /// The keys that are instructions rather than calls.

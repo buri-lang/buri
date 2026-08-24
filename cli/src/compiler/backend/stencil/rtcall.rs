@@ -53,7 +53,7 @@ use super::jit::{Fn2, Jit, V};
 use super::runtime::{Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::compiler::semantics::types::Ty;
+use crate::compiler::semantics::types::{self as types, Ty};
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
 /// reserves.
@@ -365,12 +365,8 @@ impl Jit<'_> {
     /// `(the `.Ok` variant, the `.Err` variant, `E`)` for a `Result`
     /// destination.
     fn result_shape(&mut self, prog: &ir::Program, dty: ir::Type) -> Option<(usize, usize, Ty)> {
-        let Some(Ty::Con(id, args)) = source_ty(prog, dty) else { return None };
-        let variants = self.tables.tycon(id).variants();
-        let ok = variants.iter().position(|v| v.name == "Ok")?;
-        let err = variants.iter().position(|v| v.name == "Err")?;
-        let err_ty = args.get(err)?.clone();
-        Some((ok, err, err_ty))
+        let source = source_ty(prog, dty)?;
+        types::result_shape(self.tables, &source)
     }
 
     /// How many bytes `.Ok`'s payload occupies, from `T` rather than from the
