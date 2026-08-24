@@ -261,7 +261,8 @@ fn prelude(n: usize, tgt: Tgt) -> String {
 }
 
 const PRELUDE: &str = r#"
-// GENERATED — the stencil generators of stencil. See src/gen.rs.
+// GENERATED — the stencil generators of stencil.
+// See cli/src/compiler/backend/stencil/sources.rs.
 #include <stdint.h>
 
 #define HID __attribute__((visibility("hidden")))
@@ -568,8 +569,8 @@ fn moves(o: &mut Out) {
     // instructions: an address computation that would otherwise be three
     // stencils' worth of frame traffic per element.
     // The **zero-extending** indexed load, for an element narrower than a
-    // frame word. `gen.rs::write`'s convention is that a frame slot always
-    // holds a whole 64-bit word — "an integer narrower than 64 bits is
+    // frame word. This file's `write` fixes the convention: a frame slot
+    // always holds a whole 64-bit word — "an integer narrower than 64 bits is
     // zero-extended into it … so that a frame slot is never partially
     // defined" — and a plain `memcpy` of one byte leaves the other seven
     // holding whatever was there. That is not a slow program, it is a wrong
@@ -1392,7 +1393,7 @@ fn calls(o: &mut Out) {
 
 fn memory(o: &mut Out, level: Level) {
     // The one stencil every runtime-supplied operation goes through. See
-    // `intrin.rs` for why it is one and not one per signature.
+    // `rtcall.rs`'s header for why it is one family and not one per signature.
 
     // Reference counting, open-coded against VALUE-MODEL.md §2's one header:
     // `rc` at `ptr - 16`, `IMMORTAL` is `u64::MAX`, and the increment saturates

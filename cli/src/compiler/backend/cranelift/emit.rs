@@ -201,7 +201,8 @@ pub struct Unit<'a> {
     /// A map rather than a slot per function in the program: a unit declares
     /// its own functions and the handful it calls across a boundary, so a table
     /// the size of the whole program is an allocation and a memset per unit for
-    /// a row that is almost entirely empty (`design/PERFORMANCE.md` §6.7).
+    /// a row that is almost entirely empty (`design/PERFORMANCE.md` §6.4's
+    /// first finding).
     funcs: Map<usize, FuncId>,
     /// Which of the program's functions this unit defines.
     pub owned: Vec<usize>,

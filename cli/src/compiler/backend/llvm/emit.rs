@@ -120,7 +120,8 @@ pub struct Unit<'ctx, 'a> {
     ///
     /// Borrowed rather than owned, because "once for the whole program" is what
     /// it has to be: it is a fixpoint over every body, and computing it inside
-    /// each unit made the emission quadratic (`design/PERFORMANCE.md` §6.7).
+    /// each unit made the emission quadratic (`design/PERFORMANCE.md` §6.4's
+    /// first finding).
     observed: &'a [Observed],
     /// The LLVM function for each `FuncIdx`, declared lazily: a unit declares
     /// only what it calls, so a module is not the whole program's symbol table.
@@ -798,7 +799,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The IR carries a magnitude and a sign rather than a two's-complement
     /// pattern (`ir::Const::Int`), because choosing the width is the layout
     /// table's job — so the negation happens here, at the width, and wraps,
-    /// which is the native answer for overflow (VALUE-MODEL.md §11.1).
+    /// which is the native answer for overflow (VALUE-MODEL.md §11).
     fn int_constant(
         &self,
         llvm: BasicTypeEnum<'ctx>,
@@ -873,7 +874,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let out = match op {
             // **No `nsw` and no `nuw`, anywhere.** SPEC 6.2 says overflow is
             // undefined and `nsw` is exactly how LLVM spells that, so setting
-            // it would be *correct*. It is still not set: VALUE-MODEL.md §11.1
+            // it would be *correct*. It is still not set: VALUE-MODEL.md §11
             // describes two backends whose overflow behaviour differs, and
             // "two's-complement wrap" is a description a program can be
             // debugged against while "whatever the optimizer inferred" is not.
@@ -7061,7 +7062,7 @@ fn conversion_target(from: Prim, op: &str) -> Option<(Prim, bool)> {
         // the one place this backend and JavaScript differ: `$wrapTo` truncates
         // and then takes the low bits through a `BigInt`, and this saturates,
         // because `llvm.fptosi.sat` is the only float-to-integer conversion
-        // that is not `poison` out of range. VALUE-MODEL.md §11.1 and its
+        // that is not `poison` out of range. VALUE-MODEL.md §11 and its
         // divergence table's row 1 put overflow outside what the two backends
         // promise each other, which is the ground this stands on.
         return numeric(target).map(|to| (to, true));

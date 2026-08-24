@@ -5,8 +5,8 @@
 //! their binary code and the linker relocation records containing information
 //! about the holes" (§5.3). On x86-64/ELF, as in the paper, a hole is a
 //! `R_X86_64_64` or `PC32` field that a value drops straight into. On
-//! arm64/Mach-O it is never one field — see `patch.rs` for what each relocation
-//! kind costs us.
+//! arm64/Mach-O it is never one field — see `library.rs`'s `HoleKind` for what
+//! each relocation kind costs us.
 //!
 //! Nothing here is general: it reads exactly the shapes `clang -c` emits for the
 //! stencil sources, and returns an error rather than guessing on anything else.

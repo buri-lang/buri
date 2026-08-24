@@ -7,7 +7,7 @@
 //!
 //! Because Buri has no dynamic dispatch — no trait objects, no virtual calls —
 //! the call graph of direct calls is fully known once this runs, which is what
-//! makes the tail-call elimination in `tco.rs` exact.
+//! makes the tail-call elimination in `tail_calls.rs` exact.
 //!
 //! Reachability doubles as dead code elimination: an instance nothing calls is
 //! never created, so the whole of `core/*` costs nothing in a program that

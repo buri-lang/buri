@@ -154,7 +154,8 @@ pub struct Reprs<'a> {
     layouts: Layouts<'a>,
     /// Keyed on the id rather than indexed by it: a row per type the *program*
     /// interned, built fresh per unit, is a large allocation and a large memset
-    /// for the twenty entries a unit fills (`design/PERFORMANCE.md` §6.7).
+    /// for the twenty entries a unit fills (`design/PERFORMANCE.md` §6.4's
+    /// first finding).
     memo: Map<usize, Repr>,
     by_ty: Map<Ty, usize>,
     side: Vec<Repr>,

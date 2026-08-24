@@ -1315,7 +1315,8 @@ impl<'a> Jit<'a> {
         // `Body::Runtime` function where it was a method — and the loop belongs
         // at the call site, where the step is a `MakeClosure` this function can
         // see. `lists.rs` says why. A `false` here falls through to the
-        // ordinary call, whose callee's body is `intrin.rs`'s helper.
+        // ordinary call, whose callee's body `list_loop_rt` open-codes
+        // in turn.
         if let Some(ir::Body::Runtime(key)) = prog.funcs.get(func as usize).map(|f| &f.body) {
             let key = key.clone();
             if self.list_loop(prog, code, st, dests, &key, args) {
@@ -2409,8 +2410,8 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        // The open-coded loop first: `intrin.rs`'s descriptor helper is the
-        // fallback, not the other way round. `lists.rs` says why.
+        // The open-coded loop first: the runtime call is the fallback, not the
+        // other way round. `lists.rs` says why.
         if self.list_loop_rt(prog, fi, &key, st) {
             self.emit("ret", &[]);
             return;

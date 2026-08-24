@@ -230,7 +230,7 @@ impl Backend for Cranelift {
 
         // The partition, once. Everything below reads its own row, so no step
         // in the loop is a function of the whole program's size — which is what
-        // `design/PERFORMANCE.md` §6.7 measured going wrong.
+        // `design/PERFORMANCE.md` §6.4's first finding measured going wrong.
         let members = lowered.funcs_by_unit();
         let cycles = Rc::new(Cycles::new(tables));
         let empty: Vec<usize> = Vec::new();

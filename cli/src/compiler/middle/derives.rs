@@ -99,7 +99,7 @@
 //! JavaScript's own representation leaks into its answer — `Some(None)` is a
 //! sentinel object there and a niche-encoded pointer natively
 //! (VALUE-MODEL.md §6) — the native side follows the *value*, and that
-//! divergence is named in `design/native/OPEN-QUESTIONS.md`'s terms rather than
+//! divergence is named in `design/native/DECISIONS.md`'s terms rather than
 //! silently reproduced.
 //!
 //! # Sharing

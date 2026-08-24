@@ -319,7 +319,8 @@ impl Layout {
 /// emission owns — but this is a walk of every constructor in the program
 /// followed by a strongly-connected-components pass, and building one per unit
 /// made a native build quadratic in the number of units
-/// (`design/PERFORMANCE.md` §6.7). Build one and hand it to every
+/// (`design/PERFORMANCE.md` §6.4's first finding). Build one and hand it to
+/// every
 /// [`Layouts::with_cycles`].
 pub struct Cycles {
     /// Recursion group per type constructor, by `TyConId` index: the strongly

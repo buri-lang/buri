@@ -1,8 +1,7 @@
-//! Inlining and folding, over the monomorphized tree. Was `optimize.rs`; the
-//! name says what it does, and the folding is interleaved with the inlining
-//! rather than a pass of its own, because inlining a constructor into a
-//! projection is what makes most folding possible and folding is what exposes
-//! the next round's call sites.
+//! Inlining and folding, over the monomorphized tree. The folding is
+//! interleaved with the inlining rather than a pass of its own, because
+//! inlining a constructor into a projection is what makes most folding
+//! possible and folding is what exposes the next round's call sites.
 //!
 //! This runs between monomorphization and the backend, which is the one point
 //! where the whole program is present, every type is concrete, and nothing has

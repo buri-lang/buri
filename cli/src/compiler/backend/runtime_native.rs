@@ -12,10 +12,10 @@
 //! ```
 //!
 //! Embedding rather than shipping a file next to the binary is what makes a
-//! `buri` binary self-contained, which is what `build/toolchain.rs` already
-//! assumes when it pins the toolchain by hashing the running executable: a
+//! `buri` binary self-contained, which is what `build/cache.rs` already
+//! assumes when it folds the toolchain version into every action key: a
 //! runtime that lived beside the binary would be an unpinned input to every
-//! artifact.
+//! artifact that no key names.
 
 /// The prefix on every symbol the runtime exports.
 ///

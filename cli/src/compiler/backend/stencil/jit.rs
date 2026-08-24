@@ -112,7 +112,7 @@ pub struct Stats {
     pub coalesced: usize,
     pub cross_regs: usize,
     /// How many `list.*` closure calls were open-coded as a loop rather than
-    /// left to `intrin.rs`'s descriptor helper, and how many of those got a
+    /// left to an ordinary runtime call, and how many of those got a
     /// **direct** call to the step (`lists.rs`).
     pub list_loops: usize,
     pub list_direct: usize,

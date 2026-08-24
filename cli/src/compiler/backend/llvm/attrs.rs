@@ -1,6 +1,7 @@
 //! The attribute discipline. **Wave 2b.**
 //!
-//! `design/LLVM-tips.md:3`, and CODEGEN-LLVM.md §3. The effect system supplies
+//! `design/native/CODEGEN-LLVM.md` §0's third instruction, answered in its §3.
+//! The effect system supplies
 //! most of it for free: a language where "does this function touch the world?" is a
 //! syntactic property of its signature can answer LLVM's memory-effect
 //! questions without an analysis.

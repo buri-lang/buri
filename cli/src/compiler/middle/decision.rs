@@ -58,9 +58,9 @@
 //!
 //! Anything else the pass does not understand — an or-pattern head, a tuple or
 //! array or struct head, a binding with a sub-pattern, an irrefutable arm that
-//! is not last — leaves the match exactly as it was. The research this comes
-//! from (`rescript-optimizations.md`, P2-1) measured 1.75× for decision trees
-//! and flagged the correctness risk as the reason not to land one casually;
+//! is not last — leaves the match exactly as it was. The published
+//! measurements this comes from put a decision tree at 1.75× and name the
+//! correctness risk as the reason not to land one casually;
 //! being conservative in the shapes above is what makes it landable at all.
 //!
 //! Design: `design/native/ARCHITECTURE.md` §1, §2.2.
