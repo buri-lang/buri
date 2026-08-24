@@ -64,10 +64,11 @@
 //!
 //! # Three targets, one generator
 //!
-//! `macos-arm64`, `linux-arm64` and `linux-x86_64` — [`abi::Tgt`]. A stencil is
-//! the bytes clang emitted for a C function, so it belongs to an instruction
-//! set *and* a container, and a toolchain bakes one library per pair. The two
-//! Linux libraries are cross-compiled by the same `cc`, which works because the
+//! `macos-arm64`, `linux-arm64` and `linux-x86_64` — [`abi::StencilTarget`]. A
+//! stencil is the bytes clang emitted for a C function, so it belongs to an
+//! instruction set *and* a container, and a toolchain bakes one library per
+//! pair. The two Linux
+//! libraries are cross-compiled by the same `cc`, which works because the
 //! generated C includes `<stdint.h>` and nothing else; `CODEGEN-STENCIL.md` §3.2
 //! is the whole of it.
 //!
@@ -144,7 +145,8 @@ use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::sync::OnceLock;
 
-/// The stencil libraries, built by `cli/build.rs` — one per [`abi::Tgt`].
+/// The stencil libraries, built by `cli/build.rs` — one per
+/// [`abi::StencilTarget`].
 ///
 /// **Empty** where the toolchain's `cc` could not produce that target's
 /// objects: the host's own on a machine with no C compiler, and the two cross
@@ -153,8 +155,9 @@ use std::sync::OnceLock;
 /// there is no conditional compilation for a `check-cfg` list to know about,
 /// and [`available_for`] is the question to ask.
 ///
-/// Three constants rather than an array built from [`abi::Tgt::ALL`], because
-/// `include_bytes!` takes a literal path and there is no way to spell the loop.
+/// Three constants rather than an array built from
+/// [`abi::StencilTarget::ALL`], because `include_bytes!` takes a literal path
+/// and there is no way to spell the loop.
 /// [`blob`] is the one place the three are matched to their targets.
 const MACOS_ARM64_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/stencils-macos-arm64.bin"));
@@ -185,16 +188,16 @@ const LINUX_X86_64_SHA256: &str =
     include_str!(concat!(env!("OUT_DIR"), "/stencils-linux-x86_64.bin.sha256"));
 
 /// One target's blob and its baked digest.
-fn blob(t: abi::Tgt) -> (&'static [u8], &'static str) {
+fn blob(t: abi::StencilTarget) -> (&'static [u8], &'static str) {
     match t {
-        abi::Tgt::MacosArm64 => (MACOS_ARM64_BYTES, MACOS_ARM64_SHA256),
-        abi::Tgt::LinuxArm64 => (LINUX_ARM64_BYTES, LINUX_ARM64_SHA256),
-        abi::Tgt::LinuxX86_64 => (LINUX_X86_64_BYTES, LINUX_X86_64_SHA256),
+        abi::StencilTarget::MacosArm64 => (MACOS_ARM64_BYTES, MACOS_ARM64_SHA256),
+        abi::StencilTarget::LinuxArm64 => (LINUX_ARM64_BYTES, LINUX_ARM64_SHA256),
+        abi::StencilTarget::LinuxX86_64 => (LINUX_X86_64_BYTES, LINUX_X86_64_SHA256),
     }
 }
 
 /// Whether this toolchain has stencils for one target.
-pub fn available_for(t: abi::Tgt) -> bool {
+pub fn available_for(t: abi::StencilTarget) -> bool {
     !blob(t).0.is_empty()
 }
 
@@ -226,12 +229,12 @@ pub const AVAILABLE: bool = !MACOS_ARM64_BYTES.is_empty()
 /// lines emits several hundred units in one process. It is also paid **per
 /// target reached**, and a build reaches one, so a three-target toolchain
 /// decodes no more than a one-target toolchain did.
-fn load(t: abi::Tgt) -> Result<&'static library::Library, String> {
-    static LIBS: [OnceLock<Result<library::Library, String>>; abi::Tgt::ALL.len()] =
+fn load(t: abi::StencilTarget) -> Result<&'static library::Library, String> {
+    static LIBS: [OnceLock<Result<library::Library, String>>; abi::StencilTarget::ALL.len()] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
-    // `Tgt::ALL` is the order, and `blob` is matched to it by the assertion in
-    // `the_libraries_are_indexed_by_their_own_order`.
-    let i = abi::Tgt::ALL.iter().position(|x| *x == t).unwrap_or(0);
+    // `StencilTarget::ALL` is the order, and `blob` is matched to it by the
+    // assertion in `the_libraries_are_indexed_by_their_own_order`.
+    let i = abi::StencilTarget::ALL.iter().position(|x| *x == t).unwrap_or(0);
     let slot = LIBS.get(i).ok_or("stencil: a target with no library slot")?;
     match slot.get_or_init(|| library::Library::decode(blob(t).0)) {
         Ok(l) => Ok(l),
@@ -283,7 +286,7 @@ impl Backend for Stencil {
     /// rather than a slow build.
     fn identity(&self) -> String {
         let mut id = String::from("stencil");
-        for t in abi::Tgt::ALL {
+        for t in abi::StencilTarget::ALL {
             id.push(' ');
             id.push_str(blob(t).1);
         }
@@ -329,11 +332,11 @@ impl Backend for Stencil {
         opts: &Options<'_>,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let tgt = match supported(opts) {
+        let target = match supported(opts) {
             Ok(t) => t,
             Err(e) => return Err(one(e)),
         };
-        let lib = match load(tgt) {
+        let lib = match load(target) {
             Ok(l) => l,
             Err(e) => return Err(one(e)),
         };
@@ -371,7 +374,7 @@ impl Backend for Stencil {
             tables,
             frames: &frames,
             root: &root,
-            tgt,
+            target,
         };
         let mut out = Vec::new();
         let mut errors: Vec<String> = Vec::new();
@@ -426,16 +429,16 @@ fn one(message: String) -> Diagnostics {
 /// who asked for a Linux artifact on a machine whose clang cannot cross-compile
 /// is in a different position from one who asked for a target this backend has
 /// not finished.
-fn supported(opts: &Options<'_>) -> Result<abi::Tgt, String> {
+fn supported(opts: &Options<'_>) -> Result<abi::StencilTarget, String> {
     let arch = opts.target.arch.unwrap_or(if cfg!(target_arch = "aarch64") {
         Arch::Arm64
     } else {
         Arch::X86_64
     });
-    let tgt = match (opts.target.platform, arch) {
-        (Platform::Macos, Arch::Arm64) => abi::Tgt::MacosArm64,
-        (Platform::Linux, Arch::Arm64) => abi::Tgt::LinuxArm64,
-        (Platform::Linux, Arch::X86_64) => abi::Tgt::LinuxX86_64,
+    let target = match (opts.target.platform, arch) {
+        (Platform::Macos, Arch::Arm64) => abi::StencilTarget::MacosArm64,
+        (Platform::Linux, Arch::Arm64) => abi::StencilTarget::LinuxArm64,
+        (Platform::Linux, Arch::X86_64) => abi::StencilTarget::LinuxX86_64,
         // x86-64 macOS is the one combination no library is built for: the
         // stencils would be x86-64 in a Mach-O, and nothing this repository
         // runs on or ships to is that. `design/native/CODEGEN-STENCIL.md` §9.
@@ -447,27 +450,27 @@ fn supported(opts: &Options<'_>) -> Result<abi::Tgt, String> {
             ))
         }
     };
-    if !available_for(tgt) {
+    if !available_for(target) {
         return Err(format!(
             "this toolchain was built without {} stencils, so the stencil backend cannot \
              emit for that target (it needs a C compiler that can produce {} objects)",
-            tgt.slug(),
-            tgt.triple()
+            target.slug(),
+            target.triple()
         ));
     }
     // x86-64 has stencils and a patcher, and no `main`. Refused here rather
     // than at the end of a whole emission, and refused with the one sentence
     // that says what is missing: `asm.rs` is hand-written machine code and its
     // SysV counterpart is the remaining work.
-    if !tgt.is_arm64() && !asm::AVAILABLE_X86_64 {
+    if !target.is_arm64() && !asm::AVAILABLE_X86_64 {
         return Err(format!(
             "the stencil backend has {} stencils but no hand-written entry point for SysV \
              x86-64, so it can emit unit objects for that target but not a program \
              (design/native/CODEGEN-STENCIL.md, \"the x86-64 checklist\")",
-            tgt.slug()
+            target.slug()
         ));
     }
-    Ok(tgt)
+    Ok(target)
 }
 
 /// One codegen unit, from IR to object bytes.
@@ -483,7 +486,7 @@ struct Whole<'a> {
     tables: &'a Tables,
     frames: &'a [jit::FrameSig],
     root: &'a Root,
-    tgt: abi::Tgt,
+    target: abi::StencilTarget,
 }
 
 fn compile_unit(
@@ -491,7 +494,7 @@ fn compile_unit(
     name: &str,
     members: &[usize],
 ) -> Result<Emitted, Vec<String>> {
-    let Whole { lib, program, tables, frames, root, tgt } = *w;
+    let Whole { lib, program, tables, frames, root, target } = *w;
     let mut j = jit::Jit::new(lib, tables, frames);
     j.compile_unit(program, members);
 
@@ -613,10 +616,10 @@ fn compile_unit(
     // the spelling differs: a Mach-O section is `segment,section` and an ELF
     // one is a name and a flag word, and `elf.rs` reads the flags off
     // `attributes` and `zerofill` exactly as `object.rs` does.
-    let (text, text_seg) = if tgt.is_elf() { (".text", "") } else { ("__text", "__TEXT") };
+    let (text, text_seg) = if target.is_elf() { (".text", "") } else { ("__text", "__TEXT") };
     let (const_, const_seg) =
-        if tgt.is_elf() { (".rodata", "") } else { ("__const", "__DATA_CONST") };
-    let (bss, bss_seg) = if tgt.is_elf() { (".bss", "") } else { ("__bss", "__DATA") };
+        if target.is_elf() { (".rodata", "") } else { ("__const", "__DATA_CONST") };
+    let (bss, bss_seg) = if target.is_elf() { (".bss", "") } else { ("__bss", "__DATA") };
     let mut sections = vec![
         object::Section {
             name: text,
@@ -678,8 +681,8 @@ fn compile_unit(
     if let Some(s) = sections.first_mut() {
         s.data = code;
     }
-    let bytes = if tgt.is_elf() {
-        elf::write(tgt, &sections, &symbols, &out)
+    let bytes = if target.is_elf() {
+        elf::write(target, &sections, &symbols, &out)
     } else {
         object::write(&sections, &symbols, &out)
     }
@@ -752,20 +755,20 @@ mod tests {
         let id = Stencil.identity();
         assert!(id.starts_with("stencil "), "{id}");
         // One digest per target, space-separated after the name.
-        assert_eq!(id.len(), "stencil".len() + abi::Tgt::ALL.len() * (1 + 64));
+        assert_eq!(id.len(), "stencil".len() + abi::StencilTarget::ALL.len() * (1 + 64));
     }
 
-    /// `library` indexes `LIBS` by a target's position in `Tgt::ALL`, so the
-    /// two must not drift: a slot that held another target's library would
-    /// serve arm64 stencils to an x86-64 build.
+    /// `library` indexes `LIBS` by a target's position in
+    /// `StencilTarget::ALL`, so the two must not drift: a slot that held another
+    /// target's library would serve arm64 stencils to an x86-64 build.
     #[test]
     fn the_libraries_are_indexed_by_their_own_order() {
-        for (i, t) in abi::Tgt::ALL.iter().enumerate() {
-            assert_eq!(abi::Tgt::ALL.iter().position(|x| x == t), Some(i));
+        for (i, t) in abi::StencilTarget::ALL.iter().enumerate() {
+            assert_eq!(abi::StencilTarget::ALL.iter().position(|x| x == t), Some(i));
         }
         // And no two targets share a blob.
-        for a in abi::Tgt::ALL {
-            for b in abi::Tgt::ALL {
+        for a in abi::StencilTarget::ALL {
+            for b in abi::StencilTarget::ALL {
                 if a != b && available_for(a) {
                     assert_ne!(blob(a).1, blob(b).1, "{} and {}", a.slug(), b.slug());
                 }
@@ -777,7 +780,7 @@ mod tests {
     /// say so rather than fail to build.
     #[test]
     fn the_library_matches_its_availability() {
-        for t in abi::Tgt::ALL {
+        for t in abi::StencilTarget::ALL {
             assert_eq!(available_for(t), load(t).is_ok(), "{}", t.slug());
         }
     }
@@ -790,11 +793,11 @@ mod tests {
     fn availability_on_this_host_implies_a_library_and_an_entry_point() {
         if AVAILABLE {
             let host = if cfg!(target_os = "macos") {
-                abi::Tgt::MacosArm64
+                abi::StencilTarget::MacosArm64
             } else if cfg!(target_arch = "aarch64") {
-                abi::Tgt::LinuxArm64
+                abi::StencilTarget::LinuxArm64
             } else {
-                abi::Tgt::LinuxX86_64
+                abi::StencilTarget::LinuxX86_64
             };
             assert!(available_for(host), "{} is available with no library", host.slug());
             assert!(host.is_arm64() || asm::AVAILABLE_X86_64);
@@ -813,7 +816,7 @@ mod tests {
     /// check belongs here, against the library the toolchain actually built.
     #[test]
     fn every_slots_runtime_call_has_a_folded_twin_that_is_shorter() {
-        let Ok(lib) = load(abi::Tgt::MacosArm64) else { return };
+        let Ok(lib) = load(abi::StencilTarget::MacosArm64) else { return };
         let mut checked = 0;
         for ni in 0..=abi::MAX_INT_ARGS {
             for nf in 0..=abi::MAX_FLOAT_ARGS {
@@ -876,7 +879,8 @@ mod tests {
     /// back to the unfolded key when a twin is absent.
     #[test]
     fn the_two_arm64_libraries_cover_the_same_operations() {
-        let (Ok(m), Ok(l)) = (load(abi::Tgt::MacosArm64), load(abi::Tgt::LinuxArm64))
+        let (Ok(m), Ok(l)) =
+            (load(abi::StencilTarget::MacosArm64), load(abi::StencilTarget::LinuxArm64))
         else {
             return;
         };
@@ -910,7 +914,8 @@ mod tests {
     /// per-key refusal is easy to let happen.
     #[test]
     fn the_x86_64_library_drops_only_the_spilled_constant_families() {
-        let (Ok(m), Ok(x)) = (load(abi::Tgt::MacosArm64), load(abi::Tgt::LinuxX86_64))
+        let (Ok(m), Ok(x)) =
+            (load(abi::StencilTarget::MacosArm64), load(abi::StencilTarget::LinuxX86_64))
         else {
             return;
         };
@@ -930,7 +935,7 @@ mod tests {
     /// arm64 rewrites had been let loose on x86-64 bytes.
     #[test]
     fn the_x86_64_library_has_no_folded_twins() {
-        let Ok(x) = load(abi::Tgt::LinuxX86_64) else { return };
+        let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else { return };
         assert!(
             !x.index.keys().any(|k| k.contains('+')),
             "the x86-64 library has fold twins, which nothing produces"

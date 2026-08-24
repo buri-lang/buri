@@ -33,7 +33,7 @@
 //! The measured consequence is in the report: it is small, because the register
 //! pressure in a stencil is 2–3 values.
 
-use super::abi::{Loc, Tgt, CPS_REGISTER_COUNT};
+use super::abi::{Loc, StencilTarget, CPS_REGISTER_COUNT};
 use super::elfobj as elf;
 use super::extract::{
     extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms,
@@ -235,16 +235,16 @@ fn op_applies(op: &str, t: Sc) -> bool {
 /// else. Clang recognises `memcpy` as a builtin from the declaration alone, so
 /// the two produce the same code; `sources::the_two_arm64_libraries_agree`
 /// is the assertion, and it compares the whole library byte for byte.
-fn memcpy_decl(tgt: Tgt) -> &'static str {
-    match tgt {
-        Tgt::MacosArm64 => "#include <string.h>",
+fn memcpy_decl(target: StencilTarget) -> &'static str {
+    match target {
+        StencilTarget::MacosArm64 => "#include <string.h>",
         // `unsigned long` rather than `size_t`, which would need `<stddef.h>`:
         // it is `size_t` on both LP64 targets here.
         _ => "void *memcpy(void *, const void *, unsigned long);",
     }
 }
 
-fn prelude(n: usize, tgt: Tgt) -> String {
+fn prelude(n: usize, target: StencilTarget) -> String {
     let ar: Vec<String> = (0..n).map(|k| format!("uint64_t r{k}")).collect();
     let ag: Vec<String> = (0..n).map(|k| format!("double g{k}")).collect();
     let pr: Vec<String> = (0..n).map(|k| format!("r{k}")).collect();
@@ -255,7 +255,7 @@ fn prelude(n: usize, tgt: Tgt) -> String {
         ag.join(", "),
         pr.join(", "),
         pg.join(", "),
-        memcpy_decl(tgt),
+        memcpy_decl(target),
         PRELUDE
     )
 }
@@ -339,9 +339,9 @@ struct Out {
 }
 
 impl Out {
-    fn new(tgt: Tgt) -> Out {
+    fn new(target: StencilTarget) -> Out {
         Out {
-            head: format!("{}{HELPERS}", prelude(CPS_REGISTER_COUNT, tgt)),
+            head: format!("{}{HELPERS}", prelude(CPS_REGISTER_COUNT, target)),
             bodies: Vec::new(),
             keys: Vec::new(),
             names: Vec::new(),
@@ -437,8 +437,8 @@ static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K)
 "#;
 
 /// Every stencil the level's library contains, as C source shards.
-pub fn sources(level: Level, tgt: Tgt) -> Result<Vec<Out2>, String> {
-    let mut o = Out::new(tgt);
+pub fn sources(level: Level, target: StencilTarget) -> Result<Vec<Out2>, String> {
+    let mut o = Out::new(target);
     moves(&mut o);
     arithmetic(&mut o, level)?;
     control(&mut o, level);
@@ -1603,17 +1603,17 @@ pub fn build(
     cc: &str,
     dir: &std::path::Path,
     jobs: usize,
-    tgt: Tgt,
+    target: StencilTarget,
 ) -> Result<Library, String> {
     // One scratch directory per target. The generated C differs between them
     // by one line (`memcpy_decl`) and the objects differ entirely, so sharing
     // `s0.c`/`s0.o` between targets would make every target's build invalidate
     // every other's — three clang runs per rebuild instead of the one that
     // actually changed.
-    let dir = &dir.join(tgt.slug());
+    let dir = &dir.join(target.slug());
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let flags = compile_flags(cc, tgt)?;
-    let shards = Arc::new(sources(Level::Tag, tgt)?);
+    let flags = compile_flags(cc, target)?;
+    let shards = Arc::new(sources(Level::Tag, target)?);
     let results: Shards = Arc::new(Mutex::new((0..shards.len()).map(|_| Ok(Vec::new())).collect()));
     let next = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut handles = Vec::new();
@@ -1628,7 +1628,7 @@ pub fn build(
             loop {
                 let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let Some(shard) = shards.get(i) else { return };
-                let r = shard_library(&cc, &dir, i, &shard.src, &flags, tgt);
+                let r = shard_library(&cc, &dir, i, &shard.src, &flags, target);
                 if let Ok(mut slot) = results.lock() {
                     if let Some(cell) = slot.get_mut(i) {
                         *cell = r;
@@ -1648,7 +1648,7 @@ pub fn build(
             byname.insert(st.name.clone(), st.clone());
         }
     }
-    let mut lib = Library { config: config(tgt), ..Library::default() };
+    let mut lib = Library { config: config(target), ..Library::default() };
     for sh in shards.iter() {
         for (key, name) in sh.keys.iter().zip(sh.names.iter()) {
             let Some(base) = byname.get(name) else {
@@ -1657,7 +1657,7 @@ pub fn build(
                 // emitter refuses the IR shapes that needed them. On arm64
                 // nothing may be missing, and a missing symbol is a generator
                 // that stopped compiling.
-                if tgt.is_arm64() {
+                if target.is_arm64() {
                     return Err(format!("{cc} emitted no symbol for {name} ({key})"));
                 }
                 continue;
@@ -1670,7 +1670,7 @@ pub fn build(
             // encodings and needs no rewriting at all. `x86.rs`'s header is the
             // table, and it is why the x86-64 library has one variant per key
             // where the arm64 ones have up to six.
-            if tgt.is_arm64() {
+            if target.is_arm64() {
                 // The conditional-branch fold, which is what makes a two-way
                 // branch two instructions instead of three.
                 if let Some(c) = fold_cond(&base) {
@@ -1730,7 +1730,7 @@ pub fn build(
 ///   been rewritten. This is the ELF counterpart of the `collect-loh` flag.
 /// * The `collect-loh` flag itself is arm64-only and clang rejects it as
 ///   unused elsewhere, so it is not passed to the x86-64 build.
-fn compile_flags(cc: &str, tgt: Tgt) -> Result<Vec<String>, String> {
+fn compile_flags(cc: &str, target: StencilTarget) -> Result<Vec<String>, String> {
     let mut f: Vec<String> = [
         // The one level that was measured: `-O3` moves the four kernels by 1 %
         // and `-Oz` produces a library that does not run, because it lets
@@ -1744,17 +1744,17 @@ fn compile_flags(cc: &str, tgt: Tgt) -> Result<Vec<String>, String> {
     .iter()
     .map(|s| String::from(*s))
     .collect();
-    if tgt.is_arm64() {
+    if target.is_arm64() {
         // Linker-optimization hints are notes *about* an instruction pair, and
         // a stencil is copied out of the object without them; a hint that
         // survived would describe a pair that has been rewritten.
         f.push(String::from("-mllvm"));
         f.push(String::from("-aarch64-enable-collect-loh=false"));
     }
-    if tgt != Tgt::MacosArm64 {
+    if target != StencilTarget::MacosArm64 {
         // `--target=`, with two dashes: the one-dash spelling takes the triple
         // as a separate argument and clang rejects `-target=…` outright.
-        f.push(format!("--target={}", tgt.triple()));
+        f.push(format!("--target={}", target.triple()));
         f.push(String::from("-fno-asynchronous-unwind-tables"));
         let out = Command::new(cc)
             .arg("-print-resource-dir")
@@ -1774,7 +1774,7 @@ fn compile_flags(cc: &str, tgt: Tgt) -> Result<Vec<String>, String> {
     Ok(f)
 }
 
-/// Whether this `cc` can produce an object for `tgt` at all.
+/// Whether this `cc` can produce an object for `target` at all.
 ///
 /// A compile of three lines with the real flags, rather than a `--version` or a
 /// look at the triple: a clang that is a Nix cross-wrapper, or one whose
@@ -1787,9 +1787,9 @@ fn compile_flags(cc: &str, tgt: Tgt) -> Result<Vec<String>, String> {
 /// applied per target: a host that cannot cross-compile gets an **empty**
 /// library for the targets it cannot reach and a full one for the target it
 /// can, rather than a build failure.
-pub fn can_build(cc: &str, dir: &std::path::Path, tgt: Tgt) -> bool {
-    let Ok(flags) = compile_flags(cc, tgt) else { return false };
-    let dir = dir.join(tgt.slug());
+pub fn can_build(cc: &str, dir: &std::path::Path, target: StencilTarget) -> bool {
+    let Ok(flags) = compile_flags(cc, target) else { return false };
+    let dir = dir.join(target.slug());
     if std::fs::create_dir_all(&dir).is_err() {
         return false;
     }
@@ -1800,7 +1800,7 @@ pub fn can_build(cc: &str, dir: &std::path::Path, tgt: Tgt) -> bool {
     let src = format!(
         "{}\nuint64_t *st_probe(ARGS) {{ AT(uint64_t, _JIT_D) = \
          AT(uint64_t, _JIT_A) + (uintptr_t)_JIT_R; TAIL; }}\n",
-        prelude(CPS_REGISTER_COUNT, tgt)
+        prelude(CPS_REGISTER_COUNT, target)
     );
     if std::fs::write(&c, src).is_err() {
         return false;
@@ -1822,7 +1822,7 @@ fn shard_library(
     i: usize,
     src: &str,
     flags: &[String],
-    tgt: Tgt,
+    target: StencilTarget,
 ) -> Result<Vec<Stencil>, String> {
     let c = dir.join(format!("s{i}.c"));
     let obj = dir.join(format!("s{i}.o"));
@@ -1840,22 +1840,22 @@ fn shard_library(
         if !out.status.success() {
             return Err(format!(
                 "{cc} failed on stencil shard {i} for {}:\n{}",
-                tgt.slug(),
+                target.slug(),
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
     }
     let bytes = std::fs::read(&obj).map_err(|e| format!("{}: {e}", obj.display()))?;
-    match tgt {
-        Tgt::MacosArm64 => {
+    match target {
+        StencilTarget::MacosArm64 => {
             let o = macho::read(&bytes)?;
             extract(&o)
         }
-        Tgt::LinuxArm64 => {
+        StencilTarget::LinuxArm64 => {
             let o = elf::read(&bytes)?;
             extract_elf_arm64(&o)
         }
-        Tgt::LinuxX86_64 => {
+        StencilTarget::LinuxX86_64 => {
             let o = elf::read(&bytes)?;
             let (stencils, dropped) = super::x86::extract_elf_x86(&o)?;
             // **A drop is bounded, not free.** `x86.rs` refuses a stencil that
@@ -1878,7 +1878,7 @@ fn shard_library(
             Ok(stencils)
         }
     }
-    .map_err(|e| format!("stencil shard {i} ({}): {e}", tgt.slug()))
+    .map_err(|e| format!("stencil shard {i} ({}): {e}", target.slug()))
 }
 
 /// How many stencils one x86-64 shard may lose to a spilled constant.
@@ -1899,6 +1899,6 @@ const MAX_DROPPED_PER_SHARD: usize = 40;
 /// of the CPS register file, and the level the generators were run at. The
 /// compiler's own version is not here — it is hashed in, along with everything
 /// else, by `cli/build.rs`, which has the library in front of it.
-pub fn config(tgt: Tgt) -> String {
-    format!("{} {} r{CPS_REGISTER_COUNT}", tgt.slug(), Level::Tag.name())
+pub fn config(target: StencilTarget) -> String {
+    format!("{} {} r{CPS_REGISTER_COUNT}", target.slug(), Level::Tag.name())
 }

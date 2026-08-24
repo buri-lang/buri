@@ -63,8 +63,8 @@ use super::region::Target;
 /// **It does not**, and this constant is how `mod.rs::supported` says so in one
 /// sentence rather than letting a `linux-x86_64` build get as far as an object
 /// with arm64 bytes in `main`. Everything else that target needs exists: the
-/// stencils are baked (`abi::Tgt::LinuxX86_64`), `x86.rs` extracts them and
-/// `elf.rs` writes the container.
+/// stencils are baked (`abi::StencilTarget::LinuxX86_64`), `x86.rs` extracts
+/// them and `elf.rs` writes the container.
 ///
 /// It is a constant rather than an absence because the absence has to be
 /// *stated*: this is 900 lines of hand-encoded A64 whose whole content is a

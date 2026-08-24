@@ -43,31 +43,32 @@ impl Loc {
 /// the emitted object has to spell them back. Three combinations are built, and
 /// the fourth — x86-64 macOS — is deliberately not, because nothing runs it.
 ///
-/// This lives beside [`CPS_REGISTER_COUNT`] for the same reason [`CPS_REGISTER_COUNT`] does: the build
-/// script picks a target to compile *for* and the emitter picks a target to
-/// look a library *up* by, and the two must agree on the spelling or the
-/// toolchain would silently emit arm64 bytes into an x86-64 object.
+/// This lives beside [`CPS_REGISTER_COUNT`] for the same reason that constant
+/// does: the build script picks a target to compile *for* and the emitter picks
+/// a target to look a library *up* by, and the two must agree on the spelling or
+/// the toolchain would silently emit arm64 bytes into an x86-64 object.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tgt {
+pub enum StencilTarget {
     MacosArm64,
     LinuxArm64,
     LinuxX86_64,
 }
 
-impl Tgt {
+impl StencilTarget {
     /// Every target a toolchain bakes a library for, in the order `build.rs`
     /// writes them and `mod.rs` reads them. Order is part of the format: the
     /// baked digests are concatenated into `Backend::identity` in it.
-    pub const ALL: [Tgt; 3] = [Tgt::MacosArm64, Tgt::LinuxArm64, Tgt::LinuxX86_64];
+    pub const ALL: [StencilTarget; 3] =
+        [StencilTarget::MacosArm64, StencilTarget::LinuxArm64, StencilTarget::LinuxX86_64];
 
     /// The name the blob is written under, and the one the emitter asks for.
     /// It is `Output::dir()`'s spelling (`build/buildfile.rs`), so a benchmark
     /// row, an artifact directory and a stencil library all read the same.
     pub fn slug(self) -> &'static str {
         match self {
-            Tgt::MacosArm64 => "macos-arm64",
-            Tgt::LinuxArm64 => "linux-arm64",
-            Tgt::LinuxX86_64 => "linux-x86_64",
+            StencilTarget::MacosArm64 => "macos-arm64",
+            StencilTarget::LinuxArm64 => "linux-arm64",
+            StencilTarget::LinuxX86_64 => "linux-x86_64",
         }
     }
 
@@ -76,22 +77,22 @@ impl Tgt {
     /// three backends name a target one way.
     pub fn triple(self) -> &'static str {
         match self {
-            Tgt::MacosArm64 => "arm64-apple-darwin",
-            Tgt::LinuxArm64 => "aarch64-unknown-linux-gnu",
-            Tgt::LinuxX86_64 => "x86_64-unknown-linux-gnu",
+            StencilTarget::MacosArm64 => "arm64-apple-darwin",
+            StencilTarget::LinuxArm64 => "aarch64-unknown-linux-gnu",
+            StencilTarget::LinuxX86_64 => "x86_64-unknown-linux-gnu",
         }
     }
 
     /// Whether the stencils are A64. The instruction-level rewrites — the four
     /// folds and the patcher — are chosen on this and never on the container.
     pub fn is_arm64(self) -> bool {
-        !matches!(self, Tgt::LinuxX86_64)
+        !matches!(self, StencilTarget::LinuxX86_64)
     }
 
     /// Whether the emitted object is an ELF. The container decides the object
     /// writer and the relocation vocabulary, and nothing else.
     pub fn is_elf(self) -> bool {
-        !matches!(self, Tgt::MacosArm64)
+        !matches!(self, StencilTarget::MacosArm64)
     }
 }
 

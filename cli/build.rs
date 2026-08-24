@@ -238,9 +238,9 @@ fn runtime_archive(manifest: &Path) {
 /// * **One library per target.** A stencil is the bytes `cc` emitted for a
 ///   function of a particular instruction set, in a particular container, so
 ///   it is not portable in any sense. Three are built —
-///   [`abi::Tgt::ALL`] — and each is a separate blob with its own baked
-///   digest, so a toolchain can have the host's and not the cross ones, or all
-///   three, and `Stencil::identity` names whichever it has.
+///   [`abi::StencilTarget::ALL`] — and each is a separate blob with its own
+///   baked digest, so a toolchain can have the host's and not the cross ones,
+///   or all three, and `Stencil::identity` names whichever it has.
 ///
 ///   The two Linux libraries are **cross-compiled**: `clang -target
 ///   {aarch64,x86_64}-unknown-linux-gnu` with clang's own headers and no
@@ -258,7 +258,7 @@ fn stencil_library(manifest: &Path) {
     println!("cargo:rerun-if-env-changed=CC");
 
     let out_dir = PathBuf::from(env("OUT_DIR"));
-    let blob = |t: abi::Tgt| out_dir.join(format!("stencils-{}.bin", t.slug()));
+    let blob = |t: abi::StencilTarget| out_dir.join(format!("stencils-{}.bin", t.slug()));
     let target = env("TARGET");
     let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
 
@@ -266,19 +266,19 @@ fn stencil_library(manifest: &Path) {
     // has a runtime for, has no stencil library of any kind. Every blob is
     // still written, because the emitter `include_bytes!`es all three by name.
     if !supported(&target) || !can_compile(&cc) {
-        for t in abi::Tgt::ALL {
+        for t in abi::StencilTarget::ALL {
             write_empty(&blob(t));
         }
         return;
     }
     let scratch = out_dir.join("stencils");
     let jobs: usize = std::env::var("NUM_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
-    for t in abi::Tgt::ALL {
+    for t in abi::StencilTarget::ALL {
         let out = blob(t);
         // The host library is only buildable on the host: `cc` without
         // `-target` compiles for the machine it is on, and `sources.rs` does
         // not pass one for `MacosArm64`.
-        let host_ok = t != abi::Tgt::MacosArm64
+        let host_ok = t != abi::StencilTarget::MacosArm64
             || (target.contains("-apple-darwin") && target.starts_with("aarch64"));
         if !host_ok || !sources::can_build(&cc, &scratch, t) {
             write_empty(&out);

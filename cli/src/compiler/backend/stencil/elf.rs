@@ -65,7 +65,7 @@
               section length before any arithmetic touches it"
 )]
 
-use super::abi::Tgt;
+use super::abi::StencilTarget;
 use super::object::{RelKind, Reloc, Section, Symbol};
 
 // The ELF *reader* is `cli/build.rs`'s — the toolchain has no use for one and
@@ -190,8 +190,8 @@ impl Shdr {
 /// `w` is the four bytes at the site, which for the two split kinds is the
 /// instruction whose field is being relocated. A kind the target has no
 /// counterpart for is an `Err` naming both, rather than the nearest number.
-fn r_type(tgt: Tgt, kind: RelKind, w: u32, where_: &str) -> Result<u32, String> {
-    if tgt.is_arm64() {
+fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<u32, String> {
+    if target.is_arm64() {
         return Ok(match kind {
             RelKind::Abs64 => R_AARCH64_ABS64,
             RelKind::Page21 => R_AARCH64_ADR_PREL_PG_HI21,
@@ -244,7 +244,7 @@ fn r_type(tgt: Tgt, kind: RelKind, w: u32, where_: &str) -> Result<u32, String> 
 /// Takes exactly what `object::write` takes, plus the target, which decides the
 /// machine and the relocation vocabulary.
 pub fn write(
-    tgt: Tgt,
+    target: StencilTarget,
     sections: &[Section],
     symbols: &[Symbol],
     relocs: &[Reloc],
@@ -384,7 +384,7 @@ pub fn write(
                 sec.data.get(at + 2).copied().unwrap_or(0),
                 sec.data.get(at + 3).copied().unwrap_or(0),
             ]);
-            let ty = r_type(tgt, r.kind, w, &format!("{}+{:#x}", sec.name, r.offset))?;
+            let ty = r_type(target, r.kind, w, &format!("{}+{:#x}", sec.name, r.offset))?;
             let sym = slot.get(r.symbol).copied().unwrap_or(0) as u64;
             t.extend_from_slice(&r.offset.to_le_bytes());
             t.extend_from_slice(&((sym << 32) | ty as u64).to_le_bytes());
@@ -557,7 +557,7 @@ pub fn write(
     out.push(0); // ABI version
     out.extend_from_slice(&[0u8; 7]); // e_ident padding
     out.extend_from_slice(&ET_REL.to_le_bytes());
-    out.extend_from_slice(&if tgt.is_arm64() { EM_AARCH64 } else { EM_X86_64 }.to_le_bytes());
+    out.extend_from_slice(&if target.is_arm64() { EM_AARCH64 } else { EM_X86_64 }.to_le_bytes());
     out.extend_from_slice(&1u32.to_le_bytes()); // e_version
     out.extend_from_slice(&0u64.to_le_bytes()); // e_entry
     out.extend_from_slice(&0u64.to_le_bytes()); // e_phoff
@@ -604,8 +604,8 @@ mod tests {
     /// is a call that returns into the wrong place.
     #[test]
     fn a_branch_is_split_by_its_instruction() {
-        let jump = r_type(Tgt::LinuxArm64, RelKind::Branch26, 0x1400_0000, "t").unwrap();
-        let call = r_type(Tgt::LinuxArm64, RelKind::Branch26, 0x9400_0000, "t").unwrap();
+        let jump = r_type(StencilTarget::LinuxArm64, RelKind::Branch26, 0x1400_0000, "t").unwrap();
+        let call = r_type(StencilTarget::LinuxArm64, RelKind::Branch26, 0x9400_0000, "t").unwrap();
         assert_eq!((jump, call), (R_AARCH64_JUMP26, R_AARCH64_CALL26));
     }
 
@@ -614,12 +614,12 @@ mod tests {
     #[test]
     fn a_low_twelve_is_split_by_its_instruction() {
         // `add x8, x8, #0`
-        let add = r_type(Tgt::LinuxArm64, RelKind::PageOff12, 0x9100_0108, "t").unwrap();
+        let add = r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0x9100_0108, "t").unwrap();
         // `ldr x8, [x8]`
-        let ldr = r_type(Tgt::LinuxArm64, RelKind::PageOff12, 0xf940_0108, "t").unwrap();
+        let ldr = r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0xf940_0108, "t").unwrap();
         assert_eq!((add, ldr), (R_AARCH64_ADD_ABS_LO12_NC, R_AARCH64_LDST64_ABS_LO12_NC));
         // A `str`, which no pool reference is, is refused rather than guessed.
-        assert!(r_type(Tgt::LinuxArm64, RelKind::PageOff12, 0xf900_0108, "t").is_err());
+        assert!(r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0xf900_0108, "t").is_err());
     }
 
     /// The header this file writes has to be one a reader accepts, and there is
@@ -661,7 +661,7 @@ mod tests {
             Reloc { section: 0, offset: 4, kind: RelKind::Branch26, symbol: 1, addend: 0 },
             Reloc { section: 1, offset: 0, kind: RelKind::Abs64, symbol: 0, addend: 3 },
         ];
-        let bytes = write(Tgt::LinuxArm64, &sections, &symbols, &relocs).unwrap();
+        let bytes = write(StencilTarget::LinuxArm64, &sections, &symbols, &relocs).unwrap();
         let obj = elfobj::read(&bytes).expect("the writer's output must read back");
         assert_eq!(obj.machine, elfobj::EM_AARCH64);
         assert_eq!(obj.text.len(), 8);
@@ -698,8 +698,8 @@ mod tests {
             },
             Symbol { name: String::from("b"), defined: None, global: true },
         ];
-        let a = write(Tgt::LinuxArm64, &sections, &symbols, &[]).unwrap();
-        let b = write(Tgt::LinuxArm64, &sections, &symbols, &[]).unwrap();
+        let a = write(StencilTarget::LinuxArm64, &sections, &symbols, &[]).unwrap();
+        let b = write(StencilTarget::LinuxArm64, &sections, &symbols, &[]).unwrap();
         assert_eq!(a, b);
     }
 }

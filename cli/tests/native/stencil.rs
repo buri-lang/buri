@@ -1331,12 +1331,12 @@ fn cross_tools() -> Option<()> {
 
 /// One cross target's unit objects for a snippet.
 fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::Emitted>> {
-    let tgt = match arch {
-        Arch::Arm64 => stencil_abi::Tgt::LinuxArm64,
-        Arch::X86_64 => stencil_abi::Tgt::LinuxX86_64,
+    let stencil_target = match arch {
+        Arch::Arm64 => stencil_abi::StencilTarget::LinuxArm64,
+        Arch::X86_64 => stencil_abi::StencilTarget::LinuxX86_64,
     };
-    if !buri::compiler::backend::stencil::available_for(tgt) {
-        eprintln!("this toolchain has no {} stencils", tgt.slug());
+    if !buri::compiler::backend::stencil::available_for(stencil_target) {
+        eprintln!("this toolchain has no {} stencils", stencil_target.slug());
         return None;
     }
     let (program, tables) = lowered(source);
@@ -1347,7 +1347,7 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
         Err(d) => {
             // A refusal is an answer too, and for x86-64 it is the *expected*
             // one until `asm.rs` has a SysV entry point. The caller decides.
-            eprintln!("{} refused: {:?}", tgt.slug(), messages(&d));
+            eprintln!("{} refused: {:?}", stencil_target.slug(), messages(&d));
             None
         }
     }
@@ -1455,7 +1455,7 @@ fn an_unsupported_cross_target_is_refused_with_a_reason() {
     };
     // x86-64 has stencils and no `main`; the sentence has to say so rather than
     // producing an object with arm64 bytes in its entry point.
-    if buri::compiler::backend::stencil::available_for(stencil_abi::Tgt::LinuxX86_64) {
+    if buri::compiler::backend::stencil::available_for(stencil_abi::StencilTarget::LinuxX86_64) {
         let d = Stencil.emit(&program, &tables, &opts(Arch::X86_64)).err();
         let msgs = d.map(|d| messages(&d)).unwrap_or_default();
         assert!(
@@ -1580,7 +1580,7 @@ fn cross_emission_throughput_against_cranelift() {
     use buri::compiler::backend::cranelift::Cranelift;
     use std::time::Instant;
 
-    if !buri::compiler::backend::stencil::available_for(stencil_abi::Tgt::LinuxArm64) {
+    if !buri::compiler::backend::stencil::available_for(stencil_abi::StencilTarget::LinuxArm64) {
         eprintln!("no linux-arm64 stencils");
         return;
     }
