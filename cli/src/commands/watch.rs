@@ -106,11 +106,7 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
         // on its closure: a dependency's test sources are not built by this
         // run and are not in this run's key.
         let pkg = s.ws.pkg(target.pkg);
-        let suite = match target.kind {
-            RuleKind::Library => pkg.build.library.as_ref().and_then(|l| l.test.as_ref()),
-            RuleKind::Binary => pkg.build.binary.as_ref().and_then(|b| b.test.as_ref()),
-        };
-        if let Some(suite) = suite {
+        if let Some(suite) = pkg.test_suite(target.kind) {
             for x in suite.sources.iter().chain(&suite.data) {
                 out.insert(pkg.dir.join(&x.value));
             }

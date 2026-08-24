@@ -499,6 +499,19 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
 /// `test-without-assertion`. All three ask about a package's own code rather
 /// than about the build graph, so they share the analysis `check_dependencies`
 /// has already paid for.
+/// The modules this package owns, which is what separates "my code" from
+/// everything the analysis loaded to check it.
+///
+/// Four checks ask this and every one of them wants the same set, so it is one
+/// function: a lint that walked a dependency's bodies would report findings
+/// against code the author cannot edit.
+fn modules_of(
+    analysis: &crate::compiler::driver::Analysis,
+    own: PkgId,
+) -> BTreeSet<crate::compiler::semantics::types::ModuleId> {
+    analysis.loaded.modules.iter().filter(|m| m.pkg == Some(own)).map(|m| m.id).collect()
+}
+
 fn check_hygiene(
     s: &Session,
     target: TargetId,
@@ -529,13 +542,7 @@ fn check_test_titles(
     analysis: &crate::compiler::driver::Analysis,
     diags: &mut Diagnostics,
 ) {
-    let mine: BTreeSet<crate::compiler::semantics::types::ModuleId> = analysis
-        .loaded
-        .modules
-        .iter()
-        .filter(|m| m.pkg == Some(own))
-        .map(|m| m.id)
-        .collect();
+    let mine = modules_of(analysis, own);
     for case in &analysis.checked.tests {
         if !mine.contains(&case.module) || !case.name.contains('\n') {
             continue;
@@ -819,13 +826,7 @@ fn check_tests_assert(
     diags: &mut Diagnostics,
 ) {
     use crate::compiler::semantics::types::FnId;
-    let mine: BTreeSet<crate::compiler::semantics::types::ModuleId> = analysis
-        .loaded
-        .modules
-        .iter()
-        .filter(|m| m.pkg == Some(own))
-        .map(|m| m.id)
-        .collect();
+    let mine = modules_of(analysis, own);
 
     let asserts = |f: FnId| -> bool {
         let info = analysis.checked.tables.fun(f);
@@ -885,13 +886,7 @@ fn calls_into(
     module: &str,
     names: &[&str],
 ) -> Vec<(Span, String)> {
-    let mine: BTreeSet<crate::compiler::semantics::types::ModuleId> = analysis
-        .loaded
-        .modules
-        .iter()
-        .filter(|m| m.pkg == Some(own))
-        .map(|m| m.id)
-        .collect();
+    let mine = modules_of(analysis, own);
     let mut out = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
         if !mine.contains(&analysis.checked.tables.fun(*fid).module) {
@@ -921,14 +916,7 @@ pub(crate) fn reached_by_resolution(
     analysis: &crate::compiler::driver::Analysis,
     own: PkgId,
 ) -> BTreeSet<String> {
-    use crate::compiler::semantics::types::ModuleId;
-    let mine: BTreeSet<ModuleId> = analysis
-        .loaded
-        .modules
-        .iter()
-        .filter(|m| m.pkg == Some(own))
-        .map(|m| m.id)
-        .collect();
+    let mine = modules_of(analysis, own);
     let mut out = BTreeSet::new();
     for (fid, body) in &analysis.checked.bodies {
         let info = analysis.checked.tables.fun(*fid);
@@ -960,10 +948,7 @@ pub(crate) fn reached_by_resolution(
 
 fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
     let p = s.ws.pkg(target.pkg);
-    let suite = match target.kind {
-        RuleKind::Library => p.build.library.as_ref().and_then(|l| l.test.as_ref()),
-        RuleKind::Binary => p.build.binary.as_ref().and_then(|b| b.test.as_ref()),
-    };
+    let suite = p.test_suite(target.kind);
     let testing = p.build.library.as_ref().and_then(|l| l.testing.as_ref());
     suite.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
         || testing.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))

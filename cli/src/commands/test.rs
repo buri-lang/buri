@@ -31,7 +31,7 @@
 use crate::build::actions;
 use crate::build::buildfile::Platform;
 use crate::build::session::{self, Session};
-use crate::build::workspace::{RuleKind, TargetId};
+use crate::build::workspace::TargetId;
 use crate::commands::arguments;
 use crate::commands::watch;
 use crate::compiler::backend::js::javascript;
@@ -322,27 +322,11 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
 }
 
 fn has_tests(s: &Session, target: TargetId) -> bool {
-    let pkg = s.ws.pkg(target.pkg);
-    match target.kind {
-        RuleKind::Library => {
-            pkg.build.library.as_ref().is_some_and(|l| {
-                l.test.as_ref().is_some_and(|t| !t.sources.is_empty())
-            })
-        }
-        RuleKind::Binary => {
-            pkg.build.binary.as_ref().is_some_and(|b| {
-                b.test.as_ref().is_some_and(|t| !t.sources.is_empty())
-            })
-        }
-    }
+    s.ws.pkg(target.pkg).test_suite(target.kind).is_some_and(|t| !t.sources.is_empty())
 }
 
 fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestSuite> {
-    let pkg = s.ws.pkg(target.pkg);
-    match target.kind {
-        RuleKind::Library => pkg.build.library.as_ref().and_then(|l| l.test.clone()),
-        RuleKind::Binary => pkg.build.binary.as_ref().and_then(|b| b.test.clone()),
-    }
+    s.ws.pkg(target.pkg).test_suite(target.kind).cloned()
 }
 
 /// One suite, once per platform it runs on.

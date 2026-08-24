@@ -57,6 +57,19 @@ impl Package {
     pub fn has_binary(&self) -> bool {
         self.build.binary.is_some()
     }
+
+    /// The suite one rule declares, if it declares one.
+    ///
+    /// "This target's test suite" is a question `test`, `watch` and `lint` all
+    /// ask, and each used to answer it by matching on the rule kind itself —
+    /// three copies of one two-line lookup, which is three places to forget
+    /// when a rule gains a way to carry a suite.
+    pub fn test_suite(&self, kind: RuleKind) -> Option<&buildfile::TestSuite> {
+        match kind {
+            RuleKind::Library => self.build.library.as_ref().and_then(|l| l.test.as_ref()),
+            RuleKind::Binary => self.build.binary.as_ref().and_then(|b| b.test.as_ref()),
+        }
+    }
 }
 
 pub struct Workspace {

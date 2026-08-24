@@ -49,12 +49,20 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         s.ws.targets().into_iter().find(|t| t.pkg == id)
     };
 
+    // Five of the six queries take one label and refuse an unknown one
+    // identically, so the refusal is written once. `path` is the exception: it
+    // takes two, and says so rather than naming one of them.
+    let operand = |label: &str| -> Option<TargetId> {
+        let found = lookup(label);
+        if found.is_none() {
+            eprintln!("error: no target `{label}`");
+        }
+        found
+    };
+
     match func.trim() {
         "deps" => {
-            let Some(t) = lookup(first) else {
-                eprintln!("error: no target `{first}`");
-                return 2;
-            };
+            let Some(t) = operand(first) else { return 2 };
             for m in s.ws.closure(t) {
                 if m != t {
                     println!("{}", s.ws.label(m));
@@ -62,10 +70,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "rdeps" => {
-            let Some(t) = lookup(first) else {
-                eprintln!("error: no target `{first}`");
-                return 2;
-            };
+            let Some(t) = operand(first) else { return 2 };
             for other in s.ws.targets() {
                 if other != t && s.ws.closure(other).contains(&t) {
                     println!("{}", s.ws.label(other));
@@ -108,19 +113,13 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "tags" => {
-            let Some(t) = lookup(first) else {
-                eprintln!("error: no target `{first}`");
-                return 2;
-            };
+            let Some(t) = operand(first) else { return 2 };
             for (tag, by) in s.ws.closure_tags(t) {
                 println!("{tag}  ({})", s.ws.label(by));
             }
         }
         "platforms" => {
-            let Some(t) = lookup(first) else {
-                eprintln!("error: no target `{first}`");
-                return 2;
-            };
+            let Some(t) = operand(first) else { return 2 };
             let allowed = s.ws.platforms(t);
             // An empty answer printed as nothing is indistinguishable from a
             // command that did nothing, and "this target can be built nowhere"
@@ -147,10 +146,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             }
         }
         "sources" => {
-            let Some(t) = lookup(first) else {
-                eprintln!("error: no target `{first}`");
-                return 2;
-            };
+            let Some(t) = operand(first) else { return 2 };
             let p = s.ws.pkg(t.pkg);
             let mut all = Vec::new();
             if let Some(lib) = &p.build.library {
