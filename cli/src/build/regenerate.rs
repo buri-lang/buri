@@ -203,79 +203,92 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
         }
     };
 
-    if has_library {
-        set_list(&mut doc, "library", &["sources"], &lib_sources, &mut summary, &name("library", "sources"));
+    // The two rules take the same managed fields and differ only in which
+    // side of the source split each list came from, so this is one body run
+    // twice rather than two bodies to keep in step. `testing` is the one
+    // exception: only a library declares one.
+    let lib_deps = deps.as_ref().and_then(|d| d.library.as_ref());
+    let bin_deps = deps.as_ref().and_then(|d| d.binary.as_ref());
+    for (rule, present, sources, protos, tests, rule_deps) in [
+        (
+            "library",
+            has_library,
+            &lib_sources,
+            &lib_protos,
+            &lib_tests,
+            lib_deps.map(|d| (&d.production, &d.test)),
+        ),
+        (
+            "binary",
+            has_binary,
+            &bin_sources,
+            &bin_protos,
+            &bin_tests,
+            bin_deps.map(|d| (&d.production, &d.test)),
+        ),
+    ] {
+        if !present {
+            continue;
+        }
+        set_list(&mut doc, rule, &["sources"], sources, &mut summary, &name(rule, "sources"));
         set_list(
             &mut doc,
-            "library",
+            rule,
             &["proto_sources"],
-            &lib_protos,
+            protos,
             &mut summary,
-            &name("library", "proto_sources"),
+            &name(rule, "proto_sources"),
         );
-        if let Some(lib_deps) = deps.as_ref().and_then(|d| d.library.as_ref()) {
-            set_list(&mut doc, "library", &["dependencies"], &lib_deps.production, &mut summary, &name("library", "dependencies"));
+        if let Some((production, _)) = rule_deps {
+            set_list(
+                &mut doc,
+                rule,
+                &["dependencies"],
+                production,
+                &mut summary,
+                &name(rule, "dependencies"),
+            );
         }
-        if !lib_tests.is_empty() || has_block(&doc, "library", "test") {
-            set_list(&mut doc, "library", &["test", "sources"], &lib_tests, &mut summary, &name("library", "test.sources"));
-            if let Some(lib_deps) = deps.as_ref().and_then(|d| d.library.as_ref()) {
+        if !tests.is_empty() || has_block(&doc, rule, "test") {
+            set_list(
+                &mut doc,
+                rule,
+                &["test", "sources"],
+                tests,
+                &mut summary,
+                &name(rule, "test.sources"),
+            );
+            if let Some((_, test)) = rule_deps {
                 set_list(
                     &mut doc,
-                    "library",
+                    rule,
                     &["test", "dependencies"],
-                    &lib_deps.test,
+                    test,
                     &mut summary,
-                    &name("library", "test.dependencies"),
+                    &name(rule, "test.dependencies"),
                 );
             }
         }
         // A `testing/` directory is a surface only because a rule says so, so
         // this is the one managed field that waits to be asked for: `gen`
         // fills the block in and never decides the package has one.
-        if p.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
+        if rule == "library" && p.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
             set_list(
                 &mut doc,
-                "library",
+                rule,
                 &["testing", "sources"],
                 &testing_sources,
                 &mut summary,
-                &name("library", "testing.sources"),
+                &name(rule, "testing.sources"),
             );
-            if let Some(lib_deps) = deps.as_ref().and_then(|d| d.library.as_ref()) {
+            if let Some(d) = lib_deps {
                 set_list(
                     &mut doc,
-                    "library",
+                    rule,
                     &["testing", "dependencies"],
-                    &lib_deps.testing,
+                    &d.testing,
                     &mut summary,
-                    &name("library", "testing.dependencies"),
-                );
-            }
-        }
-    }
-    if has_binary {
-        set_list(&mut doc, "binary", &["sources"], &bin_sources, &mut summary, &name("binary", "sources"));
-        set_list(
-            &mut doc,
-            "binary",
-            &["proto_sources"],
-            &bin_protos,
-            &mut summary,
-            &name("binary", "proto_sources"),
-        );
-        if let Some(bin_deps) = deps.as_ref().and_then(|d| d.binary.as_ref()) {
-            set_list(&mut doc, "binary", &["dependencies"], &bin_deps.production, &mut summary, &name("binary", "dependencies"));
-        }
-        if !bin_tests.is_empty() || has_block(&doc, "binary", "test") {
-            set_list(&mut doc, "binary", &["test", "sources"], &bin_tests, &mut summary, &name("binary", "test.sources"));
-            if let Some(bin_deps) = deps.as_ref().and_then(|d| d.binary.as_ref()) {
-                set_list(
-                    &mut doc,
-                    "binary",
-                    &["test", "dependencies"],
-                    &bin_deps.test,
-                    &mut summary,
-                    &name("binary", "test.dependencies"),
+                    &name(rule, "testing.dependencies"),
                 );
             }
         }
