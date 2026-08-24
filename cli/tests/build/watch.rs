@@ -71,13 +71,13 @@ fn two_suites(name: &str) -> Scratch {
 fn declared_set(root: &Path) -> Vec<PathBuf> {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
-    let ws = Workspace::load(root, &mut map, &mut diags).expect("the workspace loads");
+    let workspace = Workspace::load(root, &mut map, &mut diags).expect("the workspace loads");
     let s = Session {
         root: root.to_path_buf(),
         map,
         parsed: buri::parsing::parser::Cache::new(),
         diags,
-        ws,
+        workspace,
         rendering: Rendering::Human { color: false },
     };
     let targets = s.resolve_targets(&["//...".to_string()]).expect("//... resolves");

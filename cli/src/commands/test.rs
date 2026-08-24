@@ -350,11 +350,11 @@ fn may_cache_produced(cases: &[Case], flags: &arguments::Flags) -> bool {
 }
 
 fn has_tests(s: &Session, target: TargetId) -> bool {
-    s.ws.pkg(target.pkg).test_suite(target.kind).is_some_and(|t| !t.sources.is_empty())
+    s.workspace.pkg(target.pkg).test_suite(target.kind).is_some_and(|t| !t.sources.is_empty())
 }
 
 fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestSuite> {
-    s.ws.pkg(target.pkg).test_suite(target.kind).cloned()
+    s.workspace.pkg(target.pkg).test_suite(target.kind).cloned()
 }
 
 /// One suite, once per platform it runs on.
@@ -433,7 +433,7 @@ fn run_suite(
         // and what would close it).
         if wanted.is_native() && suite(s, target).is_some_and(|x| !x.data.is_empty()) {
             notices.suite(
-                &s.ws.label(target),
+                &s.workspace.label(target),
                 "a native test binary has no runner to hand it `test { data }`, so its \
                  `data()` filesystem would be empty",
             );
@@ -501,7 +501,7 @@ fn run_on(
         args.flags.explain,
         crate::build::cache::Status::Run,
         crate::build::cache::Action::Test,
-        &s.ws.label(target),
+        &s.workspace.label(target),
         platform,
         &key,
     );
@@ -511,7 +511,7 @@ fn run_on(
     // and a test never binds `core/host` — only the entry point a batched
     // binary happens to drag in does. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
+    let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
@@ -549,7 +549,7 @@ fn run_on(
     if platform.is_native() && chosen == Chosen::Default {
         if let Some(reason) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
         {
-            notices.suite(&s.ws.label(target), &reason);
+            notices.suite(&s.workspace.label(target), &reason);
             platform = Platform::Js;
             key = test_key_for(s, target, platform, args, pre);
             if let Some(cached) = served(s, target, platform, &key, args) {
@@ -582,7 +582,7 @@ fn run_on(
                     .first()
                     .map(|d| d.message.clone())
                     .unwrap_or_else(|| "the native backend refused it".to_string());
-                notices.suite(&s.ws.label(target), &reason);
+                notices.suite(&s.workspace.label(target), &reason);
                 run_on(s, target, Platform::Js, Chosen::Default, args, sink, notices, pre)
             }
             out => out,
@@ -616,7 +616,7 @@ fn run_on(
         "$write(1,JSON.stringify($run({filter})));\n"
     ));
 
-    let dir = s.root.join(".buri/out/js").join(&s.ws.pkg(target.pkg).path);
+    let dir = s.root.join(".buri/out/js").join(&s.workspace.pkg(target.pkg).path);
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("test.mjs");
     if let Err(e) = std::fs::write(&path, &source) {
@@ -877,7 +877,7 @@ fn served(
         args.flags.explain,
         crate::build::cache::Status::Cached,
         crate::build::cache::Action::Test,
-        &s.ws.label(target),
+        &s.workspace.label(target),
         platform,
         key,
     );
@@ -1273,10 +1273,10 @@ fn already_cached(
 fn artifact_tags(s: &Session, target: TargetId) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
     let mut roots = vec![target];
-    roots.extend(s.ws.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
+    roots.extend(s.workspace.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
     for root in roots {
-        for member in s.ws.closure(root) {
-            for tag in s.ws.tags(member) {
+        for member in s.workspace.closure(root) {
+            for tag in s.workspace.tags(member) {
                 out.insert(tag.value.clone());
             }
         }
@@ -1287,8 +1287,8 @@ fn artifact_tags(s: &Session, target: TargetId) -> std::collections::BTreeSet<St
 /// Whether two tags forbid each other. `forbids` is symmetric, so it is enough
 /// for either declaration to name the other (TAGS.md).
 fn tags_forbid(s: &Session, a: &str, b: &str) -> bool {
-    s.ws.repo.tag(a).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == b))
-        || s.ws.repo.tag(b).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == a))
+    s.workspace.repo.tag(a).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == b))
+        || s.workspace.repo.tag(b).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == a))
 }
 
 /// Partitions the candidates into batches no one of which could fail
@@ -1329,7 +1329,7 @@ fn batches_of(s: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> {
 /// is named by its package-relative path from the repository root.
 fn test_modules_of(s: &Session, target: TargetId) -> Vec<String> {
     let Some(suite) = suite(s, target) else { return Vec::new() };
-    let path = s.ws.pkg(target.pkg).path.clone();
+    let path = s.workspace.pkg(target.pkg).path.clone();
     suite
         .sources
         .iter()
@@ -1365,7 +1365,7 @@ fn run_batch(
         .map(|&target| Unit { target: Some(target), platform: None, with_tests: true })
         .collect();
     let analysis =
-        crate::compiler::driver::analyze_all(Some(&s.ws), &mut s.map, &mut s.parsed, &units);
+        crate::compiler::driver::analyze_all(Some(&s.workspace), &mut s.map, &mut s.parsed, &units);
     if analysis.diags.has_errors() {
         return;
     }
@@ -1465,7 +1465,7 @@ fn run_batch(
             args.flags.explain,
             crate::build::cache::Status::Run,
             crate::build::cache::Action::Test,
-            &s.ws.label(target),
+            &s.workspace.label(target),
             platform,
             &key,
         );
@@ -1604,7 +1604,7 @@ fn timed_out(s: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
     let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
     let seconds = limit.unwrap_or(0);
     diags.push(
-        Diagnostic::error(span, format!("{}'s test suite ran longer than {seconds}s", s.ws.label(target)))
+        Diagnostic::error(span, format!("{}'s test suite ran longer than {seconds}s", s.workspace.label(target)))
             .with_code("test-timeout")
             .with_label("the timeout this suite declares")
             .with_note(
@@ -1706,8 +1706,8 @@ fn accept_goldens(s: &Session, target: TargetId, cases: &[Case], out: &mut Out) 
     if suite.data.is_empty() {
         return 0;
     }
-    let dir = s.ws.pkg(target.pkg).dir.clone();
-    let label = s.ws.label(target);
+    let dir = s.workspace.pkg(target.pkg).dir.clone();
+    let label = s.workspace.label(target);
     let mut accepted = 0usize;
     for c in cases {
         let Verdict::Failed { diff: Some(diff), .. } = &c.verdict else { continue };
@@ -1796,7 +1796,7 @@ fn unquote(shown: &str) -> Option<String> {
 
 fn load_test_data(s: &Session, target: TargetId) -> String {
     let Some(suite) = suite(s, target) else { return "{}".into() };
-    let dir = s.ws.pkg(target.pkg).dir.clone();
+    let dir = s.workspace.pkg(target.pkg).dir.clone();
     let mut fields = Vec::new();
     for d in &suite.data {
         let p: PathBuf = dir.join(&d.value);
@@ -1941,9 +1941,9 @@ fn report_failure(
     diff: Option<&Diff>,
     out: &mut Out,
 ) {
-    let label = s.ws.label(target);
+    let label = s.workspace.label(target);
     let file = c.module.trim_start_matches("//");
-    let file = file.strip_prefix(&s.ws.pkg(target.pkg).path).unwrap_or(file);
+    let file = file.strip_prefix(&s.workspace.pkg(target.pkg).path).unwrap_or(file);
     let file = file.trim_start_matches('/');
     out.line(&format!("FAIL {label}  {file}.buri  {}", quote_title(&c.name)));
     out.line(&indented(message));

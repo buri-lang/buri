@@ -26,7 +26,7 @@ pub struct Update {
               all three call sites"
 )]
 pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnostic> {
-    let p = s.ws.pkg(pkg);
+    let p = s.workspace.pkg(pkg);
     let build_path = p.build_path.clone();
     let dir = p.dir.clone();
     let pkg_path = p.path.clone();
@@ -188,7 +188,7 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
     }
 
     let deps = derive_dependencies(s, pkg, &dir, &lib_tests, &bin_tests);
-    let p = s.ws.pkg(pkg);
+    let p = s.workspace.pkg(pkg);
     let mut summary = Vec::new();
 
     // In a package with both rules, `+ sources: ...` twice is two claims a
@@ -359,8 +359,8 @@ fn derive_dependencies(
     let mut out = Derived::default();
     for kind in [RuleKind::Library, RuleKind::Binary] {
         let has = match kind {
-            RuleKind::Library => s.ws.pkg(pkg).has_library(),
-            RuleKind::Binary => s.ws.pkg(pkg).has_binary(),
+            RuleKind::Library => s.workspace.pkg(pkg).has_library(),
+            RuleKind::Binary => s.workspace.pkg(pkg).has_binary(),
         };
         if !has {
             continue;
@@ -373,7 +373,7 @@ fn derive_dependencies(
             platform: None,
             with_tests: true,
         };
-        let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
+        let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
         if analysis.diags.has_errors() {
             // Without a clean check there is no method-resolution information,
             // so the imports alone would be an incomplete answer.
@@ -403,7 +403,7 @@ fn derive_dependencies(
                     crate::parsing::tree::Item::ReExport(r) => r.path.clone(),
                     _ => continue,
                 };
-                if let Some(label) = s.ws.dependency_label(pkg, &path) {
+                if let Some(label) = s.workspace.dependency_label(pkg, &path) {
                     into.insert(label);
                 }
             }
@@ -476,7 +476,7 @@ fn resolved_by_role(
             if pkg == own {
                 return;
             }
-            let label = s.ws.pkg(pkg).label();
+            let label = s.workspace.pkg(pkg).label();
             reached.push(if crate::build::workspace::is_test_only_path(&m.path) {
                 format!("{label}/testing")
             } else {
@@ -525,7 +525,7 @@ fn imported_labels(s: &Session, pkg: PkgId, dir: &Path, files: &[String]) -> BTr
     let mut out = BTreeSet::new();
     for f in files {
         for path in imports_of(dir, f) {
-            if let Some(label) = s.ws.dependency_label(pkg, &path) {
+            if let Some(label) = s.workspace.dependency_label(pkg, &path) {
                 out.insert(label);
             }
         }

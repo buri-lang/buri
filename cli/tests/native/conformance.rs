@@ -381,13 +381,13 @@ fn repository() -> Option<&'static Workspace> {
 /// `case_path` is `semantics/effects.buri`, and the package is `lib/semantics`
 /// — the same split [`read`] makes, for the same reason.
 fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analysis {
-    let ws = repository();
-    let pkg = ws.and_then(|w| {
+    let repository = repository();
+    let pkg = repository.and_then(|w| {
         let (package, _) = case_path.split_once('/')?;
         w.pkg_by_path(&format!("lib/{package}"))
     });
     let mut cache = buri::parsing::parser::Cache::new();
-    driver::analyze_snippet_as(ws, pkg, map, &mut cache, "main", source, Role::TestSource)
+    driver::analyze_snippet_as(repository, pkg, map, &mut cache, "main", source, Role::TestSource)
 }
 
 /// A directory this *process* owns, per case.

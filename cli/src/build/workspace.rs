@@ -357,9 +357,9 @@ impl Workspace {
         // Longest first, so `//lib/money/cents` finds `lib/money` before `lib`.
         sorted_paths.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
 
-        let ws = Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
-        ws.check_package_module_collisions(diags);
-        Ok(ws)
+        let workspace = Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
+        workspace.check_package_module_collisions(diags);
+        Ok(workspace)
     }
 
     pub fn pkg(&self, id: PkgId) -> &Package {

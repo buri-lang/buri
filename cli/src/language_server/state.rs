@@ -135,7 +135,7 @@ impl State {
     pub fn analyze(&self, path: &Path) -> Option<Analyzed> {
         let mut session = session::open(&Flags::default()).ok()?;
         for (p, text) in &self.open {
-            let rel = session.ws.rel_of(p);
+            let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
         }
 
@@ -149,7 +149,7 @@ impl State {
             // server would be blind in exactly the files most often edited.
             with_tests: true,
         };
-        let analysis = crate::compiler::driver::analyze(Some(&session.ws), &mut session.map, &mut session.parsed, &unit);
+        let analysis = crate::compiler::driver::analyze(Some(&session.workspace), &mut session.map, &mut session.parsed, &unit);
         Some(Analyzed { session, analysis })
     }
 
@@ -165,7 +165,7 @@ impl State {
             return None;
         }
         for (p, text) in &self.open {
-            let rel = session.ws.rel_of(p);
+            let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
         }
         let target = self.target_for(&session, path)?;
@@ -177,7 +177,7 @@ impl State {
     /// and a binary in the same package; either analysis sees the file, so the
     /// first is as good as the second.
     fn target_for(&self, session: &Session, path: &Path) -> Option<TargetId> {
-        let pkg = session.ws.owning_package(path)?;
-        session.ws.targets().into_iter().find(|t| t.pkg == pkg)
+        let pkg = session.workspace.owning_package(path)?;
+        session.workspace.targets().into_iter().find(|t| t.pkg == pkg)
     }
 }

@@ -543,12 +543,12 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
             continue;
         }
         let Some(pkg) = package_of(&session, d.span.file, &path) else { continue };
-        if !regenerated.insert(session.ws.pkg(pkg).path.clone()) {
+        if !regenerated.insert(session.workspace.pkg(pkg).path.clone()) {
             continue;
         }
         let Ok(Some(update)) = regenerate::regenerate(&mut session, pkg) else { continue };
-        let build = session.ws.pkg(pkg).build_path.clone();
-        let Some(id) = session.map.find(&session.ws.rel_of(&build)) else { continue };
+        let build = session.workspace.pkg(pkg).build_path.clone();
+        let Some(id) = session.map.find(&session.workspace.rel_of(&build)) else { continue };
         let text = session.map.get(id).text.clone();
         let whole = Value::obj(vec![
             ("start", Position { line: 0, character: 0 }.to_json()),
@@ -563,7 +563,7 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
             ])],
         );
         out.push(action(
-            &format!("{}/BUILD.buri: {}", session.ws.pkg(pkg).path, update.summary.join(", ")),
+            &format!("{}/BUILD.buri: {}", session.workspace.pkg(pkg).path, update.summary.join(", ")),
             code,
             by_file,
         ));
@@ -580,11 +580,11 @@ fn package_of(
 ) -> Option<crate::build::workspace::PkgId> {
     let f = session.map.get(file);
     if !f.abs_path.as_os_str().is_empty() {
-        if let Some(p) = session.ws.owning_package(&f.abs_path) {
+        if let Some(p) = session.workspace.owning_package(&f.abs_path) {
             return Some(p);
         }
     }
-    session.ws.owning_package(fallback)
+    session.workspace.owning_package(fallback)
 }
 
 fn action(

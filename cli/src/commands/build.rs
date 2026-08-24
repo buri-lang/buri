@@ -85,7 +85,7 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                     platform: None,
                     with_tests: false,
                 };
-                let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
+                let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
                 diags.extend(analysis.diags.items);
             }
             failed |= s.print(&diags);
@@ -326,7 +326,7 @@ fn round_session(
         return Err(2);
     }
     let Some(target) =
-        s.ws.targets().into_iter().find(|t| s.ws.label(*t) == label && t.kind == RuleKind::Binary)
+        s.workspace.targets().into_iter().find(|t| s.workspace.label(*t) == label && t.kind == RuleKind::Binary)
     else {
         eprintln!("error: {label} disappeared between two builds of one tree");
         return Err(2);
@@ -425,7 +425,7 @@ fn check_native(
                 return Err(2);
             }
         }
-        let prefix = s.ws.pkg(target.pkg).path.clone();
+        let prefix = s.workspace.pkg(target.pkg).path.clone();
         let opts = crate::compiler::backend::LinkOptions {
             profile: actions::profile_of(flags),
             target: actions::target_of(output),
@@ -534,9 +534,9 @@ fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "artifact".into());
             plan.push(Entry {
-                label: s.ws.label(target),
+                label: s.workspace.label(target),
                 path: reported,
-                pkg_path: std::path::PathBuf::from(&s.ws.pkg(target.pkg).path),
+                pkg_path: std::path::PathBuf::from(&s.workspace.pkg(target.pkg).path),
                 artifact: name,
                 platform: output.platform(),
                 output,

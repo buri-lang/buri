@@ -69,16 +69,16 @@ pub fn ran(binary: &Path) -> Ran {
 /// bare snippet would be refused by the *front end* and would say nothing
 /// about a backend.
 pub fn conformance_repository() -> Option<&'static Workspace> {
-    static WS: OnceLock<Option<Workspace>> = OnceLock::new();
-    WS.get_or_init(|| {
+    static REPOSITORY: OnceLock<Option<Workspace>> = OnceLock::new();
+    REPOSITORY.get_or_init(|| {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
         let mut map = SourceMap::new();
         let mut diags = Diagnostics::new();
-        let ws = Workspace::load(&root, &mut map, &mut diags).ok()?;
+        let workspace = Workspace::load(&root, &mut map, &mut diags).ok()?;
         if diags.has_errors() {
             return None;
         }
-        Some(ws)
+        Some(workspace)
     })
     .as_ref()
 }

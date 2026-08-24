@@ -133,8 +133,8 @@ fn regenerate_build_files(s: &mut Session, diags: &Diagnostics) -> usize {
         }
         let name = s.map.name(d.span.file).to_string();
         let mut best: Option<(usize, PkgId)> = None;
-        for t in s.ws.targets() {
-            let p = s.ws.pkg(t.pkg);
+        for t in s.workspace.targets() {
+            let p = s.workspace.pkg(t.pkg);
             let owns = p.build_file_id == d.span.file
                 || name.strip_prefix(&p.path).is_some_and(|r| r.starts_with('/'));
             if owns && best.is_none_or(|(len, _)| p.path.len() > len) {
@@ -150,12 +150,12 @@ fn regenerate_build_files(s: &mut Session, diags: &Diagnostics) -> usize {
     for pkg in packages {
         match crate::build::regenerate::regenerate(s, pkg) {
             Ok(Some(update)) => {
-                let path = s.ws.pkg(pkg).build_path.clone();
+                let path = s.workspace.pkg(pkg).build_path.clone();
                 if let Err(err) = std::fs::write(&path, &update.text) {
                     eprintln!("error: writing {}: {err}", path.display());
                     continue;
                 }
-                println!("updated {}/BUILD.buri", s.ws.pkg(pkg).path);
+                println!("updated {}/BUILD.buri", s.workspace.pkg(pkg).path);
                 for line in &update.summary {
                     println!("  {line}");
                 }
@@ -221,15 +221,15 @@ fn apply_fixes(s: &mut Session, diags: &Diagnostics) -> usize {
 /// itself, before any binary asks for it: otherwise the mistake surfaces as a
 /// confusing failure in whichever binary happens to reach it first.
 fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics) {
-    let allowed = s.ws.platforms(target);
+    let allowed = s.workspace.platforms(target);
     if allowed.is_empty() {
-        let label = s.ws.label(target);
+        let label = s.workspace.label(target);
         let span = s
-            .ws
+            .workspace
             .tags(target)
             .first()
             .map(|t| t.span)
-            .unwrap_or(Span::point(s.ws.pkg(target.pkg).build_file_id, 0));
+            .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
         diags.push(
             Diagnostic::error(span, format!("{label} can never be built"))
                 .with_code("platform-violation")
@@ -241,7 +241,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
     if target.kind != RuleKind::Binary {
         return;
     }
-    let Some(bin) = &s.ws.pkg(target.pkg).build.binary else { return };
+    let Some(bin) = &s.workspace.pkg(target.pkg).build.binary else { return };
     for output in &bin.outputs {
         let p = output.platform();
         if !allowed.contains(&p) {
@@ -255,7 +255,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diags: &mut Diagnostics
 /// tool that walks the build graph. Writing the block is the deliberate act, so
 /// the empty one is a leftover rather than a decision.
 fn check_test_suites(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
-    let p = s.ws.pkg(pkg);
+    let p = s.workspace.pkg(pkg);
     let mut report = |suite: Option<&crate::build::buildfile::TestSuite>, rule: &str| {
         let Some(suite) = suite else { return };
         if !suite.sources.is_empty() {
@@ -283,7 +283,7 @@ fn check_test_suites(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
 /// must appear in exactly one rule. A file that appears in none can be dropped
 /// from the build by a typo and never noticed.
 fn check_sources_declared(s: &Session, pkg: PkgId, diags: &mut Diagnostics) {
-    let p = s.ws.pkg(pkg);
+    let p = s.workspace.pkg(pkg);
     let mut declared: Vec<(String, Span)> = Vec::new();
     let push = |list: &[crate::build::buildfile::Sp<String>], out: &mut Vec<(String, Span)>| {
         for x in list {
@@ -387,7 +387,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
+    let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         diags.extend(analysis.diags.items);
         return;
@@ -397,7 +397,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
     // loaded, so they ride along rather than paying for a second one.
     check_hygiene(s, target, &analysis, diags);
 
-    let declared: Vec<crate::build::buildfile::Sp<String>> = s.ws.declared_deps(target).to_vec();
+    let declared: Vec<crate::build::buildfile::Sp<String>> = s.workspace.declared_deps(target).to_vec();
     let own = target.pkg;
     // Use is what requires a dep, and an import is not the only way to use: a
     // method resolves through its receiver's type rather than through scope,
@@ -418,11 +418,11 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
                 crate::parsing::tree::Item::ReExport(r) => (r.path.clone(), r.path_span),
                 _ => continue,
             };
-            let Some(wanted) = s.ws.dependency_label(own, &path) else { continue };
+            let Some(wanted) = s.workspace.dependency_label(own, &path) else { continue };
             used.insert(wanted.clone());
             if !declared.iter().any(|d| d.value == wanted) && !in_test_deps(s, target, &wanted) {
                 let importer = s.map.name(m.file).to_string();
-                let pkg_path = s.ws.pkg(own).path.clone();
+                let pkg_path = s.workspace.pkg(own).path.clone();
                 reported.insert(wanted.clone());
                 diags.push(
                     Diagnostic::error(
@@ -443,8 +443,8 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
     // there is nothing in a source file to point at — the claim that is wrong
     // is the one the build file makes, and that is where the span goes
     // (BUILD-FILES.md, "Dependencies": "an import is not the only way to use").
-    let pkg_path = s.ws.pkg(own).path.clone();
-    let own_label = s.ws.pkg(own).label();
+    let pkg_path = s.workspace.pkg(own).path.clone();
+    let own_label = s.workspace.pkg(own).label();
     for wanted in &resolved {
         if declared.iter().any(|d| &d.value == wanted)
             || in_test_deps(s, target, wanted)
@@ -454,7 +454,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diags: &mut Diagnostics
         }
         diags.push(
             Diagnostic::error(
-                Span::point(s.ws.pkg(own).build_file_id, 0),
+                Span::point(s.workspace.pkg(own).build_file_id, 0),
                 format!("{own_label} uses {wanted}, which is not in dependencies"),
             )
             .with_code("missing-dep")
@@ -588,7 +588,7 @@ fn check_unreachable_exports(
                 crate::parsing::tree::Item::ReExport(r) => (&r.path, &r.specs),
                 _ => continue,
             };
-            let Ok(loc) = s.ws.resolve_module(path) else { continue };
+            let Ok(loc) = s.workspace.resolve_module(path) else { continue };
             if loc.in_package().map(|m| m.pkg) != Some(own) {
                 continue;
             }
@@ -622,7 +622,7 @@ fn check_unreachable_exports(
             if surface.contains(name) || wanted.contains(name) {
                 continue;
             }
-            let lib = format!("{}/lib.buri", s.ws.pkg(own).path);
+            let lib = format!("{}/lib.buri", s.workspace.pkg(own).path);
             diags.push(
                 Diagnostic::error(span, format!("`{name}` is exported and reaches nobody"))
                     .with_code("unreachable-export")
@@ -921,7 +921,7 @@ pub(crate) fn reached_by_resolution(
             if pkg == own {
                 return;
             }
-            let label = s.ws.pkg(pkg).label();
+            let label = s.workspace.pkg(pkg).label();
             out.insert(if crate::build::workspace::is_test_only_path(&m.path) {
                 format!("{label}/testing")
             } else {
@@ -933,7 +933,7 @@ pub(crate) fn reached_by_resolution(
 }
 
 fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
-    let p = s.ws.pkg(target.pkg);
+    let p = s.workspace.pkg(target.pkg);
     let suite = p.test_suite(target.kind);
     let testing = p.build.library.as_ref().and_then(|l| l.testing.as_ref());
     suite.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
@@ -951,29 +951,29 @@ fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
 /// the diagnostic points at.
 fn check_cycles(s: &Session, diags: &mut Diagnostics) {
     let mut reported: BTreeSet<Vec<TargetId>> = BTreeSet::new();
-    for t in s.ws.targets() {
-        for (dep, span) in s.ws.dep_edges(t) {
+    for t in s.workspace.targets() {
+        for (dep, span) in s.workspace.dep_edges(t) {
             if dep == t {
                 continue;
             }
-            if !s.ws.closure(dep).contains(&t) {
+            if !s.workspace.closure(dep).contains(&t) {
                 continue;
             }
             let mut members: Vec<TargetId> = s
-                .ws
+                .workspace
                 .closure(t)
                 .into_iter()
-                .filter(|m| s.ws.closure(*m).contains(&t))
+                .filter(|m| s.workspace.closure(*m).contains(&t))
                 .collect();
             members.sort();
             if !reported.insert(members) {
                 continue;
             }
-            let a = s.ws.label(t);
-            let b = s.ws.label(dep);
+            let a = s.workspace.label(t);
+            let b = s.workspace.label(dep);
             diags.push(
                 Diagnostic::error(
-                    span.unwrap_or(Span::point(s.ws.pkg(t.pkg).build_file_id, 0)),
+                    span.unwrap_or(Span::point(s.workspace.pkg(t.pkg).build_file_id, 0)),
                     format!("{a} and {b} depend on each other"),
                 )
                 .with_code("dep-cycle")

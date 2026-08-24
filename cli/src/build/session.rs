@@ -33,7 +33,7 @@ pub struct Session {
     /// this the same files are lexed and parsed once per target.
     pub parsed: crate::parsing::parser::Cache,
     pub diags: Diagnostics,
-    pub ws: Workspace,
+    pub workspace: Workspace,
     pub rendering: Rendering,
 }
 
@@ -47,14 +47,14 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
     };
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
-    let ws = Workspace::load(&root, &mut map, &mut diags).map_err(|e| e.to_string())?;
+    let workspace = Workspace::load(&root, &mut map, &mut diags).map_err(|e| e.to_string())?;
     let rendering = match flags.error_format {
         ErrorFormat::Json => Rendering::Json,
         ErrorFormat::Human => Rendering::Human {
             color: flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
         },
     };
-    Ok(Session { root, map, parsed: crate::parsing::parser::Cache::new(), diags, ws, rendering })
+    Ok(Session { root, map, parsed: crate::parsing::parser::Cache::new(), diags, workspace, rendering })
 }
 
 impl Session {
@@ -63,10 +63,10 @@ impl Session {
     pub fn resolve_targets(&self, args: &[String]) -> Result<Vec<TargetId>, String> {
         let patterns: Vec<Pattern> = if args.is_empty() {
             let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-            let rel = self.ws.rel_of(&cwd);
+            let rel = self.workspace.rel_of(&cwd);
             let rel = if rel == "." { String::new() } else { rel };
-            match self.ws.owning_package(&cwd.join("x")) {
-                Some(id) => vec![Pattern::Package(self.ws.pkg(id).path.clone())],
+            match self.workspace.owning_package(&cwd.join("x")) {
+                Some(id) => vec![Pattern::Package(self.workspace.pkg(id).path.clone())],
                 None => {
                     return Err(format!(
                         "no package at `{rel}`; name one, as in `buri build //lib/money`"
@@ -80,8 +80,8 @@ impl Session {
         let mut out = Vec::new();
         for p in &patterns {
             let mut matched = false;
-            for t in self.ws.targets() {
-                if p.matches(&self.ws.pkg(t.pkg).path) {
+            for t in self.workspace.targets() {
+                if p.matches(&self.workspace.pkg(t.pkg).path) {
                     out.push(t);
                     matched = true;
                 }

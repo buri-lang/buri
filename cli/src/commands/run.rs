@@ -31,7 +31,7 @@ pub fn cmd_run(args: &arguments::Args) -> i32 {
     let outputs = actions::selected_outputs(&s, target, &args.flags);
     let Some(output) = choose(&outputs, &args.flags) else {
         let declared: Vec<String> = outputs.iter().map(crate::build::buildfile::Output::dir).collect();
-        eprintln!("error: {} declares no output this toolchain can run", s.ws.label(target));
+        eprintln!("error: {} declares no output this toolchain can run", s.workspace.label(target));
         if declared.is_empty() {
             eprintln!("  = it declares no outputs at all");
         } else {

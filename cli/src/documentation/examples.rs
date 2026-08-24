@@ -709,16 +709,16 @@ fn declares_main(source: &str) -> bool {
 /// Compiles one block, against a repository the block named with `repo=`, and
 /// reports every way it did not do what it claimed.
 fn run_block_in(
-    ws: Option<&crate::build::workspace::Workspace>,
+    workspace: Option<&crate::build::workspace::Workspace>,
     block: &Block,
     reg: &Registry,
     map: &mut SourceMap,
     cache: &mut crate::parsing::parser::Cache,
 ) -> Vec<Failure> {
-    let pkg = match (&block.pkg, ws) {
-        (Some(label), Some(ws)) => {
+    let pkg = match (&block.pkg, workspace) {
+        (Some(label), Some(workspace)) => {
             let path = label.trim_start_matches('/');
-            match ws.pkg_by_path(path) {
+            match workspace.pkg_by_path(path) {
                 Some(id) => Some(id),
                 None => {
                     return vec![Failure {
@@ -753,7 +753,7 @@ fn run_block_in(
     };
     let name = format!("{}", block.origin);
     let analysis = driver::analyze_snippet_on(
-        ws,
+        workspace,
         pkg,
         map,
         cache,
@@ -843,7 +843,7 @@ fn run_block_in(
             }
         };
         let a = driver::analyze_snippet_on(
-            ws,
+            workspace,
             pkg,
             map,
             cache,
@@ -881,7 +881,7 @@ fn run_block_in(
         _ => None,
     };
     if let Some(want) = pinned {
-        match driver::run_snippet_in(ws, map, &name, &base.text) {
+        match driver::run_snippet_in(workspace, map, &name, &base.text) {
             Ok(stdout) => {
                 if &stdout != want {
                     failures.push(Failure {
@@ -967,7 +967,7 @@ fn run_file_with(
             (None, true) => Some(String::new()),
             (None, false) => None,
         };
-        let ws = match &named {
+        let workspace = match &named {
             None => None,
             Some(rel) => {
                 if !repos.contains_key(rel) {
@@ -981,7 +981,7 @@ fn run_file_with(
                     repos.insert(rel.clone(), loaded);
                 }
                 match repos.get(rel).and_then(|w| w.as_ref()) {
-                    Some(ws) => Some(ws),
+                    Some(workspace) => Some(workspace),
                     None => {
                         failures.push(Failure {
                             origin: block.origin.clone(),
@@ -995,7 +995,7 @@ fn run_file_with(
                 }
             }
         };
-        failures.extend(run_block_in(ws, block, &reg, &mut map, &mut cache));
+        failures.extend(run_block_in(workspace, block, &reg, &mut map, &mut cache));
         reg.record(block);
     }
     for proto in &extracted.protos {

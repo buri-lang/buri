@@ -35,11 +35,11 @@ pub fn cmd_gen(args: &arguments::Args) -> i32 {
     for pkg in packages {
         match crate::build::regenerate::regenerate(&mut s, pkg) {
             Ok(Some(update)) => {
-                stale.push(s.ws.pkg(pkg).path.clone());
+                stale.push(s.workspace.pkg(pkg).path.clone());
                 if !args.flags.check {
-                    let path = s.ws.pkg(pkg).build_path.clone();
+                    let path = s.workspace.pkg(pkg).build_path.clone();
                     if std::fs::write(&path, &update.text).is_ok() {
-                        println!("updated {}/BUILD.buri", s.ws.pkg(pkg).path);
+                        println!("updated {}/BUILD.buri", s.workspace.pkg(pkg).path);
                         for line in &update.summary {
                             println!("  {line}");
                         }

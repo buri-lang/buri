@@ -81,7 +81,7 @@ pub fn build_target(
             flags.explain,
             status,
             Action::Link,
-            &s.ws.label(target),
+            &s.workspace.label(target),
             platform,
             &key,
         )
@@ -177,7 +177,7 @@ fn monomorphized_main(
     // `Some`: a build is the per-output check. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
     let mut analysis =
-        crate::compiler::driver::analyze(Some(&s.ws), &mut s.map, &mut s.parsed, &unit);
+        crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
@@ -187,7 +187,7 @@ fn monomorphized_main(
         diags.push(
             Diagnostic::error(
                 Span::NONE,
-                format!("{} exports no `main`", s.ws.pkg(target.pkg).label()),
+                format!("{} exports no `main`", s.workspace.pkg(target.pkg).label()),
             )
             .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
         );
@@ -266,7 +266,7 @@ pub fn action_key(
     }
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
-    for member in s.ws.closure(target) {
+    for member in s.workspace.closure(target) {
         contribute(s, member, &mut k);
     }
     k.finish()
@@ -278,7 +278,7 @@ pub fn action_key(
 /// what makes "editing this file changed this target's key and not that one"
 /// something a test can watch rather than something a comment asserts.
 fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
-    let pkg = s.ws.pkg(member.pkg);
+    let pkg = s.workspace.pkg(member.pkg);
     let kind = match member.kind {
         RuleKind::Library => "library",
         RuleKind::Binary => "binary",
@@ -319,7 +319,7 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
         sources.get(i).map(|rel| std::fs::read(pkg.dir.join(rel)).unwrap_or_default()).unwrap_or_default()
     });
     for (rel, contents) in sources.iter().zip(&contents) {
-        k.input(&s.ws.rel_of(&pkg.dir.join(rel)), contents);
+        k.input(&s.workspace.rel_of(&pkg.dir.join(rel)), contents);
     }
 }
 
@@ -339,7 +339,7 @@ fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) ->
 
 /// The schemas a rule declares, package-relative and sorted.
 pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
-    let pkg = s.ws.pkg(target.pkg);
+    let pkg = s.workspace.pkg(target.pkg);
     let mut out: Vec<String> = match target.kind {
         RuleKind::Library => pkg
             .build
@@ -368,12 +368,12 @@ pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
 fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Proto, flags.mode);
     k.platform(output.platform(), output.arch());
-    let pkg = s.ws.pkg(target.pkg);
+    let pkg = s.workspace.pkg(target.pkg);
     let schemas = proto_sources(s, target);
     k.rule_identity(&pkg.label(), "proto", &schemas);
     for rel in &schemas {
         let full = pkg.dir.join(rel);
-        k.input(&s.ws.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
+        k.input(&s.workspace.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
     }
     k.finish()
 }
@@ -386,13 +386,13 @@ fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags
         return;
     }
     let platform = output.platform();
-    for member in s.ws.closure(target) {
+    for member in s.workspace.closure(target) {
         if !proto_sources(s, member).is_empty() {
             crate::build::cache::explain(
                 true,
                 crate::build::cache::Status::Keyed,
                 Action::Proto,
-                &s.ws.label(member),
+                &s.workspace.label(member),
                 platform,
                 &proto_key(s, member, output, flags),
             );
@@ -402,7 +402,7 @@ fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags
             true,
             crate::build::cache::Status::Keyed,
             Action::Compile,
-            &s.ws.label(member),
+            &s.workspace.label(member),
             platform,
             &key,
         );
@@ -432,10 +432,10 @@ pub fn test_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -
     // Sorted and deduplicated: `test_dep_edges` yields declaration order, and a
     // key must not depend on the order two `dependencies` entries were written
     // in — nor count a helper twice because two of them reach it.
-    let production = s.ws.closure(target);
+    let production = s.workspace.closure(target);
     let mut test_closure: Vec<TargetId> = Vec::new();
-    for (dep, _) in s.ws.test_dep_edges(target) {
-        test_closure.extend(s.ws.closure(dep));
+    for (dep, _) in s.workspace.test_dep_edges(target) {
+        test_closure.extend(s.workspace.closure(dep));
     }
     test_closure.sort();
     test_closure.dedup();
@@ -449,7 +449,7 @@ pub fn test_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -
         }
         contribute(s, member, &mut k);
     }
-    let pkg = s.ws.pkg(target.pkg);
+    let pkg = s.workspace.pkg(target.pkg);
     let suite = match target.kind {
         RuleKind::Library => pkg.build.library.as_ref().and_then(|l| l.test.as_ref()),
         RuleKind::Binary => pkg.build.binary.as_ref().and_then(|b| b.test.as_ref()),
@@ -996,8 +996,8 @@ pub fn objects_of(
     // the same string in a debug section. This is the same rule `action_key`
     // follows for input paths, and it is the source of nondeterminism
     // ARCHITECTURE.md §7 calls out by name.
-    let prefix = s.ws.pkg(target.pkg).path.clone();
-    let label = s.ws.label(target);
+    let prefix = s.workspace.pkg(target.pkg).path.clone();
+    let label = s.workspace.label(target);
     objects_named(s, &prefix, &label, output, flags, program, tables, diags)
 }
 
@@ -1120,7 +1120,7 @@ fn build_native(
     let objects = compile_objects(s, target, output, flags, &mut diags)?;
     let key = link_key(output, flags, &linker, &objects.keys);
     let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
-    let label = s.ws.label(target);
+    let label = s.workspace.label(target);
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, &label, platform, &key);
     };
@@ -1143,7 +1143,7 @@ fn build_native(
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let prefix = s.ws.pkg(target.pkg).path.clone();
+    let prefix = s.workspace.pkg(target.pkg).path.clone();
     let opts = LinkOptions {
         profile: profile_of(flags),
         target: target_of(output),
@@ -1300,10 +1300,10 @@ pub fn native_test_binary(
     tables: &Tables,
     diags: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let prefix = s.ws.pkg(target.pkg).path.clone();
-    let label = s.ws.label(target);
+    let prefix = s.workspace.pkg(target.pkg).path.clone();
+    let label = s.workspace.label(target);
     let dir = s.root.join(".buri/out").join(output.dir());
-    let private = dir.join(&s.ws.pkg(target.pkg).path).join("test");
+    let private = dir.join(&s.workspace.pkg(target.pkg).path).join("test");
     test_binary_named(
         s, &prefix, &label, private, output, flags, program, tables, diags,
     )
@@ -1347,13 +1347,13 @@ pub fn native_test_batch(
     tables: &Tables,
     diags: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let label = targets.iter().map(|t| s.ws.label(*t)).collect::<Vec<_>>().join(",");
+    let label = targets.iter().map(|t| s.workspace.label(*t)).collect::<Vec<_>>().join(",");
     // The first member's own path, so that a batch that cannot take the shared
     // claim runs from a file some previous run has already executed rather than
     // from a new one. Deterministic: `targets` is in the pass's order.
     let dir = s.root.join(".buri/out").join(output.dir());
     let private = match targets.first() {
-        Some(t) => dir.join(&s.ws.pkg(t.pkg).path).join("test"),
+        Some(t) => dir.join(&s.workspace.pkg(t.pkg).path).join("test"),
         None => dir.join("test"),
     };
     test_binary_named(s, "", &label, private, output, flags, program, tables, diags)
@@ -1427,7 +1427,7 @@ fn write_executable(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
 }
 
 pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf {
-    let pkg = s.ws.pkg(target.pkg);
+    let pkg = s.workspace.pkg(target.pkg);
     let dir_name = if pkg.path.is_empty() {
         s.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
     } else {
@@ -1578,25 +1578,25 @@ pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) 
     // downstream, so a consumer neither depends on that edge nor could fix it,
     // and `//...` reaches every target's own suite anyway.
     let edges = s
-        .ws
+        .workspace
         .closure(target)
         .into_iter()
-        .map(|m| (m, s.ws.dep_edges(m)))
-        .chain(std::iter::once((target, s.ws.test_dep_edges(target))));
+        .map(|m| (m, s.workspace.dep_edges(m)))
+        .chain(std::iter::once((target, s.workspace.test_dep_edges(target))));
     for (member, member_edges) in edges {
         for (dep, span) in member_edges {
             let Some(span) = span else { continue };
-            if s.ws.visible(member.pkg, dep) {
+            if s.workspace.visible(member.pkg, dep) {
                 continue;
             }
-            let from = s.ws.pkg(member.pkg).label();
-            let to = s.ws.label(dep);
-            let to_path = s.ws.pkg(dep.pkg).path.clone();
+            let from = s.workspace.pkg(member.pkg).label();
+            let to = s.workspace.label(dep);
+            let to_path = s.workspace.pkg(dep.pkg).path.clone();
             diags.push(
                 Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
                     .with_code("visibility-violation")
                     .with_label("not visible")
-                    .with_note(format!("{to} is visible to: {}", s.ws.visibility_list(dep)))
+                    .with_note(format!("{to} is visible to: {}", s.workspace.visibility_list(dep)))
                     .with_fix(format!(
                         "add \"{from}\" to visibility in {to_path}/BUILD.buri"
                     )),
@@ -1611,11 +1611,11 @@ pub fn check_visibility(s: &Session, target: TargetId, diags: &mut Diagnostics) 
 /// "who dragged it in".
 pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
     // A tag `REPO.buri` does not declare is an error, not a no-op.
-    for member in s.ws.closure(target) {
-        for tag in s.ws.tags(member) {
-            if s.ws.repo.tag(&tag.value).is_none() {
+    for member in s.workspace.closure(target) {
+        for tag in s.workspace.tags(member) {
+            if s.workspace.repo.tag(&tag.value).is_none() {
                 let known: Vec<&str> =
-                    s.ws.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
+                    s.workspace.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
                 let mut d = Diagnostic::error(tag.span, format!("unknown tag \"{}\"", tag.value))
                     .with_code("unknown-tag")
                     .with_note("no `tag` block in REPO.buri declares this name");
@@ -1636,17 +1636,17 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
         }
     }
 
-    let Some((a, a_by, b, b_by)) = s.ws.forbidden_pair(target) else { return };
-    let label = s.ws.label(target);
-    let a_label = s.ws.label(a_by);
-    let b_label = s.ws.label(b_by);
+    let Some((a, a_by, b, b_by)) = s.workspace.forbidden_pair(target) else { return };
+    let label = s.workspace.label(target);
+    let a_label = s.workspace.label(a_by);
+    let b_label = s.workspace.label(b_by);
     let span = s
-        .ws
+        .workspace
         .tags(target)
         .iter()
         .map(|t| t.span)
         .next()
-        .unwrap_or(Span::point(s.ws.pkg(target.pkg).build_file_id, 0));
+        .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
 
     let mut d = Diagnostic::error(
         span,
@@ -1667,9 +1667,9 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
         } else {
             format!("\"{tag}\" is carried by {by_label}")
         };
-        if let Some(path) = s.ws.dep_path(target, by) {
+        if let Some(path) = s.workspace.dep_path(target, by) {
             if path.len() > 1 {
-                let names: Vec<String> = path.iter().map(|(t, _)| s.ws.label(*t)).collect();
+                let names: Vec<String> = path.iter().map(|(t, _)| s.workspace.label(*t)).collect();
                 note.push_str(&format!("\n    reached by: {}", names.join(" -> ")));
             }
         }
@@ -1682,7 +1682,7 @@ pub fn check_tags(s: &Session, target: TargetId, diags: &mut Diagnostics) {
     // The doc strings are printed because the tag is a policy, and the policy
     // should say why.
     for name in [&a, &b] {
-        let doc = s.ws.tag_doc(name);
+        let doc = s.workspace.tag_doc(name);
         if !doc.is_empty() {
             d = d.with_note(format!("\"{name}\": {doc}"));
         }
@@ -1696,20 +1696,20 @@ pub fn check_platform(
     platform: Platform,
     diags: &mut Diagnostics,
 ) {
-    let allowed = s.ws.platforms(target);
+    let allowed = s.workspace.platforms(target);
     if allowed.contains(&platform) {
         return;
     }
-    let label = s.ws.label(target);
+    let label = s.workspace.label(target);
     let span = s
-        .ws
+        .workspace
         .pkg(target.pkg)
         .build
         .binary
         .as_ref()
         .and_then(|b| b.outputs.iter().find(|o| o.platform() == platform))
         .map(|o| o.span)
-        .unwrap_or(Span::point(s.ws.pkg(target.pkg).build_file_id, 0));
+        .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
 
     let mut d = Diagnostic::error(
         span,
@@ -1720,16 +1720,16 @@ pub fn check_platform(
         "drop the {} output, or widen the tag's `requires {{ platforms }}` in REPO.buri",
         platform.slug()
     ));
-    if let Some((blocker, why)) = s.ws.platform_blocker(target, platform) {
+    if let Some((blocker, why)) = s.workspace.platform_blocker(target, platform) {
         d = d.with_note(why);
-        if let Some(path) = s.ws.dep_path(target, blocker) {
+        if let Some(path) = s.workspace.dep_path(target, blocker) {
             if path.len() > 1 {
-                let names: Vec<String> = path.iter().map(|(t, _)| s.ws.label(*t)).collect();
+                let names: Vec<String> = path.iter().map(|(t, _)| s.workspace.label(*t)).collect();
                 d = d.with_note(format!("reached by: {}", names.join(" -> ")));
             }
         }
-        for tag in s.ws.tags(blocker) {
-            let doc = s.ws.tag_doc(&tag.value);
+        for tag in s.workspace.tags(blocker) {
+            let doc = s.workspace.tag_doc(&tag.value);
             if !doc.is_empty() {
                 d = d.with_note(format!("\"{}\": {doc}", tag.value));
             }
@@ -1745,7 +1745,7 @@ pub fn selected_outputs(s: &Session, target: TargetId, flags: &Flags) -> Vec<Out
     if target.kind != RuleKind::Binary {
         return Vec::new();
     }
-    let Some(bin) = &s.ws.pkg(target.pkg).build.binary else { return Vec::new() };
+    let Some(bin) = &s.workspace.pkg(target.pkg).build.binary else { return Vec::new() };
     let mut outputs = bin.outputs.clone();
     if outputs.is_empty() {
         // A binary with no declared output still builds for the host, which is

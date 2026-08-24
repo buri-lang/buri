@@ -18,7 +18,7 @@ use super::state::Analyzed;
 /// The innermost typed expression covering `offset`, and its rendered type.
 pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Value> {
     let offset = convert::offset_of(text, pos);
-    let file = a.session.map.find(&a.session.ws.rel_of(path))?;
+    let file = a.session.map.find(&a.session.workspace.rel_of(path))?;
 
     // A declaration's own name renders as its signature plus its doc comment,
     // which is what you want when you point at `fn parse` — the type of the
@@ -71,7 +71,7 @@ fn declaration_at(
     path: &Path,
     offset: u32,
 ) -> Option<(String, Vec<String>, crate::diagnostics::Span)> {
-    let file = a.session.map.find(&a.session.ws.rel_of(path))?;
+    let file = a.session.map.find(&a.session.workspace.rel_of(path))?;
     let m = a.analysis.loaded.modules.iter().find(|m| m.file == file)?;
     for item in &m.ast.items {
         // A function renders as its signature, which is what `buri format`
@@ -97,7 +97,7 @@ fn declaration_at(
 /// Where the name under the cursor was declared.
 pub fn definition(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Value> {
     let offset = convert::offset_of(text, pos);
-    let file = a.session.map.find(&a.session.ws.rel_of(path))?;
+    let file = a.session.map.find(&a.session.workspace.rel_of(path))?;
 
     // The innermost call or function reference covering the offset. Walking to
     // the innermost matters for `f(g(x))`, where both spans contain a cursor
@@ -215,13 +215,13 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
 /// not depend on would be offering a `missing-dep`.
 fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
     let mut out: Vec<String> = standard_library::MODULES.iter().map(|m| m.path.to_string()).collect();
-    if let Some(pkg) = a.session.ws.owning_package(path) {
-        for t in a.session.ws.targets().into_iter().filter(|t| t.pkg == pkg) {
-            for d in a.session.ws.declared_deps(t) {
+    if let Some(pkg) = a.session.workspace.owning_package(path) {
+        for t in a.session.workspace.targets().into_iter().filter(|t| t.pkg == pkg) {
+            for d in a.session.workspace.declared_deps(t) {
                 out.push(d.value.clone());
             }
         }
-        out.push(a.session.ws.pkg(pkg).label());
+        out.push(a.session.workspace.pkg(pkg).label());
     }
     out.sort();
     out.dedup();

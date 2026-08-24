@@ -73,13 +73,13 @@ pub fn cmd_format(args: &arguments::Args) -> i32 {
             // else in the repository will work until it is fixed. Source that
             // does not parse is left exactly as it is: it is being edited.
             if is_build_file(&name) {
-                eprintln!("error: {} does not parse", s.ws.rel_of(path));
+                eprintln!("error: {} does not parse", s.workspace.rel_of(path));
                 return 2;
             }
             continue;
         };
         if formatted != text {
-            changed.push(s.ws.rel_of(path));
+            changed.push(s.workspace.rel_of(path));
             if !args.flags.check {
                 let _ = std::fs::write(path, formatted);
             }

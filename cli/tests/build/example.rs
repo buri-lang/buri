@@ -11,15 +11,15 @@ fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: b
     let root = example_root();
     let mut map = buri::diagnostics::SourceMap::new();
     let mut diags = buri::diagnostics::Diagnostics::new();
-    let ws = buri::build::workspace::Workspace::load(&root, &mut map, &mut diags).unwrap();
-    let Some(id) = ws.pkg_by_path(pkg) else { panic!("no package {pkg}") };
+    let workspace = buri::build::workspace::Workspace::load(&root, &mut map, &mut diags).unwrap();
+    let Some(id) = workspace.pkg_by_path(pkg) else { panic!("no package {pkg}") };
     let unit = buri::compiler::modules::Unit {
         target: Some(buri::build::workspace::TargetId { pkg: id, kind }),
         platform: None,
         with_tests,
     };
     let mut cache = buri::parsing::parser::Cache::new();
-    let analysis = buri::compiler::driver::analyze(Some(&ws), &mut map, &mut cache, &unit);
+    let analysis = buri::compiler::driver::analyze(Some(&workspace), &mut map, &mut cache, &unit);
     let mut out = String::new();
     for d in diags.items.iter().chain(analysis.diags.items.iter()) {
         out.push_str(&map.render(d, false));

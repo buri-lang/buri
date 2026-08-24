@@ -85,11 +85,11 @@ const SWEEP: Duration = Duration::from_millis(150);
 pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
     let mut out: BTreeSet<PathBuf> = BTreeSet::new();
     out.insert(s.root.join("REPO.buri"));
-    for id in s.ws.ids() {
-        out.insert(s.ws.pkg(id).build_path.clone());
+    for id in s.workspace.ids() {
+        out.insert(s.workspace.pkg(id).build_path.clone());
     }
     for &target in targets {
-        for member in s.ws.closure(target) {
+        for member in s.workspace.closure(target) {
             declared_sources(s, member, &mut out);
         }
         // The libraries the *test* code reaches, which are not in the closure —
@@ -97,15 +97,15 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
         // are compiled into the suite all the same. `actions::test_key` adds
         // exactly this set, and the two enumerations are the same enumeration
         // or the loop serves a verdict for code it stopped watching.
-        for (dep, _) in s.ws.test_dep_edges(target) {
-            for member in s.ws.closure(dep) {
+        for (dep, _) in s.workspace.test_dep_edges(target) {
+            for member in s.workspace.closure(dep) {
                 declared_sources(s, member, &mut out);
             }
         }
         // The suite's own inputs, which are on the selected target rather than
         // on its closure: a dependency's test sources are not built by this
         // run and are not in this run's key.
-        let pkg = s.ws.pkg(target.pkg);
+        let pkg = s.workspace.pkg(target.pkg);
         if let Some(suite) = pkg.test_suite(target.kind) {
             for x in suite.sources.iter().chain(&suite.data) {
                 out.insert(pkg.dir.join(&x.value));
@@ -120,7 +120,7 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
 /// mirrors the key" is a shared enumeration rather than two lists that have to
 /// be kept in step by hand.
 fn declared_sources(s: &Session, member: TargetId, out: &mut BTreeSet<PathBuf>) {
-    let pkg = s.ws.pkg(member.pkg);
+    let pkg = s.workspace.pkg(member.pkg);
     out.insert(pkg.build_path.clone());
     let dir = &pkg.dir;
     match member.kind {
