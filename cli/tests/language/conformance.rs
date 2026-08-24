@@ -422,6 +422,15 @@ fn release_and_debug_agree() {
 /// Two builds of the same sources in the same configuration produce
 /// byte-identical artifacts. Symbol names are derived from labels and module
 /// paths rather than from compilation order, and iteration is by sorted key.
+///
+/// **A strict subset of `build::hermeticity::two_checkouts_of_one_tree_build_identical_bytes`,**
+/// which copies the same repository to two paths, builds `//cmd/web` in each,
+/// compares the bytes, and then asks `--check-reproducible` the same question
+/// in debug and release. Deleting this one is the right call and is worth two
+/// release builds of the example monorepo; what holds it here is that the name
+/// is cited from five places, two of them in `cli/src/docs/build/hermeticity.md`
+/// — so the deletion belongs to a pass that can re-point the shipped
+/// documentation as it goes.
 #[test]
 fn builds_are_reproducible() {
     // The worked monorepo, copied to two different paths and built in each. A

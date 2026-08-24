@@ -155,6 +155,18 @@ impl Arch {
     }
 }
 
+/// **`Cjs` is read and not acted on.** `module: CJS` parses, is stored in
+/// `OutputTarget::Js`, and is then consulted by nobody: every destructuring of
+/// that variant outside this file is `Js { .. }`, and the backend emits an ES
+/// module either way. So a build file that asks for CommonJS gets an `.mjs`
+/// and is not told.
+///
+/// Written down rather than fixed here because the fix is a decision, not a
+/// cleanup: either the backend grows a CommonJS emitter, or the value leaves
+/// `build.proto` and the schema's unknown-value diagnostic refuses it. The
+/// second is the smaller change and would alter a pinned expectation in
+/// `repositories/build-files/web_output`, which is a wave that owns the
+/// schema's business rather than this one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum JsModule {
     #[default]
