@@ -39,7 +39,7 @@ library {
 ```
 
 `buri gen` manages `proto_sources` exactly as it manages `sources`, and a
-schema no rule lists is [`undeclared-source`](./cli/src/docs/build/cli.md), the
+schema no rule lists is [`undeclared-source`](./cli.md), the
 same error a stray `.buri` gets — with the fix naming `proto_sources` rather
 than `sources`.
 
@@ -188,7 +188,7 @@ which a bare `Note` would not, and a `oneof` named `contact` inside
 
 **The 64-bit caveat, on the JavaScript backend.** An `Int` is an `I64` on every
 backend, and on the JavaScript one an `I64` is a double
-([`core/num`](./cli/src/docs/guide/standard-library.md)), so it holds every integer up to 2^53
+([`core/num`](../guide/standard-library.md)), so it holds every integer up to 2^53
 exactly and nothing above it. A `uint64` or `int64` field carrying a larger
 value survives the round trip only to that precision. This is the same caveat
 every double-backed protobuf implementation carries; it is stated here rather
@@ -300,7 +300,7 @@ export fn dark(): Everything {
 }
 ```
 
-`ProtoError` is [`core/proto`](./cli/src/docs/guide/standard-library.md)'s, and every case of it
+`ProtoError` is [`core/proto`](../guide/standard-library.md)'s, and every case of it
 carries a byte offset or a field number, because a decoder that says only
 "malformed" of a four-kilobyte message is a decoder you debug by bisection.
 
@@ -386,7 +386,7 @@ field-number order. JSON objects are unordered, no conforming reader can
 notice, and the alternative is an interleave that buys nothing.
 
 A failure names the path it happened at, written the way
-[`core/json`](./cli/src/docs/guide/standard-library.md)'s is — `$` for the document, `.name` for a
+[`core/json`](../guide/standard-library.md)'s is — `$` for the document, `.name` for a
 member — so `$.home.city` is a place a reader can find in the text in front of
 them.
 

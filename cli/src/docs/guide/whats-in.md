@@ -13,7 +13,7 @@ objects, records, row polymorphism, cast operators, mutation, `null`, exceptions
 loops, the `|>` pipe operator, `return`, overloading, macros.
 
 A `for`/`while` sugar was specified for this version and cut;
-[SPEC.md §15.1](./cli/src/docs/SPEC.md) records the reasoning, since it constrains any future
+[SPEC.md §15.1](../SPEC.md) records the reasoning, since it constrains any future
 attempt. Iteration is `fold` or explicit recursion, with tail calls guaranteed
 eliminated.
 

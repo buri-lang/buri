@@ -1,26 +1,33 @@
 # The `buri` CLI
 
 One binary. It builds, runs, tests, formats, lints, generates build files,
-answers questions about the graph, and hosts the language server. There is no
-second tool to install, no package manager, no task runner, and no configuration
-of the CLI itself beyond [`REPO.buri`](./cli/src/docs/build/repo-config.md).
+answers questions about the graph, serves this documentation, and hosts the
+language server. There is no second tool to install, no package manager, no task
+runner, and no configuration of the CLI itself beyond
+[`repo-config.md`](./repo-config.md).
 
-```
-buri build   [targets]   compile
-buri test    [targets]   compile and run test suites
-buri run     <target>    build one binary and execute it
-buri format  [paths]     format .buri sources and BUILD.buri files
-buri lint    [targets]   static checks beyond type checking
-buri gen     [targets]   regenerate sources/deps in existing BUILD.buri files
-buri query   <expr>      ask about the build graph
-buri clean               drop the local cache
-buri lsp                 language server, over stdio
-buri version             toolchain version, and --verbose its executable's hash
-```
+Every command has a page of its own, and the synopsis and flag table on each are
+generated from the same table that dispatches, so a page cannot describe a flag
+the binary does not accept nor omit one it does. This page is what the commands
+share: how a target is named, how a finding is reported, and the catalogue of
+findings `buri lint` can raise.
 
-Target arguments accept labels and patterns (`//lib/money`,
-`//cmd/server`, `//lib/...`, `//...`). A label names a package and every
-target in it. With no
+| Command | What it does | Its page |
+|---|---|---|
+| `buri build [targets]` | Compiles the targets you name. | `buri docs cli build` |
+| `buri test [targets]` | Compiles and runs test suites. | `buri docs cli test` |
+| `buri run <target>` | Builds one binary and executes it. | `buri docs cli run` |
+| `buri format [paths]` | Formats `.buri` sources and build files. | `buri docs cli format` |
+| `buri lint [targets]` | Static checks beyond type checking. | `buri docs cli lint` |
+| `buri gen [targets]` | Regenerates the fields of a `BUILD.buri` that restate the sources. | `buri docs cli gen` |
+| `buri query <expr>` | Asks about the build graph. | `buri docs cli query` |
+| `buri docs [topic]` | Serves the language, the build system, and this CLI. | `buri docs cli docs` |
+| `buri lsp` | The language server, over standard input and output. | `buri docs cli lsp` |
+| `buri clean` | Drops the local cache. | `buri docs cli clean` |
+| `buri version` | The toolchain version, and with `--verbose` its executable's hash. | `buri docs cli version` |
+
+Target arguments accept labels and patterns (`//lib/money`, `//cmd/server`,
+`//lib/...`, `//...`). A label names a package and every target in it. With no
 argument, commands operate on the package containing the working directory. All
 commands are safe to run concurrently; a file lock serializes cache writes.
 
@@ -28,161 +35,13 @@ Two flags work on every command: `--color=never` drops the ANSI escapes, and
 `--error-format=json` emits diagnostics as one JSON object per line. See
 [Diagnostics](#diagnostics).
 
-## `build`
-
-```
-buri build //...
-buri build //cmd/server --output=linux/x86_64
-buri build //cmd/server --release
-```
-
-Builds every requested target for every platform its `outputs` declare.
-`--output` selects one. Artifacts land in
-`.buri/out/<platform>/<package>/<artifact>`, where `<artifact>` is the package's
-directory name unless the output overrides it with `artifact_name`, and a
-convenience symlink `out/` points at the most recent:
-
-```
-.buri/out/linux-x86_64/cmd/server/server
-.buri/out/js/cmd/web/web.mjs
-```
-
-A `WEB` output writes three files rather than one, because a page is three
-things:
-
-```
-.buri/out/web/cmd/counter/counter.mjs    the program
-.buri/out/web/cmd/counter/counter.css    the stylesheet its static styles extracted to
-.buri/out/web/cmd/counter/counter.html   the entry shell that loads both
-```
-
-Open the `.html` and the page runs — the module script is deferred, so the body
-exists by the time `mount` looks for it, and the `<link>` carries
-`id="buri-styles"`, which is the id the runtime's own injection looks for, so the
-rules are in the page before the first paint and the module has nothing to do
-about them. The `.mjs` alone is still a complete program: loaded without the
-shell it installs the sheet itself. `main` returning `.Ok(())` does not exit —
-the entry wrapper exits only on an `.Err` — so a mounted page stays live and its
-listeners go on running. A program with no static styles writes no `.css` and
-links none.
-
-Tags are not in the path, because they are not in the cache key: a tag decides
-whether a build is permitted, never what it produces.
-
-`--release` and `--debug` are flags on the command rather than repository
-configuration, are part of the cache key, and default to `--debug`.
-
-`--check-reproducible` builds every requested binary twice, from two freshly
-opened sessions, with the cache turned off, into two separate directories, and
-compares the artifacts byte for byte — every file an output writes, so a `WEB`
-binary's stylesheet and entry shell are compared alongside its module. Silent and
-exit `0` when they agree; exit `1` naming the file and the first differing byte
-when they do not. It writes
-no artifact of its own — a check must not double as a build
-([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md#reproducibility)).
-
-## `test`
-
-```
-buri test //...
-buri test //lib/money --filter=pads
-buri test //... --output=js
-buri test //lib/money --accept   # update declared golden files
-```
-
-Covered in [`TESTING.md`](./cli/src/docs/build/testing.md). A suite whose inputs are unchanged is
-not re-run and reports as cached; `--force` re-runs anyway, which is the honest
-way to check that a suite is not accidentally depending on the cache.
-
-Two findings belong to the run rather than to the graph, and both are about the
-suite as a whole rather than about one test in it:
-
-| | |
-|---|---|
-| `test-timeout` | The suite ran past its `test { timeout_seconds }` and was killed, so no test in it has a result. |
-| `platform-not-implemented` | A platform in `test { platforms }` that this toolchain cannot produce a binary for — no backend compiled in for it, no runtime archive, or no way to link it from this host. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
-
-A suite is compiled and run as a **native binary** for the host, whether it named
-that platform or not, in the dev profile. Three things send one to JavaScript
-instead: `test { platforms: [JS] }`, `--output=js`, and the fallback — a
-toolchain with no native backend for this host and profile, a program reaching
-something the backend has no body for yet, or `--accept`, which needs the two
-sides of a failed comparison and only the JavaScript runner reports them. The
-fallback is per suite and never silent: one line on standard error naming the
-suite and the reason.
-
-There is no native test runner: a failed assertion aborts the process (SPEC 6.10
-leaves nothing to catch), so the binary runs every `test` block in order and
-stops at the first failure. A clean native run reports every test in it; a
-failing one reports the failure and, where the suite holds more than one test,
-cannot say which block it was in — which is when `--output=js` earns its keep.
-`--filter` is applied to the program before it is compiled, so a filtered native
-run does not even generate code for the tests it leaves out.
-
-`--output` names one platform for the suites that have not named one, and takes
-the same selectors `buri build --output` takes: `js`, `macos`, `linux`. A suite
-that declares `platforms` has made the stronger statement and the flag does not
-overrule it.
-
-## `run`
-
-```
-buri run //cmd/server
-buri run //cmd/server -- --port=8080
-```
-
-A package holds at most one binary, so a label is enough to name it. Builds it
-for the host configuration and executes it — **outside** the build graph, with
-the real environment and the real filesystem. That is the point of
-`run`: it is the one command that produces a program with authority. Everything
-before it in the pipeline is hermetic. Arguments after `--` go to the program.
-
-"The host configuration" is the host's own platform where the target declares an
-output for it and this toolchain can produce one — a native backend compiled in,
-a runtime archive for this host, and a linker — and `JS` otherwise. A native
-artifact is executed directly; a JavaScript one is handed to the JavaScript
-runtime (`bun`, or whatever `BURI_JS` names). Nothing here invents an output a
-rule did not declare: a binary that declares none still gets `JS`, which is the
-one backend every program can rely on today.
-
-## `format`
-
-```
-buri format                 format the whole repository
-buri format --check         exit non-zero on any file that would change
-buri format lib/money       format a subtree
-```
-
-Formats `.buri` sources and `BUILD.buri` files, with no options and no
-configuration file. For build files: one field per line, two-space indent,
-trailing commas, `sources` and `dependencies` sorted, `library` before `binary`,
-comments kept with the field beneath them.
-
-This is the same normalization `buri gen` applies, so the two commands never
-disagree about a file.
-
-`buri format --check` is the CI form. There is nothing to configure, so there is
-nothing to argue about, and a formatter with options is a formatter whose output
-is a repository decision.
-
 ## `lint`
 
-```
-buri lint //...
-buri lint //lib/money
-buri lint //... --fix      apply the findings that have one mechanical answer
-```
-
-Checks that type checking does not cover. Every finding names the edit that
-resolves it, and by default none are applied — a report you have to read is
-the point.
-
-`--fix` applies the subset whose answer is mechanical, and only that subset:
-a build file that disagrees with the code is handed to `buri gen`, an unused
-import is deleted, and everything else is reported. A finding that needs a
-judgement call — which edge of a `dep-cycle` to cut, which of two tags a target
-should not have — is never guessed at, because a tool that picks one is not
-fixing the finding, it is deleting the policy that raised it.
+`buri lint` checks what type checking does not cover. Every finding names the
+edit that resolves it, and carries a stable code so a report can be grepped and
+a check can be talked about by name. `buri docs cli lint` covers `--fix`; the
+catalogue is here, because it is the list a repository argues about rather than
+a property of the command.
 
 Build-graph rules — always errors, not configurable:
 
@@ -211,7 +70,7 @@ Build-graph rules — always errors, not configurable:
 | `unknown-tag` | A `tags` entry naming no `tag` block in `REPO.buri`. Suggests the nearest declared name. |
 | `proto-edition` | A `.proto` file that does not declare `edition = "2026"` — a `syntax = "proto3"` or `proto2` file, an older edition, or no declaration at all. The fix is the migration. |
 | `proto-schema` | A `.proto` file that is not a well-formed schema: a field number outside 1..536870911, an enum whose first value is not zero, an unclosed message. |
-| `proto-unsupported` | A construct or a feature value the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `google.protobuf.Any`, `import public`, the removed `optional` and `required` labels, and the `features.…` values it cannot express — `LEGACY_REQUIRED`, `CLOSED`, `DELIMITED`, `NONE`, `LEGACY_BEST_EFFORT`. [PROTO.md](./cli/src/docs/build/proto.md) says why each one is out. |
+| `proto-unsupported` | A construct or a feature value the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `google.protobuf.Any`, `import public`, the removed `optional` and `required` labels, and the `features.…` values it cannot express — `LEGACY_REQUIRED`, `CLOSED`, `DELIMITED`, `NONE`, `LEGACY_BEST_EFFORT`. [`proto.md`](./proto.md) says why each one is out. |
 | `proto-unknown-type` | A field whose type names no message or enum, in this schema or in one it imports. |
 | `proto-ambiguous-type` | A field whose type names a short name two imported schemas both claim. Which one it meant is not something import order should decide, so it is asked rather than guessed. |
 | `proto-duplicate-type` | One fully-qualified name declared by two schemas. Reported whether or not anything uses it, and naming both files. |
@@ -224,14 +83,22 @@ Style and hygiene rules:
 |---|---|
 | `unreachable-export` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export |
 | `unused-import` | error — an imported name that appears nowhere else in the module |
-| `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](./cli/src/docs/SPEC.md) |
+| `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md) |
 | `empty-test-suite` | warn — a `test` block with no `sources` |
 | `test-without-assertion` | warn — a `test` from which nothing reachable calls `core/testing/assert` |
 | `test-title-newline` | warn — a `test` title with a line break in it, which a report has to escape |
 
-Three of these read differently than you might expect, and the reasons are the
-same reason in three shapes — a rule that fires on the wrong thing is worse
-than no rule:
+Two findings belong to a `buri test` run rather than to the graph, and both are
+about the suite as a whole rather than about one test in it:
+
+| | |
+|---|---|
+| `test-timeout` | The suite ran past its `test { timeout_seconds }` and was killed, so no test in it has a result. |
+| `platform-not-implemented` | A platform in `test { platforms }` that this toolchain cannot produce a binary for — no backend compiled in for it, no runtime archive, or no way to link it from this host. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
+
+Three of the lint rules read differently than you might expect, and the reasons
+are the same reason in three shapes — a rule that fires on the wrong thing is
+worse than no rule:
 
 - `unused-import` is **syntactic**. A name counts as used if it appears as an
   identifier token anywhere outside the import statements. That
@@ -250,135 +117,10 @@ than no rule:
 Import order is not a lint. `buri format` sorts imports, so an unsorted import
 run is not a finding to report — it is a file that has not been formatted.
 
-**None of this is configurable.** There is no `lint` block in `REPO.buri`, no
-per-file suppression comment, and no way to promote or silence a check for one
-repository. A configurable linter makes "does this code pass" a question you
-cannot answer from the code, and an `allow` list is how a rule that should have
-been argued about once gets turned off quietly instead. A check that is wrong
-often enough to want silencing is a check to change here, in the catalogue,
-where the argument happens once.
-
-## `gen`
-
-```
-buri gen //...
-buri gen //lib/money
-buri gen --check          exit non-zero if any build file is out of date
-```
-
-Rewrites, in every requested package's existing `BUILD.buri`:
-
-- `sources` — every `.buri` file in the package, excluding `lib.buri`,
-  `main.buri`, and anything under `test/` or `testing/`, assigned to a rule
-  (see below);
-- `dependencies` — every library those sources use, minus the co-located library: the
-  `//` imports, plus the libraries reached by method resolution, which the tool
-  can compute because resolution is a single lookup;
-- `test.sources` — every `.buri` file under `test/`;
-- `testing.sources` — every `.buri` file under `testing/` but `testing/lib.buri`;
-- `testing.dependencies` — the libraries those modules use;
-- `test.dependencies` — the libraries the test sources use, minus the target under test
-  and its `dependencies`.
-
-and **no other field's contents**. `tags`, `platforms`, `timeout_seconds`,
-`visibility`, `outputs`, `test.data`, `test.platforms`, and every comment come
-back saying exactly what they said. A field the tool manages is replaced whole
-rather than merged, so hand-editing `sources` is pointless and hand-editing
-`tags` is expected.
-
-What `gen` may change everywhere is **formatting**: it leaves the file exactly
-as `buri format` would, so a hand-written `tags` list can come back rewrapped,
-re-indented, or moved to one-field-per-line, and a comment stays with the field
-beneath it. Running `gen` and running `format` never fight over a file.
-
-That split is the whole design of the command. `buri gen` writes the fields that
-*restate the sources* — where a file lives, what it imports — and it is safe to
-run over the entire repository precisely because it cannot write the fields that
-*constrain* them. `tags` and `platforms` are the ones that matter most: a tag
-decides what a target may be linked with, `platforms` decides where it may be
-built, neither is derivable from an import graph, and a tool that dropped a
-`tags` entry while tidying `sources` would turn `buri gen //...` into a way to
-quietly delete policy. The same holds for a rule `gen` finds empty — the tags
-stay even if every source is removed. `visibility` and `outputs` are preserved
-for the same reason and a plainer one besides: nothing in the code says who
-*ought* to be allowed to depend on a library, or which platforms you *want* to
-ship, so there is nothing for the tool to derive them from.
-
-**A `BUILD.buri` must already exist, with the rule blocks.** `buri gen` never
-creates a build file and never adds a rule. Deciding that a directory is a
-library — that it has an API, an owner, a visibility, a tag — is a design
-decision, and inferring it from the presence of a `lib.buri` is how a repository
-acquires two hundred libraries nobody chose. An empty rule is enough to start:
-
-```textproto schema=build
-library {}
-```
-
-```
-$ buri gen //lib/money
-updated lib/money/BUILD.buri
-  + sources: cents.buri, parse.buri
-  + test.sources: test/cents.buri, test/parse.buri
-```
-
-In a package with both rules, `gen` needs to know which rule a new file belongs
-to. The rules, in order:
-
-1. A file already listed in a rule's `sources` stays there.
-2. A file reachable by imports from `main.buri` and not from `lib.buri` goes to
-   the binary.
-3. A file reachable from `lib.buri` goes to the library.
-4. A file reachable from neither, or from both, is an error that names the file
-   and asks you to place it. Guessing here would silently move code across a
-   boundary that exists to be explicit.
-
-`buri gen --check` in CI keeps build files honest without anyone having to
-remember the command.
-
-## `query`
-
-```
-buri query 'deps(//cmd/server)'                transitive deps
-buri query 'rdeps(//lib/money)'                 who depends on this
-buri query 'path(//cmd/web, //lib/store)'      why is this linked in
-buri query 'tags(//lib/store)'                  every tag in its closure
-buri query 'platforms(//lib/store)'            the platforms it can be built for
-buri query 'sources(//lib/money)'              files, as the build sees them
-```
-
-`path` is the one that earns its place: the answer to "why does the JS build
-pull in the database layer" is an edge, and printing it is faster than reading
-build files.
-
-```
-$ buri query 'path(//cmd/web, //lib/store)'
-//cmd/web
-  -> //lib/ledger           cmd/web/BUILD.buri:7
-  -> //lib/store            lib/ledger/BUILD.buri:9
-```
-
-## `clean`
-
-```
-buri clean                drop .buri/cache and .buri/out
-buri clean --outputs      drop .buri/out only
-```
-
-A native build also stages its object files under `.buri/link/`; that directory
-is derived from the cache and goes with it, so the first line drops it and the
-second does not.
-
-Rarely needed — the cache is keyed on content, so a stale entry is a bug rather
-than a fact of life ([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md)).
-Reaching for `buri clean` to fix a build is worth reporting.
-
-## `lsp`
-
-Language server over stdio, backed by the same analysis the compiler runs, and
-aware of the build graph: completion inside a `from "//` import offers the
-libraries in `dependencies`, hovering a label shows the target, and an import with no
-matching `dependencies` entry comes with a "add to `dependencies`" code action that edits the
-`BUILD.buri`.
+None of this is configurable, and
+[`repo-config.md`](./repo-config.md#what-is-not-here) says why: there is no
+`lint` block in `REPO.buri`, no per-file suppression comment, and no way to
+promote or silence a check for one repository.
 
 ## Diagnostics
 
@@ -410,10 +152,15 @@ duplicate declaration has no "expected" — but `fix` never is. A diagnostic tha
 cannot say what to do about it is not finished, and the reject corpus in
 `cli/tests/reject/` asserts that case by case.
 
+Every compile error carries a code in brackets after the message, and every code
+has a page: `buri docs error <code>`, or `buri docs error` for the list. Each of
+those pages carries a program that provokes the error, and the test suite checks
+that it still does.
+
 ### `--error-format=json`
 
-For editors, CI, and coding agents. One JSON object per diagnostic, one per
-line, on stderr:
+For editors, continuous integration, and coding agents. One JSON object per
+diagnostic, one per line, on stderr:
 
 ```
 buri build //... --error-format=json
@@ -437,11 +184,3 @@ buri build //... --error-format=json
 Lines are independent, so a consumer can stream them. Absent fields mean "not
 applicable" rather than "empty", which is why they are omitted rather than
 `null`. `--error-format=json` implies `--color=never`.
-
-## Exit codes
-
-| | |
-|---|---|
-| 0 | Success. For `test`, every test passed. |
-| 1 | Build, lint, or test failure — the thing you asked about is wrong. |
-| 2 | Malformed invocation, or an unparseable `BUILD.buri` or `REPO.buri` — the thing you asked *with* is wrong. |

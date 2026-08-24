@@ -48,9 +48,14 @@ const STANDALONE: &[&str] = &[
     "cli/tests/README.md",
 ];
 
-/// Every document these tests run over: the standalone files above, plus every
-/// `build/` and `guide/` topic as its own file. `lang/` topics are covered by
-/// `SPEC.md`, which is byte-for-byte their concatenation.
+/// Every document these tests run over: the standalone files above, every
+/// `build/` and `guide/` topic as its own file, and the prose half of each
+/// command's reference page. `lang/` topics are covered by `SPEC.md`, which is
+/// byte-for-byte their concatenation.
+///
+/// The command pages are here because they are markdown a reader browses in
+/// `cli/src/docs/cli/` like any other, and nothing else was checking that
+/// their links still resolve — one of them had rotted.
 fn documents() -> Vec<String> {
     let mut out: Vec<String> = STANDALONE.iter().map(|s| (*s).to_string()).collect();
     for t in topics::TOPICS {
@@ -58,7 +63,26 @@ fn documents() -> Vec<String> {
             out.push(format!("cli/src/docs/{}.md", t.id));
         }
     }
+    for c in buri::commands::COMMANDS {
+        out.push(format!("cli/src/docs/cli/{}.md", c.name));
+    }
     out
+}
+
+/// The one document whose links are still written from the repository root:
+/// `cli/src/docs/SPEC.md` and the `lang/` topics it is assembled from say
+/// `./cli/src/docs/…` throughout. Resolving those where the file actually sits
+/// would report every one of them as broken, which is a change to the language
+/// reference rather than to this test. Everything else is checked where a
+/// reader meets it.
+const ROOT_RELATIVE: &[&str] = &["cli/src/docs/SPEC.md"];
+
+/// The assembled document a topic file is a section of, if it is one. This is
+/// what tells `guide/readme-intro`, which a reader meets as part of the root
+/// `README.md`, from `build/tags`, which a reader meets where it is written.
+fn assembled_into(doc: &str) -> Option<&'static assemble::Document> {
+    let id = doc.strip_prefix("cli/src/docs/")?.strip_suffix(".md")?;
+    assemble::document_of(topics::find(id)?)
 }
 
 fn read(rel: &str) -> String {
@@ -117,13 +141,20 @@ fn every_link_resolves() {
         let text = read(doc);
         let anchors: Vec<String> =
             markdown::headings(&text).iter().map(|h| markdown::slug(h.title)).collect();
-        // A topic under `cli/src/docs/` is a fragment of a document that lives
-        // at the repository root, so its links are written relative to the
-        // root. One rule, and it is the rule the assembled file needs.
-        let dir = if doc.starts_with("cli/src/docs/") {
+        // A link resolves from wherever a reader meets the text. A topic
+        // assembled into another file — `guide/readme-intro` into the root
+        // `README.md` — is met there, so its links are written relative to
+        // that document's directory. Every other topic is a page in its own
+        // right, read in `cli/src/docs/` on GitHub, so its links are relative
+        // to the directory the file sits in. One property, two resolutions,
+        // and both of them the one the reader needs.
+        let dir = if ROOT_RELATIVE.contains(&doc.as_str()) {
             root.clone()
         } else {
-            root.join(doc).parent().unwrap().to_path_buf()
+            match assembled_into(doc) {
+                Some(document) => root.join(document.path).parent().unwrap().to_path_buf(),
+                None => root.join(doc).parent().unwrap().to_path_buf(),
+            }
         };
 
         for link in markdown::links(&text) {

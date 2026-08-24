@@ -13,7 +13,7 @@ test` is usable directly as a gate.
 
 ## Where a suite runs
 
-Natively, on the host, in the dev profile. A suite that says otherwise in
+Natively, on the host, in the development profile. A suite that says otherwise in
 `test { platforms }` gets what it asked for, and `--output=js` says it for one
 invocation without editing a build file.
 
@@ -94,7 +94,7 @@ Three combinations are refused before anything is opened, each with the reason:
   golden files on a timer accepts a regression while you are still reading the
   failure;
 - without a terminal on standard output, because a watch loop nothing is
-  watching is a hung job — in CI, a build that never finishes. Run `buri test`,
+  watching is a hung job — in continuous integration, a build that never finishes. Run `buri test`,
   which is the same selection run once.
 
 Interrupting the loop is how it ends, and the shell will report the interrupt

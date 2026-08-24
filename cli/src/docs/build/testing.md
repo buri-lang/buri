@@ -6,7 +6,7 @@ test-only source directory outside the package, and no way to test a private
 function directly.
 
 The language side of this — the `test` declaration, `core/testing/assert`, and
-the `context` form — is [`SPEC.md` §11.2 and §11.3](./cli/src/docs/SPEC.md). This document
+the `context` form — is [`SPEC.md` §11.2 and §11.3](../SPEC.md). This document
 is the build system's half: where tests live, what they may import, and how they
 run.
 
@@ -141,7 +141,7 @@ detail and will break the next time the detail changes.
 
 A helper that more than one suite needs is not a test source — it is ordinary
 library code that happens to be test-only, and it lives behind a path with a
-`testing` segment ([`LIBRARIES.md`](./cli/src/docs/build/libraries.md#the-testing-surface)):
+`testing` segment ([`libraries.md`](./libraries.md#the-testing-surface)):
 
 ```buri repo=cli/tests/example pkg=//lib/ledger role=testing
 # from "core/testing/context" import { Hermetic, files };
@@ -244,7 +244,7 @@ what makes it testable, which is the pressure you want.
 
 **`main` itself is not testable**, and that is deliberate. It takes no
 parameters and builds its own context out of `core/host`, so there is no fake to
-hand it ([`SPEC.md` §11](./cli/src/docs/SPEC.md)). A binary whose failure modes you want to
+hand it ([`SPEC.md` §11](../SPEC.md)). A binary whose failure modes you want to
 assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
@@ -337,7 +337,7 @@ prints to its captured stdout is invisible to the next — which is why a named
 context is called rather than referred to.
 
 Anything the runner does not provide is an ordinary struct with methods, since
-effects are ordinary interfaces ([`SPEC.md` §10.9](./cli/src/docs/SPEC.md)), and it is bound
+effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is bound
 exactly the way the runner's own implementations are:
 
 ```buri role=test
@@ -374,10 +374,10 @@ and keeps the state on the runner's side, which is exactly what
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot
 open a socket in anything it transitively calls — that is
-[`SPEC.md` §10](./cli/src/docs/SPEC.md), not a build system feature. There is no third layer:
+[`SPEC.md` §10](../SPEC.md), not a build system feature. There is no third layer:
 the toolchain applies no operating-system confinement, because a suite has no
 name for a real capability to begin with
-([`HERMETICITY-AND-CACHING.md`](./cli/src/docs/build/hermeticity.md)).
+([`hermeticity.md`](./hermeticity.md)).
 
 ## Test data and golden files
 
@@ -430,15 +430,15 @@ buri test //lib/money --accept       update declared golden files
 A suite runs as a native binary for the host unless something sends it to
 JavaScript: its own `test { platforms }`, `--output=js`, `--accept`, or the
 fallback for a toolchain or a program the native backend cannot take
-([`BUILD-CLI.md`](./cli/src/docs/build/cli.md#test)). The fallback prints one
+(`buri docs cli test`). The fallback prints one
 line on standard error per suite; it never changes what the suite means, because
 the two backends are held to the same answers
-([`TAGS.md`](./cli/src/docs/build/tags.md#tags-and-tests)).
+([`tags.md`](./tags.md#tags-and-tests)).
 
 The suites that run natively are compiled into one binary per tag-compatible
 batch and linked once, because a small suite's cost is the link and the first
 execution rather than the compile
-([`TAGS.md`](./cli/src/docs/build/tags.md#one-binary-for-several-suites) has the
+([`tags.md`](./tags.md#one-binary-for-several-suites) has the
 policy). It changes nothing a reader sees: verdicts are still cached one suite at
 a time, reported one suite at a time, and a suite that cannot batch runs on its
 own.

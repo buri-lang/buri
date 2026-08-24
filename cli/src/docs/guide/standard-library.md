@@ -16,7 +16,7 @@ which modules there are, what each one costs, and what is deliberately absent.
 
 Every function sits in one of three tiers, and the tier is visible in the
 signature rather than in a comment. This is
-[`SPEC.md` §10.5](./cli/src/docs/SPEC.md), applied:
+[`SPEC.md` §10.5](../SPEC.md), applied:
 
 | Tier | Shape | Example |
 |---|---|---|
@@ -79,7 +79,7 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
   readers, and `ProtoError`. Nothing here is written by hand either, but for a
   different reason: a `.proto` schema in a package *becomes* a module, and this
   is the part of that generated code which is the same for every schema. See
-  [the proto reference](./cli/src/docs/build/proto.md) for the mapping and for
+  [the proto reference](../build/proto.md) for the mapping and for
   why those codecs are generated Buri rather than a descriptor walk.
 
   Reading a request and writing a reply over a pipe is what `Stdin.readBytes`
@@ -268,7 +268,7 @@ A style the compiler cannot evaluate — one built out of a function's parameter
 or out of a value it had to read — is **not an error**. It degrades to the same
 inline application `Computed` gets. The exception is `On` and `At`, which have
 nowhere to degrade to, so a style under one of them is statically known or the
-program is rejected ([`style-not-static`](./cli/src/docs/errors/style-not-static.md)).
+program is rejected ([`style-not-static`](../errors/style-not-static.md)).
 
 **Conflicts resolve per property, last wins.** When both sides are literals the
 compiler resolves them and the element carries one class rather than two that
@@ -359,7 +359,7 @@ package's `themed` applied to the app's mapping, all of them in the list
 **Exhaustiveness is the compatibility contract.** The day `cardlib` adds a
 token, that `match` stops covering its type and every consumer fails to compile
 until it says what the new token is worth
-([`match-not-exhaustive`](./cli/src/docs/errors/match-not-exhaustive.md)). No
+([`match-not-exhaustive`](../errors/match-not-exhaustive.md)). No
 registry, no schema language, no default — a token nobody mapped would be a
 variable the page never defines, and a silently unpainted element is what this
 refuses.
@@ -392,7 +392,7 @@ builds its own allocator has been granted nothing.
 - **`FixedBuffer(n)`** — a byte budget, and charging past it **aborts**. That
   is forced rather than chosen: `allocate` answers `Region` and not
   `Result<Region, _>`, so there is no value to report a failure with, and
-  [`SPEC.md` §6.10](./cli/src/docs/SPEC.md) says that is what an abort is for.
+  [`SPEC.md` §6.10](../SPEC.md) says that is what an abort is for.
   The message carries both numbers.
 - **`Arena`** — a separate counter, and nothing more than a counter. It does
   not free in bulk, and it says so.
@@ -409,7 +409,7 @@ and reported to no allocator. The model is written down beside `Alloc` in
 
 - **Struct-of-arrays / `MultiArrayList`.** Not typeable today: exposing "column
   *i* of `T`, at `T`'s *i*-th field type" needs dependent or row types, and
-  [`SPEC.md` §5.5](./cli/src/docs/SPEC.md) has no records. Write the two-field
+  [`SPEC.md` §5.5](../SPEC.md) has no records. Write the two-field
   struct yourself; on the JavaScript backend that is all a library would do.
 - **Bulk reclamation — a real `Arena`.** The type is here and its counter is
   real; the bulk free is not. It needs a language feature that bounds a
@@ -418,5 +418,5 @@ and reported to no allocator. The model is written down beside `Alloc` in
   model defines them and no allocator is told about them.
 
 Why each of those is where it is, and what would have to change, is in
-[`design/STANDARD-LIBRARY.md`](./design/STANDARD-LIBRARY.md) — that is a
+[`design/STANDARD-LIBRARY.md`](../../../../design/STANDARD-LIBRARY.md) — that is a
 contributor's document, not a user's.

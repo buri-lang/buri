@@ -4,7 +4,7 @@
 buri lsp
 ```
 
-A language server, speaking LSP over stdin and stdout. Editors start it; you do
+A language server, speaking the Language Server Protocol over stdin and stdout. Editors start it; you do
 not run it by hand. It serves the same analysis `buri build` runs — the front
 end is a library, and `driver::analyze` is what the server calls.
 
@@ -70,4 +70,4 @@ The Zed extension is in `editors/zed`. It is a separate crate, outside the cargo
 workspace, because a Zed extension must depend on `zed_extension_api`, which
 does not clear the toolchain's dependency bar (see the root `Cargo.toml`).
 
-Any editor that speaks LSP can start `buri lsp` for files matching `*.buri`.
+Any editor that speaks that protocol can start `buri lsp` for files matching `*.buri`.

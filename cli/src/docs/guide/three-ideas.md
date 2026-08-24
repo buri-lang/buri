@@ -60,7 +60,7 @@ allocate" are separately expressible.
 
 **3. The grammar is context-free and unambiguous.** Parsing never consults name
 resolution or the type checker. That is a design constraint that cost real
-ergonomics, and [SPEC.md §12](./cli/src/docs/SPEC.md#12-why-the-grammar-is-context-free-and-unambiguous)
+ergonomics, and [SPEC.md §12](../SPEC.md#12-why-the-grammar-is-context-free-and-unambiguous)
 lists all seventeen decisions with what each one gave up — parenthesized `if`
 conditions, no record field shorthand, non-associative comparison, no `<<`/`>>` tokens,
 dot-prefixed variants in patterns, and the rest.

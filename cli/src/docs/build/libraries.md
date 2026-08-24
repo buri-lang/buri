@@ -5,7 +5,7 @@ public surface — everything a dependent can import, and nothing else.
 
 ## Two levels of export
 
-[`SPEC.md` §4.2](./cli/src/docs/SPEC.md) gives a declaration one level of visibility:
+[`SPEC.md` §4.2](../SPEC.md) gives a declaration one level of visibility:
 `export` makes it visible to modules that import the file. The build system adds
 a second, above it:
 
@@ -15,7 +15,7 @@ a second, above it:
 | Library | `from "//lib/money/cents" export { Cents };` in `lib.buri` | Any target that declares this library in `dependencies` |
 
 Nothing changes about `export` itself. A library-level export is a re-export
-([`SPEC.md` §4.2.1](./cli/src/docs/SPEC.md)) written in a file the build system knows the
+([`SPEC.md` §4.2.1](../SPEC.md)) written in a file the build system knows the
 name of, and the rule is mechanical: **if it is not named in `lib.buri`, it is
 not reachable from outside the library.**
 
@@ -60,7 +60,7 @@ may be stale — opening `lib.buri`, which is the same file the compiler consult
 
 ## Module paths
 
-There are no relative imports ([`SPEC.md` §4.1.1](./cli/src/docs/SPEC.md)). Every module
+There are no relative imports ([`SPEC.md` §4.1.1](../SPEC.md)). Every module
 path is absolute, so a path means the same module wherever it is written and a
 file can move between directories without its own imports changing.
 
@@ -238,7 +238,7 @@ from "//lib/money/cents" import { Cents, toCents };
 
 /// Declared here rather than re-exported; both are public surface. A free
 /// function, not a method: `Cents` is declared in cents.buri, and a method must
-/// live in its type's defining module ([`SPEC.md` §6.7.3](./cli/src/docs/SPEC.md)).
+/// live in its type's defining module ([`SPEC.md` §6.7.3](../SPEC.md)).
 export fn isRound(c: Cents): Bool { c.toCents() % 100 == 0 }
 ```
 
@@ -246,7 +246,7 @@ Three consequences worth stating outright:
 
 - **Methods are filtered by the surface, like everything else.** Method calls
   resolve through the receiver's defining module rather than through scope
-  ([`SPEC.md` §6.7](./cli/src/docs/SPEC.md)), which means a type could otherwise smuggle
+  ([`SPEC.md` §6.7](../SPEC.md)), which means a type could otherwise smuggle
   operations across the boundary: `from "//lib/money" import { Cents }` would
   make every method on `Cents` callable, including `toCents`, whether or not
   `lib.buri` mentioned it. So the rule is uniform — **a name is on the surface
@@ -261,7 +261,7 @@ Three consequences worth stating outright:
   in `lib.buri` one at a time. They are also its API, so they were going to be
   listed anyway.
 
-  Inside the library, [`SPEC.md` §4.1](./cli/src/docs/SPEC.md) applies unchanged: importing
+  Inside the library, [`SPEC.md` §4.1](../SPEC.md) applies unchanged: importing
   `Cents` from `//lib/money/cents` brings all of its exported methods,
   `toCents` included.
 
@@ -342,4 +342,4 @@ when a directory merely has a lot of files in it.
 `test/` is reserved. A `.buri` file under `test/` must appear in a rule's
 `test.sources`, may not appear in `sources`, and may not be imported by
 anything — including other test sources, which are compiled independently. See
-[`TESTING.md`](./cli/src/docs/build/testing.md).
+[`testing.md`](./testing.md).

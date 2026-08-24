@@ -1,6 +1,6 @@
 # `BUILD.buri`
 
-The schema is [`schema/build.proto`](./cli/src/docs/schema/build.proto); this document is the
+The schema is [`schema/build.proto`](../schema/build.proto); this document is the
 prose version, with the reasoning.
 
 ## The file
@@ -35,8 +35,10 @@ library {
 ```
 
 `#` starts a comment. `buri format` formats build files as well as source: the
-schema's field order, one field per line, `sources` and `dependencies` sorted,
-trailing commas, four-space indent. See `cli format` for the whole of it.
+schema's field order, one field per line, trailing commas, four-space indent,
+and every list left in the order it was written. `buri docs cli format` has the
+whole of it, and `buri docs cli gen` covers the sorting, which belongs to `gen`
+because it is `gen` that decides what a managed list contains.
 
 ## Packages
 
@@ -105,7 +107,7 @@ a subdirectory.
 
 Module paths in source use the same spelling — `from "//lib/money" import …` —
 and resolve to that library's `lib.buri`. See
-[`LIBRARIES.md`](./cli/src/docs/build/libraries.md#module-paths).
+[`libraries.md`](./libraries.md#module-paths).
 
 ## `library`
 
@@ -130,12 +132,12 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
-| `proto_sources` | Every `.proto` schema in the package that belongs to this library. Each becomes a module named by its own path, holding the types it declares and their codecs. See [`PROTO.md`](./cli/src/docs/build/proto.md). |
+| `proto_sources` | Every `.proto` schema in the package that belongs to this library. Each becomes a module named by its own path, holding the types it declares and their codecs. See [`proto.md`](./proto.md). |
 | `dependencies` | Labels of libraries this one may use. |
-| `tags` | Labels saying what this code is; the policy they carry is declared in `REPO.buri`. See [`TAGS.md`](./cli/src/docs/build/tags.md). |
+| `tags` | Labels saying what this code is; the policy they carry is declared in `REPO.buri`. See [`tags.md`](./tags.md). |
 | `platforms` | The platforms it can be built for. Omit unless the code is genuinely platform-specific — unset means all of them. |
 | `visibility` | Who may depend on it. Defaults below. |
-| `test` | The test suite for this library. See [`TESTING.md`](./cli/src/docs/build/testing.md). |
+| `test` | The test suite for this library. See [`testing.md`](./testing.md). |
 | `testing` | The library's utilities *for other people's tests*, rooted at `testing/lib.buri`. See below. |
 
 `lib.buri` is required and is not listed in `sources`. The rule kind names the
@@ -199,7 +201,7 @@ the surface of `//lib/ledger`. The block is required when the file exists, and
 may be empty (`testing {}`) if the entry point is the whole of it.
 
 The path carries the rule: **any module path containing a `testing` segment is
-importable only from a test source** ([`TESTING.md`](./cli/src/docs/build/testing.md)). No
+importable only from a test source** ([`testing.md`](./testing.md)). No
 `testonly` field, nothing to forget to set, and the restriction is visible in
 the import line rather than in a build file three directories away.
 
@@ -233,7 +235,7 @@ binary {
 ```
 
 `main.buri` is required, is not listed in `sources`, and must export `main` with
-the signature [`SPEC.md` §11](./cli/src/docs/SPEC.md) requires: no parameters, returning
+the signature [`SPEC.md` §11](../SPEC.md) requires: no parameters, returning
 `Result<(), Str>`. It is also the only module in the binary that may import
 `core/host`, and the context it builds there is checked against the platform for
 **each output**.
@@ -262,7 +264,7 @@ Build one with `buri build //cmd/server --output=js`. A binary has no
 `platforms` field of its own: `outputs` already says.
 
 `tags` on a binary mean exactly what they mean on a library — labels saying what
-the code is — and are covered in [`TAGS.md`](./cli/src/docs/build/tags.md). There is no second tag
+the code is — and are covered in [`tags.md`](./tags.md). There is no second tag
 mechanism for binaries. The tag check does not vary across outputs, so it runs
 once no matter how many artifacts the binary produces.
 
@@ -279,7 +281,7 @@ tools/report/
   BUILD.buri
   lib.buri            <- the library: rendering, testable
   render.buri
-  main.buri           <- the binary: argv, stdout
+  main.buri           <- the binary: command-line arguments, stdout
   flags.buri
   test/
     render.buri       <- tests //tools/report
@@ -403,7 +405,7 @@ who wrote the edge that pulled the code in.
   Dependencies are direct: a library you use is one you declare, whether or not
   something else in the graph also happens to pull it in.
 - `core/*` ships with the toolchain and is never listed. It is available to
-  every target, and the purity tiers in [`SPEC.md` §11.1](./cli/src/docs/SPEC.md) already
+  every target, and the purity tiers in [`SPEC.md` §11.1](../SPEC.md) already
   govern what any given import of it can do.
 - **Cycles are an error**, at the package level exactly as at the module level.
   The diagnostic prints the cycle in the order the edges were declared.
@@ -415,14 +417,13 @@ who wrote the edge that pulled the code in.
   one command.
 
 ```
-error: cmd/server/routes.buri imports //lib/money, which is not in deps
+error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
   --> cmd/server/routes.buri:3:6
    |
  3 | from "//lib/money" import { Cents, format };
    |      ^^^^^^^^^^^^^
    |
-   = add "//lib/money" to deps in cmd/server/BUILD.buri
-   = run `buri gen //cmd/server` to do this automatically
+   = fix: add "//lib/money" to dependencies in cmd/server/BUILD.buri — `buri gen //cmd/server` does this automatically
 ```
 
 ## Generated build files
@@ -451,5 +452,5 @@ Their *formatting* is not preserved, and is not meant to be: `gen` leaves the
 whole file as `buri format` would leave it, so a `tags` list may come back
 rewrapped. What survives is what the field says, not how it was typed.
 
-See [`CLI.md`](./cli/src/docs/build/cli.md) for exactly which fields are managed and how comments
+See [`cli.md`](./cli.md) for exactly which fields are managed and how comments
 and hand-written fields survive the rewrite.

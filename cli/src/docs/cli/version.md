@@ -10,4 +10,4 @@ one is here, which is what a bug report has to name.
 
 `REPO.buri` used to pin a toolchain by version and hash, and this command used
 to report that pin. The pin was removed; see
-[`REPO-CONFIG.md`](./cli/src/docs/build/repo-config.md#what-is-not-here).
+[`repo-config.md`](../build/repo-config.md#what-is-not-here).
