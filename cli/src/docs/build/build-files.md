@@ -8,7 +8,10 @@ prose version, with the reasoning.
 `BUILD.buri` is textproto parsing as `buri.build.v1.BuildFile`. It has no
 expression language: no variables, no conditionals, no string concatenation, no
 globs, no `load`, no rule authoring. Everything a rule depends on is written out
-in the rule.
+in the rule. The cost is repetition, and it is paid by `buri gen` writing most
+of it. `sources: ["*.buri"]` in particular is not accepted, because a glob makes
+the file list depend on the state of the filesystem — which is precisely the
+input hermeticity is trying to pin down.
 
 Textproto over a bespoke syntax because the schema is then a real artifact
 rather than documentation — the parser rejects an unknown field with a line
@@ -164,20 +167,8 @@ and never noticed.
 
 ### The `testing` block
 
-A library that is hard to use in someone else's test can ship the fakes with
-itself, in a `testing/` subdirectory with its own entry point:
-
-```
-lib/ledger/
-  BUILD.buri
-  lib.buri
-  entry.buri
-  testing/
-    lib.buri            <- //lib/ledger/testing, a second surface
-    fixtures.buri
-  test/
-    ledger.buri
-```
+A library's utilities for *other people's* tests live in a `testing/`
+subdirectory with its own entry point, declared by a `testing` block:
 
 ```textproto schema=build
 library {
@@ -195,20 +186,12 @@ library {
 }
 ```
 
-`testing/lib.buri` is required when the block is present, is not listed in
-`sources`, and is the surface of `//lib/ledger/testing` exactly as `lib.buri` is
-the surface of `//lib/ledger`. The block is required when the file exists, and
-may be empty (`testing {}`) if the entry point is the whole of it.
-
-The path carries the rule: **any module path containing a `testing` segment is
-importable only from a test source** ([`testing.md`](./testing.md)). No
-`testonly` field, nothing to forget to set, and the restriction is visible in
-the import line rather than in a build file three directories away.
-
-The modules under `testing/` are inside the package, so they may import the
-library's internals — a fake built out of the real thing does not need a
-back door — and they get their own `dependencies`, since a fake usually needs
-less than the real implementation and occasionally needs something else.
+The schema-level rules: `testing/lib.buri` is required when the block is
+present and is not listed in `sources`; the block is required when the file
+exists; and it may be empty (`testing {}`) if the entry point is the whole of
+it. The surface it declares, what those modules may import, and why the
+restriction is carried by the path rather than by a `testonly` field are in
+[`libraries.md`](./libraries.md#the-testing-surface).
 
 ## `binary`
 
@@ -244,18 +227,8 @@ A platform *is* the set of effects its host exports: a platform that does not
 grant one does not export the name for it, so asking for it is an ordinary
 unresolved name at the line that asked, reported as `host-not-granted`. A `main`
 binding `Ui: host.ui` under `platform: JS` does not compile, and neither does one
-binding `Net: host.net` under `platform: WEB` — a blocking request would freeze a
-page, so `WEB` grants `Fetch` instead. Both halves of a grant are withheld
-together, the implementation struct as well as the value, so there is nothing
-left to construct by name.
-
-What each platform grants:
-
-| Effect | LINUX | MACOS | JS | WEB |
-|---|---|---|---|---|
-| `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand` | yes | yes | yes | yes |
-| `Fs`, `Net`, `Stdin`, `Env`, `Proc` | yes | yes | yes | no |
-| `Ui`, `Watch`, `Fetch` | no | no | no | yes |
+binding `Net: host.net` under `platform: WEB`. `buri docs error host-not-granted`
+has the table of what each platform grants, and the reasoning.
 
 `outputs` is a list because one entry point commonly ships several ways. Each
 entry names a platform, and the whole dependency graph is checked against it
@@ -428,29 +401,24 @@ error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
 
 ## Generated build files
 
-`buri gen //lib/money` rewrites `sources`, `dependencies`, `test.sources`,
-`test.dependencies`, `testing.sources`, and `testing.dependencies` from what the
-sources actually contain, and touches nothing else. It requires the `BUILD.buri`
-to already exist with the rule blocks — it never invents a target, because
-deciding that a directory should become a library is a design decision, and
-inferring it from the presence of a file is how a repository ends up with two
-hundred libraries nobody chose. An empty rule is enough:
-
-```textproto schema=build
-library {}
-```
+`buri gen //lib/money` rewrites the fields that restate the sources and touches
+nothing else. `buri docs cli gen` covers which fields those are and how a file
+with both rules in it is divided; what matters *to a build file* is the other
+half of the split.
 
 **The contents of `tags`, `platforms`, and `timeout_seconds` are preserved**,
 along with `visibility`, `outputs`, `test.data`, and every comment. Those fields
 are decisions somebody made rather than facts derivable from the sources, and a
 tool that dropped a `tags` entry while tidying `sources` would silently widen
-what a library is allowed to link into. Running `buri gen //...` across the
+what a library is allowed to link into. So `buri gen //...` across the whole
 repository can add and remove dependency edges; it cannot change what the code
-is *allowed* to be.
-
-Their *formatting* is not preserved, and is not meant to be: `gen` leaves the
-whole file as `buri format` would leave it, so a `tags` list may come back
+is *allowed* to be. Their *formatting* is not preserved and is not meant to be:
+`gen` leaves the file as `buri format` would, so a `tags` list may come back
 rewrapped. What survives is what the field says, not how it was typed.
 
-See [`cli.md`](./cli.md) for exactly which fields are managed and how comments
-and hand-written fields survive the rewrite.
+The rule blocks themselves are never invented, so a `BUILD.buri` has to exist
+before `gen` will write to it. An empty rule is enough to start:
+
+```textproto schema=build
+library {}
+```

@@ -78,22 +78,14 @@ hermetic; running a program is the point at which you stop building.
 ### What is not enforced, and what catches it instead
 
 **The toolchain confines nothing at the operating-system level.** No namespace,
-no seccomp filter, no `sandbox-exec` profile, on any platform. An earlier version
-of this document promised one; it was built, and then removed, because measuring
-what it actually bought made the trade clear.
-
-What it would have bought is a second opinion about *toolchain* bugs — an
-intrinsic that read something it should not, a code generator that embedded a
-path. It would not have bought anything about repository code, which has no name
-for ambient state to begin with. And it would have bought that second opinion
-only on macOS, only for writes and the network, and not for reads at all: a
-profile tight enough to deny reads outside an action's directory also denies the
-JavaScript runtime its own binary, and the runtime aborts before the action
-starts. On Linux it would have needed user namespaces or `seccomp` — privileges,
-or a dependency, or both.
-
-So: a partial second opinion, on one platform, about a class of bug it would
-catch late and unevenly. That is not what catches this class of bug here.
+no seccomp filter, no `sandbox-exec` profile, on any platform. One was built and
+then removed: it would have bought a second opinion about *toolchain* bugs and
+nothing at all about repository code, which has no name for ambient state to
+begin with — and it would have bought that only on macOS, only for writes and
+the network, since a profile tight enough to deny reads outside an action's
+directory also denies the JavaScript runtime its own binary. A partial second
+opinion, on one platform, about a class of bug it would catch late and unevenly.
+Here is what catches that class instead:
 
 | The bug | What catches it |
 |---|---|
@@ -252,14 +244,10 @@ version is the whole answer.
 
 It is not the whole answer for anyone who **builds this compiler from source**.
 Two `buri` binaries built from different code at the same version compute the
-same keys, so a repository built by the first will serve its cached objects to
-the second, and only the units whose intermediate representation moved will be re-emitted. If you are
-comparing one repository's artifacts across a change to the compiler — a new
-optimization, a backend edit — then compare on a fresh tree, or pass `--force`,
-or `buri clean` in between. Otherwise the first build after a rebuilt compiler
-is a mix of both compilers' output, and it is the only build that is: every
-build after it agrees with itself, which is what makes the trap easy to
-dismiss as noise.
+same keys, so the first build after a rebuilt compiler is a mix of both
+compilers' output — and it is the only build that is, which is what makes the
+trap easy to dismiss as noise. Compare on a fresh tree, pass `--force`, or
+`buri clean` in between.
 
 ## The cache is local, for now
 

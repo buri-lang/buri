@@ -185,22 +185,12 @@ test in the repository. Neither command consults anything not named above.
 
 ## Tags, in one paragraph
 
-`tags` mean the same thing on every target, library and binary alike: labels
-saying what the code *is*. What follows from a label is declared once in
-`REPO.buri`, on the tag itself, in two blocks named for their polarity —
-`forbids { tags: [...] }` names tags that may not appear anywhere in the same
-dependency closure, and `requires { platforms: [...] }` whitelists what the code
-can be built for. `forbids` is symmetric, so `server` forbidding `client` covers
-both directions, and a `client` binary that reaches a library tagged `server`
-through four hops fails at the dependency edge that introduced it, with the path
-printed. That one check covers both deployment boundaries and facts like
-licensing or maturity, because both are asking whether two things can end up in
-one artifact. The vocabulary is closed: a tag `REPO.buri` does not declare is an
-error, so a typo cannot quietly become an unchecked build. Platforms are
-otherwise typed and separate — a binary names them in `outputs`, and a library
-names them only when it is genuinely platform-specific, unset meaning all of
-them, which is almost always the case. [`tags.md`](./tags.md) has the rules and
-the error messages.
+`tags` are labels saying what the code *is*, and mean the same thing on a
+library and on a binary. What follows from a label is declared once in
+`REPO.buri`, on the tag itself: `forbids` names tags that may not appear
+anywhere in the same dependency closure, and `requires` whitelists the
+platforms the code may be built for. [`tags.md`](./tags.md) has the rules, the
+reasoning, and the error messages.
 
 ## What the language buys the build system
 
@@ -220,59 +210,39 @@ they meet are the ones worth reviewing hardest:
 
 ## What is deliberately absent
 
-- **No expression language in `BUILD.buri`.** No conditionals, no variables, no
-  string concatenation, no macros or rule authoring. Build files are data. The
-  cost is repetition, paid for by `buri gen` writing most of it.
-- **No globs.** `sources: ["*.buri"]` is not accepted. A glob makes the file list
-  depend on the state of the filesystem, which is precisely the input
-  hermeticity is trying to pin down. `buri gen` enumerates for you.
-- **No external repositories yet.** The `@repo//pkg` label syntax is reserved
-  and unimplemented; today the only sources are your repository and `core/*`.
+- **No expression language and no globs in `BUILD.buri`.** Build files are
+  data; `buri gen` writes most of them for you. The reasoning is in
+  [`build-files.md`](./build-files.md#the-file).
 - **No user-defined rules or toolchains.** Two rule kinds, and the compiler is
   the only tool.
-- **No remote cache or remote execution yet.** The cache key design in
-  [`hermeticity.md`](./hermeticity.md) is chosen so that
-  adding one later is a transport change, not a semantic one.
 
 ## Settled, and what each one costs
 
-These were the open questions of the first draft. They are decided; the costs
-are recorded because a later change should have to argue with them.
+These were the open questions of the first draft. They are decided, and each
+cost is recorded because a later change should have to argue with it. The page
+that owns each decision has the argument.
 
 1. **`test` and `assert` are reserved words** ([`SPEC.md`
    §11.2](../SPEC.md)). *Costs:* no function may be named `test`, no namespace
-   `assert`. The alternatives were a naming convention (`export fn testFoo`),
-   which the compiler cannot check, and an attribute syntax, which the language
-   does not have and should not grow for one feature.
+   `assert`.
 2. **One library per package.** *Buys:* `//lib/money` names a directory, a
-   library, and a module all at once, so no label ever needs a `:target`.
-   *Costs:* splitting a library in two is a directory move, which is real work
-   in a large repository.
-3. **`lib.buri` may hold logic.** It is an ordinary module that also
-   re-exports. *Costs:* the surface is no longer trivially auditable by shape —
-   a reader has to notice `export fn` alongside the re-exports. The stricter
-   rule would have forced a one-line module for every small helper.
-4. **Tags are labels, and the policy lives on the tag declaration**, as a
-   symmetric `forbids` checked over the dependency closure
-   ([`tags.md`](./tags.md)). This replaced an axis system with per-dimension
-   composition modes; both of those modes turned out to be the same reachability
-   question asked from opposite ends. *Costs:* nothing can require a binary to
-   take a position. An axis with a mandatory value could error with "you did not
-   choose a tier"; a `forbids` rule can only fire once two tags actually collide,
-   so a binary that simply never says `stable` is never checked for maturity.
+   library, and a module at once, so no label ever needs a `:target`. *Costs:*
+   splitting a library in two is a directory move.
+3. **`lib.buri` may hold logic** ([`libraries.md`](./libraries.md#the-re-export-declaration)).
+   *Costs:* the surface is no longer auditable by shape — a reader has to
+   notice `export fn` alongside the re-exports.
+4. **Tags are labels, and the policy lives on the tag declaration**
+   ([`tags.md`](./tags.md)). *Costs:* nothing can require a binary to take a
+   position, since a `forbids` rule fires only once two tags collide.
    Enforcement is opt-in, traded for there being no resolution algorithm.
-5. **Golden files are updated by `buri test --accept`**, a separate
-   non-hermetic mode that only ever rewrites files already declared in
-   `test { data: ... }` ([`testing.md`](./testing.md)). *Costs:* a second code
-   path through the runner, and a flag that can overwrite a fixture that was
-   correct.
-6. **Test-only code is marked by its path, not by a field.** Any module path
-   containing a `testing` segment — `core/testing/assert`,
-   `//lib/ledger/testing`, `//lib/testing/fakes` — is importable only from a
-   test source ([`libraries.md`](./libraries.md#the-testing-surface)).
-   *Costs:* `testing` is a reserved directory name, and the rule is a
-   convention the compiler enforces rather than something a rule declares, so
-   there is nothing to grep for in a build file.
+5. **Golden files are updated by `buri test --accept`**
+   ([`testing.md`](./testing.md#test-data-and-golden-files)). *Costs:* a second
+   code path through the runner, and a flag that can overwrite a fixture that
+   was correct.
+6. **Test-only code is marked by its path, not by a field**
+   ([`libraries.md`](./libraries.md#the-testing-surface)). *Costs:* `testing`
+   is a reserved directory name, and there is nothing to grep for in a build
+   file.
 
 ## Still open
 

@@ -441,22 +441,18 @@ somewhere else.
 CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
 ```
 
-The skips are the message types the testee does not implement, and the expected
-failures are dominated by two things the vendored schema had removed from it,
-`map<>` and the well-known types, plus the 64-bit precision caveat above.
-`cli/tests/proto/README.md` lists all seven reasons and the defects the suite
-found.
+Every expected failure is filed under one of seven reasons in
+[`cli/tests/proto/README.md`](../../../tests/proto/README.md), along with the
+defects the suite found. One of the seven is worth naming here because it is
+not a gap: the reference implementation is proto3 and the schema under test is
+edition 2026, so the two disagree about whether a field set to its zero value is
+written. They are both right about their own schema, and that difference is what
+this page is mostly about.
 
-One of those seven is worth naming here, because it is not a gap: the reference
-implementation is proto3 and the schema under test is edition 2026, so the two
-disagree about whether a field set to its zero value is written. They are both
-right about their own schema, and the difference is the one this page is mostly
-about.
-
-It is not part of `cargo test`, because a suite that needs a C++ build of
-another project is a suite that does not run. `cli/tests/vectors/proto.rs`
-replays recorded exchanges through the same testee under cargo, which is the
-half that can be hermetic.
+The conformance run is not part of `cargo test`, because a suite that needs a
+C++ build of another project is a suite that does not run.
+`cli/tests/vectors/proto.rs` replays recorded exchanges through the same testee
+under cargo, which is the half that can be hermetic.
 
 ## Caching
 

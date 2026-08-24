@@ -22,8 +22,7 @@ Cache writes are serialized by a file lock and reads take none, so any number of
 ## Reproducibility
 
 Two builds of one commit in one configuration produce byte-identical artifacts.
-`--check-reproducible` asks that of this repository: it builds each requested
-binary twice, from two freshly opened sessions, with the cache off, into two
-separate directories, and compares the bytes. Silent on agreement; on a difference
-it names the artifact and the first byte that moved, and exits 1. It writes no
-artifact of its own.
+`--check-reproducible` asks that of this repository and exits 1 naming the
+first byte that moved if it does not hold. It is not part of an ordinary build,
+and what makes it a check rather than a ritual is set out in
+[`hermeticity.md`](../build/hermeticity.md#reproducibility).

@@ -170,21 +170,9 @@ export context WithLedger {
 }
 ```
 
-```textproto schema=build
-# lib/ledger/BUILD.buri
-library {
-  sources: ["entry.buri", "posting/rules.buri"]
-  dependencies: ["//lib/money"]
-
-  testing {
-    sources: ["testing/fixtures.buri"]
-  }
-
-  test {
-    sources: ["test/ledger.buri"]
-  }
-}
-```
+A `testing { sources: [...] }` block in `lib/ledger/BUILD.buri` is what puts
+that file in the build. A consumer's suite then reaches it the way it reaches
+any library — declared, and by label:
 
 ```buri repo=cli/tests/example pkg=//tools/report role=test
 // tools/report/test/render.buri — a different package's suite, using it. A
@@ -194,8 +182,6 @@ from "//lib/ledger/testing" import { sample, oneOff };
 ```
 
 with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
-Importing it from a non-test source is an error, and the error is about the
-path, so nobody has to have set a flag correctly for it to fire.
 
 Prefer this to a private helper as soon as a second suite wants the same
 fixture, and prefer a private helper while only one does — a fixture on a
