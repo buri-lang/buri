@@ -634,7 +634,8 @@ impl Tables {
     ///
     /// Identified by shape as well as by name, so that a user type called
     /// `Option` — which the language permits, in another module — is not
-    /// mistaken for it.
+    /// mistaken for it. `Infer::is_known_option` asks the *nominal* question
+    /// against the id the prelude registered; the two are not interchangeable.
     pub fn is_option(&self, id: TyConId) -> bool {
         let t = self.tycon(id);
         t.name == "Option"

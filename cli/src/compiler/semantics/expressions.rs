@@ -126,7 +126,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // A value of type `Result<T, E>` may not be discarded by a `_`
         // pattern. Since `let _ =` is the only place a value can be thrown
         // away, the rule has no holes (SPEC 5.7.1).
-        if self.tree().pkind(pattern) == flat::PKind::Wild && self.is_result(&ty) {
+        if self.tree().pkind(pattern) == flat::PKind::Wild && self.is_known_result(&ty) {
             self.err(span, "a `Result` may not be discarded").code("result-discarded")
                 .fix(
                     "consume it: `?` to propagate, `match` to handle both cases, \
@@ -178,18 +178,27 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    fn is_result(&self, ty: &Ty) -> bool {
+    /// Whether `ty` is the `Result` the prelude registered under that name.
+    ///
+    /// Nominal, not structural: `Checker::result_con` holds the id
+    /// `register_known_names` recorded, so a user type spelled `Result` in
+    /// another module is not this one. The same-named [`Tables::is_option`]
+    /// answers the *shape* question instead — a deliberately different
+    /// question, which is why these four say `known`.
+    fn is_known_result(&self, ty: &Ty) -> bool {
         matches!(self.resolve_ref(ty), Ty::Con(id, _) if self.c.result_con.as_ref() == Some(id))
     }
 
-    fn is_option(&self, ty: &Ty) -> bool {
+    /// Whether `ty` is the `Option` the prelude registered under that name —
+    /// nominal, for the reason [`Infer::is_known_result`] gives.
+    fn is_known_option(&self, ty: &Ty) -> bool {
         matches!(self.resolve_ref(ty), Ty::Con(id, _) if self.c.option_con.as_ref() == Some(id))
     }
 
-    /// `T`, when `ty` is `Option<T>`. Asking the question and reading the
-    /// payload are one step, so the arity cannot be checked in one place and
-    /// relied on in another.
-    fn option_payload<'t>(&self, ty: &'t Ty) -> Option<&'t Ty> {
+    /// `T`, when `ty` is the registered `Option<T>`. Asking the question and
+    /// reading the payload are one step, so the arity cannot be checked in one
+    /// place and relied on in another.
+    fn known_option_payload<'t>(&self, ty: &'t Ty) -> Option<&'t Ty> {
         match ty {
             Ty::Con(id, args) if self.c.option_con.as_ref() == Some(id) => {
                 match args.as_slice() {
@@ -201,8 +210,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    /// `(T, E)`, when `ty` is `Result<T, E>`.
-    fn result_payload<'t>(&self, ty: &'t Ty) -> Option<(&'t Ty, &'t Ty)> {
+    /// `(T, E)`, when `ty` is the registered `Result<T, E>`.
+    fn known_result_payload<'t>(&self, ty: &'t Ty) -> Option<(&'t Ty, &'t Ty)> {
         match ty {
             Ty::Con(id, args) if self.c.result_con.as_ref() == Some(id) => {
                 match args.as_slice() {
@@ -1947,10 +1956,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let l = self.check_expr(lhs, None);
                 let lty = self.resolve(&l.ty);
                 let payload = self
-                    .option_payload(&lty)
+                    .known_option_payload(&lty)
                     .map(|t| (t.clone(), typed::OptionOrResult::Option))
                     .or_else(|| {
-                        self.result_payload(&lty)
+                        self.known_result_payload(&lty)
                             .map(|(ok, _)| (ok.clone(), typed::OptionOrResult::Result))
                     });
                 let (inner, kind) = match payload {
@@ -2204,13 +2213,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         let b = self.check_expr(base, None);
         let bty = self.resolve(&b.ty);
         let ret = self.resolve(&self.ret.clone());
-        let result = self.result_payload(&bty).map(|(ok, err)| (ok.clone(), err.clone()));
-        let option = self.option_payload(&bty).cloned();
+        let result = self.known_result_payload(&bty).map(|(ok, err)| (ok.clone(), err.clone()));
+        let option = self.known_option_payload(&bty).cloned();
         let (inner, kind) = match (result, option) {
             (Some((ok_ty, err_ty)), _) => {
                 // The enclosing function must return `Result<_, E>`. There is
                 // no automatic error conversion; map the error explicitly.
-                match self.result_payload(&ret).map(|(_, err)| err.clone()) {
+                match self.known_result_payload(&ret).map(|(_, err)| err.clone()) {
                     Some(ret_err) => {
                         if self.subst.unify(&self.c.tables, &err_ty, &ret_err).is_err() {
                             let from = self.show_ty(&err_ty);
@@ -2234,7 +2243,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 (ok_ty, typed::OptionOrResult::Result)
             }
             (None, Some(inner)) => {
-                if !self.is_option(&ret) {
+                if !self.is_known_option(&ret) {
                     let shown = self.show_ty(&ret);
                     self.err(span, format!("`?` on an `Option` needs an `Option` return type, not `{shown}`")).code("question-mark-mismatch")
                         .fix("return an `Option` from this function, or turn absence into an error with `.okOr(e)?`");
