@@ -479,16 +479,21 @@ const INDENT: usize = 4;
 /// in. `library` before `binary` falls out of it (CLI.md), and so does
 /// `sources` before `dependencies` before `test`.
 ///
-/// It mirrors the `check_known` lists in `buildfile.rs`, which are what decide
-/// whether a field is a field at all. A name missing from here is not an
-/// error — an unknown field keeps its place at the end, because a formatter
-/// that dropped or reordered something it did not recognise would be worse
-/// than one that left it alone.
-fn schema_order(msg: &str) -> &'static [&'static str] {
+/// It is also the list `buildfile.rs` reads a message against, which is what
+/// decides whether a field is a field at all — one table, so that "the
+/// formatter's order" and "the fields a rule has" cannot be two answers. The
+/// top level is the exception and says why below.
+///
+/// A name missing from here is not an error at format time: an unknown field
+/// keeps its place at the end, because a formatter that dropped or reordered
+/// something it did not recognise would be worse than one that left it alone.
+pub fn schema_order(msg: &str) -> &'static [&'static str] {
     match msg {
         // A BUILD.buri holds `library`/`binary`; a REPO.buri holds `tag`. One
-        // table because no file has both, and two would be two things to keep
-        // in step.
+        // table here because no file has both and the formatter does not know
+        // which kind it is looking at — which is why the top level is the one
+        // place `buildfile.rs` keeps its own lists, and a test below holds the
+        // two halves to this union.
         "" => &["library", "binary", "tag"],
         "library" => &[
             "sources",

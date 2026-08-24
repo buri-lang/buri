@@ -350,46 +350,47 @@ impl Diagnostic {
         Diagnostic { severity: Severity::Warning, ..Diagnostic::error(span, message) }
     }
 
+    /// The chaining forms, for the `Diagnostic` a `push` is about to take.
+    ///
+    /// Each is its in-place twin below plus `self`. They used to be written out
+    /// twice — seven pairs of byte-identical bodies — so a field that gained a
+    /// rule gained it in one of the two.
     pub fn with_label(mut self, label: impl Into<String>) -> Diagnostic {
-        self.label = Some(label.into());
+        self.label(label);
         self
     }
 
     pub fn with_note(mut self, note: impl Into<String>) -> Diagnostic {
-        self.notes.push(note.into());
+        self.note(note);
         self
     }
 
     pub fn with_sub(mut self, span: Span, label: impl Into<String>) -> Diagnostic {
-        self.subs.push(SubSpan { span, label: label.into() });
+        self.sub(span, label);
         self
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Diagnostic {
-        self.code = Some(code.into());
+        self.code(code);
         self
     }
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Diagnostic {
-        self.fix = Some(fix.into());
+        self.fix(fix);
         self
     }
 
-    /// Attaches the byte form of the fix. Only for a rule whose answer is
-    /// mechanical — `--fix` applies these without asking.
     pub fn with_edit(mut self, at: Span, replacement: &str) -> Diagnostic {
-        self.edits.push(Edit { at, replacement: replacement.to_string() });
+        self.edit(at, replacement);
         self
     }
 
-    /// The two halves of a mismatch, which are almost always set together.
     pub fn with_mismatch(
         mut self,
         expected: impl Into<String>,
         actual: impl Into<String>,
     ) -> Diagnostic {
-        self.expected = Some(expected.into());
-        self.actual = Some(actual.into());
+        self.mismatch(expected, actual);
         self
     }
 
@@ -425,14 +426,14 @@ impl Diagnostic {
         self
     }
 
-    /// The byte form of the fix, for use on the `&mut Diagnostic` a sink hands
-    /// back. Only for a rule whose answer is mechanical — `--fix` applies
-    /// these without asking.
+    /// The byte form of the fix. Only for a rule whose answer is mechanical —
+    /// `--fix` applies these without asking.
     pub fn edit(&mut self, at: Span, replacement: &str) -> &mut Diagnostic {
         self.edits.push(Edit { at, replacement: replacement.to_string() });
         self
     }
 
+    /// The two halves of a mismatch, which are almost always set together.
     pub fn mismatch(
         &mut self,
         expected: impl Into<String>,

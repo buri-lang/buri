@@ -9,6 +9,15 @@
 use crate::build::textproto::{self, Doc, Msg, Value};
 use crate::diagnostics::{Diagnostic, FileId, Span};
 
+/// The top level of a `BUILD.buri`, and the top level of a `REPO.buri`.
+///
+/// The one place a known-field list is not `textproto::schema_order`: the
+/// formatter cannot tell the two kinds of file apart, so it carries their
+/// union, while the reader must refuse a `tag` in a build file. The test at
+/// the bottom of this module holds the union to these two halves.
+const BUILD_FILE_RULES: &[&str] = &["library", "binary"];
+const REPO_FILE_RULES: &[&str] = &["tag"];
+
 #[derive(Clone, Debug)]
 pub struct Sp<T> {
     pub value: T,
@@ -501,7 +510,7 @@ impl Reader {
         let (m, span) = self.sub_msg(parent, "test")?;
         self.check_known(
             m,
-            &["sources", "dependencies", "data", "timeout_seconds", "platforms"],
+            textproto::schema_order("test"),
             "a `test` block",
         );
         Some(TestSuite {
@@ -516,7 +525,7 @@ impl Reader {
 
     fn testing_surface(&mut self, parent: &Msg) -> Option<TestingSurface> {
         let (m, span) = self.sub_msg(parent, "testing")?;
-        self.check_known(m, &["sources", "dependencies"], "a `testing` block");
+        self.check_known(m, textproto::schema_order("testing"), "a `testing` block");
         Some(TestingSurface {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
@@ -537,7 +546,7 @@ impl Reader {
                     self.wrong_kind(item.span(), "outputs", "a block", &kind);
                     continue;
                 };
-                self.check_known(m, &["platform", "arch", "artifact_name", "js"], "an output");
+                self.check_known(m, textproto::schema_order("outputs"), "an output");
 
                 let platform = m.get("platform").and_then(|pf| match &pf.value {
                     Value::Ident(s, sp) => match Platform::parse(s) {
@@ -587,7 +596,7 @@ impl Reader {
                 let mut js_block: Option<Span> = None;
                 if let Some((jm, js_span)) = self.sub_msg(m, "js") {
                     js_block = Some(js_span);
-                    self.check_known(jm, &["module"], "a `js` block");
+                    self.check_known(jm, textproto::schema_order("js"), "a `js` block");
                     if let Some(mf) = jm.get("module") {
                         match &mf.value {
                             Value::Ident(s, sp) => match s.as_str() {
@@ -730,23 +739,10 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let parsed = textproto::parse(text, file);
     let mut r = Reader { errors: parsed.errors };
     let msg = parsed.doc.as_msg();
-    r.check_known(&msg, &["library", "binary"], "a build file");
+    r.check_known(&msg, BUILD_FILE_RULES, "a build file");
 
     let library = r.sub_msg(&msg, "library").map(|(m, span)| {
-        r.check_known(
-            m,
-            &[
-                "sources",
-                "proto_sources",
-                "dependencies",
-                "tags",
-                "platforms",
-                "visibility",
-                "test",
-                "testing",
-            ],
-            "a `library` rule",
-        );
+        r.check_known(m, textproto::schema_order("library"), "a `library` rule");
         Library {
             sources: r.strings(m, "sources"),
             proto_sources: r.strings(m, "proto_sources"),
@@ -763,11 +759,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let binary = r.sub_msg(&msg, "binary").map(|(m, span)| {
         // A binary has no `platforms` field of its own — `outputs` already
         // says — and no `visibility`, because nothing can depend on a binary.
-        r.check_known(
-            m,
-            &["sources", "proto_sources", "dependencies", "tags", "outputs", "test"],
-            "a `binary` rule",
-        );
+        r.check_known(m, textproto::schema_order("binary"), "a `binary` rule");
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {
@@ -804,7 +796,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let parsed = textproto::parse(text, file);
     let mut r = Reader { errors: parsed.errors };
     let msg = parsed.doc.as_msg();
-    r.check_known(&msg, &["tag"], "REPO.buri");
+    r.check_known(&msg, REPO_FILE_RULES, "REPO.buri");
 
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.doc.all("tag") {
@@ -812,7 +804,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             r.err(f.value.span(), "`tag` is a block", "write `tag { name: \"...\" ... }`");
             continue;
         };
-        r.check_known(m, &["name", "doc", "forbids", "requires"], "a `tag` block");
+        r.check_known(m, textproto::schema_order("tag"), "a `tag` block");
 
         let name_field = m.get("name");
         let name = match name_field.map(|nf| &nf.value) {
@@ -831,7 +823,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         if let Some((fm, _)) = r.sub_msg(m, "forbids") {
             // There is deliberately no `platforms` under `forbids`: a platform
             // restriction is always a whitelist under `requires`.
-            r.check_known(fm, &["tags"], "a `forbids` block");
+            r.check_known(fm, textproto::schema_order("forbids"), "a `forbids` block");
             if let Some(p) = fm.get("platforms") {
                 r.errors.push(
                     Diagnostic::error(p.name_span, "`forbids` takes no `platforms`")
@@ -848,7 +840,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
 
         let mut requires_platforms = Vec::new();
         if let Some((rm, _)) = r.sub_msg(m, "requires") {
-            r.check_known(rm, &["platforms"], "a `requires` block");
+            r.check_known(rm, textproto::schema_order("requires"), "a `requires` block");
             if let Some(t) = rm.get("tags") {
                 r.errors.push(
                     Diagnostic::error(t.name_span, "`requires` takes no `tags`")
@@ -894,6 +886,22 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one known-field list this module still owns, held to the formatter's.
+    ///
+    /// Every other list is `textproto::schema_order` itself, so there is
+    /// nothing to keep in step. The top level is two lists here and one there —
+    /// the formatter cannot tell a `BUILD.buri` from a `REPO.buri` — so this
+    /// is what makes the union a fact rather than a comment.
+    #[test]
+    fn the_two_top_level_lists_are_the_formatter_s_union() {
+        let mut halves: Vec<&str> =
+            BUILD_FILE_RULES.iter().chain(REPO_FILE_RULES).copied().collect();
+        halves.sort_unstable();
+        let mut whole: Vec<&str> = textproto::schema_order("").to_vec();
+        whole.sort_unstable();
+        assert_eq!(halves, whole);
+    }
 
     #[test]
     fn reads_a_library_rule() {
