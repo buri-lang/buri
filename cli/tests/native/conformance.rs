@@ -26,12 +26,12 @@
 //!
 //! # Which packages are in the native set, and which are not
 //!
-//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-five
+//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-six
 //! of the thirty-four files are in it** — the number the harness prints, and one
-//! the prose had off by one before `semantics/generics.buri` joined them — and
-//! one more, `proto/binary.buri`, which compiles and passes but is
-//! [`Out::Costly`] rather than in the set, for a
-//! reason that is the middle end's rather than the backend's. What is actually
+//! the prose had off by one before `semantics/generics.buri` joined them.
+//! `proto/binary.buri` is the twenty-sixth: it compiled and passed all along and
+//! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
+//! `Scan::short_circuit`, which is linear now. What is actually
 //! *refused* is three things:
 //!
 //!  1. **An inexact numeric conversion.** `x.toT()` where not every value fits
@@ -134,33 +134,26 @@ struct Case {
 /// behind it are fixed (`middle/rc.rs`'s deferred drops and `middle/layout.rs`'s
 /// list niche) and it is in the set above. The category comes back the day
 /// another file needs it, and not before.
+///
+/// There was a third, `Costly`, for the one file the backend compiled and got
+/// *right* at a price this suite would not pay: `proto/binary.buri` cost about
+/// 280 seconds, all of it `middle/rc.rs`'s `Scan::short_circuit` scanning its
+/// right operand twice and so exploring a chain of `&&` along every path
+/// through it. `a_costly_package_still_passes` ran it `#[ignore]`d and its doc
+/// comment said the day that stopped being exponential the test and the
+/// exclusion would be deleted together. The scan is linear, the file takes
+/// about three seconds, and they were.
 enum Out {
     /// **The backend refuses it**, and names what it has no body for.
     /// [`the_excluded_packages_are_excluded_for_the_stated_reason`] compiles
     /// each and asserts the refusal is still there.
     Refused(&'static str),
-    /// **The backend compiles it and every block passes**, and compiling it
-    /// costs more than this suite may spend.
-    ///
-    /// One file, and it is not a judgement about the file: `proto/binary.buri`
-    /// pays `middle/rc.rs`'s exponential `Scan::short_circuit` (see its entry
-    /// below), which is minutes when the machine is idle and unbounded when it
-    /// is not — it is a *middle-end* cost on the native path, and the backend
-    /// never gets to say anything about it.
-    ///
-    /// Excluded rather than included because a suite whose wall clock is set by
-    /// somebody else's in-flight work is a suite people stop running, and
-    /// excluded rather than *silently* dropped because the claim in the sentence
-    /// above is checkable: [`a_costly_package_still_passes`] runs it, `#[ignore]`d,
-    /// and is the test that says so the day the middle end stops charging for
-    /// it and this row can be deleted.
-    Costly(&'static str),
 }
 
 impl Out {
     fn why(&self) -> &'static str {
         match self {
-            Out::Refused(why) | Out::Costly(why) => why,
+            Out::Refused(why) => why,
         }
     }
 }
@@ -171,10 +164,6 @@ const fn included(path: &'static str) -> Case {
 
 const fn excluded(path: &'static str, why: &'static str) -> Case {
     Case { path, out: Some(Out::Refused(why)) }
-}
-
-const fn costly(path: &'static str, why: &'static str) -> Case {
-    Case { path, out: Some(Out::Costly(why)) }
 }
 
 /// Every file in `cli/tests/conformance/lib`, in or out, with the reason.
@@ -296,17 +285,13 @@ const PACKAGES: &[Case] = &[
     // `core/bytes` and `char.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
-    costly(
-        "proto/binary.buri",
-        "it compiles and all twenty-nine blocks pass; what it costs is \
-             `middle/rc.rs`'s `Scan::short_circuit`, which recurses once per \
-             operand *and* once per continuation, so a chain of `&&` is \
-             explored along every path through it and this file's field-tag \
-             decoder is about twenty links long. Measured at about 280 seconds \
-             on an idle machine and unbounded on a busy one. `middle::native` \
-             is where `rc::analyze` runs, so it is the native path's bill and \
-             nobody else's",
-    ),
+    // Held out as `Out::Costly` until `middle/rc.rs`'s `Scan::short_circuit`
+    // stopped scanning its right operand twice. It compiled and all
+    // twenty-nine blocks passed the whole time; what it cost was the 2ⁿ that
+    // cost bought over the `&&` chain `middle/derives.rs`'s `eq_fields`
+    // right-nests, one link per field of a generated message. About 280
+    // seconds then, about three now.
+    included("proto/binary.buri"),
     excluded(
         "proto/json.buri",
         "`num.F64.toI64` — an inexact conversion, so it answers \
@@ -877,32 +862,6 @@ test "stdinBytes reads octets, and readLine finds nothing there" {
     };
     assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
     assert_eq!(blocks, 12, "the fixture lost a `test` block");
-}
-
-/// The one [`Out::Costly`] package, run on demand.
-///
-/// `#[ignore]`d, and that is the whole of what makes the category honest: the
-/// exclusion above claims the file compiles and passes, and this is the test
-/// that checks the claim rather than leaving it as a sentence. Run it with
-/// `cargo test -p buri --test native -- --ignored costly`, and expect minutes.
-///
-/// The day `middle/rc.rs`'s `Scan::short_circuit` stops being exponential, this
-/// test and that exclusion are deleted together and the file joins the set.
-#[test]
-#[ignore = "minutes: middle/rc.rs's exponential short-circuit scan, not the backend"]
-fn a_costly_package_still_passes() {
-    if !supported() {
-        return;
-    }
-    for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Costly(_)))) {
-        let source = read(case);
-        let Some((status, out, err, blocks)) = run(case.path, &source) else {
-            panic!("`{}` is listed as costly, and the front end refused it", case.path);
-        };
-        assert_eq!(status, 0, "`{}` failed:\nstdout:\n{out}\nstderr:\n{err}", case.path);
-        assert!(blocks > 0, "`{}` holds no `test` blocks", case.path);
-        eprintln!("native conformance: {} passes, {blocks} blocks, on demand", case.path);
-    }
 }
 
 /// The harness has to be able to fail.

@@ -650,6 +650,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
                 floor: 0,
                 jumps: Vec::new(),
                 diverged: false,
+                named: vec![None; sizes.len()],
                 self_params: plan.params.clone(),
                 opts,
             };
@@ -704,58 +705,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
         }
         funcs.push(plan);
     }
-    let plan = Plan { funcs };
-    dump(program, &plan);
-    plan
-}
-
-/// TEMPORARY (short-circuit wave): the whole plan as text, when
-/// `BURI_RC_DUMP` names a file. Removed before the wave lands.
-fn dump(program: &Program, plan: &Plan) {
-    use std::io::Write as _;
-    let Some(path) = std::env::var_os("BURI_RC_DUMP") else { return };
-    let mut out = String::new();
-    for (i, f) in program.funcs.iter().enumerate() {
-        let Some(fp) = plan.funcs.get(i) else { continue };
-        out.push_str(&format!(
-            "fn {} params={:?} purity={:?} abort={} unclassified={:?}\n",
-            f.debug_name, fp.params, fp.purity, fp.can_abort, fp.unclassified
-        ));
-        for s in &fp.sites {
-            let what = match s.target {
-                Target::Local(l) => format!(
-                    "{}#{}",
-                    f.locals.get(l.index()).map(|x| x.name.clone()).unwrap_or_default(),
-                    l.0
-                ),
-                Target::Node(n) => format!("n{}", n.0),
-            };
-            out.push_str(&format!("  {:?} {what} {:?} n{}\n", s.op, s.at, s.node.0));
-        }
-        for r in &fp.reuse {
-            out.push_str(&format!("  reuse {:?} at n{} {:?}\n", r.token, r.at.0, r.fields));
-        }
-        if std::env::var_os("BURI_RC_TREE").is_some() {
-            if let Some(body) = f.body() {
-                preorder(body, &mut |id, e| {
-                    let k = format!("{:?}", e.kind);
-                    let k = k.split_once(' ').map(|x| x.0.to_string()).unwrap_or(k);
-                    let name = match &e.kind {
-                        ExprKind::Local(l) => f
-                            .locals
-                            .get(l.index())
-                            .map(|x| format!(" {}#{}", x.name, l.0))
-                            .unwrap_or_default(),
-                        _ => String::new(),
-                    };
-                    out.push_str(&format!("  tree n{} {}{}\n", id.0, k, name));
-                });
-            }
-        }
-    }
-    let mut file =
-        std::fs::OpenOptions::new().create(true).append(true).open(path).expect("dump file");
-    file.write_all(out.as_bytes()).expect("dump write");
+    Plan { funcs }
 }
 
 // ---------------------------------------------------------------------------
@@ -1292,6 +1242,10 @@ struct Scan<'a> {
     jumps: Vec<(NodeId, Position)>,
     /// Whether every path out of the expression just scanned is a jump.
     diverged: bool,
+    /// [`Scan::names_in`]'s memo, one slot per node, filled only for the nodes
+    /// that are asked — a short-circuit's right operand. See that function for
+    /// why it holds the *unfiltered* names.
+    named: Vec<Option<Vec<LocalId>>>,
     /// The function's own parameter ownership, for a `Continue` that re-enters
     /// the loop it is inside: the loop's variables *are* the parameters
     /// (`typed::ExprKind::Loop`).
@@ -1884,16 +1838,22 @@ impl Scan<'_> {
     /// and a correct count on the skipped one.
     fn short_circuit(&mut self, id: NodeId, lhs: &Expr, rhs: &Expr, live: &Live) -> Live {
         let rid = self.child(id, 1);
-        let sites = self.sites.len();
-        let reuse = self.reuse.len();
-        let pending = self.pending.len();
-        let probe = self.expr(rhs, rid, live, Mode::Borrow);
-        self.sites.truncate(sites);
-        self.reuse.truncate(reuse);
-        self.pending.truncate(pending);
-        let mut deferred: Vec<LocalId> =
-            probe.difference(live).copied().filter(|l| self.owned.contains(l)).collect();
-        deferred.sort_by_key(|l| l.0);
+        // Which owned locals die inside the operand — [`Scan::names_in`], not a
+        // scan. The right operand used to be scanned **twice**: once as a probe
+        // whose sites were thrown away, and once in the liveness that keeping
+        // the probe's answer alive produces. A probe re-entered `expr`, which
+        // re-entered `short_circuit` for a nested `&&`, so a chain of *n* of
+        // them cost 2ⁿ scans — `middle/derives.rs`'s `eq_fields` builds exactly
+        // that chain, right-nested, one link per field, and it is why
+        // `proto/binary.buri` took minutes to compile.
+        //
+        // The probe answered one question and its whole answer is `deferred`
+        // below: `(probe \ live) ∩ owned`. A local is in `probe` and not in
+        // `live` exactly when the operand *names* it and does not bind it
+        // itself, which is a syntactic property of the subtree and needs no
+        // liveness at all — see [`Scan::names_in`] for why the two agree.
+        let mut deferred: Vec<LocalId> = self.names_in(rhs, rid);
+        deferred.retain(|l| !live.contains(l) && self.owned.contains(l));
         let mut kept: Live = live.clone();
         kept.extend(deferred.iter().copied());
         let after_rhs = self.expr(rhs, rid, &kept, Mode::Borrow);
@@ -1905,6 +1865,117 @@ impl Scan<'_> {
         let out = self.expr(lhs, lid, &after_rhs, Mode::Borrow);
         self.flush(id);
         out
+    }
+
+    /// Every local a subtree **names**: mentioned somewhere inside it and not
+    /// bound inside it either. Sorted, and memoised on the node.
+    ///
+    /// # Why this is the same answer the probe scan gave
+    ///
+    /// [`Scan::short_circuit`] wants `(probe \ live) ∩ owned`, where `probe` is
+    /// what [`Scan::expr`] answers for the operand against the enclosing
+    /// liveness. Every construct's transfer function is one of two shapes:
+    /// `live_in = live_out ∪ G` for something that can fall through, and
+    /// `live_in = G` for something every path out of which is a `Continue`
+    /// (which scans its arguments against an *empty* liveness on purpose). `G`
+    /// is the same set either way, so **`probe \ live` is `G \ live`** and the
+    /// enclosing liveness never enters the answer. `G` is what this computes:
+    ///
+    /// * [`ExprKind::Local`] contributes itself; a local the layout oracle does
+    ///   not count is filtered out by `owned` at the caller, which only ever
+    ///   holds counted locals.
+    /// * [`ExprKind::Lambda`] contributes its **captures and not its body**,
+    ///   exactly as `expr_at` does — the body does not run here.
+    /// * a `let` pattern and a `match` arm's pattern bind inside, and `expr_at`
+    ///   removes what they bind from the set on the way out, so this does too.
+    ///   Local ids are unique per function, so subtracting them at the end is
+    ///   the same as scoping them.
+    /// * a `match`'s consumed scrutinee is removed from the arms' union and put
+    ///   straight back by the scan of the scrutinee itself (which is the local),
+    ///   so it stays named.
+    ///
+    /// The one shape this would answer more generously than the scan is a
+    /// **condition or scrutinee position that diverges** — `if (continue) {…}`
+    /// — where `expr_at` throws the branches' sets away because the condition is
+    /// scanned last and answers `G_cond` alone. No such tree exists: a condition
+    /// and a scrutinee are not tail positions, so `tail_calls` never puts a
+    /// `Continue` in one. A right operand *is* a tail position, and that case is
+    /// covered: `expr(lhs, G_rhs)` still keeps `G_rhs`.
+    ///
+    /// # Why it is memoised
+    ///
+    /// The chains this exists for are right-nested (`middle/derives.rs`'s
+    /// `eq_fields` says so in its own doc comment), so asking each link about
+    /// the whole tail below it is quadratic on its own. A chain's tail is a
+    /// short-circuit operand too, so caching exactly those nodes makes each link
+    /// pay for its own left operand and nothing else.
+    ///
+    /// The cache holds the *unfiltered* names deliberately. `owned` grows while
+    /// the scan runs — [`Scan::match_`] adds an arm's payload bindings before it
+    /// scans that arm — so a set filtered when it was first computed could be
+    /// stale by the time it is read again. Filtering at the use site cannot be.
+    fn names_in(&mut self, e: &Expr, id: NodeId) -> Vec<LocalId> {
+        if let Some(hit) = self.named.get(id.0 as usize).and_then(Option::as_ref) {
+            return hit.clone();
+        }
+        let mut names: Live = Live::default();
+        let mut bound: Vec<LocalId> = Vec::new();
+        self.collect_names(e, id, &mut names, &mut bound);
+        for b in &bound {
+            names.remove(b);
+        }
+        let mut out: Vec<LocalId> = names.into_iter().collect();
+        out.sort_by_key(|l| l.0);
+        if let Some(slot) = self.named.get_mut(id.0 as usize) {
+            *slot = Some(out.clone());
+        }
+        out
+    }
+
+    /// [`Scan::names_in`]'s walk. It descends exactly where [`Scan::expr_at`]
+    /// descends, which is where [`kids`] goes with the two exceptions above.
+    fn collect_names(&mut self, e: &Expr, id: NodeId, names: &mut Live, bound: &mut Vec<LocalId>) {
+        match &e.kind {
+            ExprKind::Local(l) => {
+                names.insert(*l);
+                return;
+            }
+            // The environment is the captures; the body is a scope of its own
+            // and `expr_at` does not scan it here either.
+            ExprKind::Lambda { captures, .. } => {
+                names.extend(captures.iter().copied());
+                return;
+            }
+            ExprKind::Block { stmts, .. } => {
+                for s in stmts {
+                    if let Stmt::Let { pattern, .. } = s {
+                        pattern.binds(bound);
+                    }
+                }
+            }
+            ExprKind::Match { arms, .. } => {
+                for a in arms {
+                    a.pattern.binds(bound);
+                }
+            }
+            // The nesting this whole function exists for: the tail of a chain
+            // is asked once and answered from the cache ever after.
+            ExprKind::And { lhs, rhs }
+            | ExprKind::Or { lhs, rhs }
+            | ExprKind::Coalesce { lhs, rhs, .. } => {
+                let lid = self.child(id, 0);
+                self.collect_names(lhs, lid, names, bound);
+                let rid = self.child(id, 1);
+                let tail = self.names_in(rhs, rid);
+                names.extend(tail);
+                return;
+            }
+            _ => {}
+        }
+        for (k, kid) in kids(e).into_iter().enumerate() {
+            let kid_id = self.child(id, k);
+            self.collect_names(kid, kid_id, names, bound);
+        }
     }
 
     /// The default: every child is evaluated, left to right, and each takes
@@ -3093,6 +3164,7 @@ export fn main(): Result<(), Str> {
         let plan = analyze(&program, &mut counted, &Options::default());
         let fp = plan.func(i).expect("a plan");
         let sites = named_sites(&program, i, fp);
+        assert_eq!(check_balance(&program), Vec::<String>::new(), "{sites:?}");
         assert!(
             !sites.iter().any(|s| s.starts_with("dec s ")),
             "`s` is a view into `o`, which the deferral drops: {sites:?}"
@@ -3101,7 +3173,6 @@ export fn main(): Result<(), Str> {
             sites.iter().any(|s| s.starts_with("dec o ")),
             "`o` itself is still dropped: {sites:?}"
         );
-        assert_eq!(check_balance(&program), Vec::<String>::new());
     }
 
     /// One plan's sites as `"<op> <what> <before|after> n<node>"`, in plan
