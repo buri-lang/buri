@@ -44,8 +44,8 @@ pub fn define(unit: &mut Unit<'_>, job: Pending) {
     let what = format!("{:?}", job.key);
     let key = job.key.clone();
     let ty = job.ty.clone();
-    unit.build_function(job.id, sig, &what, move |unit, b| {
-        let cx = Cx::new(unit, b);
+    unit.build_function(job.id, sig, &what, move |unit, builder| {
+        let cx = Cx::new(unit, builder);
         match key {
             Helper::Thunk { func, env } => thunk(cx, func, env),
             Helper::Concat => concat(cx),
@@ -63,11 +63,11 @@ pub fn define(unit: &mut Unit<'_>, job: Pending) {
 ///
 /// Not sealed here: `Unit::build_function` seals every block at the end, which
 /// is the only point at which every branch to one exists.
-fn entry(b: &mut FunctionBuilder<'_>) -> Vec<Value> {
-    let block = b.create_block();
-    b.append_block_params_for_function_params(block);
-    b.switch_to_block(block);
-    b.block_params(block).to_vec()
+fn entry(builder: &mut FunctionBuilder<'_>) -> Vec<Value> {
+    let block = builder.create_block();
+    builder.append_block_params_for_function_params(block);
+    builder.switch_to_block(block);
+    builder.block_params(block).to_vec()
 }
 
 /// Answer a `Str` through the out-pointer, which is the last parameter of
@@ -82,7 +82,7 @@ fn return_str(cx: &mut Cx<'_, '_, '_>, out: Option<Value>, base: Value, ptr: Val
         cx.store_at(out, word(STR_PTR), ptr);
         cx.store_at(out, word(STR_LEN), len);
     }
-    cx.b.ins().return_(&[]);
+    cx.builder.ins().return_(&[]);
 }
 
 /// `code(env, args...)`, forwarding to the function the closure names.
@@ -123,10 +123,10 @@ fn return_str(cx: &mut Cx<'_, '_, '_>, out: Option<Value>, base: Value, ptr: Val
 /// Both are conditional on the type holding a count at all, so a thunk over
 /// `fn(Int) => Int` is the same three instructions it always was.
 fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
-    let params = entry(cx.b);
+    let params = entry(cx.builder);
     let program = cx.unit.program;
     let Some(f) = program.funcs.get(func as usize) else {
-        cx.b.ins().trap(super::emit::UNREACHABLE);
+        cx.builder.ins().trap(super::emit::UNREACHABLE);
         return;
     };
     let sig = f.sig.params.clone();
@@ -174,11 +174,11 @@ fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
     }
     args.extend(params.get(at..).unwrap_or_default().iter().copied());
     let Some(r) = cx.func_ref(func as usize) else {
-        cx.b.ins().trap(super::emit::UNREACHABLE);
+        cx.builder.ins().trap(super::emit::UNREACHABLE);
         return;
     };
-    let inst = cx.b.ins().call(r, &args);
-    let results = cx.b.inst_results(inst).to_vec();
+    let inst = cx.builder.ins().call(r, &args);
+    let results = cx.builder.inst_results(inst).to_vec();
     for (ty, leaves, vals) in borrowed {
         let l = cx.unit.abi.layouts.shared(&ty);
         let slot = cx.slot(l.size, l.align);
@@ -187,7 +187,7 @@ fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
         }
         cx.walk_rc(&ty, slot, false, 0);
     }
-    cx.b.ins().return_(&results);
+    cx.builder.ins().return_(&results);
 }
 
 /// `str.concat` (VALUE-MODEL.md §3), with MEMORY.md §5.3's in-place growth.
@@ -229,7 +229,7 @@ fn thunk(mut cx: Cx<'_, '_, '_>, func: u32, env: bool) {
 /// into this one the two ranges can touch. A `memmove` costs nothing measurable
 /// and removes the case from the argument entirely.
 fn concat(mut cx: Cx<'_, '_, '_>) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     let out = p.get(6).copied();
     let (Some(a_base), Some(a_ptr), Some(a_len), Some(b_ptr), Some(b_len)) = (
         p.first().copied(),
@@ -241,16 +241,16 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
         return;
     };
     let mask = cx.iconst(types::I64, STR_LEN_MASK as i64);
-    let la = cx.b.ins().band(a_len, mask);
-    let lb = cx.b.ins().band(b_len, mask);
-    let n = cx.b.ins().iadd(la, lb);
+    let la = cx.builder.ins().band(a_len, mask);
+    let lb = cx.builder.ins().band(b_len, mask);
+    let n = cx.builder.ins().iadd(la, lb);
 
-    let empty = cx.b.create_block();
-    let work = cx.b.create_block();
-    let is_empty = cx.b.ins().icmp_imm(IntCC::Equal, n, 0);
+    let empty = cx.builder.create_block();
+    let work = cx.builder.create_block();
+    let is_empty = cx.builder.ins().icmp_imm(IntCC::Equal, n, 0);
     cx.brif(is_empty, empty, &[], work, &[]);
 
-    cx.b.switch_to_block(empty);
+    cx.builder.switch_to_block(empty);
     let zero = cx.iconst(PTR, 0);
     let flag = cx.iconst(types::I64, STR_ASCII_FLAG as i64);
     let blank = empty_str(&mut cx);
@@ -259,76 +259,76 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
     // `probe` reads the header, which is only there when there is a base;
     // `check` is reached from both sides with the answer as a block parameter,
     // so the header load stays behind the null test.
-    let probe = cx.b.create_block();
-    let check = cx.b.create_block();
-    cx.b.append_block_param(check, types::I64);
-    cx.b.append_block_param(check, types::I64);
-    let inplace = cx.b.create_block();
-    let fresh = cx.b.create_block();
-    cx.b.append_block_param(fresh, types::I64);
-    let ret = cx.b.create_block();
-    cx.b.append_block_param(ret, PTR);
-    cx.b.append_block_param(ret, PTR);
+    let probe = cx.builder.create_block();
+    let check = cx.builder.create_block();
+    cx.builder.append_block_param(check, types::I64);
+    cx.builder.append_block_param(check, types::I64);
+    let inplace = cx.builder.create_block();
+    let fresh = cx.builder.create_block();
+    cx.builder.append_block_param(fresh, types::I64);
+    let ret = cx.builder.create_block();
+    cx.builder.append_block_param(ret, PTR);
+    cx.builder.append_block_param(ret, PTR);
 
-    cx.b.switch_to_block(work);
+    cx.builder.switch_to_block(work);
     let none = cx.iconst(types::I64, 0);
-    let has_base = cx.b.ins().icmp_imm(IntCC::NotEqual, a_base, 0);
+    let has_base = cx.builder.ins().icmp_imm(IntCC::NotEqual, a_base, 0);
     cx.brif(has_base, probe, &[], check, &[none, none]);
 
-    cx.b.switch_to_block(probe);
-    let rc = cx.b.ins().load(types::I64, mem(), a_base, HEADER_RC_OFFSET);
-    let cap = cx.b.ins().load(types::I64, mem(), a_base, HEADER_CAP_OFFSET);
+    cx.builder.switch_to_block(probe);
+    let rc = cx.builder.ins().load(types::I64, mem(), a_base, HEADER_RC_OFFSET);
+    let cap = cx.builder.ins().load(types::I64, mem(), a_base, HEADER_CAP_OFFSET);
     // `IMMORTAL` is `u64::MAX` and fails this by construction, which is what
     // keeps a literal and an interned constant out of both fast paths.
-    let is_one = cx.b.ins().icmp_imm(IntCC::Equal, rc, 1);
-    let unique = cx.b.ins().uextend(types::I64, is_one);
+    let is_one = cx.builder.ins().icmp_imm(IntCC::Equal, rc, 1);
+    let unique = cx.builder.ins().uextend(types::I64, is_one);
     cx.jump(check, &[unique, cap]);
 
-    cx.b.switch_to_block(check);
-    let cp = cx.b.block_params(check).to_vec();
+    cx.builder.switch_to_block(check);
+    let cp = cx.builder.block_params(check).to_vec();
     let (Some(unique), Some(cap)) = (cp.first().copied(), cp.get(1).copied()) else {
         return;
     };
     // The view may start inside the block, so what has to fit is the offset of
     // its start plus the whole result. With no base the offset is nonsense and
     // the capacity is zero, so this is false — and `unique` is zero anyway.
-    let offset = cx.b.ins().isub(a_ptr, a_base);
-    let end = cx.b.ins().iadd(offset, n);
-    let fits = cx.b.ins().icmp(IntCC::UnsignedLessThanOrEqual, end, cap);
-    let fits = cx.b.ins().uextend(types::I64, fits);
-    let take = cx.b.ins().band(unique, fits);
+    let offset = cx.builder.ins().isub(a_ptr, a_base);
+    let end = cx.builder.ins().iadd(offset, n);
+    let fits = cx.builder.ins().icmp(IntCC::UnsignedLessThanOrEqual, end, cap);
+    let fits = cx.builder.ins().uextend(types::I64, fits);
+    let take = cx.builder.ins().band(unique, fits);
     cx.brif(take, inplace, &[], fresh, &[unique]);
 
     let cfg = cx.unit.module.isa().frontend_config();
 
-    cx.b.switch_to_block(inplace);
-    let tail = cx.b.ins().iadd(a_ptr, la);
-    cx.b.call_memmove(cfg, tail, b_ptr, lb);
+    cx.builder.switch_to_block(inplace);
+    let tail = cx.builder.ins().iadd(a_ptr, la);
+    cx.builder.call_memmove(cfg, tail, b_ptr, lb);
     cx.incref(a_base);
     cx.jump(ret, &[a_base, a_ptr]);
 
-    cx.b.switch_to_block(fresh);
-    let grow = cx.b.block_params(fresh).first().copied().unwrap_or(none);
-    let doubled = cx.b.ins().imul_imm(n, 2);
+    cx.builder.switch_to_block(fresh);
+    let grow = cx.builder.block_params(fresh).first().copied().unwrap_or(none);
+    let doubled = cx.builder.ins().imul_imm(n, 2);
     let floor = cx.iconst(types::I64, GROWTH_FLOOR as i64);
-    let bigger = cx.b.ins().icmp(IntCC::UnsignedGreaterThan, doubled, floor);
-    let wanted = cx.b.ins().select(bigger, doubled, floor);
-    let growing = cx.b.ins().icmp_imm(IntCC::NotEqual, grow, 0);
-    let size = cx.b.ins().select(growing, wanted, n);
+    let bigger = cx.builder.ins().icmp(IntCC::UnsignedGreaterThan, doubled, floor);
+    let wanted = cx.builder.ins().select(bigger, doubled, floor);
+    let growing = cx.builder.ins().icmp_imm(IntCC::NotEqual, grow, 0);
+    let size = cx.builder.ins().select(growing, wanted, n);
     let block = cx.alloc(size);
-    cx.b.call_memcpy(cfg, block, a_ptr, la);
-    let tail = cx.b.ins().iadd(block, la);
-    cx.b.call_memcpy(cfg, tail, b_ptr, lb);
+    cx.builder.call_memcpy(cfg, block, a_ptr, la);
+    let tail = cx.builder.ins().iadd(block, la);
+    cx.builder.call_memcpy(cfg, tail, b_ptr, lb);
     cx.jump(ret, &[block, block]);
 
-    cx.b.switch_to_block(ret);
-    let rp = cx.b.block_params(ret).to_vec();
+    cx.builder.switch_to_block(ret);
+    let rp = cx.builder.block_params(ret).to_vec();
     let (Some(base), Some(ptr)) = (rp.first().copied(), rp.get(1).copied()) else {
         return;
     };
-    let both = cx.b.ins().band(a_len, b_len);
-    let ascii = cx.b.ins().band_imm(both, STR_ASCII_FLAG as i64);
-    let len = cx.b.ins().bor(n, ascii);
+    let both = cx.builder.ins().band(a_len, b_len);
+    let ascii = cx.builder.ins().band_imm(both, STR_ASCII_FLAG as i64);
+    let len = cx.builder.ins().bor(n, ascii);
     return_str(&mut cx, out, base, ptr, len);
 }
 
@@ -340,8 +340,8 @@ fn concat(mut cx: Cx<'_, '_, '_>) {
 fn empty_str(cx: &mut Cx<'_, '_, '_>) -> Value {
     match cx.unit.bytes("") {
         Some(data) => {
-            let gv = cx.unit.module.declare_data_in_func(data, cx.b.func);
-            cx.b.ins().symbol_value(PTR, gv)
+            let gv = cx.unit.module.declare_data_in_func(data, cx.builder.func);
+            cx.builder.ins().symbol_value(PTR, gv)
         }
         None => cx.iconst(PTR, 1),
     }
@@ -358,90 +358,90 @@ fn empty_str(cx: &mut Cx<'_, '_, '_>) -> Value {
 /// to: the negation is taken in two's complement and read back as unsigned,
 /// which is exactly `9223372036854775808`.
 fn show_int(mut cx: Cx<'_, '_, '_>, signed: bool) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     let out = p.get(1).copied();
     let Some(v) = p.first().copied() else { return };
     let buf = cx.slot(DIGITS, 1);
 
     let negative = if signed {
-        cx.b.ins().icmp_imm(IntCC::SignedLessThan, v, 0)
+        cx.builder.ins().icmp_imm(IntCC::SignedLessThan, v, 0)
     } else {
         cx.iconst(types::I8, 0)
     };
-    let flipped = cx.b.ins().ineg(v);
-    let magnitude = cx.b.ins().select(negative, flipped, v);
+    let flipped = cx.builder.ins().ineg(v);
+    let magnitude = cx.builder.ins().select(negative, flipped, v);
 
-    let header = cx.b.create_block();
-    cx.b.append_block_param(header, types::I64);
-    cx.b.append_block_param(header, types::I64);
-    let after = cx.b.create_block();
-    cx.b.append_block_param(after, types::I64);
-    let sign = cx.b.create_block();
-    cx.b.append_block_param(sign, types::I64);
-    let fin = cx.b.create_block();
-    cx.b.append_block_param(fin, types::I64);
+    let header = cx.builder.create_block();
+    cx.builder.append_block_param(header, types::I64);
+    cx.builder.append_block_param(header, types::I64);
+    let after = cx.builder.create_block();
+    cx.builder.append_block_param(after, types::I64);
+    let sign = cx.builder.create_block();
+    cx.builder.append_block_param(sign, types::I64);
+    let fin = cx.builder.create_block();
+    cx.builder.append_block_param(fin, types::I64);
 
     let start = cx.iconst(types::I64, i64::from(DIGITS));
     cx.jump(header, &[start, magnitude]);
 
-    cx.b.switch_to_block(header);
-    let hp = cx.b.block_params(header).to_vec();
+    cx.builder.switch_to_block(header);
+    let hp = cx.builder.block_params(header).to_vec();
     let (Some(i), Some(u)) = (hp.first().copied(), hp.get(1).copied()) else { return };
     let ten = cx.iconst(types::I64, 10);
-    let digit = cx.b.ins().urem(u, ten);
-    let rest = cx.b.ins().udiv(u, ten);
-    let at = cx.b.ins().iadd_imm(i, -1);
-    let ch = cx.b.ins().iadd_imm(digit, 48);
-    let byte = cx.b.ins().ireduce(types::I8, ch);
-    let addr = cx.b.ins().iadd(buf, at);
-    cx.b.ins().store(mem(), byte, addr, 0);
-    let done = cx.b.ins().icmp_imm(IntCC::Equal, rest, 0);
+    let digit = cx.builder.ins().urem(u, ten);
+    let rest = cx.builder.ins().udiv(u, ten);
+    let at = cx.builder.ins().iadd_imm(i, -1);
+    let ch = cx.builder.ins().iadd_imm(digit, 48);
+    let byte = cx.builder.ins().ireduce(types::I8, ch);
+    let addr = cx.builder.ins().iadd(buf, at);
+    cx.builder.ins().store(mem(), byte, addr, 0);
+    let done = cx.builder.ins().icmp_imm(IntCC::Equal, rest, 0);
     let then = [at];
     let els = [at, rest];
     cx.brif(done, after, &then, header, &els);
 
-    cx.b.switch_to_block(after);
-    let ap = cx.b.block_params(after).first().copied().unwrap_or(start);
+    cx.builder.switch_to_block(after);
+    let ap = cx.builder.block_params(after).first().copied().unwrap_or(start);
     let one = [ap];
     cx.brif(negative, sign, &one, fin, &one);
 
-    cx.b.switch_to_block(sign);
-    let sp = cx.b.block_params(sign).first().copied().unwrap_or(start);
-    let minus_at = cx.b.ins().iadd_imm(sp, -1);
+    cx.builder.switch_to_block(sign);
+    let sp = cx.builder.block_params(sign).first().copied().unwrap_or(start);
+    let minus_at = cx.builder.ins().iadd_imm(sp, -1);
     let minus = cx.iconst(types::I8, 45);
-    let maddr = cx.b.ins().iadd(buf, minus_at);
-    cx.b.ins().store(mem(), minus, maddr, 0);
+    let maddr = cx.builder.ins().iadd(buf, minus_at);
+    cx.builder.ins().store(mem(), minus, maddr, 0);
     let arg = [minus_at];
     cx.jump(fin, &arg);
 
-    cx.b.switch_to_block(fin);
-    let fp = cx.b.block_params(fin).first().copied().unwrap_or(start);
+    cx.builder.switch_to_block(fin);
+    let fp = cx.builder.block_params(fin).first().copied().unwrap_or(start);
     let total = cx.iconst(types::I64, i64::from(DIGITS));
-    let n = cx.b.ins().isub(total, fp);
+    let n = cx.builder.ins().isub(total, fp);
     let block = cx.alloc(n);
-    let src = cx.b.ins().iadd(buf, fp);
+    let src = cx.builder.ins().iadd(buf, fp);
     let cfg = cx.unit.module.isa().frontend_config();
-    cx.b.call_memcpy(cfg, block, src, n);
+    cx.builder.call_memcpy(cfg, block, src, n);
     // Decimal digits and a minus sign are all below 0x80, so the rendering is
     // ASCII by construction and `str.len()` on it is a mask
     // (VALUE-MODEL.md §3.1).
-    let len = cx.b.ins().bor_imm(n, STR_ASCII_FLAG as i64);
+    let len = cx.builder.ins().bor_imm(n, STR_ASCII_FLAG as i64);
     return_str(&mut cx, out, block, block, len);
 }
 
 /// `true` and `false`, as literals: two statics and a branch.
 fn show_bool(mut cx: Cx<'_, '_, '_>) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     let out = p.get(1).copied();
     let Some(v) = p.first().copied() else { return };
-    let yes = cx.b.create_block();
-    let no = cx.b.create_block();
+    let yes = cx.builder.create_block();
+    let no = cx.builder.create_block();
     cx.brif(v, yes, &[], no, &[]);
     for (block, text) in [(yes, "true"), (no, "false")] {
-        cx.b.switch_to_block(block);
+        cx.builder.switch_to_block(block);
         let Some(data) = cx.unit.bytes(text) else { continue };
-        let gv = cx.unit.module.declare_data_in_func(data, cx.b.func);
-        let ptr = cx.b.ins().symbol_value(PTR, gv);
+        let gv = cx.unit.module.declare_data_in_func(data, cx.builder.func);
+        let ptr = cx.builder.ins().symbol_value(PTR, gv);
         let zero = cx.iconst(PTR, 0);
         let len = cx.iconst(types::I64, (text.len() as u64 | STR_ASCII_FLAG) as i64);
         return_str(&mut cx, out, zero, ptr, len);
@@ -451,32 +451,32 @@ fn show_bool(mut cx: Cx<'_, '_, '_>) {
 /// The drop glue every closure environment shares: the block's first word is
 /// the type-specific release function, and the record follows it.
 fn env_glue(mut cx: Cx<'_, '_, '_>) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     let Some(block) = p.first().copied() else { return };
     let f = cx.load_at(PTR, block, 0);
-    let live = cx.b.create_block();
-    let done = cx.b.create_block();
-    let none = cx.b.ins().icmp_imm(IntCC::Equal, f, 0);
+    let live = cx.builder.create_block();
+    let done = cx.builder.create_block();
+    let none = cx.builder.ins().icmp_imm(IntCC::Equal, f, 0);
     cx.brif(none, done, &[], live, &[]);
-    cx.b.switch_to_block(live);
+    cx.builder.switch_to_block(live);
     let mut sig = Signature::new(cx.unit.abi.call_conv);
     sig.params.push(AbiParam::new(PTR));
-    let sr = cx.b.import_signature(sig);
+    let sr = cx.builder.import_signature(sig);
     let record = cx.offset(block, ENV_FIELDS);
-    cx.b.ins().call_indirect(sr, f, &[record]);
+    cx.builder.ins().call_indirect(sr, f, &[record]);
     cx.jump(done, &[]);
-    cx.b.switch_to_block(done);
-    cx.b.ins().return_(&[]);
+    cx.builder.switch_to_block(done);
+    cx.builder.ins().return_(&[]);
 }
 
 /// Release the contents of one value of a type: the per-type drop glue.
 fn release(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     let Some(addr) = p.first().copied() else { return };
     if let Some(ty) = ty {
         cx.walk_rc(&ty, addr, false, 0);
     }
-    cx.b.ins().return_(&[]);
+    cx.builder.ins().return_(&[]);
 }
 
 /// Release every element of a `[T]` block.
@@ -485,15 +485,15 @@ fn release(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
 /// (VALUE-MODEL.md §2) — which is what makes a drop glue taking only a pointer
 /// enough for a list.
 fn release_elems(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     let Some(addr) = p.first().copied() else { return };
     if let Some(elem) = ty {
         let stride = cx.unit.abi.layouts.shared(&elem).stride.max(1);
-        let cap = cx.b.ins().load(types::I64, mem(), addr, HEADER_CAP_OFFSET);
-        let count = cx.b.ins().udiv_imm(cap, i64::from(stride));
+        let cap = cx.builder.ins().load(types::I64, mem(), addr, HEADER_CAP_OFFSET);
+        let count = cx.builder.ins().udiv_imm(cap, i64::from(stride));
         cx.each_element(addr, count, stride, &elem, false);
     }
-    cx.b.ins().return_(&[]);
+    cx.builder.ins().return_(&[]);
 }
 
 /// One element of a `[T]`, retained in place.
@@ -504,11 +504,11 @@ fn release_elems(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
 /// the object, which is what lets `cli/runtime/list.rs` take one as a plain
 /// function pointer.
 fn retain_elem(mut cx: Cx<'_, '_, '_>, ty: Option<Ty>) {
-    let p = entry(cx.b);
+    let p = entry(cx.builder);
     if let (Some(addr), Some(elem)) = (p.first().copied(), ty) {
         cx.walk_rc(&elem, addr, true, 0);
     }
-    cx.b.ins().return_(&[]);
+    cx.builder.ins().return_(&[]);
 }
 
 #[cfg(test)]

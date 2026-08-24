@@ -470,8 +470,8 @@ impl<'a> Unit<'a> {
         let sig = self.abi.signature(self.program, &f.sig);
         let what = f.debug_name.clone();
         let rets = f.sig.rets.clone();
-        self.build_function(id, sig, &what, |unit, b| {
-            let mut lower = Lower::new(Cx::new(unit, b), code, &rets);
+        self.build_function(id, sig, &what, |unit, builder| {
+            let mut lower = Lower::new(Cx::new(unit, builder), code, &rets);
             lower.run();
         });
     }
@@ -489,12 +489,12 @@ impl<'a> Unit<'a> {
 /// and from a generated `release` alike.
 pub struct Cx<'u, 'a, 'b> {
     pub unit: &'u mut Unit<'a>,
-    pub b: &'u mut FunctionBuilder<'b>,
+    pub builder: &'u mut FunctionBuilder<'b>,
 }
 
 impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
-    pub fn new(unit: &'u mut Unit<'a>, b: &'u mut FunctionBuilder<'b>) -> Cx<'u, 'a, 'b> {
-        Cx { unit, b }
+    pub fn new(unit: &'u mut Unit<'a>, builder: &'u mut FunctionBuilder<'b>) -> Cx<'u, 'a, 'b> {
+        Cx { unit, builder }
     }
 
     pub fn tables(&self) -> &'a Tables {
@@ -521,11 +521,11 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     /// site remembers.
     pub fn iconst(&mut self, ty: ClifType, v: i64) -> Value {
         if ty == types::I128 {
-            let lo = self.b.ins().iconst(types::I64, v);
+            let lo = self.builder.ins().iconst(types::I64, v);
             // Sign-extended: the callers that pass a negative mean a negative,
             // and the ones that pass a bit pattern pass a non-negative one.
-            let hi = self.b.ins().iconst(types::I64, if v < 0 { -1 } else { 0 });
-            return self.b.ins().iconcat(lo, hi);
+            let hi = self.builder.ins().iconst(types::I64, if v < 0 { -1 } else { 0 });
+            return self.builder.ins().iconcat(lo, hi);
         }
         let masked = if ty.bits() >= 64 {
             v
@@ -534,33 +534,33 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
             let mask = (1i64 << bits).wrapping_sub(1);
             v & mask
         };
-        self.b.ins().iconst(ty, masked)
+        self.builder.ins().iconst(ty, masked)
     }
 
     pub fn load_at(&mut self, ty: ClifType, addr: Value, offset: u32) -> Value {
         let off = i32::try_from(offset).unwrap_or(0);
-        self.b.ins().load(ty, mem(), addr, off)
+        self.builder.ins().load(ty, mem(), addr, off)
     }
 
     pub fn store_at(&mut self, addr: Value, offset: u32, v: Value) {
         let off = i32::try_from(offset).unwrap_or(0);
-        self.b.ins().store(mem(), v, addr, off);
+        self.builder.ins().store(mem(), v, addr, off);
     }
 
     pub fn offset(&mut self, addr: Value, by: u32) -> Value {
         if by == 0 {
             return addr;
         }
-        self.b.ins().iadd_imm(addr, i64::from(by))
+        self.builder.ins().iadd_imm(addr, i64::from(by))
     }
 
     pub fn slot(&mut self, size: u32, align: u32) -> Value {
-        let s: StackSlot = self.b.create_sized_stack_slot(StackSlotData::new(
+        let s: StackSlot = self.builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
             size.max(1),
             abi::align_shift(align),
         ));
-        self.b.ins().stack_addr(PTR, s, 0)
+        self.builder.ins().stack_addr(PTR, s, 0)
     }
 
     pub fn copy(&mut self, dest: Value, src: Value, size: u32, align: u32) {
@@ -569,38 +569,38 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         }
         let cfg = self.unit.module.isa().frontend_config();
         let a = u8::try_from(align.min(16)).unwrap_or(1);
-        self.b.emit_small_memory_copy(cfg, dest, src, u64::from(size), a, a, true, mem());
+        self.builder.emit_small_memory_copy(cfg, dest, src, u64::from(size), a, a, true, mem());
     }
 
     pub fn jump(&mut self, block: Block, args: &[Value]) {
         let args: Vec<BlockArg> = args.iter().map(|v| BlockArg::from(*v)).collect();
-        self.b.ins().jump(block, &args);
+        self.builder.ins().jump(block, &args);
     }
 
     pub fn brif(&mut self, c: Value, t: Block, ta: &[Value], f: Block, fa: &[Value]) {
         let ta: Vec<BlockArg> = ta.iter().map(|v| BlockArg::from(*v)).collect();
         let fa: Vec<BlockArg> = fa.iter().map(|v| BlockArg::from(*v)).collect();
-        self.b.ins().brif(c, t, &ta, f, &fa);
+        self.builder.ins().brif(c, t, &ta, f, &fa);
     }
 
     pub fn rt_ref(&mut self, symbol: &str, params: &[ClifType], rets: &[ClifType]) -> FuncRef {
         let id = self.unit.rt(symbol, params, rets);
-        self.unit.module.declare_func_in_func(id, self.b.func)
+        self.unit.module.declare_func_in_func(id, self.builder.func)
     }
 
     fn helper_ref(&mut self, key: Helper, ty: Option<Ty>) -> Option<FuncRef> {
         let id = self.unit.helper(key, ty)?;
-        Some(self.unit.module.declare_func_in_func(id, self.b.func))
+        Some(self.unit.module.declare_func_in_func(id, self.builder.func))
     }
 
     pub fn func_ref(&mut self, idx: usize) -> Option<FuncRef> {
         let id = self.unit.func(idx)?;
-        Some(self.unit.module.declare_func_in_func(id, self.b.func))
+        Some(self.unit.module.declare_func_in_func(id, self.builder.func))
     }
 
     pub fn call1(&mut self, r: FuncRef, args: &[Value]) -> Option<Value> {
-        let inst = self.b.ins().call(r, args);
-        self.b.inst_results(inst).first().copied()
+        let inst = self.builder.ins().call(r, args);
+        self.builder.inst_results(inst).first().copied()
     }
 
     pub fn alloc(&mut self, bytes: Value) -> Value {
@@ -611,12 +611,12 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     /// The abort, and the trap behind it (§3.7).
     fn abort_with(&mut self, message: &str) {
         let Some(data) = self.unit.bytes(message) else { return };
-        let gv = self.unit.module.declare_data_in_func(data, self.b.func);
-        let ptr = self.b.ins().symbol_value(PTR, gv);
+        let gv = self.unit.module.declare_data_in_func(data, self.builder.func);
+        let ptr = self.builder.ins().symbol_value(PTR, gv);
         let len = self.iconst(types::I64, message.len() as i64);
         let f = self.rt_ref("buri_rt_abort", &[PTR, types::I64], &[]);
-        self.b.ins().call(f, &[ptr, len]);
-        self.b.ins().trap(UNREACHABLE);
+        self.builder.ins().call(f, &[ptr, len]);
+        self.builder.ins().trap(UNREACHABLE);
     }
 
     // -- reference counting -------------------------------------------------
@@ -723,14 +723,14 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
                 }
                 Site::Guarded { null_at, ty } => {
                     let p = self.load_at(PTR, addr, null_at);
-                    let live = self.b.create_block();
-                    let done = self.b.create_block();
-                    let is_null = self.b.ins().icmp_imm(IntCC::Equal, p, 0);
+                    let live = self.builder.create_block();
+                    let done = self.builder.create_block();
+                    let is_null = self.builder.ins().icmp_imm(IntCC::Equal, p, 0);
                     self.brif(is_null, done, &[], live, &[]);
-                    self.b.switch_to_block(live);
+                    self.builder.switch_to_block(live);
                     self.walk_or_call(&ty, addr, retain, depth);
                     self.jump(done, &[]);
-                    self.b.switch_to_block(done);
+                    self.builder.switch_to_block(done);
                 }
             }
         }
@@ -760,7 +760,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         if self.wide_rc(ty) {
             let glue = if retain { self.retain_glue(ty) } else { self.release_glue(ty) };
             if let Some(g) = glue {
-                self.b.ins().call(g, &[addr]);
+                self.builder.ins().call(g, &[addr]);
                 return;
             }
         }
@@ -777,8 +777,8 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     ) {
         let t = scalar_clif(tag);
         let raw = self.load_at(t, addr, 0);
-        let key = if t == types::I32 { raw } else { self.b.ins().uextend(types::I32, raw) };
-        let done = self.b.create_block();
+        let key = if t == types::I32 { raw } else { self.builder.ins().uextend(types::I32, raw) };
+        let done = self.builder.create_block();
         let mut sw = Switch::new();
         let mut arms = Vec::new();
         // One arm per variant that has anything to release, and one block per
@@ -789,16 +789,16 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
             by_variant.entry(*v).or_default().push((ty.clone(), *offset, *boxed));
         }
         for (v, fields) in by_variant {
-            let bb = self.b.create_block();
+            let bb = self.builder.create_block();
             sw.set_entry(u128::from(v), bb);
             arms.push((bb, fields));
         }
-        let otherwise = self.b.create_block();
-        sw.emit(self.b, key, otherwise);
-        self.b.switch_to_block(otherwise);
+        let otherwise = self.builder.create_block();
+        sw.emit(self.builder, key, otherwise);
+        self.builder.switch_to_block(otherwise);
         self.jump(done, &[]);
         for (bb, fields) in arms {
-            self.b.switch_to_block(bb);
+            self.builder.switch_to_block(bb);
             for (ty, offset, boxed) in fields {
                 if boxed {
                     // The field *is* the pointer, so this is one reference
@@ -818,7 +818,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
             }
             self.jump(done, &[]);
         }
-        self.b.switch_to_block(done);
+        self.builder.switch_to_block(done);
     }
 
     /// The saturating increment of MEMORY.md §5.1, branchless.
@@ -843,18 +843,18 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     /// instructions and got 15 % *slower*, because register allocation here is
     /// priced in live ranges rather than in blocks.
     pub fn incref(&mut self, p: Value) {
-        let live = self.b.create_block();
-        let done = self.b.create_block();
-        let is_null = self.b.ins().icmp_imm(IntCC::Equal, p, 0);
+        let live = self.builder.create_block();
+        let done = self.builder.create_block();
+        let is_null = self.builder.ins().icmp_imm(IntCC::Equal, p, 0);
         self.brif(is_null, done, &[], live, &[]);
-        self.b.switch_to_block(live);
-        let rc = self.b.ins().load(types::I64, mem(), p, HEADER_RC_OFFSET);
-        let sum = self.b.ins().iadd_imm(rc, 1);
-        let immortal = self.b.ins().icmp_imm(IntCC::Equal, rc, IMMORTAL as i64);
-        let n = self.b.ins().select(immortal, rc, sum);
-        self.b.ins().store(mem(), n, p, HEADER_RC_OFFSET);
+        self.builder.switch_to_block(live);
+        let rc = self.builder.ins().load(types::I64, mem(), p, HEADER_RC_OFFSET);
+        let sum = self.builder.ins().iadd_imm(rc, 1);
+        let immortal = self.builder.ins().icmp_imm(IntCC::Equal, rc, IMMORTAL as i64);
+        let n = self.builder.ins().select(immortal, rc, sum);
+        self.builder.ins().store(mem(), n, p, HEADER_RC_OFFSET);
         self.jump(done, &[]);
-        self.b.switch_to_block(done);
+        self.builder.switch_to_block(done);
     }
 
     /// The decrement, with the free on a cold path.
@@ -866,36 +866,36 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     ///
     /// The null test stays a branch for the reason [`Cx::incref`] records.
     pub fn decref(&mut self, p: Value, glue: Option<FuncRef>) {
-        let live = self.b.create_block();
-        let fast = self.b.create_block();
-        let slow = self.b.create_block();
-        let done = self.b.create_block();
-        let is_null = self.b.ins().icmp_imm(IntCC::Equal, p, 0);
+        let live = self.builder.create_block();
+        let fast = self.builder.create_block();
+        let slow = self.builder.create_block();
+        let done = self.builder.create_block();
+        let is_null = self.builder.ins().icmp_imm(IntCC::Equal, p, 0);
         self.brif(is_null, done, &[], live, &[]);
-        self.b.switch_to_block(live);
-        let rc = self.b.ins().load(types::I64, mem(), p, HEADER_RC_OFFSET);
-        let above_one = self.b.ins().icmp_imm(IntCC::UnsignedGreaterThan, rc, 1);
+        self.builder.switch_to_block(live);
+        let rc = self.builder.ins().load(types::I64, mem(), p, HEADER_RC_OFFSET);
+        let above_one = self.builder.ins().icmp_imm(IntCC::UnsignedGreaterThan, rc, 1);
         let immortal = self.iconst(types::I64, IMMORTAL as i64);
-        let mortal = self.b.ins().icmp(IntCC::NotEqual, rc, immortal);
-        let ordinary = self.b.ins().band(above_one, mortal);
+        let mortal = self.builder.ins().icmp(IntCC::NotEqual, rc, immortal);
+        let ordinary = self.builder.ins().band(above_one, mortal);
         self.brif(ordinary, fast, &[], slow, &[]);
-        self.b.set_cold_block(slow);
+        self.builder.set_cold_block(slow);
 
-        self.b.switch_to_block(fast);
-        let n = self.b.ins().iadd_imm(rc, -1);
-        self.b.ins().store(mem(), n, p, HEADER_RC_OFFSET);
+        self.builder.switch_to_block(fast);
+        let n = self.builder.ins().iadd_imm(rc, -1);
+        self.builder.ins().store(mem(), n, p, HEADER_RC_OFFSET);
         self.jump(done, &[]);
 
-        self.b.switch_to_block(slow);
+        self.builder.switch_to_block(slow);
         let g = match glue {
-            Some(r) => self.b.ins().func_addr(PTR, r),
+            Some(r) => self.builder.ins().func_addr(PTR, r),
             None => self.iconst(PTR, 0),
         };
         let f = self.rt_ref("buri_rt_decref", &[PTR, PTR], &[]);
-        self.b.ins().call(f, &[p, g]);
+        self.builder.ins().call(f, &[p, g]);
         self.jump(done, &[]);
 
-        self.b.switch_to_block(done);
+        self.builder.switch_to_block(done);
     }
 
     fn glue_ref(&mut self, glue: &Glue) -> Option<FuncRef> {
@@ -939,23 +939,23 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
 
     /// A counted loop over a block's elements.
     pub fn each_element(&mut self, base: Value, count: Value, stride: u32, elem: &Ty, retain: bool) {
-        let header = self.b.create_block();
-        self.b.append_block_param(header, types::I64);
-        let body = self.b.create_block();
-        let done = self.b.create_block();
+        let header = self.builder.create_block();
+        self.builder.append_block_param(header, types::I64);
+        let body = self.builder.create_block();
+        let done = self.builder.create_block();
         let zero = self.iconst(types::I64, 0);
         self.jump(header, &[zero]);
-        self.b.switch_to_block(header);
-        let i = self.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.b.ins().icmp(IntCC::UnsignedLessThan, i, count);
+        self.builder.switch_to_block(header);
+        let i = self.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.builder.ins().icmp(IntCC::UnsignedLessThan, i, count);
         self.brif(more, body, &[], done, &[]);
-        self.b.switch_to_block(body);
-        let scaled = self.b.ins().imul_imm(i, i64::from(stride));
-        let p = self.b.ins().iadd(base, scaled);
+        self.builder.switch_to_block(body);
+        let scaled = self.builder.ins().imul_imm(i, i64::from(stride));
+        let p = self.builder.ins().iadd(base, scaled);
         self.walk_rc(elem, p, retain, 0);
-        let next = self.b.ins().iadd_imm(i, 1);
+        let next = self.builder.ins().iadd_imm(i, 1);
         self.jump(header, &[next]);
-        self.b.switch_to_block(done);
+        self.builder.switch_to_block(done);
     }
 }
 
@@ -1144,14 +1144,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
 
     fn run(&mut self) {
         for (i, block) in self.code.blocks.iter().enumerate() {
-            let cb = self.cx.b.create_block();
+            let cb = self.cx.builder.create_block();
             if i == 0 {
-                self.cx.b.append_block_params_for_function_params(cb);
+                self.cx.builder.append_block_params_for_function_params(cb);
             } else {
                 for p in &block.params {
                     let ty = self.code.ty_of(*p);
                     for leaf in self.leaves(ty).iter() {
-                        self.cx.b.append_block_param(cb, leaf.ty);
+                        self.cx.builder.append_block_param(cb, leaf.ty);
                     }
                 }
             }
@@ -1159,12 +1159,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         }
         for i in 0..self.code.blocks.len() {
             let Some(cb) = self.blocks.get(i).copied() else { continue };
-            self.cx.b.switch_to_block(cb);
+            self.cx.builder.switch_to_block(cb);
             self.filled = false;
             if i == 0 && self.rets_indirect() {
                 // Appended after the parameters, so it is the last of them and
                 // `bind_params` — which takes from the front — never sees it.
-                self.ret_out = self.cx.b.block_params(cb).last().copied();
+                self.ret_out = self.cx.builder.block_params(cb).last().copied();
             }
             self.bind_params(i, cb);
             let Some(block) = self.code.blocks.get(i) else { continue };
@@ -1182,7 +1182,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// pointer somebody else may overwrite (`abi.rs`).
     fn bind_params(&mut self, index: usize, cb: Block) {
         let Some(block) = self.code.blocks.get(index) else { return };
-        let params: Vec<Value> = self.cx.b.block_params(cb).to_vec();
+        let params: Vec<Value> = self.cx.builder.block_params(cb).to_vec();
         let mut at = 0usize;
         for p in &block.params {
             let ty = self.code.ty_of(*p);
@@ -1226,12 +1226,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return None;
         }
         let l = self.layout(ty);
-        let slot = self.cx.b.create_sized_stack_slot(StackSlotData::new(
+        let slot = self.cx.builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
             l.size.max(1),
             abi::align_shift(l.align),
         ));
-        let addr = self.cx.b.ins().stack_addr(PTR, slot, 0);
+        let addr = self.cx.builder.ins().stack_addr(PTR, slot, 0);
         for (leaf, val) in leaves.iter().zip(vals.iter().copied()) {
             self.cx.store_at(addr, leaf.offset, val);
         }
@@ -1250,12 +1250,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             *slot = None;
         }
         if let Some(Some(slot)) = self.slots.get(v.index()).copied() {
-            let addr = self.cx.b.ins().stack_addr(PTR, slot, 0);
+            let addr = self.cx.builder.ins().stack_addr(PTR, slot, 0);
             self.set(v, Some(addr));
             return addr;
         }
         let l = self.layout(ty);
-        let slot = self.cx.b.create_sized_stack_slot(StackSlotData::new(
+        let slot = self.cx.builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
             l.size.max(1),
             abi::align_shift(l.align),
@@ -1263,7 +1263,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         if let Some(s) = self.slots.get_mut(v.index()) {
             *s = Some(slot);
         }
-        let addr = self.cx.b.ins().stack_addr(PTR, slot, 0);
+        let addr = self.cx.builder.ins().stack_addr(PTR, slot, 0);
         self.set(v, Some(addr));
         addr
     }
@@ -1381,7 +1381,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 self.cx.release_glue(&source)
             };
             if let Some(g) = glue {
-                self.cx.b.ins().call(g, &[addr]);
+                self.cx.builder.ins().call(g, &[addr]);
                 return;
             }
         }
@@ -1410,7 +1410,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     Some(t) if t == types::I128 => {
                         let lo = self.cx.iconst(types::I64, raw as i64);
                         let hi = self.cx.iconst(types::I64, (raw >> 64) as i64);
-                        self.cx.b.ins().iconcat(lo, hi)
+                        self.cx.builder.ins().iconcat(lo, hi)
                     }
                     Some(t) => self.cx.iconst(t, raw as i64),
                     None => {
@@ -1422,8 +1422,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
             Const::Float(f) => {
                 let v = match Abi::register(ty) {
-                    Some(t) if t == types::F32 => self.cx.b.ins().f32const(*f as f32),
-                    _ => self.cx.b.ins().f64const(*f),
+                    Some(t) if t == types::F32 => self.cx.builder.ins().f32const(*f as f32),
+                    _ => self.cx.builder.ins().f64const(*f),
                 };
                 self.set(dest, Some(v));
             }
@@ -1433,17 +1433,17 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             // the claim is that nothing observes it.
             Const::Undef => match Abi::register(ty) {
                 Some(t) if t == types::F32 => {
-                    let v = self.cx.b.ins().f32const(0.0);
+                    let v = self.cx.builder.ins().f32const(0.0);
                     self.set(dest, Some(v));
                 }
                 Some(t) if t == types::F64 => {
-                    let v = self.cx.b.ins().f64const(0.0);
+                    let v = self.cx.builder.ins().f64const(0.0);
                     self.set(dest, Some(v));
                 }
                 Some(t) if t == types::I128 => {
                     let lo = self.cx.iconst(types::I64, 0);
                     let hi = self.cx.iconst(types::I64, 0);
-                    let v = self.cx.b.ins().iconcat(lo, hi);
+                    let v = self.cx.builder.ins().iconcat(lo, hi);
                     self.set(dest, Some(v));
                 }
                 Some(t) => {
@@ -1469,8 +1469,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             self.cx.unit.errors.push(String::from("cannot emit a string literal"));
             return;
         };
-        let gv = self.cx.unit.module.declare_data_in_func(data, self.cx.b.func);
-        let ptr = self.cx.b.ins().symbol_value(PTR, gv);
+        let gv = self.cx.unit.module.declare_data_in_func(data, self.cx.builder.func);
+        let ptr = self.cx.builder.ins().symbol_value(PTR, gv);
         let zero = self.cx.iconst(PTR, 0);
         let ascii = if s.is_ascii() { STR_ASCII_FLAG } else { 0 };
         let len = self.cx.iconst(types::I64, (s.len() as u64 | ascii) as i64);
@@ -1484,11 +1484,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return;
         };
         let v = match op {
-            UnOp::Neg if matches!(prim, Prim::F32 | Prim::F64) => self.cx.b.ins().fneg(a),
-            UnOp::Neg => self.cx.b.ins().ineg(a),
+            UnOp::Neg if matches!(prim, Prim::F32 | Prim::F64) => self.cx.builder.ins().fneg(a),
+            UnOp::Neg => self.cx.builder.ins().ineg(a),
             // `Bool` is 0 or 1, so `not` is `x ^ 1` and stays in that set.
-            UnOp::Not => self.cx.b.ins().bxor_imm(a, 1),
-            UnOp::BitNot => self.cx.b.ins().bnot(a),
+            UnOp::Not => self.cx.builder.ins().bxor_imm(a, 1),
+            UnOp::BitNot => self.cx.builder.ins().bnot(a),
         };
         self.set(dest, Some(v));
     }
@@ -1506,12 +1506,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// separates `-0.0` from `0.0`, and it separates two `NaN`s with different
     /// payloads.
     fn float_equality(&mut self, op: BinOp, x: Value, y: Value) -> Value {
-        let equal = self.cx.b.ins().fcmp(FloatCC::Equal, x, y);
-        let x_nan = self.cx.b.ins().fcmp(FloatCC::Unordered, x, x);
-        let y_nan = self.cx.b.ins().fcmp(FloatCC::Unordered, y, y);
-        let both_nan = self.cx.b.ins().band(x_nan, y_nan);
-        let same = self.cx.b.ins().bor(equal, both_nan);
-        if op == BinOp::Ne { self.cx.b.ins().bxor_imm(same, 1) } else { same }
+        let equal = self.cx.builder.ins().fcmp(FloatCC::Equal, x, y);
+        let x_nan = self.cx.builder.ins().fcmp(FloatCC::Unordered, x, x);
+        let y_nan = self.cx.builder.ins().fcmp(FloatCC::Unordered, y, y);
+        let both_nan = self.cx.builder.ins().band(x_nan, y_nan);
+        let same = self.cx.builder.ins().bor(equal, both_nan);
+        if op == BinOp::Ne { self.cx.builder.ins().bxor_imm(same, 1) } else { same }
     }
 
     fn binary(&mut self, dest: ValueId, op: BinOp, prim: Prim, lhs: ValueId, rhs: ValueId) {
@@ -1544,7 +1544,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     BinOp::Gt => FloatCC::GreaterThan,
                     _ => FloatCC::GreaterThanOrEqual,
                 };
-                self.cx.b.ins().fcmp(cc, x, y)
+                self.cx.builder.ins().fcmp(cc, x, y)
             } else {
                 let cc = match (op, signed) {
                     (BinOp::Eq, _) => IntCC::Equal,
@@ -1558,17 +1558,17 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     (_, true) => IntCC::SignedGreaterThanOrEqual,
                     (_, false) => IntCC::UnsignedGreaterThanOrEqual,
                 };
-                self.cx.b.ins().icmp(cc, x, y)
+                self.cx.builder.ins().icmp(cc, x, y)
             };
             self.set(dest, Some(v));
             return;
         }
         if float {
             let v = match op {
-                BinOp::Add => self.cx.b.ins().fadd(x, y),
-                BinOp::Sub => self.cx.b.ins().fsub(x, y),
-                BinOp::Mul => self.cx.b.ins().fmul(x, y),
-                BinOp::Div => self.cx.b.ins().fdiv(x, y),
+                BinOp::Add => self.cx.builder.ins().fadd(x, y),
+                BinOp::Sub => self.cx.builder.ins().fsub(x, y),
+                BinOp::Mul => self.cx.builder.ins().fmul(x, y),
+                BinOp::Div => self.cx.builder.ins().fdiv(x, y),
                 _ => {
                     self.cx
                         .unit
@@ -1586,12 +1586,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return;
         }
         let v = match op {
-            BinOp::Add => self.cx.b.ins().iadd(x, y),
-            BinOp::Sub => self.cx.b.ins().isub(x, y),
-            BinOp::Mul => self.cx.b.ins().imul(x, y),
-            BinOp::BitAnd => self.cx.b.ins().band(x, y),
-            BinOp::BitOr => self.cx.b.ins().bor(x, y),
-            BinOp::BitXor => self.cx.b.ins().bxor(x, y),
+            BinOp::Add => self.cx.builder.ins().iadd(x, y),
+            BinOp::Sub => self.cx.builder.ins().isub(x, y),
+            BinOp::Mul => self.cx.builder.ins().imul(x, y),
+            BinOp::BitAnd => self.cx.builder.ins().band(x, y),
+            BinOp::BitOr => self.cx.builder.ins().bor(x, y),
+            BinOp::BitXor => self.cx.builder.ins().bxor(x, y),
             _ => x,
         };
         self.set(dest, Some(v));
@@ -1603,32 +1603,32 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// runtime so that `cli/tests/crash/` pins one string for both backends
     /// (CODEGEN-CRANELIFT.md §3.7). The abort block is cold.
     fn divide(&mut self, op: BinOp, prim: Prim, x: Value, y: Value) -> Value {
-        let ty = self.cx.b.func.dfg.value_type(y);
+        let ty = self.cx.builder.func.dfg.value_type(y);
         let zero = if ty == types::I128 {
             let lo = self.cx.iconst(types::I64, 0);
             let hi = self.cx.iconst(types::I64, 0);
-            self.cx.b.ins().iconcat(lo, hi)
+            self.cx.builder.ins().iconcat(lo, hi)
         } else {
             self.cx.iconst(ty, 0)
         };
-        let is_zero = self.cx.b.ins().icmp(IntCC::Equal, y, zero);
-        let bad = self.cx.b.create_block();
-        let ok = self.cx.b.create_block();
+        let is_zero = self.cx.builder.ins().icmp(IntCC::Equal, y, zero);
+        let bad = self.cx.builder.create_block();
+        let ok = self.cx.builder.create_block();
         self.cx.brif(is_zero, bad, &[], ok, &[]);
-        self.cx.b.set_cold_block(bad);
-        self.cx.b.switch_to_block(bad);
+        self.cx.builder.set_cold_block(bad);
+        self.cx.builder.switch_to_block(bad);
         let abort = self.cx.rt_ref("buri_rt_abort_div_zero", &[], &[]);
-        self.cx.b.ins().call(abort, &[]);
-        self.cx.b.ins().trap(UNREACHABLE);
-        self.cx.b.switch_to_block(ok);
+        self.cx.builder.ins().call(abort, &[]);
+        self.cx.builder.ins().trap(UNREACHABLE);
+        self.cx.builder.switch_to_block(ok);
         if ty == types::I128 {
             return self.i128_divmod(op, prim, x, y);
         }
         match (op, signed_prim(prim)) {
-            (BinOp::Div, true) => self.cx.b.ins().sdiv(x, y),
-            (BinOp::Div, false) => self.cx.b.ins().udiv(x, y),
-            (_, true) => self.cx.b.ins().srem(x, y),
-            (_, false) => self.cx.b.ins().urem(x, y),
+            (BinOp::Div, true) => self.cx.builder.ins().sdiv(x, y),
+            (BinOp::Div, false) => self.cx.builder.ins().udiv(x, y),
+            (_, true) => self.cx.builder.ins().srem(x, y),
+            (_, false) => self.cx.builder.ins().urem(x, y),
         }
     }
 
@@ -1638,8 +1638,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// first, so neither backend has to agree with the platform ABI about how
     /// a 128-bit integer is classified.
     fn i128_divmod(&mut self, op: BinOp, prim: Prim, x: Value, y: Value) -> Value {
-        let (a_lo, a_hi) = self.cx.b.ins().isplit(x);
-        let (b_lo, b_hi) = self.cx.b.ins().isplit(y);
+        let (a_lo, a_hi) = self.cx.builder.ins().isplit(x);
+        let (b_lo, b_hi) = self.cx.builder.ins().isplit(y);
         let signed = self.cx.iconst(types::I8, i64::from(signed_prim(prim)));
         let quot = self.cx.slot(16, 8);
         let rem = self.cx.slot(16, 8);
@@ -1648,11 +1648,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             &[types::I64, types::I64, types::I64, types::I64, types::I8, PTR, PTR],
             &[],
         );
-        self.cx.b.ins().call(f, &[a_lo, a_hi, b_lo, b_hi, signed, quot, rem]);
+        self.cx.builder.ins().call(f, &[a_lo, a_hi, b_lo, b_hi, signed, quot, rem]);
         let out = if matches!(op, BinOp::Div) { quot } else { rem };
         let lo = self.cx.load_at(types::I64, out, 0);
         let hi = self.cx.load_at(types::I64, out, 8);
-        self.cx.b.ins().iconcat(lo, hi)
+        self.cx.builder.ins().iconcat(lo, hi)
     }
 
     // -- aggregates ---------------------------------------------------------
@@ -1847,7 +1847,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 if t == types::I32 {
                     raw
                 } else {
-                    self.cx.b.ins().uextend(types::I32, raw)
+                    self.cx.builder.ins().uextend(types::I32, raw)
                 }
             }
             // `.None` is the null, and the variant it stands for is 1 —
@@ -1855,8 +1855,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             (Repr::Enum { repr: EnumRepr::Niche { null_at }, .. }, Some(a)) => {
                 let at = *null_at;
                 let p = self.cx.load_at(PTR, a, at);
-                let is_null = self.cx.b.ins().icmp_imm(IntCC::Equal, p, 0);
-                self.cx.b.ins().uextend(types::I32, is_null)
+                let is_null = self.cx.builder.ins().icmp_imm(IntCC::Equal, p, 0);
+                self.cx.builder.ins().uextend(types::I32, is_null)
             }
             // A zero-sized or uninhabited enum: there is one variant and it is
             // variant zero.
@@ -1870,13 +1870,13 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         match tag {
             Tag::Const(k) => self.cx.iconst(types::I32, i64::from(k)),
             Tag::Live(v) => {
-                let t = self.cx.b.func.dfg.value_type(v);
+                let t = self.cx.builder.func.dfg.value_type(v);
                 if t == types::I32 {
                     v
                 } else if t.bits() < 32 {
-                    self.cx.b.ins().uextend(types::I32, v)
+                    self.cx.builder.ins().uextend(types::I32, v)
                 } else {
-                    self.cx.b.ins().ireduce(types::I32, v)
+                    self.cx.builder.ins().ireduce(types::I32, v)
                 }
             }
         }
@@ -1905,8 +1905,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return;
         };
         let base = self.cx.load_at(PTR, addr, word(LIST_PTR));
-        let scaled = self.cx.b.ins().imul_imm(i, i64::from(stride));
-        let p = self.cx.b.ins().iadd(base, scaled);
+        let scaled = self.cx.builder.ins().imul_imm(i, i64::from(stride));
+        let p = self.cx.builder.ins().iadd(base, scaled);
         self.read_into(dest, p, 0, false);
     }
 
@@ -1926,16 +1926,16 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         };
         let base = self.cx.load_at(PTR, addr, word(LIST_PTR));
         let len = self.cx.load_at(types::I64, addr, word(LIST_LEN));
-        let count = self.cx.b.ins().isub(len, start);
+        let count = self.cx.builder.ins().isub(len, start);
         let out = self.alloc_slot(dest, self.code.ty_of(dest));
         let stride_v = self.cx.iconst(types::I64, i64::from(stride));
         let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let fresh = self.cx.call1(new, &[count, stride_v, out]).unwrap_or(base);
-        let scaled = self.cx.b.ins().imul_imm(start, i64::from(stride));
-        let src = self.cx.b.ins().iadd(base, scaled);
-        let bytes = self.cx.b.ins().imul_imm(count, i64::from(stride));
+        let scaled = self.cx.builder.ins().imul_imm(start, i64::from(stride));
+        let src = self.cx.builder.ins().iadd(base, scaled);
+        let bytes = self.cx.builder.ins().imul_imm(count, i64::from(stride));
         let cfg = self.cx.unit.module.isa().frontend_config();
-        self.cx.b.call_memcpy(cfg, fresh, src, bytes);
+        self.cx.builder.call_memcpy(cfg, fresh, src, bytes);
         if let Some(elem) = elem {
             if self.cx.counted(&elem) {
                 self.cx.each_element(fresh, count, stride, &elem, true);
@@ -1962,7 +1962,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let addr = self.alloc_slot(dest, ty);
         let key = Helper::Thunk { func: u32::try_from(func).unwrap_or(0), env: env.is_some() };
         let Some(thunk) = self.cx.helper_ref(key, None) else { return };
-        let code = self.cx.b.ins().func_addr(PTR, thunk);
+        let code = self.cx.builder.ins().func_addr(PTR, thunk);
         let env_ptr = match env {
             None => self.cx.iconst(PTR, 0),
             Some(e) => self.build_env(e),
@@ -1983,7 +1983,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let p = self.cx.alloc(size);
         let glue = match self.source_ty(ty) {
             Some(source) => match self.cx.release_glue(&source) {
-                Some(r) => self.cx.b.ins().func_addr(PTR, r),
+                Some(r) => self.cx.builder.ins().func_addr(PTR, r),
                 None => self.cx.iconst(PTR, 0),
             },
             None => self.cx.iconst(PTR, 0),
@@ -2027,11 +2027,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
         }
         let Some(r) = self.cx.func_ref(func) else { return };
-        let inst = self.cx.b.ins().call(r, &vals);
+        let inst = self.cx.builder.ins().call(r, &vals);
         if indirect {
             return;
         }
-        let results = self.cx.b.inst_results(inst).to_vec();
+        let results = self.cx.builder.inst_results(inst).to_vec();
         self.gather(dests, &results);
     }
 
@@ -2045,7 +2045,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             let before = vals.len();
             self.spread(*a, &mut vals);
             for v in vals.get(before..).unwrap_or_default().to_vec() {
-                params.push(self.cx.b.func.dfg.value_type(v));
+                params.push(self.cx.builder.func.dfg.value_type(v));
             }
         }
         let mut rets = Vec::new();
@@ -2064,11 +2064,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                         None => return,
                     }
                 }
-                let inst = self.cx.b.ins().call(r, &vals);
+                let inst = self.cx.builder.ins().call(r, &vals);
                 if indirect {
                     return;
                 }
-                let results = self.cx.b.inst_results(inst).to_vec();
+                let results = self.cx.builder.inst_results(inst).to_vec();
                 self.gather(dests, &results);
                 return;
             }
@@ -2088,11 +2088,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
         }
         let sig = self.indirect_sig(&params, &rets);
-        let inst = self.cx.b.ins().call_indirect(sig, code, &vals);
+        let inst = self.cx.builder.ins().call_indirect(sig, code, &vals);
         if indirect {
             return;
         }
-        let results = self.cx.b.inst_results(inst).to_vec();
+        let results = self.cx.builder.inst_results(inst).to_vec();
         self.gather(dests, &results);
     }
 
@@ -2162,7 +2162,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return *s;
         }
         let s = abi::signature_of(self.cx.unit.abi.call_conv, params, rets);
-        let r = self.cx.b.import_signature(s);
+        let r = self.cx.builder.import_signature(s);
         self.sigs.insert(key, r);
         r
     }
@@ -2231,7 +2231,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             let before = vals.len();
             self.spread(*a, &mut vals);
             for v in vals.get(before..).unwrap_or_default().to_vec() {
-                params.push(self.cx.b.func.dfg.value_type(v));
+                params.push(self.cx.builder.func.dfg.value_type(v));
             }
         }
         if entry.extra == runtime::Extra::Element {
@@ -2244,7 +2244,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             vals.push(s);
             params.push(types::I64);
             let glue = match elem.as_ref().and_then(|t| self.cx.retain_glue(t)) {
-                Some(r) => self.cx.b.ins().func_addr(PTR, r),
+                Some(r) => self.cx.builder.ins().func_addr(PTR, r),
                 None => self.cx.iconst(PTR, 0),
             };
             vals.push(glue);
@@ -2254,7 +2254,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         match entry.ret {
             runtime::Ret::Void | runtime::Ret::NoReturn => {
                 let r = self.cx.rt_ref(entry.symbol, &params, &[]);
-                self.cx.b.ins().call(r, &vals);
+                self.cx.builder.ins().call(r, &vals);
             }
             runtime::Ret::Scalar => {
                 let mut rets = Vec::new();
@@ -2265,8 +2265,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     }
                 }
                 let r = self.cx.rt_ref(entry.symbol, &params, &rets);
-                let inst = self.cx.b.ins().call(r, &vals);
-                let results = self.cx.b.inst_results(inst).to_vec();
+                let inst = self.cx.builder.ins().call(r, &vals);
+                let results = self.cx.builder.inst_results(inst).to_vec();
                 self.gather(dests, &results);
             }
             runtime::Ret::Tag => {
@@ -2278,9 +2278,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let narrowed = if want == types::I32 {
                     raw
                 } else if want.bits() < 32 {
-                    self.cx.b.ins().ireduce(want, raw)
+                    self.cx.builder.ins().ireduce(want, raw)
                 } else {
-                    self.cx.b.ins().uextend(want, raw)
+                    self.cx.builder.ins().uextend(want, raw)
                 };
                 self.bind_tag(dest, narrowed);
             }
@@ -2294,7 +2294,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 vals.push(out);
                 params.push(PTR);
                 let r = self.cx.rt_ref(entry.symbol, &params, &[]);
-                self.cx.b.ins().call(r, &vals);
+                self.cx.builder.ins().call(r, &vals);
             }
             runtime::Ret::Opt => {
                 let Some(dest) = dests.first().copied() else { return };
@@ -2377,23 +2377,23 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let r = self.cx.rt_ref(entry.symbol, params, &[types::I32]);
         let Some(disc) = self.cx.call1(r, vals) else { return };
 
-        let good = self.cx.b.create_block();
-        let bad = self.cx.b.create_block();
-        let done = self.cx.b.create_block();
-        let is_ok = self.cx.b.ins().icmp_imm(IntCC::Equal, disc, i64::from(runtime::BURI_OK));
+        let good = self.cx.builder.create_block();
+        let bad = self.cx.builder.create_block();
+        let done = self.cx.builder.create_block();
+        let is_ok = self.cx.builder.ins().icmp_imm(IntCC::Equal, disc, i64::from(runtime::BURI_OK));
         self.cx.brif(is_ok, good, &[], bad, &[]);
 
-        self.cx.b.switch_to_block(good);
+        self.cx.builder.switch_to_block(good);
         self.store_disc(slot, &l, ok as u32);
         self.cx.jump(done, &[]);
 
-        self.cx.b.switch_to_block(bad);
+        self.cx.builder.switch_to_block(bad);
         self.store_disc(slot, &l, err as u32);
         if err_is_enum {
             self.store_variant_index(slot, err_at, &err_layout, disc);
         }
         self.cx.jump(done, &[]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
     }
 
     /// `.Ok`'s and `.Err`'s variant indices, and `E`, for a `Result<T, E>`
@@ -2445,9 +2445,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let narrowed = if t == types::I32 {
             index
         } else if t.bits() < 32 {
-            self.cx.b.ins().ireduce(t, index)
+            self.cx.builder.ins().ireduce(t, index)
         } else {
-            self.cx.b.ins().uextend(t, index)
+            self.cx.builder.ins().uextend(t, index)
         };
         self.cx.store_at(slot, at, narrowed);
         if let Repr::Enum { repr: EnumRepr::Tagged { payload, .. }, .. } = &l.repr {
@@ -2508,23 +2508,24 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let r = self.cx.rt_ref(symbol, params, &[types::I32]);
         let Some(disc) = self.cx.call1(r, vals) else { return };
 
-        let present = self.cx.b.create_block();
-        let absent = self.cx.b.create_block();
-        let done = self.cx.b.create_block();
+        let present = self.cx.builder.create_block();
+        let absent = self.cx.builder.create_block();
+        let done = self.cx.builder.create_block();
         // `BURI_OK` is `-1` rather than `0` so that an error variant's index is
         // its index; here there is one error arm, and it is `.None`.
-        let is_ok = self.cx.b.ins().icmp_imm(IntCC::Equal, disc, i64::from(runtime::BURI_OK));
+        let is_ok = self.cx.builder.ins().icmp_imm(IntCC::Equal, disc, i64::from(runtime::BURI_OK));
         // The discriminant this call is about to write is already a register
         // here, and `.Some` is variant 0 in every representation below, so the
         // negation of `is_ok` *is* the tag. Recording it keeps the caller's
         // `match` off the slot the stores below fill.
         if matches!(l.repr, Repr::Enum { .. }) {
-            let tag = self.cx.b.ins().icmp_imm(IntCC::NotEqual, disc, i64::from(runtime::BURI_OK));
+            let tag =
+                self.cx.builder.ins().icmp_imm(IntCC::NotEqual, disc, i64::from(runtime::BURI_OK));
             self.note_tag(dest, Tag::Live(tag));
         }
         self.cx.brif(is_ok, present, &[], absent, &[]);
 
-        self.cx.b.switch_to_block(present);
+        self.cx.builder.switch_to_block(present);
         match &l.repr {
             Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
             | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => {
@@ -2539,7 +2540,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         }
         self.cx.jump(done, &[]);
 
-        self.cx.b.switch_to_block(absent);
+        self.cx.builder.switch_to_block(absent);
         match &l.repr {
             Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
             | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => {
@@ -2555,7 +2556,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             _ => {}
         }
         self.cx.jump(done, &[]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
     }
 
     /// The address of a value, spilling a register-shaped one to get it.
@@ -2668,7 +2669,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let Some(src) = self.get(arg) else { return };
                 let ptr = self.cx.load_at(PTR, src, word(STR_PTR));
                 let raw = self.cx.load_at(types::I64, src, word(STR_LEN));
-                let len = self.cx.b.ins().band_imm(raw, STR_LEN_MASK as i64);
+                let len = self.cx.builder.ins().band_imm(raw, STR_LEN_MASK as i64);
                 self.out_call(dest, runtime::show::STR_QUOTED, &[ptr, len], &[PTR, types::I64]);
             }
             Prim::Char => {
@@ -2692,7 +2693,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             // parameter is a scalar leaf, and a 128-bit value is not one.
             Prim::I128 | Prim::U128 => {
                 let Some(v) = self.get(arg) else { return };
-                let (lo, hi) = self.cx.b.ins().isplit(v);
+                let (lo, hi) = self.cx.builder.ins().isplit(v);
                 let symbol = if prim == Prim::I128 {
                     runtime::show::I128
                 } else {
@@ -2730,7 +2731,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let Some(r) = self.cx.helper_ref(key, None) else { return };
         let mut vals = args.to_vec();
         vals.push(out);
-        self.cx.b.ins().call(r, &vals);
+        self.cx.builder.ins().call(r, &vals);
     }
 
     /// A runtime call whose only result is an aggregate through an
@@ -2746,7 +2747,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let mut params = tys.to_vec();
         params.push(PTR);
         let r = self.cx.rt_ref(symbol, &params, &[]);
-        self.cx.b.ins().call(r, &vals);
+        self.cx.builder.ins().call(r, &vals);
     }
 
     /// One primitive mixed into a hash accumulator — `$hashInto`'s three arms
@@ -2773,7 +2774,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
             Prim::F32 | Prim::F64 => {
                 let wide = if prim == Prim::F32 {
-                    self.cx.b.ins().fpromote(types::F64, v)
+                    self.cx.builder.ins().fpromote(types::F64, v)
                 } else {
                     v
                 };
@@ -2792,14 +2793,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// The low 32 bits of an integer of any width — `ToUint32` on a value that
     /// is already an integer, which is what `$mix` is handed.
     fn low_u32(&mut self, v: Value) -> Value {
-        let have = self.cx.b.func.dfg.value_type(v);
+        let have = self.cx.builder.func.dfg.value_type(v);
         if have == types::I32 {
             return v;
         }
         if have.bits() > 32 {
-            self.cx.b.ins().ireduce(types::I32, v)
+            self.cx.builder.ins().ireduce(types::I32, v)
         } else {
-            self.cx.b.ins().uextend(types::I32, v)
+            self.cx.builder.ins().uextend(types::I32, v)
         }
     }
 
@@ -2890,41 +2891,45 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         }
 
         let v = match (*op, a, b) {
-            ("add", Some(x), Some(y)) if float => self.cx.b.ins().fadd(x, y),
-            ("sub", Some(x), Some(y)) if float => self.cx.b.ins().fsub(x, y),
-            ("mul", Some(x), Some(y)) if float => self.cx.b.ins().fmul(x, y),
-            ("div", Some(x), Some(y)) if float => self.cx.b.ins().fdiv(x, y),
-            ("add", Some(x), Some(y)) => self.cx.b.ins().iadd(x, y),
-            ("sub", Some(x), Some(y)) => self.cx.b.ins().isub(x, y),
-            ("mul", Some(x), Some(y)) => self.cx.b.ins().imul(x, y),
+            ("add", Some(x), Some(y)) if float => self.cx.builder.ins().fadd(x, y),
+            ("sub", Some(x), Some(y)) if float => self.cx.builder.ins().fsub(x, y),
+            ("mul", Some(x), Some(y)) if float => self.cx.builder.ins().fmul(x, y),
+            ("div", Some(x), Some(y)) if float => self.cx.builder.ins().fdiv(x, y),
+            ("add", Some(x), Some(y)) => self.cx.builder.ins().iadd(x, y),
+            ("sub", Some(x), Some(y)) => self.cx.builder.ins().isub(x, y),
+            ("mul", Some(x), Some(y)) => self.cx.builder.ins().imul(x, y),
             ("div", Some(x), Some(y)) => self.divide(BinOp::Div, from, x, y),
             ("rem", Some(x), Some(y)) => self.divide(BinOp::Rem, from, x, y),
-            ("neg", Some(x), _) if float => self.cx.b.ins().fneg(x),
-            ("neg", Some(x), _) => self.cx.b.ins().ineg(x),
-            ("abs", Some(x), _) if float => self.cx.b.ins().fabs(x),
+            ("neg", Some(x), _) if float => self.cx.builder.ins().fneg(x),
+            ("neg", Some(x), _) => self.cx.builder.ins().ineg(x),
+            ("abs", Some(x), _) if float => self.cx.builder.ins().fabs(x),
             // `abs` of a signed minimum overflows, and overflow is undefined
             // (SPEC 6.2), so there is nothing to check.
             ("abs", Some(x), _) if signed => {
-                let flipped = self.cx.b.ins().ineg(x);
-                let neg = self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, x, 0);
-                self.cx.b.ins().select(neg, flipped, x)
+                let flipped = self.cx.builder.ins().ineg(x);
+                let neg = self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, x, 0);
+                self.cx.builder.ins().select(neg, flipped, x)
             }
             ("abs", Some(x), _) => x,
             ("signum", Some(x), _) if float => {
-                let zero = self.cx.b.ins().f64const(0.0);
+                let zero = self.cx.builder.ins().f64const(0.0);
                 let zero = if want == types::F32 {
-                    self.cx.b.ins().fdemote(types::F32, zero)
+                    self.cx.builder.ins().fdemote(types::F32, zero)
                 } else {
                     zero
                 };
-                let one = self.cx.b.ins().f64const(1.0);
+                let one = self.cx.builder.ins().f64const(1.0);
                 let one =
-                    if want == types::F32 { self.cx.b.ins().fdemote(types::F32, one) } else { one };
-                let minus = self.cx.b.ins().fneg(one);
-                let above = self.cx.b.ins().fcmp(FloatCC::GreaterThan, x, zero);
-                let below = self.cx.b.ins().fcmp(FloatCC::LessThan, x, zero);
-                let lower = self.cx.b.ins().select(below, minus, zero);
-                self.cx.b.ins().select(above, one, lower)
+                    if want == types::F32 {
+                        self.cx.builder.ins().fdemote(types::F32, one)
+                    } else {
+                        one
+                    };
+                let minus = self.cx.builder.ins().fneg(one);
+                let above = self.cx.builder.ins().fcmp(FloatCC::GreaterThan, x, zero);
+                let below = self.cx.builder.ins().fcmp(FloatCC::LessThan, x, zero);
+                let lower = self.cx.builder.ins().select(below, minus, zero);
+                self.cx.builder.ins().select(above, one, lower)
             }
             ("signum", Some(x), _) => {
                 let zero = self.cx.iconst(want, 0);
@@ -2932,22 +2937,22 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let minus = self.cx.iconst(want, -1);
                 let gt = if signed { IntCC::SignedGreaterThan } else { IntCC::UnsignedGreaterThan };
                 let lt = if signed { IntCC::SignedLessThan } else { IntCC::UnsignedLessThan };
-                let above = self.cx.b.ins().icmp(gt, x, zero);
-                let below = self.cx.b.ins().icmp(lt, x, zero);
-                let lower = self.cx.b.ins().select(below, minus, zero);
-                self.cx.b.ins().select(above, one, lower)
+                let above = self.cx.builder.ins().icmp(gt, x, zero);
+                let below = self.cx.builder.ins().icmp(lt, x, zero);
+                let lower = self.cx.builder.ins().select(below, minus, zero);
+                self.cx.builder.ins().select(above, one, lower)
             }
             // `Eq` on a float is `==`, which SPEC 7.2 makes an equivalence
             // relation: `fcmp Equal` alone loses the `NaN` pair.
             ("eq", Some(x), Some(y)) if float => self.float_equality(BinOp::Eq, x, y),
-            ("eq", Some(x), Some(y)) => self.cx.b.ins().icmp(IntCC::Equal, x, y),
+            ("eq", Some(x), Some(y)) => self.cx.builder.ins().icmp(IntCC::Equal, x, y),
             // `Hash::hash` takes no accumulator, so it is the seeded form
             // (`cli/runtime/hash.rs`).
             ("hash", Some(x), _) => {
                 let seed = self.cx.iconst(types::I64, runtime::hash::SEED);
                 if float {
                     let wide = if from == Prim::F32 {
-                        self.cx.b.ins().fpromote(types::F64, x)
+                        self.cx.builder.ins().fpromote(types::F64, x)
                     } else {
                         x
                     };
@@ -2977,9 +2982,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             // operand's own width is what `iadd` on an `i8` already does. The
             // JavaScript backend has to say `$wrapTo` because a double does
             // not wrap; here the name is the only difference.
-            ("wrappingAdd", Some(x), Some(y)) => self.cx.b.ins().iadd(x, y),
-            ("wrappingSub", Some(x), Some(y)) => self.cx.b.ins().isub(x, y),
-            ("wrappingMul", Some(x), Some(y)) => self.cx.b.ins().imul(x, y),
+            ("wrappingAdd", Some(x), Some(y)) => self.cx.builder.ins().iadd(x, y),
+            ("wrappingSub", Some(x), Some(y)) => self.cx.builder.ins().isub(x, y),
+            ("wrappingMul", Some(x), Some(y)) => self.cx.builder.ins().imul(x, y),
             ("saturatingAdd", Some(x), Some(y))
             | ("saturatingSub", Some(x), Some(y))
             | ("saturatingMul", Some(x), Some(y)) => {
@@ -2990,7 +2995,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let want_min = *op == "min";
                 let c = if float {
                     let cc = if want_min { FloatCC::LessThan } else { FloatCC::GreaterThan };
-                    self.cx.b.ins().fcmp(cc, x, y)
+                    self.cx.builder.ins().fcmp(cc, x, y)
                 } else {
                     let cc = match (want_min, signed) {
                         (true, true) => IntCC::SignedLessThan,
@@ -2998,9 +3003,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                         (false, true) => IntCC::SignedGreaterThan,
                         (false, false) => IntCC::UnsignedGreaterThan,
                     };
-                    self.cx.b.ins().icmp(cc, x, y)
+                    self.cx.builder.ins().icmp(cc, x, y)
                 };
-                self.cx.b.ins().select(c, x, y)
+                self.cx.builder.ins().select(c, x, y)
             }
             _ => return false,
         };
@@ -3045,7 +3050,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 ) else {
                     return false;
                 };
-                let v = self.cx.b.ins().icmp(IntCC::Equal, x, y);
+                let v = self.cx.builder.ins().icmp(IntCC::Equal, x, y);
                 self.set(dest, Some(v));
                 true
             }
@@ -3069,9 +3074,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let narrowed = if tag == types::I32 {
                     order
                 } else if tag.bits() < 32 {
-                    self.cx.b.ins().ireduce(tag, order)
+                    self.cx.builder.ins().ireduce(tag, order)
                 } else {
-                    self.cx.b.ins().uextend(tag, order)
+                    self.cx.builder.ins().uextend(tag, order)
                 };
                 self.bind_tag(dest, narrowed);
                 true
@@ -3130,22 +3135,22 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let Some(op) = key.strip_prefix("bits.") else { return false };
         let Some(dest) = dests.first().copied() else { return false };
         let Some(x) = args.first().copied().and_then(|v| self.get(v)) else { return false };
-        let width = self.cx.b.func.dfg.value_type(x);
+        let width = self.cx.builder.func.dfg.value_type(x);
         let bits = i64::from(width.bits());
 
         // The unary three take no count and cannot be out of range. Each
         // answers an `Int`, so the count is widened back to 64 bits.
         let unary = match op {
-            "popCount" => Some(self.cx.b.ins().popcnt(x)),
-            "leadingZeros" => Some(self.cx.b.ins().clz(x)),
-            "trailingZeros" => Some(self.cx.b.ins().ctz(x)),
+            "popCount" => Some(self.cx.builder.ins().popcnt(x)),
+            "leadingZeros" => Some(self.cx.builder.ins().clz(x)),
+            "trailingZeros" => Some(self.cx.builder.ins().ctz(x)),
             _ => None,
         };
         if let Some(v) = unary {
             let wide = if width == types::I64 {
                 v
             } else {
-                self.cx.b.ins().uextend(types::I64, v)
+                self.cx.builder.ins().uextend(types::I64, v)
             };
             self.set(dest, Some(wide));
             return true;
@@ -3155,29 +3160,29 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         // The count arrives as an `Int` — 64 bits — whatever the operand's
         // width is, so the check is at 64 bits and the shift takes the
         // narrowed value.
-        let low = self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, count, 0);
-        let high = self.cx.b.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, count, bits);
-        let bad = self.cx.b.ins().bor(low, high);
-        let out_of_range = self.cx.b.create_block();
-        let ok = self.cx.b.create_block();
+        let low = self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, count, 0);
+        let high = self.cx.builder.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, count, bits);
+        let bad = self.cx.builder.ins().bor(low, high);
+        let out_of_range = self.cx.builder.create_block();
+        let ok = self.cx.builder.create_block();
         self.cx.brif(bad, out_of_range, &[], ok, &[]);
-        self.cx.b.switch_to_block(out_of_range);
-        self.cx.b.set_cold_block(out_of_range);
+        self.cx.builder.switch_to_block(out_of_range);
+        self.cx.builder.set_cold_block(out_of_range);
         let abort = self.cx.rt_ref("buri_rt_abort_shift", &[], &[]);
-        self.cx.b.ins().call(abort, &[]);
-        self.cx.b.ins().trap(UNREACHABLE);
-        self.cx.b.switch_to_block(ok);
+        self.cx.builder.ins().call(abort, &[]);
+        self.cx.builder.ins().trap(UNREACHABLE);
+        self.cx.builder.switch_to_block(ok);
 
         let v = match op {
             // `shl` at every width, and `shr` at an unsigned one, are the plain
             // machine shifts: `ushr` is the logical one and `sshr` the
             // arithmetic one, which is exactly the `shr`/`sar` split
             // `core/bits` draws at `Int`.
-            "shl" | "shlU8" | "shlU32" | "shlU64" => self.cx.b.ins().ishl(x, count),
-            "shr" | "shrU8" | "shrU32" | "shrU64" => self.cx.b.ins().ushr(x, count),
-            "sar" => self.cx.b.ins().sshr(x, count),
-            "rotateLeft" => self.cx.b.ins().rotl(x, count),
-            "rotateRight" => self.cx.b.ins().rotr(x, count),
+            "shl" | "shlU8" | "shlU32" | "shlU64" => self.cx.builder.ins().ishl(x, count),
+            "shr" | "shrU8" | "shrU32" | "shrU64" => self.cx.builder.ins().ushr(x, count),
+            "sar" => self.cx.builder.ins().sshr(x, count),
+            "rotateLeft" => self.cx.builder.ins().rotl(x, count),
+            "rotateRight" => self.cx.builder.ins().rotr(x, count),
             _ => return false,
         };
         self.set(dest, Some(v));
@@ -3212,8 +3217,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 (_, true) => f64::MIN,
                 (_, false) => f64::MAX,
             };
-            let c = self.cx.b.ins().f64const(v);
-            let c = if want == types::F32 { self.cx.b.ins().fdemote(types::F32, c) } else { c };
+            let c = self.cx.builder.ins().f64const(v);
+            let c =
+            if want == types::F32 { self.cx.builder.ins().fdemote(types::F32, c) } else { c };
             self.set(dest, Some(c));
             return true;
         }
@@ -3224,7 +3230,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let c = if want == types::I128 {
             let lo64 = self.cx.iconst(types::I64, bits as u64 as i64);
             let hi64 = self.cx.iconst(types::I64, (bits >> 64) as u64 as i64);
-            self.cx.b.ins().iconcat(lo64, hi64)
+            self.cx.builder.ins().iconcat(lo64, hi64)
         } else {
             self.cx.iconst(want, bits as u64 as i64)
         };
@@ -3248,25 +3254,25 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let Some(tag) = self.tag_ty(dest) else { return false };
         let (lt, gt) = if from.is_float() {
             (
-                self.cx.b.ins().fcmp(FloatCC::LessThan, x, y),
-                self.cx.b.ins().fcmp(FloatCC::GreaterThan, x, y),
+                self.cx.builder.ins().fcmp(FloatCC::LessThan, x, y),
+                self.cx.builder.ins().fcmp(FloatCC::GreaterThan, x, y),
             )
         } else if from.is_signed() {
             (
-                self.cx.b.ins().icmp(IntCC::SignedLessThan, x, y),
-                self.cx.b.ins().icmp(IntCC::SignedGreaterThan, x, y),
+                self.cx.builder.ins().icmp(IntCC::SignedLessThan, x, y),
+                self.cx.builder.ins().icmp(IntCC::SignedGreaterThan, x, y),
             )
         } else {
             (
-                self.cx.b.ins().icmp(IntCC::UnsignedLessThan, x, y),
-                self.cx.b.ins().icmp(IntCC::UnsignedGreaterThan, x, y),
+                self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, x, y),
+                self.cx.builder.ins().icmp(IntCC::UnsignedGreaterThan, x, y),
             )
         };
         let less = self.cx.iconst(tag, 0);
         let equal = self.cx.iconst(tag, 1);
         let greater = self.cx.iconst(tag, 2);
-        let upper = self.cx.b.ins().select(gt, greater, equal);
-        let v = self.cx.b.ins().select(lt, less, upper);
+        let upper = self.cx.builder.ins().select(gt, greater, equal);
+        let v = self.cx.builder.ins().select(lt, less, upper);
         self.bind_tag(dest, v);
         true
     }
@@ -3342,7 +3348,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return false;
         };
         let signed = from.is_signed();
-        let width = self.cx.b.func.dfg.value_type(x);
+        let width = self.cx.builder.func.dfg.value_type(x);
         let Some((value, overflowed)) = self.overflowing(kind, signed, width, x, y) else {
             return false;
         };
@@ -3365,41 +3371,41 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let top = i64::from(width.bits().saturating_sub(1));
         match kind {
             "Add" => {
-                let r = self.cx.b.ins().iadd(x, y);
+                let r = self.cx.builder.ins().iadd(x, y);
                 let bad = if signed {
                     // Overflow iff both operands differ in sign from the sum.
-                    let a = self.cx.b.ins().bxor(x, r);
-                    let b = self.cx.b.ins().bxor(y, r);
-                    let both = self.cx.b.ins().band(a, b);
-                    self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, both, 0)
+                    let a = self.cx.builder.ins().bxor(x, r);
+                    let b = self.cx.builder.ins().bxor(y, r);
+                    let both = self.cx.builder.ins().band(a, b);
+                    self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, both, 0)
                 } else {
-                    self.cx.b.ins().icmp(IntCC::UnsignedLessThan, r, x)
+                    self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, r, x)
                 };
                 Some((r, bad))
             }
             "Sub" => {
-                let r = self.cx.b.ins().isub(x, y);
+                let r = self.cx.builder.ins().isub(x, y);
                 let bad = if signed {
-                    let a = self.cx.b.ins().bxor(x, y);
-                    let b = self.cx.b.ins().bxor(x, r);
-                    let both = self.cx.b.ins().band(a, b);
-                    self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, both, 0)
+                    let a = self.cx.builder.ins().bxor(x, y);
+                    let b = self.cx.builder.ins().bxor(x, r);
+                    let both = self.cx.builder.ins().band(a, b);
+                    self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, both, 0)
                 } else {
-                    self.cx.b.ins().icmp(IntCC::UnsignedLessThan, x, y)
+                    self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, x, y)
                 };
                 Some((r, bad))
             }
             "Mul" => {
-                let r = self.cx.b.ins().imul(x, y);
+                let r = self.cx.builder.ins().imul(x, y);
                 let bad = if signed {
                     // The high half of the exact product must be the sign
                     // extension of the low half, or bits were lost.
-                    let hi = self.cx.b.ins().smulhi(x, y);
-                    let sign = self.cx.b.ins().sshr_imm(r, top);
-                    self.cx.b.ins().icmp(IntCC::NotEqual, hi, sign)
+                    let hi = self.cx.builder.ins().smulhi(x, y);
+                    let sign = self.cx.builder.ins().sshr_imm(r, top);
+                    self.cx.builder.ins().icmp(IntCC::NotEqual, hi, sign)
                 } else {
-                    let hi = self.cx.b.ins().umulhi(x, y);
-                    self.cx.b.ins().icmp_imm(IntCC::NotEqual, hi, 0)
+                    let hi = self.cx.builder.ins().umulhi(x, y);
+                    self.cx.builder.ins().icmp_imm(IntCC::NotEqual, hi, 0)
                 };
                 Some((r, bad))
             }
@@ -3409,24 +3415,24 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 // signed quotient with no representation. The divisor is
                 // replaced with `1` on both, so the instruction is always
                 // well-defined and the answer is discarded.
-                let zero = self.cx.b.ins().icmp_imm(IntCC::Equal, y, 0);
+                let zero = self.cx.builder.ins().icmp_imm(IntCC::Equal, y, 0);
                 let bad = if signed {
                     // The type's minimum, as the bit pattern the width holds:
                     // all-ones above the sign bit, which `iconst` masks down.
                     let min = self.cx.iconst(width, i64::MIN >> (63i64.saturating_sub(top)));
-                    let at_min = self.cx.b.ins().icmp(IntCC::Equal, x, min);
-                    let minus_one = self.cx.b.ins().icmp_imm(IntCC::Equal, y, -1);
-                    let both = self.cx.b.ins().band(at_min, minus_one);
-                    self.cx.b.ins().bor(zero, both)
+                    let at_min = self.cx.builder.ins().icmp(IntCC::Equal, x, min);
+                    let minus_one = self.cx.builder.ins().icmp_imm(IntCC::Equal, y, -1);
+                    let both = self.cx.builder.ins().band(at_min, minus_one);
+                    self.cx.builder.ins().bor(zero, both)
                 } else {
                     zero
                 };
                 let one = self.cx.iconst(width, 1);
-                let safe = self.cx.b.ins().select(bad, one, y);
+                let safe = self.cx.builder.ins().select(bad, one, y);
                 let r = if signed {
-                    self.cx.b.ins().sdiv(x, safe)
+                    self.cx.builder.ins().sdiv(x, safe)
                 } else {
-                    self.cx.b.ins().udiv(x, safe)
+                    self.cx.builder.ins().udiv(x, safe)
                 };
                 Some((r, bad))
             }
@@ -3474,20 +3480,20 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             let negative = match kind {
                 // The sum of two operands that overflowed is negative exactly
                 // when they were both positive, so the sign of `x` decides.
-                "Add" | "Sub" => self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, x, 0),
+                "Add" | "Sub" => self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, x, 0),
                 _ => {
-                    let xn = self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, x, 0);
-                    let yn = self.cx.b.ins().icmp_imm(IntCC::SignedLessThan, y, 0);
-                    self.cx.b.ins().bxor(xn, yn)
+                    let xn = self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, x, 0);
+                    let yn = self.cx.builder.ins().icmp_imm(IntCC::SignedLessThan, y, 0);
+                    self.cx.builder.ins().bxor(xn, yn)
                 }
             };
             // For `Sub` the same test is right for the same reason: an
             // overflowing `x - y` runs off the bottom exactly when `x` is
             // negative, because the only way to underflow is a negative `x`
             // against a positive `y`.
-            self.cx.b.ins().select(negative, low, high)
+            self.cx.builder.ins().select(negative, low, high)
         };
-        Some(self.cx.b.ins().select(bad, end, r))
+        Some(self.cx.builder.ins().select(bad, end, r))
     }
 
     /// The 128-bit forms of `checked*`, through `buri_rt_i128_checked`.
@@ -3514,8 +3520,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             _ => 0,
         };
         let out = self.cx.offset(slot, payload_at);
-        let (a_lo, a_hi) = self.cx.b.ins().isplit(x);
-        let (b_lo, b_hi) = self.cx.b.ins().isplit(y);
+        let (a_lo, a_hi) = self.cx.builder.ins().isplit(x);
+        let (b_lo, b_hi) = self.cx.builder.ins().isplit(y);
         let code = self.cx.iconst(types::I8, i64::from(op));
         let signed = self.cx.iconst(types::I8, i64::from(from.is_signed()));
         let r = self.cx.rt_ref(
@@ -3526,7 +3532,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let Some(disc) = self.cx.call1(r, &[code, a_lo, a_hi, b_lo, b_hi, signed, out]) else {
             return false;
         };
-        let bad = self.cx.b.ins().icmp_imm(IntCC::NotEqual, disc, i64::from(runtime::BURI_OK));
+        let bad =
+            self.cx.builder.ins().icmp_imm(IntCC::NotEqual, disc, i64::from(runtime::BURI_OK));
         // The payload is already where it belongs, so all that is left is the
         // discriminant — which is what `build_option` writes. Passing the
         // payload back through it would store it a second time, so a zero of
@@ -3543,8 +3550,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             return None;
         }
         let slot = self.cx.slot(16, 16);
-        let (a_lo, a_hi) = self.cx.b.ins().isplit(x);
-        let (b_lo, b_hi) = self.cx.b.ins().isplit(y);
+        let (a_lo, a_hi) = self.cx.builder.ins().isplit(x);
+        let (b_lo, b_hi) = self.cx.builder.ins().isplit(y);
         let code = self.cx.iconst(types::I8, i64::from(op));
         let signed = self.cx.iconst(types::I8, i64::from(from.is_signed()));
         let r = self.cx.rt_ref(
@@ -3552,25 +3559,25 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             &[types::I8, types::I64, types::I64, types::I64, types::I64, types::I8, PTR],
             &[],
         );
-        self.cx.b.ins().call(r, &[code, a_lo, a_hi, b_lo, b_hi, signed, slot]);
+        self.cx.builder.ins().call(r, &[code, a_lo, a_hi, b_lo, b_hi, signed, slot]);
         let lo = self.cx.load_at(types::I64, slot, 0);
         let hi = self.cx.load_at(types::I64, slot, 8);
-        Some(self.cx.b.ins().iconcat(lo, hi))
+        Some(self.cx.builder.ins().iconcat(lo, hi))
     }
 
     /// The discriminant half of an `Option<T>` whose payload is already in
     /// place: a tag, or a null pointer in the niche.
     fn write_option_tag(&mut self, slot: Value, l: &layout::Layout, bad: Value) {
-        let some = self.cx.b.create_block();
-        let none = self.cx.b.create_block();
-        let done = self.cx.b.create_block();
+        let some = self.cx.builder.create_block();
+        let none = self.cx.builder.create_block();
+        let done = self.cx.builder.create_block();
         self.cx.brif(bad, none, &[], some, &[]);
         for (block, index) in [(some, 0u32), (none, 1u32)] {
-            self.cx.b.switch_to_block(block);
+            self.cx.builder.switch_to_block(block);
             self.store_disc(slot, l, index);
             self.cx.jump(done, &[]);
         }
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
     }
 
     /// Where an enum's variant `v` keeps its first payload field.
@@ -3624,14 +3631,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 if t == types::I32 {
                     raw
                 } else {
-                    self.cx.b.ins().uextend(types::I32, raw)
+                    self.cx.builder.ins().uextend(types::I32, raw)
                 }
             }
             Repr::Enum { repr: EnumRepr::Niche { null_at }, .. } => {
                 let at = *null_at;
                 let p = self.cx.load_at(PTR, addr, at);
-                let is_null = self.cx.b.ins().icmp_imm(IntCC::Equal, p, 0);
-                self.cx.b.ins().uextend(types::I32, is_null)
+                let is_null = self.cx.builder.ins().icmp_imm(IntCC::Equal, p, 0);
+                self.cx.builder.ins().uextend(types::I32, is_null)
             }
             _ => self.cx.iconst(types::I32, 0),
         }
@@ -3644,20 +3651,20 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let l = self.layout(dty);
         let slot = self.alloc_slot(dest, dty);
         let payload_at = Self::variant_payload_at(&l, 0);
-        let some = self.cx.b.create_block();
-        let none = self.cx.b.create_block();
-        let done = self.cx.b.create_block();
+        let some = self.cx.builder.create_block();
+        let none = self.cx.builder.create_block();
+        let done = self.cx.builder.create_block();
         self.cx.brif(bad, none, &[], some, &[]);
 
-        self.cx.b.switch_to_block(some);
+        self.cx.builder.switch_to_block(some);
         self.cx.store_at(slot, payload_at, value);
         self.store_disc(slot, &l, 0);
         self.cx.jump(done, &[]);
 
-        self.cx.b.switch_to_block(none);
+        self.cx.builder.switch_to_block(none);
         self.store_disc(slot, &l, 1);
         self.cx.jump(done, &[]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
     }
 
     /// `==`, `!=` and the four orderings at `Str`.
@@ -3679,7 +3686,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             let v = if op == BinOp::Eq {
                 same
             } else {
-                self.cx.b.ins().icmp_imm(IntCC::Equal, same, 0)
+                self.cx.builder.ins().icmp_imm(IntCC::Equal, same, 0)
             };
             self.set(dest, Some(v));
             return;
@@ -3703,7 +3710,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
         };
         // Against `Equal`, which is the middle tag: `a < b` is `order < 1`.
-        let v = self.cx.b.ins().icmp_imm(cc, order, 1);
+        let v = self.cx.builder.ins().icmp_imm(cc, order, 1);
         self.set(dest, Some(v));
     }
 
@@ -3724,41 +3731,41 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// Float-to-integer saturates rather than trapping, because a trap here
     /// would be a run-time failure the language does not have.
     fn cast(&mut self, v: Value, from: Prim, want: ClifType, signed: bool) -> Value {
-        let have = self.cx.b.func.dfg.value_type(v);
+        let have = self.cx.builder.func.dfg.value_type(v);
         if have == want {
             return v;
         }
         match (have.is_float(), want.is_float()) {
             (true, true) => {
                 if want.bits() > have.bits() {
-                    self.cx.b.ins().fpromote(want, v)
+                    self.cx.builder.ins().fpromote(want, v)
                 } else {
-                    self.cx.b.ins().fdemote(want, v)
+                    self.cx.builder.ins().fdemote(want, v)
                 }
             }
             (true, false) => {
                 if signed {
-                    self.cx.b.ins().fcvt_to_sint_sat(want, v)
+                    self.cx.builder.ins().fcvt_to_sint_sat(want, v)
                 } else {
-                    self.cx.b.ins().fcvt_to_uint_sat(want, v)
+                    self.cx.builder.ins().fcvt_to_uint_sat(want, v)
                 }
             }
             (false, true) => {
                 if from.is_signed() {
-                    self.cx.b.ins().fcvt_from_sint(want, v)
+                    self.cx.builder.ins().fcvt_from_sint(want, v)
                 } else {
-                    self.cx.b.ins().fcvt_from_uint(want, v)
+                    self.cx.builder.ins().fcvt_from_uint(want, v)
                 }
             }
             (false, false) => {
                 if want.bits() > have.bits() {
                     if from.is_signed() {
-                        self.cx.b.ins().sextend(want, v)
+                        self.cx.builder.ins().sextend(want, v)
                     } else {
-                        self.cx.b.ins().uextend(want, v)
+                        self.cx.builder.ins().uextend(want, v)
                     }
                 } else {
-                    self.cx.b.ins().ireduce(want, v)
+                    self.cx.builder.ins().ireduce(want, v)
                 }
             }
         }
@@ -3791,17 +3798,17 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 };
                 let ptr = self.cx.load_at(PTR, a, word(STR_PTR));
                 let raw = self.cx.load_at(types::I64, a, word(STR_LEN));
-                let bytes = self.cx.b.ins().band_imm(raw, STR_LEN_MASK as i64);
-                let ascii = self.cx.b.ins().band_imm(raw, STR_ASCII_FLAG as i64);
-                let fast = self.cx.b.create_block();
-                let slow = self.cx.b.create_block();
-                let done = self.cx.b.create_block();
-                self.cx.b.append_block_param(done, types::I64);
-                let is_ascii = self.cx.b.ins().icmp_imm(IntCC::NotEqual, ascii, 0);
+                let bytes = self.cx.builder.ins().band_imm(raw, STR_LEN_MASK as i64);
+                let ascii = self.cx.builder.ins().band_imm(raw, STR_ASCII_FLAG as i64);
+                let fast = self.cx.builder.create_block();
+                let slow = self.cx.builder.create_block();
+                let done = self.cx.builder.create_block();
+                self.cx.builder.append_block_param(done, types::I64);
+                let is_ascii = self.cx.builder.ins().icmp_imm(IntCC::NotEqual, ascii, 0);
                 self.cx.brif(is_ascii, fast, &[], slow, &[]);
-                self.cx.b.switch_to_block(fast);
+                self.cx.builder.switch_to_block(fast);
                 self.cx.jump(done, &[bytes]);
-                self.cx.b.switch_to_block(slow);
+                self.cx.builder.switch_to_block(slow);
                 let f = self.cx.rt_ref(
                     "buri_rt_str_scalar_len",
                     &[PTR, types::I64],
@@ -3809,8 +3816,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 );
                 let n = self.cx.call1(f, &[ptr, bytes]).unwrap_or(bytes);
                 self.cx.jump(done, &[n]);
-                self.cx.b.switch_to_block(done);
-                let out = self.cx.b.block_params(done).first().copied().unwrap_or(bytes);
+                self.cx.builder.switch_to_block(done);
+                let out = self.cx.builder.block_params(done).first().copied().unwrap_or(bytes);
                 self.set(dest, Some(out));
                 true
             }
@@ -3897,7 +3904,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     &[PTR, types::I64, PTR, types::I64, PTR, types::I64],
                     &[],
                 );
-                self.cx.b.ins().call(r, &[k.0, k.1, a.0, a.1, e.0, e.1]);
+                self.cx.builder.ins().call(r, &[k.0, k.1, a.0, a.1, e.0, e.1]);
                 true
             }
             "testing_assert.failExpectedShown" => {
@@ -3913,7 +3920,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     &[PTR, types::I64, PTR, types::I64],
                     &[],
                 );
-                self.cx.b.ins().call(r, &[k.0, k.1, v.0, v.1]);
+                self.cx.builder.ins().call(r, &[k.0, k.1, v.0, v.1]);
                 self.bind_absent(dests);
                 true
             }
@@ -3926,13 +3933,13 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                     return false;
                 };
                 let Some(cond) = self.get(passed) else { return false };
-                let ok = self.cx.b.create_block();
-                let bad = self.cx.b.create_block();
+                let ok = self.cx.builder.create_block();
+                let bad = self.cx.builder.create_block();
                 self.cx.brif(cond, ok, &[], bad, &[]);
-                self.cx.b.switch_to_block(bad);
+                self.cx.builder.switch_to_block(bad);
                 self.abort_assert(kind);
                 self.cx.jump(ok, &[]);
-                self.cx.b.switch_to_block(ok);
+                self.cx.builder.switch_to_block(ok);
                 true
             }
             "testing_assert.failWith" => {
@@ -4081,8 +4088,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
 
     /// `base + i * stride`.
     fn elem_at(&mut self, base: Value, i: Value, stride: u32) -> Value {
-        let scaled = self.cx.b.ins().imul_imm(i, i64::from(stride));
-        self.cx.b.ins().iadd(base, scaled)
+        let scaled = self.cx.builder.ins().imul_imm(i, i64::from(stride));
+        self.cx.builder.ins().iadd(base, scaled)
     }
 
     /// The context a `*Ctx` step is threaded, retained and flattened.
@@ -4131,11 +4138,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                         None => return Vec::new(),
                     }
                 }
-                let inst = self.cx.b.ins().call(r, &vals);
+                let inst = self.cx.builder.ins().call(r, &vals);
                 if indirect {
                     return Vec::new();
                 }
-                return self.cx.b.inst_results(inst).to_vec();
+                return self.cx.builder.inst_results(inst).to_vec();
             }
         }
         let Some(addr) = self.get(f) else { return Vec::new() };
@@ -4144,7 +4151,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let mut params = vec![PTR];
         let mut vals = vec![env];
         for a in args {
-            params.push(self.cx.b.func.dfg.value_type(*a));
+            params.push(self.cx.builder.func.dfg.value_type(*a));
             vals.push(*a);
         }
         let indirect = abi::returns_indirectly(rets);
@@ -4155,11 +4162,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             }
         }
         let sig = self.indirect_sig(&params, rets);
-        let inst = self.cx.b.ins().call_indirect(sig, code, &vals);
+        let inst = self.cx.builder.ins().call_indirect(sig, code, &vals);
         if indirect {
             return Vec::new();
         }
-        self.cx.b.inst_results(inst).to_vec()
+        self.cx.builder.inst_results(inst).to_vec()
     }
 
     /// `map` and `mapCtx`: one fresh block of the same length, filled in
@@ -4179,12 +4186,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(header, &[zero]);
-        self.cx.b.switch_to_block(header);
-        let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        self.cx.builder.switch_to_block(header);
+        let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, body, &[], done, &[]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at = self.elem_at(src.base, i, src.stride);
         let mut vals = Vec::new();
         self.pass_ctx(ctx, &mut vals);
@@ -4194,9 +4201,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         for (leaf, v) in out_leaves.iter().zip(results) {
             self.cx.store_at(into, leaf.offset, v);
         }
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         self.cx.jump(header, &[next]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
     }
 
     /// `filter` and `filterCtx`: kept elements into a scratch block, then one
@@ -4214,65 +4221,65 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let dty = self.code.ty_of(dest);
         let slot = self.alloc_slot(dest, dty);
         let stride = src.stride;
-        let bytes = self.cx.b.ins().imul_imm(src.len, i64::from(stride));
+        let bytes = self.cx.builder.ins().imul_imm(src.len, i64::from(stride));
         let scratch = self.cx.alloc(bytes);
 
         let (header, body, done) = self.loop_blocks(&[types::I64, types::I64], &[types::I64]);
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(header, &[zero, zero]);
-        self.cx.b.switch_to_block(header);
-        let hp = self.cx.b.block_params(header).to_vec();
+        self.cx.builder.switch_to_block(header);
+        let hp = self.cx.builder.block_params(header).to_vec();
         let (i, k) = (hp.first().copied().unwrap_or(zero), hp.get(1).copied().unwrap_or(zero));
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, body, &[], done, &[k]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at = self.elem_at(src.base, i, stride);
         let mut vals = Vec::new();
         self.pass_ctx(ctx, &mut vals);
         self.pass_elem(src, at, &mut vals);
         let answer = self.call_closure(f, &vals, &[types::I8], None);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         match answer.first().copied() {
             Some(b) => {
-                let keep = self.cx.b.create_block();
-                let skip = self.cx.b.create_block();
+                let keep = self.cx.builder.create_block();
+                let skip = self.cx.builder.create_block();
                 self.cx.brif(b, keep, &[], skip, &[]);
 
-                self.cx.b.switch_to_block(keep);
+                self.cx.builder.switch_to_block(keep);
                 let into = self.elem_at(scratch, k, stride);
                 let l = self.cx.unit.abi.layouts.shared(&src.elem);
                 self.cx.copy(into, at, src.size, l.align);
                 // The copy is a second owner of whatever the element holds;
                 // the count the predicate was handed was its own and is gone.
                 self.cx.walk_rc(&src.elem, into, true, 0);
-                let more_kept = self.cx.b.ins().iadd_imm(k, 1);
+                let more_kept = self.cx.builder.ins().iadd_imm(k, 1);
                 self.cx.jump(header, &[next, more_kept]);
 
-                self.cx.b.switch_to_block(skip);
+                self.cx.builder.switch_to_block(skip);
                 self.cx.jump(header, &[next, k]);
             }
             None => self.cx.jump(header, &[next, k]),
         }
 
-        self.cx.b.switch_to_block(done);
-        let kept = self.cx.b.block_params(done).first().copied().unwrap_or(zero);
+        self.cx.builder.switch_to_block(done);
+        let kept = self.cx.builder.block_params(done).first().copied().unwrap_or(zero);
         let stride_v = self.cx.iconst(types::I64, i64::from(stride));
         let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[kept, stride_v, slot]).unwrap_or(slot);
-        let some = self.cx.b.create_block();
-        let end = self.cx.b.create_block();
-        let any = self.cx.b.ins().icmp(IntCC::UnsignedGreaterThan, kept, zero);
+        let some = self.cx.builder.create_block();
+        let end = self.cx.builder.create_block();
+        let any = self.cx.builder.ins().icmp(IntCC::UnsignedGreaterThan, kept, zero);
         self.cx.brif(any, some, &[], end, &[]);
-        self.cx.b.switch_to_block(some);
+        self.cx.builder.switch_to_block(some);
         // `buri_rt_list_new` answers a null block for an empty list, so the
         // copy is behind the test rather than a `memcpy` of zero bytes from a
         // pointer that is not one.
-        let moved = self.cx.b.ins().imul_imm(kept, i64::from(stride));
+        let moved = self.cx.builder.ins().imul_imm(kept, i64::from(stride));
         let cfg = self.cx.unit.module.isa().frontend_config();
-        self.cx.b.call_memcpy(cfg, dst, scratch, moved);
+        self.cx.builder.call_memcpy(cfg, dst, scratch, moved);
         self.cx.jump(end, &[]);
-        self.cx.b.switch_to_block(end);
+        self.cx.builder.switch_to_block(end);
         // The elements were *moved*, so the scratch block is freed without
         // walking them: its glue is null and its count is the one allocation
         // gave it.
@@ -4303,14 +4310,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let (header, body, done) = self.loop_blocks(&[types::I64, rty], &[rty]);
                 let zero = self.cx.iconst(types::I64, 0);
                 self.cx.jump(header, &[zero, start]);
-                self.cx.b.switch_to_block(header);
-                let hp = self.cx.b.block_params(header).to_vec();
+                self.cx.builder.switch_to_block(header);
+                let hp = self.cx.builder.block_params(header).to_vec();
                 let (i, acc) =
                     (hp.first().copied().unwrap_or(zero), hp.get(1).copied().unwrap_or(start));
-                let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+                let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
                 self.cx.brif(more, body, &[], done, &[acc]);
 
-                self.cx.b.switch_to_block(body);
+                self.cx.builder.switch_to_block(body);
                 let at = self.elem_at(src.base, i, src.stride);
                 let mut vals = Vec::new();
                 self.pass_ctx(ctx, &mut vals);
@@ -4318,11 +4325,11 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 self.pass_elem(src, at, &mut vals);
                 let results = self.call_closure(f, &vals, &rets, None);
                 let stepped = results.first().copied().unwrap_or(acc);
-                let next = self.cx.b.ins().iadd_imm(i, 1);
+                let next = self.cx.builder.ins().iadd_imm(i, 1);
                 self.cx.jump(header, &[next, stepped]);
 
-                self.cx.b.switch_to_block(done);
-                let out = self.cx.b.block_params(done).first().copied();
+                self.cx.builder.switch_to_block(done);
+                let out = self.cx.builder.block_params(done).first().copied();
                 self.set(dest, out);
             }
             // An aggregate accumulator lives in the destination's own slot,
@@ -4348,20 +4355,20 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
                 let zero = self.cx.iconst(types::I64, 0);
                 self.cx.jump(header, &[zero]);
-                self.cx.b.switch_to_block(header);
-                let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-                let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+                self.cx.builder.switch_to_block(header);
+                let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+                let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
                 self.cx.brif(more, body, &[], done, &[]);
 
-                self.cx.b.switch_to_block(body);
+                self.cx.builder.switch_to_block(body);
                 let at = self.elem_at(src.base, i, src.stride);
                 let mut vals = Vec::new();
                 self.pass_ctx(ctx, &mut vals);
                 self.pass_elem(src, at, &mut vals);
                 let _ = self.call_closure(f, &vals, &rets, None);
-                let next = self.cx.b.ins().iadd_imm(i, 1);
+                let next = self.cx.builder.ins().iadd_imm(i, 1);
                 self.cx.jump(header, &[next]);
-                self.cx.b.switch_to_block(done);
+                self.cx.builder.switch_to_block(done);
             }
             None => {
                 let l = self.layout(dty);
@@ -4378,12 +4385,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
                 let zero = self.cx.iconst(types::I64, 0);
                 self.cx.jump(header, &[zero]);
-                self.cx.b.switch_to_block(header);
-                let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-                let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+                self.cx.builder.switch_to_block(header);
+                let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+                let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
                 self.cx.brif(more, body, &[], done, &[]);
 
-                self.cx.b.switch_to_block(body);
+                self.cx.builder.switch_to_block(body);
                 let at = self.elem_at(src.base, i, src.stride);
                 let mut vals = Vec::new();
                 self.pass_ctx(ctx, &mut vals);
@@ -4396,9 +4403,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 for (leaf, v) in leaves.iter().zip(results) {
                     self.cx.store_at(acc, leaf.offset, v);
                 }
-                let next = self.cx.b.ins().iadd_imm(i, 1);
+                let next = self.cx.builder.ins().iadd_imm(i, 1);
                 self.cx.jump(header, &[next]);
-                self.cx.b.switch_to_block(done);
+                self.cx.builder.switch_to_block(done);
                 self.set(dest, Some(acc));
             }
         }
@@ -4417,43 +4424,43 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let zero = self.cx.iconst(types::I64, 0);
         let start = self.cx.iconst(rty, i64::from(kind == Step::All));
         self.cx.jump(header, &[zero, start]);
-        self.cx.b.switch_to_block(header);
-        let hp = self.cx.b.block_params(header).to_vec();
+        self.cx.builder.switch_to_block(header);
+        let hp = self.cx.builder.block_params(header).to_vec();
         let (i, acc) = (hp.first().copied().unwrap_or(zero), hp.get(1).copied().unwrap_or(start));
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, body, &[], done, &[acc]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at = self.elem_at(src.base, i, src.stride);
         let mut vals = Vec::new();
         self.pass_elem(src, at, &mut vals);
         let answer = self.call_closure(f, &vals, &[types::I8], None);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         match (kind, answer.first().copied()) {
             (Step::Any, Some(b)) => {
-                let cont = self.cx.b.create_block();
+                let cont = self.cx.builder.create_block();
                 let yes = self.cx.iconst(rty, 1);
                 self.cx.brif(b, done, &[yes], cont, &[]);
-                self.cx.b.switch_to_block(cont);
+                self.cx.builder.switch_to_block(cont);
                 self.cx.jump(header, &[next, acc]);
             }
             (Step::All, Some(b)) => {
-                let cont = self.cx.b.create_block();
+                let cont = self.cx.builder.create_block();
                 let no = self.cx.iconst(rty, 0);
                 self.cx.brif(b, cont, &[], done, &[no]);
-                self.cx.b.switch_to_block(cont);
+                self.cx.builder.switch_to_block(cont);
                 self.cx.jump(header, &[next, acc]);
             }
             (_, Some(b)) => {
-                let one = if rty == types::I8 { b } else { self.cx.b.ins().uextend(rty, b) };
-                let total = self.cx.b.ins().iadd(acc, one);
+                let one = if rty == types::I8 { b } else { self.cx.builder.ins().uextend(rty, b) };
+                let total = self.cx.builder.ins().iadd(acc, one);
                 self.cx.jump(header, &[next, total]);
             }
             (_, None) => self.cx.jump(header, &[next, acc]),
         }
 
-        self.cx.b.switch_to_block(done);
-        let out = self.cx.b.block_params(done).first().copied();
+        self.cx.builder.switch_to_block(done);
+        let out = self.cx.builder.block_params(done).first().copied();
         self.set(dest, out);
     }
 
@@ -4511,7 +4518,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
 
         let n = src.len;
         let stride_v = self.cx.iconst(word, i64::from(stride));
-        let bytes = self.cx.b.ins().imul_imm(n, i64::from(stride));
+        let bytes = self.cx.builder.ins().imul_imm(n, i64::from(stride));
         let new = self.cx.rt_ref("buri_rt_list_new", &[word, word, PTR], &[PTR]);
         let dst = self.cx.call1(new, &[n, stride_v, slot]).unwrap_or(slot);
         let scratch = self.cx.alloc(bytes);
@@ -4520,69 +4527,69 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         // -- the source, copied in and retained once per element ------------
         let (head, body, done) = self.loop_blocks(&[word], &[]);
         self.cx.jump(head, &[zero]);
-        self.cx.b.switch_to_block(head);
-        let i = self.cx.b.block_params(head).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, n);
+        self.cx.builder.switch_to_block(head);
+        let i = self.cx.builder.block_params(head).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, n);
         self.cx.brif(more, body, &[], done, &[]);
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let from = self.elem_at(src.base, i, stride);
         let into = self.elem_at(dst, i, stride);
         self.cx.copy(into, from, src.size, align);
         self.cx.walk_rc(&src.elem, into, true, 0);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         self.cx.jump(head, &[next]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
 
         // -- `w = 1, 2, 4, …`, with `a` and `b` swapping each pass -----------
         let (wide, pass, sorted) = self.loop_blocks(&[word, PTR, PTR], &[PTR]);
         let one = self.cx.iconst(word, 1);
         self.cx.jump(wide, &[one, dst, scratch]);
-        self.cx.b.switch_to_block(wide);
-        let wp = self.cx.b.block_params(wide).to_vec();
+        self.cx.builder.switch_to_block(wide);
+        let wp = self.cx.builder.block_params(wide).to_vec();
         let w = wp.first().copied().unwrap_or(one);
         let a = wp.get(1).copied().unwrap_or(dst);
         let b = wp.get(2).copied().unwrap_or(scratch);
-        let unsorted = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, w, n);
+        let unsorted = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, w, n);
         self.cx.brif(unsorted, pass, &[], sorted, &[a]);
-        self.cx.b.switch_to_block(pass);
-        let span = self.cx.b.ins().imul_imm(w, 2);
+        self.cx.builder.switch_to_block(pass);
+        let span = self.cx.builder.ins().imul_imm(w, 2);
 
         // -- one pass: `lo = 0, 2w, 4w, …` ----------------------------------
         let (runs, run, swap) = self.loop_blocks(&[word], &[]);
         self.cx.jump(runs, &[zero]);
-        self.cx.b.switch_to_block(runs);
-        let lo = self.cx.b.block_params(runs).first().copied().unwrap_or(zero);
-        let left = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, lo, n);
+        self.cx.builder.switch_to_block(runs);
+        let lo = self.cx.builder.block_params(runs).first().copied().unwrap_or(zero);
+        let left = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, lo, n);
         self.cx.brif(left, run, &[], swap, &[]);
-        self.cx.b.switch_to_block(run);
-        let mid = self.cx.b.ins().iadd(lo, w);
-        let mid = self.cx.b.ins().umin(mid, n);
-        let hi = self.cx.b.ins().iadd(lo, span);
-        let hi = self.cx.b.ins().umin(hi, n);
+        self.cx.builder.switch_to_block(run);
+        let mid = self.cx.builder.ins().iadd(lo, w);
+        let mid = self.cx.builder.ins().umin(mid, n);
+        let hi = self.cx.builder.ins().iadd(lo, span);
+        let hi = self.cx.builder.ins().umin(hi, n);
 
         // -- one merge: `a[lo..mid)` and `a[mid..hi)` into `b[lo..hi)` -------
         let (merge, step, merged) = self.loop_blocks(&[word, word, word], &[]);
         self.cx.jump(merge, &[lo, mid, lo]);
-        self.cx.b.switch_to_block(merge);
-        let mp = self.cx.b.block_params(merge).to_vec();
+        self.cx.builder.switch_to_block(merge);
+        let mp = self.cx.builder.block_params(merge).to_vec();
         let li = mp.first().copied().unwrap_or(zero);
         let ri = mp.get(1).copied().unwrap_or(zero);
         let out = mp.get(2).copied().unwrap_or(zero);
-        let filling = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, out, hi);
+        let filling = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, out, hi);
         self.cx.brif(filling, step, &[], merged, &[]);
 
-        self.cx.b.switch_to_block(step);
-        let take_left = self.cx.b.create_block();
-        let take_right = self.cx.b.create_block();
-        let both = self.cx.b.create_block();
-        let compare = self.cx.b.create_block();
-        let left_open = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, li, mid);
+        self.cx.builder.switch_to_block(step);
+        let take_left = self.cx.builder.create_block();
+        let take_right = self.cx.builder.create_block();
+        let both = self.cx.builder.create_block();
+        let compare = self.cx.builder.create_block();
+        let left_open = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, li, mid);
         self.cx.brif(left_open, both, &[], take_right, &[]);
-        self.cx.b.switch_to_block(both);
-        let right_open = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, ri, hi);
+        self.cx.builder.switch_to_block(both);
+        let right_open = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, ri, hi);
         self.cx.brif(right_open, compare, &[], take_left, &[]);
 
-        self.cx.b.switch_to_block(compare);
+        self.cx.builder.switch_to_block(compare);
         let left_at = self.elem_at(a, li, stride);
         let right_at = self.elem_at(a, ri, stride);
         let mut vals = Vec::new();
@@ -4591,43 +4598,43 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let answer = self.call_closure(f, &vals, &rets, None);
         match answer.first().copied() {
             Some(order) => {
-                let after = self.cx.b.ins().icmp_imm(IntCC::Equal, order, GREATER);
+                let after = self.cx.builder.ins().icmp_imm(IntCC::Equal, order, GREATER);
                 self.cx.brif(after, take_right, &[], take_left, &[]);
             }
             None => self.cx.jump(take_left, &[]),
         }
 
         for (block, right) in [(take_left, false), (take_right, true)] {
-            self.cx.b.switch_to_block(block);
+            self.cx.builder.switch_to_block(block);
             let at = if right { ri } else { li };
             let from = self.elem_at(a, at, stride);
             let into = self.elem_at(b, out, stride);
             self.cx.copy(into, from, src.size, align);
-            let taken = self.cx.b.ins().iadd_imm(at, 1);
-            let filled = self.cx.b.ins().iadd_imm(out, 1);
+            let taken = self.cx.builder.ins().iadd_imm(at, 1);
+            let filled = self.cx.builder.ins().iadd_imm(out, 1);
             let (nl, nr) = if right { (li, taken) } else { (taken, ri) };
             self.cx.jump(merge, &[nl, nr, filled]);
         }
 
-        self.cx.b.switch_to_block(merged);
-        let next_run = self.cx.b.ins().iadd(lo, span);
+        self.cx.builder.switch_to_block(merged);
+        let next_run = self.cx.builder.ins().iadd(lo, span);
         self.cx.jump(runs, &[next_run]);
 
-        self.cx.b.switch_to_block(swap);
+        self.cx.builder.switch_to_block(swap);
         self.cx.jump(wide, &[span, b, a]);
 
         // -- an odd number of passes ends in the scratch --------------------
-        self.cx.b.switch_to_block(sorted);
-        let answer = self.cx.b.block_params(sorted).first().copied().unwrap_or(dst);
-        let home = self.cx.b.create_block();
-        let end = self.cx.b.create_block();
-        let in_place = self.cx.b.ins().icmp(IntCC::Equal, answer, dst);
+        self.cx.builder.switch_to_block(sorted);
+        let answer = self.cx.builder.block_params(sorted).first().copied().unwrap_or(dst);
+        let home = self.cx.builder.create_block();
+        let end = self.cx.builder.create_block();
+        let in_place = self.cx.builder.ins().icmp(IntCC::Equal, answer, dst);
         self.cx.brif(in_place, end, &[], home, &[]);
-        self.cx.b.switch_to_block(home);
+        self.cx.builder.switch_to_block(home);
         let cfg = self.cx.unit.module.isa().frontend_config();
-        self.cx.b.call_memcpy(cfg, dst, answer, bytes);
+        self.cx.builder.call_memcpy(cfg, dst, answer, bytes);
         self.cx.jump(end, &[]);
-        self.cx.b.switch_to_block(end);
+        self.cx.builder.switch_to_block(end);
         // The elements were *moved* into the result, so the scratch goes back
         // without being walked, exactly as `list_filter`'s does.
         self.cx.decref(scratch, None);
@@ -4667,27 +4674,27 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let align = self.cx.unit.abi.layouts.shared(&elem).align;
 
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
-        let end = self.cx.b.create_block();
+        let end = self.cx.builder.create_block();
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(header, &[zero]);
-        self.cx.b.switch_to_block(header);
-        let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        self.cx.builder.switch_to_block(header);
+        let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, body, &[], done, &[]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at = self.elem_at(src.base, i, src.stride);
         let mut vals = Vec::new();
         self.pass_elem(src, at, &mut vals);
         let answer = self.call_closure(f, &vals, &[types::I8], None);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         match answer.first().copied() {
             Some(b) => {
-                let hit = self.cx.b.create_block();
-                let cont = self.cx.b.create_block();
+                let hit = self.cx.builder.create_block();
+                let cont = self.cx.builder.create_block();
                 self.cx.brif(b, hit, &[], cont, &[]);
 
-                self.cx.b.switch_to_block(hit);
+                self.cx.builder.switch_to_block(hit);
                 if kind == Step::FindIndex {
                     self.cx.store_at(slot, payload_at, i);
                 } else {
@@ -4700,16 +4707,16 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 self.store_disc(slot, &l, 0);
                 self.cx.jump(end, &[]);
 
-                self.cx.b.switch_to_block(cont);
+                self.cx.builder.switch_to_block(cont);
                 self.cx.jump(header, &[next]);
             }
             None => self.cx.jump(header, &[next]),
         }
 
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
         self.store_disc(slot, &l, 1);
         self.cx.jump(end, &[]);
-        self.cx.b.switch_to_block(end);
+        self.cx.builder.switch_to_block(end);
     }
 
     /// `foldResult` and `foldResultCtx`: a fold that stops at the first `.Err`.
@@ -4779,15 +4786,15 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let dleaves = self.leaves(dty);
 
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
-        let end = self.cx.b.create_block();
+        let end = self.cx.builder.create_block();
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(header, &[zero]);
-        self.cx.b.switch_to_block(header);
-        let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        self.cx.builder.switch_to_block(header);
+        let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, body, &[], done, &[]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at = self.elem_at(src.base, i, src.stride);
         let mut vals = Vec::new();
         self.pass_ctx(ctx, &mut vals);
@@ -4801,27 +4808,27 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             self.cx.store_at(res, leaf.offset, v);
         }
         let tag = self.load_disc(res, &l);
-        let failed = self.cx.b.ins().icmp_imm(IntCC::NotEqual, tag, 0);
-        let carry = self.cx.b.create_block();
+        let failed = self.cx.builder.ins().icmp_imm(IntCC::NotEqual, tag, 0);
+        let carry = self.cx.builder.create_block();
         self.cx.brif(failed, end, &[], carry, &[]);
-        self.cx.b.switch_to_block(carry);
+        self.cx.builder.switch_to_block(carry);
         if bl.size > 0 {
             let from = self.cx.offset(res, ok_at);
             self.cx.copy(acc, from, bl.size, bl.align.max(1));
         }
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         self.cx.jump(header, &[next]);
 
         // Exhausted: `.Ok(acc)`, which is the `cur` a loop that never ran also
         // answers.
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
         if bl.size > 0 {
             let into = self.cx.offset(res, ok_at);
             self.cx.copy(into, acc, bl.size, bl.align.max(1));
         }
         self.store_disc(res, &l, 0);
         self.cx.jump(end, &[]);
-        self.cx.b.switch_to_block(end);
+        self.cx.builder.switch_to_block(end);
         self.set(dest, Some(res));
     }
 
@@ -4863,7 +4870,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let a_align = self.cx.unit.abi.layouts.shared(&a.elem).align;
         let b_align = self.cx.unit.abi.layouts.shared(&b.elem).align;
 
-        let n = self.cx.b.ins().umin(a.len, b.len);
+        let n = self.cx.builder.ins().umin(a.len, b.len);
         let slot = self.alloc_slot(dest, dty);
         let stride_v = self.cx.iconst(types::I64, i64::from(out_stride));
         let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
@@ -4872,12 +4879,12 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(header, &[zero]);
-        self.cx.b.switch_to_block(header);
-        let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, n);
+        self.cx.builder.switch_to_block(header);
+        let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, n);
         self.cx.brif(more, body, &[], done, &[]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let into = self.elem_at(dst, i, out_stride);
         for (side, at_field, align) in [(&a, first_at, a_align), (&b, second_at, b_align)] {
             let from = self.elem_at(side.base, i, side.stride);
@@ -4886,9 +4893,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             let elem = side.elem.clone();
             self.cx.walk_rc(&elem, target, true, 0);
         }
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         self.cx.jump(header, &[next]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
         true
     }
 
@@ -4929,20 +4936,20 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 let (count, adding, counted) = self.loop_blocks(&[types::I64, types::I64], &[types::I64]);
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(count, &[zero, zero]);
-        self.cx.b.switch_to_block(count);
-        let cp = self.cx.b.block_params(count).to_vec();
+        self.cx.builder.switch_to_block(count);
+        let cp = self.cx.builder.block_params(count).to_vec();
         let (i, total) = (cp.first().copied().unwrap_or(zero), cp.get(1).copied().unwrap_or(zero));
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, adding, &[], counted, &[total]);
-        self.cx.b.switch_to_block(adding);
+        self.cx.builder.switch_to_block(adding);
         let at = self.elem_at(src.base, i, src.stride);
         let inner = self.cx.load_at(types::I64, at, word(LIST_LEN));
-        let grown = self.cx.b.ins().iadd(total, inner);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let grown = self.cx.builder.ins().iadd(total, inner);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         self.cx.jump(count, &[next, grown]);
 
-        self.cx.b.switch_to_block(counted);
-        let n = self.cx.b.block_params(counted).first().copied().unwrap_or(zero);
+        self.cx.builder.switch_to_block(counted);
+        let n = self.cx.builder.block_params(counted).first().copied().unwrap_or(zero);
         let slot = self.alloc_slot(dest, dty);
         let stride_v = self.cx.iconst(types::I64, i64::from(out_stride));
         let new = self.cx.rt_ref("buri_rt_list_new", &[types::I64, types::I64, PTR], &[PTR]);
@@ -4951,38 +4958,38 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         // -- pass two: the elements ------------------------------------------
         let (outer, one_list, done) = self.loop_blocks(&[types::I64, types::I64], &[]);
         self.cx.jump(outer, &[zero, zero]);
-        self.cx.b.switch_to_block(outer);
-        let op = self.cx.b.block_params(outer).to_vec();
+        self.cx.builder.switch_to_block(outer);
+        let op = self.cx.builder.block_params(outer).to_vec();
         let (i, k) = (op.first().copied().unwrap_or(zero), op.get(1).copied().unwrap_or(zero));
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, one_list, &[], done, &[]);
 
-        self.cx.b.switch_to_block(one_list);
+        self.cx.builder.switch_to_block(one_list);
         let at = self.elem_at(src.base, i, src.stride);
         let base = self.cx.load_at(PTR, at, word(LIST_PTR));
         let len = self.cx.load_at(types::I64, at, word(LIST_LEN));
         let (inner_loop, moving, moved) = self.loop_blocks(&[types::I64], &[]);
         self.cx.jump(inner_loop, &[zero]);
-        self.cx.b.switch_to_block(inner_loop);
-        let j = self.cx.b.block_params(inner_loop).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, j, len);
+        self.cx.builder.switch_to_block(inner_loop);
+        let j = self.cx.builder.block_params(inner_loop).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, j, len);
         self.cx.brif(more, moving, &[], moved, &[]);
 
-        self.cx.b.switch_to_block(moving);
+        self.cx.builder.switch_to_block(moving);
         let from = self.elem_at(base, j, out_stride);
-        let filled = self.cx.b.ins().iadd(k, j);
+        let filled = self.cx.builder.ins().iadd(k, j);
         let into = self.elem_at(dst, filled, out_stride);
         self.cx.copy(into, from, out_size, out_align);
         let elem = out_elem.clone();
         self.cx.walk_rc(&elem, into, true, 0);
-        let next = self.cx.b.ins().iadd_imm(j, 1);
+        let next = self.cx.builder.ins().iadd_imm(j, 1);
         self.cx.jump(inner_loop, &[next]);
 
-        self.cx.b.switch_to_block(moved);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
-        let after = self.cx.b.ins().iadd(k, len);
+        self.cx.builder.switch_to_block(moved);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
+        let after = self.cx.builder.ins().iadd(k, len);
         self.cx.jump(outer, &[next, after]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
         true
     }
 
@@ -5036,37 +5043,37 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let no = self.cx.iconst(rty, 0);
         let yes = self.cx.iconst(rty, 1);
 
-        let paired = self.cx.b.create_block();
-        let same = self.cx.b.ins().icmp(IntCC::Equal, a.len, b.len);
+        let paired = self.cx.builder.create_block();
+        let same = self.cx.builder.ins().icmp(IntCC::Equal, a.len, b.len);
         self.cx.brif(same, paired, &[], done, &[no]);
-        self.cx.b.switch_to_block(paired);
+        self.cx.builder.switch_to_block(paired);
         self.cx.jump(header, &[zero]);
 
-        self.cx.b.switch_to_block(header);
-        let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, a.len);
+        self.cx.builder.switch_to_block(header);
+        let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, a.len);
         self.cx.brif(more, body, &[], done, &[yes]);
 
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at_a = self.elem_at(a.base, i, a.stride);
         let at_b = self.elem_at(b.base, i, b.stride);
         let mut vals = Vec::new();
         self.pass_elem(&a, at_a, &mut vals);
         self.pass_elem(&b, at_b, &mut vals);
         let answer = self.call_closure(f, &vals, &[types::I8], None);
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         match answer.first().copied() {
             Some(equal) => {
-                let cont = self.cx.b.create_block();
+                let cont = self.cx.builder.create_block();
                 self.cx.brif(equal, cont, &[], done, &[no]);
-                self.cx.b.switch_to_block(cont);
+                self.cx.builder.switch_to_block(cont);
                 self.cx.jump(header, &[next]);
             }
             None => self.cx.jump(header, &[next]),
         }
 
-        self.cx.b.switch_to_block(done);
-        let out = self.cx.b.block_params(done).first().copied();
+        self.cx.builder.switch_to_block(done);
+        let out = self.cx.builder.block_params(done).first().copied();
         self.set(dest, out);
         true
     }
@@ -5111,18 +5118,18 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let rets: Vec<ClifType> = leaves.iter().map(|leaf| leaf.ty).collect();
         let Some(str_ty) = self.source_ty(dty) else { return true };
         let slot = self.alloc_slot(dest, dty);
-        let bytes = self.cx.b.ins().imul_imm(src.len, i64::from(stride));
+        let bytes = self.cx.builder.ins().imul_imm(src.len, i64::from(stride));
         let scratch = self.cx.alloc(bytes);
 
         // -- one rendered `Str` per element ----------------------------------
         let (header, body, done) = self.loop_blocks(&[types::I64], &[]);
         let zero = self.cx.iconst(types::I64, 0);
         self.cx.jump(header, &[zero]);
-        self.cx.b.switch_to_block(header);
-        let i = self.cx.b.block_params(header).first().copied().unwrap_or(zero);
-        let more = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
+        self.cx.builder.switch_to_block(header);
+        let i = self.cx.builder.block_params(header).first().copied().unwrap_or(zero);
+        let more = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, i, src.len);
         self.cx.brif(more, body, &[], done, &[]);
-        self.cx.b.switch_to_block(body);
+        self.cx.builder.switch_to_block(body);
         let at = self.elem_at(src.base, i, src.stride);
         let mut vals = Vec::new();
         self.pass_elem(&src, at, &mut vals);
@@ -5131,26 +5138,26 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         for (leaf, v) in leaves.iter().zip(results) {
             self.cx.store_at(into, leaf.offset, v);
         }
-        let next = self.cx.b.ins().iadd_imm(i, 1);
+        let next = self.cx.builder.ins().iadd_imm(i, 1);
         self.cx.jump(header, &[next]);
-        self.cx.b.switch_to_block(done);
+        self.cx.builder.switch_to_block(done);
 
         let join = self.cx.rt_ref("buri_rt_show_list", &[PTR, types::I64, PTR], &[]);
-        self.cx.b.ins().call(join, &[scratch, src.len, slot]);
+        self.cx.builder.ins().call(join, &[scratch, src.len, slot]);
 
         // -- the rendered strings, released ----------------------------------
         let (freeing, one, freed) = self.loop_blocks(&[types::I64], &[]);
         self.cx.jump(freeing, &[zero]);
-        self.cx.b.switch_to_block(freeing);
-        let j = self.cx.b.block_params(freeing).first().copied().unwrap_or(zero);
-        let left = self.cx.b.ins().icmp(IntCC::UnsignedLessThan, j, src.len);
+        self.cx.builder.switch_to_block(freeing);
+        let j = self.cx.builder.block_params(freeing).first().copied().unwrap_or(zero);
+        let left = self.cx.builder.ins().icmp(IntCC::UnsignedLessThan, j, src.len);
         self.cx.brif(left, one, &[], freed, &[]);
-        self.cx.b.switch_to_block(one);
+        self.cx.builder.switch_to_block(one);
         let rendered = self.elem_at(scratch, j, stride);
         self.cx.walk_rc(&str_ty, rendered, false, 0);
-        let next = self.cx.b.ins().iadd_imm(j, 1);
+        let next = self.cx.builder.ins().iadd_imm(j, 1);
         self.cx.jump(freeing, &[next]);
-        self.cx.b.switch_to_block(freed);
+        self.cx.builder.switch_to_block(freed);
         self.cx.decref(scratch, None);
         true
     }
@@ -5174,9 +5181,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             match Abi::register(dty) {
                 Some(t) => {
                     let zero = if t.is_float() {
-                        let z = self.cx.b.ins().f64const(0.0);
+                        let z = self.cx.builder.ins().f64const(0.0);
                         if t == types::F32 {
-                            self.cx.b.ins().fdemote(types::F32, z)
+                            self.cx.builder.ins().fdemote(types::F32, z)
                         } else {
                             z
                         }
@@ -5196,14 +5203,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
 
     /// The three blocks every one of these loops has, with their parameters.
     fn loop_blocks(&mut self, header: &[ClifType], done: &[ClifType]) -> (Block, Block, Block) {
-        let h = self.cx.b.create_block();
+        let h = self.cx.builder.create_block();
         for t in header {
-            self.cx.b.append_block_param(h, *t);
+            self.cx.builder.append_block_param(h, *t);
         }
-        let body = self.cx.b.create_block();
-        let d = self.cx.b.create_block();
+        let body = self.cx.builder.create_block();
+        let d = self.cx.builder.create_block();
         for t in done {
-            self.cx.b.append_block_param(d, *t);
+            self.cx.builder.append_block_param(d, *t);
         }
         (h, body, d)
     }
@@ -5223,7 +5230,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     fn abort_str(&mut self, message: ValueId, symbol: &str) {
         let Some((ptr, len)) = self.str_arg(message) else { return };
         let r = self.cx.rt_ref(symbol, &[PTR, types::I64], &[]);
-        self.cx.b.ins().call(r, &[ptr, len]);
+        self.cx.builder.ins().call(r, &[ptr, len]);
     }
 
     /// A borrowed `Str`'s bytes, flattened to the `(ptr, len)` pair `lib.rs` §2
@@ -5233,7 +5240,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
         let addr = self.get(text)?;
         let ptr = self.cx.load_at(PTR, addr, word(STR_PTR));
         let raw = self.cx.load_at(types::I64, addr, word(STR_LEN));
-        Some((ptr, self.cx.b.ins().band_imm(raw, STR_LEN_MASK as i64)))
+        Some((ptr, self.cx.builder.ins().band_imm(raw, STR_LEN_MASK as i64)))
     }
 
     /// A structural operation the derive pass left behind.
@@ -5273,14 +5280,14 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// extension; getting that backwards is the classic conversion bug, and it
     /// would present as `255` printing as `-1`.
     fn widen(&mut self, v: Value, p: Prim) -> Value {
-        let t = self.cx.b.func.dfg.value_type(v);
+        let t = self.cx.builder.func.dfg.value_type(v);
         if t == types::I64 || t == types::I128 {
             return v;
         }
         if signed_prim(p) {
-            self.cx.b.ins().sextend(types::I64, v)
+            self.cx.builder.ins().sextend(types::I64, v)
         } else {
-            self.cx.b.ins().uextend(types::I64, v)
+            self.cx.builder.ins().uextend(types::I64, v)
         }
     }
 
@@ -5402,17 +5409,17 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                         }
                     }
                 }
-                self.cx.b.ins().return_(&[]);
+                self.cx.builder.ins().return_(&[]);
             }
             Term::Return(vs) => {
                 let mut out = Vec::new();
                 for v in vs {
                     self.spread(*v, &mut out);
                 }
-                self.cx.b.ins().return_(&out);
+                self.cx.builder.ins().return_(&out);
             }
             Term::Unreachable => {
-                self.cx.b.ins().trap(UNREACHABLE);
+                self.cx.builder.ins().trap(UNREACHABLE);
             }
         }
     }
@@ -5444,15 +5451,15 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             match self.direct_case(target) {
                 Some(dest) => sw.set_entry(u128::from(*key), dest),
                 None => {
-                    let tb = self.cx.b.create_block();
+                    let tb = self.cx.builder.create_block();
                     sw.set_entry(u128::from(*key), tb);
                     trampolines.push((tb, target.clone()));
                 }
             }
         }
-        let otherwise = self.cx.b.create_block();
-        sw.emit(self.cx.b, v, otherwise);
-        self.cx.b.switch_to_block(otherwise);
+        let otherwise = self.cx.builder.create_block();
+        sw.emit(self.cx.builder, v, otherwise);
+        self.cx.builder.switch_to_block(otherwise);
         match default {
             Some(t) => {
                 let args = self.edge_args(t);
@@ -5467,13 +5474,13 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 // the belt is cheap (§3.1).
                 if self.cx.unit.profile.defensive_aborts() {
                     let f = self.cx.rt_ref("buri_rt_abort_unreachable", &[], &[]);
-                    self.cx.b.ins().call(f, &[]);
+                    self.cx.builder.ins().call(f, &[]);
                 }
-                self.cx.b.ins().trap(UNREACHABLE);
+                self.cx.builder.ins().trap(UNREACHABLE);
             }
         }
         for (tb, target) in trampolines {
-            self.cx.b.switch_to_block(tb);
+            self.cx.builder.switch_to_block(tb);
             let args = self.edge_args(&target);
             if let Some(dest) = self.block_of(&target) {
                 self.cx.jump(dest, &args);
@@ -5533,10 +5540,10 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
                 self.cx.jump(dest, &args);
                 return true;
             }
-            let c = self.cx.b.ins().icmp_imm(IntCC::Equal, v, key);
-            let next = self.cx.b.create_block();
+            let c = self.cx.builder.ins().icmp_imm(IntCC::Equal, v, key);
+            let next = self.cx.builder.create_block();
             self.cx.brif(c, dest, &args, next, &[]);
-            self.cx.b.switch_to_block(next);
+            self.cx.builder.switch_to_block(next);
         }
         match default {
             Some(t) => {
@@ -5548,9 +5555,9 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
             None => {
                 if self.cx.unit.profile.defensive_aborts() {
                     let f = self.cx.rt_ref("buri_rt_abort_unreachable", &[], &[]);
-                    self.cx.b.ins().call(f, &[]);
+                    self.cx.builder.ins().call(f, &[]);
                 }
-                self.cx.b.ins().trap(UNREACHABLE);
+                self.cx.builder.ins().trap(UNREACHABLE);
             }
         }
         true

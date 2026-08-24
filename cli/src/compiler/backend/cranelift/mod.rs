@@ -454,34 +454,34 @@ fn test_entry_point(u: &mut emit::Unit<'_>, tests: &[usize]) {
         }
     };
     let tests = tests.to_vec();
-    u.build_function(id, sig, "the test entry point", |unit, b| {
-        let mut cx = emit::Cx::new(unit, b);
-        let block = cx.b.create_block();
-        cx.b.append_block_params_for_function_params(block);
-        cx.b.switch_to_block(block);
-        let params = cx.b.block_params(block).to_vec();
+    u.build_function(id, sig, "the test entry point", |unit, builder| {
+        let mut cx = emit::Cx::new(unit, builder);
+        let block = cx.builder.create_block();
+        cx.builder.append_block_params_for_function_params(block);
+        cx.builder.switch_to_block(block);
+        let params = cx.builder.block_params(block).to_vec();
         let (Some(argc), Some(argv)) = (params.first().copied(), params.get(1).copied()) else {
             return;
         };
         let init = cx.rt_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
-        cx.b.ins().call(init, &[argc, argv]);
+        cx.builder.ins().call(init, &[argc, argv]);
         for (i, idx) in tests.iter().enumerate() {
             let Some(callee) = cx.func_ref(*idx) else { continue };
             let enter = cx.rt_ref("buri_rt_test_enter", &[types::I64], &[types::I32]);
             let index = cx.iconst(types::I64, i as i64);
             let Some(run) = cx.call1(enter, &[index]) else { continue };
-            let body = cx.b.create_block();
-            let next = cx.b.create_block();
+            let body = cx.builder.create_block();
+            let next = cx.builder.create_block();
             cx.brif(run, body, &[], next, &[]);
-            cx.b.switch_to_block(body);
-            cx.b.ins().call(callee, &[]);
+            cx.builder.switch_to_block(body);
+            cx.builder.ins().call(callee, &[]);
             cx.jump(next, &[]);
-            cx.b.switch_to_block(next);
+            cx.builder.switch_to_block(next);
         }
         let flush = cx.rt_ref("buri_rt_flush", &[], &[]);
-        cx.b.ins().call(flush, &[]);
+        cx.builder.ins().call(flush, &[]);
         let zero = cx.iconst(types::I32, 0);
-        cx.b.ins().return_(&[zero]);
+        cx.builder.ins().return_(&[zero]);
     });
 }
 
@@ -525,35 +525,35 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
     // knowing the answer for that one type.
     let indirect = u.abi.rets_indirect(program, &f.sig.rets);
 
-    u.build_function(id, sig, "the entry point", |unit, b| {
-        let mut cx = emit::Cx::new(unit, b);
-        let block = cx.b.create_block();
-        cx.b.append_block_params_for_function_params(block);
-        cx.b.switch_to_block(block);
-        let params = cx.b.block_params(block).to_vec();
+    u.build_function(id, sig, "the entry point", |unit, builder| {
+        let mut cx = emit::Cx::new(unit, builder);
+        let block = cx.builder.create_block();
+        cx.builder.append_block_params_for_function_params(block);
+        cx.builder.switch_to_block(block);
+        let params = cx.builder.block_params(block).to_vec();
         let (Some(argc), Some(argv)) = (params.first().copied(), params.get(1).copied()) else {
             return;
         };
         let init = cx.rt_ref("buri_rt_argv_init", &[types::I32, PTR], &[]);
-        cx.b.ins().call(init, &[argc, argv]);
+        cx.builder.ins().call(init, &[argc, argv]);
 
         let flush = cx.rt_ref("buri_rt_flush", &[], &[]);
         let Some(l) = layout.filter(|l| l.size > 0) else {
             if let Some(callee) = cx.func_ref(idx) {
-                cx.b.ins().call(callee, &[]);
+                cx.builder.ins().call(callee, &[]);
             }
-            cx.b.ins().call(flush, &[]);
+            cx.builder.ins().call(flush, &[]);
             let zero = cx.iconst(types::I32, 0);
-            cx.b.ins().return_(&[zero]);
+            cx.builder.ins().return_(&[zero]);
             return;
         };
         let slot = cx.slot(l.size, l.align);
         let Some(callee) = cx.func_ref(idx) else { return };
         if indirect {
-            cx.b.ins().call(callee, &[slot]);
+            cx.builder.ins().call(callee, &[slot]);
         } else {
-            let call = cx.b.ins().call(callee, &[]);
-            let results = cx.b.inst_results(call).to_vec();
+            let call = cx.builder.ins().call(callee, &[]);
+            let results = cx.builder.inst_results(call).to_vec();
             for (leaf, v) in leaves.iter().zip(results) {
                 cx.store_at(slot, leaf.offset, v);
             }
@@ -568,29 +568,30 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
                 if t == types::I32 {
                     raw
                 } else {
-                    cx.b.ins().uextend(types::I32, raw)
+                    cx.builder.ins().uextend(types::I32, raw)
                 }
             }
             Repr::Enum { repr: EnumRepr::Niche { null_at }, .. } => {
                 let p = cx.load_at(PTR, slot, *null_at);
                 let is_null =
-                    cx.b.ins().icmp_imm(cranelift_codegen::ir::condcodes::IntCC::Equal, p, 0);
-                cx.b.ins().uextend(types::I32, is_null)
+                    cx.builder.ins().icmp_imm(cranelift_codegen::ir::condcodes::IntCC::Equal, p, 0);
+                cx.builder.ins().uextend(types::I32, is_null)
             }
             _ => cx.iconst(types::I32, 0),
         };
 
-        let ok = cx.b.create_block();
-        let bad = cx.b.create_block();
-        let is_err = cx.b.ins().icmp_imm(cranelift_codegen::ir::condcodes::IntCC::NotEqual, tag, 0);
+        let ok = cx.builder.create_block();
+        let bad = cx.builder.create_block();
+        let is_err =
+            cx.builder.ins().icmp_imm(cranelift_codegen::ir::condcodes::IntCC::NotEqual, tag, 0);
         cx.brif(is_err, bad, &[], ok, &[]);
 
-        cx.b.switch_to_block(ok);
-        cx.b.ins().call(flush, &[]);
+        cx.builder.switch_to_block(ok);
+        cx.builder.ins().call(flush, &[]);
         let zero = cx.iconst(types::I32, 0);
-        cx.b.ins().return_(&[zero]);
+        cx.builder.ins().return_(&[zero]);
 
-        cx.b.switch_to_block(bad);
+        cx.builder.switch_to_block(bad);
         // `.Err(msg)`: the payload is a `Str` at the variant's first field, so
         // the three words the runtime's writer takes are right there.
         let payload = match &l.repr {
@@ -602,13 +603,14 @@ fn entry_point(u: &mut emit::Unit<'_>, idx: usize) {
         let base = cx.load_at(PTR, slot, payload);
         let ptr = cx.load_at(PTR, slot, payload.saturating_add(8));
         let len = cx.load_at(types::I64, slot, payload.saturating_add(16));
-        let masked = cx.b.ins().band_imm(len, crate::compiler::middle::layout::STR_LEN_MASK as i64);
+        let masked =
+            cx.builder.ins().band_imm(len, crate::compiler::middle::layout::STR_LEN_MASK as i64);
         let write =
             cx.rt_ref("buri_rt_host_stderr_eprintln", &[PTR, PTR, types::I64], &[]);
-        cx.b.ins().call(write, &[base, ptr, masked]);
-        cx.b.ins().call(flush, &[]);
+        cx.builder.ins().call(write, &[base, ptr, masked]);
+        cx.builder.ins().call(flush, &[]);
         let one = cx.iconst(types::I32, 1);
-        cx.b.ins().return_(&[one]);
+        cx.builder.ins().return_(&[one]);
     });
 }
 
