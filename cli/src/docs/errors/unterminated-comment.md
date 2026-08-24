@@ -18,17 +18,6 @@ it is reported where the comment opened rather than where the file ran out.
 ## A program that provokes it
 
 ```buri fail code=unterminated-comment
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 /* opened and never closed
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
+export fn area(side: Int): Int { side * side }
 ```
-
-Compiled by the test suite, which checks that it still produces
-`unterminated-comment` — so this page cannot describe an error the compiler has
-stopped emitting.

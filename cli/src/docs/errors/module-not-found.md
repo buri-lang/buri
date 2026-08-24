@@ -20,7 +20,3 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 ```
-
-Compiled by the test suite, which checks that it still produces
-`module-not-found` — so this page cannot describe an error the compiler has
-stopped emitting.

@@ -20,17 +20,5 @@ later used.
 ## A program that provokes it
 
 ```buri fail code=no-such-module
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
 from "core/lists" import * as lists;
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces
-`no-such-module` — so this page cannot describe an error the compiler has
-stopped emitting.

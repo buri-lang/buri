@@ -29,6 +29,3 @@ test "adds" {
   assert.eq(2 + 2, 4);
 }
 ```
-
-Compiled by the test suite, which checks that it still produces `duplicate-test-name` — so
-this page cannot describe an error the compiler has stopped emitting.

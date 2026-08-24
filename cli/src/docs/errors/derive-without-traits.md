@@ -23,6 +23,3 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 ```
-
-Compiled by the test suite, which checks that it still produces `derive-without-traits` — so
-this page cannot describe an error the compiler has stopped emitting.

@@ -6,29 +6,21 @@ error: `ctx` must come first, or immediately after `self` [ctx-not-first]
 
 ## What to do
 
-move `ctx` to that position
+Move `ctx` to that position.
 
 ## Why
 
-the calling convention is receiver first, context second, everything else after
+The position is the whole of what makes effectfulness readable: a reader
+answers "can this function touch the world?" from the first two parameters and
+stops. A `ctx` in fourth place would make that a question about the whole
+signature.
 
 ## A program that provokes it
 
 ```buri fail code=ctx-not-first
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
-
+# from "core/effect" import { Stdout };
+# from "core/io" import * as io;
 fn shout<C: Stdout>(times: Int, ctx: C): () {
   io.println(ctx, "loud")
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = shout(2, ctx);
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `ctx-not-first` — so
-this page cannot describe an error the compiler has stopped emitting.

@@ -18,11 +18,23 @@ pub struct ErrorDoc {
     pub code: &'static str,
     pub title: &'static str,
     pub text: &'static str,
+    /// Where the rule this page states is set out in full. A page explains one
+    /// diagnostic; the chapter that owns the rule explains the rule, and a
+    /// page that repeated it would be the second copy that goes stale.
+    pub see_also: &'static [&'static str],
 }
 
 macro_rules! e {
     ($code:literal, $title:literal) => {
-        ErrorDoc { code: $code, title: $title, text: include_str!(concat!("../docs/errors/", $code, ".md")) }
+        e!($code, $title, &[])
+    };
+    ($code:literal, $title:literal, $see:expr) => {
+        ErrorDoc {
+            code: $code,
+            title: $title,
+            text: include_str!(concat!("../docs/errors/", $code, ".md")),
+            see_also: $see,
+        }
     };
 }
 

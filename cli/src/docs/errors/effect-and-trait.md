@@ -11,11 +11,8 @@ split it in two: a type is either part of the world or part of your data
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-from "core/effect" import { Alloc, Stdout };
-from "core/order" import { Show };
-from "core/str" import * as str;
-from "core/host" import * as host;
-
+# from "core/effect" import { Alloc, Stdout };
+# from "core/order" import { Show };
 struct SilentOut {}
 
 impl Stdout for SilentOut {
@@ -27,13 +24,4 @@ impl Stdout for SilentOut {
 impl Show for SilentOut {
   fn show<C: Alloc>(self: SilentOut, ctx: C): Str { "silent" }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `effect-and-trait` — so
-this page cannot describe an error the compiler has stopped emitting.

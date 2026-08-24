@@ -11,15 +11,11 @@ bind a value whose type has `impl Alloc for ...`; an effect is an ordinary inter
 ## A program that provokes it
 
 ```buri fail code=missing-conformance
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
+# from "core/effect" import { Alloc, Stdout };
+# from "core/host" import * as host;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
-  let _ = ctx.println("hi");
+  let _ = ctx.println("ready");
   .Ok(())
 }
 ```
-
-Compiled by the test suite, which checks that it still produces `missing-conformance` — so
-this page cannot describe an error the compiler has stopped emitting.

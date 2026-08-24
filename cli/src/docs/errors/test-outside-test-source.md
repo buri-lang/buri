@@ -15,19 +15,7 @@ a module is a test source because a rule lists it in `test.sources`; that is the
 ## A program that provokes it
 
 ```buri fail code=test-outside-test-source
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 test "a test in a binary source" {
   let n = 1;
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `test-outside-test-source` — so
-this page cannot describe an error the compiler has stopped emitting.

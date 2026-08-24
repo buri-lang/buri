@@ -20,17 +20,8 @@ is what was meant.
 ## A program that provokes it
 
 ```buri fail code=module-doc-not-first
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+export fn area(side: Int): Int { side * side }
 
 //! This belongs at the top of the file, above everything.
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
-  .Ok(())
-}
+export fn perimeter(side: Int): Int { side * 4 }
 ```
-
-Compiled by the test suite, which checks that it still produces
-`module-doc-not-first` — so this page cannot describe an error the compiler has
-stopped emitting.

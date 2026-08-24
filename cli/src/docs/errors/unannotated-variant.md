@@ -6,14 +6,19 @@ error: `.Some` needs a known expected type [unannotated-variant]
 
 ## What to do
 
-write the qualified form, as in `Option.Some(...)`, or annotate what this value is being used as
+Write the qualified form — `Option.Some(...)` — or annotate what this value is
+being used as.
+
+## Why
+
+`.Some` is shorthand for "the `Some` of whatever type is expected here", and a
+`let` with no annotation expects nothing. Inference flows into the shorthand
+rather than out of it, which is what keeps two enums free to share a variant
+name.
 
 ## A program that provokes it
 
 ```buri fail code=unannotated-variant
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
 fn mystery(): Int {
   let v = .Some(3);
   match (v) {
@@ -21,13 +26,4 @@ fn mystery(): Int {
     .None => 0,
   }
 }
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${mystery()}");
-  .Ok(())
-}
 ```
-
-Compiled by the test suite, which checks that it still produces `unannotated-variant` — so
-this page cannot describe an error the compiler has stopped emitting.

@@ -1,30 +1,25 @@
 # Every name resolves to a declaration
 
 ```text
-error: there is nothing named `d` in scope [unresolved-name]
+error: there is nothing named `duoble` in scope [unresolved-name]
 ```
 
 ## What to do
 
-correct the spelling, or declare it
+Correct the spelling, or declare it. The diagnostic offers the nearest name in
+scope.
 
 ## Why
 
-did you mean `Add`?
+There is no prelude and no ambient scope: the names available in a module are
+the ones it declares plus the ones its own imports name. That is what makes the
+suggestion trustworthy — the set it is drawn from is exactly the set the file
+put there.
 
 ## A program that provokes it
 
 ```buri fail code=unresolved-name
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-
-export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let d = 5 as U8;
-  let _ = ctx.println("${d}");
-  .Ok(())
+fn twice(n: Int): Int {
+  duoble(n)
 }
 ```
-
-Compiled by the test suite, which checks that it still produces `unresolved-name` — so
-this page cannot describe an error the compiler has stopped emitting.

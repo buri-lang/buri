@@ -429,12 +429,23 @@ impl DocSource for Errors {
         // two-word `buri docs error result-discarded`.
         let code = id.strip_prefix("error/").unwrap_or(id);
         let e = crate::documentation::errors::find(code)?;
+        // The guarantee every page in this catalog carries, written once here
+        // rather than sixty times in the pages. It is the last thing a reader
+        // sees, after the program it is about, in whichever way the page is
+        // rendered — the alternative was a paragraph that had to be copied,
+        // kept in step, and got the code wrong the moment one was renamed.
+        let body = format!(
+            "{}\nThe program above is compiled by the test suite, which checks that it still \
+             produces `{}` — so this page cannot describe an error the compiler has stopped \
+             emitting.\n",
+            e.text, e.code
+        );
         Some(Page {
             id: format!("error/{}", e.code),
             title: e.title.to_string(),
             kind: "error",
-            body: e.text.to_string(),
-            see_also: Vec::new(),
+            body,
+            see_also: e.see_also.iter().map(|s| (*s).to_string()).collect(),
         })
     }
 

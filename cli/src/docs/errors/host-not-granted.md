@@ -57,6 +57,3 @@ The same source under `platform: WEB` compiles and mounts. `platform=JS` on the
 fence is what tells the documentation harness which output to check it as —
 without one a snippet is checked with the whole host granted, because it builds
 no output.
-
-Compiled by the test suite, which checks that it still produces `host-not-granted` — so
-this page cannot describe an error the compiler has stopped emitting.
