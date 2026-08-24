@@ -79,7 +79,6 @@ that the reported location is still correct.
 ### 8.4 Closures
 
 Lambdas capture by value. Since values are immutable, capture is unobservable —
-with one exception: **a lambda may not capture an effect-carrying value**, nor
-one whose type could be a context at some instantiation (Section 10.6).
+with one exception, the capture rule of Section 10.6.
 
 ---

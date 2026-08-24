@@ -3,7 +3,8 @@
 A source file is a module, named by its path from the repository root. Modules
 are grouped into **libraries** and **binaries** by the build system; the rules
 for which module may import which are in
-[`cli/src/docs/`](./cli/src/docs/build/overview.md), and only the syntax is here.
+[`cli/src/docs/build/overview.md`](./cli/src/docs/build/overview.md), and only
+the syntax is here.
 
 ### 4.1 Imports
 
@@ -97,8 +98,7 @@ export struct Meters(export F64);   // both public
 A type with any unexported field or variant cannot be constructed, destructured,
 or exhaustively matched outside its module.
 
-`impl` and `derive` declarations are never exported: whether a type satisfies a
-trait is a property of the type, visible wherever the type is.
+`impl` and `derive` declarations are never exported (Section 6.7.1).
 
 ### 4.2.1 Re-exports
 

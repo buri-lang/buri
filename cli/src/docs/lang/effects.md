@@ -1,7 +1,5 @@
 ## 10. Effects and purity
 
-This is the part of Buri that is not TypeScript and not Rust.
-
 ### 10.1 The model
 
 An **effect** is an interface declared with `effect` instead of `trait`. Its
@@ -40,7 +38,7 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
   merely *mentions* an effect, such as a `Holder<C>` storing a context —
   satisfies no ordinary bound either, whatever `impl`s its head constructor
   carries. That is what lets Section 10.6 conclude that a `T: Ord` is never a
-  capability.
+  context.
 
 A function names the effects it needs as **bounds** on its context parameter:
 
@@ -67,7 +65,7 @@ fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
 fn render<C: Alloc>(self: Report, ctx: C): Str                            // ok
 fn allocate(self: Self, bytes: Int): Region                               // ok
 fn sneaky<C: Fs>(a: Int, handle: C): Bool                                 // ERROR
-fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): {}                         // ERROR
+fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): ()                         // ERROR
 
 enum Widget<C> { Press(fn(C, Int) => Str), Group([Widget<C>]) }
 enum Boxed<C>  { Held(C) }
@@ -103,15 +101,13 @@ context is assembled out of the implementations that make it up. Everywhere
 else, effects travel through a single `ctx` parameter or an
 effect-carrying `self`.
 
-The rule costs a little flexibility — a function cannot take two independent
-contexts; bundle them into one type instead — and buys the property the chapter
-rests on:
+The rule costs a function the ability to take two independent contexts — bundle
+them into one type instead — and buys the property the chapter rests on:
 
-> **A function is effectful if and only if it has a `ctx` parameter, or a
+> **A function is effectful if and only if it has a `ctx` parameter or an
 > effect-carrying `self`.**
 
-Both are fixed positions with fixed names, so you read the first two parameters
-and stop. You never scan a signature.
+Both are fixed positions with fixed names, so you never scan a signature.
 
 ### 10.3 Where effects come from
 
@@ -142,20 +138,14 @@ graph — not in a dependency, not in a build script, not by accident, because
 nothing anywhere can obtain a value bounded by `Net`. The effect budget is the
 set of `host` members reachable from `main`'s context, and a platform that does
 not grant an effect simply does not export it, so requesting one is an ordinary
-unresolved-name error at the one line that asked for it.
+unresolved-name error at the one line that asked for it. Both halves of a grant
+are withheld together — the implementation struct as well as the value — so
+there is nothing left to construct by name.
 
-Note what is *not* claimed: an effect is an ordinary interface, so
-anyone may write a type that satisfies it.
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Stdout };
-struct SilentOut {}
-fn writeOut(self: SilentOut, text: Template): () { () }    // satisfies Stdout
-```
-
-That is not a forgery hole — a fake `Stdout` still cannot write anything. What is
-unforgeable is the *platform's* implementation. The open interface is what makes
-testing free (Section 10.8).
+Note what is *not* claimed: an effect is an ordinary interface, so anyone may
+write a type that satisfies it (Section 10.9 does). That is not a forgery hole —
+a fake `Stdout` still cannot write anything, and what is unforgeable is the
+*platform's* implementation. The open interface is what makes testing free.
 
 `Alloc` is the case where that openness is useful outside a test, because it is
 the one effect whose implementation grants nothing: `allocate` answers a
@@ -203,7 +193,7 @@ only in `main`'s body, in a test source, or in a test-only module (Section
 is the entry point, and a test source may not be imported. So in all ordinary
 code the clause is vacuous, and the useful form of the theorem is unchanged.
 
-Two consequences worth naming:
+Two consequences:
 
 - Purity is not a keyword and not an effect annotation. It is the absence of one
   argument, in a fixed position, with a fixed name.
@@ -261,24 +251,20 @@ the same rule at a type parameter, where "carries an effect" cannot be read off
 the type — so `fn wrap<T>(x: T, f: fn(T) => ()): fn() => () { fn() => f(x) }` is
 rejected, on the capture of `x`.
 
-Nothing in `wrap` mentions an effect. Its body is checked once, for every
-instantiation at once (Section 13.5), so at the point the rule runs `T` is
-opaque — and `wrap(ctx, fn(c) => c.println("hi"))` instantiates it at a context
-type and returns a closure of type `fn() => ()` holding a capability. That is
-exactly the smuggling the paragraph above rules out, arriving by the generic
-route instead of the monomorphic one, and the predicate that only reads the
-signature cannot see it. So a type parameter is treated as though it *were* a
-context, unless one of two things says otherwise:
+Nothing in `wrap` mentions an effect, and its body is checked once for every
+instantiation at once (Section 13.5), so where the rule runs `T` is opaque. Yet
+`wrap(ctx, fn(c) => c.println("hi"))` instantiates it at a context type and
+returns a `fn() => ()` holding an effect — the same smuggling, arriving by the
+generic route. So a type parameter is treated as though it *were* a context,
+unless one of two things says otherwise:
 
-- **An ordinary trait bound.** A type is either part of the world or part of
-  your data (Section 10.1), and that boundary is checked at every instantiation:
-  an effect-carrying type satisfies no ordinary bound. So a `T: Eq` is never a
-  context, and `xs.any(fn(x) => x == needle)` inside `impl<T: Eq> [T]` is fine.
-  A `T` with no bounds, or one bounded only by effects, has no such guarantee.
-- **A function type.** A closure holds exactly what it captured, and that is
-  what this rule checks — so no closure holds a capability, and capturing one is
-  safe whatever its type parameters are. `fn compose<A, B, C>(f: fn(A) => B, g:
-  fn(B) => C): fn(A) => C { fn(x) => g(f(x)) }` is legal.
+- **An ordinary trait bound.** An effect-carrying type satisfies no ordinary
+  bound (Section 10.1), so a `T: Eq` is never a context and
+  `xs.any(fn(x) => x == needle)` inside `impl<T: Eq> [T]` is fine. A `T` with no
+  bounds, or one bounded only by effects, has no such guarantee.
+- **A function type.** A closure holds exactly what this rule let it capture, so
+  capturing one is safe whatever its type parameters are: `fn compose<A, B, C>(f:
+  fn(A) => B, g: fn(B) => C): fn(A) => C { fn(x) => g(f(x)) }` is legal.
 
 The cost is that a closure-builder over an unconstrained type parameter has to
 take the value as a parameter rather than close over it. The alternative is a
@@ -292,7 +278,8 @@ Section 15 lists it as the first open question.
 ### 10.7 Calling convention
 
 **receiver first, context second, everything else after** — which is now enforced
-rather than merely conventional (Section 10.2):
+rather than merely conventional (Section 10.2). A free function that has no
+receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };

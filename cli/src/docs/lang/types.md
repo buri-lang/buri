@@ -16,11 +16,10 @@ There is no `null` and no `undefined`. Absence is `Option<T>`.
 
 ### 5.1.1 Numbers
 
-Two audiences have to be served at once. Most code wants to say "a number" and
-move on. Some code — binary formats, checksums, graphics, FFI, anything with a
-size on the wire — needs to name an exact width and have the compiler hold it to
-that. Buri serves both with **one set of types and two names for the common
-ones**:
+Most code wants to say "a number" and move on. Code with a size on the wire —
+binary formats, checksums, graphics, a foreign function interface — needs to
+name an exact width and have the compiler hold it to that. Buri serves both with
+**one set of types and two names for the common ones**:
 
 ```buri
 type Int   = I64;      // the default integer
@@ -50,7 +49,6 @@ let a = 5;               // nothing constrains it -> Int
 let b: U8 = 5;           // the annotation pins it -> U8, no conversion
 let c: F32 = 1.5;        // -> F32
 takesU16(5)              // the parameter pins it -> U16
-let d = 5 as U8;         // the cast target pins it -> U8
 
 let e: [U8] = [1, 2, 3]; // every element is a U8
 ```
@@ -68,8 +66,9 @@ let z: U32 = -1;         // ERROR: U32 has no negative values
 let w: U64 = 18_446_744_073_709_551_615;    // fine
 ```
 
-There are no literal suffixes (`5u8`), because `as` already does that job with
-one rule instead of two.
+There are no literal suffixes (`5u8`). An annotation or the call site pins a
+literal's type, and a conversion method changes a value's (Section 6.2.1), so a
+third mechanism would say nothing the other two do not.
 
 #### Generic numeric code
 
@@ -88,24 +87,13 @@ in for a trait system that did not exist yet; now that traits do exist, bounds
 name what a type *can do*, which is both more precise and one fewer mechanism.
 
 The integer-specific operations follow the same rule — they are interfaces named
-for what they provide, not for the representation behind them:
+for what they provide, not for the representation behind them: `Bounded`,
+`Checked`, `Wrapping`, and `Saturating`, declared in Section 6.2.2. Every
+built-in integer type satisfies all four; the float types satisfy `Bounded`
+only.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-trait Bounded  { fn minValue(): Self; fn maxValue(): Self; }
-trait Checked  { fn checkedAdd(self: Self, rhs: Self): Option<Self>; ... }
-trait Wrapping { fn wrappingAdd(self: Self, rhs: Self): Self; ... }
-```
-
-Every built-in integer type satisfies `Bounded`, `Checked`, and `Wrapping`; the
-float types satisfy `Bounded` but not the other two.
-
-None of this affects ordinary code. `Int` and `F64` are concrete types, so a
-function over them needs no bound, no trait, and no ceremony:
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn area(self: Square): Int { self.height * self.width }
-fn ratio(hits: Int, total: Int): F64 { hits.toF64() / total.toF64() }
-```
+None of this affects ordinary code: `Int` and `F64` are concrete types, so a
+function over them needs no bound, no trait, and no ceremony.
 
 ### 5.2 Unit
 
@@ -156,10 +144,8 @@ is a `struct` with a declared name (Section 5.6), and every type in the language
 is nominal — including trait conformance (Section 5.12).
 
 Earlier drafts had structural records, mainly so that a context could be a bag of
-effects. Effects are trait bounds now (Section 10), which removed the only
-thing records were load-bearing for. Deleting them removed row polymorphism, row
-unification from the type checker, and the ambiguity that had cost struct
-literals their field shorthand — see Section 12.3.
+effects. Effects are trait bounds now (Section 10), and deleting records took row
+polymorphism, row unification, and the `{` ambiguity of Section 12.3 with them.
 
 ### 5.6 Structs
 
@@ -178,8 +164,8 @@ struct User {
 struct Meters(F64);                        // tuple struct
 struct Pair<A, B>(A, B);                   // generic tuple struct
 
-let u = User { id: UserId("u1"), name: "Ada", email: .None };
-let shorthand = User { id, name, email };     // field shorthand: `name: name`
+let u = User { id: UserId("u1"), name: "Ada", passwordHash: hash };
+let shorthand = User { id, name, passwordHash };   // shorthand: `name: name`
 let u2 = User { ..u, name: "Ada L." };
 let d = Meters(9.8);
 let raw = d.0;
@@ -264,7 +250,7 @@ legal ways to consume a `Result` are:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 fs.writeText(ctx, path, body)?                   // propagate
 match (fs.writeText(ctx, path, body)) { ... }    // handle
-result.withDefault({}, fs.writeText(ctx, path, body))
+result.withDefault((), fs.writeText(ctx, path, body))
 result.ignore(fs.writeText(ctx, path, body))     // explicitly, greppably, ignore
 ```
 
@@ -289,7 +275,7 @@ program can act on.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 fn(Int, Int) => Int
-fn() => {}
+fn() => ()
 fn(Str) => Result<Config, ParseError>
 ```
 
@@ -309,8 +295,8 @@ type. For a distinct type, use a tuple struct: `struct UserId(Str);`.
 
 ### 5.10 Generics
 
-Type parameters are declared in angle brackets; row parameters are prefixed with
-`..`.
+Type parameters are declared in angle brackets. There are no row parameters:
+row polymorphism went away with the structural records of Section 5.5.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
@@ -329,9 +315,9 @@ fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
 
 Inside such a function, the bound's methods are callable on the parameter —
-`x.compare(y)`, `x.show(ctx)` — and nothing else is. There are no `where`
-clauses, no associated types, and no blanket implementations, which is what keeps
-bound checking a lookup rather than a search (Section 5.12).
+`x.compare(y)`, `x.show(ctx)` — and nothing else is. What traits deliberately
+lack (Section 5.12.5) is what keeps bound checking a lookup rather than a
+search.
 
 Generic code that needs an operation no trait provides takes it as a function
 argument, as it always has: `sortBy(xs, cmp)` rather than inventing a trait.
@@ -352,16 +338,23 @@ element-wise for arrays and tuples, recursively all the way down. Two separately
 constructed values with equal contents are equal.
 
 Referential equality is not merely unchosen — it is **not expressible**. Buri has
-no references, so there is no identity to compare. It is also ruled out by
-Section 8.1: the runtime may share a representation between two values, or copy
-one, whenever that is faster, and the language guarantees you cannot tell. A
-referential `==` would make that guarantee false, since the answer would depend
-on what the optimizer decided.
+no references, so there is no identity to compare, and Section 8.1 rules it out
+besides: the runtime may share a representation between two equal values or copy
+one, whenever that is faster, so `a === b` would have an answer that depended on
+the optimization level and on the backend. Code that needs identity carries it as
+data (`struct NodeId(U64)`), which is a value the compiler cannot invent or
+coalesce. What a backend may do — and the JavaScript one does — is answer `true`
+early when the two operands are already known to be one value, because
+reflexivity says the walk would reach `true` anyway. That is a shortcut to a
+fixed answer rather than a second definition of equality, and it is sound only
+because `==` is reflexive; it was not, before the rule below, and the two
+backends disagreed at exactly `NaN` as a result.
 
-`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare` (Section 5.12.4).
-Neither is compiler magic: a type has them because it derives or implements the
-trait. Every primitive, and `[T]`, tuples, and records built from types that have
-them, satisfy `Eq` and `Ord` already. Your own structs and enums opt in:
+`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare` — the operator
+table is Section 5.12.4. Neither is compiler magic: a type has them because it
+derives or implements the trait. Every primitive, and `[T]` and tuples built from
+types that have them, satisfy `Eq` and `Ord` already. Your own structs and enums
+opt in:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 derive Eq, Ord for Version;
@@ -370,31 +363,19 @@ let same = Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 };
 // true — different values, equal contents
 ```
 
-`Eq` is not defined for function types, `Template`, or opaque types from other
-modules, so comparing those is a compile error.
+`Eq` is not defined for function types or `Template`, so comparing those is a
+compile error.
 
-Two consequences worth knowing:
+Two consequences:
 
 - **A derived `Eq` is an equivalence relation, and so is `==` on a float.**
-  `NaN == NaN` (§6.2), so a struct with an `F64` field holding `NaN` is equal to
-  itself *and* to a separately built copy of itself. Derived `Eq` is therefore
-  reflexive, symmetric and transitive at every value there is, which is what the
-  rest of the language assumes of it: a key can be looked up in the `Map` it was
-  put into, `list.contains` finds what the list holds, and a value is equal to
-  itself. `Ord` on floats is unchanged and still IEEE-754's: it orders `-0.0`
-  equal to `0.0` and reports `NaN` as unordered, so `<` and `compare` do not
-  agree with `==` at `NaN` — `==` is the one that was made total.
-Referential equality was considered and rejected **as the definition**. `a === b`
-on ordinary values has no stable answer: the runtime may share one representation
-between two equal values or copy it, so a language that *defined* `==` that way
-would have a result that depended on the optimization level and on the backend.
-Code that needs identity carries it as data (`struct NodeId(U64)`), which is a
-value the compiler cannot invent or coalesce. What a backend may do — and the
-JavaScript one does — is answer `true` early when the two operands are already
-known to be one value, because reflexivity says the walk would reach `true`
-anyway. That is a shortcut to a fixed answer rather than a second definition of
-equality, and it is sound only because `==` is reflexive; it was not, before this
-rule, and the two backends disagreed at exactly `NaN` as a result.
+  `NaN == NaN` (Section 6.2), so a struct with an `F64` field holding `NaN` is
+  equal to itself *and* to a separately built copy of itself. Derived `Eq` is
+  therefore reflexive, symmetric and transitive at every value there is, which is
+  what the rest of the language assumes of it. `Ord` on floats is unchanged and
+  still IEEE-754's: it orders `-0.0` equal to `0.0` and reports `NaN` as
+  unordered, so `<` and `compare` do not agree with `==` at `NaN` — `==` is the
+  one that was made total.
 
 - **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
   reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
@@ -462,14 +443,10 @@ a `for` clause added. The methods land in the same namespace, so
 introduces no second namespace and no second resolution path, whichever form it
 takes.
 
-The two forms differ in one respect. A method of the type's own is `export`ed on
-its own terms; a method supplied to a trait may not be, because conformance is a
-property of the type and is visible wherever the type is.
-
-An `impl` in either form may appear only in the defining module of its type, and
-the block itself is never exported. There is no way to implement a trait for
-someone else's type, which is the same restriction that already applies to
-methods.
+The two forms differ in one respect, and it is Section 6.7.1's: a method of the
+type's own may be `export`ed, and a method supplied to a trait may not. An `impl`
+in either form may appear only in the defining module of its type, so there is no
+way to implement a trait for someone else's type.
 
 #### 5.12.3 `derive` generates the implementation
 
@@ -534,7 +511,5 @@ from "resolution is a lookup" toward "resolution is a search," and the search is
 the entire compile-time cost of a trait system. Generic code is monomorphized;
 a generic body is typechecked once, polymorphically, with bounds verified at the
 call site.
-
----
 
 ---

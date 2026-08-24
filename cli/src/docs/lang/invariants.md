@@ -1,9 +1,9 @@
 ## 13. Compilation invariants
 
-Section 12 explains why parsing is cheap. This section states the invariants that
-make *checking* cheap, because they are the ones a future feature is most likely
-to break quietly. A conforming implementation may rely on all of them, and any
-proposed addition to the language should be measured against them.
+Section 12 explains why parsing is cheap; these are the invariants that make
+*checking* cheap, and the ones a future feature is most likely to break quietly.
+A conforming implementation may rely on all of them, and any proposed addition to
+the language should be measured against them.
 
 **13.1 Parsing depends on nothing.** No production consults name resolution or
 types (Section 12). Parsing is one pass, and files parse in parallel with no

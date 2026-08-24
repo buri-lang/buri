@@ -1,84 +1,81 @@
 ## 14. Static rules not expressed in the grammar
 
 The grammar accepts a superset of well-formed programs. These are checked
-afterward:
+afterward. Each is one line here and is argued where it is cited; this section is
+the index, not the explanation.
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
-   with type arguments, or the inferred-type dot form `.Variant` — not an arbitrary
-   expression. The grammar permits `f(x) { a: 1 }`; the checker does not.
-2. `let` patterns must be irrefutable.
-3. `match` must be exhaustive, and no arm may be unreachable.
-4. Or-pattern alternatives must bind identical names at identical types.
-5. Array rest patterns appear only in final position; at most one per pattern.
+   with type arguments, or the inferred-type dot form `.Variant` — not an
+   arbitrary expression.
+2. `let` patterns must be irrefutable (Section 6.3).
+3. `match` must be exhaustive, and no arm may be unreachable (Section 7.3).
+4. Or-pattern alternatives must bind identical names at identical types
+   (Section 7.1).
+5. Array rest patterns appear only in final position; at most one per pattern
+   (Section 7.1).
 6. Struct field names, enum variant names, context bindings, and match-arm
    pattern bindings must each be unique within their scope.
-7. Every arm of a `match` produces a value of the arm type. There is no bottom
-   type and no way to declare a branch unreachable, so an arm cannot opt out
-   (Section 6.10).
+7. Every arm of a `match` produces a value of the arm type, and no arm may opt
+   out (Section 6.10).
 8. A lambda may not capture an effect-carrying value, nor one whose type could be
-   a context at some instantiation — that is, one mentioning a type parameter
-   that carries no ordinary trait bound, anywhere `is effect-carrying` would
-   have looked (Section 10.6). Function types are exempt: a closure holds only
-   what this rule let it capture.
-9. Opaque types may not be constructed or destructured outside their defining
-   module, and private fields may not be read, written, or matched outside it.
-10. Numeric conversion methods are declared per source-and-target pair in
-    `core/num` (Section 6.2.1); there is no cast operator.
-11. A numeric literal must be representable in the type it resolves to.
-12. The dot form (`.Variant`) requires a known expected type.
+   a context at some instantiation (Section 10.6).
+9. Private fields may not be read, written, or matched outside the module that
+   declares them (Section 5.6).
+10. Numeric conversions are ordinary methods, declared per source-and-target pair
+    in `core/num` (Section 6.2.1).
+11. A numeric literal must be representable in the type it resolves to
+    (Section 5.1.1).
+12. The dot form (`.Variant`) requires a known expected type (Section 5.7).
 13. `?` requires the enclosing function's return type to be a compatible `Result`
-    or `Option`.
-14. Recursive type definitions must be productive (a recursive enum must have at
-    least one variant that does not recurse).
+    or `Option` (Section 6.8).
+14. Recursive type definitions must be productive: a recursive enum must have at
+    least one variant that does not recurse.
 15. The head of a struct literal may not be a block-like expression; neither may
-    the head of any postfix chain.
+    the head of any postfix chain (Section 12.13).
 16. A value of type `Result<T, E>` may not be discarded by a `_` pattern
-    (Section 5.7.1). Use `?`, `match`, `result.withDefault`, or the explicit
-    `result.ignore`.
+    (Section 5.7.1).
 
 Methods and traits:
 
 17. `self` may appear only as the first parameter of a function inside an `impl`
     block. Every function in an `impl` block must take one, and no function
-    outside an `impl` block may.
-18. A method may not share a name with a field of its `self` type.
+    outside an `impl` block may (Section 6.7.1).
+18. A method may not share a name with a field of its `self` type
+    (Section 12.16).
 19. A method call `x.f(...)` requires the receiver's type to be known and to have
-    a defining module (Section 6.7.3), or to be a type parameter whose bounds
-    declare `f`.
+    a defining module, or to be a type parameter whose bounds declare `f`
+    (Section 6.7.3).
 20. A method is not a value: `x.f` must be immediately called, and a method's
-    name in module scope resolves for a re-export only, never as an expression.
-21. `Self` is legal only inside a `trait` or `impl` body.
+    name in module scope resolves for a re-export only, never as an expression
+    (Section 6.7.3).
+21. `Self` is legal only inside a `trait` or `impl` body (Section 5.12).
 22. An `impl` may appear only in the defining module of its type. With a `for`
     clause it must supply every method the trait declares, with matching
-    signatures; a primitive's methods belong to the `core` module named for it.
-23. `derive` requires every field type (for a struct) or payload type (for an
-    enum) to satisfy the derived trait.
-24. A generic parameter's bounds must name declared traits. Inside the function,
-    only the methods those traits declare are callable on that parameter.
+    signatures; a primitive's methods belong to the `core` module named for it
+    (Section 5.12.2).
+23. `derive` requires every field type, or payload type, to satisfy the derived
+    trait (Section 5.12.3).
+24. A generic parameter's bounds must name declared traits, and inside the
+    function only those traits' methods are callable on that parameter
+    (Section 5.10).
 
 Effects and contexts:
 
 25. `ctx` may appear only as a function's first parameter, the parameter
     immediately after `self`, or a `let` binding name where a context may be
     constructed (Section 11.3).
-26. An effect-carrying parameter must be `self` or `ctx`, at most one of each
-    (Section 10.2). A type is effect-carrying if it is a type variable with an
-    effect bound, a type that implements an effect, or any type that can hand
-    one of those back — a type argument counts only in a position the
-    constructor can hand back, which is why `fn(C, A) => B` and a constructor
-    storing only such functions are data. A `context` expression is the only
-    construct in which more than one effect-carrying value may appear.
+26. An effect-carrying parameter must be `self` or `ctx`, at most one of each,
+    and a `context` expression is the only construct in which more than one
+    effect-carrying value may appear (Section 10.2).
 27. `effect` declarations may appear only in platform modules, and no type may
-    implement both an effect and a trait. An effect-carrying type satisfies no
-    ordinary trait bound, so the separation survives composition: a
-    `Holder<C>` that stores a context does not reach a `T: Eq` even where
-    `Holder` implements `Eq` (Section 10.1).
+    implement both an effect and a trait — so an effect-carrying type satisfies
+    no ordinary trait bound, however it is composed (Section 10.1).
 28. `impl` and `derive` may not be exported, and may appear only in the defining
     module of the type they name. A method inside an inherent `impl` may be
-    exported; a method supplied to a trait may not.
-29. Numeric literals, conversions, and comparisons are ordinary methods; there is
-    no cast operator.
-30. `main` has the signature required by Section 11: no parameters, no generic
+    exported; a method supplied to a trait may not (Section 6.7.1).
+29. There is no cast operator: `as` is legal only in an import specifier
+    (Section 12.5).
+30. `main` has the signature Section 11 requires: no parameters, no generic
     parameters, returning `Result<(), Str>`.
 
 Contexts (Section 11.3):
@@ -93,24 +90,20 @@ Contexts (Section 11.3):
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
 34. `"core/host"` is importable only from the module that exports `main`, and
-    what it exports is **what the output's platform grants**. A platform is the
-    set of effects its host exports; a name it does not grant is not exported,
-    so binding one is an ordinary unresolved name at the line that asked
-    (`host-not-granted`). Both halves of a grant are withheld together — the
-    implementation struct as well as the value — so there is nothing left to
-    construct by name. The check is per output: the same `main` may compile for
-    one of a binary's outputs and not for another.
+    what it exports is **what the output's platform grants** — so the check is
+    per output, and binding a name a platform withholds is an ordinary
+    unresolved name (`host-not-granted`, Section 10.3).
 
 Modules and tests:
 
 35. A module path names the standard library — `"core/..."` or `"ui/..."` — or
-    this repository, `"//..."`. A relative path is an error, as is a `//` path
-    the build system does not make visible to the importing target
-    (Section 4.1.1). A path containing a `testing` segment is importable only
-    from a test source.
+    this repository, `"//..."`; there are no relative paths, and a `//` path the
+    build system does not make visible to the importing target is an error. A
+    path containing a `testing` segment is importable only from a test source
+    (Section 4.1.1).
 36. A re-export may name only what its module path exports, and `export *` is
-    not derivable.
+    not derivable (Section 4.2.1).
 37. `test`, and imports of test-only paths, may appear only in a test source. A
-    test source may not `export`, and may not be imported.
+    test source may not `export`, and may not be imported (Section 11.2).
 38. An expression statement is legal only in a test source, and only when its
-    type is `()`.
+    type is `()` (Section 11.2.1).

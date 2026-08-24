@@ -11,14 +11,13 @@ conversions (beyond `Str → Template`), overloading, macros, reflection.
 set literals; fixed-length array types; `async`; ranges; a module-level effect
 summary in generated documentation.
 
-Each item in that first deferred group is a step from "trait resolution is a
-lookup" toward "trait resolution is a search," which is the entire compile-time
-cost of a trait system. They are deferred together, deliberately.
+Each item in that first deferred group turns trait resolution from a lookup into
+a search (Section 5.12.5). They are deferred together, deliberately.
 
 ### 15.1 Considered and cut: `for` and `while`
 
-A `for`/`while` sugar was fully specified for this version and then removed. It
-is recorded here because the reasoning constrains any future attempt.
+A `for`/`while` sugar was fully specified for this version and then removed. The
+reasoning is recorded here because it constrains any future attempt.
 
 The design was: `for (x in xs) with (acc = init) { body }` desugaring to a
 tail-recursive local function, where the body evaluates to the next accumulator;
@@ -26,7 +25,7 @@ tail-recursive local function, where the body evaluates to the next accumulator;
 operators so that counting loops would not have to allocate an array.
 
 What it bought: familiar syntax for folds, and — the strongest argument — an
-exemption from the capture rule of Section 10.5, since a loop body is inlined
+exemption from the capture rule of Section 10.6, since a loop body is inlined
 control flow rather than a value of function type. Effectful iteration could be
 written directly instead of through a `*Ctx` combinator.
 
@@ -60,17 +59,15 @@ in a language that already has no expression statements.
 
 By the same standard that cut loops, it did not earn its keep. Removing it also
 freed the argument convention: with `|>` gone, the receiver could move to the
-front (Section 10.6), where it reads correctly for methods and for direct calls
+front (Section 10.7), where it reads correctly for methods and for direct calls
 alike.
 
+### 15.3 Open questions, honestly flagged
 
-
-**Open questions, honestly flagged:**
-
-1. *The capture rule (10.5) is strict.* It buys a clean purity theorem at the cost
+1. *The capture rule (10.6) is strict.* It buys a clean purity theorem at the cost
    of ergonomic effectful higher-order code: every effectful traversal goes
-   through a `*Ctx` combinator or hand-written recursion (Section 10.6). The alternative —
-   encoding a captured-effect row in the function type, e.g.
+   through a `*Ctx` combinator or hand-written recursion. The alternative —
+   encoding a captured-effect row in the function type, for example
    `fn(Str) => Str uses { fs: Fs }` — is more expressive but adds an effect system
    to a language whose selling point is not having one. This is the language's
    sharpest unresolved trade-off, and cutting loops (15.1) put the full cost back
@@ -106,22 +103,16 @@ alike.
    architecture will assume constant-time resolution. The risk is not the cost of
    what was built; it is the difficulty of refusing the next request.
 8. *`I64` on a JavaScript target.* `Int` is `I64` on every target, which is the
-   right call for portability. On the JS backend it compiles to a `number`,
-   which holds every integer to 2^53 - 1 exactly and no more. That is defensible
-   only because overflow is undefined behaviour (6.2): a program that stays
-   inside the exact range gets `I64` semantics at the speed of ordinary
-   JavaScript, and a program that leaves it was already wrong. The two
-   alternatives are worse in different directions — `BigInt` everywhere taxes
-   every loop counter in every program for a case most never reach, and a
-   target-dependent `Int` width trades a performance problem for a portability
-   one. What remains open is whether "undefined above 2^53" is a rule programmers
-   internalize, or one they discover. The mitigations are that `Checked` answers
-   `.None` rather than a wrong value, `str.toInt` refuses a string it cannot
-   parse exactly, and `core/bits` computes on the bit pattern. A native backend
-   has no such ceiling — an `I64` there is sixty-four bits and overflow wraps —
-   which narrows the question rather than closing it: the same program is exact
-   in one place and lossy in the other, and 6.2 says so out loud rather than
-   promising either.
+   right call for portability, and it is defensible only because overflow is
+   undefined behaviour — Section 6.2 states what that means on a backend where
+   every integer is a `number`. The two alternatives are worse in different
+   directions: `BigInt` everywhere taxes every loop counter in every program for
+   a case most never reach, and a target-dependent `Int` width trades a
+   performance problem for a portability one. What remains open is whether
+   "undefined above 2^53" is a rule programmers internalize, or one they
+   discover. The mitigations are that `Checked` answers `.None` rather than a
+   wrong value, `str.toInt` refuses a string it cannot parse exactly, and
+   `core/bits` computes on the bit pattern.
 9. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
    user types would be more honest than a compiler that knows one type by name,
    but it is the first piece of attribute syntax in a language with none, and

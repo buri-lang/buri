@@ -10,7 +10,7 @@ position. *Cost:* two characters, and it looks like TypeScript anyway.
 **12.2 There are no expression statements.**
 A block is `let`s followed by a result expression. Nothing can sit next to a
 `{`-initial expression and compete with it. *Cost:* a call performed only for its
-effect must be bound: `let _ = io.println(ctx, "hi");`. Arguably a feature.
+effect must be bound: `let _ = io.println(ctx, "hi");`.
 
 A **test source** may use one, restricted to calls whose type is `()`
 (Section 11.2). The grammar admits `Expr ";"` as a statement, which stays LR(1)
@@ -30,8 +30,8 @@ name.
 
 **12.4 Type arguments in expressions are written `f<T>(x)`, with no `::`.**
 `f<a>(b)` and `(f < a) > (b)` are the same tokens. What settles them is a rule
-that was already there for its own sake: comparison is non-associative (12.4's
-neighbour, Section 5), so `a < b > c` is not a program under *either* reading,
+that was already there for its own sake: comparison is non-associative (Section
+6.1), so `a < b > c` is not a program under *either* reading,
 and there is no source the two readings both accept and disagree about. The
 parser looks ahead for the `>` that would close the list and backtracks if it
 does not find one; the generated tree-sitter grammar carries the same decision
@@ -90,10 +90,10 @@ a postfix form. *Cost:* occasional parentheses.
 So `pair.0` lexes as three tokens. *Cost:* write `0.5`.
 
 **12.15 Every declaration starts with a distinct keyword.**
-`from` `export` `fn` `struct` `enum` `type` `const` `opaque`. Top-level parsing
-is a switch on one token — and putting `from` first on an import means the module
-path is known before the specifier list is parsed, which is what makes
-completion inside the braces possible.
+`from` `export` `fn` `struct` `enum` `type` `const` `trait` `effect` `context`
+`impl` `derive` `test`. Top-level parsing is a switch on one token — and putting
+`from` first on an import means the module path is known before the specifier
+list is parsed, which is what makes completion inside the braces possible.
 
 **12.16 Method calls reuse `.` rather than taking a token of their own.**
 `sq.area()` needs no new production: it is the existing `PostfixExpr "." IDENT`

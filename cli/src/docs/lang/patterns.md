@@ -33,7 +33,7 @@ variable named `None`; it does not match the `None` variant. Write `.None` or
 
 This is a real ergonomic cost, and it is what removes name resolution from the
 parser: `Foo` versus `Foo(x)` versus `Foo { .. }` is decided by the token after
-`Foo`, never by what `Foo` means. Section 12.6.
+`Foo`, never by what `Foo` means. Section 12.7.
 
 ### 7.3 Exhaustiveness
 

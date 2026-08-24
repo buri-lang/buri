@@ -29,7 +29,7 @@ Bitwise operators bind tighter than comparison (as in Rust), so `a & MASK == 0`
 means `(a & MASK) == 0`.
 
 There is no `<<` or `>>`. Use `bits.shl(x, n)` and `bits.shr(x, n)`. See
-Section 12.5.
+Section 12.6.
 
 ### 6.2 Arithmetic
 
@@ -119,19 +119,14 @@ can fail is visible in the type rather than in the choice of operator.
 but converting a count to a float is too common to route through a `Result`, so
 `toF64` is defined on every integer type as an exact-to-53-bits conversion that
 rounds beyond that, documented as such. This is the one place the language
-prefers ergonomics to ceremony, and it is called out rather than hidden.
+prefers ergonomics to ceremony, and it is called out rather than hidden. That
+bound is the float's rather than the backend's, so `toF64` rounds identically
+everywhere: on JavaScript the *source* is a double already, and the loss simply
+happened earlier.
 
-That bound is the float's, not the backend's: `I64 → F64` is lossy above 2^53 on
-every backend, and `toF64` rounds. On the JavaScript backend the *source* is a
-double already, so the conversion is the identity and the loss happened earlier;
-the answer is the same either way.
-
-Earlier drafts used three cast operators (`as`, `as?`, `as%`). They were
-operators because a *function* cannot be generic over its source type — but a
-*method* can be resolved by its receiver's type, which is exactly the same
-lookup. So the operators bought nothing that methods do not, and cost three
-tokens, a precedence level, and a rule about which conversions the compiler would
-accept. `as` now appears only in import specifiers.
+Earlier drafts used three cast operators (`as`, `as?`, `as%`). They are gone,
+because a method resolved by its receiver's type is the same lookup for none of
+the cost (Section 12.5), and `as` now appears only in import specifiers.
 
 There are a lot of these functions in `core/num` — one per source-and-target
 pair. They are mechanical, greppable, and each says in its return type what it
@@ -160,6 +155,12 @@ trait Wrapping {
   fn wrappingMul(self: Self, rhs: Self): Self;
 }
 
+trait Saturating {
+  fn saturatingAdd(self: Self, rhs: Self): Self;
+  fn saturatingSub(self: Self, rhs: Self): Self;
+  fn saturatingMul(self: Self, rhs: Self): Self;
+}
+
 trait Bounded {
   fn minValue(): Self;
   fn maxValue(): Self;
@@ -172,27 +173,20 @@ let hash = seed.wrappingMul(31).wrappingAdd(byte);
 let ceiling = num.maxValue<U8>();
 ```
 
-Every built-in integer type satisfies all three; the float types satisfy
+Every built-in integer type satisfies all four; the float types satisfy
 `Bounded` only.
 
-A `Checked` method answers `.None` whenever it cannot hand back the true result
-— outside the type's range, or above what the backend represents exactly. The
-second bound is the backend's, and it is the numbers that backend has. On a
-native backend there is no second bound: `.None` means "outside the type's
-range" and nothing else, so `checkedAdd` on `I64` reports two's-complement
-overflow and nothing more. On the JavaScript backend the second bound is
-2^53 - 1, well below `maxValue<I64>()`, because past it a `number` can no longer
-say which integer it is.
-
-So `(1 << 60).checkedAdd(1)` is `.Some` natively and `.None` on JavaScript, and
-both are correct, because both are the same promise kept over different numbers:
-`.Some(v)` means `v` is the exact true result as that backend represents
-numbers, and `.None` means that backend will not name a value it cannot hold.
-The JavaScript backend declines to promise what it cannot keep; the native one
-keeps the promise further because it can.
-
-A program whose behaviour depends on which of those it gets is a program relying
-on a `Checked` method to *fail*, which is not what the trait is for.
+A `Checked` method answers `.None` whenever it cannot hand back the true result:
+outside the type's range, or above what the backend represents exactly. Natively
+there is no second bound, so `checkedAdd` on `I64` reports two's-complement
+overflow and nothing more; on JavaScript the second bound is 2^53 - 1, well below
+`maxValue<I64>()`, because past it a `number` can no longer say which integer it
+is. So `bits.shl(1, 60).checkedAdd(1)` is `.Some` natively and `.None` on
+JavaScript, and both keep one promise over different numbers: `.Some(v)` means
+`v` is the exact true result as that backend represents numbers, and `.None`
+means that backend will not name a value it cannot hold. A program whose
+behaviour depends on which of those it gets is relying on a `Checked` method to
+*fail*, which is not what the trait is for.
 
 `Bounded` and `Saturating` report the type's own bounds on every backend, which
 at 64 bits and above are themselves rounded to the nearest representable value
@@ -201,13 +195,10 @@ you.
 
 ### 6.3 Blocks
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-Block ::= "{" LetStmt+ "}"
-        | "{" LetStmt* Expr "}"
-```
-
-A block is zero or more `let` bindings followed by a result expression. A block
-whose last item is a `let` has type `{}`.
+A block is zero or more `let` bindings followed by a result expression — the
+`Block` production of [`grammar.ebnf`](./cli/src/docs/grammar.ebnf). The result
+expression is optional syntactically, but a block without one has no value, which
+the checker reports as an error everywhere a block may stand.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let hypotenuse = {
@@ -236,15 +227,14 @@ let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positi
 
 - The condition must be parenthesized and must have type `Bool`. There is no
   truthiness.
-- Both branches are blocks, and `else` is **mandatory**. This eliminates the
-  dangling-else ambiguity outright, and there is nothing sensible for a missing
-  branch to produce in a language where `if` is an expression.
+- Both branches are blocks, and `else` is **mandatory** (Section 12.10): there is
+  nothing sensible for a missing branch to produce in a language where `if` is an
+  expression.
 - Both branches must have the same type.
 
-To produce a record from an `if`, the record literal needs its own braces:
-`if (c) { { x: 1 } } else { { x: 2 } }`, or bind it first.
-
 ### 6.5 `match`
+
+The pattern forms an arm may use are Section 7.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let describe = match (shape) {
@@ -256,8 +246,8 @@ let describe = match (shape) {
 ```
 
 - The scrutinee must be parenthesized.
-- Arms are **comma-separated**, with an optional trailing comma. The comma is
-  required even after a brace-terminated arm body.
+- Arms are **comma-separated**, with an optional trailing comma (Section 12.12).
+  The comma is required even after a brace-terminated arm body.
 - Arms are tried in order; the first matching arm wins.
 - A guard (`if expr`) may follow a pattern. Guards do not contribute to
   exhaustiveness.
@@ -278,16 +268,16 @@ Lambdas begin with `fn` so that `(x)` is never ambiguous with a parameter list.
 Parameter types and the return type may be omitted when inferable.
 
 A lambda body extends as far right as possible, so a lambda cannot appear as a
-bare operand of a binary operator. `2 * fn(x) => x` is a parse error; write
-`2 * (fn(x) => x)`.
+bare operand of a binary operator (Section 12.11). `2 * fn(x) => x` is a parse
+error; write `2 * (fn(x) => x)`.
 
-Arguments are evaluated left to right before the call. Partial application is not
-built in; write a lambda.
+Arguments are evaluated left to right before the call (Section 8.2). Partial
+application is not built in; write a lambda.
 
 ### 6.7 Method calls
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-user.name          // record / struct field
+user.name          // struct field
 pair.0             // tuple element
 xs[i]              // Option<T>
 list.map           // module member
@@ -318,7 +308,7 @@ export fn combine(a: Square, b: Square): Square { ... }   // NOT a method
 ```
 
 An `impl` with no `for` clause declares the type's own methods; the same block
-with `for` declares trait conformance (Section 5.11). One keyword covers both,
+with `for` declares trait conformance (Section 5.12.2). One keyword covers both,
 because both answer the same question: what can you do with this type.
 
 `self` is a keyword and may appear only as the first parameter of a function
@@ -327,9 +317,10 @@ is no receiver type for it to attach to — and a function inside an `impl` bloc
 that does not take `self` is an error too.
 
 An `impl` block may appear only in the module that declares its type, which is
-what keeps method resolution a single lookup (Section 6.7.3). A method is
-`export`ed on its own terms; a method supplied to a trait is not, because
-conformance belongs to the type and travels wherever the type does.
+what keeps method resolution a single lookup (Section 6.7.3), and the block
+itself — like a `derive` — is never `export`ed. A method inside one is `export`ed
+on its own terms; a method supplied to a trait is not, because conformance
+belongs to the type and travels wherever the type does.
 
 The generic parameters split between the two: those the self type mentions
 belong to the `impl`, the rest to the method.
@@ -366,9 +357,8 @@ impl<A> [A] {
 xs.map(ctx, double)          // reads as: this list, in this world, mapped
 ```
 
-So the standard library's calling convention (Section 10.6) is **receiver first,
-context second, everything else after**. Free functions that have no receiver
-keep the context first, as before.
+That is the calling convention of Section 10.7, which the standard library
+follows throughout.
 
 **Methods need no import.** That is the point of the feature:
 
@@ -419,11 +409,11 @@ Defining modules:
 | every integer and float type | `core/num` |
 | `Option<T>` | `core/option` |
 | `Result<T, E>` | `core/result` |
-| tuples, anonymous records, function types, `Template` | none — no methods |
+| tuples, function types, `Template` | none — no methods |
 
 Type aliases are transparent, so `Int` and `I64` have the same methods.
 
-Three consequences worth stating plainly:
+Three consequences:
 
 - **Methods are not extensible.** `impl Str { ... }` in your own module is an
   error. Write a free function and call it as one.
@@ -463,31 +453,32 @@ let port = cfg.port ?? 8080;             // Option<Int> ?? Int  -> Int
 let name = lookup(id) ?? "anonymous";
 ```
 
-Defined for `Option<T> ?? T` and `Result<T, E> ?? T`. The right operand is
-evaluated only when the left is `None` / `Err`. `??` is right-associative, so
-`a ?? b ?? c` works.
+Defined for `Option<T> ?? T` and `Result<T, E> ?? T`. It short-circuits (Section
+8.2): the right operand is evaluated only when the left is `None` / `Err`. `??`
+is right-associative, so `a ?? b ?? c` works.
 
 ### 6.10 Aborting
 
 There is no way to write that a branch cannot happen. `panic` and `unreachable`
-are reserved, so reaching for either is named rather than silently allowed as an
-identifier; `crash` is an ordinary identifier, because the concept is gone
-rather than deferred.
+are reserved (Section 3.4), so reaching for either is named rather than silently
+allowed as an identifier; `crash` is an ordinary identifier, because the concept
+is gone rather than deferred. There is no bottom type either, so nothing unifies
+with everything.
 
-The reason is that they are almost always wrong. A match arm the programmer
-asserts is impossible is an arm the compiler was about to make you handle, and
-"validated upstream" is a claim about code somewhere else that nothing checks.
-Without an escape hatch, every case is handled: an `Option` is unwrapped with
-`??` or matched, an impossible state is a type that cannot represent it. There
-is no bottom type either, so nothing unifies with everything.
+The reason is that such a claim is almost always wrong: a match arm the
+programmer asserts is impossible is an arm the compiler was about to make them
+handle, and "validated upstream" is a claim about code somewhere else that
+nothing checks. Without an escape hatch, every case is handled — an `Option` is
+unwrapped with `??` or matched, and an impossible state is a type that cannot
+represent it.
 
-A program can still stop. Division by zero, a shift at or beyond the width of
-its type, and stack exhaustion **abort**: the program ends with a message on
-stderr and a non-zero exit status. Each is a case where the language has no
-answer to give and no `Result` in the signature to give it through.
+A program can still stop. Division by zero, a shift at or beyond the width of its
+type, and stack exhaustion **abort**: the program ends with a message on stderr
+and a non-zero exit status. Each is a case where the language has no answer to
+give and no `Result` in the signature to give it through.
 
-An abort is not an effect in the `ctx` sense: it can occur in a function with no
-context parameter. What a context-free function cannot do is *observe* or
-*recover from* one. There is no catch.
+An abort is not an effect in the `ctx` sense — it can occur in a function with no
+context parameter — but a context-free function cannot *observe* or *recover
+from* one. There is no catch.
 
 ---

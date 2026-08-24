@@ -20,7 +20,7 @@ Version 0.3 is deliberately small: primitives, arrays, tuples, structs, enums,
 functions, methods, and traits. Data and behaviour are declared
 separately; there is no mutable state, no inheritance, and no dynamic dispatch. A
 method is an ordinary function whose first parameter is `self`, and a trait is an
-interface satisfied structurally — neither introduces a runtime mechanism.
+interface satisfied nominally — neither introduces a runtime mechanism.
 
 There are also no loops. Iteration is recursion — guaranteed tail-call
 eliminated — or a fold. A `for`/`while` sugar was drafted for this version and

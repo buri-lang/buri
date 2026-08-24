@@ -48,13 +48,12 @@ where Section 11.3 says.
 is where contexts are built — as a `let` binding name inside `main`'s body, a
 test source, or a test-only module. Nowhere else.
 
-`assert` is **not** a keyword. Assertions are an ordinary module,
-`core/testing/assert`, imported like any other — which is also what lets
-`import * as assert` name it.
+`assert` is **not** a keyword; assertions are the ordinary module
+`core/testing/assert` (Section 11.2.1).
 
 Reserved for future versions and rejected today: `async` `await` `break`
-`continue` `do` `in` `is` `loop` `module` `mut` `pub` `return` `use` `when`
-`where` `while` `with` `yield`.
+`continue` `do` `in` `is` `loop` `module` `mut` `opaque` `panic` `pub`
+`return` `unreachable` `use` `when` `where` `while` `with` `yield`.
 
 ### 3.5 Literals
 
@@ -67,8 +66,8 @@ true        false                                             // BOOL
 "n = ${n}"                                                    // TEMPLATE
 ```
 
-A float literal must begin with a digit. `.5` is not a literal; write `0.5`. This
-is what lets `pair.0` lex as tuple access.
+A float literal must begin with a digit. `.5` is not a literal; write `0.5`
+(Section 12.14).
 
 Underscores are permitted as digit separators anywhere after the first digit.
 

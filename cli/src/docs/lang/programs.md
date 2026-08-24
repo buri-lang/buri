@@ -21,89 +21,49 @@ export fn main(): Result<(), Str> {
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
 - `main`'s body is the only place in a program where a context may be
   constructed (Section 11.3), and `core/host` is importable only by the module
-  that declares it. The context `main` builds is the program's complete effect
-  budget.
+  that exports `main` (Section 10.3). The context `main` builds is the program's
+  complete effect budget.
 
-`main` receives nothing and mints what it needs, which is why it is not itself
-worth testing: there is no fake to pass it. Logic that wants a test goes in a
-function `main` calls, which takes an ordinary bounded `ctx` and does not care
-where it came from — the pressure to push work behind the entry point is
-deliberate, and it is the same pressure the build system applies to a binary's
-surface ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
+`main` receives nothing and mints what it needs, so there is no fake to pass it
+and nothing in it worth testing. Logic that wants a test goes in a function
+`main` calls, which takes an ordinary bounded `ctx` and does not care where it
+came from — the same pressure the build system applies to a binary's surface
+([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
 
-### 11.1 Standard library sketch
+### 11.1 Standard library conventions
 
-Non-normative in v0.3. The purity tier of each entry is the part that matters.
+Every function in the library sits in one of the three purity tiers of Section
+10.5, and the tier is visible in the signature rather than in a comment: **pure**
+takes no context parameter, **deterministic** takes one bounded by `Alloc` alone,
+and **effectful** takes one bounded by anything else. What decides the tier is
+Section 10.5's rule about size — an operation whose result size is fixed is pure,
+and one whose result size depends on runtime data names `Alloc`. So `xs.len()`
+and `s.trim()` are pure, `xs.map(ctx, f)` is deterministic, and
+`fs.readText(ctx, p)` is effectful.
 
-Two conventions run through the whole library: **receiver first, context second**
-(Section 10.6), and **a name has one meaning**. Everything below that operates on
-a value is declared in an `impl` block for that value's type and takes it as
-`self`, so it is callable as a method —
-`xs.map(ctx, f)`, `s.trim()`, `opt.withDefault(0)` — with no import. There is no
-overloading, so a pure variant and an allocating variant of the same idea get
-different names (`splitOnce` returns two slices and is pure; `split` returns
-`[Str]` and allocates).
+Two conventions run through the whole library. **Receiver first, context second**
+(Section 10.7): everything that operates on a value is declared in an `impl`
+block for that value's type and takes it as `self`, so it is callable as a
+method — `xs.map(ctx, f)`, `s.trim()`, `opt.withDefault(0)` — with no import.
+And **a name has one meaning**: there is no overloading, so a pure variant and an
+allocating variant of the same idea get different names (`splitOnce` returns two
+slices and is pure; `split` returns `[Str]` and allocates).
 
-**Pure — no context parameter at all**
-
-| Module | Functions |
-|---|---|
-| `core/list` | `len`, `get`, `isEmpty`, `first`, `last`, `fold`, `foldResult`, `any`, `all`, `find`, `sum` |
-| `core/str` | `len`, `isEmpty`, `slice`, `trim`, `charAt`, `startsWith`, `endsWith`, `contains`, `splitOnce`, `toInt`, `compare` |
-| `core/option` | `map`, `andThen`, `withDefault`, `isSome` |
-| `core/result` | `map`, `mapErr`, `andThen`, `withDefault`, `ignore`, `isOk` |
-| `core/num` | `abs`, `min`, `max`, `signum`, `compare`, and the `Bounded` / `Checked` / `Wrapping` trait methods |
-| `core/math` | `sqrt`, `pow`, `floor`, `ceil`, `round` |
-| `core/bits` | `shl`, `shr`, `popCount` |
-| `core/order` | `reverse`, and the `Ord`, `Eq`, `Show`, `Hash` trait declarations |
-| `core/char` | `isDigit`, `isAlpha`, `isSpace`, `toLower`, `toUpper` |
-| `core/bool` | `not`, `and`, `or`, `toStr` |
-
-`str.trim`, `str.slice`, and `str.splitOnce` are pure because `Str` is immutable
-and sliceable: they return views, not copies. `fold` is pure because it produces
-one value rather than a new collection.
-
-**Deterministic — bounded by `<C: Alloc>`**
-
-| Module | Functions |
-|---|---|
-| `core/list` | `map`, `mapCtx`, `filter`, `filterCtx`, `concat`, `push`, `reverse`, `sortBy`, `take`, `drop`, `zip`, `range` |
-| `core/str` | `concat`, `join`, `split`, `splitAny`, `replace`, `repeat`, `toUpper`, `toLower`, `fromInt`, `format`, `chars` |
-
-**Effectful — bounded by an effect**
-
-| Module | Needs | Functions |
-|---|---|---|
-| `core/effect` | — | the effect declarations themselves |
-| `core/host` | — | `alloc`, `stdout`, `stderr`, `clock`, `rand` on every platform; `stdin`, `fs`, `net`, `env`, `proc` where there is an operating system under the program; `ui`, `watch`, `fetch` where there is a document over it — the platform's implementations, importable only by the module exporting `main` |
-| `core/alloc` | — | `generalPurpose`, `arena`, `fixedBuffer` — counting implementations of `Alloc`, importable anywhere, because an `Alloc` grants no authority |
-| `core/io` | `Stdout`/`Stderr`/`Stdin` | `print`, `println`, `eprintln`, `readLine` |
-| `core/fs` | `Fs` | `readText`, `writeText`, `exists`, `listDir`, and the `IoError` type |
-| `core/net/http` | `Net` | `get`, `post`, `Request`, `Response`, `errorText` |
-| `core/time` | `Clock` | `now`, `since`, `sleepMs`, `Instant` |
-| `core/random` | `Rand` | `int`, `float` |
-| `core/env` | `Env` | `get`, `args` |
-
-The `*Ctx` variants (`list.mapCtx`, `list.filterCtx`) take a callback of the form
-`fn(Ctx, A) => B` and pass the context through, which is how effectful
-higher-order code is written given the capture rule of Section 10.5.
-
-**The test platform — importable only from a test source**
-
-| Module | Provides |
-|---|---|
-| `core/testing/assert` | `eq`, `notEq`, `isTrue`, `isFalse`, `fail`, `ok`, `err`, `some` |
-| `core/testing/context` | one implementation per effect — `alloc`, `captureOut`, `captureErr`, `stdin`, `files`, `data`, `readOnly`, `noNet`, `clockAt`, `randSeed`, `envOf` — and the `Hermetic` context that binds them |
+The catalogue itself is not normative in v0.3, and it is not here. Which modules
+there are, what each one costs, and what is deliberately absent is
+[`cli/src/docs/guide/standard-library.md`](./cli/src/docs/guide/standard-library.md),
+and `buri docs core/list` renders a module from the source the compiler checked,
+so a signature on that page is the signature that exists.
 
 ### 11.2 Tests
 
-A **test source** is a module the build system compiles into a test binary
-rather than into a library or a program. `test` declarations are legal there and
-nowhere else, and so are imports of **test-only modules** — any module path
-containing a `testing` segment, which covers `core/testing/assert`,
-`core/testing/context`, and a library's own test utilities at
-`//lib/money/testing`. Which modules are test sources is declared in a build
-file ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
+A **test source** is a module the build system compiles into a test binary rather
+than into a library or a program; which modules are test sources is declared in a
+build file ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
+`test` declarations are legal there and nowhere else, and so are imports of
+**test-only modules** — any module path containing a `testing` segment (Section
+4.1.1). A test source may not `export`, and no module may import one: shared test
+helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
 from "//lib/money" import { fromCents };
@@ -204,17 +164,8 @@ assert.eq(total, 42);              // statement: type is ()
 ```
 
 This is the narrowest relaxation that makes assertions read as assertions, and
-it does not weaken Section 6.8: `Result` is not `()`, so nothing must-use can be
-dropped by it.
-
-Three static rules, all checked:
-
-- `test`, and any import of a path containing a `testing` segment, appear only
-  in a test source.
-- A test source may not `export`, and no module may import one. Shared test
-  helpers are ordinary library code.
-- An expression statement is legal only in a test source, and only when its type
-  is `()`.
+it does not weaken Section 5.7.1: `Result` is not `()`, so nothing must-use can
+be dropped by it.
 
 ### 11.3 Contexts
 
