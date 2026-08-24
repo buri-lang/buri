@@ -827,10 +827,10 @@ mixed/100k, the authoritative corpus, on the machine and protocol above.
 | lower+js | 100 k | 282 k | **MET** |
 | lower+macos-arm64 | 100 k | 58.1 k | 1.72× |
 
-Two of the three goals are met and the third is met on one of its two backends.
-Lex+parse started at 1.45 M lines/s and is 4.1× that now; native lowering
-started at nothing measurable, because the realistic corpora could not be
-compiled natively at all. The stencil backend (`design/native/CODEGEN-STENCIL.md`)
+Two of the three goals are met, and the third is met on the JavaScript backend
+and missed on the native one. Lex+parse started at 1.45 M lines/s and is 4.1×
+that now; native lowering started at nothing measurable, because the realistic
+corpora could not be compiled natively at all. The stencil backend (`design/native/CODEGEN-STENCIL.md`)
 emits a 121k-line program in about 0.43× Cranelift's time and is the first
 backend here to reach goal 3 — on the emission phase, and it is not the
 selected one.
@@ -883,8 +883,11 @@ compile column is itself the faster one.
 
 The rounds that produced the numbers above are not kept as a chronology: a log
 whose every row is superseded by a later row in the same document is a worse
-version of the last row. Three of the findings are worth more than the numbers
-they produced, because each is a shape rather than a measurement.
+version of the last row. An earlier revision numbered those rounds §6.1 through
+§6.9, so a citation to one of them lands here. Three of the findings are worth
+more than the numbers
+they produced, because each is a shape rather than a measurement, and they are
+the three below.
 
 **Per-unit work over a whole-program array is Θ(units × functions), and it hides
 until it does not.** Two scans in the Cranelift backend walked all of
