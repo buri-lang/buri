@@ -1128,8 +1128,8 @@ mod tests {
         FieldInfo { name: name.into(), ty: ty.clone(), exported: true, span: Span::NONE }
     }
 
-    fn fields(fs: &[(&str, Ty)]) -> Vec<FieldInfo> {
-        fs.iter().map(|(n, t)| field(n, t)).collect()
+    fn fields(named: &[(&str, Ty)]) -> Vec<FieldInfo> {
+        named.iter().map(|(n, t)| field(n, t)).collect()
     }
 
     /// A tuple-like variant: fields named by position, the way the checker
@@ -1144,23 +1144,33 @@ mod tests {
         }
     }
 
-    fn add_struct(t: &mut Tables, name: &str, gs: &[&str], fs: &[(&str, Ty)]) -> TyConId {
+    fn add_struct(
+        t: &mut Tables,
+        name: &str,
+        generic_names: &[&str],
+        named: &[(&str, Ty)],
+    ) -> TyConId {
         t.add_tycon(TyCon {
             name: name.into(),
             module: ModuleId(0),
-            generics: generics(gs),
-            def: TyDef::Struct { fields: fields(fs), record: true },
+            generics: generics(generic_names),
+            def: TyDef::Struct { fields: fields(named), record: true },
             exported: true,
             span: Span::NONE,
         })
     }
 
-    fn add_enum(t: &mut Tables, name: &str, gs: &[&str], vs: Vec<VariantInfo>) -> TyConId {
+    fn add_enum(
+        t: &mut Tables,
+        name: &str,
+        generic_names: &[&str],
+        variants: Vec<VariantInfo>,
+    ) -> TyConId {
         t.add_tycon(TyCon {
             name: name.into(),
             module: ModuleId(0),
-            generics: generics(gs),
-            def: TyDef::Enum { variants: vs },
+            generics: generics(generic_names),
+            def: TyDef::Enum { variants },
             exported: true,
             span: Span::NONE,
         })
@@ -1168,12 +1178,12 @@ mod tests {
 
     /// A type constructor declared before its own definition, which is how a
     /// recursive one has to be built here: the definition mentions the id.
-    fn declare(t: &mut Tables, name: &str, gs: &[&str]) -> TyConId {
-        add_enum(t, name, gs, Vec::new())
+    fn declare(t: &mut Tables, name: &str, generic_names: &[&str]) -> TyConId {
+        add_enum(t, name, generic_names, Vec::new())
     }
 
-    fn define_enum(t: &mut Tables, con: TyConId, vs: Vec<VariantInfo>) {
-        t.tycon_mut(con).def = TyDef::Enum { variants: vs };
+    fn define_enum(t: &mut Tables, con: TyConId, variants: Vec<VariantInfo>) {
+        t.tycon_mut(con).def = TyDef::Enum { variants };
     }
 
     /// `Option<T>`, in exactly the shape `Tables::is_option` recognises.

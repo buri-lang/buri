@@ -506,12 +506,12 @@ mod tests {
         e(ExprKind::Local(LocalId(i)))
     }
 
-    fn func(symbol: &str, params: Vec<u32>, nlocals: usize, body: Option<Expr>) -> Func {
+    fn func(symbol: &str, params: Vec<u32>, local_count: usize, body: Option<Expr>) -> Func {
         Func {
             symbol: symbol.to_string(),
             debug_name: symbol.to_string(),
             params: params.iter().map(|i| LocalId(*i)).collect(),
-            locals: (0..nlocals)
+            locals: (0..local_count)
                 .map(|i| typed::Local {
                     name: format!("l{i}"),
                     ty: Ty::Error,

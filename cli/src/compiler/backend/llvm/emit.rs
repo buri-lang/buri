@@ -4782,10 +4782,10 @@ struct ListArgs<'ctx> {
 /// One pass of [`Unit::list_sort`]: the run width, twice it, and the two blocks
 /// the pass reads from and writes to.
 struct Runs<'ctx> {
-    w: IntValue<'ctx>,
+    width: IntValue<'ctx>,
     span: IntValue<'ctx>,
-    av: PointerValue<'ctx>,
-    bv: PointerValue<'ctx>,
+    read_from: PointerValue<'ctx>,
+    write_to: PointerValue<'ctx>,
 }
 
 /// One counted loop under construction: the blocks, the index, and the value
@@ -5905,7 +5905,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.walk_rc(state, &elem, &place, 0, true, 0);
         self.close_loop(&l, None);
 
-        // -- `w = 1, 2, 4, …`, with `from` and `to` swapping each pass ------
+        // -- width 1, 2, 4, …, with the two buffers swapping each pass ------
         let Some(entry) = self.builder.get_insert_block() else { return };
         let wide = self.ctx.append_basic_block(state.value, "sort.wide");
         let pass = self.ctx.append_basic_block(state.value, "sort.pass");
@@ -5919,20 +5919,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ) else {
             return;
         };
-        let w: IntValue<'ctx> = wp.as_basic_value().try_into().unwrap_or(one);
-        let av: PointerValue<'ctx> = ap.as_basic_value().try_into().unwrap_or(dst);
-        let bv: PointerValue<'ctx> = bp.as_basic_value().try_into().unwrap_or(scratch);
+        let width: IntValue<'ctx> = wp.as_basic_value().try_into().unwrap_or(one);
+        let read_from: PointerValue<'ctx> = ap.as_basic_value().try_into().unwrap_or(dst);
+        let write_to: PointerValue<'ctx> = bp.as_basic_value().try_into().unwrap_or(scratch);
         let unsorted = self
             .builder
-            .build_int_compare(IntPredicate::ULT, w, src.len, "sort.unsorted")
+            .build_int_compare(IntPredicate::ULT, width, src.len, "sort.unsorted")
             .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
         let _ = self.builder.build_conditional_branch(unsorted, pass, sorted);
 
         self.builder.position_at_end(pass);
-        let span = self.builder.build_int_mul(w, word.const_int(2, false), "sort.span").unwrap_or(w);
-        let swap = self.merge_pass(state, a, &Runs { w, span, av, bv });
+        let span = self
+            .builder
+            .build_int_mul(width, word.const_int(2, false), "sort.span")
+            .unwrap_or(width);
+        let swap = self.merge_pass(state, a, &Runs { width, span, read_from, write_to });
         self.builder.position_at_end(swap);
-        let doubled = self.builder.build_int_mul(w, word.const_int(2, false), "sort.w2").unwrap_or(w);
+        let doubled = self
+            .builder
+            .build_int_mul(width, word.const_int(2, false), "sort.w2")
+            .unwrap_or(width);
         let _ = self.builder.build_unconditional_branch(wide);
         wp.add_incoming(&[
             (&one as &dyn BasicValue<'ctx>, entry),
@@ -5940,11 +5946,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ]);
         ap.add_incoming(&[
             (&dst as &dyn BasicValue<'ctx>, entry),
-            (&bv as &dyn BasicValue<'ctx>, swap),
+            (&write_to as &dyn BasicValue<'ctx>, swap),
         ]);
         bp.add_incoming(&[
             (&scratch as &dyn BasicValue<'ctx>, entry),
-            (&av as &dyn BasicValue<'ctx>, swap),
+            (&read_from as &dyn BasicValue<'ctx>, swap),
         ]);
 
         // -- an odd number of passes ends in the scratch ---------------------
@@ -5953,11 +5959,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let end = self.ctx.append_basic_block(state.value, "sort.end");
         let in_place = self
             .builder
-            .build_int_compare(IntPredicate::EQ, av, dst, "sort.inplace")
+            .build_int_compare(IntPredicate::EQ, read_from, dst, "sort.inplace")
             .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
         let _ = self.builder.build_conditional_branch(in_place, end, home);
         self.builder.position_at_end(home);
-        let _ = self.builder.build_memcpy(dst, align, av, align, bytes);
+        let _ = self.builder.build_memcpy(dst, align, read_from, align, bytes);
         let _ = self.builder.build_unconditional_branch(end);
         self.builder.position_at_end(end);
         let free = self.rt_free();
@@ -5970,7 +5976,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.set(state, dest, value);
     }
 
-    /// One pass of [`Unit::list_sort`]: every pair of `w`-wide runs in `a`,
+    /// One pass of [`Unit::list_sort`]: every pair of `width`-wide runs in `a`,
     /// merged into `b`. Answers the block the pass ends in.
     fn merge_pass(
         &mut self,
@@ -6002,7 +6008,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_conditional_branch(left, run, swap);
 
         self.builder.position_at_end(run);
-        let mid = self.clamp(self.builder.build_int_add(lo, r.w, "sort.mid").unwrap_or(lo), src.len);
+        let mid =
+            self.clamp(self.builder.build_int_add(lo, r.width, "sort.mid").unwrap_or(lo), src.len);
         let hi =
             self.clamp(self.builder.build_int_add(lo, r.span, "sort.hi").unwrap_or(lo), src.len);
         let merge = self.ctx.append_basic_block(state.value, "sort.merge");
@@ -6046,8 +6053,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_conditional_branch(open, compare, take_left);
 
         self.builder.position_at_end(compare);
-        let left_at = self.elem_at(r.av, li, src.stride, "sort.lat");
-        let right_at = self.elem_at(r.av, ri, src.stride, "sort.rat");
+        let left_at = self.elem_at(r.read_from, li, src.stride, "sort.lat");
+        let right_at = self.elem_at(r.read_from, ri, src.stride, "sort.rat");
         let mut params = Vec::new();
         let mut argv = Vec::new();
         self.pass_elem(state, src, left_at, &mut params, &mut argv);
@@ -6076,8 +6083,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         for (block, right) in [(take_left, false), (take_right, true)] {
             self.builder.position_at_end(block);
             let at = if right { ri } else { li };
-            let from = self.elem_at(r.av, at, src.stride, "sort.take");
-            let into = self.elem_at(r.bv, k, src.stride, "sort.put");
+            let from = self.elem_at(r.read_from, at, src.stride, "sort.take");
+            let into = self.elem_at(r.write_to, k, src.stride, "sort.put");
             let _ = self.builder.build_memcpy(into, align, from, align, size);
             let taken = self.builder.build_int_add(at, one, "sort.taken").unwrap_or(at);
             let filled = self.builder.build_int_add(k, one, "sort.filled").unwrap_or(k);

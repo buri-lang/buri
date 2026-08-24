@@ -187,8 +187,8 @@ pub fn rewrite(program: &mut Program) {
     // every index anywhere else in the program — still names what it named.
     // `dce` and `inline` both depend on that, and both say so.
     let groups = plan.groups.clone();
-    for (gi, group) in groups.iter().enumerate() {
-        merge_group(program, gi, group);
+    for (group_index, group) in groups.iter().enumerate() {
+        merge_group(program, group_index, group);
     }
 
     for f in 0..program.funcs.len() {
@@ -213,7 +213,7 @@ pub fn rewrite(program: &mut Program) {
 /// by where they landed, which is the inliner's own manoeuvre and for the same
 /// reason: `LocalId` is an index into one function's table, so appending is the
 /// only way two bodies can share one.
-fn merge_group(program: &mut Program, gi: usize, group: &[usize]) {
+fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     // A member with no body cannot have had a tail call, so it cannot have
     // been in the group; a group that somehow holds one is left alone rather
     // than half-merged.
@@ -287,7 +287,7 @@ fn merge_group(program: &mut Program, gi: usize, group: &[usize]) {
         .map(|f| f.debug_name.as_str())
         .collect();
     program.funcs.push(Func {
-        symbol: format!("$tc{gi}"),
+        symbol: format!("$tc{group_index}"),
         debug_name: format!("tail group {}", members.join(", ")),
         params,
         locals,
