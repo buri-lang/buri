@@ -111,7 +111,7 @@ pub fn run(program: &mut Program) {
 /// The argument positions below are `core/list`'s own declaration order, and
 /// they are the same six keys `backend::cranelift::emit::list_call` reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Comb {
+enum Combinator {
     /// `map(self, ctx, f)`.
     Map,
     /// `filter(self, ctx, keep)`.
@@ -131,24 +131,24 @@ enum Comb {
 /// One table rather than two matches, because the two are inverses and a row
 /// present in one and absent from the other is a combinator this pass would
 /// recognise and be unable to write back.
-const KEYS: &[(Comb, &str)] = &[
-    (Comb::Map, "list.map"),
-    (Comb::Filter, "list.filter"),
-    (Comb::Fold, "list.fold"),
-    (Comb::Count, "list.count"),
-    (Comb::Any, "list.any"),
-    (Comb::All, "list.all"),
+const KEYS: &[(Combinator, &str)] = &[
+    (Combinator::Map, "list.map"),
+    (Combinator::Filter, "list.filter"),
+    (Combinator::Fold, "list.fold"),
+    (Combinator::Count, "list.count"),
+    (Combinator::Any, "list.any"),
+    (Combinator::All, "list.all"),
 ];
 
-impl Comb {
-    fn of(key: &str) -> Option<Comb> {
+impl Combinator {
+    fn of(key: &str) -> Option<Combinator> {
         KEYS.iter().find(|(_, k)| *k == key).map(|(c, _)| *c)
     }
 
     fn key(self) -> &'static str {
         match KEYS.iter().find(|(c, _)| *c == self) {
             Some((_, k)) => k,
-            // Unreachable: `KEYS` has a row per variant, and `Comb::of` is the
+            // Unreachable: `KEYS` has a row per variant, and `Combinator::of` is the
             // only way one is made.
             None => "",
         }
@@ -157,22 +157,22 @@ impl Comb {
     /// Where the step function sits in the argument list.
     fn step_at(self) -> usize {
         match self {
-            Comb::Map | Comb::Filter => 2,
-            Comb::Fold | Comb::Count | Comb::Any | Comb::All => 1,
+            Combinator::Map | Combinator::Filter => 2,
+            Combinator::Fold | Combinator::Count | Combinator::Any | Combinator::All => 1,
         }
     }
 
     fn arity(self) -> usize {
         match self {
-            Comb::Map | Comb::Filter | Comb::Fold => 3,
-            Comb::Count | Comb::Any | Comb::All => 2,
+            Combinator::Map | Combinator::Filter | Combinator::Fold => 3,
+            Combinator::Count | Combinator::Any | Combinator::All => 2,
         }
     }
 
     /// How many parameters the step takes.
     fn step_params(self) -> usize {
         match self {
-            Comb::Fold => 2,
+            Combinator::Fold => 2,
             _ => 1,
         }
     }
@@ -206,13 +206,13 @@ impl Fuse<'_> {
         Some((key, idx, args))
     }
 
-    fn combinator(&self, e: &Expr) -> Option<(Comb, FuncIdx)> {
+    fn combinator(&self, e: &Expr) -> Option<(Combinator, FuncIdx)> {
         let (key, idx, args) = self.key(e)?;
-        let comb = Comb::of(key)?;
-        if args.len() != comb.arity() {
+        let combinator = Combinator::of(key)?;
+        if args.len() != combinator.arity() {
             return None;
         }
-        Some((comb, idx))
+        Some((combinator, idx))
     }
 
     /// One fusion at this node, or nothing.
@@ -239,18 +239,18 @@ impl Fuse<'_> {
             return false;
         }
         let Some(inner) = args.first() else { return false };
-        let Some((Comb::Filter, from)) = self.combinator(inner) else { return false };
-        let Some(pargs) = call_args(inner) else { return false };
-        let Some(ctx) = pargs.get(1) else { return false };
+        let Some((Combinator::Filter, from)) = self.combinator(inner) else { return false };
+        let Some(producer_args) = call_args(inner) else { return false };
+        let Some(ctx) = producer_args.get(1) else { return false };
         if !readonly(ctx) {
             return false;
         }
         let node_ty = e.ty.clone();
         let Some(mut inner) = take_arg(e, 0) else { return false };
-        let Some(keep) = take_arg(&mut inner, Comb::Filter.step_at()) else { return false };
+        let Some(keep) = take_arg(&mut inner, Combinator::Filter.step_at()) else { return false };
         let Some(source) = take_arg(&mut inner, 0) else { return false };
         let tys = vec![source.ty.clone(), keep.ty.clone()];
-        let func = self.mint(Comb::Count, from, tys, node_ty);
+        let func = self.mint(Combinator::Count, from, tys, node_ty);
         if let ExprKind::CallFn { func: callee, args } = &mut e.kind {
             *callee = Callee::Func(func);
             *args = vec![source, keep];
@@ -268,39 +268,41 @@ impl Fuse<'_> {
         // The two shapes that are not fusions at all.
         if matches!(
             (consumer, producer),
-            (Comb::Filter, Comb::Map) | (Comb::Map, Comb::Filter)
+            (Combinator::Filter, Combinator::Map) | (Combinator::Map, Combinator::Filter)
         ) {
             return None;
         }
-        let pargs = call_args(source)?;
-        let ExprKind::Lambda { params: cps, .. } = &args.get(consumer.step_at())?.kind else {
-            return None;
-        };
-        let ExprKind::Lambda { params: pps, body: pbody, .. } =
-            &pargs.get(producer.step_at())?.kind
+        let producer_args = call_args(source)?;
+        let ExprKind::Lambda { params: consumer_params, .. } =
+            &args.get(consumer.step_at())?.kind
         else {
             return None;
         };
-        if pps.len() != 1 || cps.len() != consumer.step_params() {
+        let ExprKind::Lambda { params: producer_params, body: producer_body, .. } =
+            &producer_args.get(producer.step_at())?.kind
+        else {
+            return None;
+        };
+        if producer_params.len() != 1 || consumer_params.len() != consumer.step_params() {
             return None;
         }
-        let elem = *pps.first()?;
+        let elem = *producer_params.first()?;
         // The two lambdas were written apart, so their parameters are different
         // locals of the same table; equal ones would mean the fused step bound
         // one slot twice.
-        if cps.contains(&elem) {
+        if consumer_params.contains(&elem) {
             return None;
         }
-        if !movable(pbody) {
+        if !movable(producer_body) {
             return None;
         }
         // `map` and `filter` both take an `Alloc` for the block they build, and
         // the fused call builds no such block.
-        if !readonly(pargs.get(1)?) {
+        if !readonly(producer_args.get(1)?) {
             return None;
         }
-        let psource = pargs.first()?;
-        let Ty::Array(elem_ty) = &psource.ty else { return None };
+        let producer_source = producer_args.first()?;
+        let Ty::Array(elem_ty) = &producer_source.ty else { return None };
         Some(Plan {
             consumer,
             consumer_idx,
@@ -310,37 +312,50 @@ impl Fuse<'_> {
             // A `filter` answers the list it was given, and so does a `map` from
             // a type to itself; either way the instance in hand is already over
             // the right element type and no new one is needed.
-            same_elements: psource.ty == source.ty,
+            same_elements: producer_source.ty == source.ty,
         })
     }
 
     fn rewrite(&mut self, e: &mut Expr, plan: Plan) -> bool {
         let node_ty = e.ty.clone();
         let Some(mut producer) = take_arg(e, 0) else { return false };
-        let Some(pstep) = take_arg(&mut producer, plan.producer.step_at()) else { return false };
+        let Some(producer_step) = take_arg(&mut producer, plan.producer.step_at()) else {
+            return false;
+        };
         let Some(source) = take_arg(&mut producer, 0) else { return false };
         let Some(step) = take_arg(e, plan.consumer.step_at()) else { return false };
         let span = step.span;
-        let ExprKind::Lambda { body: pbody, captures: pcaps, .. } = pstep.kind else {
+        let ExprKind::Lambda { body: producer_body, captures: producer_captures, .. } =
+            producer_step.kind
+        else {
             return false;
         };
-        let ExprKind::Lambda { params: cps, body: cbody, captures: ccaps } = step.kind else {
+        let ExprKind::Lambda {
+            params: consumer_params,
+            body: consumer_body,
+            captures: consumer_captures,
+        } = step.kind
+        else {
             return false;
         };
 
-        let acc_ty = cbody.ty.clone();
-        let Some(body) = compose(&plan, *pbody, &cps, *cbody, span) else { return false };
-        let mut captures = pcaps;
-        for c in ccaps {
+        let acc_ty = consumer_body.ty.clone();
+        let Some(body) =
+            compose(&plan, *producer_body, &consumer_params, *consumer_body, span)
+        else {
+            return false;
+        };
+        let mut captures = producer_captures;
+        for c in consumer_captures {
             if !captures.contains(&c) {
                 captures.push(c);
             }
         }
-        let (params, param_tys) = match (plan.consumer, cps.first()) {
-            (Comb::Fold, Some(acc)) => {
+        let (params, param_tys) = match (plan.consumer, consumer_params.first()) {
+            (Combinator::Fold, Some(acc)) => {
                 (vec![*acc, plan.elem], vec![acc_ty, plan.elem_ty.clone()])
             }
-            (Comb::Fold, None) => return false,
+            (Combinator::Fold, None) => return false,
             _ => (vec![plan.elem], vec![plan.elem_ty.clone()]),
         };
         let ret_ty = body.ty.clone();
@@ -375,13 +390,13 @@ impl Fuse<'_> {
     /// into `Body::Runtime` and the backend open-codes the loop from the types
     /// of the arguments at the call site, which is why the instance never needs
     /// to have existed before.
-    fn mint(&mut self, comb: Comb, from: FuncIdx, params: Vec<Ty>, ret: Ty) -> FuncIdx {
+    fn mint(&mut self, combinator: Combinator, from: FuncIdx, params: Vec<Ty>, ret: Ty) -> FuncIdx {
         let idx = FuncIdx(u32::try_from(self.base.saturating_add(self.minted.len())).unwrap_or(u32::MAX));
         let (symbol, debug_name, span) = match self.names.get(from.index()) {
             Some(n) => n.clone(),
             None => match self.minted.get(from.index().saturating_sub(self.base)) {
                 Some(f) => (f.symbol.clone(), f.debug_name.clone(), f.span),
-                None => (comb.key().into(), comb.key().into(), Span::default()),
+                None => (combinator.key().into(), combinator.key().into(), Span::default()),
             },
         };
         self.minted.push(Func {
@@ -395,7 +410,7 @@ impl Fuse<'_> {
                 .enumerate()
                 .map(|(i, ty)| typed::Local { name: format!("a{i}"), ty, span })
                 .collect(),
-            kind: FuncKind::Intrinsic(comb.key().to_string()),
+            kind: FuncKind::Intrinsic(combinator.key().to_string()),
             ret,
             desc: None,
             span,
@@ -407,9 +422,9 @@ impl Fuse<'_> {
 /// What [`Fuse::plan`] decided, so that [`Fuse::rewrite`] takes the node apart
 /// only once it is certain.
 struct Plan {
-    consumer: Comb,
+    consumer: Combinator,
     consumer_idx: FuncIdx,
-    producer: Comb,
+    producer: Combinator,
     /// The producer step's parameter, which becomes the fused step's element.
     elem: LocalId,
     elem_ty: Ty,
@@ -417,18 +432,24 @@ struct Plan {
 }
 
 /// The fused step's body.
-fn compose(plan: &Plan, pbody: Expr, cps: &[LocalId], cbody: Expr, span: Span) -> Option<Expr> {
-    let bound = *cps.last()?;
-    let ty = cbody.ty.clone();
+fn compose(
+    plan: &Plan,
+    producer_body: Expr,
+    consumer_params: &[LocalId],
+    consumer_body: Expr,
+    span: Span,
+) -> Option<Expr> {
+    let bound = *consumer_params.last()?;
+    let ty = consumer_body.ty.clone();
     match plan.producer {
         // `g(a, f(x))`: the consumer step's element parameter is bound to the
         // producer step's body, which reads the fused step's own parameter.
-        Comb::Map => {
-            let value_ty = pbody.ty.clone();
+        Combinator::Map => {
+            let value_ty = producer_body.ty.clone();
             Some(Expr::new(
                 ExprKind::Block {
-                    stmts: vec![binding(bound, value_ty, pbody, span)],
-                    tail: Some(Box::new(cbody)),
+                    stmts: vec![binding(bound, value_ty, producer_body, span)],
+                    tail: Some(Box::new(consumer_body)),
                 },
                 ty,
                 span,
@@ -437,27 +458,27 @@ fn compose(plan: &Plan, pbody: Expr, cps: &[LocalId], cbody: Expr, span: Span) -
         // The producer's predicate becomes the fused step's guard, and what the
         // step answers when the guard fails is the whole of the difference
         // between the four consumers that admit one.
-        Comb::Filter => {
+        Combinator::Filter => {
             let elem = Expr::new(ExprKind::Local(plan.elem), plan.elem_ty.clone(), span);
             let kept = Expr::new(
                 ExprKind::Block {
                     stmts: vec![binding(bound, plan.elem_ty.clone(), elem, span)],
-                    tail: Some(Box::new(cbody)),
+                    tail: Some(Box::new(consumer_body)),
                 },
                 ty.clone(),
                 span,
             );
-            let dropped = match (plan.consumer, cps.first()) {
+            let dropped = match (plan.consumer, consumer_params.first()) {
                 // An element the filter drops leaves the accumulator alone.
-                (Comb::Fold, Some(acc)) => Expr::new(ExprKind::Local(*acc), ty.clone(), span),
-                (Comb::Fold, None) => return None,
+                (Combinator::Fold, Some(acc)) => Expr::new(ExprKind::Local(*acc), ty.clone(), span),
+                (Combinator::Fold, None) => return None,
                 // `all` over the kept elements is `!keep(x) || pred(x)`.
-                (Comb::All, _) => Expr::new(ExprKind::Bool(true), ty.clone(), span),
+                (Combinator::All, _) => Expr::new(ExprKind::Bool(true), ty.clone(), span),
                 _ => Expr::new(ExprKind::Bool(false), ty.clone(), span),
             };
             Some(Expr::new(
                 ExprKind::If {
-                    cond: Box::new(pbody),
+                    cond: Box::new(producer_body),
                     then: Box::new(kept),
                     else_: Box::new(dropped),
                 },
@@ -465,7 +486,7 @@ fn compose(plan: &Plan, pbody: Expr, cps: &[LocalId], cbody: Expr, span: Span) -
                 span,
             ))
         }
-        _ => Some(cbody),
+        _ => Some(consumer_body),
     }
 }
 
