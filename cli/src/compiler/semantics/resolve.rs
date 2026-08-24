@@ -880,7 +880,7 @@ impl<'a> Checker<'a> {
                         let fid = match sym {
                             Sym::Fn(f) => f,
                             Sym::Overloaded(fs) => {
-                                match fs.iter().find(|f| self.tables.fun(**f).span == d.name.span) {
+                                match fs.iter().find(|f| self.tables.fn_info(**f).span == d.name.span) {
                                     Some(f) => *f,
                                     None => continue,
                                 }
@@ -911,11 +911,11 @@ impl<'a> Checker<'a> {
         d: &tree::FnDecl,
     ) {
         let generics = self.elaborate_generics(module, &d.generics);
-        self.tables.fun_mut(fid).generics = generics.clone();
+        self.tables.fn_info_mut(fid).generics = generics.clone();
         let params = self.elaborate_params(module, &generics, &d.params);
         let ret = self.elaborate(module, &generics, d.ret);
-        self.tables.fun_mut(fid).params = params.clone();
-        self.tables.fun_mut(fid).ret = ret;
+        self.tables.fn_info_mut(fid).params = params.clone();
+        self.tables.fn_info_mut(fid).ret = ret;
 
         // A method is declared inside an `impl` block for its type, so a
         // `self` parameter at the top level has no receiver type to attach to.
@@ -967,7 +967,7 @@ impl<'a> Checker<'a> {
         }
         // `main` takes no parameters, declares no generics, and returns
         // `Result<(), Str>`.
-        let info = self.tables.fun(fid);
+        let info = self.tables.fn_info(fid);
         let (name_is_main, exported, module) =
             (info.name == "main", info.exported, info.module);
         if name_is_main && exported && self.module(module).role == Role::Entry {
@@ -979,7 +979,7 @@ impl<'a> Checker<'a> {
     /// Written as a mirror of the loop that reports, so the two cannot drift —
     /// a `true` here is exactly one diagnostic or more there.
     fn violates_ctx_rule(&self, fid: FnId) -> bool {
-        let info = self.tables.fun(fid);
+        let info = self.tables.fn_info(fid);
         let mut ctx_count: usize = 0;
         let mut self_count: usize = 0;
         for (i, p) in info.params.iter().enumerate() {
@@ -1008,7 +1008,7 @@ impl<'a> Checker<'a> {
     }
 
     fn report_ctx_rule(&mut self, fid: FnId) {
-        let info = self.tables.fun(fid).clone();
+        let info = self.tables.fn_info(fid).clone();
         let mut ctx_count: usize = 0;
         let mut self_count: usize = 0;
         for (i, p) in info.params.iter().enumerate() {
@@ -1098,7 +1098,7 @@ impl<'a> Checker<'a> {
     }
 
     fn check_main_signature(&mut self, fid: FnId, d: &tree::FnDecl) {
-        let info = self.tables.fun(fid).clone();
+        let info = self.tables.fn_info(fid).clone();
         if !info.params.is_empty() {
             self.err(d.span, "`main` takes no parameters").code("main-signature")
                 .fix("drop them, and build the context `main` needs in its own body")
@@ -1146,7 +1146,7 @@ impl<'a> Checker<'a> {
         if crate::compiler::standard_library::find(&path).is_none() {
             return;
         }
-        self.tables.fun_mut(fid).intrinsic = true;
+        self.tables.fn_info_mut(fid).intrinsic = true;
     }
 
     fn elaborate_generics(
@@ -1542,7 +1542,7 @@ impl<'a> Checker<'a> {
         // Methods declared as ordinary functions with a `self` parameter.
         for f in 0..self.tables.fns.len() {
             let fid = FnId(f as u32);
-            let info = self.tables.fun(fid).clone();
+            let info = self.tables.fn_info(fid).clone();
             if info.impl_of.is_some() {
                 continue;
             }
@@ -1590,7 +1590,7 @@ impl<'a> Checker<'a> {
             return;
         }
         if let Some(prev) = self.tables.method(con, name) {
-            let prev_span = self.tables.fun(prev).span;
+            let prev_span = self.tables.fn_info(prev).span;
             let ty = self.tables.tycon(con).name.clone();
             self.err(span, format!("`{ty}` already has a method `{name}`"))
                 .fix("rename one of them")

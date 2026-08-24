@@ -445,7 +445,7 @@ impl<'a> Monomorphizer<'a> {
     fn name_of(&self, key: &Key) -> (String, String, Span) {
         match key {
             Key::Fn(f, targs) => {
-                let info = self.tables().fun(*f);
+                let info = self.tables().fn_info(*f);
                 let module = self
                     .module_paths
                     .get(info.module.index())
@@ -525,7 +525,7 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn build_fn(&mut self, f: FnId, targs: Vec<Ty>, slot: usize) {
-        let info = self.tables().fun(f).clone();
+        let info = self.tables().fn_info(f).clone();
         if info.intrinsic {
             let key = self.intrinsic_key(&info, &targs);
             // The instantiated parameter types, which only the descriptor
@@ -939,7 +939,7 @@ impl<'a> Monomorphizer<'a> {
             Ty::Con(_, a) => a.clone(),
             _ => Vec::new(),
         };
-        let declared = self.tables().fun(fid).generics.len();
+        let declared = self.tables().fn_info(fid).generics.len();
         instance_targs.extend(method_targs);
         instance_targs.truncate(declared.max(instance_targs.len()));
         while instance_targs.len() < declared {

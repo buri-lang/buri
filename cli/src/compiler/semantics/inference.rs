@@ -54,7 +54,7 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
 }
 
 fn check_fn(c: &mut Checker, fid: FnId) {
-    let info = c.tables.fun(fid).clone();
+    let info = c.tables.fn_info(fid).clone();
     let Some(decl) = body_ast(c, info.ast) else { return };
     let Some(body) = decl.body else { return };
 

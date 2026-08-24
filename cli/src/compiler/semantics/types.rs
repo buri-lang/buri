@@ -39,7 +39,7 @@ id_type!(LocalId);
 // `FuncIdx` is an index into `Program::funcs`: one concrete function, after
 // monomorphization. Deliberately not `FnId`, which indexes the *declaration*
 // table. The two are different spaces, and while both were spelled `FnId` a
-// backend pass could read `tables.fun(func)` on a monomorphized call and
+// backend pass could read `tables.fn_info(func)` on a monomorphized call and
 // silently name a different function.
 id_type!(FuncIdx);
 
@@ -663,7 +663,7 @@ impl Tables {
         matches!(ty, Ty::Con(id, _) if self.is_option(*id))
     }
 
-    pub fn fun(&self, id: FnId) -> &FnInfo {
+    pub fn fn_info(&self, id: FnId) -> &FnInfo {
         self.fns.get(id.index()).or_ice("every FnId was minted by add_fn on this table")
     }
 
@@ -687,7 +687,7 @@ impl Tables {
         self.tycons.get_mut(id.index()).or_ice("every TyConId was minted by add_tycon")
     }
 
-    pub fn fun_mut(&mut self, id: FnId) -> &mut FnInfo {
+    pub fn fn_info_mut(&mut self, id: FnId) -> &mut FnInfo {
         self.fns.get_mut(id.index()).or_ice("every FnId was minted by add_fn")
     }
 

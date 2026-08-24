@@ -154,7 +154,7 @@ impl<'a> Folder<'a> {
     /// because that is where the answer is: a function that allocates says so
     /// in its signature, and one that does not cannot start.
     fn is_foldable_fn(&self, id: FnId) -> bool {
-        let info = self.tables.fun(id);
+        let info = self.tables.fn_info(id);
         if info.intrinsic {
             return false;
         }

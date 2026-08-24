@@ -457,7 +457,7 @@ fn resolved_by_role(
     use crate::compiler::modules::Role;
     use crate::compiler::semantics::typed;
     for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fun(*fid);
+        let info = analysis.checked.tables.fn_info(*fid);
         let Some(from) = analysis.loaded.modules.get(info.module.index()) else { continue };
         if from.pkg != Some(own) {
             continue;
@@ -470,7 +470,7 @@ fn resolved_by_role(
                 _ => None,
             };
             let Some(f) = called else { return };
-            let callee = analysis.checked.tables.fun(f);
+            let callee = analysis.checked.tables.fn_info(f);
             let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
             let Some(pkg) = m.pkg else { return };
             if pkg == own {

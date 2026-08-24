@@ -815,7 +815,7 @@ fn check_tests_assert(
     let mine = modules_of(analysis, own);
 
     let asserts = |f: FnId| -> bool {
-        let info = analysis.checked.tables.fun(f);
+        let info = analysis.checked.tables.fn_info(f);
         analysis
             .loaded
             .modules
@@ -875,7 +875,7 @@ fn calls_into(
     let mine = modules_of(analysis, own);
     let mut out = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        if !mine.contains(&analysis.checked.tables.fun(*fid).module) {
+        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -884,7 +884,7 @@ fn calls_into(
                 _ => return,
             };
             let Some(called) = called else { return };
-            let info = analysis.checked.tables.fun(called);
+            let info = analysis.checked.tables.fn_info(called);
             let Some(m) = analysis.loaded.modules.get(info.module.index()) else { return };
             if m.path == module && names.contains(&info.name.as_str()) {
                 out.push((e.span, info.name.clone()));
@@ -905,7 +905,7 @@ pub(crate) fn reached_by_resolution(
     let mine = modules_of(analysis, own);
     let mut out = BTreeSet::new();
     for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fun(*fid);
+        let info = analysis.checked.tables.fn_info(*fid);
         if !mine.contains(&info.module) {
             continue;
         }
@@ -915,7 +915,7 @@ pub(crate) fn reached_by_resolution(
                 _ => None,
             };
             let Some(f) = called else { return };
-            let callee = analysis.checked.tables.fun(f);
+            let callee = analysis.checked.tables.fn_info(f);
             let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
             let Some(pkg) = m.pkg else { return };
             if pkg == own {

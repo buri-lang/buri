@@ -39,7 +39,7 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
     // innermost because a smaller span is always the more specific answer.
     let mut best: Option<(u32, String, crate::diagnostics::Span)> = None;
     for (fid, body) in &a.analysis.checked.bodies {
-        if a.analysis.checked.tables.fun(*fid).span.file != file {
+        if a.analysis.checked.tables.fn_info(*fid).span.file != file {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -104,7 +104,7 @@ pub fn definition(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Optio
     // inside `g`.
     let mut best: Option<(u32, FnId)> = None;
     for (fid, body) in &a.analysis.checked.bodies {
-        if a.analysis.checked.tables.fun(*fid).span.file != file {
+        if a.analysis.checked.tables.fn_info(*fid).span.file != file {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -124,7 +124,7 @@ pub fn definition(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Optio
         });
     }
     let (_, target) = best?;
-    let span = a.analysis.checked.tables.fun(target).span;
+    let span = a.analysis.checked.tables.fn_info(target).span;
     location(a, span)
 }
 

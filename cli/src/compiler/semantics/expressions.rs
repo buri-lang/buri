@@ -518,7 +518,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let names: Vec<String> = fs
                     .iter()
                     .map(|f| {
-                        let i = self.c.tables.fun(*f);
+                        let i = self.c.tables.fn_info(*f);
                         match &i.self_ty {
                             Some(c) => format!("{}.{}", self.c.tables.tycon(*c).name, i.name),
                             None => i.name.clone(),
@@ -576,9 +576,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         // Only the generics are copied, and a function usually has none.
         // `instantiate` is the one step that needs `&mut self`; everything
         // after it reads the declaration in place.
-        let generics = self.c.tables.fun(f).generics.clone();
+        let generics = self.c.tables.fn_info(f).generics.clone();
         let targs = self.instantiate(&generics, explicit, span);
-        let info = self.c.tables.fun(f);
+        let info = self.c.tables.fn_info(f);
         let params: Vec<Ty> =
             info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
         let ret = substitute(&info.ret, &targs, None);
@@ -845,11 +845,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         // name, every parameter's name, and every parameter's type tree, once
         // per call site in the program. Only the generics are taken, because
         // `instantiate` wants `&mut self`, and a function usually has none.
-        let generics = self.c.tables.fun(f).generics.clone();
+        let generics = self.c.tables.fn_info(f).generics.clone();
         let targs = self.instantiate(&generics, explicit, span);
         let self_ty = receiver.as_ref().map(|r| self.resolve(&r.ty));
         let (params, ret) = {
-            let info = self.c.tables.fun(f);
+            let info = self.c.tables.fn_info(f);
             let params: Vec<Ty> = info
                 .params
                 .iter()
@@ -874,7 +874,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
         if args.len() != expected_args {
             let (name, takes_ctx) = {
-                let info = self.c.tables.fun(f);
+                let info = self.c.tables.fn_info(f);
                 (info.name.clone(), info.params.iter().any(|p| p.role == ParamRole::Ctx))
             };
             let have = args.len();
@@ -1127,7 +1127,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // Four scalars, on the path every method call takes. Copying the whole
         // `FnInfo` to read them copied the parameter list and its types too.
         let (module, exported, from_impl) = {
-            let info = self.c.tables.fun(f);
+            let info = self.c.tables.fn_info(f);
             (info.module, info.exported, info.impl_of.is_some())
         };
         if module.0 == u32::MAX || module == self.module {
@@ -1139,7 +1139,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             return;
         }
         if !exported {
-            let name = self.c.tables.fun(f).name.clone();
+            let name = self.c.tables.fn_info(f).name.clone();
             self.err(span, format!("`{name}` is private to its module"))
                 .code("private-to-module")
                 .fix(format!("add `export` to `{name}`'s declaration, if it is meant to be part of the API"));
@@ -1154,8 +1154,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             return;
         }
         if let Some(surface) = self.c.surfaces.get(&there) {
-            if !surface.contains(&self.c.tables.fun(f).name) {
-                let name = self.c.tables.fun(f).name.clone();
+            if !surface.contains(&self.c.tables.fn_info(f).name) {
+                let name = self.c.tables.fn_info(f).name.clone();
                 let label =
                     self.c.ws.map(|w| w.pkg(there).label()).unwrap_or_default();
                 self.err(span, format!("`{name}` is not on {label}'s surface"))
