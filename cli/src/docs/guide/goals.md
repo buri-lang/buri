@@ -22,9 +22,8 @@ reachable, so a future feature can be measured against them rather than
 quietly eroding them.
 
 **This repository is the specification and the toolchain that implements it.**
-Every example in these pages is compiled by `cargo test`, and the ones that
-print something are run and their output compared — so the documentation cannot
-drift from the language. `buri docs` serves all of it from the binary; the
+`buri docs` serves all of it from the binary, and every example in it is
+compiled — `buri docs cli docs` says what that guarantees and how. The
 [README](../../../../README.md) says where each part lives.
 
 ```buri run
@@ -68,3 +67,8 @@ export fn main(): Result<(), Str> {
 ```stdout
 total area: 9.14159
 ```
+
+### The name
+
+Búri, in Norse myth, is the first god — the one the others are descended from.
+The language is named for the ambition, not the achievement.

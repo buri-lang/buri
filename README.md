@@ -19,18 +19,15 @@ a function is allowed to do and not only what it takes.
 
 Three goals order every trade in the design: **safe, fast to run, fast to
 compile** — in that order when they conflict, and secondarily one language that
-targets both a native binary and JavaScript. That is why generics are
-monomorphized rather than dictionary-passed, why tail calls are guaranteed and
-lowered to loops where the host lacks them, why top-level signatures are
-mandatory so each function body checks on its own, and why the grammar is
-unambiguous with no feedback from name resolution into the parser.
+targets both a native binary and JavaScript.
+[`guide/goals.md`](./cli/src/docs/guide/goals.md) has what each one bought and
+what it cost.
 
 The toolchain is one binary with no dependencies and nothing to configure. It
 holds the build system, the test runner, the formatter, the linter, the
 language server, the protobuf schema compiler, and the documentation you are
-reading. Every example in that documentation is compiled by the test suite, and
-the ones that print something are run and their output compared — so the
-documentation cannot drift away from the language.
+reading — every example of which is compiled by the test suite, so it cannot
+drift away from the language.
 
 ## Installing
 
@@ -78,10 +75,7 @@ to ask the toolchain — it works in any directory, with or without a checkout:
 buri docs                    # the index: every page, grouped
 buri docs lang/effects       # one page
 buri docs search "tail call" # find the page that answers a question
-buri docs core/list          # a standard library module, rendered from source
-buri docs core/list.map      # one item of one module
-buri docs error/result-discarded  # one diagnostic, with a program that provokes it
-buri docs manifest           # one line of JSON, for an agent to read first
+buri docs cli docs           # every other form, including the ones for an agent
 ```
 
 The same pages are the files under [`cli/src/docs/`](./cli/src/docs/), which is
@@ -91,7 +85,7 @@ the one place documentation is edited:
 |---|---|
 | [`cli/src/docs/SPEC.md`](./cli/src/docs/SPEC.md) | The language reference, assembled from `cli/src/docs/lang/` |
 | [`cli/src/docs/grammar.ebnf`](./cli/src/docs/grammar.ebnf) | The normative grammar, in extended BNF |
-| [`cli/src/docs/guide/`](./cli/src/docs/guide/) | The guide: goals, the three ideas, numbers, effects, errors, naming |
+| [`cli/src/docs/guide/`](./cli/src/docs/guide/) | The guide: goals, the three ideas, numbers, methods and traits, effects, the standard library |
 | [`cli/src/docs/build/`](./cli/src/docs/build/) | The monorepo build system, `BUILD.buri`, tags, hermeticity, and the CLI reference |
 | [`cli/src/docs/errors/`](./cli/src/docs/errors/) | One page per diagnostic, each with a program that provokes it |
 | [`cli/tests/example/`](./cli/tests/example/) | A worked monorepo, and the largest body of Buri here to read |

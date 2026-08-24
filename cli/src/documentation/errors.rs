@@ -42,7 +42,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("chained-comparison", "Comparison operators do not chain"),
     e!("context-not-allowed", "A context may only be built where authority enters"),
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
-    e!("derive-only-trait", "Some traits are derived, never implemented"),
+    e!("derive-only-trait", "Some traits are derived, never implemented", &["guide/standard-library"]),
     e!("derive-without-traits", "A `derive` clause names at least one trait"),
     e!("duplicate-bound", "A bound is named once"),
     e!("duplicate-declaration", "A name is declared once"),
@@ -52,7 +52,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("effect-outside-platform", "Only a platform module declares an effect"),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
     e!("expression-statement", "An expression statement is legal only in a test"),
-    e!("host-not-granted", "A platform grants the effects its host exports"),
+    e!("host-not-granted", "A platform grants the effects its host exports", &["build/build-files"]),
     e!("if-without-else", "`if` is an expression, so it needs an `else`"),
     e!("impl-fn-without-self", "Everything in an `impl` takes `self`"),
     e!("impl-method-export", "An `impl` method is not separately exported"),
@@ -75,18 +75,18 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("not-a-trait", "A bound names a trait or an effect"),
     e!("not-an-effect", "A context binds effects"),
     e!("or-pattern-bindings", "Or-pattern alternatives bind the same names"),
-    e!("private-to-module", "A private declaration is private to its module"),
+    e!("private-to-module", "A private declaration is private to its module", &["build/libraries"]),
     e!("question-mark-mismatch", "`?` propagates into a matching return type"),
     e!("refutable-pattern", "A `let` pattern must match every value"),
     e!("relative-import", "Every module path is absolute"),
     e!("reserved-word", "Reserved words are not identifiers"),
     e!("rest-pattern-not-last", "A rest pattern comes last"),
-    e!("result-discarded", "A `Result` may not be discarded"),
+    e!("result-discarded", "A `Result` may not be discarded", &["build/cli"]),
     e!("self-not-first", "`self` is the first parameter or nothing"),
     e!("self-type-outside-impl", "`Self` names the implementing type"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
-    e!("style-not-static", "A conditional style is known at compile time"),
-    e!("test-only-import", "A `testing` module is reachable only from a test"),
+    e!("style-not-static", "A conditional style is known at compile time", &["guide/user-interfaces"]),
+    e!("test-only-import", "A `testing` module is reachable only from a test", &["build/libraries"]),
     e!("test-outside-test-source", "A `test` lives in a test source"),
     e!("turbofish", "Type arguments are written without `::`"),
     e!("type-args-on-a-value", "Type arguments qualify a function, not a value"),
@@ -122,6 +122,22 @@ mod tests {
                 "`{}`'s page has no reproduction tagged with its own code",
                 e.code
             );
+        }
+    }
+
+    /// A page that points somewhere is a page that had prose deleted in favour
+    /// of the pointer, so a broken one loses the explanation rather than merely
+    /// a link.
+    #[test]
+    fn every_see_also_names_a_topic() {
+        for e in ERRORS {
+            for other in e.see_also {
+                assert!(
+                    crate::documentation::topics::find(other).is_some(),
+                    "`{}` points at `{other}`, which is not a topic",
+                    e.code
+                );
+            }
         }
     }
 }
