@@ -70,6 +70,9 @@ use cranelift_object::ObjectModule;
 
 use crate::compiler::backend::cranelift::abi::{self, Abi, PTR};
 use crate::compiler::backend::cranelift::runtime;
+use crate::compiler::backend::intrinsic_keys::{
+    bits_op, derive_key, list_call, list_closure_key, prim_trait_op, Step,
+};
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir::{
     self as mir, BinOp, Body, Const, Inst, Ownership, StructuralOp, Target, Term, Type, UnOp,
@@ -80,7 +83,7 @@ use crate::compiler::middle::layout::{
     self, EnumRepr, Repr, Scalar, CLOSURE_ENV, HEADER_RC_OFFSET, IMMORTAL, LIST_LEN, LIST_PTR,
     STR_ASCII_FLAG, STR_BASE, STR_LEN, STR_LEN_MASK, STR_PTR,
 };
-use crate::compiler::semantics::types::{Prim, Tables, Ty, TyDef};
+use crate::compiler::semantics::types::{result_shape, Prim, Tables, Ty, TyDef};
 use crate::hash::Map;
 
 /// The trap a block that cannot be reached ends with. Cranelift has no
@@ -201,7 +204,8 @@ pub struct Unit<'a> {
     /// A map rather than a slot per function in the program: a unit declares
     /// its own functions and the handful it calls across a boundary, so a table
     /// the size of the whole program is an allocation and a memset per unit for
-    /// a row that is almost entirely empty (`design/PERFORMANCE.md` §6.7).
+    /// a row that is almost entirely empty (`design/PERFORMANCE.md` §6.4's
+    /// first finding).
     funcs: Map<usize, FuncId>,
     /// Which of the program's functions this unit defines.
     pub owned: Vec<usize>,
@@ -584,7 +588,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
         self.unit.module.declare_func_in_func(id, self.b.func)
     }
 
-    pub fn helper_ref(&mut self, key: Helper, ty: Option<Ty>) -> Option<FuncRef> {
+    fn helper_ref(&mut self, key: Helper, ty: Option<Ty>) -> Option<FuncRef> {
         let id = self.unit.helper(key, ty)?;
         Some(self.unit.module.declare_func_in_func(id, self.b.func))
     }
@@ -605,7 +609,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     }
 
     /// The abort, and the trap behind it (§3.7).
-    pub fn abort_with(&mut self, message: &str) {
+    fn abort_with(&mut self, message: &str) {
         let Some(data) = self.unit.bytes(message) else { return };
         let gv = self.unit.module.declare_data_in_func(data, self.b.func);
         let ptr = self.b.ins().symbol_value(PTR, gv);
@@ -671,7 +675,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     /// keeps the inline form for the shapes it is worth it for — a `Str`, a
     /// list, a closure, a small record of them — because a call for those is
     /// more instructions than the walk.
-    pub fn wide_rc(&mut self, ty: &Ty) -> bool {
+    fn wide_rc(&mut self, ty: &Ty) -> bool {
         if let Some(known) = self.unit.wide_rc.get(ty) {
             return *known;
         }
@@ -2402,12 +2406,8 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// did not expect is a wrong answer with no symptom, and the name is the
     /// thing the convention is actually about.
     fn result_shape(&mut self, dty: Type) -> Option<(usize, usize, Ty)> {
-        let Some(Ty::Con(id, args)) = self.source_ty(dty) else { return None };
-        let variants = self.cx.tables().tycon(id).variants();
-        let ok = variants.iter().position(|v| v.name == "Ok")?;
-        let err = variants.iter().position(|v| v.name == "Err")?;
-        let err_ty = args.get(err)?.clone();
-        Some((ok, err, err_ty))
+        let source = self.source_ty(dty)?;
+        result_shape(self.cx.tables(), &source)
     }
 
     /// How many bytes `.Ok`'s payload occupies, from `T` rather than from the
@@ -5595,24 +5595,6 @@ struct Source {
     leaves: Vec<abi::Leaf>,
 }
 
-/// Which loop a closure-taking `list.*` key is.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Step {
-    Map,
-    Filter,
-    Fold,
-    /// `foldResult` and `foldResultCtx`: a fold that stops at the first `.Err`.
-    FoldResult,
-    Sort,
-    Any,
-    All,
-    Count,
-    /// `find`: the first element the predicate keeps, as an `Option<T>`.
-    Find,
-    /// `findIndex`: that element's index, as an `Option<Int>`.
-    FindIndex,
-}
-
 /// `Order.Greater`'s tag.
 ///
 /// `core/order` declares `Less`, `Equal`, `Greater` in that order and
@@ -5623,55 +5605,12 @@ enum Step {
 /// agree on rather than a new convention.
 const GREATER: i64 = 2;
 
-/// One such key, with the argument positions `core/list` declares.
-struct ListCall {
-    kind: Step,
-    /// The context, where the *step* takes one. `map` and `mapCtx` both have a
-    /// context argument — `Alloc`, for the block they build — and only the
-    /// second passes it on, because a lambda may not capture one (SPEC 10.6).
-    ctx: Option<usize>,
-    func: usize,
-    /// `fold`'s initial accumulator.
-    init: Option<usize>,
-}
-
-/// The table, in `list.buri`'s order. Receiver first, context second,
-/// everything else after (SPEC 10.7), which is what fixes every index here.
-fn list_call(key: &str) -> Option<ListCall> {
-    let call = |kind, ctx, func, init| Some(ListCall { kind, ctx, func, init });
-    match key {
-        "list.fold" => call(Step::Fold, None, 1, Some(2)),
-        "list.foldCtx" => call(Step::Fold, Some(1), 2, Some(3)),
-        "list.foldResult" => call(Step::FoldResult, None, 1, Some(2)),
-        "list.foldResultCtx" => call(Step::FoldResult, Some(1), 2, Some(3)),
-        "list.find" => call(Step::Find, None, 1, None),
-        "list.findIndex" => call(Step::FindIndex, None, 1, None),
-        "list.any" => call(Step::Any, None, 1, None),
-        "list.all" => call(Step::All, None, 1, None),
-        "list.count" => call(Step::Count, None, 1, None),
-        "list.map" => call(Step::Map, None, 2, None),
-        "list.mapCtx" => call(Step::Map, Some(1), 2, None),
-        "list.filter" => call(Step::Filter, None, 2, None),
-        "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
-        // `sortBy(self, ctx, order)`: the `C: Alloc` bound is for the block the
-        // sort builds, and the comparator never sees it — so `ctx` is `None`
-        // here for the same reason it is on `map`.
-        "list.sortBy" => call(Step::Sort, None, 2, None),
-        _ => None,
-    }
-}
-
-/// The keys `Lower::list_closure` emits a loop for, asked ahead of emission.
-pub fn list_closure_key(key: &str) -> bool {
-    list_call(key).is_some()
-}
-
 /// The two `list.*` entries that build a block without taking a function.
 ///
 /// They are not in [`list_call`] because they have no step to call: what keeps
 /// them out of `cli/runtime/list.rs` is a second *layout* rather than a
 /// closure, and that file's header says which one each needs.
-pub fn list_build_key(key: &str) -> bool {
+fn list_build_key(key: &str) -> bool {
     matches!(key, "list.zip" | "list.flatten")
 }
 
@@ -6047,22 +5986,6 @@ pub fn implemented(key: &str) -> bool {
         || numeric_op(key)
 }
 
-/// `derivePrimShow.U8` into `("derivePrimShow", Prim::U8)`.
-///
-/// `middle::lower`'s `qualified_key` puts the operand's primitive in the key,
-/// because the IR type has lost it — see that function for why. `None` for
-/// anything that is not one of the two operations implemented here, including
-/// `derivePrimJson`, which answers a `core/json` value this backend cannot yet
-/// construct.
-fn derive_key(key: &str) -> Option<(&str, Prim)> {
-    let (name, ty) = key.split_once('.')?;
-    if !matches!(name, "derivePrimShow" | "derivePrimHash") {
-        return None;
-    }
-    let prim = Prim::all().iter().copied().find(|p| p.name() == ty)?;
-    Some((name, prim))
-}
-
 /// `Add` into `0`, `Sub` into `1`, `Mul` into `2`, `Div` into `3` — the
 /// selector `buri_rt_i128_checked` and `buri_rt_i128_saturating` take.
 fn wide_op(kind: &str) -> Option<u8> {
@@ -6073,53 +5996,6 @@ fn wide_op(kind: &str) -> Option<u8> {
         "Div" => Some(3),
         _ => None,
     }
-}
-
-/// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
-/// `Char::toU32` — `Lower::prim_trait`'s list, asked ahead of emission.
-///
-/// `str.*` is absent because every one of those is a runtime entry and the
-/// table already claims it; `str.show` is the one exception, because it is the
-/// identity rather than a call.
-pub fn prim_trait_op(key: &str) -> bool {
-    matches!(
-        key,
-        "bool.eq"
-            | "bool.compare"
-            | "bool.hash"
-            | "bool.show"
-            | "char.eq"
-            | "char.compare"
-            | "char.hash"
-            | "char.show"
-            | "char.toU32"
-            | "str.show"
-    )
-}
-
-/// The `core/bits` operations `Lower::bits` emits, asked ahead of emission.
-///
-/// The unsigned-width family is spelled out rather than derived from a suffix,
-/// because `core/bits` declares exactly these six (`bits.buri:24-29`) and a
-/// rule that accepted `shlU16` would claim something that does not exist.
-pub fn bits_op(key: &str) -> bool {
-    matches!(
-        key,
-        "bits.shl"
-            | "bits.shr"
-            | "bits.sar"
-            | "bits.popCount"
-            | "bits.leadingZeros"
-            | "bits.trailingZeros"
-            | "bits.rotateLeft"
-            | "bits.rotateRight"
-            | "bits.shlU8"
-            | "bits.shrU8"
-            | "bits.shlU32"
-            | "bits.shrU32"
-            | "bits.shlU64"
-            | "bits.shrU64"
-    )
 }
 
 /// The intrinsics this backend emits as instructions rather than as a call.

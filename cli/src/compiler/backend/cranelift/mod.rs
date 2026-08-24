@@ -125,7 +125,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
 use crate::compiler::backend::cranelift::abi::{Abi, PTR};
 use crate::compiler::backend::{Backend, Emitted, Options, Units};
@@ -230,7 +229,7 @@ impl Backend for Cranelift {
 
         // The partition, once. Everything below reads its own row, so no step
         // in the loop is a function of the whole program's size — which is what
-        // `design/PERFORMANCE.md` §6.7 measured going wrong.
+        // `design/PERFORMANCE.md` §6.4's first finding measured going wrong.
         let members = lowered.funcs_by_unit();
         let cycles = Rc::new(Cycles::new(tables));
         let empty: Vec<usize> = Vec::new();
@@ -335,26 +334,14 @@ fn isa_for(opts: &Options<'_>) -> Result<Arc<dyn TargetIsa>, String> {
     builder.finish(flags).map_err(|e| format!("cannot build an ISA for `{triple}`: {e}"))
 }
 
-/// The triple a [`Target`](crate::compiler::backend::Target) names.
+/// The triple a [`Target`](crate::compiler::backend::Target) names, parsed.
 ///
-/// `arch: None` means the host's architecture, which is the same rule
-/// `backend/llvm/target.rs::triple` uses — named rather than linked, because
-/// that module is behind `backend-llvm` and a doc link into it would break on
-/// the default build — so the two backends visibly agree about what an
-/// unqualified `--output=linux` means.
+/// The text comes from [`crate::compiler::backend::triple_text`], so this
+/// backend and LLVM's cannot disagree about what an unqualified
+/// `--output=linux` means.
 fn triple_of(target: crate::compiler::backend::Target) -> Result<target_lexicon::Triple, String> {
-    let arch = match target.arch {
-        Some(Arch::X86_64) => "x86_64",
-        Some(Arch::Arm64) => "aarch64",
-        None if cfg!(target_arch = "aarch64") => "aarch64",
-        None => "x86_64",
-    };
-    let text = match target.platform {
-        Platform::Macos => format!("{arch}-apple-darwin"),
-        Platform::Linux => format!("{arch}-unknown-linux-gnu"),
-        Platform::Js | Platform::Web => {
-            return Err(String::from("the Cranelift backend does not target JavaScript"))
-        }
+    let Some(text) = crate::compiler::backend::triple_text(target) else {
+        return Err(String::from("the Cranelift backend does not target JavaScript"));
     };
     text.parse().map_err(|e| format!("`{text}` is not a target triple: {e}"))
 }

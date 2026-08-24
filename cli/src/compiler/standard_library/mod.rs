@@ -285,7 +285,7 @@ const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
 /// `core/host` rather than the interesting half of it, and so that a name
 /// added to `host.buri` and forgotten here is caught by
 /// `every_host_export_is_in_the_grant_table`.
-pub const HOST_GRANTS: &[HostGrant] = &[
+const HOST_GRANTS: &[HostGrant] = &[
     HostGrant {
         effect: "Alloc",
         exports: &["HostAlloc", "alloc"],

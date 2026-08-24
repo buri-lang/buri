@@ -112,7 +112,7 @@ pub struct Stats {
     pub coalesced: usize,
     pub cross_regs: usize,
     /// How many `list.*` closure calls were open-coded as a loop rather than
-    /// left to `intrin.rs`'s descriptor helper, and how many of those got a
+    /// left to an ordinary runtime call, and how many of those got a
     /// **direct** call to the step (`lists.rs`).
     pub list_loops: usize,
     pub list_direct: usize,
@@ -1065,18 +1065,6 @@ impl<'a> Jit<'a> {
     /// which is also what a `FuncIdx` from outside the program would read.
     pub fn entry_of(&self, f: usize) -> u64 {
         ent(&self.entries, f, 0)
-    }
-    /// Every function's entry, for `cache::Image::capture`.
-    pub fn dirty_raw(&self) -> &[bool] {
-        &self.dirty
-    }
-
-    pub fn entries_raw(&self) -> &[u64] {
-        &self.entries
-    }
-    /// `f`'s frame size, from the same table [`Jit::frame_sig_of`] reads.
-    pub fn frame_of(&self, f: usize) -> u32 {
-        self.frames.get(f).map_or(0, |fs| fs.size)
     }
     pub fn reasons(&self) -> &[String] {
         &self.reasons

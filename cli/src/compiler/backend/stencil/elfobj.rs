@@ -27,7 +27,9 @@
 //!
 //! Nothing here is general. It reads exactly the shapes `clang -c` emits for the
 //! stencil sources, and returns an error rather than guessing on anything else.
-//! Like `machobj.rs` it is compiled by `cli/build.rs` only.
+//! Like `machobj.rs` it is compiled by `cli/build.rs`, and additionally by
+//! `elf.rs` under `cfg(test)`, so that this crate's ELF *writer* is checked
+//! against the same reader.
 
 #![allow(dead_code)]
 #![allow(

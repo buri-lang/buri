@@ -16,8 +16,8 @@ impl<'a> Gen<'a> {
     pub(crate) fn intrinsic(&mut self, key: &str, args: &[Expr], f: &Func) -> Option<Expr> {
         let parts: Vec<&str> = key.split('.').collect();
         match parts.as_slice() {
-            ["num", ty, name] => return self.numeric(ty, name, args, f),
-            ["num", name] => return self.numeric_free(name, args, f),
+            ["num", ty, name] => return self.numeric(ty, name, args),
+            ["num", name] => return self.numeric_free(name, f),
             _ => {}
         }
         // `json.decode` is asked for a type rather than handed one, so what it
@@ -68,7 +68,7 @@ impl<'a> Gen<'a> {
 
     /// `Bounded`'s methods take no `self`, so `num.minValue<U8>()` reaches
     /// them through the return type.
-    fn numeric_free(&mut self, name: &str, _args: &[Expr], f: &Func) -> Option<Expr> {
+    fn numeric_free(&mut self, name: &str, f: &Func) -> Option<Expr> {
         let p = self.prim_of(&f.ret)?;
         // Every built-in integer type satisfies `Bounded`, `Checked` and
         // `Wrapping`; the float types satisfy `Bounded` only (SPEC 6.2.2).
@@ -83,13 +83,13 @@ impl<'a> Gen<'a> {
         }
         let (lo, hi) = p.int_range()?;
         match name {
-            "minValue" => Some(self.int_const(lo, p)),
-            "maxValue" => Some(self.upper_const(hi, p)),
+            "minValue" => Some(self.int_const(lo)),
+            "maxValue" => Some(self.upper_const(hi)),
             _ => None,
         }
     }
 
-    fn numeric(&mut self, ty: &str, name: &str, args: &[Expr], _f: &Func) -> Option<Expr> {
+    fn numeric(&mut self, ty: &str, name: &str, args: &[Expr]) -> Option<Expr> {
         let from = Prim::all().iter().copied().find(|p| p.name() == ty)?;
         let a = args.first().cloned();
 
@@ -119,13 +119,13 @@ impl<'a> Gen<'a> {
             }
             "signum" => {
                 let v = a?;
-                let zero = self.zero(from);
-                let one = self.one(from);
-                let minus_one = Expr::un(UnOp::Neg, self.one(from));
+                let zero = Expr::Num(0.0);
+                let one = Expr::Num(1.0);
+                let minus_one = Expr::un(UnOp::Neg, Expr::Num(1.0));
                 Some(Expr::cond(
                     Expr::bin(BinOp::Lt, v.clone(), zero.clone()),
                     minus_one,
-                    Expr::cond(Expr::bin(BinOp::Gt, v, zero), one, self.zero(from)),
+                    Expr::cond(Expr::bin(BinOp::Gt, v, zero), one, Expr::Num(0.0)),
                 ))
             }
             "eq" => {
@@ -187,7 +187,7 @@ impl<'a> Gen<'a> {
                     _ => BinOp::Div,
                 };
                 let raw = if op == BinOp::Div {
-                    let zero = self.zero(from);
+                    let zero = Expr::Num(0.0);
                     // A checked division by zero is `.None`, not an abort.
                     let div = if from.is_bigint() {
                         Expr::bin(BinOp::Div, x.clone(), y.clone())
@@ -203,7 +203,7 @@ impl<'a> Gen<'a> {
                         Expr::Undefined,
                         Expr::call(
                             Expr::ident("$checkedIn"),
-                            vec![div, self.int_const(lo, from), self.upper_const(hi, from)],
+                            vec![div, self.int_const(lo), self.upper_const(hi)],
                         ),
                     ));
                 } else {
@@ -211,7 +211,7 @@ impl<'a> Gen<'a> {
                 };
                 Some(Expr::call(
                     Expr::ident("$checkedIn"),
-                    vec![raw, self.int_const(lo, from), self.upper_const(hi, from)],
+                    vec![raw, self.int_const(lo), self.upper_const(hi)],
                 ))
             }
             // `Wrapping` is the surface a program uses when it wants the bit
@@ -249,7 +249,7 @@ impl<'a> Gen<'a> {
                 let widest = if op == BinOp::Mul { bits.saturating_mul(2) } else { bits + 1 };
                 let whole_range_is_exact = from.int_range() == from.exact_int_range();
                 if widest <= 53 || !whole_range_is_exact {
-                    return Some(self.wrap_value(Expr::bin(op, x, y), from));
+                    return Some(self.wrap_bits(Expr::bin(op, x, y), from));
                 }
                 Some(Expr::call(
                     Expr::ident("$wrapOp"),
@@ -274,8 +274,8 @@ impl<'a> Gen<'a> {
                     Expr::ident("$sat"),
                     vec![
                         Expr::bin(op, x, y),
-                        self.int_const(lo, from),
-                        self.upper_const(hi, from),
+                        self.int_const(lo),
+                        self.upper_const(hi),
                     ],
                 ))
             }
@@ -288,7 +288,7 @@ impl<'a> Gen<'a> {
                     });
                 }
                 let (lo, _) = from.int_range()?;
-                Some(self.int_const(lo, from))
+                Some(self.int_const(lo))
             }
             "maxValue" => {
                 if from.is_float() {
@@ -299,7 +299,7 @@ impl<'a> Gen<'a> {
                     });
                 }
                 let (_, hi) = from.int_range()?;
-                Some(self.upper_const(hi, from))
+                Some(self.upper_const(hi))
             }
             _ => None,
         }
@@ -312,7 +312,7 @@ impl<'a> Gen<'a> {
             return v;
         }
         let exact = conversion_is_exact(from, to);
-        let mut widened = self.represent(v.clone(), from, to);
+        let mut widened = v.clone();
         if to == Prim::F32 {
             widened = Expr::call(Expr::member(Expr::ident("Math"), "fround"), vec![widened]);
         }
@@ -331,8 +331,8 @@ impl<'a> Gen<'a> {
             Expr::ident("$convChecked"),
             vec![
                 v,
-                self.int_const(lo, to),
-                self.upper_const(hi, to),
+                self.int_const(lo),
+                self.upper_const(hi),
                 Expr::Str(to.name().to_string()),
                 Expr::Bool(from.is_float()),
             ],
@@ -342,7 +342,7 @@ impl<'a> Gen<'a> {
     /// `x.wrapToT()`: modular for integers, rounding for floats.
     fn wrap_conversion(&mut self, v: Expr, from: Prim, to: Prim) -> Expr {
         if to.is_float() {
-            let widened = self.represent(v, from, to);
+            let widened = v;
             // "wraps (integers) or rounds (floats)" — rounding to binary32 is
             // what `Math.fround` is.
             return if to == Prim::F32 {
@@ -373,38 +373,19 @@ impl<'a> Gen<'a> {
         )
     }
 
-    /// Wraps an already-computed value back into its own type's range.
-    fn wrap_value(&mut self, v: Expr, p: Prim) -> Expr {
-        self.wrap_bits(v, p)
-    }
-
-    /// Every numeric type is a `number`, so an exact conversion is a no-op on
-    /// the representation and only the static type changes.
-    fn represent(&self, v: Expr, _from: Prim, _to: Prim) -> Expr {
-        v
-    }
-
-    fn int_const(&self, v: i128, p: Prim) -> Expr {
-        let _ = p;
+    /// Every numeric type is a `number` here, so a constant is its own
+    /// decimal and the type it is at changes nothing about the literal. That
+    /// is the whole of this backend's numeric representation, and the reason
+    /// `VALUE-MODEL.md` §12 exists.
+    fn int_const(&self, v: i128) -> Expr {
         Expr::Num(v as f64)
     }
 
     /// The upper bound, which for `U128` does not fit in an `i128` — casting
     /// it there turns `maxValue` and every `Checked`/`Saturating` bound into
     /// `-1`.
-    fn upper_const(&self, v: u128, p: Prim) -> Expr {
-        let _ = p;
+    fn upper_const(&self, v: u128) -> Expr {
         Expr::Num(v as f64)
-    }
-
-    fn zero(&self, p: Prim) -> Expr {
-        let _ = p;
-        Expr::Num(0.0)
-    }
-
-    fn one(&self, p: Prim) -> Expr {
-        let _ = p;
-        Expr::Num(1.0)
     }
 }
 

@@ -57,7 +57,7 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
     self, Cycles, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
-use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyDef};
+use crate::compiler::semantics::types::{Prim, Tables, Ty, TyDef};
 use crate::hash::Map;
 
 /// What one machine-sized piece of an aggregate is.
@@ -154,7 +154,8 @@ pub struct Reprs<'a> {
     layouts: Layouts<'a>,
     /// Keyed on the id rather than indexed by it: a row per type the *program*
     /// interned, built fresh per unit, is a large allocation and a large memset
-    /// for the twenty entries a unit fills (`design/PERFORMANCE.md` §6.7).
+    /// for the twenty entries a unit fills (`design/PERFORMANCE.md` §6.4's
+    /// first finding).
     memo: Map<usize, Repr>,
     by_ty: Map<Ty, usize>,
     side: Vec<Repr>,
@@ -592,33 +593,11 @@ fn counted_ty(tables: &Tables, layouts: &mut Layouts<'_>, ty: &Ty, depth: u32) -
     }
 }
 
-/// The declared fields of a record-shaped type, substituted, in declaration
-/// order — the list `middle::layout` computed its offsets from.
-pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
-    match ty {
-        Ty::Tuple(elements) => elements.clone(),
-        Ty::Ctx(id) => tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect(),
-        Ty::Con(id, args) => match &tables.tycon(*id).def {
-            TyDef::Struct { fields, .. } => {
-                fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect()
-            }
-            TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
-        },
-        _ => Vec::new(),
-    }
-}
-
-/// One variant's fields, as types, in declaration order.
-pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
-    let Ty::Con(id, args) = ty else { return Vec::new() };
-    match &tables.tycon(*id).def {
-        TyDef::Enum { .. } => match tables.tycon(*id).variants().get(variant) {
-            Some(v) => v.fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect(),
-            None => Vec::new(),
-        },
-        TyDef::Prim(_) | TyDef::Struct { .. } => Vec::new(),
-    }
-}
+/// What is inside a struct, a tuple, a context or one enum variant.
+///
+/// `semantics::types` owns the walk; it is re-exported here because `repr::`
+/// is where this file's callers already look for it.
+pub use crate::compiler::semantics::types::{field_types, variant_types};
 
 // ---------------------------------------------------------------------------
 // Slots as LLVM types

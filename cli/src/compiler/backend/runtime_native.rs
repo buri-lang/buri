@@ -12,16 +12,76 @@
 //! ```
 //!
 //! Embedding rather than shipping a file next to the binary is what makes a
-//! `buri` binary self-contained, which is what `build/toolchain.rs` already
-//! assumes when it pins the toolchain by hashing the running executable: a
+//! `buri` binary self-contained, which is what `build/cache.rs` already
+//! assumes when it folds the toolchain version into every action key: a
 //! runtime that lived beside the binary would be an unpinned input to every
-//! artifact.
+//! artifact that no key names.
 
 /// The prefix on every symbol the runtime exports.
 ///
 /// One prefix and one rule, so that "is this symbol the runtime's" is a string
 /// comparison and not a table. Both native backends import through it.
 pub const SYMBOL_PREFIX: &str = "buri_rt_";
+
+/// The symbol `cli/runtime/lib.rs` §1's rule names for an intrinsic key.
+///
+/// Used to *check* a backend's runtime table rather than to drive emission —
+/// each table spells its own symbol, and this is what says the spelling obeys
+/// the contract. A key with no dot is left alone but for the prefix, which is
+/// what makes `str.concat` come out `buri_rt_str_concat` and be absent from a
+/// table rather than silently linked against.
+///
+/// The rule is "[`SYMBOL_PREFIX`] followed by `snake_case`", plus one thing the
+/// contract states by example rather than in words: `host.HostStdout.println`
+/// is `buri_rt_host_stdout_println` and **not** `buri_rt_host_host_stdout_println`.
+/// The effect type repeats its module in its name, and the symbol does not
+/// repeat it twice — so a snake-cased segment that begins with the previous
+/// segment drops that prefix. `host.HostAlloc.allocate` is
+/// `buri_rt_host_alloc_allocate`, which is the same rule and keeps the
+/// non-redundant repetition it happens to have.
+///
+/// One copy for every backend, because the rule is the runtime's and not any
+/// one code generator's: two manglers that drifted would disagree about which
+/// table is wrong.
+pub fn symbol_for(key: &str) -> String {
+    let mut out = String::from(SYMBOL_PREFIX);
+    let mut previous = String::new();
+    for (i, segment) in key.split('.').enumerate() {
+        let mut piece = String::new();
+        snake_into(segment, &mut piece);
+        if !previous.is_empty() {
+            if let Some(rest) = piece.strip_prefix(&format!("{previous}_")) {
+                piece = rest.to_string();
+            }
+        }
+        if i > 0 {
+            out.push('_');
+        }
+        previous.clone_from(&piece);
+        out.push_str(&piece);
+    }
+    out
+}
+
+/// `HostFs` -> `host_fs`, `readFile` -> `read_file`, `nowMillis` ->
+/// `now_millis`. An underscore before an upper-case letter that follows a
+/// lower-case one or a digit; runs of capitals are not split, because no key
+/// has one.
+fn snake_into(segment: &str, out: &mut String) {
+    let mut previous_lower = false;
+    for c in segment.chars() {
+        if c.is_ascii_uppercase() {
+            if previous_lower {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            previous_lower = false;
+        } else {
+            out.push(c);
+            previous_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        }
+    }
+}
 
 /// `libburi_rt.a` for the host.
 ///

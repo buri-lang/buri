@@ -13,9 +13,10 @@
 //! the compiler happened to be installed is the same class of bug as an
 //! unpinned toolchain. The hazard that would normally follow, two `buri`
 //! binaries with identical sources and different capabilities, is already
-//! closed by `build/toolchain.rs`: it hashes the running executable, and a
-//! binary built with `backend-llvm` is a different executable with a different
-//! hash.
+//! closed by `build/cache.rs`: every action key names the backend and its
+//! `Backend::identity`, which here is the LLVM version this binary links
+//! against, so two `buri` binaries with different LLVM underneath cannot
+//! share a cache entry.
 //!
 //! ```text
 //! llvm/
@@ -149,21 +150,7 @@ impl Backend for Llvm {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let missing = self.missing_intrinsics(program, tables);
-        if !missing.is_empty() {
-            let mut diags = Diagnostics::new();
-            diags.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!("the native runtime has no implementation of {}", missing.join(", ")),
-                )
-                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
-            );
-            return Err(diags);
-        }
-        let root = root_of(program);
-        let lowered = lower::run(program, tables);
-        emit_selected(&lowered, tables, opts, root, Units::All, Some(&oracle(program)))
+        self.emit_units(program, tables, opts, Units::All)
     }
 
     /// The unit loop is already per unit; what `units` adds is the parameter
@@ -314,7 +301,8 @@ fn emit_selected(
     let identity = Llvm.identity();
     // Both of these are functions of the whole program and of nothing the loop
     // varies, so they are taken once. Computing them per unit is what
-    // `design/PERFORMANCE.md` §6.7 measured on the Cranelift side: work
+    // `design/PERFORMANCE.md` §6.4's first finding measured on the Cranelift
+    // side: work
     // proportional to units × program, in a program that grows by adding units.
     let by_unit = program.funcs_by_unit();
     let observed = emit::observe(program, opts.profile);

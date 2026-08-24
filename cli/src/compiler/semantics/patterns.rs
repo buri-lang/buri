@@ -276,7 +276,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => self.c.scope(module).names.get(head).cloned(),
             Some(second) => {
                 match self.c.scope(module).namespaces.get(head).copied() {
-                    Some(ns) => self.c.lookup_export_pub(ns, t.text(*second)),
+                    Some(ns) => self.c.lookup_export(ns, t.text(*second)),
                     None => self.c.scope(module).names.get(head).cloned(),
                 }
             }
@@ -331,20 +331,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn report_no_variant(&mut self, con: TyConId, name: &str, span: Span) {
-        let ty = self.c.tables.tycon(con).name.clone();
-        let variants: Vec<String> =
-            self.c.tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect();
-        let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
-        let near = crate::build::buildfile::nearest(name, &refs).map(|s| s.to_string());
-        let d = self.err(span, format!("`{ty}` has no variant `{name}`"));
+        let (message, note) = no_variant(&self.c.tables, con, name);
+        let d = self.err(span, message);
         d.fix("name a variant the enum declares");
-        match near {
-            Some(x) => d.notes.push(format!("did you mean `.{x}`?")),
-            None if !variants.is_empty() => {
-                d.notes.push(format!("its variants are {}", variants.join(", ")))
-            }
-            None => {}
-        }
+        d.notes.extend(note);
     }
 
     fn variant_pattern(
@@ -499,4 +489,26 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
         }
     }
+}
+
+/// The words for `.Nmae` on an enum with no such variant: the message, and the
+/// note that either suggests the near miss or lists what is there.
+///
+/// One function because a pattern and an expression are the same mistake and
+/// deserve the same sentence. They had two spellings, and the two disagreed
+/// about whether the variant names are quoted. The span stays the caller's,
+/// because it is the only thing that genuinely differs.
+pub(crate) fn no_variant(tables: &Tables, con: TyConId, name: &str) -> (String, Option<String>) {
+    let ty = tables.tycon(con).name.clone();
+    let variants: Vec<String> =
+        tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect();
+    let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
+    let note = match crate::build::buildfile::nearest(name, &refs) {
+        Some(x) => Some(format!("did you mean `.{x}`?")),
+        None if !variants.is_empty() => {
+            Some(format!("its variants are {}", crate::diagnostics::names(&variants)))
+        }
+        None => None,
+    };
+    (format!("`{ty}` has no variant `{name}`"), note)
 }

@@ -1843,7 +1843,7 @@ mod tests {
         );
         assert!(!diags.has_errors(), "monomorphization failed");
         let opts = middle::Options {
-            inline: crate::compiler::middle::inline::Options { inline, rounds: 3 },
+            inline: crate::compiler::middle::inline::Options { inline },
         };
         middle::run(&mut program, &opts);
         middle::native(&mut program);

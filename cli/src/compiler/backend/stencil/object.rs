@@ -1,6 +1,6 @@
 //! A Mach-O (arm64) relocatable object *writer*.
 //!
-//! `macho.rs` reads what `clang -c` produced; this writes what `ld` will
+//! `machobj.rs` reads what `clang -c` produced; this writes what `ld` will
 //! accept. It is the last step of the copy-and-patch backend when the output is
 //! a program rather than a mapping in this process: the same machine code the
 //! JIT would patch in memory is instead handed to the system linker, which

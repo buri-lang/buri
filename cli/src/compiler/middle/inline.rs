@@ -1,8 +1,7 @@
-//! Inlining and folding, over the monomorphized tree. Was `optimize.rs`; the
-//! name says what it does, and the folding is interleaved with the inlining
-//! rather than a pass of its own, because inlining a constructor into a
-//! projection is what makes most folding possible and folding is what exposes
-//! the next round's call sites.
+//! Inlining and folding, over the monomorphized tree. The folding is
+//! interleaved with the inlining rather than a pass of its own, because
+//! inlining a constructor into a projection is what makes most folding
+//! possible and folding is what exposes the next round's call sites.
 //!
 //! This runs between monomorphization and the backend, which is the one point
 //! where the whole program is present, every type is concrete, and nothing has
@@ -27,23 +26,25 @@ use crate::compiler::middle::strongly_connected;
 
 pub struct Options {
     pub inline: bool,
-    /// How many times the pipeline may run. Inlining exposes calls that were
-    /// not visible before, so one round is not enough; the loop also stops
-    /// early once a round changes nothing.
-    pub rounds: usize,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { inline: true, rounds: 3 }
+        Options { inline: true }
     }
 }
 
+/// How many times the pipeline may run.
+///
+/// Inlining exposes calls that were not visible before, so one round is not
+/// enough; the loop also stops early once a round changes nothing, which is
+/// why the ceiling can be a constant rather than something a caller tunes.
+const ROUNDS: usize = 3;
+
+/// What a run of the pipeline changed.
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Stats {
-    pub rounds: usize,
     pub inlined: usize,
-    pub folded: usize,
 }
 
 /// A body at or below this many nodes is inlined wherever it is called: a
@@ -72,8 +73,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
     let limits: Vec<usize> =
         program.funcs.iter().map(|f| body_size(f) * 2 + GROWTH).collect();
 
-    for _ in 0..opts.rounds {
-        stats.rounds += 1;
+    for _ in 0..ROUNDS {
         let facts = Facts::collect(program, &limits);
         let n = inline_round(program, &facts);
         stats.inlined += n;
@@ -81,7 +81,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         // folding below possible, so it runs after rather than before.
         for f in program.funcs.iter_mut() {
             if let Some(body) = f.body_mut() {
-                stats.folded += fold_expr(body);
+                fold_expr(body);
             }
         }
         if n == 0 {
@@ -128,7 +128,7 @@ fn discardable(e: &Expr) -> bool {
 /// are what inlining a one-line accessor or constructor produces.
 fn fold_expr(e: &mut Expr) -> usize {
     let mut n = 0;
-    each_child_mut(e, &mut |child| n += fold_expr(child));
+    typed::children_mut(e, &mut |child| n += fold_expr(child));
 
     let replacement = match &mut e.kind {
         // `S { a: x, b: y }.a` is `x`, as long as `y` had nothing to do.
@@ -212,7 +212,7 @@ struct FuncFacts {
 /// length and index-aligned — five here and a `limits` vector built separately
 /// in `run` — so an index was bounds-checked against one and then used on
 /// another.
-pub struct Facts {
+struct Facts {
     per_func: Vec<FuncFacts>,
 }
 
@@ -361,7 +361,7 @@ fn inline_expr(
 ) {
     // Children first, so a call that only becomes visible after its own
     // arguments are rewritten is still seen this round.
-    each_child_mut(e, &mut |child| {
+    typed::children_mut(e, &mut |child| {
         inline_expr(child, caller, program, facts, limit, locals, size, done);
     });
 
@@ -442,7 +442,7 @@ pub(crate) fn shift_expr(e: &mut Expr, offset: u32) {
         }
         _ => {}
     }
-    each_child_mut(e, &mut |child| shift_expr(child, offset));
+    typed::children_mut(e, &mut |child| shift_expr(child, offset));
 }
 
 fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
@@ -464,93 +464,6 @@ fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
             }
         }
         PatKind::Or(alts) => alts.iter_mut().for_each(|p| shift_pattern(p, offset)),
-        _ => {}
-    }
-}
-
-/// Every sub-expression, mutably. The mirror of `typed::walk`, which cannot be
-/// used here because these passes rewrite what they visit.
-///
-/// Shared with the rest of the middle end — `tail_calls`, `decision` and
-/// `closures` all rewrite what they visit too, and a second copy of this match
-/// is a second chance to forget a form and silently skip the tree under it.
-///
-/// A callback rather than a `Vec<&mut Expr>` for the same reason `typed::walk`
-/// takes one: a vector here is a heap allocation at *every node of every body*,
-/// paid again by each of the four passes that walk the tree and again by each
-/// of the inliner's rounds. The borrow checker admits it because no two
-/// children are live at once.
-pub(crate) fn each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
-    match &mut e.kind {
-        ExprKind::CallValue { callee, args } => {
-            f(callee);
-            args.iter_mut().for_each(f);
-        }
-        ExprKind::CallFn { args, .. }
-        | ExprKind::CallTrait { args, .. }
-        | ExprKind::StructLit { fields: args, .. }
-        | ExprKind::EnumLit { args, .. }
-        | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
-        | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
-        | ExprKind::Intrinsic { args, .. }
-        | ExprKind::Continue { args, .. }
-        | ExprKind::Closure { env: args, .. }
-        | ExprKind::Loop { entries: args } => args.iter_mut().for_each(f),
-        ExprKind::StructUpdate { base, updates, .. } => {
-            f(base);
-            updates.iter_mut().for_each(|(_, e)| f(e));
-        }
-        ExprKind::Field { base, .. }
-        | ExprKind::TupleIndex { base, .. }
-        | ExprKind::CtxGet { base, .. }
-        | ExprKind::Try { base, .. } => f(base),
-        ExprKind::Index { base, index, .. } => {
-            f(base);
-            f(index);
-        }
-        ExprKind::Block { stmts, tail } => {
-            for s in stmts.iter_mut() {
-                match s {
-                    Stmt::Let { value, .. } => f(value),
-                    Stmt::Expr(e) => f(e),
-                }
-            }
-            if let Some(t) = tail {
-                f(t);
-            }
-        }
-        ExprKind::If { cond, then, else_ } => {
-            f(cond);
-            f(then);
-            f(else_);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            f(scrutinee);
-            for a in arms.iter_mut() {
-                if let Some(g) = &mut a.guard {
-                    f(g);
-                }
-                f(&mut a.body);
-            }
-        }
-        ExprKind::Lambda { body, .. } => f(body),
-        ExprKind::And { lhs, rhs }
-        | ExprKind::Or { lhs, rhs }
-        | ExprKind::Coalesce { lhs, rhs, .. } => {
-            f(lhs);
-            f(rhs);
-        }
-        ExprKind::Template { parts } => parts
-            .iter_mut()
-            .filter_map(|p| match p {
-                typed::TemplatePart::Text(_) => None,
-                typed::TemplatePart::Hole(h) => Some(h),
-            })
-            .for_each(f),
-        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| f(e)),
         _ => {}
     }
 }

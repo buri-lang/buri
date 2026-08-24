@@ -12,34 +12,18 @@ use inkwell::targets::{
 };
 use inkwell::OptimizationLevel;
 
-use crate::build::buildfile::{Arch, Platform};
 use crate::compiler::backend::{Profile, Target};
 
 /// The LLVM triple for a build target.
 ///
-/// `Arch` is `None` where the build did not name one, and the host's is the
-/// answer then — the same rule `cli/build.rs` uses to build the runtime
-/// archive, which is what the objects are linked against. Naming a different
-/// architecture than the archive was built for is a link error rather than a
-/// miscompile, which is the right failure.
+/// The text is [`crate::compiler::backend::triple_text`]'s, which is also what
+/// Cranelift parses, so naming a different architecture than the runtime
+/// archive was built for is a link error rather than a miscompile — the right
+/// failure.
 pub fn triple(target: Target) -> Result<String, String> {
-    let arch = match target.arch {
-        Some(Arch::X86_64) => "x86_64",
-        Some(Arch::Arm64) => "aarch64",
-        None if cfg!(target_arch = "aarch64") => "aarch64",
-        None => "x86_64",
-    };
-    match target.platform {
-        // Apple spells the vendor, and `ld64` wants the whole triple. No
-        // deployment version: the object the linker is handed carries what
-        // `cc` puts on the command line, and pinning one here would make a
-        // toolchain refuse to link on a newer SDK.
-        Platform::Macos => Ok(format!("{arch}-apple-darwin")),
-        Platform::Linux => Ok(format!("{arch}-unknown-linux-gnu")),
-        Platform::Js | Platform::Web => Err(String::from(
-            "the LLVM backend does not emit JavaScript; that is the `js` backend",
-        )),
-    }
+    crate::compiler::backend::triple_text(target).ok_or_else(|| {
+        String::from("the LLVM backend does not emit JavaScript; that is the `js` backend")
+    })
 }
 
 /// Initializes exactly the two target families this compiler emits for.

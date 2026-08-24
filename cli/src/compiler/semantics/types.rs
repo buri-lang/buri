@@ -137,11 +137,11 @@ impl Prim {
     /// the image of two different integers, so the last safe one is below it.
     /// Beyond this an integer type's arithmetic is undefined rather than
     /// wrong-but-defined.
-    pub const EXACT_INTEGER_LIMIT: u128 = (1 << 53) - 1;
+    const EXACT_INTEGER_LIMIT: u128 = (1 << 53) - 1;
 
     /// The same limit as the matching lower bound. Written as its own constant
     /// so the negation happens once, in a context the compiler evaluates.
-    pub const EXACT_INTEGER_FLOOR: i128 = -((1_i128 << 53) - 1);
+    const EXACT_INTEGER_FLOOR: i128 = -((1_i128 << 53) - 1);
 
     /// The range `Checked` answers about **on the JavaScript backend**: the
     /// type's own range, narrowed to what a double still represents exactly. A
@@ -1179,10 +1179,6 @@ impl Subst {
         *self.spans.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
     }
 
-    pub fn var_count(&self) -> usize {
-        self.slots.len()
-    }
-
     pub fn get(&self, id: TyVarId) -> Option<&Ty> {
         self.slots.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh").as_ref()
     }
@@ -1391,6 +1387,76 @@ impl Subst {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The types inside a type
+// ---------------------------------------------------------------------------
+
+/// The fields of a struct, tuple or context, as types, in declaration order.
+///
+/// The same walk `middle::layout` does, which is why the offsets in a `Layout`
+/// line up with this list index for index. It exists because a layout answers
+/// *where* a field is and not *what* it is, and every reference-counting and
+/// descriptor walk needs both.
+///
+/// It lives here rather than in a backend because it reads nothing but these
+/// tables: three backends asking the same question of the same table is one
+/// question.
+pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
+    match ty {
+        Ty::Tuple(elements) => elements.clone(),
+        Ty::Ctx(id) => tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect(),
+        Ty::Con(id, args) => match &tables.tycon(*id).def {
+            TyDef::Struct { fields, .. } => {
+                fields.iter().map(|f| substitute(&f.ty, args, None)).collect()
+            }
+            TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// One variant's fields, as types, in declaration order.
+pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
+    let Ty::Con(id, args) = ty else { return Vec::new() };
+    match &tables.tycon(*id).def {
+        TyDef::Enum { .. } => match tables.tycon(*id).variants().get(variant) {
+            Some(v) => v.fields.iter().map(|f| substitute(&f.ty, args, None)).collect(),
+            None => Vec::new(),
+        },
+        TyDef::Prim(_) | TyDef::Struct { .. } => Vec::new(),
+    }
+}
+
+/// Every trait a type constructor is known to satisfy, by name.
+///
+/// Reads the real impl table rather than a list, so it cannot drift from what
+/// was registered — which is what both callers want it for: one reports the
+/// set in a diagnostic, the other asserts `I64`'s is maximal among the
+/// integers.
+pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<String> {
+    tables
+        .impls
+        .keys()
+        .filter(|(_, c)| *c == con)
+        .map(|(t, _)| tables.trait_(*t).name.clone())
+        .collect()
+}
+
+/// Where `Ok` and `Err` sit in a `Result`'s variant list, and what `Err`
+/// carries.
+///
+/// By name rather than by index: `core/result` declares `Ok` first, but a
+/// backend that hard-coded `0` and `1` would be reading a declaration order
+/// out of a table that records it, and the two would have to be kept in step
+/// by hand. `None` for anything that is not a two-armed `Result`.
+pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<(usize, usize, Ty)> {
+    let Ty::Con(id, args) = ty else { return None };
+    let variants = tables.tycon(*id).variants();
+    let ok = variants.iter().position(|v| v.name == "Ok")?;
+    let err = variants.iter().position(|v| v.name == "Err")?;
+    Some((ok, err, args.get(err)?.clone()))
 }
 
 // ---------------------------------------------------------------------------

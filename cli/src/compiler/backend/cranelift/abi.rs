@@ -87,7 +87,7 @@ use crate::compiler::semantics::types::{Tables, Ty};
 pub const PTR: ClifType = types::I64;
 
 /// How many flattened results come back in registers; see this file's header.
-pub const MAX_RET_LEAVES: usize = 2;
+const MAX_RET_LEAVES: usize = 2;
 
 /// Whether these flattened results travel through an out-pointer.
 ///
@@ -211,11 +211,6 @@ impl<'a> Abi<'a> {
             ir::Type::Ptr => PTR,
             ir::Type::Unit | ir::Type::Agg(_) => return None,
         })
-    }
-
-    /// Whether a value of this type is carried as a pointer to its bytes.
-    pub fn is_indirect(&mut self, program: &ir::Program, t: ir::Type) -> bool {
-        matches!(t, ir::Type::Agg(_)) && self.layout(program, t).size > 0
     }
 
     /// How many bytes a value of this type occupies.
@@ -427,39 +422,11 @@ pub fn align_shift(align: u32) -> u8 {
     shift
 }
 
-/// The fields of a struct, tuple or context, as types.
+/// What is inside a struct, a tuple, a context or one enum variant.
 ///
-/// The same walk `layout::build` does, which is why the offsets in
-/// [`Layout::fields`] line up with this list index for index. It exists
-/// because a [`Layout`] answers *where* a field is and not *what* it is, and
-/// the reference-counting walk needs both.
-pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
-    use crate::compiler::semantics::types::{self, TyDef};
-    match ty {
-        Ty::Tuple(elements) => elements.clone(),
-        Ty::Ctx(id) => tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect(),
-        Ty::Con(id, args) => match &tables.tycon(*id).def {
-            TyDef::Struct { fields, .. } => {
-                fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect()
-            }
-            TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
-        },
-        _ => Vec::new(),
-    }
-}
-
-/// One variant's fields, as types, in declaration order.
-pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
-    use crate::compiler::semantics::types::{self, TyDef};
-    let Ty::Con(id, args) = ty else { return Vec::new() };
-    match &tables.tycon(*id).def {
-        TyDef::Enum { .. } => match tables.tycon(*id).variants().get(variant) {
-            Some(v) => v.fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect(),
-            None => Vec::new(),
-        },
-        TyDef::Prim(_) | TyDef::Struct { .. } => Vec::new(),
-    }
-}
+/// `semantics::types` owns the walk; it is re-exported here because `abi::`
+/// is where this file's callers already look for it.
+pub use crate::compiler::semantics::types::{field_types, variant_types};
 
 /// The element type of a `[T]`.
 pub fn element_type(ty: &Ty) -> Option<Ty> {

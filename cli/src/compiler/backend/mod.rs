@@ -7,26 +7,40 @@
 //!
 //! ```text
 //! backend/
-//!   mod.rs        this file
-//!   js/           always compiled in
-//!   cranelift/    behind `backend-cranelift`, on by default   (wave 2a)
-//!   llvm/         behind `backend-llvm`, off by default       (wave 2b)
-//!   stencil/      behind `backend-stencil`, on by default
+//!   mod.rs             this file
+//!   intrinsic_keys.rs  how an intrinsic key is classified, shared
+//!   runtime_native.rs  the `libburi_rt.a` archive, and the symbol rule
+//!   runtime_table.rs   which keys have a `buri_rt_*` symbol, and its shape
+//!   js/                always compiled in
+//!   cranelift/         behind `backend-cranelift`, on by default
+//!   llvm/              behind `backend-llvm`, off by default
+//!   stencil/           behind `backend-stencil`, compiled in by default and
+//!                      never selected
 //! ```
 //!
-//! `stencil` is compiled in and **not selected**: [`select`] still answers
-//! `cranelift` for every native debug build. It is held to this file's traits
-//! so that the seat it is meant to take is a decision about parity rather than
-//! about plumbing, and `design/native/CODEGEN-STENCIL.md` §9 is the list that
-//! decision is waiting on.
+//! [`select`] still answers `cranelift` for every native debug build, so the
+//! stencil backend is compiled into every toolchain and reached by no build.
+//! It is held to this file's traits so that the seat it is meant to take is a
+//! decision about parity rather than about plumbing, and
+//! `design/native/CODEGEN-STENCIL.md` §9 is the list that decision is waiting
+//! on.
 //!
 //! Design: `design/native/ARCHITECTURE.md` §3.
 
 pub mod js;
 
+/// How an intrinsic key is classified, where every backend classifies it the
+/// same way.
+pub mod intrinsic_keys;
+
 /// The native runtime archive both native backends link against, built by
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;
+
+/// Which `buri_rt_*` entry a key names, and what shape the call has, for the
+/// two backends that emit the call the same way.
+#[cfg(any(feature = "backend-cranelift", feature = "backend-stencil"))]
+pub mod runtime_table;
 
 #[cfg(feature = "backend-cranelift")]
 pub mod cranelift;
@@ -95,6 +109,7 @@ pub struct Target {
     pub arch: Option<Arch>,
 }
 
+/// What an emission or a link is for.
 pub struct Options<'a> {
     pub profile: Profile,
     pub target: Target,
@@ -107,10 +122,34 @@ pub struct Options<'a> {
     pub unit_prefix: &'a str,
 }
 
-pub struct LinkOptions<'a> {
-    pub profile: Profile,
-    pub target: Target,
-    pub unit_prefix: &'a str,
+/// A link wants the same three answers an emission does, under the name the
+/// [`Linker`] trait reads better with.
+pub type LinkOptions<'a> = Options<'a>;
+
+/// The target triple a [`Target`] names, as text, or `None` for a platform no
+/// native backend emits for.
+///
+/// `arch: None` means the host's architecture — the same rule `cli/build.rs`
+/// uses to build the runtime archive the objects are linked against. One rule
+/// here rather than one per backend, so that an unqualified `--output=linux`
+/// cannot mean two things; the refusal is each backend's own sentence, which
+/// is why this answers `None` rather than an error.
+///
+/// No macOS deployment version: the object the linker is handed carries what
+/// `cc` puts on the command line, and pinning one here would make a toolchain
+/// refuse to link on a newer SDK.
+pub fn triple_text(target: Target) -> Option<String> {
+    let arch = match target.arch {
+        Some(Arch::X86_64) => "x86_64",
+        Some(Arch::Arm64) => "aarch64",
+        None if cfg!(target_arch = "aarch64") => "aarch64",
+        None => "x86_64",
+    };
+    match target.platform {
+        Platform::Macos => Some(format!("{arch}-apple-darwin")),
+        Platform::Linux => Some(format!("{arch}-unknown-linux-gnu")),
+        Platform::Js | Platform::Web => None,
+    }
 }
 
 /// Which codegen units an emission is for.

@@ -86,14 +86,9 @@ impl Backend for Js {
 
         let release = opts.profile == Profile::Release;
         let out = generate::generate(program, tables, opts.profile);
-        let mopts = javascript::MinifyOptions {
-            // Debug builds stay readable: the names are what make a stack
-            // trace useful, and `--release` is where size matters.
-            mangle: release,
-            fold: true,
-            drop_unreachable: true,
-        };
-        let stmts = javascript::minify(out.stmts, &out.roots, &mopts);
+        // Debug builds stay readable: the names are what make a stack trace
+        // useful, and `--release` is where size matters.
+        let stmts = javascript::minify(out.stmts, &out.roots, release);
         let bytes = javascript::print(&stmts, !release).into_bytes();
         // One unit, always. `Vec<Emitted>` is the shape because the native
         // backends emit one object per codegen unit and relink only the ones

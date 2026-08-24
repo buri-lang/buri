@@ -1,6 +1,6 @@
 //! `core/list`'s closure surface, open-coded as stencils.
 //!
-//! # Why this is not `intrin.rs`
+//! # Why the loop is emitted here and not called
 //!
 //! `cli/runtime/list.rs`'s header says why neither native backend has a
 //! `buri_rt_list_map`: a Buri closure is `{ code, env }` where `code`'s
@@ -8,9 +8,10 @@
 //! calling one would have to synthesize a parameter list that depends on `T`.
 //! A backend already knows how, so the loop lives in the backend.
 //!
-//! `intrin.rs` took the other road — one descriptor-driven helper, and
-//! `call_closure` builds the callee's frame with two `memcpy`s and an indirect
-//! call **per element**. Three reports running named that boundary as the whole
+//! The other road is one descriptor-driven runtime helper per operation,
+//! reaching the step through the backend's generic closure call — the
+//! callee's frame built with two `memcpy`s and an indirect call **per
+//! element** (`cranelift/emit.rs::call_closure`). Three reports running named that boundary as the whole
 //! of the K4 gap: the L6→L12 ladder moves K4 by 6% while moving K1 by 2.2×,
 //! because K4 never reaches the code generator at all. This file is the fix,
 //! and it is the same shape `cranelift/emit.rs::list_closure` has:
@@ -92,7 +93,8 @@ pub enum Step {
 
 /// One `core/list` key, with the argument positions the declaration fixes.
 /// Receiver first, context second, everything else after (SPEC 10.7) — the
-/// same table as `cranelift/emit.rs::list_call`, entry for entry.
+/// same rows as `backend/intrinsic_keys.rs`'s table, for the nine keys of it
+/// this backend open-codes.
 pub struct ListCall {
     pub kind: Step,
     /// The context, where the *step* takes one. `map` and `mapCtx` both have a
@@ -154,8 +156,8 @@ struct StepShape {
 
 /// The ablation switches this file answers to, so that each of its three
 /// axes can be measured on its own the way every other axis in this project
-/// was: `STENCIL_OFF=listloop` puts every `list.*` call back through
-/// `intrin.rs`'s descriptor helper, `estride` gives up the stride-baked
+/// was: `STENCIL_OFF=listloop` puts every `list.*` call back through the
+/// ordinary runtime call, `estride` gives up the stride-baked
 /// load/store twins, `incbr` gives up the fused back edge, and `envskip` writes
 /// the environment even when it weighs nothing.
 fn off(name: &str) -> bool {
@@ -326,7 +328,7 @@ impl<'a> Jit<'a> {
     /// `frame[dst] = *(base + i * stride)`, `bytes` wide.
     pub(crate) fn elem_load(&mut self, dst: u32, base: u32, i: u32, stride: u32, bytes: u32) {
         // An element narrower than a frame word has to arrive **zero-extended**
-        // into a whole one; see `gen.rs`'s `eloadz` family for why.
+        // into a whole one; see `sources.rs`'s `eloadz` family for why.
         if bytes < 8 {
             let zk = if stride == bytes && !off("estride") {
                 format!("eloadz/{bytes}/s")
@@ -489,8 +491,8 @@ impl<'a> Jit<'a> {
     ///
     /// Answers whether the call was open-coded; `false` leaves the caller to
     /// emit an ordinary call to the `Body::Runtime` function — whose body is
-    /// now [`Jit::list_loop_rt`]'s loop, and `intrin.rs`'s descriptor helper
-    /// only where that declines too.
+    /// now [`Jit::list_loop_rt`]'s loop, and an ordinary runtime call only
+    /// where that declines too.
     pub(crate) fn list_loop(
         &mut self,
         prog: &ir::Program,
@@ -565,7 +567,7 @@ impl<'a> Jit<'a> {
     /// function left `unsupported` marks every test that mentions it
     /// unrunnable even where the call site was open-coded and the body is dead.
     /// Second, it is the whole of `foldCtx`, `filterCtx`, `any`, `all` and
-    /// `count`, for which `intrin.rs` never had a helper at all.
+    /// `count`, for which `cli/runtime/list.rs` has no entry at all.
     pub(crate) fn list_loop_rt(
         &mut self,
         prog: &ir::Program,

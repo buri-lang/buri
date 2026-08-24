@@ -99,7 +99,7 @@
 //! JavaScript's own representation leaks into its answer — `Some(None)` is a
 //! sentinel object there and a niche-encoded pointer natively
 //! (VALUE-MODEL.md §6) — the native side follows the *value*, and that
-//! divergence is named in `design/native/OPEN-QUESTIONS.md`'s terms rather than
+//! divergence is named in `design/native/DECISIONS.md`'s terms rather than
 //! silently reproduced.
 //!
 //! # Sharing
@@ -246,11 +246,13 @@ pub enum Declined {
     NoResultType,
 }
 
-/// What the pass did, for the backends and for the tests.
+/// What the pass did.
 ///
-/// Returned rather than stored: `Program` has no field for it and
-/// `monomorphize.rs` is not this wave's file. `middle::native` discards it
-/// today; wave 2 calls [`run`] itself and keeps it.
+/// Returned rather than stored: the pass writes its answers into the program
+/// itself, and this is the record of *which* answers it wrote. `middle::native`
+/// drops it — nothing downstream reads a row — and what keeps every field here
+/// is this file's own tests, which are where "one function per shape" and
+/// "a declined shape is still handled by the walker" are checked at all.
 #[derive(Default, Debug)]
 pub struct Derives {
     /// Every generated function, in generation order.
@@ -265,17 +267,6 @@ pub struct Derives {
     /// Descriptors `json.decode` was handed. `FromJson` is not generated — see
     /// the module docs.
     pub from_json: Vec<usize>,
-    /// `(descriptor, generated Show)` for each intrinsic that carries a
-    /// descriptor for rendering — the test runner's `report`.
-    pub reporter_show: Vec<(usize, FuncIdx)>,
-}
-
-impl Derives {
-    /// The generated function for one operation at one descriptor, if there is
-    /// one.
-    pub fn instance(&self, op: Op, desc: usize) -> Option<FuncIdx> {
-        self.routes.iter().find(|(o, d, _)| *o == op && *d == desc).map(|(_, _, f)| *f)
-    }
 }
 
 /// Adds one derived function per shape per structural operation the program
@@ -1990,7 +1981,6 @@ fn rewrite(
     out.rewritten = rewritten;
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
-    let mut reporter: Vec<(usize, FuncIdx)> = Vec::new();
     for i in 0..program.funcs.len() {
         let Some(f) = program.funcs.get(i) else { continue };
         let (Some(key), Some(d)) = (f.intrinsic_key().map(str::to_owned), f.desc) else { continue };
@@ -1998,12 +1988,10 @@ fn rewrite(
             continue;
         }
         let Some(show) = routed.get(&(Op::Show, d)).copied() else { continue };
-        reporter.push((d, show));
         if let Some(f) = program.funcs.get_mut(i) {
             reporter_body(f, &key, show);
         }
     }
-    out.reporter_show = reporter;
 }
 
 /// Gives the test runner's two reporting intrinsics a body that renders their
@@ -2099,7 +2087,7 @@ fn rewrite_expr(
     n: &mut usize,
 ) {
     // Children first: an argument may itself be a structural call.
-    each_child(e, &mut |c| rewrite_expr(c, routed, index, hash_ty, n));
+    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, index, hash_ty, n));
     let replacement = match &e.kind {
         ExprKind::Intrinsic { name, args, .. } => {
             let op = Op::all().into_iter().find(|o| o.intrinsic() == name);
@@ -2143,88 +2131,6 @@ fn rewrite_expr(
     if let Some(kind) = replacement {
         e.kind = kind;
         *n += 1;
-    }
-}
-
-/// Every direct sub-expression, mutably. `typed::walk` is the shared read-only
-/// walk; there is no mutable one, and a pass that rewrites in place needs the
-/// same coverage.
-fn each_child(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
-    match &mut e.kind {
-        ExprKind::CallValue { callee, args } => {
-            f(callee);
-            args.iter_mut().for_each(f);
-        }
-        ExprKind::CallFn { args, .. }
-        | ExprKind::CallTrait { args, .. }
-        | ExprKind::StructLit { fields: args, .. }
-        | ExprKind::EnumLit { args, .. }
-        | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
-        | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
-        | ExprKind::Closure { env: args, .. }
-        // A tail-recursive body is a `Loop` by the time this runs, so a derive
-        // call site inside one is inside these two and nowhere else. Missing
-        // them left a `structuralEq` in the tree for `lower` to meet as an
-        // `Inst::Structural` — the same traversal gap `rc::kids` had.
-        | ExprKind::Continue { args, .. }
-        | ExprKind::Loop { entries: args }
-        | ExprKind::Intrinsic { args, .. } => args.iter_mut().for_each(f),
-        ExprKind::StructUpdate { base, updates, .. } => {
-            f(base);
-            updates.iter_mut().for_each(|(_, e)| f(e));
-        }
-        ExprKind::Field { base, .. }
-        | ExprKind::TupleIndex { base, .. }
-        | ExprKind::CtxGet { base, .. }
-        | ExprKind::Try { base, .. } => f(base),
-        ExprKind::Index { base, index, .. } => {
-            f(base);
-            f(index);
-        }
-        ExprKind::Block { stmts, tail } => {
-            for s in stmts {
-                match s {
-                    typed::Stmt::Let { value, .. } => f(value),
-                    typed::Stmt::Expr(e) => f(e),
-                }
-            }
-            if let Some(t) = tail {
-                f(t);
-            }
-        }
-        ExprKind::If { cond, then, else_ } => {
-            f(cond);
-            f(then);
-            f(else_);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            f(scrutinee);
-            for a in arms {
-                if let Some(g) = &mut a.guard {
-                    f(g);
-                }
-                f(&mut a.body);
-            }
-        }
-        ExprKind::Lambda { body, .. } => f(body),
-        ExprKind::And { lhs, rhs }
-        | ExprKind::Or { lhs, rhs }
-        | ExprKind::Coalesce { lhs, rhs, .. } => {
-            f(lhs);
-            f(rhs);
-        }
-        ExprKind::Template { parts } => {
-            for p in parts {
-                if let TemplatePart::Hole(h) = p {
-                    f(h);
-                }
-            }
-        }
-        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| f(e)),
-        _ => {}
     }
 }
 

@@ -243,14 +243,14 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     for i in 0..program.descriptors.len() {
         stmts.push(Stmt::Var {
             kind: VarKind::Const,
-            name: desc_name(i),
+            name: descriptor_name(i),
             init: Some(Expr::Array(Vec::new())),
         });
     }
     for (i, d) in program.descriptors.iter().enumerate() {
         let Expr::Array(items) = g.descriptor(d) else { continue };
         stmts.push(Stmt::Expr(Expr::call(
-            Expr::member(Expr::ident(desc_name(i)), "push"),
+            Expr::member(Expr::ident(descriptor_name(i)), "push"),
             items,
         )));
     }
@@ -411,7 +411,8 @@ fn loop_entries(f: &monomorphize::Func) -> Option<usize> {
     }
 }
 
-fn desc_name(i: usize) -> String {
+/// The descriptor a generated call passes to a runtime function.
+pub fn descriptor_name(i: usize) -> String {
     format!("$D{i}")
 }
 
@@ -458,11 +459,6 @@ enum EqKind {
     /// structural description. Both stay with the generic walker, which is
     /// already exactly right for them.
     Generic,
-}
-
-/// The descriptor a generated call passes to a runtime function.
-pub fn descriptor_name(i: usize) -> String {
-    desc_name(i)
 }
 
 fn local_name(i: usize, original: &str) -> String {
@@ -2013,7 +2009,7 @@ impl<'a> Gen<'a> {
                             crate::ice!("{name} is emitted with a value and a descriptor")
                         };
                         let d = match desc {
-                            Expr::Num(n) => Expr::ident(desc_name(n as usize)),
+                            Expr::Num(n) => Expr::ident(descriptor_name(n as usize)),
                             other => other,
                         };
                         let helper =
@@ -2257,7 +2253,7 @@ impl<'a> Gen<'a> {
                 Expr::Str(name.clone()),
                 Expr::Bool(*record),
                 Expr::Array(fields.iter().map(|f| Expr::Str(f.name.clone())).collect()),
-                Expr::Array(fields.iter().map(|f| Expr::ident(desc_name(f.ty))).collect()),
+                Expr::Array(fields.iter().map(|f| Expr::ident(descriptor_name(f.ty))).collect()),
             ]),
             Desc::Enum { name, variants } => Expr::Array(vec![
                 Expr::Num(3.0),
@@ -2275,7 +2271,7 @@ impl<'a> Gen<'a> {
                                 Expr::Array(
                                     v.fields
                                         .iter()
-                                        .map(|f| Expr::ident(desc_name(f.ty)))
+                                        .map(|f| Expr::ident(descriptor_name(f.ty)))
                                         .collect(),
                                 ),
                             ])
@@ -2285,14 +2281,14 @@ impl<'a> Gen<'a> {
                 Expr::Bool(d.payloadless()),
             ]),
             Desc::Array(inner) => {
-                Expr::Array(vec![Expr::Num(4.0), Expr::ident(desc_name(*inner))])
+                Expr::Array(vec![Expr::Num(4.0), Expr::ident(descriptor_name(*inner))])
             }
             Desc::Tuple(items) => Expr::Array(vec![
                 Expr::Num(5.0),
-                Expr::Array(items.iter().map(|t| Expr::ident(desc_name(*t))).collect()),
+                Expr::Array(items.iter().map(|t| Expr::ident(descriptor_name(*t))).collect()),
             ]),
             Desc::Option(inner) => {
-                Expr::Array(vec![Expr::Num(7.0), Expr::ident(desc_name(*inner))])
+                Expr::Array(vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))])
             }
             Desc::Opaque(_) | Desc::Reserved => Expr::Array(vec![Expr::Num(6.0)]),
         }

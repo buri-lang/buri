@@ -66,8 +66,11 @@ use crate::compiler::middle::monomorphize::Program;
 
 /// What the shared half of the middle end is allowed to do.
 ///
-/// One struct rather than a parameter per pass, so that "release inlines
-/// harder" is a value a caller sets rather than a branch each pass repeats.
+/// One field, and every caller in the toolchain passes `default()`: inlining
+/// is off only where a test wants to read a body it can predict. A struct
+/// rather than a `bool` parameter because the passes below take the whole of
+/// it, and because a second thing a caller may switch off belongs beside the
+/// first rather than in a second parameter list.
 #[derive(Default)]
 pub struct Options {
     pub inline: inline::Options,
@@ -104,9 +107,8 @@ pub fn run(program: &mut Program, opts: &Options) {
 /// agreement tests compare both natives against (`fuse.rs`'s header).
 ///
 /// **The [`rc::Plan`] is returned rather than dropped.** `rc` is an analysis —
-/// `rc::run` takes the program by `&mut` and writes nothing to it — and the
-/// plan it produces is exactly what [`lower::run`] recomputes for itself a
-/// moment later. Computing it here and throwing it away was a whole-program
+/// `rc::run` takes the program by shared reference — and the plan it produces
+/// is exactly what [`lower::run`] recomputes for itself a moment later. Computing it here and throwing it away was a whole-program
 /// ownership, purity and placement analysis run twice per native build, 55 ms
 /// of it at a hundred thousand lines. The pipeline in this module's header is
 /// unchanged; `rc` still runs between `closures` and `lower`, and it runs
