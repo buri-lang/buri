@@ -96,7 +96,7 @@ holds what it holds, and what the deliberate absences would cost to close.
 
 - **The same gap, measured from the other end: a command analyses each target
   from scratch.** `lint //...` on the conformance repository calls
-  `driver::analyze` twelve times, and each one re-*checks* the standard library
+  `driver::analyze` fourteen times, and each one re-*checks* the standard library
   modules that target imports. Parsing is shared; checking is not. The fix is
   the same interface-level incrementality — cache a package's checked surface,
   keyed on its sources and its dependencies' surfaces — which is a design
@@ -164,7 +164,7 @@ holds what it holds, and what the deliberate absences would cost to close.
 ## The native backend
 
 The design is `design/native/`; the waves it planned have landed. What is open
-is one thing:
+is two things:
 
 - **Half the default has flipped.** `buri test` runs a suite that names no
   platform natively, in the dev profile, and falls back to JavaScript per suite

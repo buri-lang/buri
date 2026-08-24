@@ -513,7 +513,7 @@ inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
 
 ### 8.1 The policy: exactly one LLVM, tracking latest
 
-Ruled on, and it settles what `OPEN-QUESTIONS.md` asked:
+Ruled on, and it settles the question this section was carrying:
 
 - **Exactly one supported LLVM at any moment.** Not a range, not a minimum, not a
   set of `#[cfg]`-selected encodings. `strict-versioning` below is what would
@@ -537,7 +537,7 @@ Ruled on, and it settles what `OPEN-QUESTIONS.md` asked:
   and a test matrix that has to build both, for a benefit — a contributor keeping
   an older LLVM — that `nix develop` already delivers.
 
-Neither of the two policies `OPEN-QUESTIONS.md` posed survives as written: "the
+Neither of the two policies originally posed survives as written: "the
 flake leads" is right about the *default* and wrong as a rule, because it would
 forbid a bump the backend actually needs, and "the backend leads" prices a
 nixpkgs bump — which moves `cargo`, `bun` and `elan`, and therefore every

@@ -438,8 +438,7 @@ are:
   than fixable — a copying `slice` would have to name `Alloc`, which is a
   language change — and `core/str` now says so where `slice` is declared.
 
-  **Ruled on, and closed.** This was carried in `OPEN-QUESTIONS.md` as a
-  language question because the two alternatives — copying above a ratio, or
+  **Ruled on, and closed.** This was carried as a language question because the two alternatives — copying above a ratio, or
   copying on a proven retention — change `slice`'s and `splitOnce`'s signatures
   or the middle end's obligations. The ruling is that it is **neither**: slicing
   keeps the parent, and *how* a view's storage is managed is an implementation
