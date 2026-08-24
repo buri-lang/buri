@@ -321,6 +321,34 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
     watch::Pass { code, inputs, output: out.take(), quiet }
 }
 
+/// Whether a run's verdicts may be written to the cache.
+///
+/// Only a clean run is worth remembering: a failure is what you are trying to
+/// fix, and re-running it should re-run it. `--filter` and `--accept` are
+/// outside the cache in both directions — `--accept` is the one mode that
+/// writes to the source tree, and a mode that writes must not also be one that
+/// can be served.
+fn may_cache(cases: &[Case], flags: &arguments::Flags) -> bool {
+    cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))
+        && flags.filter.is_none()
+        && !flags.accept
+}
+
+/// The same, and additionally that there is something to remember.
+///
+/// The runners that parse a *process's* output take this one, because an empty
+/// array from a process is a run that produced nothing, and remembering it as
+/// "everything passed" would serve a suite that never ran. `run_native` builds
+/// its record from the units it compiled rather than from a process, and takes
+/// `may_cache` above.
+///
+/// Two functions rather than one with the guard folded in, so that the
+/// divergence is a choice a reader can see rather than a conjunct missing from
+/// one of three copies.
+fn may_cache_produced(cases: &[Case], flags: &arguments::Flags) -> bool {
+    !cases.is_empty() && may_cache(cases, flags)
+}
+
 fn has_tests(s: &Session, target: TargetId) -> bool {
     s.ws.pkg(target.pkg).test_suite(target.kind).is_some_and(|t| !t.sources.is_empty())
 }
@@ -612,16 +640,8 @@ fn run_on(
         }
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    // Only a clean run is worth remembering: a failure is what you are trying
-    // to fix, and re-running it should re-run it. `--accept` is outside the
-    // cache in both directions — it is the one mode that writes to the source
-    // tree, and a mode that writes must not also be able to be served.
     let mut cases = parse_results(&stdout);
-    if !cases.is_empty()
-        && cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))
-        && args.flags.filter.is_none()
-        && !args.flags.accept
-    {
+    if may_cache_produced(&cases, &args.flags) {
         crate::build::cache::Cache::open(&s.root).put(&key, stdout.as_bytes());
     }
     locate(s, &program, &mut cases);
@@ -969,8 +989,7 @@ fn run_native(
     // the format for both backends.
     let record = format!("[{}]", objects.join(","));
     let mut cases = parse_results(&record);
-    let clean = cases.iter().all(|c| matches!(c.verdict, Verdict::Passed));
-    if clean && args.flags.filter.is_none() && !args.flags.accept {
+    if may_cache(&cases, &args.flags) {
         crate::build::cache::Cache::open(&s.root).put(key, record.as_bytes());
     }
     locate(s, &program, &mut cases);
@@ -1466,14 +1485,7 @@ fn run_batch(
     for (i, &target) in members.iter().enumerate() {
         let record = format!("[{}]", records.get(i).map(|r| r.join(",")).unwrap_or_default());
         let mut cases = parse_results(&record);
-        // The same rule the two runners already follow: only a clean run is
-        // worth remembering, and `--filter` and `--accept` are outside the cache
-        // in both directions.
-        if !cases.is_empty()
-            && cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))
-            && args.flags.filter.is_none()
-            && !args.flags.accept
-        {
+        if may_cache_produced(&cases, &args.flags) {
             cache.put(&test_key_for(s, target, platform, args, pre), record.as_bytes());
         }
         locate(s, &program, &mut cases);

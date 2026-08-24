@@ -293,28 +293,36 @@ impl DocSource for Std {
     }
 
     fn resolve(&self, id: &str) -> Option<Page> {
-        if let Some(m) = self.modules.iter().find(|m| m.path == id) {
-            return Some(Page {
-                id: m.path.clone(),
-                title: m.path.clone(),
-                kind: "standard library",
-                body: reference::render(m),
-                see_also: Vec::new(),
-            });
-        }
-        let (m, item) = reference::find_item(&self.modules, id)?;
-        Some(Page {
-            id: format!("{}.{}", m.path, item.name),
-            title: format!("{}.{}", m.path, item.name),
-            kind: "standard library",
-            body: reference::render_item(m, item),
-            see_also: vec![m.path.clone()],
-        })
+        module_page(&self.modules, id, "standard library")
     }
 
     fn entries(&self) -> Vec<Entry> {
         module_entries(&self.modules)
     }
+}
+
+/// A module reference's page: the module itself, or one item in it.
+///
+/// The other half of what `Entry` bought — `Std` and `Workspace` resolve
+/// identically and differ only in the one word a page says it came from.
+fn module_page(modules: &[reference::ApiModule], id: &str, kind: &'static str) -> Option<Page> {
+    if let Some(m) = modules.iter().find(|m| m.path == id) {
+        return Some(Page {
+            id: m.path.clone(),
+            title: m.path.clone(),
+            kind,
+            body: reference::render(m),
+            see_also: Vec::new(),
+        });
+    }
+    let (m, item) = reference::find_item(modules, id)?;
+    Some(Page {
+        id: format!("{}.{}", m.path, item.name),
+        title: format!("{}.{}", m.path, item.name),
+        kind,
+        body: reference::render_item(m, item),
+        see_also: vec![m.path.clone()],
+    })
 }
 
 /// A module reference's listing: the module itself, then each item in it.
@@ -393,23 +401,7 @@ impl DocSource for Workspace {
     }
 
     fn resolve(&self, id: &str) -> Option<Page> {
-        if let Some(m) = self.modules.iter().find(|m| m.path == id) {
-            return Some(Page {
-                id: m.path.clone(),
-                title: m.path.clone(),
-                kind: "this repository",
-                body: reference::render(m),
-                see_also: Vec::new(),
-            });
-        }
-        let (m, item) = reference::find_item(&self.modules, id)?;
-        Some(Page {
-            id: format!("{}.{}", m.path, item.name),
-            title: format!("{}.{}", m.path, item.name),
-            kind: "this repository",
-            body: reference::render_item(m, item),
-            see_also: vec![m.path.clone()],
-        })
+        module_page(&self.modules, id, "this repository")
     }
 
     fn entries(&self) -> Vec<Entry> {
@@ -576,14 +568,19 @@ fn command_index(ctx: &DocCtx) -> String {
 }
 
 fn show(id: &str, ctx: &DocCtx) -> i32 {
-    for source in sources() {
+    // One set of sources, not two: `sources()` loads and analyses the standard
+    // library and the repository, and the "did you mean" below was doing the
+    // whole of that a second time on the one path where the answer is already
+    // known to be a miss.
+    let sources = sources();
+    for source in &sources {
         if let Some(page) = source.resolve(id) {
             arguments::out(&emit(&page, ctx));
             return 0;
         }
     }
     eprintln!("error: there is no documentation topic `{id}`");
-    let all: Vec<Entry> = sources().iter().flat_map(|s| s.entries()).collect();
+    let all: Vec<Entry> = sources.iter().flat_map(|s| s.entries()).collect();
     let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
     if let Some(near) = crate::build::buildfile::nearest(id, &ids) {
         eprintln!("  = did you mean `{near}`?");
@@ -710,9 +707,6 @@ fn index(ctx: &DocCtx) -> String {
     out
 }
 
-/// Substring search across every registered page, ranked by where the match
-/// landed. Deliberately simple and deliberately deterministic: ties break on
-/// the id, never on hash order.
 /// Words that carry no signal in a query like "how do I read a file". Without
 /// this, a natural-language question ranks by its filler.
 const STOPWORDS: &[&str] = &[
@@ -721,6 +715,47 @@ const STOPWORDS: &[&str] = &[
     "where", "which", "why", "with", "you",
 ];
 
+/// One page's score against one query.
+///
+/// `search` and the test that asserts what a query finds both go through this.
+/// The test used to carry its own copy of the weights, which made it a scorer
+/// test that scored nothing: changing 60 to 6 here could not fail it.
+fn score(needle: &str, words: &[&str], id: &str, title: &str, tags: &[&str], body: &str) -> i64 {
+    let id = id.to_lowercase();
+    let title = title.to_lowercase();
+    let body = body.to_lowercase();
+    let mut score = 0i64;
+    // A multi-word query is usually a phrase — "tail call" means the section
+    // about tail calls, not every page that says "call". Score the phrase
+    // first and heavily, or `lang/expressions` wins every query containing a
+    // common word.
+    if words.len() > 1 {
+        if title.contains(needle) {
+            score += 60;
+        }
+        score += (body.matches(needle).count() as i64 * 12).min(60);
+    }
+    for w in words {
+        if id == *w || title == *w {
+            score += 100;
+        }
+        if id.contains(w) {
+            score += 20;
+        }
+        if title.contains(w) {
+            score += 15;
+        }
+        if tags.iter().any(|x| x.to_lowercase() == *w) {
+            score += 12;
+        }
+        score += (body.matches(w).count() as i64).min(8);
+    }
+    score
+}
+
+/// Substring search across every registered page, ranked by where the match
+/// landed. Deliberately simple and deliberately deterministic: ties break on
+/// the id, never on hash order.
 fn search(query: &str, ctx: &DocCtx) -> i32 {
     let needle = query.to_lowercase();
     let all: Vec<&str> = needle.split_whitespace().collect();
@@ -733,38 +768,9 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
     for source in sources() {
         for Entry { id, title, summary } in source.entries() {
             let topic = topics::find(&id);
-            let body = topic.map(|t| t.text).unwrap_or("").to_lowercase();
+            let body = topic.map(|t| t.text).unwrap_or("");
             let tags: Vec<&str> = topic.map(|t| t.tags.to_vec()).unwrap_or_default();
-            let id_l = id.to_lowercase();
-            let title_l = title.to_lowercase();
-
-            let mut score = 0i64;
-            // A multi-word query is usually a phrase — "tail call" means the
-            // section about tail calls, not every page that says "call". Score
-            // the phrase first and heavily, or `lang/expressions` wins every
-            // query containing a common word.
-            if words.len() > 1 {
-                if title_l.contains(&needle) {
-                    score += 60;
-                }
-                score += (body.matches(needle.as_str()).count() as i64 * 12).min(60);
-            }
-            for w in &words {
-                if id_l == *w || title_l == *w {
-                    score += 100;
-                }
-                if id_l.contains(w) {
-                    score += 20;
-                }
-                if title_l.contains(w) {
-                    score += 15;
-                }
-                if tags.iter().any(|t| t.to_lowercase() == *w) {
-                    score += 12;
-                }
-                let n = body.matches(w).count() as i64;
-                score += n.min(8);
-            }
+            let score = score(&needle, &words, &id, &title, &tags, body);
             if score > 0 {
                 hits.push((score, id, title, summary));
             }
@@ -1130,30 +1136,11 @@ mod tests {
             let needle = query.to_lowercase();
             let words: Vec<&str> = needle.split_whitespace().collect();
             let mut best: Option<(i64, String)> = None;
+            // `super::score` rather than a second copy of the weights: this
+            // asserts what the shipped scorer ranks, so a changed weight fails
+            // here rather than passing quietly.
             for t in topics::TOPICS {
-                let body = t.text.to_lowercase();
-                let mut score = 0i64;
-                if words.len() > 1 {
-                    if t.title.to_lowercase().contains(&needle) {
-                        score += 60;
-                    }
-                    score += (body.matches(needle.as_str()).count() as i64 * 12).min(60);
-                }
-                for w in &words {
-                    if t.id.to_lowercase() == *w || t.title.to_lowercase() == *w {
-                        score += 100;
-                    }
-                    if t.id.to_lowercase().contains(w) {
-                        score += 20;
-                    }
-                    if t.title.to_lowercase().contains(w) {
-                        score += 15;
-                    }
-                    if t.tags.iter().any(|x| x.to_lowercase() == *w) {
-                        score += 12;
-                    }
-                    score += (body.matches(w).count() as i64).min(8);
-                }
+                let score = score(&needle, &words, t.id, t.title, t.tags, t.text);
                 if score > 0 && best.as_ref().is_none_or(|(b, _)| score > *b) {
                     best = Some((score, t.id.to_string()));
                 }
