@@ -848,6 +848,13 @@ impl<'a> Lexer<'a> {
         self.errors.last_mut().or_ice("the diagnostic just pushed is still there")
     }
 
+    /// [`Lexer::err`] for a diagnostic whose wording lives on its page. What
+    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
+        self.errors.push(Diagnostic::templated(code, span));
+        self.errors.last_mut().or_ice("the diagnostic just pushed is still there")
+    }
+
     /// Append one token.
     ///
     /// This runs once per token in the file and is the lexer's whole write
@@ -1018,7 +1025,7 @@ impl<'a> Lexer<'a> {
                     }
                     if depth > 0 {
                         let span = self.span(start);
-                        self.err(span, "unterminated block comment", "close it with `*/`; block comments nest, so each `/*` needs one").code("unterminated-comment");
+                        self.templated("unterminated-comment", span);
                     }
                     let blank = newlines >= 2;
                     if self.run_empty() {
@@ -1060,17 +1067,8 @@ impl<'a> Lexer<'a> {
             Some(Word::Keyword(keyword)) => self.push(TokenKind::of_keyword(keyword), 0, start),
             Some(Word::Reserved) => {
                 let span = self.span(start);
-                self.err(
-                    span,
-                    format!("`{s}` is a reserved word and may not be used as an identifier"),
-                    format!("pick another name; `{s}` is not available"),
-                ).code("reserved-word");
-                if let Some(d) = self.errors.last_mut() {
-                    d.notes.push(
-                        "reserved for a future version of Buri; see grammar.ebnf, ReservedWord"
-                            .into(),
-                    );
-                }
+                let word = s.to_string();
+                self.templated("reserved-word", span).bind("word", word);
                 self.push(TokenKind::Ident, 0, start);
             }
             None => self.push(TokenKind::Ident, 0, start),

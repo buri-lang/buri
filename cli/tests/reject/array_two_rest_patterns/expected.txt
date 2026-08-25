@@ -6,6 +6,19 @@ error: a rest pattern must come last [rest-pattern-not-last]
   |
   = `[first, ..rest]` is legal; `[..init, last]` is not
   = fix: move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an array pattern does
+
+    What to do
+    ──────────
+
+    Move .. to the end: [first, ..rest] is legal, [..init, last] is not.
+
+    Why
+    ───
+
+    An array pattern matches a prefix and then binds the remainder. Allowing a
+    rest in the middle would make matching a search rather than a walk, and the
+    cost would be paid on every array pattern in the language.
+
 error: expected a pattern, found `..` [unexpected-token]
  --> cmd/array_two_rest_patterns/main.buri:7:14
   |
@@ -15,3 +28,10 @@ error: expected a pattern, found `..` [unexpected-token]
   = expected: a pattern
   = actual: `..`
   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+
+    What to do
+    ──────────
+
+    Write what the message names. This is the parser's catch-all, so the useful
+    half of it is always the "expected" part.
+

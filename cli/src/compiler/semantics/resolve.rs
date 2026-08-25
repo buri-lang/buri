@@ -247,6 +247,13 @@ impl<'a> Checker<'a> {
         self.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
     }
 
+    /// [`Self::err`] for a diagnostic whose wording lives on its page. What
+    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    pub fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
+        self.diags.items.push(Diagnostic::templated(code, span));
+        self.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
+    }
+
     /// One module's scope. `new` sizes this table to `loaded.modules`, which is
     /// the same table every `ModuleId` indexes, so the id is always in range.
     pub fn scope(&self, module: ModuleId) -> &ModuleScope {
@@ -366,12 +373,7 @@ impl<'a> Checker<'a> {
             tree::Item::Trait(d) => {
                 // `effect` may be declared only by platform modules.
                 if d.is_effect && self.module(module).role != Role::Platform {
-                    self.err(d.span, "only a platform module may declare an effect").code("effect-outside-platform")
-                        .note(
-                            "the set of things a Buri program can do to the world is fixed by \
-                             its platform rather than open-ended",
-                        )
-                        .fix("declare it as a plain `trait`, or move it into a platform module");
+                    self.templated("effect-outside-platform", d.span);
                 }
                 let generics = self.generic_shells(module, &d.generics);
                 let id = self.tables.add_trait(TraitInfo {
@@ -418,12 +420,7 @@ impl<'a> Checker<'a> {
                 // exporting `main`, a test source, or a test-only module.
                 let role = self.module(module).role;
                 if !role.may_build_context() {
-                    self.err(d.span, "a `context` declaration is not legal here").code("context-not-allowed")
-                        .fix("move it into the module that exports `main`, or into a test-only module")
-                        .note(
-                        "a context may be declared only in the module exporting `main`, in a \
-                         test source, or in a test-only module",
-                    );
+                    self.templated("context-decl-not-allowed", d.span);
                 }
                 if d.exported && !matches!(role, Role::TestOnly | Role::Platform) {
                     self.err(d.span, "a `context` may be exported only from a test-only module")
@@ -566,16 +563,13 @@ impl<'a> Checker<'a> {
         }
         let (effect, because) = (grant.effect, grant.because);
         let elsewhere = grant.platforms_phrase();
-        self.err(span, format!("`{}` does not grant `{name}`", platform.proto()))
-            .code("host-not-granted")
-            .fix(format!(
-                "drop `{effect}` from the context, or build this target for a platform that \
-                 grants it: {elsewhere}"
-            ))
-            .notes
-            .push(format!(
-                "a platform is the set of effects its host exports; {because}"
-            ));
+        let (proto, name) = (platform.proto().to_string(), name.to_string());
+        self.templated("host-not-granted", span)
+            .bind("platform", proto)
+            .bind("name", name)
+            .bind("effect", effect)
+            .bind("because", because)
+            .bind("platforms", elsewhere);
         true
     }
 
@@ -658,10 +652,10 @@ impl<'a> Checker<'a> {
                             .as_ref()
                             .and_then(|d| d.file_name())
                             .is_some_and(|f| f == "lib.buri");
-                        let d = self.err(
-                            spec.name.span,
-                            format!("\"{module_path}\" does not export `{name}`"),
-                        ).code("no-such-export");
+                        let d = self
+                            .templated("no-such-export", spec.name.span)
+                            .bind("path", module_path.clone())
+                            .bind("name", name.clone());
                         if is_surface {
                             d.fix(format!(
                                 "check the spelling, or re-export `{name}` from \
@@ -693,7 +687,9 @@ impl<'a> Checker<'a> {
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                 let path = re.path.clone();
                 let name = t.name(spec.name).to_string();
-                self.err(spec.name.span, format!("\"{path}\" does not export `{name}`")).code("no-such-export")
+                self.templated("no-such-export", spec.name.span)
+                    .bind("path", path.clone())
+                    .bind("name", name.clone())
                     .fix(format!("add `export` to `{name}`'s declaration in \"{path}\", or drop it from this list"))
                     .notes
                     .push("a re-export may name only what its module path exports".into());
@@ -925,9 +921,7 @@ impl<'a> Checker<'a> {
         if let Some(first) = params.first() {
             if first.role == ParamRole::SelfParam {
                 let n = self.name_text(module, d.name).to_string();
-                self.err(first.span, format!("`{n}` takes `self`, so it is a method")).code("method-declared-free")
-                    .fix("move it into an `impl` block for its type, as in `impl Square { fn area(self: Square): Int { ... } }`")
-                    .note("a method is found through its receiver's type, so it is declared with that type");
+                self.templated("method-declared-free", first.span).bind("name", n);
             }
         }
 
@@ -1019,25 +1013,15 @@ impl<'a> Checker<'a> {
                 ParamRole::SelfParam => {
                     self_count = self_count.saturating_add(1);
                     if i != 0 {
-                        self.err(p.span, "`self` may appear only as the first parameter").code("self-not-first")
-                            .fix("move it to the front, or rename it if this parameter is not the receiver");
+                        self.templated("self-not-first", p.span)
+                            .bind("position", "the first parameter");
                     }
                 }
                 ParamRole::Ctx => {
                     ctx_count = ctx_count.saturating_add(1);
                     let expected = if self_count > 0 { 1 } else { 0 };
                     if i != expected {
-                        self.err(
-                            p.span,
-                            "`ctx` must come first, or immediately after `self`",
-                        ).code("ctx-not-first")
-                        .fix("move `ctx` to that position")
-                        .notes
-                        .push(
-                            "the calling convention is receiver first, context second, \
-                             everything else after"
-                                .into(),
-                        );
+                        self.templated("ctx-not-first", p.span);
                     }
                     if ctx_count > 1 {
                         self.err(p.span, "a function has at most one `ctx` parameter")
@@ -1076,11 +1060,8 @@ impl<'a> Checker<'a> {
                                  drop the effect bound if this parameter is ordinary data"
                             ),
                         };
-                        let d = self.err(
-                            p.span,
-                            format!("`{name}` carries an effect, so it must be named `ctx`"),
-                        );
-                        d.code("effect-param-not-ctx");
+                        let d = self.templated("effect-param-not-ctx", p.span);
+                        d.bind("name", name.clone());
                         d.fix(fix);
                         if let Some((con, tr)) = nominal {
                             d.notes.push(format!(
@@ -1103,7 +1084,8 @@ impl<'a> Checker<'a> {
     fn check_main_signature(&mut self, fid: FnId, d: &tree::FnDecl) {
         let info = self.tables.fn_info(fid).clone();
         if !info.params.is_empty() {
-            self.err(d.span, "`main` takes no parameters").code("main-signature")
+            self.templated("main-signature", d.span)
+                .bind("requirement", "takes no parameters")
                 .fix("drop them, and build the context `main` needs in its own body")
                 .notes
                 .push(
@@ -1113,7 +1095,8 @@ impl<'a> Checker<'a> {
             );
         }
         if !info.generics.is_empty() {
-            self.err(d.span, "`main` declares no generic parameters").code("main-signature")
+            self.templated("main-signature", d.span)
+                .bind("requirement", "declares no generic parameters")
                 .fix("drop them: `main` is called by the runtime, so there is nothing to infer them from");
         }
         let unit = Ty::Unit;
@@ -1127,7 +1110,8 @@ impl<'a> Checker<'a> {
         };
         if !ok && !info.ret.is_error() {
             let at = self.tree(info.module).type_span(d.ret);
-            self.err(at, "`main` must return `Result<(), Str>`").code("main-signature")
+            self.templated("main-signature", at)
+                .bind("requirement", "must return `Result<(), Str>`")
                 .fix("change the return type to `Result<(), Str>`")
                 .notes
                 .push("`.Ok(())` exits 0; `.Err(msg)` prints `msg` to stderr and exits 1".into());
@@ -1176,7 +1160,9 @@ impl<'a> Checker<'a> {
                     Some(id) => bounds.push(id),
                     None => {
                         let shown = t.type_head(*b).unwrap_or("?").to_string();
-                        self.err(t.type_span(*b), format!("`{shown}` is not a trait or effect")).code("not-a-trait")
+                        let at = t.type_span(*b);
+                        self.templated("not-a-trait", at)
+                            .bind("name", shown.clone())
                             .fix(format!(
                                 "name a declared trait or effect, or declare `{shown}` as one"
                             ))
@@ -1252,9 +1238,7 @@ impl<'a> Checker<'a> {
                 // `Self` stands for the implementing type and is legal only
                 // inside a trait or an `impl` body.
                 if !self.in_self_scope {
-                    self.err(span, "`Self` is legal only inside a `trait` or `impl`").code("self-type-outside-impl")
-                        .fix("name the type itself here")
-                        .note("`Self` stands for the implementing type, and there is none here");
+                    self.templated("self-type-outside-impl", span);
                     return Ty::Error;
                 }
                 Ty::SelfTy
@@ -1334,8 +1318,7 @@ impl<'a> Checker<'a> {
                         if let Some(near) = self.nearest_type_name(module, name) {
                             note = Some(format!("did you mean `{near}`?"));
                         }
-                        let d = self.err(span, format!("there is no type `{shown}`")).code("unresolved-type");
-                d.fix("declare it, import it, or correct the spelling");
+                        let d = self.templated("unresolved-type", span).bind("name", shown);
                         if let Some(n) = note {
                             d.notes.push(n);
                         }
@@ -1407,7 +1390,8 @@ impl<'a> Checker<'a> {
             }
         }
         for (span, n) in dups {
-            self.err(span, format!("field `{n}` is declared twice")).code("duplicate-declaration")
+            self.templated("duplicate-declaration", span)
+                .bind("declaration", format!("field `{n}`"))
                 .fix("rename one of them, or delete the duplicate");
         }
     }
@@ -1442,11 +1426,13 @@ impl<'a> Checker<'a> {
         for dup in dups {
             match dup {
                 Dup::Variant(span, n) => {
-                    self.err(span, format!("variant `{n}` is declared twice")).code("duplicate-declaration")
+                    self.templated("duplicate-declaration", span)
+                        .bind("declaration", format!("variant `{n}`"))
                         .fix("rename one of them; `match` tells variants apart by name");
                 }
                 Dup::Field(span, fname, vname) => {
-                    self.err(span, format!("field `{fname}` of `{vname}` is declared twice")).code("duplicate-declaration")
+                    self.templated("duplicate-declaration", span)
+                        .bind("declaration", format!("field `{fname}` of `{vname}`"))
                         .fix("rename one of them, or delete the duplicate");
                 }
             }
@@ -1465,13 +1451,7 @@ impl<'a> Checker<'a> {
             .any(|v| !v.fields.iter().any(|f| self.mentions_directly(&f.ty, con)));
         if !productive {
             let name = self.tables.tycon(con).name.clone();
-            self.err(span, format!("`{name}` can never be constructed")).code("uninhabited")
-                .fix(format!(
-                    "give `{name}` a variant that does not mention itself, the way `.None` \
-                     terminates an `Option`"
-                ))
-                .notes
-                .push("every variant recurses, so building one would need one already".into());
+            self.templated("uninhabited", span).bind("name", name);
         }
     }
 
@@ -1583,13 +1563,7 @@ impl<'a> Checker<'a> {
         // A method may not share a name with a field of its `self` type.
         if self.tables.field_index(con, name).is_some() {
             let ty = self.tables.tycon(con).name.clone();
-            self.err(span, format!("`{name}` is already a field of `{ty}`")).code("duplicate-field")
-                .fix("rename the method, or rename the field")
-                .notes
-                .push(
-                    "a `.` resolves to a field before a method, so the two may not share a name"
-                        .into(),
-                );
+            self.templated("duplicate-field", span).bind("name", name).bind("type", ty);
             return;
         }
         if let Some(prev) = self.tables.method(con, name) {
@@ -1633,7 +1607,9 @@ impl<'a> Checker<'a> {
         let Some(trait_id) = self.resolve_trait(module, trait_ref) else {
             let t = self.tree(module);
             let shown = t.type_head(trait_ref).unwrap_or("?").to_string();
-            self.err(t.type_span(trait_ref), format!("`{shown}` is not a trait or effect")).code("not-a-trait")
+            let at = t.type_span(trait_ref);
+            self.templated("not-a-trait", at)
+                .bind("name", shown.clone())
                 .fix(format!(
                     "name a declared trait or effect after `impl`, or drop the `for` clause if \
                      `{shown}` was meant to be the type whose own methods these are"
@@ -1657,7 +1633,9 @@ impl<'a> Checker<'a> {
         };
         if owner != module && !is_prim {
             let name = self.tables.tycon(self_con).name.clone();
-            self.err(self.tree(module).type_span(d.self_ty), format!("`{name}` is not declared in this module")).code("unresolved-name")
+            let at = self.tree(module).type_span(d.self_ty);
+            self.templated("impl-outside-its-module", at)
+                .bind("name", name.clone())
                 .fix(format!(
                     "move the `impl` into `{name}`'s own module, or wrap it in a type of yours \
                      — `struct MyRegion(Region);` — and implement the trait for that"
@@ -1679,16 +1657,9 @@ impl<'a> Checker<'a> {
         let tname = self.tables.trait_(trait_id).name.clone();
         if tname == "ToJson" || tname == "FromJson" {
             let c = self.tables.tycon(self_con).name.clone();
-            self.err(d.span, format!("`{tname}` is derived, not implemented"))
-                .code("derive-only-trait")
-                .fix(format!("write `derive {tname} for {c};` instead"))
-                .notes
-                .push(
-                    "a derived encoder is a fold over the type's shape, and would encode a \
-                     hand-written one structurally rather than calling it — so an `impl` \
-                     would be obeyed at the top of a document and ignored inside it"
-                        .into(),
-                );
+            self.templated("derive-only-trait", d.span)
+                .bind("trait", tname)
+                .bind("type", c);
             return;
         }
 
@@ -1706,12 +1677,11 @@ impl<'a> Checker<'a> {
             let name = self.tables.tycon(self_con).name.clone();
             let this = self.tables.trait_(trait_id).name.clone();
             let (eff, tr) = if is_effect { (this, other) } else { (other, this) };
-            self.err(
-                d.span,
-                format!("`{name}` cannot implement both the effect `{eff}` and the trait `{tr}`"),
-            ).code("effect-and-trait")
-            .fix("split it in two: a type is either part of the world or part of your data")
-            .secondary_spans
+            self.templated("effect-and-trait", d.span)
+                .bind("type", name)
+                .bind("effect", eff)
+                .bind("trait", tr)
+                .secondary_spans
             .push(SecondarySpan { span: other_span, label: "the other one".into() });
         }
 
@@ -1779,9 +1749,10 @@ impl<'a> Checker<'a> {
             let t = self.tables.trait_(trait_id).name.clone();
             let c = self.tables.tycon(self_con).name.clone();
             let missing = crate::diagnostics::names(&missing);
-            self.err(d.span, format!("`{c}`'s `impl {t}` is missing {missing}")).code("incomplete-impl")
-                .fix(format!("add {missing} to the block, with the signature `{t}` declares"))
-                .note("an `impl` supplies every method its trait declares");
+            self.templated("incomplete-impl", d.span)
+                .bind("type", c)
+                .bind("trait", t)
+                .bind("methods", missing);
         }
 
         self.tables.add_impl(ImplInfo {
@@ -1809,9 +1780,8 @@ impl<'a> Checker<'a> {
             Ty::Error => return,
             other => {
                 let shown = show(&self.tables, None, generics, other);
-                self.err(self.tree(module).type_span(d.self_ty), format!("`{shown}` has no methods")).code("no-such-method")
-                    .fix("write a free function instead, and call it as one")
-                    .note("tuples, function types, and `Template` have no defining module");
+                let at = self.tree(module).type_span(d.self_ty);
+                self.templated("type-has-no-methods", at).bind("type", shown);
                 return;
             }
         };
@@ -1829,7 +1799,9 @@ impl<'a> Checker<'a> {
             };
             if owner != module && !is_prim {
                 let name = self.tables.tycon(con).name.clone();
-                self.err(self.tree(module).type_span(d.self_ty), format!("`{name}` is not declared in this module")).code("unresolved-name")
+                let at = self.tree(module).type_span(d.self_ty);
+                self.templated("impl-outside-its-module", at)
+                    .bind("name", name.clone())
                     .fix(format!(
                         "move the `impl` into `{name}`'s own module, or write a free function \
                          here and call it as one"
@@ -1856,12 +1828,7 @@ impl<'a> Checker<'a> {
                 Some(p) if p.role == ParamRole::SelfParam => {}
                 _ => {
                     let n = mname.to_string();
-                    self.err(
-                        method.name.span,
-                        format!("`{n}` is in an `impl` block but takes no `self`"),
-                    ).code("impl-fn-without-self")
-                    .fix("give it a `self` parameter, or move it out of the `impl` block")
-                    .note("an `impl` block declares methods; a function with no receiver is declared at the top level");
+                    self.templated("impl-fn-without-self", method.name.span).bind("name", n);
                     continue;
                 }
             }
@@ -1905,7 +1872,9 @@ impl<'a> Checker<'a> {
         };
         if self.tables.tycon(self_con).module != module {
             let name = self.tables.tycon(self_con).name.clone();
-            self.err(self.tree(module).type_span(d.self_ty), format!("`{name}` is not declared in this module")).code("unresolved-name")
+            let at = self.tree(module).type_span(d.self_ty);
+            self.templated("impl-outside-its-module", at)
+                .bind("name", name.clone())
                 .fix(format!("move the `derive` into `{name}`'s own module"));
             return;
         }
@@ -1965,8 +1934,7 @@ impl<'a> Checker<'a> {
             }
             _ => {
                 let shown = self.tree(module).path_text(path);
-                self.err(span, format!("there is no type `{shown}`")).code("unresolved-type")
-                    .fix("declare it, import it, or correct the spelling");
+                self.templated("unresolved-type", span).bind("name", shown);
                 None
             }
         }
@@ -2011,11 +1979,11 @@ impl<'a> Checker<'a> {
                     let t = self.tables.trait_(tr).name.clone();
                     let c = self.tables.tycon(con).name.clone();
                     let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
-                    self.err(
-                        span,
-                        format!("`{c}` cannot derive `{t}`: `{name}` has type `{shown}`"),
-                    ).code("underivable")
-                    .note(format!("a derived implementation is a fold over the type's components, and `{shown}` does not satisfy `{t}`"))
+                    self.templated("underivable", span)
+                        .bind("type", c)
+                        .bind("trait", t.clone())
+                        .bind("field", name)
+                        .bind("field_type", shown.clone())
                     .fix(if crate::compiler::semantics::types::is_derive_only(&t) {
                         format!(
                             "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
@@ -2095,28 +2063,12 @@ impl<'a> Checker<'a> {
                 if let tree::Item::Test(t) = item {
                     if let Some(first) = titles.insert(t.name.as_str(), t.span) {
                         let name = t.name.clone();
-                        self.err(t.span, format!("this file already has a test called {name:?}"))
-                        .code("duplicate-test-name")
-                        .label("declared again here")
-                        .secondary_span(first, "first declared here")
-                        .fix("rename one of them, so each test in this file has its own title")
-                        .notes
-                        .push(
-                            "a title is how a failing test is named in the report and how \
-                             `--filter` selects one, so two tests sharing a title in one file \
-                             cannot be told apart"
-                                .into(),
-                        );
+                        self.templated("duplicate-test-name", t.span)
+                            .bind("quoted_title", format!("{name:?}"))
+                            .secondary_span(first, "first declared here");
                     }
                     if role != Role::TestSource {
-                        self.err(t.span, "a `test` declaration is legal only in a test source").code("test-outside-test-source")
-                            .fix("move it into a file listed in the target's `test.sources`")
-                            .notes
-                            .push(
-                                "a module is a test source because a rule lists it in \
-                                 `test.sources`; that is the only thing that makes one"
-                                    .into(),
-                            );
+                        self.templated("test-outside-test-source", t.span);
                     }
                 }
                 // A test source may not `export`, and may not be imported.

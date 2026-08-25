@@ -732,11 +732,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         }
     }
     for s in reported {
-        inf.c.diags.push(
-            Diagnostic::error(s, "this arm is unreachable").with_code("unreachable-arm")
-                .with_note("the arms before it already cover everything it matches")
-                .with_fix("delete it, or move it above the arm that subsumes it"),
-        );
+        inf.c.diags.push(Diagnostic::templated("unreachable-arm", s));
     }
 
     // A non-exhaustive match is a compile error that names a missing case.
@@ -746,8 +742,8 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
             .first()
             .map(|w| render(&inf.c.tables, w))
             .unwrap_or_else(|| "_".into());
-        let mut d = Diagnostic::error(span, format!("this `match` does not cover `{shown}`")).with_code("match-not-exhaustive")
-            .with_label("not covered");
+        let mut d =
+            Diagnostic::templated("match-not-exhaustive", span).with_bind("witness", shown.clone());
         if ctx.all_ctors(scrutinee).is_none() {
             d = d
                 .with_note("exhaustiveness is not attempted over integer or string ranges")

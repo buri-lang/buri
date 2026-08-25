@@ -1,3 +1,7 @@
+---
+title: A module exports what it says it exports
+message: "{path}" does not export `{name}`
+---
 # A module exports what it says it exports
 
 ```text

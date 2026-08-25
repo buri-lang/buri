@@ -1,3 +1,9 @@
+---
+title: Reserved words are not identifiers
+message: `{word}` is a reserved word and may not be used as an identifier
+note: reserved for a future version of Buri; see grammar.ebnf, ReservedWord
+fix: pick another name; `{word}` is not available
+---
 # Reserved words are not identifiers
 
 ```text

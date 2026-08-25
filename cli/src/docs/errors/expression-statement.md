@@ -1,3 +1,9 @@
+---
+title: An expression statement is legal only in a test
+message: an expression statement is legal only in a test source
+note: a block is `let`s followed by a result expression
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+---
 # An expression statement is legal only in a test
 
 ```text

@@ -5,3 +5,17 @@ error: `?` on an `Option` needs an `Option` return type, not `Result<I64, Str>` 
   |           ^^^^^^^^^^^
   |
   = fix: return an `Option` from this function, or turn absence into an error with `.okOr(e)?`
+
+    What to do
+    ──────────
+
+    Return a Result from this function, or handle the error here with match or
+    ??.
+
+    Why
+    ───
+
+    ? is an early return of the error, so the function it appears in has to be
+    able to return one. A version that aborted instead would make every ? a
+    possible crash, which is the property this language does not want.
+

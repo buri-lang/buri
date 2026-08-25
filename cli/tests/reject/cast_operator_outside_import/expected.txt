@@ -7,6 +7,13 @@ error: expected `;`, found `as` [unexpected-token]
   = expected: `;`
   = actual: `as`
   = fix: write `;` here
+
+    What to do
+    ──────────
+
+    Write what the message names. This is the parser's catch-all, so the useful
+    half of it is always the "expected" part.
+
 error: there is nothing named `d` in scope [unresolved-name]
  --> cmd/cast_operator_outside_import/main.buri:8:26
   |
@@ -15,3 +22,18 @@ error: there is nothing named `d` in scope [unresolved-name]
   |
   = did you mean `Add`?
   = fix: correct the spelling, or declare it
+
+    What to do
+    ──────────
+
+    Correct the spelling, or declare it. The diagnostic offers the nearest name
+    in scope.
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope: the names available in a module
+    are the ones it declares plus the ones its own imports name. That is what
+    makes the suggestion trustworthy — the set it is drawn from is exactly the
+    set the file put there.
+

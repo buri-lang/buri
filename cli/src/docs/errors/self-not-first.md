@@ -1,3 +1,8 @@
+---
+title: `self` is the first parameter or nothing
+message: `self` may appear only as {position}
+fix: move it to the front, or rename it if this parameter is not the receiver
+---
 # `self` is the first parameter or nothing
 
 ```text

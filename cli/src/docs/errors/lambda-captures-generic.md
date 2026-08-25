@@ -1,3 +1,9 @@
+---
+title: A lambda may not capture a value that could be a context
+message: a lambda may not capture `{name}`, whose type `{type}` could be a context
+note: a generic body is checked once, for every instantiation at once (SPEC 13.5), so a type parameter here stands for a context type too — and `fn wrap<T>(x: T, f: fn(T) => ()): fn() => ()` would otherwise launder one into a closure whose type mentions no effect at all
+fix: take it as a parameter of the lambda instead — the `fn(C, A) => B` shape a `*Ctx` combinator passes — or return the value rather than a closure over it
+---
 # A lambda may not capture a value that could be a context
 
 ```text

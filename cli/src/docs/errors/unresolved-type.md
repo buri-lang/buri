@@ -1,3 +1,8 @@
+---
+title: Every type name resolves to a declaration
+message: there is no type `{name}`
+fix: declare it, import it, or correct the spelling
+---
 # Every type name resolves to a declaration
 
 ```text

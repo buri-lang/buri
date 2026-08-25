@@ -1,3 +1,9 @@
+---
+title: `if` is an expression, so it needs an `else`
+message: `if` requires an `else` branch
+note: `if` is an expression, so both branches must produce a value of the same type
+fix: add `else {{ ... }}`; an `if` is an expression, so it has a value either way
+---
 # `if` is an expression, so it needs an `else`
 
 ```text

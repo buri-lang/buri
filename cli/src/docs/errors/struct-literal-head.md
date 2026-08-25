@@ -1,3 +1,9 @@
+---
+title: A struct literal is headed by a type
+message: the head of a struct literal must be a type
+note: the grammar permits `f(x) {{ a: 1 }}`; the checker does not
+fix: name the type, as in `Point {{ x: 1, y: 2 }}`, or `.Variant {{ ... }}` where the expected type is known
+---
 # A struct literal is headed by a type
 
 ```text

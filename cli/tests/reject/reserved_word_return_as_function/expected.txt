@@ -6,3 +6,16 @@ error: `return` is a reserved word and may not be used as an identifier [reserve
   |
   = reserved for a future version of Buri; see grammar.ebnf, ReservedWord
   = fix: pick another name; `return` is not available
+
+    What to do
+    ──────────
+
+    Pick another name.
+
+    Why
+    ───
+
+    The word is reserved for a future version of the language rather than used
+    by this one, so it is refused now instead of becoming a source-breaking
+    change later. buri docs grammar lists the whole set under ReservedWord.
+

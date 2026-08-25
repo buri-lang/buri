@@ -1,3 +1,8 @@
+---
+title: Or-pattern alternatives bind the same names
+message: or-pattern alternatives must bind the same names
+fix: bind the same names in every alternative, or split this into separate arms
+---
 # Or-pattern alternatives bind the same names
 
 ```text

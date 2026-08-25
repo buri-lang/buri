@@ -4,5 +4,20 @@ error: a context may not be constructed here [context-not-allowed]
 12 |   let inner = Program();
    |               ^^^^^^^^^
    |
-   = only in `main`'s body, a test source, or a test-only module — and never inside a lambda
+   = only in `main`'s body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
    = fix: build it in `main` and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
+
+     What to do
+     ──────────
+
+     Build it in main and pass it down as a ctx parameter, or make this a test
+     source, where a context may be built per test.
+
+     Why
+     ───
+
+     Three places may mint authority: main's body, a test source, and a
+     test-only module. A lambda is not one of them, and cannot be — a closure
+     able to build a context could hand one to a caller that never named an
+     effect, which is exactly what the capture rule exists to prevent.
+

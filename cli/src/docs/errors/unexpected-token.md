@@ -1,3 +1,7 @@
+---
+title: The grammar expected something else here
+message: expected {expected}, found {found}
+---
 # The grammar expected something else here
 
 ```text

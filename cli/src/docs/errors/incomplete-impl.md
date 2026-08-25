@@ -1,3 +1,9 @@
+---
+title: An `impl` supplies every method of its trait
+message: `{type}`'s `impl {trait}` is missing {methods}
+note: an `impl` supplies every method its trait declares
+fix: add {methods} to the block, with the signature `{trait}` declares
+---
 # An `impl` supplies every method of its trait
 
 ```text

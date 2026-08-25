@@ -1,3 +1,8 @@
+---
+title: A context binds effects
+message: `{name}` is not a declared effect
+fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `{name}` is not one
+---
 # A context binds effects
 
 ```text

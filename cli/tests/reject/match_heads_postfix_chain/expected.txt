@@ -7,6 +7,13 @@ error: expected `}`, found `.` [unexpected-token]
    = expected: `}`
    = actual: `.`
    = fix: write `}` here
+
+     What to do
+     ──────────
+
+     Write what the message names. This is the parser's catch-all, so the useful
+     half of it is always the "expected" part.
+
 error: there is nothing named `xOf` in scope [unresolved-name]
   --> cmd/match_heads_postfix_chain/main.buri:16:26
    |
@@ -14,3 +21,18 @@ error: there is nothing named `xOf` in scope [unresolved-name]
    |                          ^^^
    |
    = fix: declare `xOf`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     What to do
+     ──────────
+
+     Correct the spelling, or declare it. The diagnostic offers the nearest name
+     in scope.
+
+     Why
+     ───
+
+     There is no prelude and no ambient scope: the names available in a module
+     are the ones it declares plus the ones its own imports name. That is what
+     makes the suggestion trustworthy — the set it is drawn from is exactly the
+     set the file put there.
+

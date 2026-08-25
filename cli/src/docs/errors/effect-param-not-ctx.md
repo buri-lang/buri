@@ -1,3 +1,7 @@
+---
+title: An effect-carrying parameter is `self` or `ctx`
+message: `{name}` carries an effect, so it must be named `ctx`
+---
 # An effect-carrying parameter is `self` or `ctx`
 
 ```text

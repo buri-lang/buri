@@ -1,3 +1,7 @@
+---
+title: Every name resolves to a declaration
+message: there is nothing named `{name}` in scope
+---
 # Every name resolves to a declaration
 
 ```text

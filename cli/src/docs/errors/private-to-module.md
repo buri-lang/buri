@@ -1,3 +1,7 @@
+---
+title: A private declaration is private to its module
+message: {declaration} is private to its module
+---
 # A private declaration is private to its module
 
 ```text

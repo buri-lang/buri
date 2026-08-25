@@ -25,9 +25,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // Each name a pattern binds is bound once. `(a, a)` is a
                 // mistake, not a shorthand for "equal".
                 if self.or_scope.is_none() && self.bound_already(name) {
-                    self.err(name_span, format!("`{name}` is bound twice in this pattern")).code("duplicate-bound")
-                        .fix("rename one of them, or bind one and compare the other in a guard")
-                        .note("a name a pattern binds is bound once; to require two positions to be equal, match one and test the other in a guard");
+                    let bound = name.to_string();
+                    self.templated("duplicate-pattern-binding", name_span).bind("name", bound);
                 }
                 self.pattern_names.push(name.to_string());
                 let local = match self.or_alternative_local(name) {
@@ -130,8 +129,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                         let dup = t.text(n);
                         let dup_span = t.span_of(n);
                         if self.or_scope.is_none() && self.bound_already(dup) {
-                            self.err(dup_span, format!("`{dup}` is bound twice in this pattern")).code("duplicate-bound")
-                                .fix("rename one of them");
+                            let bound = dup.to_string();
+                            self.templated("duplicate-pattern-binding", dup_span)
+                                .bind("name", bound);
                         }
                         self.pattern_names.push(dup.to_string());
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
@@ -195,16 +195,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                                     crate::diagnostics::names(&extra)
                                 ));
                             }
-                            self.err(
-                                t.pspan(*alt),
-                                "or-pattern alternatives must bind the same names",
-                            ).code("or-pattern-bindings")
-                            .fix(
-                                "bind the same names in every alternative, or split this into \
-                                 separate arms",
-                            )
-                            .notes
-                            .push(note);
+                            let at = t.pspan(*alt);
+                            self.templated("or-pattern-bindings", at).notes.push(note);
                             names = Some(these);
                         }
                         _ => {}
@@ -317,14 +309,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {
                 let shown = path.iter().map(|i| t.text(*i)).collect::<Vec<_>>().join(".");
-                self.err(span, format!("there is no type `{shown}`")).code("unresolved-type")
-                    .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value")
-                    .notes
-                    .push(
-                        "a bare identifier in a pattern is always a binding; a variant is \
-                         written `.Variant` or `Enum.Variant`"
-                            .into(),
-                    );
+                self.templated("unresolved-type-in-pattern", span).bind("name", shown);
                 typed::PatKind::Error
             }
         }
@@ -359,8 +344,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         if owner != self.module && owner.0 != u32::MAX && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
-            self.err(span, format!("variant `{v}` of `{t}` is private to its module"))
-                .code("private-to-module")
+            self.templated("private-to-module", span)
+                .bind("declaration", format!("variant `{v}` of `{t}`"))
                 .fix(format!("add `export` to `{v}`, or match through a function `{t}`'s module provides"));
         }
         let fields = self.payload_patterns(&variant.fields, &args, payload, span, &variant.name);
@@ -383,8 +368,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             for f in &decl {
                 if !f.exported {
                     let fname = f.name.clone();
-                    self.err(span, format!("field `{fname}` of `{name}` is private to its module"))
-                        .code("private-to-module")
+                    self.templated("private-to-module", span)
+                        .bind("declaration", format!("field `{fname}` of `{name}`"))
                         .fix(format!("add `export` to `{fname}`, or read it through a method"));
                     break;
                 }
@@ -455,8 +440,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                         // Field shorthand: `User { id, name }` binds both.
                         None => {
                             if self.or_scope.is_none() && self.bound_already(fname) {
-                                self.err(fspan, format!("`{fname}` is bound twice in this pattern")).code("duplicate-bound")
-                                    .fix("rename one of them");
+                                let bound = fname.to_string();
+                                self.templated("duplicate-pattern-binding", fspan)
+                                    .bind("name", bound);
                             }
                             self.pattern_names.push(fname.to_string());
                             let local = self.new_local(fname, ty.clone(), fspan);
@@ -481,8 +467,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .collect();
                     if !missing.is_empty() {
                         let missing = crate::diagnostics::names(&missing);
-                        self.err(span, format!("this pattern does not mention {missing}")).code("missing-field-pattern")
-                            .fix(format!("match {missing} too, or end the pattern with `..` to ignore the rest"));
+                        self.templated("missing-field-pattern", span).bind("fields", missing);
                     }
                 }
                 out

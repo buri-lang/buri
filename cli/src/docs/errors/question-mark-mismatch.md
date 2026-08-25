@@ -1,3 +1,7 @@
+---
+title: `?` propagates into a matching return type
+message: `?` on {container} needs {container} return type, not `{type}`
+---
 # `?` propagates into a matching return type
 
 ```text

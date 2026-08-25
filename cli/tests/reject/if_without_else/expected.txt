@@ -6,6 +6,19 @@ error: `if` requires an `else` branch [if-without-else]
   |
   = `if` is an expression, so both branches must produce a value of the same type
   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+
+    What to do
+    ──────────
+
+    Add else { ... }.
+
+    Why
+    ───
+
+    There is no statement form of if to fall back on. An if has a value, so it
+    has one on both paths, and a missing else is a value the language would have
+    to invent.
+
 error: there is nothing named `label` in scope [unresolved-name]
  --> cmd/if_without_else/main.buri:7:3
   |
@@ -13,3 +26,18 @@ error: there is nothing named `label` in scope [unresolved-name]
   |   ^^^^^
   |
   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    What to do
+    ──────────
+
+    Correct the spelling, or declare it. The diagnostic offers the nearest name
+    in scope.
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope: the names available in a module
+    are the ones it declares plus the ones its own imports name. That is what
+    makes the suggestion trustworthy — the set it is drawn from is exactly the
+    set the file put there.
+

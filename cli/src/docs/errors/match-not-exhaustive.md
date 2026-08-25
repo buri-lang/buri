@@ -1,3 +1,8 @@
+---
+title: A `match` covers every case
+message: this `match` does not cover `{witness}`
+label: not covered
+---
 # A `match` covers every case
 
 ```text

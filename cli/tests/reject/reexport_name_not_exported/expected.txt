@@ -6,3 +6,16 @@ error: "core/list" does not export `notAThing` [no-such-export]
   |
   = a re-export may name only what its module path exports
   = fix: add `export` to `notAThing`'s declaration in "core/list", or drop it from this list
+
+    What to do
+    ──────────
+
+    Add export to the declaration in the module the path names, or drop the name
+    from this list.
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface can never be wider than the modules it is built from.
+

@@ -5,6 +5,19 @@ error: `self` may appear only as a function's first parameter [self-not-first]
   |                        ^^^^
   |
   = fix: move it to the front, or rename it if this parameter is not the receiver
+
+    What to do
+    ──────────
+
+    Move it to the front, or rename it if this parameter is not the receiver.
+
+    Why
+    ───
+
+    self first and ctx immediately after is the whole calling convention, and it
+    is what lets a reader answer "what does this take, and what may it do?" from
+    the front of a signature.
+
 error: `self` may appear only as the first parameter [self-not-first]
  --> cmd/self_not_first_parameter/main.buri:7:24
   |

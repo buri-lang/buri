@@ -1,3 +1,8 @@
+---
+title: A derive is a fold over the type's components
+message: `{type}` cannot derive `{trait}`: `{field}` has type `{field_type}`
+note: a derived implementation is a fold over the type's components, and `{field_type}` does not satisfy `{trait}`
+---
 # A derive is a fold over the type's components
 
 ```text

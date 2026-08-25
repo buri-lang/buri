@@ -1,3 +1,7 @@
+---
+title: `main` has one shape
+message: `main` {requirement}
+---
 # `main` has one shape
 
 ```text

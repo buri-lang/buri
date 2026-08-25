@@ -1,3 +1,9 @@
+---
+title: Comparison operators do not chain
+message: comparison operators are non-associative
+note: write `a < b && b < c` rather than `a < b < c`
+fix: write `a < b && b < c` rather than `a < b < c`
+---
 # Comparison operators do not chain
 
 ```text

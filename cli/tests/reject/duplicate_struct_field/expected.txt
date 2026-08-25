@@ -5,3 +5,17 @@ error: field `a` is declared twice [duplicate-declaration]
   |                               ^^^^^^^^^^^^^
   |
   = fix: rename one of them, or delete the duplicate
+
+    What to do
+    ──────────
+
+    Rename one of them.
+
+    Why
+    ───
+
+    A name is how the thing is referred to, and two of them in one scope leaves
+    the reference with no answer — match tells variants apart by name, a call
+    tells functions apart by name, and neither has a second thing to fall back
+    on.
+

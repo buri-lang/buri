@@ -569,7 +569,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Err((a, b)) = self.subst.unify(&self.c.tables, actual, expected) {
             let a = show(&self.c.tables, Some(&self.subst), &self.generics, &a);
             let b = show(&self.c.tables, Some(&self.subst), &self.generics, &b);
-            let mut d = Diagnostic::error(span, format!("expected `{b}`, found `{a}`")).with_code("type-mismatch")
+            let mut d = Diagnostic::templated("type-mismatch", span)
+                .with_bind("expected", b.clone())
+                .with_bind("actual", a.clone())
                 .with_mismatch(format!("`{b}`"), format!("`{a}`"));
             if !what.is_empty() {
                 d = d.with_label(format!("{what} is `{b}`"));
@@ -653,20 +655,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !self.c.tables.trait_(tr).is_effect
                 && self.c.tables.is_effect_carrying(&ty, &self.generics)
             {
-                let d = self.err(
-                    span,
-                    format!("`{shown}` carries an effect, so it does not satisfy `{trait_name}`"),
-                );
-                d.code("missing-conformance");
-                d.fix(format!(
-                    "pass a type that holds no capability, or drop the `{trait_name}` bound"
-                ));
-                d.notes.push(
-                    "a type is either part of the world or part of your data (SPEC 10.1), and \
-                     that is what lets a lambda capture a `T: Ord` without laundering a context \
-                     (SPEC 10.6)"
-                        .into(),
-                );
+                self.templated("effect-carrying-bound", span)
+                    .bind("type", shown)
+                    .bind("trait", trait_name);
                 continue;
             }
             if let Some(con) = ty.head() {
@@ -716,8 +707,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             let fix = fix.unwrap_or_else(|| {
                 format!("bound the type parameter with `{trait_name}`, or use a type that has one")
             });
-            let d = self.err(span, format!("`{shown}` does not satisfy `{trait_name}`"));
-            d.code("missing-conformance");
+            let d = self.templated("unsatisfied-bound", span);
+            d.bind("type", shown).bind("trait", trait_name);
             d.fix(fix);
             if let Some(n) = note {
                 d.notes.push(n);
@@ -875,10 +866,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !fits {
                 let name = p.name();
                 let raw = if lit.negative { format!("-{}", lit.raw) } else { lit.raw.clone() };
-                let mut d = Diagnostic::error(
-                    lit.span,
-                    format!("{raw} is not representable in `{name}`"),
-                ).with_code("literal-out-of-range");
+                let mut d = Diagnostic::templated("literal-out-of-range", lit.span)
+                    .with_bind("literal", raw.clone())
+                    .with_bind("type", name);
                 d = d
                     .with_mismatch(format!("a value `{name}` can hold"), raw.clone())
                     .with_fix(if lit.negative && !p.is_signed() {

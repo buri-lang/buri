@@ -7,6 +7,13 @@ error: expected an identifier, found `test` [unexpected-token]
   = expected: an identifier
   = actual: `test`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+    What to do
+    ──────────
+
+    Write what the message names. This is the parser's catch-all, so the useful
+    half of it is always the "expected" part.
+
 error: expected a string literal, found `(` [unexpected-token]
  --> cmd/reserved_word_test_as_function/main.buri:5:8
   |

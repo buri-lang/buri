@@ -5,3 +5,18 @@ error: there is nothing named `notAName` in scope [unresolved-name]
   |                       ^^^^^^^^
   |
   = fix: declare `notAName`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    What to do
+    ──────────
+
+    Correct the spelling, or declare it. The diagnostic offers the nearest name
+    in scope.
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope: the names available in a module
+    are the ones it declares plus the ones its own imports name. That is what
+    makes the suggestion trustworthy — the set it is drawn from is exactly the
+    set the file put there.
+

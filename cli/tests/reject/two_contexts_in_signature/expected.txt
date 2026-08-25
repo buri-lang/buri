@@ -6,3 +6,17 @@ error: `other` carries an effect, so it must be named `ctx` [effect-param-not-ct
   |
   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters
   = fix: rename `other` to `ctx` and make it the first parameter, or drop the effect bound if this parameter is ordinary data
+
+    What to do
+    ──────────
+
+    Rename handle to ctx and put it first, or drop the effect bound if this
+    parameter is ordinary data.
+
+    Why
+    ───
+
+    A function is effectful exactly when it has a ctx parameter or an
+    effect-carrying self. That biconditional is what lets a reader stop after
+    the first two parameters, and a third spelling would cost it.
+

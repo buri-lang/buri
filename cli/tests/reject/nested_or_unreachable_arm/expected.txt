@@ -6,3 +6,16 @@ error: this arm is unreachable [unreachable-arm]
    |
    = the arms before it already cover everything it matches
    = fix: delete it, or move it above the arm that subsumes it
+
+     What to do
+     ──────────
+
+     Delete it, or move it above the arm that subsumes it.
+
+     Why
+     ───
+
+     Arms are tried in order, so an arm the ones above it already cover can
+     never run. Reported rather than ignored because the usual cause is an arm
+     in the wrong place, and a silently dead arm reads as handled.
+

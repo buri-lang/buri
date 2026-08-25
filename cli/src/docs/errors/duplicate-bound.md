@@ -1,3 +1,9 @@
+---
+title: A bound is named once
+message: `{effect}` is bound twice
+note: a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake
+fix: delete one of the two bindings
+---
 # A bound is named once
 
 ```text

@@ -6,3 +6,16 @@ error: `Rec` has no field `f1` [no-such-field]
    |
    = did you mean `f0`?
    = fix: check the spelling, or name a field the type declares
+
+     What to do
+     ──────────
+
+     Correct the spelling, or name a field the type declares.
+
+     Why
+     ───
+
+     There is no structural typing and no inheritance, so a value's fields are
+     exactly the ones its declaration lists — which is also what lets the
+     diagnostic offer the nearest name it does have.
+

@@ -118,10 +118,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         if span.start <= first_item {
             module.docs.push(line);
         } else {
-            p.errors.push(
-                Diagnostic::error(span, "`//!` documents the module, so it must come first").with_code("module-doc-not-first")
-                    .with_fix("move it above the first declaration, or write `///` to document the declaration below it"),
-            );
+            p.errors.push(Diagnostic::templated("module-doc-not-first", span));
         }
     }
     Parsed { module, errors: p.errors }
@@ -600,6 +597,16 @@ impl<'a> Parser<'a> {
         self.errors.last_mut()
     }
 
+    /// [`Parser::error`] for a diagnostic whose wording lives on its page. What
+    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    fn templated(&mut self, code: &str, span: Span) -> Option<&mut Diagnostic> {
+        if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
+            return None;
+        }
+        self.errors.push(Diagnostic::templated(code, span));
+        self.errors.last_mut()
+    }
+
     /// A syntax error is always a mismatch: the grammar admits one thing here
     /// and the source has another.
     /// Returns `None` when the error was suppressed as a duplicate, so that a
@@ -617,9 +624,12 @@ impl<'a> Parser<'a> {
         if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
             return None;
         }
+        let (want, found) = (want.to_string(), found.to_string());
         self.errors.push(
-            Diagnostic::error(span, format!("expected {want}, found {found}")).with_code("unexpected-token")
-                .with_mismatch(want.to_string(), found.to_string())
+            Diagnostic::templated("unexpected-token", span)
+                .with_bind("expected", want.clone())
+                .with_bind("found", found.clone())
+                .with_mismatch(want, found)
                 .with_fix(fix),
         );
         self.errors.last_mut()
@@ -946,18 +956,7 @@ impl<'a> Parser<'a> {
             // derivable from the grammar, and the diagnostic says so.
             if !self.is_keyword(Keyword::As) {
                 let span = self.prev_span();
-                self.error(
-                    span,
-                    "a namespace import must be named",
-                    "write `import * as list`, so every name it brings in is reached through \
-                     one prefix",
-                ).map(|d| {
-                    d.code("unnamed-namespace-import").note(
-                        "write `import * as name`; bare `import *` is not derivable from the \
-                         grammar, so that no identifier enters a module's scope without \
-                         appearing in that module's own source",
-                    )
-                });
+                self.templated("unnamed-namespace-import", span);
                 return Err(Bail);
             }
             self.bump();
@@ -1034,11 +1033,8 @@ impl<'a> Parser<'a> {
                 (ParamKind::Normal, self.expect_ident()?)
             };
             if kind == ParamKind::SelfParam && !first {
-                self.error(
-                    name.span,
-                    "`self` may appear only as a function's first parameter",
-                    "move it to the front, or rename it if this parameter is not the receiver",
-                ).map(|d| d.code("self-not-first"));
+                self.templated("self-not-first", name.span)
+                    .map(|d| d.bind("position", "a function's first parameter"));
             }
             self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
@@ -1294,15 +1290,7 @@ impl<'a> Parser<'a> {
             let exported = if self.is_keyword(Keyword::Export) {
                 if trait_ty.is_some() {
                     let span = self.span();
-                    self.error(
-                    span,
-                    "an `impl` method is not separately exported",
-                    "drop the `export`",
-                ).map(|d| {
-                        d.code("impl-method-export").note(
-                            "conformance is a property of the type, visible wherever the type is",
-                        )
-                    });
+                    self.templated("impl-method-export", span);
                 }
                 self.bump();
                 trait_ty.is_none()
@@ -1357,18 +1345,7 @@ impl<'a> Parser<'a> {
         // clause naming no traits would generate nothing.
         if self.is_keyword(Keyword::For) {
             let span = self.span();
-            self.error(
-                span,
-                "a `derive` clause names no traits",
-                "name the traits between `derive` and `for`, as in `derive Eq, Show for Meters;`",
-            )
-            .map(|d| {
-                d.code("derive-without-traits").note(
-                    "`derive` generates one implementation per trait it names, so a clause \
-                     naming none would generate nothing; delete it, or name what the type \
-                     should derive",
-                )
-            });
+            self.templated("derive-without-traits", span);
             return Err(Bail);
         }
         let base = self.scratch.tys.len();
@@ -1890,15 +1867,7 @@ impl<'a> Parser<'a> {
                 // not a bug waiting to happen (SPEC 6.1).
                 if self.at_cmp_op() {
                     let span = self.span();
-                    self.error(
-                        span,
-                        "comparison operators are non-associative",
-                        "write `a < b && b < c` rather than `a < b < c`",
-                    )
-                    .map(|d| {
-                        d.code("chained-comparison")
-                            .note("write `a < b && b < c` rather than `a < b < c`")
-                    });
+                    self.templated("chained-comparison", span);
                     // Consume the rest of the chain and hand back what was
                     // parsed, so this one diagnostic is not followed by a
                     // cascade of type errors about the recovered shape.
@@ -2031,16 +2000,7 @@ impl<'a> Parser<'a> {
         // to produce in a language where `if` is an expression.
         if !self.is_keyword(Keyword::Else) {
             let span = self.tree.span_of(self.tree.block(then).span);
-            self.error(
-                span,
-                "`if` requires an `else` branch",
-                "add `else { ... }`; an `if` is an expression, so it has a value either way",
-            )
-            .map(|d| {
-                d.code("if-without-else").note(
-                    "`if` is an expression, so both branches must produce a value of the same type",
-                )
-            });
+            self.templated("if-without-else", span);
             return Err(Bail);
         }
         self.bump();
@@ -2437,17 +2397,7 @@ impl<'a> Parser<'a> {
                         );
                         return Err(Bail);
                     }
-                    self.error(
-                        colons,
-                        "type arguments in an expression are written without `::`",
-                        "remove the `::`, as in `list.empty<Int>()`",
-                    )
-                    .map(|d| {
-                        d.code("turbofish").edit(colons, "").note(
-                            "`::` was needed when `<` in expression position was always a \
-                             comparison; it no longer is",
-                        )
-                    });
+                    self.templated("turbofish", colons).map(|d| d.edit(colons, ""));
                     let args = self.type_args()?;
                     base = self.tree.push(
                         Kind::Generic,
@@ -2790,16 +2740,7 @@ impl<'a> Parser<'a> {
                 // legal, `[..init, last]` is not.
                 if !self.is(Punctuation::RBracket) {
                     let span = self.span();
-                    self.error(
-                        span,
-                        "a rest pattern must come last",
-                        "move `..` to the end, as in `[first, ..rest]`; matching a prefix is \
-                         what an array pattern does",
-                    )
-                    .map(|d| {
-                        d.code("rest-pattern-not-last")
-                            .note("`[first, ..rest]` is legal; `[..init, last]` is not")
-                    });
+                    self.templated("rest-pattern-not-last", span);
                     return Err(Bail);
                 }
                 break;

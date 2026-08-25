@@ -1,3 +1,7 @@
+---
+title: Conformance is declared, never inferred
+message: `{type}` does not implement `{trait}`
+---
 # Conformance is declared, never inferred
 
 ```text

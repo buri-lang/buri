@@ -8,3 +8,16 @@ error: 300 is not representable in `U8` [literal-out-of-range]
   = actual: 300
   = `U8` holds 0 to 255
   = fix: write a value inside `U8`'s range, or annotate a wider type
+
+    What to do
+    ──────────
+
+    Write a value inside the type's range, or annotate a wider type.
+
+    Why
+    ───
+
+    A literal is checked against the type it is pinned to rather than widened to
+    fit it, so the one class of overflow that is decidable at compile time is
+    decided there. U64 holds 0 to 18446744073709551615.
+

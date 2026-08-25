@@ -1,3 +1,8 @@
+---
+title: A struct pattern mentions every field
+message: this pattern does not mention {fields}
+fix: match {fields} too, or end the pattern with `..` to ignore the rest
+---
 # A struct pattern mentions every field
 
 ```text

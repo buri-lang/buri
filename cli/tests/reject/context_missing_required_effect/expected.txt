@@ -1,4 +1,4 @@
-error: `a context` does not satisfy `Fs` [missing-conformance]
+error: `a context` does not satisfy `Fs` [unsatisfied-bound]
   --> cmd/context_missing_required_effect/main.buri:12:12
    |
 12 |   let ok = check(ctx, "x");

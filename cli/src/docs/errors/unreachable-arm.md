@@ -1,3 +1,9 @@
+---
+title: Every arm must be reachable
+message: this arm is unreachable
+note: the arms before it already cover everything it matches
+fix: delete it, or move it above the arm that subsumes it
+---
 # Every arm must be reachable
 
 ```text

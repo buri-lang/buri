@@ -1,3 +1,9 @@
+---
+title: A platform grants the effects its host exports
+message: `{platform}` does not grant `{name}`
+note: a platform is the set of effects its host exports; {because}
+fix: drop `{effect}` from the context, or build this target for a platform that grants it: {platforms}
+---
 # A platform grants the effects its host exports
 
 ```text

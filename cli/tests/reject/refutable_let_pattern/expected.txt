@@ -6,3 +6,15 @@ error: this pattern does not match every value of its type [refutable-pattern]
   |
   = a `let` binds unconditionally, so its pattern has to be irrefutable
   = fix: use `match`, which makes you say what the other cases do
+
+    What to do
+    ──────────
+
+    Use match, which makes you say what the other cases do.
+
+    Why
+    ───
+
+    A let binds unconditionally and there is no exception to throw when it does
+    not fit, so its pattern has to be one that cannot fail.
+

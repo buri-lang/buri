@@ -6,6 +6,20 @@ error: `area` takes `self`, so it is a method [method-declared-free]
    |
    = a method is found through its receiver's type, so it is declared with that type
    = fix: move it into an `impl` block for its type, as in `impl Square { fn area(self: Square): Int { ... } }`
+
+     What to do
+     ──────────
+
+     Move it into an impl block for its type.
+
+     Why
+     ───
+
+     A method is found through its receiver's type, so it is declared with that
+     type — in an impl block, in the module that declares the type. Taking self
+     at the top level names the shape of a method in a place that has no
+     receiver type to attach it to.
+
 error: `Square` has no method `area` [no-such-method]
   --> cmd/method_at_top_level/main.buri:16:45
    |
@@ -13,3 +27,18 @@ error: `Square` has no method `area` [no-such-method]
    |                                             ^^^^
    |
    = fix: check the spelling, or declare it in `impl Square { ... }` in that type's own module — a method may not be added from anywhere else
+
+     What to do
+     ──────────
+
+     Check the spelling, or declare it in an impl block in that type's own
+     module.
+
+     Why
+     ───
+
+     A method is looked up in exactly one place: the module that declares the
+     receiver's type. There is no extension mechanism, so a method cannot be
+     added to a type from outside — which is also what makes resolution a single
+     lookup rather than a search.
+

@@ -1,3 +1,9 @@
+---
+title: A lambda may not capture an effect
+message: a lambda may not capture `{name}`, which carries an effect
+note: a lambda that could close over authority would make the capture rule meaningless
+fix: thread the context through a `*Ctx` combinator, which passes it in as a parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`
+---
 # A lambda may not capture an effect
 
 ```text

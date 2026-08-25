@@ -1,3 +1,8 @@
+---
+title: A method is not a value
+message: `{name}` is a method, and a method is not a value
+fix: call it on a receiver: `x.{name}()`; to pass it on, wrap it in a lambda: `fn(x) => x.{name}()`
+---
 # A method is not a value
 
 ```text

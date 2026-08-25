@@ -6,3 +6,16 @@ error: a `derive` clause names no traits [derive-without-traits]
   |
   = `derive` generates one implementation per trait it names, so a clause naming none would generate nothing; delete it, or name what the type should derive
   = fix: name the traits between `derive` and `for`, as in `derive Eq, Show for Meters;`
+
+    What to do
+    ──────────
+
+    Name the traits between derive and for, as in derive Eq, Show for Meters;.
+
+    Why
+    ───
+
+    derive generates one implementation per trait it names, so a clause naming
+    none would generate nothing at all. Delete it, or say what the type should
+    derive.
+

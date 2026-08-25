@@ -5,6 +5,21 @@ error: `.Some` needs a known expected type [unannotated-variant]
   |           ^^^^^
   |
   = fix: write the qualified form, as in `Option.Some(...)`, or annotate what this value is being used as
+
+    What to do
+    ──────────
+
+    Write the qualified form — Option.Some(...) — or annotate what this value is
+    being used as.
+
+    Why
+    ───
+
+    .Some is shorthand for "the Some of whatever type is expected here", and a
+    let with no annotation expects nothing. Inference flows into the shorthand
+    rather than out of it, which is what keeps two enums free to share a variant
+    name.
+
 error: there is nothing named `n` in scope [unresolved-name]
  --> cmd/dot_form_without_expected_type/main.buri:8:17
   |
@@ -13,3 +28,18 @@ error: there is nothing named `n` in scope [unresolved-name]
   |
   = did you mean `v`?
   = fix: correct the spelling, or declare it
+
+    What to do
+    ──────────
+
+    Correct the spelling, or declare it. The diagnostic offers the nearest name
+    in scope.
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope: the names available in a module
+    are the ones it declares plus the ones its own imports name. That is what
+    makes the suggestion trustworthy — the set it is drawn from is exactly the
+    set the file put there.
+

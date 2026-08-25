@@ -249,14 +249,9 @@ impl<'a> Extractor<'a> {
     /// because the fix differs: a closure has to move, a value has to be
     /// written out.
     fn refuse(&mut self, span: Span, message: &str) {
-        self.diags.items.push(
-            Diagnostic::error(span, message.to_string())
-                .with_code("style-not-static")
-                .with_fix(
-                    "write the value out, or make it a `const`, or apply it \
-                     outside the `On`/`At`, where it can be an inline style",
-                ),
-        );
+        self.diags
+            .items
+            .push(Diagnostic::templated("style-not-static", span).with_bind("problem", message));
     }
 
     /// The generic descent: anything that is not itself a style.

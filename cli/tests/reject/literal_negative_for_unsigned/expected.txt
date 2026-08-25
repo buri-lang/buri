@@ -8,3 +8,16 @@ error: -1 is not representable in `U32` [literal-out-of-range]
   = actual: -1
   = `U32` has no negative values
   = fix: use a signed type, or drop the sign; `U32` starts at 0
+
+    What to do
+    ──────────
+
+    Write a value inside the type's range, or annotate a wider type.
+
+    Why
+    ───
+
+    A literal is checked against the type it is pinned to rather than widened to
+    fit it, so the one class of overflow that is decidable at compile time is
+    decided there. U64 holds 0 to 18446744073709551615.
+
