@@ -353,9 +353,9 @@ pub fn slug(title: &str) -> String {
 /// — indistinguishable from a link to a heading called nothing, and made every
 /// consumer re-derive the case from two `is_empty()` tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Dest {
+pub enum Destination {
     /// `[text](#anchor)` — a heading in this document.
-    SameDoc { anchor: String },
+    SameDocument { anchor: String },
     /// `[text](path)` or `[text](path#anchor)`.
     File { path: String, anchor: Option<String> },
     /// `http://` or `https://`. Outside the corpus, so nothing resolves it.
@@ -368,26 +368,26 @@ pub enum Dest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Link {
     pub text: String,
-    pub dest: Dest,
+    pub destination: Destination,
     pub line: usize,
 }
 
 /// One link destination, as written.
-fn dest_of(dest: &str) -> Dest {
-    if dest.starts_with("http://") || dest.starts_with("https://") {
-        return Dest::External { url: dest.to_string() };
+fn destination_of(destination: &str) -> Destination {
+    if destination.starts_with("http://") || destination.starts_with("https://") {
+        return Destination::External { url: destination.to_string() };
     }
-    if let Some(anchor) = dest.strip_prefix('#') {
-        return Dest::SameDoc { anchor: anchor.to_string() };
+    if let Some(anchor) = destination.strip_prefix('#') {
+        return Destination::SameDocument { anchor: anchor.to_string() };
     }
-    if dest.is_empty() {
-        return Dest::Nowhere;
+    if destination.is_empty() {
+        return Destination::Nowhere;
     }
-    match dest.split_once('#') {
+    match destination.split_once('#') {
         Some((path, anchor)) => {
-            Dest::File { path: path.to_string(), anchor: Some(anchor.to_string()) }
+            Destination::File { path: path.to_string(), anchor: Some(anchor.to_string()) }
         }
-        None => Dest::File { path: dest.to_string(), anchor: None },
+        None => Destination::File { path: destination.to_string(), anchor: None },
     }
 }
 
@@ -428,12 +428,12 @@ pub fn links(text: &str) -> Vec<Link> {
                         i = close + 1;
                         continue;
                     };
-                    let dest = line.get(close + 2..paren).unwrap_or("");
+                    let destination = line.get(close + 2..paren).unwrap_or("");
                     // A title after the destination, as in `(url "title")`.
-                    let dest = dest.split_whitespace().next().unwrap_or("");
+                    let destination = destination.split_whitespace().next().unwrap_or("");
                     out.push(Link {
                         text: line.get(i + 1..close).unwrap_or("").to_string(),
-                        dest: dest_of(dest),
+                        destination: destination_of(destination),
                         line: line_no,
                     });
                     i = paren + 1;
@@ -867,8 +867,8 @@ fn inline(s: &str, color: bool) -> String {
                 if b.get(close + 1) == Some(&b'(') {
                     if let Some(paren) = find_balanced(b, close + 1, b'(', b')') {
                         let label = s.get(i + 1..close).unwrap_or("");
-                        let dest = s.get(close + 2..paren).unwrap_or("");
-                        let _ = write!(out, "{label} {dim}({dest}){reset}");
+                        let destination = s.get(close + 2..paren).unwrap_or("");
+                        let _ = write!(out, "{label} {dim}({destination}){reset}");
                         i = paren + 1;
                         continue;
                     }
@@ -1019,8 +1019,8 @@ mod tests {
         assert_eq!(l.len(), 1);
         assert_eq!(l[0].text, "tags");
         assert_eq!(
-            l[0].dest,
-            Dest::File {
+            l[0].destination,
+            Destination::File {
                 path: "cli/src/docs/build/tags.md".into(),
                 anchor: Some("why-forbids".into()),
             }
@@ -1029,14 +1029,14 @@ mod tests {
         // The three other shapes a destination comes in, and the fourth that
         // used to be spelled with two empty strings.
         let l = links("[a](#here) [b](other.md) [c](https://x.test) [d]()\n");
-        let dests: Vec<&Dest> = l.iter().map(|l| &l.dest).collect();
+        let destinations: Vec<&Destination> = l.iter().map(|l| &l.destination).collect();
         assert_eq!(
-            dests,
+            destinations,
             vec![
-                &Dest::SameDoc { anchor: "here".into() },
-                &Dest::File { path: "other.md".into(), anchor: None },
-                &Dest::External { url: "https://x.test".into() },
-                &Dest::Nowhere,
+                &Destination::SameDocument { anchor: "here".into() },
+                &Destination::File { path: "other.md".into(), anchor: None },
+                &Destination::External { url: "https://x.test".into() },
+                &Destination::Nowhere,
             ]
         );
     }

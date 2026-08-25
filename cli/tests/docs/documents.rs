@@ -141,12 +141,12 @@ fn every_link_resolves() {
         };
 
         for link in markdown::links(&text) {
-            match &link.dest {
-                markdown::Dest::External { .. } => {}
-                markdown::Dest::Nowhere => {
+            match &link.destination {
+                markdown::Destination::External { .. } => {}
+                markdown::Destination::Nowhere => {
                     broken.push(format!("{doc}:{}: `[{}]()` points nowhere", link.line, link.text));
                 }
-                markdown::Dest::SameDoc { anchor } => {
+                markdown::Destination::SameDocument { anchor } => {
                     if !anchors.contains(anchor) {
                         broken.push(format!(
                             "{doc}:{}: `#{anchor}` is not a heading in this document",
@@ -154,7 +154,7 @@ fn every_link_resolves() {
                         ));
                     }
                 }
-                markdown::Dest::File { path, anchor } => {
+                markdown::Destination::File { path, anchor } => {
                     let target = dir.join(path);
                     if !target.exists() {
                         broken.push(format!("{doc}:{}: `{path}` does not exist", link.line));

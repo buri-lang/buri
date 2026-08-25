@@ -43,8 +43,8 @@
 //! `BURI_LINKER` forces the choice — `mold`, `lld`, or `cc` — and is the escape
 //! hatch for a `cc` too old to understand `-fuse-ld=mold`. It is not a hole in
 //! hermeticity: the linker's name and version are in the `link` key
-//! ([`Cc::version`]), so two choices are two cache entries rather than one entry
-//! that might hold either's bytes.
+//! ([`CDriver::version`]), so two choices are two cache entries rather than one
+//! entry that might hold either's bytes.
 //!
 //! # Reproducibility
 //!
@@ -249,19 +249,20 @@ impl Flavour {
 
 /// The C driver, and the linker it is told to run.
 ///
-/// One type for all three flavours rather than a `Lld`, a `Mold` and a `Cc`
-/// that would differ by a single argument: what varies is one flag and one
-/// probe, and three structs whose `link` bodies were copies of each other would
-/// be three places for a platform flag to be fixed in two of them.
-pub struct Cc {
+/// One type for all three flavours rather than a `Lld`, a `Mold` and a
+/// `CDriver` that would differ by a single argument: what varies is one flag
+/// and one probe, and three structs whose `link` bodies were copies of each
+/// other would be three places for a platform flag to be fixed in two of them.
+pub struct CDriver {
     /// `.buri/link/<link-key>`: where the objects and the archive are written.
     dir: PathBuf,
     /// The driver: `$CC`, or `cc`.
     driver: PathBuf,
     flavour: Flavour,
     target: Target,
-    /// Shared with every other `Cc` this process selected for the same driver
-    /// and flavour, so the two `--version` spawns happen once (see [`PROBED`]).
+    /// Shared with every other `CDriver` this process selected for the same
+    /// driver and flavour, so the two `--version` spawns happen once (see
+    /// [`PROBED`]).
     version: std::sync::Arc<Identity>,
 }
 
@@ -413,13 +414,13 @@ pub fn warm(target: Target) {
 /// The link directory is *not* a parameter, because it is named by the `link`
 /// key and the `link` key is built from [`Linker::version`] — so the linker has
 /// to exist before the directory it will work in has a name.
-/// [`Cc::in_dir`] closes the loop.
+/// [`CDriver::in_dir`] closes the loop.
 ///
 /// `Err` names the thing that is missing, in the form a diagnostic's message
 /// wants. The only two ways to get one are a target this host cannot link and a
 /// `cc` that is not installed — and the second is not a case the fallback story
 /// covers, because there is no link at all without a C driver.
-pub fn select(target: Target) -> Result<Cc, String> {
+pub fn select(target: Target) -> Result<CDriver, String> {
     if !can_link(target) {
         return Err(format!(
             "this toolchain cannot link {} artifacts on this machine",
@@ -434,7 +435,7 @@ pub fn select(target: Target) -> Result<Cc, String> {
     let mut programs = vec![driver.clone()];
     programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
     let version = identity_of(flavour, programs);
-    Ok(Cc { dir: PathBuf::new(), driver, flavour, target, version })
+    Ok(CDriver { dir: PathBuf::new(), driver, flavour, target, version })
 }
 
 /// The flavour for a platform, honouring `BURI_LINKER` and otherwise probing.
@@ -487,10 +488,10 @@ fn version_of(program: &Path) -> String {
 // The link
 // ---------------------------------------------------------------------------
 
-impl Cc {
+impl CDriver {
     /// The directory the objects are written into — `.buri/link/<link-key>`,
     /// which is only nameable once this linker's version has entered that key.
-    pub fn in_dir(mut self, dir: PathBuf) -> Cc {
+    pub fn in_dir(mut self, dir: PathBuf) -> CDriver {
         self.dir = dir;
         self
     }
@@ -553,7 +554,7 @@ impl Cc {
     }
 }
 
-impl Linker for Cc {
+impl Linker for CDriver {
     fn name(&self) -> &'static str {
         self.flavour.name()
     }
@@ -694,32 +695,32 @@ impl Linker for Cc {
         // `libburi_rt.a(...)`, which is a fact about the link and not about the
         // machine.
         let staged = self.dir.join("artifact");
-        let mut cmd = Command::new(&self.driver);
-        cmd.current_dir(&self.dir);
+        let mut command = Command::new(&self.driver);
+        command.current_dir(&self.dir);
         // The parent's environment, unlike every other action this toolchain
         // spawns (`build/spawn.rs` clears it). A C driver finds its assembler,
         // its own linker and its SDK through `PATH`, `DEVELOPER_DIR` and
         // `SDKROOT`, so clearing them would not make the link deterministic —
         // it would make it fail. What is pinned instead is everything that
         // could reach the *bytes*.
-        cmd.env("SOURCE_DATE_EPOCH", spawn::SOURCE_DATE_EPOCH);
-        cmd.env("TZ", "UTC");
-        cmd.env("LC_ALL", "C");
-        cmd.env("ZERO_AR_DATE", "1");
+        command.env("SOURCE_DATE_EPOCH", spawn::SOURCE_DATE_EPOCH);
+        command.env("TZ", "UTC");
+        command.env("LC_ALL", "C");
+        command.env("ZERO_AR_DATE", "1");
         if let Some(flag) = self.flavour.driver_flag() {
-            cmd.arg(flag);
+            command.arg(flag);
         }
-        cmd.arg("-o").arg("artifact");
+        command.arg("-o").arg("artifact");
         for path in &objects {
-            cmd.arg(path.file_name().unwrap_or(path.as_os_str()));
+            command.arg(path.file_name().unwrap_or(path.as_os_str()));
         }
         if runtime_native::AVAILABLE {
-            cmd.arg(runtime_native::ARCHIVE_NAME);
+            command.arg(runtime_native::ARCHIVE_NAME);
         }
-        cmd.args(self.platform_flags());
+        command.args(self.platform_flags());
 
-        let spelled = format!("cd {} && {}", self.dir.display(), spell(&cmd));
-        match cmd.output() {
+        let spelled = format!("cd {} && {}", self.dir.display(), command_line(&command));
+        match command.output() {
             Ok(status) if status.status.success() => {
                 let bytes = match std::fs::read(&staged) {
                     Ok(bytes) => bytes,
@@ -812,9 +813,9 @@ pub fn place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// The command as a person would type it, for a failure to quote back.
-fn spell(cmd: &Command) -> String {
-    let mut out = cmd.get_program().to_string_lossy().into_owned();
-    for arg in cmd.get_args() {
+fn command_line(command: &Command) -> String {
+    let mut out = command.get_program().to_string_lossy().into_owned();
+    for arg in command.get_args() {
         out.push(' ');
         out.push_str(&arg.to_string_lossy());
     }
@@ -830,7 +831,7 @@ fn spell(cmd: &Command) -> String {
 pub fn run(
     units: &[Emitted],
     rows: &[Row],
-    linker: &Cc,
+    linker: &CDriver,
     out: &Path,
     opts: &LinkOptions<'_>,
 ) -> Result<(), Diagnostics> {

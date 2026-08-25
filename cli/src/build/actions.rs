@@ -960,7 +960,7 @@ pub struct Objects {
 /// One function because the refusal is one refusal: `cc` is how a native link
 /// is driven, so a host without one cannot link, and saying so twice in two
 /// wordings would be two answers to one question.
-fn linker_for(output: &Output, diagnostics: &mut Diagnostics) -> Option<link::Cc> {
+fn linker_for(output: &Output, diagnostics: &mut Diagnostics) -> Option<link::CDriver> {
     match link::select(target_of(output)) {
         Ok(l) => Some(l),
         Err(message) => {

@@ -144,7 +144,7 @@ pub struct Annotations {
     /// Never set alongside `@as`, which takes its node from its target.
     pub node: Option<String>,
     /// `@prec` — a disambiguation tree-sitter needs and LR(1) does not.
-    pub prec: Option<Prec>,
+    pub precedence: Option<Precedence>,
     pub body: RuleBody,
     pub shape: Shape,
     /// `@prose` — the right-hand side is documentation and is not read as
@@ -180,7 +180,7 @@ impl Annotations {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Prec {
+pub enum Precedence {
     None(i32),
     Left(Option<i32>),
     Right(Option<i32>),
@@ -196,7 +196,7 @@ pub enum Prec {
 pub struct Production {
     pub name: String,
     pub body: Node,
-    pub ann: Annotations,
+    pub annotations: Annotations,
     /// For a diagnostic that can say where.
     pub line: usize,
 }
@@ -490,7 +490,7 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                     }
                     end += 1;
                 }
-                let ann = std::mem::take(&mut pending);
+                let annotations = std::mem::take(&mut pending);
                 // A comment inside the body belongs to whatever comes next.
                 let mut body_tokens = Vec::new();
                 let mut trailing = Vec::new();
@@ -500,7 +500,7 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                         t => body_tokens.push(t.clone()),
                     }
                 }
-                let body = if ann.body_is_prose() {
+                let body = if annotations.body_is_prose() {
                     // The body is documentation: `any character except "\n"`
                     // is prose, and reading it as grammar would invent three
                     // non-terminals that do not exist.
@@ -513,7 +513,7 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                     }
                     node
                 };
-                out.productions.push(Production { name, body, ann, line });
+                out.productions.push(Production { name, body, annotations, line });
                 for (text, at) in trailing {
                     take_directives(&text, &mut out, &mut pending, at)?;
                 }
@@ -578,7 +578,7 @@ fn take_directives(
             "regex" => set_body(pending, RuleBody::Regex(value.trim().to_string()), line)?,
             "raw" => set_body(pending, RuleBody::Raw(value.trim().to_string()), line)?,
             "prose" => pending.prose = true,
-            "prec" => pending.prec = Some(parse_prec(&value, line)?),
+            "prec" => pending.precedence = Some(parse_precedence(&value, line)?),
             other => return Err(format!("line {line}: `@{other}` is not a directive")),
         }
     }
@@ -614,16 +614,16 @@ fn set_shape(pending: &mut Annotations, want: Shape, line: usize) -> Result<(), 
     Ok(())
 }
 
-fn parse_prec(value: &str, line: usize) -> Result<Prec, String> {
+fn parse_precedence(value: &str, line: usize) -> Result<Precedence, String> {
     let parts: Vec<&str> = value.split_whitespace().collect();
     let number = |s: &str| s.parse::<i32>().map_err(|_| format!("line {line}: `{s}` is not a level"));
     match parts.as_slice() {
-        ["left"] => Ok(Prec::Left(None)),
-        ["right"] => Ok(Prec::Right(None)),
-        ["left", n] => Ok(Prec::Left(Some(number(n)?))),
-        ["right", n] => Ok(Prec::Right(Some(number(n)?))),
-        ["dynamic", n] => Ok(Prec::Dynamic(number(n)?)),
-        [n] => Ok(Prec::None(number(n)?)),
+        ["left"] => Ok(Precedence::Left(None)),
+        ["right"] => Ok(Precedence::Right(None)),
+        ["left", n] => Ok(Precedence::Left(Some(number(n)?))),
+        ["right", n] => Ok(Precedence::Right(Some(number(n)?))),
+        ["dynamic", n] => Ok(Precedence::Dynamic(number(n)?)),
+        [n] => Ok(Precedence::None(number(n)?)),
         _ => Err(format!("line {line}: `@prec {value}` is not a precedence")),
     }
 }
@@ -1030,7 +1030,7 @@ pub fn dangling_references(ebnf: &Ebnf) -> Vec<String> {
         for r in refs {
             note(&p.name, &r, &mut out);
         }
-        if let Some(other) = p.ann.same_as() {
+        if let Some(other) = p.annotations.same_as() {
             note(&p.name, other, &mut out);
         }
     }
@@ -1075,17 +1075,17 @@ fn emit(ebnf: &Ebnf) -> Result<String, String> {
 
     let mut names = HashMap::new();
     for p in &ebnf.productions {
-        let name = match (&p.ann.node, p.ann.same_as()) {
+        let name = match (&p.annotations.node, p.annotations.same_as()) {
             (Some(n), _) => n.clone(),
             (None, Some(_)) => continue,
-            (None, None) => node_name(&p.name, &ebnf.words, p.ann.shape == Shape::Hidden),
+            (None, None) => node_name(&p.name, &ebnf.words, p.annotations.shape == Shape::Hidden),
         };
         names.insert(p.name.clone(), name);
     }
     // `@as` is resolved after every other name is known, so that it may point
     // at a production declared later.
     for p in &ebnf.productions {
-        if let Some(other) = p.ann.same_as() {
+        if let Some(other) = p.annotations.same_as() {
             let target = names
                 .get(other)
                 .ok_or_else(|| format!("`{}` is `@as {other}`, which has no node", p.name))?
@@ -1168,7 +1168,7 @@ impl Gen<'_> {
     /// `X ::= X op Y | Y` is left, `X ::= Y op X | Y` is right, and
     /// `X ::= Y op Y | Y` is neither — which tree-sitter has no word for, so
     /// it reads as left and the compiler objects to the chain.
-    fn assoc_of(&self, level: &str, next: Option<&str>, alt: &Node) -> Result<Prec, String> {
+    fn assoc_of(&self, level: &str, next: Option<&str>, alt: &Node) -> Result<Precedence, String> {
         let Node::Seq(items) = alt else {
             return Err(format!("`{level}` has an alternative that is not an operator"));
         };
@@ -1183,18 +1183,18 @@ impl Gen<'_> {
         // A prefix operator: the level recurses on its right and nothing else.
         if head.is_none() {
             if tail == Some(level) {
-                return Ok(Prec::Right(None));
+                return Ok(Precedence::Right(None));
             }
             return Err(format!("`{level}` opens with an operator but does not recur"));
         }
         match (head == Some(level), tail == Some(level)) {
-            (true, false) => Ok(Prec::Left(None)),
-            (false, true) => Ok(Prec::Right(None)),
+            (true, false) => Ok(Precedence::Left(None)),
+            (false, true) => Ok(Precedence::Right(None)),
             (false, false) => {
                 if head != next || tail != next {
                     return Err(format!("`{level}` is not written over the level below it"));
                 }
-                Ok(Prec::Left(None))
+                Ok(Precedence::Left(None))
             }
             (true, true) => Err(format!("`{level}` recurs on both sides; that is ambiguous")),
         }
@@ -1236,13 +1236,13 @@ impl Gen<'_> {
                         let assoc = self.assoc_of(&level.production, next, alt)?;
                         let body = self.js(alt)?;
                         let call = match assoc {
-                            Prec::Left(_) => "prec.left",
-                            Prec::Right(_) => "prec.right",
-                            Prec::None(_) => "prec",
+                            Precedence::Left(_) => "prec.left",
+                            Precedence::Right(_) => "prec.right",
+                            Precedence::None(_) => "prec",
                             // `assoc_of` reads the shape of a production, and
                             // no shape spells a dynamic precedence: that one
                             // is written, never inferred.
-                            Prec::Dynamic(_) => {
+                            Precedence::Dynamic(_) => {
                                 return Err(format!(
                                     "`{}` is a cascade level, which cannot take a dynamic \
                                      precedence",
@@ -1306,7 +1306,7 @@ impl Gen<'_> {
                     return Ok(Js::Atom(format!("$.{target}")));
                 }
                 let p = self.prod(name);
-                if p.ann.is_inline() {
+                if p.annotations.is_inline() {
                     return self.rule_body(p);
                 }
                 Js::Atom(format!("$.{}", self.node_of(name)))
@@ -1335,7 +1335,7 @@ impl Gen<'_> {
     }
 
     fn rule_body(&self, p: &Production) -> Result<Js, String> {
-        match &p.ann.body {
+        match &p.annotations.body {
             RuleBody::Raw(raw) => return Ok(Js::Atom(raw.clone())),
             RuleBody::Regex(re) => return Ok(Js::Atom(format!("/{re}/"))),
             RuleBody::Token => {
@@ -1345,25 +1345,25 @@ impl Gen<'_> {
         }
         let mut body = self.js(&p.body)?;
         let number = self.member_prec.get(&p.name).copied();
-        let prec = match (&p.ann.prec, number) {
+        let precedence = match (&p.annotations.precedence, number) {
             // A dynamic precedence *replaces* the cascade's number rather than
             // joining it: a static number resolves the conflict at generation
             // time, and a rule that needs both readings explored must not have
             // one. See `GenericExpr` in the EBNF.
-            (Some(Prec::Dynamic(n)), _) => Some(Prec::Dynamic(*n)),
+            (Some(Precedence::Dynamic(n)), _) => Some(Precedence::Dynamic(*n)),
             (Some(_), Some(_)) => {
                 return Err(format!("`{}` is given a precedence twice", p.name));
             }
-            (Some(prec), None) => Some(prec.clone()),
-            (None, Some(n)) => Some(Prec::None(n)),
+            (Some(precedence), None) => Some(precedence.clone()),
+            (None, Some(n)) => Some(Precedence::None(n)),
             (None, None) => None,
         };
-        if let Some(prec) = prec {
-            let (call, number) = match prec {
-                Prec::None(n) => ("prec", Some(n)),
-                Prec::Left(n) => ("prec.left", n),
-                Prec::Right(n) => ("prec.right", n),
-                Prec::Dynamic(n) => ("prec.dynamic", Some(n)),
+        if let Some(precedence) = precedence {
+            let (call, number) = match precedence {
+                Precedence::None(n) => ("prec", Some(n)),
+                Precedence::Left(n) => ("prec.left", n),
+                Precedence::Right(n) => ("prec.right", n),
+                Precedence::Dynamic(n) => ("prec.dynamic", Some(n)),
             };
             let mut args = Vec::new();
             if let Some(n) = number {
@@ -1384,7 +1384,7 @@ impl Gen<'_> {
             }
             Node::Ref(name) => {
                 let p = self.prod(name);
-                match &p.ann.body {
+                match &p.annotations.body {
                     RuleBody::Regex(re) => Re::Raw(re.clone()),
                     RuleBody::External => {
                         return Err(format!("`{name}` comes from the external scanner"))
@@ -1462,10 +1462,10 @@ impl Gen<'_> {
             }
             order.push(name.clone());
             let p = self.prod(&name);
-            if p.ann.is_leaf() {
+            if p.annotations.is_leaf() {
                 continue;
             }
-            if let Some(other) = p.ann.same_as() {
+            if let Some(other) = p.annotations.same_as() {
                 queue.push(other.to_string());
                 continue;
             }
@@ -1498,7 +1498,7 @@ impl Gen<'_> {
             let mut parts = Vec::new();
             for name in &self.ebnf.extras {
                 let p = self.prod(name);
-                if p.ann.is_inline() {
+                if p.annotations.is_inline() {
                     parts.push(self.rule_body(p)?.flat());
                 } else {
                     parts.push(format!("$.{}", self.node_of(name)));
@@ -1530,7 +1530,9 @@ impl Gen<'_> {
         let mut first_level = true;
         for name in &reachable {
             let p = self.prod(name);
-            if p.ann.is_inline() || p.ann.body == RuleBody::External || p.ann.same_as().is_some()
+            if p.annotations.is_inline()
+                || p.annotations.body == RuleBody::External
+                || p.annotations.same_as().is_some()
             {
                 continue;
             }

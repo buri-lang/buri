@@ -1677,12 +1677,12 @@ impl<'t> Build<'t> {
                     } else {
                         pattern_str(self.tree(), PatId(s.pattern))
                     };
-                    let ann = self
+                    let annotation = self
                         .tree()
                         .opt_type(s.ty)
                         .map(|x| format!(": {}", ty(self.tree(), x)))
                         .unwrap_or_default();
-                    self.assign(&format!("let {name}{ann} = "), ExprId(s.value), ";")
+                    self.assign(&format!("let {name}{annotation} = "), ExprId(s.value), ";")
                 }
                 StmtKind::Expr => self.assign("", ExprId(s.value), ";"),
             });
