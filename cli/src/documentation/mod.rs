@@ -520,7 +520,7 @@ impl DocSource for Errors {
         // The promise stays directly under the program it is about; the
         // wording comes last, as reference for whoever edits the page.
         let body = match page {
-            Some(p) => format!("{}\n{promise}{}", p.body.trim_end(), wording(&p.front)),
+            Some(p) => format!("{}\n{promise}{}", titled(p), wording(&p.front)),
             None => format!("{}{promise}", e.text),
         };
         Some(Page {
@@ -542,6 +542,21 @@ impl DocSource for Errors {
             })
             .collect()
     }
+}
+
+/// The page's body under its title.
+///
+/// Every page whose explanation is written opens with the title as an H1, and
+/// the renderer takes the heading a reader sees from there rather than from
+/// `Page::title`. A page that is frontmatter and a reproduction has no such
+/// line, so it borrows the title the frontmatter already carries — otherwise
+/// half the catalog opens on a bare wording table with nothing naming it.
+fn titled(page: &frontmatter::Page) -> String {
+    let text = page.body.trim();
+    if text.starts_with("# ") {
+        return text.to_string();
+    }
+    format!("# {}\n\n{text}", page.front.title).trim_end().to_string()
 }
 
 /// What a diagnostic built from this page prints, as the templates they are.
@@ -586,7 +601,7 @@ impl DocSource for Lints {
         let code = id.strip_prefix("lint/").unwrap_or(id);
         let l = crate::documentation::lints::find(code)?;
         let body = match lints::page(code) {
-            Some(p) => format!("{}\n{}", p.body.trim_end(), wording(&p.front)),
+            Some(p) => format!("{}\n{}", titled(p), wording(&p.front)),
             None => l.text.to_string(),
         };
         Some(Page {
@@ -731,8 +746,8 @@ fn error_index(presentation: &Presentation) -> String {
     let _ = write!(
         out,
         "\n{dim}Every code is printed in the diagnostic itself, in brackets after the\n\
-         message. Every page carries a program that provokes it, and the test suite\n\
-         checks that it still does.{reset}\n"
+         message. Where one file can provoke a code, its page carries that program,\n\
+         and the test suite checks that it still does.{reset}\n"
     );
     out
 }

@@ -334,7 +334,7 @@ pub const COMMANDS: &[Command] = &[
         args: "<target> [-- args]",
         blurb: "build one binary and execute it",
         doc: include_str!("../docs/cli/run.md"),
-        flags: &["release", "debug", "output", "force", "explain"],
+        flags: &["release", "debug", "output", "force", "explain", "dense"],
         run: run::command_run,
         hidden: false,
     },

@@ -729,10 +729,15 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
 /// site has to remember to use, which is the thing that drifts.
 fn codes_in(text: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for marker in ["with_code(\"", ".code(\"", "templated(\""] {
+    // The quote is matched separately from the marker because rustfmt breaks a
+    // long call after the `(`, which put `dep-cycle` on its own line and out of
+    // sight of a `templated("` that had to be one piece.
+    for marker in ["with_code(", ".code(", "templated("] {
         let mut rest = text;
         while let Some(i) = rest.find(marker) {
-            rest = &rest[i + marker.len()..];
+            rest = rest[i + marker.len()..].trim_start();
+            let Some(quoted) = rest.strip_prefix('"') else { continue };
+            rest = quoted;
             if let Some(end) = rest.find('"') {
                 let code = &rest[..end];
                 if !code.is_empty() && code.chars().all(|c| c.is_ascii_lowercase() || c == '-') {

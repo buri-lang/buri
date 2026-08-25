@@ -123,4 +123,18 @@ mod tests {
         let failures = catalog().failures();
         assert!(failures.is_empty(), "these pages do not parse:\n  {}", failures.join("\n  "));
     }
+
+    /// The same guard `errors.rs` carries: a page that lost its `---` block
+    /// leaves its finding with no message, and nothing else notices.
+    #[test]
+    fn every_page_carries_its_wording() {
+        let missing: Vec<&str> =
+            LINTS.iter().map(|l| l.code).filter(|code| page(code).is_none()).collect();
+        assert!(
+            missing.is_empty(),
+            "these pages carry no `---` frontmatter block, so their findings have no message \
+             to print:\n  {}",
+            missing.join("\n  ")
+        );
+    }
 }
