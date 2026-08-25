@@ -12,7 +12,7 @@
 use crate::build::session::open_or_exit;
 use crate::commands::arguments;
 
-pub fn cmd_clean(args: &arguments::Args) -> i32 {
+pub fn command_clean(args: &arguments::Args) -> i32 {
     let session = match open_or_exit(&args.flags) {
         Ok(session) => session,
         Err(c) => return c as i32,

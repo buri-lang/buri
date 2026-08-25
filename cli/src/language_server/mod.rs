@@ -36,7 +36,7 @@ use std::path::PathBuf;
     clippy::print_stderr,
     reason = "a message that did not parse has no id to answer and no Session to route through, and stdout carries protocol only — stderr is the log channel this server is specified to have"
 )]
-pub fn cmd_lsp(_args: &arguments::Args) -> i32 {
+pub fn command_language_server(_args: &arguments::Args) -> i32 {
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let stdout = std::io::stdout();

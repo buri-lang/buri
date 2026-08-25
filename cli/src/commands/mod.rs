@@ -316,7 +316,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "compile",
         doc: include_str!("../docs/cli/build.md"),
         flags: &["release", "debug", "output", "force", "explain", "check-reproducible"],
-        run: build::cmd_build,
+        run: build::command_build,
         hidden: false,
     },
     Command {
@@ -325,7 +325,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "compile and run test suites",
         doc: include_str!("../docs/cli/test.md"),
         flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch"],
-        run: test::cmd_test,
+        run: test::command_test,
         hidden: false,
     },
     Command {
@@ -334,7 +334,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "build one binary and execute it",
         doc: include_str!("../docs/cli/run.md"),
         flags: &["release", "debug", "output", "force", "explain"],
-        run: run::cmd_run,
+        run: run::command_run,
         hidden: false,
     },
     Command {
@@ -343,7 +343,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "format .buri sources and BUILD.buri files",
         doc: include_str!("../docs/cli/format.md"),
         flags: &["check"],
-        run: format::cmd_format,
+        run: format::command_format,
         hidden: false,
     },
     Command {
@@ -352,7 +352,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "static checks beyond type checking",
         doc: include_str!("../docs/cli/lint.md"),
         flags: &["fix"],
-        run: lint::cmd_lint,
+        run: lint::command_lint,
         hidden: false,
     },
     Command {
@@ -361,7 +361,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "regenerate sources/deps in existing BUILD.buri files",
         doc: include_str!("../docs/cli/gen.md"),
         flags: &["check"],
-        run: generate::cmd_gen,
+        run: generate::command_generate,
         hidden: false,
     },
     Command {
@@ -370,7 +370,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "ask about the build graph",
         doc: include_str!("../docs/cli/query.md"),
         flags: &[],
-        run: query::cmd_query,
+        run: query::command_query,
         hidden: false,
     },
     Command {
@@ -379,7 +379,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "the language, the build system, and this CLI",
         doc: include_str!("../docs/cli/docs.md"),
         flags: &["format", "dense", "check"],
-        run: crate::documentation::cmd_docs,
+        run: crate::documentation::command_docs,
         hidden: false,
     },
     Command {
@@ -388,7 +388,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "language server, over stdio",
         doc: include_str!("../docs/cli/lsp.md"),
         flags: &[],
-        run: crate::language_server::cmd_lsp,
+        run: crate::language_server::command_language_server,
         hidden: false,
     },
     Command {
@@ -397,7 +397,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "drop the local cache",
         doc: include_str!("../docs/cli/clean.md"),
         flags: &["outputs"],
-        run: clean::cmd_clean,
+        run: clean::command_clean,
         hidden: false,
     },
     Command {
@@ -406,7 +406,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "toolchain version, and --verbose its executable's hash",
         doc: include_str!("../docs/cli/version.md"),
         flags: &["self-check"],
-        run: version::cmd_version,
+        run: version::command_version,
         hidden: false,
     },
 ];

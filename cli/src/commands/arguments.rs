@@ -183,8 +183,8 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
 
 /// The three things `--watch` will not be combined with.
 ///
-/// All three at parsing rather than in `cmd_test`, because none of them is a
-/// question about a repository: each is a way of asking for a loop that would
+/// All three at parsing rather than in `command_test`, because none of them is
+/// a question about a repository: each is a way of asking for a loop that would
 /// not be the mode it is named after (BUILD-AND-WATCH.md §4.3).
 ///
 /// The order is deliberate. A flag combination is a mistake in the command

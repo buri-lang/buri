@@ -18,7 +18,7 @@ use crate::commands::arguments;
 use crate::diagnostics::Invariant as _;
 
 /// `deps`, `rdeps`, `path`, `tags`, `platforms`, `sources`.
-pub fn cmd_query(args: &arguments::Args) -> i32 {
+pub fn command_query(args: &arguments::Args) -> i32 {
     let session = match session::open_or_exit(&args.flags) {
         Ok(session) => session,
         Err(c) => return c as i32,

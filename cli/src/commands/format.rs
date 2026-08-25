@@ -45,7 +45,7 @@ pub fn file(name: &str, text: &str) -> Option<String> {
 /// Formats `.buri` sources and build files, with no options and no
 /// configuration file. A formatter with options is a formatter whose output is
 /// a repository decision.
-pub fn cmd_format(args: &arguments::Args) -> i32 {
+pub fn command_format(args: &arguments::Args) -> i32 {
     let session = match session::open_or_exit(&args.flags) {
         Ok(session) => session,
         Err(c) => return c as i32,

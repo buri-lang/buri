@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 /// Checks that type checking does not cover. None of this is configurable:
 /// there is no `lint` block in `REPO.buri`, no per-file suppression comment,
 /// and no way to promote or silence a check for one repository.
-pub fn cmd_lint(args: &arguments::Args) -> i32 {
+pub fn command_lint(args: &arguments::Args) -> i32 {
     let (mut session, diagnostics) = match collect_findings(args) {
         Ok(v) => v,
         Err(code) => return code,

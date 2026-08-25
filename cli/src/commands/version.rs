@@ -26,7 +26,7 @@ fn running_sha256() -> Option<String> {
 /// `REPO.buri` parsed would be a command that fails when it has nothing to say.
 /// This used to open a session, because `REPO.buri` pinned a toolchain and
 /// `version` was the command whose job was to report the pin; the pin is gone.
-pub fn cmd_version(args: &arguments::Args) -> i32 {
+pub fn command_version(args: &arguments::Args) -> i32 {
     println!("buri {}", arguments::VERSION);
     if args.flags.verbose {
         println!(

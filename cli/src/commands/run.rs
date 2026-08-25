@@ -15,7 +15,7 @@ use crate::build::session;
 use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
 
-pub fn cmd_run(args: &arguments::Args) -> i32 {
+pub fn command_run(args: &arguments::Args) -> i32 {
     let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,

@@ -21,7 +21,7 @@ use crate::commands::arguments;
 /// `platforms`, `timeout_seconds`, `visibility`, `outputs`, `test.data`,
 /// `test.platforms`, and every comment come back saying exactly what they
 /// said.
-pub fn cmd_gen(args: &arguments::Args) -> i32 {
+pub fn command_generate(args: &arguments::Args) -> i32 {
     let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,

@@ -48,8 +48,8 @@ use std::fmt::Write as _;
 /// Colour lives inside `Human`, for the reason `build::session::Rendering`
 /// gives: an escape sequence in a JSON stream corrupts it, so "colour, in
 /// JSON" should be a thing that cannot be written down rather than a
-/// correlation `cmd_docs` has to re-establish on every construction — which it
-/// did, and which the test helpers went around.
+/// correlation `command_docs` has to re-establish on every construction — which
+/// it did, and which the test helpers went around.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Render {
     /// Wrapped and coloured, for a terminal.
@@ -419,7 +419,7 @@ impl DocSource for Errors {
     }
 
     fn resolve(&self, id: &str) -> Option<Page> {
-        // Both `buri docs error/result-discarded` and, via `cmd_docs`, the
+        // Both `buri docs error/result-discarded` and, via `command_docs`, the
         // two-word `buri docs error result-discarded`.
         let code = id.strip_prefix("error/").unwrap_or(id);
         let e = crate::documentation::errors::find(code)?;
@@ -473,7 +473,7 @@ pub fn sources() -> Vec<Box<dyn DocSource>> {
 // The command
 // ---------------------------------------------------------------------------
 
-pub fn cmd_docs(args: &arguments::Args) -> i32 {
+pub fn command_docs(args: &arguments::Args) -> i32 {
     let presentation = Presentation {
         width: Width::new(terminal_width()),
         // `--format` decides whether there is a human to colour for at all, so
@@ -506,7 +506,7 @@ pub fn cmd_docs(args: &arguments::Args) -> i32 {
             }
             search(&query.join(" "), &presentation)
         }
-        "assemble" => cmd_assemble(args.flags.check),
+        "assemble" => command_assemble(args.flags.check),
         "test" => doctest_command(&rest.collect::<Vec<_>>(), &presentation),
         "manifest" => {
             arguments::out(&manifest());
@@ -995,7 +995,7 @@ fn markdown_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-fn cmd_assemble(check_only: bool) -> i32 {
+fn command_assemble(check_only: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
         Err(e) => {

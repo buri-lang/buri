@@ -180,7 +180,7 @@ impl Out {
     }
 }
 
-pub fn cmd_test(args: &arguments::Args) -> i32 {
+pub fn command_test(args: &arguments::Args) -> i32 {
     // A selector naming no platform is the thing you asked *with* being wrong,
     // and it is refused here rather than per suite: a run that silently used
     // the default because the selector matched nothing would report a pass for
@@ -738,8 +738,8 @@ fn linker_name() -> String {
 ///
 /// The same selector `buri build --output=` takes and the same matcher, so
 /// `js`, `macos` and `linux/x86_64` mean here what they mean there. A selector
-/// naming nothing is not an error at this seam: `cmd_test` refuses it once, for
-/// the invocation, rather than once per suite.
+/// naming nothing is not an error at this seam: `command_test` refuses it once,
+/// for the invocation, rather than once per suite.
 fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
     let sel = flags.output.as_ref()?;
     Platform::ALL

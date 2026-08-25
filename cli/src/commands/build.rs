@@ -22,7 +22,7 @@ use crate::build::session::{self, open_or_exit};
 use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
 
-pub fn cmd_build(args: &arguments::Args) -> i32 {
+pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
         return check_reproducible(args);
     }
