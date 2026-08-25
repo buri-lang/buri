@@ -50,24 +50,16 @@ points short: 12
 ```
 
 Three goals order every trade in the design: **safe, fast to run, fast to
-compile** — in that order when they conflict, and secondarily one language that
-targets both a native binary and JavaScript.
-[`guide/goals.md`](./cli/src/docs/guide/goals.md) has what each one bought and
-what it cost.
-
-The toolchain is one binary with no dependencies and nothing to configure. It
-holds the build system, the test runner, the formatter, the linter, the
-language server, the protobuf schema compiler, and the documentation you are
-reading — every example of which is compiled by the test suite, so it cannot
-drift away from the language.
+compile** — in that order when they conflict
+([`guide/goals.md`](./cli/src/docs/guide/goals.md) has what each bought and
+cost). The toolchain is one binary with nothing to configure: the build system,
+the test runner, the formatter, the linter, the language server, and the
+documentation — every example of which is compiled by the test suite.
 
 ## Status
 
-Buri is **version 0.3 and pre-release**. There is no tagged release and no
-binary to download; every install path builds from source. What is here works
-end to end — the language, both backends (a native binary and JavaScript), the
-monorepo build system, the test runner, the formatter, the linter and the
-language server — and it is used to build and test itself. What is not settled
-is the surface: names, signatures and syntax are still moving, `SPEC.md` §15
-lists the questions that want real programs before they can be answered, and a
-change that breaks your code is a change this project will still make.
+Buri is **version 0.3 and pre-release**: no tagged release, every install
+builds from source. What is here works end to end — both backends (native and
+JavaScript), the build system, the test runner, the formatter, the linter, the
+language server — and it builds and tests itself. The surface is still moving,
+and a change that breaks your code is a change this project will still make.

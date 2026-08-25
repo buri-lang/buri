@@ -59,27 +59,19 @@ points short: 12
 ```
 
 Three goals order every trade in the design: **safe, fast to run, fast to
-compile** — in that order when they conflict, and secondarily one language that
-targets both a native binary and JavaScript.
-[`guide/goals.md`](./cli/src/docs/guide/goals.md) has what each one bought and
-what it cost.
-
-The toolchain is one binary with no dependencies and nothing to configure. It
-holds the build system, the test runner, the formatter, the linter, the
-language server, the protobuf schema compiler, and the documentation you are
-reading — every example of which is compiled by the test suite, so it cannot
-drift away from the language.
+compile** — in that order when they conflict
+([`guide/goals.md`](./cli/src/docs/guide/goals.md) has what each bought and
+cost). The toolchain is one binary with nothing to configure: the build system,
+the test runner, the formatter, the linter, the language server, and the
+documentation — every example of which is compiled by the test suite.
 
 ## Status
 
-Buri is **version 0.3 and pre-release**. There is no tagged release and no
-binary to download; every install path builds from source. What is here works
-end to end — the language, both backends (a native binary and JavaScript), the
-monorepo build system, the test runner, the formatter, the linter and the
-language server — and it is used to build and test itself. What is not settled
-is the surface: names, signatures and syntax are still moving, `SPEC.md` §15
-lists the questions that want real programs before they can be answered, and a
-change that breaks your code is a change this project will still make.
+Buri is **version 0.3 and pre-release**: no tagged release, every install
+builds from source. What is here works end to end — both backends (native and
+JavaScript), the build system, the test runner, the formatter, the linter, the
+language server — and it builds and tests itself. The surface is still moving,
+and a change that breaks your code is a change this project will still make.
 
 ## Installing
 
@@ -109,46 +101,22 @@ after that, drop it.
 cargo install --locked --path cli
 ```
 
-Whichever path installed it, the binary carries no runtime dependencies.
-`buri run` and `buri test` are the two commands that execute what they compile.
-`buri test` runs a suite as a native binary for the host and needs a C
-toolchain to link it — `cc`, or whatever `CC` names — which every developer
-machine already has. What it falls back to, and what `buri run` executes for a
-binary that declares no output, is JavaScript: that path resolves a runtime from
-`PATH`, or from `BURI_JS` naming one, and `bun` is what the toolchain's own
-development uses.
+The binary carries no runtime dependencies. Linking a native binary uses the
+system C toolchain (`cc`, or whatever `CC` names); the JavaScript path resolves
+a runtime — `bun` or `node` — from `PATH`, or from `BURI_JS` naming one.
 
 ## Where the documentation is
 
-Everything is compiled into the binary, so the fastest way to read any of it is
-to ask the toolchain — it works in any directory, with or without a checkout:
-
-```sh
-buri docs                    # the index: every page, grouped
-buri docs lang/effects       # one page
-buri docs search "tail call" # find the page that answers a question
-buri docs cli docs           # every other form, including the ones for an agent
-```
-
-The same pages are the files under [`cli/src/docs/`](./cli/src/docs/), which is
-the one place documentation is edited:
-
-| Where | What |
-|---|---|
-| [`cli/src/docs/SPEC.md`](./cli/src/docs/SPEC.md) | The language reference, assembled from `cli/src/docs/lang/` |
-| [`cli/src/docs/grammar.ebnf`](./cli/src/docs/grammar.ebnf) | The normative grammar, in extended BNF |
-| [`cli/src/docs/guide/`](./cli/src/docs/guide/) | The guide: goals, the three ideas, numbers, methods and traits, effects, the standard library |
-| [`cli/src/docs/build/`](./cli/src/docs/build/) | The monorepo build system, `BUILD.buri`, tags, hermeticity, and the CLI reference |
-| [`cli/src/docs/errors/`](./cli/src/docs/errors/) | One page per diagnostic, each with a program that provokes it |
-| [`cli/tests/example/`](./cli/tests/example/) | A worked monorepo, and the largest body of Buri here to read |
-
-Two things are documentation but not user documentation, and they live apart:
-[`design/`](./design/) holds the working notes, roadmaps and design documents
-that contributors write for each other, and [`formal/`](./formal/) holds the
+All of it is compiled into the binary — `buri docs` is the index,
+`buri docs search "tail call"` finds the page that answers a question, and both
+work in any directory. The same pages are the files under
+[`cli/src/docs/`](./cli/src/docs/): the language reference
+[`SPEC.md`](./cli/src/docs/SPEC.md), the [guide](./cli/src/docs/guide/), the
+[build system](./cli/src/docs/build/), and one page per diagnostic. A worked
+monorepo lives in [`cli/tests/example/`](./cli/tests/example/);
+[`design/`](./design/) holds contributor notes and [`formal/`](./formal/) the
 Lean 4 formalisation of the type system.
 
 ## License
 
-MIT. The text is in [`LICENSE`](./LICENSE) at the root of this repository, and
-it covers everything here — the toolchain, the standard library, the
-documentation, and the editor integrations.
+MIT — the text is in [`LICENSE`](./LICENSE) and covers everything here.
