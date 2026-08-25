@@ -662,6 +662,7 @@ fn the_native_set_passes() {
     let mut total = 0usize;
     let mut ran = 0usize;
     let mut skipped: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     for case in PACKAGES.iter().filter(|c| c.out.is_none()) {
         let source = read(case);
         // A file the *front end* refuses is not this file's failure: the
@@ -681,11 +682,17 @@ fn the_native_set_passes() {
             skipped.push(format!("{} (front end)", case.path));
             continue;
         };
-        assert_eq!(status, 0, "`{}` failed:\nstdout:\n{out}\nstderr:\n{err}", case.path);
+        if status != 0 {
+            failures
+                .push(format!("`{}` exited {status}:\nstdout:\n{out}\nstderr:\n{err}", case.path));
+        }
         assert!(blocks > 0, "`{}` holds no `test` blocks", case.path);
         total += blocks;
         ran += 1;
     }
+    // Every failing file, not the first: two platforms failing on two
+    // different files is one report here and two runs otherwise.
+    assert!(failures.is_empty(), "{} files failed:\n{}", failures.len(), failures.join("\n"));
     for s in &skipped {
         eprintln!("native conformance: skipped {s}");
     }

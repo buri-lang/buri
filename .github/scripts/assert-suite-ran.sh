@@ -12,7 +12,7 @@
 # side of that guard.
 #
 # So: the line has to be there, and it has to say what the macOS column says —
-# the same twenty-five compiled and the same six refused, by name.
+# the same twenty-six compiled and the same ten refused, by name.
 #
 # Usage: bash .github/scripts/assert-suite-ran.sh <log from `cargo test … -- --nocapture`>
 
@@ -49,17 +49,17 @@ echo "$census"
 
 # --------------------------------------------------------------- parity ----
 case "$census" in
-  *"(6 refused, 0 not asked)"*)
+  *"(10 refused, 0 not asked)"*)
     ;;
   *)
-    fail "the corpus census does not match the macOS column, which is 6 refused and 0 not asked"
+    fail "the corpus census does not match the macOS column, which is 10 refused and 0 not asked"
     ;;
 esac
 
-# The six, by name. `the_corpus_census_is_a_ratchet` already pins the twenty-five
+# The ten, by name. `the_corpus_census_is_a_ratchet` already pins the twenty-six
 # that compile from inside the suite; this pins the complement from outside it,
-# because "the same six packages" is the claim parity actually makes and a
-# census that refused six DIFFERENT files would satisfy the count.
+# because "the same ten packages" is the claim parity actually makes and a
+# census that refused ten DIFFERENT files would satisfy the count.
 expected=$(cat <<'EOF'
 json/decoding.buri
 json/encoding.buri
@@ -67,6 +67,10 @@ numbers/conversions.buri
 numbers/floats.buri
 proto/json.buri
 text/json.buri
+ui/fetch.buri
+ui/reactivity.buri
+ui/theme.buri
+ui/tree.buri
 EOF
 )
 actual=$(grep -oE 'stencil refuses [^:]+:' "$log" | sed -E 's/^stencil refuses //; s/:$//' | sort -u)
