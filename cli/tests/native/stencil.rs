@@ -190,7 +190,7 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // same emitter. A harness that links more permissively than the product is
     // a harness that cannot see the product's bugs.
     if cfg!(target_os = "macos") {
-        cc.args(["-Wl,-no_uuid", "-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
     }
     if cfg!(target_os = "linux") {
         cc.args(["-lpthread", "-ldl", "-lm"]);
@@ -1297,7 +1297,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
     cc.arg(archive());
     // `build/link.rs`'s macOS flags, for `build_with`'s reason.
     if cfg!(target_os = "macos") {
-        cc.args(["-Wl,-no_uuid", "-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
     }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));

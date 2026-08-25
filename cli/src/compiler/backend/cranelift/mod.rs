@@ -318,6 +318,8 @@ fn isa_for(opts: &Options<'_>) -> Result<Arc<dyn TargetIsa>, String> {
     set("preserve_frame_pointers", "true");
     set("unwind_info", "false");
     set("regalloc_algorithm", "single_pass");
+    // The x64 backend refuses `i128` arguments and returns without this.
+    set("enable_llvm_abi_extensions", "true");
     let flags = settings::Flags::new(flags);
 
     // The host gets `cranelift_native`, which infers the running CPU's

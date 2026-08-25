@@ -23,7 +23,7 @@
 //! linux   cc -fuse-ld=mold  -o A u0.o u1.o libburi_rt.a -Wl,--build-id=none -Wl,--gc-sections
 //!         cc -fuse-ld=lld   ...                          (mold absent)
 //!         cc                ...                          (neither present)
-//! macos   cc -fuse-ld=lld   -o A u0.o u1.o libburi_rt.a -Wl,-no_uuid -Wl,-dead_strip
+//! macos   cc -fuse-ld=lld   -o A u0.o u1.o libburi_rt.a -Wl,-dead_strip
 //!         cc                ...                          (ld64.lld absent)
 //! ```
 //!
@@ -51,8 +51,9 @@
 //! ARCHITECTURE.md §7 names three sources of nondeterminism, and the two that
 //! belong to the linker are closed here rather than compared for:
 //!
-//! - **`LC_UUID`** is removed with `-no_uuid` on macOS. A content-derived UUID
-//!   would be reproducible; Apple's is not, and the flag removes the question.
+//! - **`LC_UUID`** stays: ld64's UUID is a content digest, so two identical
+//!   links carry one UUID. It used to be removed with `-no_uuid`, until macOS
+//!   26's dyld (under Xcode 26 tooling) started rejecting binaries without one.
 //! - **The GNU build id** is removed with `--build-id=none` on Linux, for the
 //!   same reason and one more: it is a hash of content that is about to be
 //!   compared byte for byte, so it can only ever restate the answer.
@@ -516,8 +517,9 @@ impl CDriver {
         let mut flags: Vec<String> = Vec::new();
         match self.target.platform {
             Platform::Macos => {
-                // LC_UUID is the one field that would differ on every link.
-                flags.push("-Wl,-no_uuid".into());
+                // No `-no_uuid`: macOS 26's dyld refuses a binary without an
+                // LC_UUID, and ld64's UUID is a content digest, so keeping it
+                // costs no reproducibility.
                 flags.push("-Wl,-dead_strip".into());
                 // ARCHITECTURE.md §7's third source of nondeterminism, on the
                 // linker's side of it. `ld64` records an `N_OSO` stab naming
