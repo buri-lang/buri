@@ -64,7 +64,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("binary-source-import", "A library does not reach the binary beside it", &["build/build-files"]),
     e!("chained-comparison", "Comparison operators do not chain"),
     e!("circular-import", "Modules form a graph with no cycles"),
-    e!("context-decl-not-allowed", "A `context` declaration lives where a context may be built"),
+    e!("context-declaration-not-allowed", "A `context` declaration lives where a context may be built"),
     e!("context-not-allowed", "A context may only be built where authority enters"),
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
     e!("derive-only-trait", "Some traits are derived, never implemented", &["guide/standard-library"]),
@@ -222,6 +222,22 @@ mod tests {
             assert!(!p.front.title.trim().is_empty(), "`{}` has an empty title", p.code);
             assert!(!p.front.message.trim().is_empty(), "`{}` has an empty message", p.code);
         }
+    }
+
+    /// Every code is migrated, so a page with no `---` block is one that lost
+    /// it. Without this the loss is silent: `every_page_parses` only sees the
+    /// pages that opened a block, and the emission site does not panic until
+    /// something provokes the code.
+    #[test]
+    fn every_page_carries_its_wording() {
+        let missing: Vec<&str> =
+            ERRORS.iter().map(|e| e.code).filter(|code| page(code).is_none()).collect();
+        assert!(
+            missing.is_empty(),
+            "these pages carry no `---` frontmatter block, so their diagnostics have no \
+             message to print:\n  {}",
+            missing.join("\n  ")
+        );
     }
 
     /// `{function}`, never `{fn}` or `{fnName}`: the project spells names out,

@@ -420,7 +420,7 @@ impl<'a> Checker<'a> {
                 // exporting `main`, a test source, or a test-only module.
                 let role = self.module(module).role;
                 if !role.may_build_context() {
-                    self.templated("context-decl-not-allowed", d.span);
+                    self.templated("context-declaration-not-allowed", d.span);
                 }
                 if d.exported && !matches!(role, Role::TestOnly | Role::Platform) {
                     self.err(d.span, "a `context` may be exported only from a test-only module")
