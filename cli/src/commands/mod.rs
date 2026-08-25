@@ -246,7 +246,8 @@ pub const FLAGS: &[Flag] = &[
         name: "dense",
         value: Value::None,
         choices: &[],
-        blurb: "headings and examples only — fewer tokens, every example kept",
+        blurb: "headings and examples only — fewer tokens, every example kept; on a build, \
+                diagnostics without the explanation under them",
         global: false,
         set: |f, _| {
             f.dense = true;
@@ -315,7 +316,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile",
         doc: include_str!("../docs/cli/build.md"),
-        flags: &["release", "debug", "output", "force", "explain", "check-reproducible"],
+        flags: &["release", "debug", "output", "force", "explain", "check-reproducible", "dense"],
         run: build::command_build,
         hidden: false,
     },
@@ -324,7 +325,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile and run test suites",
         doc: include_str!("../docs/cli/test.md"),
-        flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch"],
+        flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch", "dense"],
         run: test::command_test,
         hidden: false,
     },
@@ -351,7 +352,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "static checks beyond type checking",
         doc: include_str!("../docs/cli/lint.md"),
-        flags: &["fix"],
+        flags: &["fix", "dense"],
         run: lint::command_lint,
         hidden: false,
     },

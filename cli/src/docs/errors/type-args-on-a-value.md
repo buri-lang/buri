@@ -1,3 +1,8 @@
+---
+title: Type arguments qualify a function, not a value
+message: explicit type arguments qualify a function or a call
+fix: attach the type arguments to the call, as in `{function}<Str>(x)`
+---
 # Type arguments qualify a function, not a value
 
 ```text

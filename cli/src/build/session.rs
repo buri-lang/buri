@@ -54,6 +54,9 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
             color: flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
         },
     };
+    // `--dense` means the same thing here as it does for `buri docs`: the
+    // headings and the code, none of the prose.
+    crate::diagnostics::print_bodies(!flags.dense);
     Ok(Session {
         root,
         map,
@@ -135,7 +138,7 @@ impl Session {
     )]
     pub fn emit(&self, d: &crate::diagnostics::Diagnostic) {
         match self.rendering {
-            Rendering::Human { color } => eprint!("{}", self.map.render(d, color)),
+            Rendering::Human { color } => eprint!("{}", self.map.render_with_body(d, color)),
             Rendering::Json => eprintln!("{}", self.map.to_json(d)),
         }
     }

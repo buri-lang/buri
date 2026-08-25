@@ -720,12 +720,13 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The codes a Rust source attaches, read from `with_code` and `.code`.
-/// Textual on purpose: the alternative is a registry every call site has to
-/// remember to use, which is the thing that drifts.
+/// The codes a Rust source attaches, read from `with_code`, `.code`, and the
+/// `templated` constructor, whose first argument is the code its page is
+/// named after. Textual on purpose: the alternative is a registry every call
+/// site has to remember to use, which is the thing that drifts.
 fn codes_in(text: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for marker in ["with_code(\"", ".code(\""] {
+    for marker in ["with_code(\"", ".code(\"", "templated(\""] {
         let mut rest = text;
         while let Some(i) = rest.find(marker) {
             rest = &rest[i + marker.len()..];
