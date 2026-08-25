@@ -233,10 +233,10 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
         "two links of one set of objects differ, so the artifact is not a function of its inputs"
     );
 
-    // The flag rather than its shadow. Two equal artifacts would also be
-    // explained by a linker that happened to derive its uuid from content, and
-    // then the flag could be dropped and this test would keep passing — so what
-    // is asserted is that the field is *gone*.
+    // On macOS the field must be *present*: macOS 26's dyld refuses a binary
+    // without an LC_UUID, so reproducibility leans on ld64 deriving the UUID
+    // from content — which the byte comparison above holds it to. On Linux the
+    // build id is still removed, and what is asserted is that it is gone.
     let load_commands = |path: &Path| -> String {
         Command::new(if target.platform == Platform::Macos { "otool" } else { "readelf" })
             .args(if target.platform == Platform::Macos { ["-l"] } else { ["-S"] })
@@ -252,8 +252,8 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
     }
     match target.platform {
         Platform::Macos => assert!(
-            !dumped.contains("LC_UUID"),
-            "the artifact carries an LC_UUID, so -no_uuid did not reach the linker"
+            dumped.contains("LC_UUID"),
+            "the artifact carries no LC_UUID, which macOS 26's dyld refuses to load"
         ),
         _ => assert!(
             !dumped.contains("build-id"),

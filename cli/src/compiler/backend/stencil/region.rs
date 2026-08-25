@@ -251,18 +251,16 @@ impl Region {
     /// The two sections and the relocations each still needs.
     pub fn finish(mut self) -> Emitted {
         for (at, target) in std::mem::take(&mut self.pool_targets) {
-            // A pool word naming a byte of the pool carries its own addend in
-            // its bytes, which is where an `Abs64` takes one from.
-            if let Target::Here(off) = &target {
-                if let Some(slot) = self.pool.get_mut(at as usize..at as usize + 8) {
-                    slot.copy_from_slice(&off.to_le_bytes());
-                }
-            }
-            let target = match target {
-                Target::Here(_) => Target::Pool,
-                other => other,
+            // A pool word naming a byte of the pool carries the byte's offset
+            // as the relocation's addend — the field, not the slot's bytes:
+            // ELF `RELA` resolves to `S + r_addend` and ignores the section's
+            // contents, while `object.rs` folds the field into the bytes where
+            // Mach-O's `UNSIGNED` reads it.
+            let (target, addend) = match target {
+                Target::Here(off) => (Target::Pool, off as i64),
+                other => (other, 0),
             };
-            self.pool_relocs.push(Reloc { at, kind: RelocKind::Abs64, target, addend: 0 });
+            self.pool_relocs.push(Reloc { at, kind: RelocKind::Abs64, target, addend });
         }
         Emitted {
             code: self.bytes,
@@ -310,19 +308,22 @@ mod tests {
     }
 
     /// A pool word that names a symbol becomes a relocation and stays zero in
-    /// the bytes; one that names this section carries its own addend.
+    /// the bytes; one that names this section carries the offset as the
+    /// relocation's addend, and its bytes also stay zero.
     #[test]
     fn pool_targets_become_relocations() {
         let mut r = Region::new();
         r.put(&[0; 8]);
+        r.pool_bytes(b"leading bytes");
         let here = r.pool_bytes(b"abcd");
         r.pool_target(Target::Symbol(String::from("buri_rt_flush")));
         r.pool_target(Target::Here(here & !(1 << 40)));
         let out = r.finish();
         assert_eq!(out.pool_relocs.len(), 2);
         assert_eq!(out.pool_relocs.first().map(|x| x.kind), Some(RelocKind::Abs64));
-        // The `Here` slot carries its own addend: the linker adds the pool's
-        // base to whatever is in the bytes.
+        assert_eq!(out.pool_relocs.first().map(|x| x.addend), Some(0));
+        assert_ne!(here & !(1 << 40), 0);
+        assert_eq!(out.pool_relocs.get(1).map(|x| x.addend), Some((here & !(1 << 40)) as i64));
         let slot = out.pool_relocs.get(1).map(|x| x.at).unwrap_or(0) as usize;
         let w = out.pool.get(slot..slot + 8).map(|b| {
             let mut a = [0u8; 8];

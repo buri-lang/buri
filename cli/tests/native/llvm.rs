@@ -64,7 +64,7 @@ fn lower(source: &str) -> Lowered {
     let mut cache = buri::parsing::parser::Cache::new();
     let analysis =
         driver::analyze_snippet_in(None, &mut map, &mut cache, "main.buri", source, Role::Entry);
-    assert!(!analysis.diags.has_errors(), "{}", render(&analysis.diags, &map));
+    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let entry = analysis.checked.entry.expect("the program exports no `main`");
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -1205,7 +1205,7 @@ export fn main(): Result<(), Str> {
     );
     let analysis =
         driver::analyze_snippet_in(None, &mut map, &mut cache, "main.buri", &source, Role::Entry);
-    assert!(!analysis.diags.has_errors(), "{}", render(&analysis.diags, &map));
+    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let entry = analysis.checked.entry.unwrap();
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -1270,7 +1270,7 @@ export fn main(): Result<(), Str> {
         &with_closure,
         Role::Entry,
     );
-    assert!(!analysis.diags.has_errors(), "{}", render(&analysis.diags, &map));
+    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let entry = analysis.checked.entry.unwrap();
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();

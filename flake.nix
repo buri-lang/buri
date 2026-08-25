@@ -2,7 +2,7 @@
   description = "compiler toolchain";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -23,10 +23,9 @@
 
         # LLVM 21.1, pinned deliberately rather than taken from the default
         # `llvmPackages` (design/native/CODEGEN-LLVM.md §8). The flake's
-        # `nixos-25.05` provides 18.1.8, 19.1.7 (the default), 20.1.8 and
-        # 21.1.2 and no 22 -- so pinning 22, which is the newest inkwell
-        # supports, would mean bumping this flake's nixpkgs in service of a
-        # codegen decision.
+        # `nixos-25.11` provides 12 through 21 (21.1.7 is the default) and no
+        # 22 -- so pinning 22, which is the newest inkwell supports, would mean
+        # bumping this flake's nixpkgs in service of a codegen decision.
         #
         # `.dev`, not the default output: `.dev` carries `bin/llvm-config` and
         # the headers, which is what `llvm-sys`'s build script looks for, and
