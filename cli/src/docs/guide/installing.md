@@ -26,11 +26,6 @@ after that, drop it.
 cargo install --locked --path cli
 ```
 
-Whichever path installed it, the binary carries no runtime dependencies.
-`buri run` and `buri test` are the two commands that execute what they compile.
-`buri test` runs a suite as a native binary for the host and needs a C
-toolchain to link it — `cc`, or whatever `CC` names — which every developer
-machine already has. What it falls back to, and what `buri run` executes for a
-binary that declares no output, is JavaScript: that path resolves a runtime from
-`PATH`, or from `BURI_JS` naming one, and `bun` is what the toolchain's own
-development uses.
+The binary carries no runtime dependencies. Linking a native binary uses the
+system C toolchain (`cc`, or whatever `CC` names); the JavaScript path resolves
+a runtime — `bun` or `node` — from `PATH`, or from `BURI_JS` naming one.
