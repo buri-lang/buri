@@ -8,7 +8,7 @@
 //! `sources` would turn `buri gen //...` into a way to quietly delete policy.
 
 use crate::build::session::Session;
-use crate::build::textproto::{Doc, Field, Msg, Value};
+use crate::build::textproto::{Document, Field, Message, Value};
 use crate::build::workspace::{PackageId, RuleKind};
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use std::collections::BTreeSet;
@@ -40,10 +40,10 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     if let Some(first) = parsed.errors.first() {
         return Err(first.clone());
     }
-    let mut doc = parsed.doc;
+    let mut document = parsed.document;
 
-    let has_library = doc.get("library").is_some();
-    let has_binary = doc.get("binary").is_some();
+    let has_library = document.get("library").is_some();
+    let has_binary = document.get("binary").is_some();
 
     // Every `.buri` and `.proto` file in the package, by category.
     let mut files = Vec::new();
@@ -66,12 +66,12 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     let mut unplaceable: Vec<Unplaceable> = Vec::new();
 
     // A file already listed in a rule's `sources` stays there.
-    let existing_lib = listed(&doc, "library", "sources");
-    let existing_bin = listed(&doc, "binary", "sources");
-    let existing_lib_protos = listed(&doc, "library", "proto_sources");
-    let existing_bin_protos = listed(&doc, "binary", "proto_sources");
-    let existing_lib_tests = listed_at(&doc, "library", &["test", "sources"]);
-    let existing_bin_tests = listed_at(&doc, "binary", &["test", "sources"]);
+    let existing_lib = listed(&document, "library", "sources");
+    let existing_bin = listed(&document, "binary", "sources");
+    let existing_lib_protos = listed(&document, "library", "proto_sources");
+    let existing_bin_protos = listed(&document, "binary", "proto_sources");
+    let existing_lib_tests = listed_at(&document, "library", &["test", "sources"]);
+    let existing_bin_tests = listed_at(&document, "binary", &["test", "sources"]);
 
     // In a package with both rules, `gen` needs to know which rule a new file
     // belongs to, and the answer is which entry point reaches it. Computed
@@ -230,9 +230,9 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
         if !present {
             continue;
         }
-        set_list(&mut doc, rule, &["sources"], sources, &mut summary, &name(rule, "sources"));
+        set_list(&mut document, rule, &["sources"], sources, &mut summary, &name(rule, "sources"));
         set_list(
-            &mut doc,
+            &mut document,
             rule,
             &["proto_sources"],
             protos,
@@ -241,7 +241,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
         );
         if let Some((production, _)) = rule_deps {
             set_list(
-                &mut doc,
+                &mut document,
                 rule,
                 &["dependencies"],
                 production,
@@ -249,9 +249,9 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
                 &name(rule, "dependencies"),
             );
         }
-        if !tests.is_empty() || has_block(&doc, rule, "test") {
+        if !tests.is_empty() || has_block(&document, rule, "test") {
             set_list(
-                &mut doc,
+                &mut document,
                 rule,
                 &["test", "sources"],
                 tests,
@@ -260,7 +260,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             );
             if let Some((_, test)) = rule_deps {
                 set_list(
-                    &mut doc,
+                    &mut document,
                     rule,
                     &["test", "dependencies"],
                     test,
@@ -274,7 +274,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
         // fills the block in and never decides the package has one.
         if rule == "library" && p.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
             set_list(
-                &mut doc,
+                &mut document,
                 rule,
                 &["testing", "sources"],
                 &testing_sources,
@@ -283,7 +283,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             );
             if let Some(d) = lib_deps {
                 set_list(
-                    &mut doc,
+                    &mut document,
                     rule,
                     &["testing", "dependencies"],
                     &d.testing,
@@ -296,7 +296,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
 
     // What `gen` may change everywhere is formatting: it leaves the file
     // exactly as `buri format` would, so the two never fight over a file.
-    let text = crate::build::textproto::print(&doc);
+    let text = crate::build::textproto::print(&document);
     if text == original {
         return Ok(None);
     }
@@ -603,9 +603,9 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<Str
     }
 }
 
-fn listed(doc: &Doc, rule: &str, field: &str) -> BTreeSet<String> {
+fn listed(document: &Document, rule: &str, field: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    if let Some(Value::Msg(m, _)) = doc.get(rule).map(|f| &f.value) {
+    if let Some(Value::Message(m, _)) = document.get(rule).map(|f| &f.value) {
         if let Some(Value::List(items, _)) = m.get(field).map(|f| &f.value) {
             for i in items {
                 if let Value::Str(s, _) = i {
@@ -618,28 +618,31 @@ fn listed(doc: &Doc, rule: &str, field: &str) -> BTreeSet<String> {
 }
 
 /// The same, for a field inside a block: `test.sources`.
-fn listed_at(doc: &Doc, rule: &str, path: &[&str]) -> BTreeSet<String> {
+fn listed_at(document: &Document, rule: &str, path: &[&str]) -> BTreeSet<String> {
     let Some((leaf, blocks)) = path.split_last() else { return BTreeSet::new() };
-    let Some(Value::Msg(mut m, _)) = doc.get(rule).map(|f| f.value.clone()) else {
+    let Some(Value::Message(mut m, _)) = document.get(rule).map(|f| f.value.clone()) else {
         return BTreeSet::new();
     };
     for seg in blocks {
         match m.get(seg).map(|f| f.value.clone()) {
-            Some(Value::Msg(inner, _)) => m = inner,
+            Some(Value::Message(inner, _)) => m = inner,
             _ => return BTreeSet::new(),
         }
     }
     listed_from(&m, leaf)
 }
 
-fn has_block(doc: &Doc, rule: &str, block: &str) -> bool {
-    matches!(doc.get(rule).map(|f| &f.value), Some(Value::Msg(m, _)) if m.get(block).is_some())
+fn has_block(document: &Document, rule: &str, block: &str) -> bool {
+    matches!(
+        document.get(rule).map(|f| &f.value),
+        Some(Value::Message(m, _)) if m.get(block).is_some()
+    )
 }
 
 /// Replaces a managed field's contents whole rather than merging, so
 /// hand-editing `sources` is pointless and hand-editing `tags` is expected.
 fn set_list(
-    doc: &mut Doc,
+    document: &mut Document,
     rule: &str,
     path: &[&str],
     values: &[String],
@@ -647,9 +650,9 @@ fn set_list(
     label: &str,
 ) {
     let Some((leaf, blocks)) = path.split_last() else { return };
-    let Some(rule_field) = doc.fields.iter_mut().find(|f| f.name == rule) else { return };
-    let Value::Msg(msg, _) = &mut rule_field.value else { return };
-    let mut target: &mut Msg = msg;
+    let Some(rule_field) = document.fields.iter_mut().find(|f| f.name == rule) else { return };
+    let Value::Message(message, _) = &mut rule_field.value else { return };
+    let mut target: &mut Message = message;
     for seg in blocks {
         let i = match target.fields.iter().position(|f| f.name == *seg) {
             Some(i) => i,
@@ -666,7 +669,7 @@ fn set_list(
                 target.fields.push(Field {
                     name: (*seg).to_string(),
                     name_span: Span::NONE,
-                    value: Value::Msg(Msg::default(), Span::NONE),
+                    value: Value::Message(Message::default(), Span::NONE),
                     comments: Vec::new(),
                     blank_before: true,
                     span: Span::NONE,
@@ -675,7 +678,7 @@ fn set_list(
             }
         };
         match target.fields.get_mut(i).map(|f| &mut f.value) {
-            Some(Value::Msg(inner, _)) => target = inner,
+            Some(Value::Message(inner, _)) => target = inner,
             _ => return,
         }
     }
@@ -694,7 +697,7 @@ fn set_list(
             let at = target
                 .fields
                 .iter()
-                .position(|f| matches!(f.value, Value::Msg(..)))
+                .position(|f| matches!(f.value, Value::Message(..)))
                 .unwrap_or(target.fields.len());
             target.fields.insert(
                 at,
@@ -726,9 +729,9 @@ fn set_list(
     }
 }
 
-fn listed_from(msg: &Msg, field: &str) -> BTreeSet<String> {
+fn listed_from(message: &Message, field: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    if let Some(Value::List(items, _)) = msg.get(field).map(|f| &f.value) {
+    if let Some(Value::List(items, _)) = message.get(field).map(|f| &f.value) {
         for i in items {
             if let Value::Str(s, _) = i {
                 out.insert(s.clone());

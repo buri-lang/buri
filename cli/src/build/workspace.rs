@@ -11,7 +11,7 @@
 //! 5. Everything is declared — a file on disk that no rule lists is an error.
 
 use crate::build::buildfile::{self, BuildFile, Platform, RepoConfig, Sp};
-use crate::build::textproto::Doc;
+use crate::build::textproto::Document;
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ pub struct Package {
     pub build_file_id: FileId,
     pub build: BuildFile,
     /// The textproto tree, kept so `gen` and `format` can rewrite the file.
-    pub doc: Doc,
+    pub document: Document,
 }
 
 impl Package {
@@ -345,7 +345,7 @@ impl Workspace {
                 build_path,
                 build_file_id: id,
                 build: read.value,
-                doc: read.doc,
+                document: read.document,
             });
         }
 

@@ -37,7 +37,7 @@ pub fn file(name: &str, text: &str) -> Option<String> {
         if !parsed.errors.is_empty() {
             return None;
         }
-        return Some(textproto::print(&parsed.doc));
+        return Some(textproto::print(&parsed.document));
     }
     crate::formatting::source(text)
 }

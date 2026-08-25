@@ -87,7 +87,7 @@ use std::path::{Path, PathBuf};
 
 use super::{indent, run_in, Golden, Scratch};
 
-use buri::build::textproto::{self, Msg, Value};
+use buri::build::textproto::{self, Message, Value};
 use buri::diagnostics::FileId;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -462,11 +462,11 @@ pub fn load_case(dir: &Path) -> Case {
 
     let mut doc = None;
     let mut steps = Vec::new();
-    for field in &parsed.doc.fields {
+    for field in &parsed.document.fields {
         match field.name.as_str() {
             "doc" => doc = Some(as_str(&name, "doc", &field.value)),
             "run" => {
-                let m = as_msg(&name, "run", &field.value);
+                let m = as_message(&name, "run", &field.value);
                 steps.push(Step::Run {
                     args: str_list(&name, "run.args", &m),
                     exit: req_int(&name, "run", "exit", &m),
@@ -484,7 +484,7 @@ pub fn load_case(dir: &Path) -> Case {
                 });
             }
             "edit" => {
-                let m = as_msg(&name, "edit", &field.value);
+                let m = as_message(&name, "edit", &field.value);
                 steps.push(Step::Edit {
                     file: req_str(&name, "edit", "file", &m),
                     from: req_str(&name, "edit", "replace", &m),
@@ -492,7 +492,7 @@ pub fn load_case(dir: &Path) -> Case {
                 });
             }
             "file" => {
-                let m = as_msg(&name, "file", &field.value);
+                let m = as_message(&name, "file", &field.value);
                 let step = Step::File {
                     path: req_str(&name, "file", "path", &m),
                     golden: opt_str(&name, "file.golden", &m),
@@ -508,7 +508,7 @@ pub fn load_case(dir: &Path) -> Case {
                 steps.push(step);
             }
             "path" => {
-                let m = as_msg(&name, "path", &field.value);
+                let m = as_message(&name, "path", &field.value);
                 let symlink = opt_str(&name, "path.symlink", &m);
                 let exists = opt_ident(&name, "path.exists", &m).map(|v| match v.as_str() {
                     "true" => true,
@@ -554,26 +554,26 @@ fn as_str(case: &str, what: &str, v: &Value) -> String {
     }
 }
 
-fn as_msg(case: &str, what: &str, v: &Value) -> Msg {
+fn as_message(case: &str, what: &str, v: &Value) -> Message {
     match v {
-        Value::Msg(m, _) => m.clone(),
+        Value::Message(m, _) => m.clone(),
         other => panic!("{case}: {what} is {}, not a message", other.kind()),
     }
 }
 
-fn req_str(case: &str, block: &str, field: &str, m: &Msg) -> String {
+fn req_str(case: &str, block: &str, field: &str, m: &Message) -> String {
     let f = m
         .get(field)
         .unwrap_or_else(|| panic!("{case}: `{block}` has no `{field}`"));
     as_str(case, &format!("{block}.{field}"), &f.value)
 }
 
-fn opt_str(case: &str, what: &str, m: &Msg) -> Option<String> {
+fn opt_str(case: &str, what: &str, m: &Message) -> Option<String> {
     let field = what.rsplit('.').next().unwrap();
     m.get(field).map(|f| as_str(case, what, &f.value))
 }
 
-fn opt_ident(case: &str, what: &str, m: &Msg) -> Option<String> {
+fn opt_ident(case: &str, what: &str, m: &Message) -> Option<String> {
     let field = what.rsplit('.').next().unwrap();
     m.get(field).map(|f| match &f.value {
         Value::Ident(s, _) => s.clone(),
@@ -581,7 +581,7 @@ fn opt_ident(case: &str, what: &str, m: &Msg) -> Option<String> {
     })
 }
 
-fn req_int(case: &str, block: &str, field: &str, m: &Msg) -> i32 {
+fn req_int(case: &str, block: &str, field: &str, m: &Message) -> i32 {
     let f = m
         .get(field)
         .unwrap_or_else(|| panic!("{case}: `{block}` has no `{field}` — an exit code is never inferred"));
@@ -591,7 +591,7 @@ fn req_int(case: &str, block: &str, field: &str, m: &Msg) -> i32 {
     }
 }
 
-fn str_list(case: &str, what: &str, m: &Msg) -> Vec<String> {
+fn str_list(case: &str, what: &str, m: &Message) -> Vec<String> {
     let field = what.rsplit('.').next().unwrap();
     let f = m
         .get(field)

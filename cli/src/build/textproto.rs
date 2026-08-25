@@ -24,7 +24,7 @@
 use crate::diagnostics::{Diagnostic, FileId, Span};
 
 #[derive(Clone, Debug)]
-pub struct Doc {
+pub struct Document {
     pub fields: Vec<Field>,
     /// Comments after the last field, kept so the formatter can put them back.
     pub trailing: Vec<String>,
@@ -48,7 +48,7 @@ pub enum Value {
     Int(i64, Span),
     /// An enum value or a bool, both spelled as a bare identifier.
     Ident(String, Span),
-    Msg(Msg, Span),
+    Message(Message, Span),
     List(Vec<Value>, Span),
 }
 
@@ -58,7 +58,7 @@ impl Value {
             Value::Str(_, s)
             | Value::Int(_, s)
             | Value::Ident(_, s)
-            | Value::Msg(_, s)
+            | Value::Message(_, s)
             | Value::List(_, s) => *s,
         }
     }
@@ -68,19 +68,19 @@ impl Value {
             Value::Str(..) => "a string",
             Value::Int(..) => "a number",
             Value::Ident(..) => "an identifier",
-            Value::Msg(..) => "a message",
+            Value::Message(..) => "a message",
             Value::List(..) => "a list",
         }
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Msg {
+pub struct Message {
     pub fields: Vec<Field>,
     pub trailing: Vec<String>,
 }
 
-impl Msg {
+impl Message {
     pub fn get(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|f| f.name == name)
     }
@@ -90,7 +90,7 @@ impl Msg {
     }
 }
 
-impl Doc {
+impl Document {
     pub fn get(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|f| f.name == name)
     }
@@ -99,17 +99,17 @@ impl Doc {
         self.fields.iter().filter(move |f| f.name == name)
     }
 
-    pub fn as_msg(&self) -> Msg {
-        Msg { fields: self.fields.clone(), trailing: self.trailing.clone() }
+    pub fn as_message(&self) -> Message {
+        Message { fields: self.fields.clone(), trailing: self.trailing.clone() }
     }
 }
 
-pub struct ParsedProto {
-    pub doc: Doc,
+pub struct Parsed {
+    pub document: Document,
     pub errors: Vec<Diagnostic>,
 }
 
-pub fn parse(text: &str, file: FileId) -> ParsedProto {
+pub fn parse(text: &str, file: FileId) -> Parsed {
     let mut p = Parser {
         src: text.as_bytes(),
         text,
@@ -128,7 +128,7 @@ pub fn parse(text: &str, file: FileId) -> ParsedProto {
             "a build file is a list of `name: value` and `name { ... }` fields",
         ));
     }
-    ParsedProto { doc: Doc { fields, trailing }, errors: p.errors }
+    Parsed { document: Document { fields, trailing }, errors: p.errors }
 }
 
 struct Parser<'a> {
@@ -175,9 +175,9 @@ impl<'a> Parser<'a> {
 
     /// Every textproto error carries the edit that resolves it, the same way
     /// every source diagnostic does.
-    fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
+    fn err(&mut self, span: Span, message: impl Into<String>, fix: impl Into<String>) {
         if self.errors.len() < 32 {
-            self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
+            self.errors.push(Diagnostic::error(span, message).with_fix(fix));
         }
     }
 
@@ -319,7 +319,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         self.pos = self.pos.saturating_add(1);
-        Some(Value::Msg(Msg { fields, trailing }, Span::new(self.file, start, self.pos)))
+        Some(Value::Message(Message { fields, trailing }, Span::new(self.file, start, self.pos)))
     }
 
     fn value(&mut self) -> Option<Value> {
@@ -487,8 +487,8 @@ const INDENT: usize = 4;
 /// A name missing from here is not an error at format time: an unknown field
 /// keeps its place at the end, because a formatter that dropped or reordered
 /// something it did not recognise would be worse than one that left it alone.
-pub fn schema_order(msg: &str) -> &'static [&'static str] {
-    match msg {
+pub fn schema_order(message: &str) -> &'static [&'static str] {
+    match message {
         // A BUILD.buri holds `library`/`binary`; a REPO.buri holds `tag`. One
         // table here because no file has both and the formatter does not know
         // which kind it is looking at — which is why the top level is the one
@@ -523,8 +523,8 @@ pub fn schema_order(msg: &str) -> &'static [&'static str] {
 /// entries — keep the order they were written in. That order is the only thing
 /// about a repeated field that could carry meaning, so it is the one thing not
 /// touched.
-fn ordered<'a>(fields: &'a [Field], msg: &str) -> Vec<&'a Field> {
-    let order = schema_order(msg);
+fn ordered<'a>(fields: &'a [Field], message: &str) -> Vec<&'a Field> {
+    let order = schema_order(message);
     let rank = |f: &Field| order.iter().position(|n| *n == f.name).unwrap_or(order.len());
     let mut out: Vec<&Field> = fields.iter().collect();
     out.sort_by_key(|f| rank(f));
@@ -534,10 +534,10 @@ fn ordered<'a>(fields: &'a [Field], msg: &str) -> Vec<&'a Field> {
 /// Renders a document the way `buri format` does: the schema's field order,
 /// one field per line, a four-space indent, trailing commas, comments kept
 /// with the field beneath them.
-pub fn print(doc: &Doc) -> String {
+pub fn print(document: &Document) -> String {
     let mut out = String::new();
-    print_fields(&mut out, &ordered(&doc.fields, ""), 0, true);
-    for c in &doc.trailing {
+    print_fields(&mut out, &ordered(&document.fields, ""), 0, true);
+    for c in &document.trailing {
         out.push_str(c);
         out.push('\n');
     }
@@ -556,7 +556,7 @@ fn print_fields(out: &mut String, fields: &[&Field], level: usize, top: bool) {
         // hand-written file survives. At the top level, message fields are
         // always separated.
         let want_blank = f.blank_before
-            || (top && i > 0 && matches!(f.value, Value::Msg(..)))
+            || (top && i > 0 && matches!(f.value, Value::Message(..)))
             || (!f.comments.is_empty() && i > 0);
         if want_blank && !out.is_empty() && !out.ends_with("\n\n") {
             out.push('\n');
@@ -569,7 +569,7 @@ fn print_fields(out: &mut String, fields: &[&Field], level: usize, top: bool) {
         indent(out, level);
         out.push_str(&f.name);
         match &f.value {
-            Value::Msg(m, _) => {
+            Value::Message(m, _) => {
                 out.push_str(" {");
                 if m.fields.is_empty() && m.trailing.is_empty() {
                     out.push('}');
@@ -616,7 +616,7 @@ fn print_value(out: &mut String, v: &Value, level: usize, within: &str) {
         }
         Value::Int(n, _) => out.push_str(&n.to_string()),
         Value::Ident(s, _) => out.push_str(s),
-        Value::Msg(m, _) => {
+        Value::Message(m, _) => {
             // A message inside a list stays on one line when it is small, which
             // is what makes an `outputs` entry readable. Its fields take the
             // schema's order like any other message's; `within` names the list
@@ -631,7 +631,7 @@ fn print_value(out: &mut String, v: &Value, level: usize, within: &str) {
                 first = false;
                 out.push_str(&f.name);
                 match &f.value {
-                    Value::Msg(..) => {
+                    Value::Message(..) => {
                         out.push(' ');
                         print_value(out, &f.value, level, &f.name);
                     }
@@ -668,7 +668,7 @@ fn print_value(out: &mut String, v: &Value, level: usize, within: &str) {
             let inline = items.len() == 1
                 && items.iter().all(|i| matches!(i, Value::Str(..) | Value::Ident(..) | Value::Int(..)));
             let width: usize = flat.iter().map(|s| s.len().saturating_add(2)).sum();
-            if inline || (width <= 60 && items.iter().all(|i| !matches!(i, Value::Msg(..)))) {
+            if inline || (width <= 60 && items.iter().all(|i| !matches!(i, Value::Message(..)))) {
                 out.push('[');
                 for (i, item) in flat.iter().enumerate() {
                     if i > 0 {
@@ -695,17 +695,17 @@ fn print_value(out: &mut String, v: &Value, level: usize, within: &str) {
 mod tests {
     use super::*;
 
-    fn p(src: &str) -> Doc {
+    fn p(src: &str) -> Document {
         let r = parse(src, FileId(0));
         assert!(r.errors.is_empty(), "{:#?}", r.errors);
-        r.doc
+        r.document
     }
 
     #[test]
     fn message_fields_take_no_colon() {
         let d = p("library {\n  sources: [\"a.buri\"]\n}\n");
         assert_eq!(d.fields.len(), 1);
-        assert!(matches!(d.fields[0].value, Value::Msg(..)));
+        assert!(matches!(d.fields[0].value, Value::Message(..)));
     }
 
     #[test]
@@ -713,16 +713,16 @@ mod tests {
         let d = p("outputs: [\n  { platform: LINUX, arch: X86_64 },\n  { platform: JS, js { module: ESM } },\n]\n");
         let Value::List(items, _) = &d.fields[0].value else { panic!() };
         assert_eq!(items.len(), 2);
-        let Value::Msg(m, _) = &items[1] else { panic!() };
+        let Value::Message(m, _) = &items[1] else { panic!() };
         assert_eq!(m.fields.len(), 2);
-        assert!(matches!(m.fields[1].value, Value::Msg(..)));
+        assert!(matches!(m.fields[1].value, Value::Message(..)));
     }
 
     #[test]
     fn comments_attach_to_the_field_beneath() {
         let d = p("# why\nlibrary {\n  # inner\n  sources: []\n}\n");
         assert_eq!(d.fields[0].comments, vec!["# why"]);
-        let Value::Msg(m, _) = &d.fields[0].value else { panic!() };
+        let Value::Message(m, _) = &d.fields[0].value else { panic!() };
         assert_eq!(m.fields[0].comments, vec!["# inner"]);
     }
 

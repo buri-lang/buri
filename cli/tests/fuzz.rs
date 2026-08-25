@@ -1344,7 +1344,7 @@ fn read_case(dir: &Path) -> Recorded {
         parsed.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
     );
     let field = |key: &str| -> Option<String> {
-        parsed.doc.fields.iter().find(|f| f.name == key).map(|f| match &f.value {
+        parsed.document.fields.iter().find(|f| f.name == key).map(|f| match &f.value {
             textproto::Value::Str(s, _) => s.clone(),
             textproto::Value::Ident(s, _) => s.clone(),
             textproto::Value::Int(n, _) => n.to_string(),

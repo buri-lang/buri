@@ -138,8 +138,12 @@ fn formatting_build_files_is_a_fixed_point() {
     proto_files(&root.join("cli/tests/example"), &mut files);
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
-        let once = buri::build::textproto::print(&buri::build::textproto::parse(&text, buri::diagnostics::FileId(0)).doc);
-        let twice = buri::build::textproto::print(&buri::build::textproto::parse(&once, buri::diagnostics::FileId(0)).doc);
+        let file = buri::diagnostics::FileId(0);
+        let format = |source: &str| {
+            buri::build::textproto::print(&buri::build::textproto::parse(source, file).document)
+        };
+        let once = format(&text);
+        let twice = format(&once);
         assert_eq!(once, twice, "formatting {} is not stable", path.display());
     }
 }

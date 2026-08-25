@@ -6,7 +6,7 @@
 //! number rather than ignoring it. That is the point of the schema being a real
 //! artifact — a typo in a field name is an error, not a silent no-op.
 
-use crate::build::textproto::{self, Doc, Msg, Value};
+use crate::build::textproto::{self, Document, Message, Value};
 use crate::diagnostics::{Diagnostic, FileId, Span};
 
 /// The top level of a `BUILD.buri`, and the top level of a `REPO.buri`.
@@ -367,8 +367,8 @@ struct Reader {
 impl Reader {
     /// Every build-file error carries the edit that resolves it, the same way
     /// every source diagnostic does.
-    fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
-        self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
+    fn err(&mut self, span: Span, message: impl Into<String>, fix: impl Into<String>) {
+        self.errors.push(Diagnostic::error(span, message).with_fix(fix));
     }
 
     /// The common shape: a field holds one kind of value and was given
@@ -383,8 +383,8 @@ impl Reader {
 
     /// Rejects any field the schema does not declare, naming the nearest
     /// known field when there is one.
-    fn check_known(&mut self, msg: &Msg, known: &[&str], what: &str) {
-        for f in &msg.fields {
+    fn check_known(&mut self, message: &Message, known: &[&str], what: &str) {
+        for f in &message.fields {
             if !known.contains(&f.name.as_str()) {
                 let mut d = Diagnostic::error(
                     f.name_span,
@@ -400,9 +400,9 @@ impl Reader {
         }
     }
 
-    fn strings(&mut self, msg: &Msg, name: &str) -> Vec<Sp<String>> {
+    fn strings(&mut self, message: &Message, name: &str) -> Vec<Sp<String>> {
         let mut out = Vec::new();
-        for f in msg.all(name) {
+        for f in message.all(name) {
             match &f.value {
                 Value::List(items, _) => {
                     for item in items {
@@ -425,8 +425,8 @@ impl Reader {
         out
     }
 
-    fn string(&mut self, msg: &Msg, name: &str) -> Option<String> {
-        let f = msg.get(name)?;
+    fn string(&mut self, message: &Message, name: &str) -> Option<String> {
+        let f = message.get(name)?;
         match &f.value {
             Value::Str(s, _) => Some(s.clone()),
             other => {
@@ -437,8 +437,8 @@ impl Reader {
         }
     }
 
-    fn u32_field(&mut self, msg: &Msg, name: &str) -> Option<u32> {
-        let f = msg.get(name)?;
+    fn u32_field(&mut self, message: &Message, name: &str) -> Option<u32> {
+        let f = message.get(name)?;
         match &f.value {
             Value::Int(n, sp) if *n >= 0 && *n <= u32::MAX as i64 => Some(*n as u32),
             other => {
@@ -449,9 +449,9 @@ impl Reader {
         }
     }
 
-    fn platforms(&mut self, msg: &Msg, name: &str) -> Vec<Sp<Platform>> {
+    fn platforms(&mut self, message: &Message, name: &str) -> Vec<Sp<Platform>> {
         let mut out = Vec::new();
-        for f in msg.all(name) {
+        for f in message.all(name) {
             let items: Vec<&Value> = match &f.value {
                 Value::List(items, _) => items.iter().collect(),
                 other => vec![other],
@@ -490,9 +490,9 @@ impl Reader {
     /// `visibility`, parsed. The shape mirrors `platforms`: a bad entry is
     /// reported where it is written and dropped, rather than carried forward as
     /// a string.
-    fn visibility(&mut self, msg: &Msg) -> Vec<Sp<crate::build::workspace::Visibility>> {
+    fn visibility(&mut self, message: &Message) -> Vec<Sp<crate::build::workspace::Visibility>> {
         let mut out = Vec::new();
-        for entry in self.strings(msg, "visibility") {
+        for entry in self.strings(message, "visibility") {
             match crate::build::workspace::Visibility::parse(&entry.value) {
                 Ok(v) => out.push(Sp::new(v, entry.span)),
                 Err(why) => self.err(
@@ -506,10 +506,10 @@ impl Reader {
         out
     }
 
-    fn sub_msg<'a>(&mut self, msg: &'a Msg, name: &str) -> Option<(&'a Msg, Span)> {
-        let f = msg.get(name)?;
+    fn sub_message<'a>(&mut self, message: &'a Message, name: &str) -> Option<(&'a Message, Span)> {
+        let f = message.get(name)?;
         match &f.value {
-            Value::Msg(m, sp) => Some((m, *sp)),
+            Value::Message(m, sp) => Some((m, *sp)),
             other => {
                 let kind = other.kind().to_string();
                 self.wrong_kind(other.span(), name, "a block", &kind);
@@ -518,8 +518,8 @@ impl Reader {
         }
     }
 
-    fn test_suite(&mut self, parent: &Msg) -> Option<TestSuite> {
-        let (m, span) = self.sub_msg(parent, "test")?;
+    fn test_suite(&mut self, parent: &Message) -> Option<TestSuite> {
+        let (m, span) = self.sub_message(parent, "test")?;
         self.check_known(
             m,
             textproto::schema_order("test"),
@@ -535,8 +535,8 @@ impl Reader {
         })
     }
 
-    fn testing_surface(&mut self, parent: &Msg) -> Option<TestingSurface> {
-        let (m, span) = self.sub_msg(parent, "testing")?;
+    fn testing_surface(&mut self, parent: &Message) -> Option<TestingSurface> {
+        let (m, span) = self.sub_message(parent, "testing")?;
         self.check_known(m, textproto::schema_order("testing"), "a `testing` block");
         Some(TestingSurface {
             sources: self.strings(m, "sources"),
@@ -545,15 +545,15 @@ impl Reader {
         })
     }
 
-    fn outputs(&mut self, msg: &Msg) -> Vec<Output> {
+    fn outputs(&mut self, message: &Message) -> Vec<Output> {
         let mut out = Vec::new();
-        for f in msg.all("outputs") {
+        for f in message.all("outputs") {
             let items: Vec<&Value> = match &f.value {
                 Value::List(items, _) => items.iter().collect(),
                 other => vec![other],
             };
             for item in items {
-                let Value::Msg(m, span) = item else {
+                let Value::Message(m, span) = item else {
                     let kind = item.kind().to_string();
                     self.wrong_kind(item.span(), "outputs", "a block", &kind);
                     continue;
@@ -606,7 +606,7 @@ impl Reader {
                 let artifact_name = self.string(m, "artifact_name");
                 let mut js_module = JsModule::Esm;
                 let mut js_block: Option<Span> = None;
-                if let Some((jm, js_span)) = self.sub_msg(m, "js") {
+                if let Some((jm, js_span)) = self.sub_message(m, "js") {
                     js_block = Some(js_span);
                     self.check_known(jm, textproto::schema_order("js"), "a `js` block");
                     if let Some(mf) = jm.get("module") {
@@ -743,17 +743,17 @@ fn edit_distance(a: &str, b: &str) -> usize {
 
 pub struct ReadResult<T> {
     pub value: T,
-    pub doc: Doc,
+    pub document: Document,
     pub errors: Vec<Diagnostic>,
 }
 
 pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let parsed = textproto::parse(text, file);
     let mut r = Reader { errors: parsed.errors };
-    let msg = parsed.doc.as_msg();
-    r.check_known(&msg, BUILD_FILE_RULES, "a build file");
+    let message = parsed.document.as_message();
+    r.check_known(&message, BUILD_FILE_RULES, "a build file");
 
-    let library = r.sub_msg(&msg, "library").map(|(m, span)| {
+    let library = r.sub_message(&message, "library").map(|(m, span)| {
         r.check_known(m, textproto::schema_order("library"), "a `library` rule");
         Library {
             sources: r.strings(m, "sources"),
@@ -768,7 +768,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
     });
 
-    let binary = r.sub_msg(&msg, "binary").map(|(m, span)| {
+    let binary = r.sub_message(&message, "binary").map(|(m, span)| {
         // A binary has no `platforms` field of its own — `outputs` already
         // says — and no `visibility`, because nothing can depend on a binary.
         r.check_known(m, textproto::schema_order("binary"), "a `binary` rule");
@@ -799,7 +799,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
 
     ReadResult {
         value: BuildFile { library, binary },
-        doc: parsed.doc,
+        document: parsed.document,
         errors: r.errors,
     }
 }
@@ -807,12 +807,12 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
 pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let parsed = textproto::parse(text, file);
     let mut r = Reader { errors: parsed.errors };
-    let msg = parsed.doc.as_msg();
-    r.check_known(&msg, REPO_FILE_RULES, "REPO.buri");
+    let message = parsed.document.as_message();
+    r.check_known(&message, REPO_FILE_RULES, "REPO.buri");
 
     let mut tags: Vec<Tag> = Vec::new();
-    for f in parsed.doc.all("tag") {
-        let Value::Msg(m, span) = &f.value else {
+    for f in parsed.document.all("tag") {
+        let Value::Message(m, span) = &f.value else {
             r.err(f.value.span(), "`tag` is a block", "write `tag { name: \"...\" ... }`");
             continue;
         };
@@ -832,7 +832,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         };
 
         let mut forbids_tags = Vec::new();
-        if let Some((fm, _)) = r.sub_msg(m, "forbids") {
+        if let Some((fm, _)) = r.sub_message(m, "forbids") {
             // There is deliberately no `platforms` under `forbids`: a platform
             // restriction is always a whitelist under `requires`.
             r.check_known(fm, textproto::schema_order("forbids"), "a `forbids` block");
@@ -851,7 +851,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         }
 
         let mut requires_platforms = Vec::new();
-        if let Some((rm, _)) = r.sub_msg(m, "requires") {
+        if let Some((rm, _)) = r.sub_message(m, "requires") {
             r.check_known(rm, textproto::schema_order("requires"), "a `requires` block");
             if let Some(t) = rm.get("tags") {
                 r.errors.push(
@@ -890,7 +890,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
 
     ReadResult {
         value: RepoConfig { tags },
-        doc: parsed.doc,
+        document: parsed.document,
         errors: r.errors,
     }
 }

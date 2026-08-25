@@ -116,7 +116,7 @@ fn formatted(label: &str, path: &Path, text: &str) -> String {
              broken: {:?}",
             parsed.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
         );
-        return textproto::print(&parsed.doc);
+        return textproto::print(&parsed.document);
     }
     let mut map = SourceMap::new();
     let id = map.add(label.to_string(), path.to_path_buf(), text.to_string());
@@ -249,18 +249,18 @@ fn formatting_every_expected_output_is_stable() {
 /// Nothing a case was written with is missing from what it prints.
 /// Every `#` comment in a build file, sorted. A comment travels with the field
 /// beneath it and the fields are reordered, so the set is what survives.
-fn proto_comments(doc: &textproto::Doc) -> Vec<String> {
+fn proto_comments(document: &textproto::Document) -> Vec<String> {
     fn walk(fields: &[textproto::Field], out: &mut Vec<String>) {
         for f in fields {
             out.extend(f.comments.iter().cloned());
-            if let textproto::Value::Msg(m, _) = &f.value {
+            if let textproto::Value::Message(m, _) = &f.value {
                 out.extend(m.trailing.iter().cloned());
                 walk(&m.fields, out);
             }
         }
     }
-    let mut out = doc.trailing.clone();
-    walk(&doc.fields, &mut out);
+    let mut out = document.trailing.clone();
+    walk(&document.fields, &mut out);
     out.sort();
     out
 }
@@ -270,13 +270,13 @@ fn proto_comments(doc: &textproto::Doc) -> Vec<String> {
 /// The textproto answer to `tokens`: reordering the fields is the whole point,
 /// so the *set* of what the file says is what must not change. It catches a
 /// field dropped, invented, renamed or given a different value.
-fn proto_leaves(doc: &textproto::Doc) -> Vec<String> {
+fn proto_leaves(document: &textproto::Document) -> Vec<String> {
     fn value(v: &textproto::Value) -> String {
         match v {
             textproto::Value::Str(s, _) => format!("{s:?}"),
             textproto::Value::Int(n, _) => n.to_string(),
             textproto::Value::Ident(s, _) => s.clone(),
-            textproto::Value::Msg(..) => "{}".to_string(),
+            textproto::Value::Message(..) => "{}".to_string(),
             textproto::Value::List(items, _) => {
                 items.iter().map(value).collect::<Vec<_>>().join(",")
             }
@@ -286,13 +286,13 @@ fn proto_leaves(doc: &textproto::Doc) -> Vec<String> {
         for f in fields {
             let here = format!("{path}/{}", f.name);
             match &f.value {
-                textproto::Value::Msg(m, _) => walk(&m.fields, &here, out),
+                textproto::Value::Message(m, _) => walk(&m.fields, &here, out),
                 v => out.push(format!("{here} = {}", value(v))),
             }
         }
     }
     let mut out = Vec::new();
-    walk(&doc.fields, "", &mut out);
+    walk(&document.fields, "", &mut out);
     out.sort();
     out
 }
@@ -313,19 +313,19 @@ fn formatting_keeps_every_case_whole() {
             for e in &after.errors {
                 failures.push(format!("{case}: the output does not read: {}", e.message));
             }
-            if proto_comments(&before.doc) != proto_comments(&after.doc) {
+            if proto_comments(&before.document) != proto_comments(&after.document) {
                 failures.push(format!(
                     "{case}: the comments are not the same set before and after.\n                       before: {:?}\n  after:  {:?}",
-                    proto_comments(&before.doc),
-                    proto_comments(&after.doc)
+                    proto_comments(&before.document),
+                    proto_comments(&after.document)
                 ));
             }
-            if proto_leaves(&before.doc) != proto_leaves(&after.doc) {
+            if proto_leaves(&before.document) != proto_leaves(&after.document) {
                 failures.push(format!(
                     "{case}: a field was invented, lost or changed. Layout may put the \
                      fields in the schema's order; it may not do this.\n                       before: {:?}\n  after:  {:?}",
-                    proto_leaves(&before.doc),
-                    proto_leaves(&after.doc)
+                    proto_leaves(&before.document),
+                    proto_leaves(&after.document)
                 ));
             }
             continue;
@@ -454,7 +454,7 @@ fn every_checked_in_build_file_is_formatted() {
         }
         let parsed = textproto::parse(&text, FileId(0));
         assert!(parsed.errors.is_empty(), "{rel} does not read");
-        if textproto::print(&parsed.doc) != text {
+        if textproto::print(&parsed.document) != text {
             stale.push(rel);
         }
     }
