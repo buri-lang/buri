@@ -19,24 +19,24 @@ const BUILD_FILE_RULES: &[&str] = &["library", "binary"];
 const REPO_FILE_RULES: &[&str] = &["tag"];
 
 #[derive(Clone, Debug)]
-pub struct Sp<T> {
+pub struct Spanned<T> {
     pub value: T,
     pub span: Span,
 }
 
-impl<T> Sp<T> {
-    pub fn new(value: T, span: Span) -> Sp<T> {
-        Sp { value, span }
+impl<T> Spanned<T> {
+    pub fn new(value: T, span: Span) -> Spanned<T> {
+        Spanned { value, span }
     }
 }
 
-impl<T: Default> Default for Sp<T> {
-    fn default() -> Sp<T> {
-        Sp { value: T::default(), span: Span::NONE }
+impl<T: Default> Default for Spanned<T> {
+    fn default() -> Spanned<T> {
+        Spanned { value: T::default(), span: Span::NONE }
     }
 }
 
-impl<T: PartialEq> PartialEq for Sp<T> {
+impl<T: PartialEq> PartialEq for Spanned<T> {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
     }
@@ -201,7 +201,7 @@ impl NativePlatform {
 /// exists for a JavaScript one.
 #[derive(Clone, Debug)]
 pub enum OutputTarget {
-    Native { platform: NativePlatform, arch: Option<Sp<Arch>> },
+    Native { platform: NativePlatform, arch: Option<Spanned<Arch>> },
     Js { module: JsModule },
     /// A browser page. It carries neither an `arch` nor a module kind: a
     /// machine architecture is meaningless for JavaScript, and a browser
@@ -282,35 +282,35 @@ impl Output {
 
 #[derive(Clone, Debug, Default)]
 pub struct TestSuite {
-    pub sources: Vec<Sp<String>>,
-    pub dependencies: Vec<Sp<String>>,
-    pub data: Vec<Sp<String>>,
+    pub sources: Vec<Spanned<String>>,
+    pub dependencies: Vec<Spanned<String>>,
+    pub data: Vec<Spanned<String>>,
     pub timeout_seconds: Option<u32>,
-    pub platforms: Vec<Sp<Platform>>,
+    pub platforms: Vec<Spanned<Platform>>,
     pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct TestingSurface {
-    pub sources: Vec<Sp<String>>,
-    pub dependencies: Vec<Sp<String>>,
+    pub sources: Vec<Spanned<String>>,
+    pub dependencies: Vec<Spanned<String>>,
     pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Library {
-    pub sources: Vec<Sp<String>>,
+    pub sources: Vec<Spanned<String>>,
     /// The `.proto` schemas this rule owns. Each one becomes a module, and the
     /// module belongs to this rule exactly as a `.buri` source does.
-    pub proto_sources: Vec<Sp<String>>,
-    pub dependencies: Vec<Sp<String>>,
-    pub tags: Vec<Sp<String>>,
-    pub platforms: Vec<Sp<Platform>>,
+    pub proto_sources: Vec<Spanned<String>>,
+    pub dependencies: Vec<Spanned<String>>,
+    pub tags: Vec<Spanned<String>>,
+    pub platforms: Vec<Spanned<Platform>>,
     /// Parsed here rather than at every consumer: an entry that is not a
     /// visibility is a diagnostic, in the same place and the same way a bad
     /// `platforms` entry is, instead of an unparseable string that silently
     /// makes the library visible to nobody.
-    pub visibility: Vec<Sp<crate::build::workspace::Visibility>>,
+    pub visibility: Vec<Spanned<crate::build::workspace::Visibility>>,
     /// The rule's suite, present exactly when the build file writes a `test`
     /// block. An absent block and an empty one are different claims, and the
     /// `empty-test-suite` lint exists to tell them apart.
@@ -321,10 +321,10 @@ pub struct Library {
 
 #[derive(Clone, Debug, Default)]
 pub struct Binary {
-    pub sources: Vec<Sp<String>>,
-    pub proto_sources: Vec<Sp<String>>,
-    pub dependencies: Vec<Sp<String>>,
-    pub tags: Vec<Sp<String>>,
+    pub sources: Vec<Spanned<String>>,
+    pub proto_sources: Vec<Spanned<String>>,
+    pub dependencies: Vec<Spanned<String>>,
+    pub tags: Vec<Spanned<String>>,
     pub outputs: Vec<Output>,
     pub test: Option<TestSuite>,
     pub span: Span,
@@ -338,10 +338,10 @@ pub struct BuildFile {
 
 #[derive(Clone, Debug, Default)]
 pub struct Tag {
-    pub name: Sp<String>,
+    pub name: Spanned<String>,
     pub doc: String,
-    pub forbids_tags: Vec<Sp<String>>,
-    pub requires_platforms: Vec<Sp<Platform>>,
+    pub forbids_tags: Vec<Spanned<String>>,
+    pub requires_platforms: Vec<Spanned<Platform>>,
     pub span: Span,
 }
 
@@ -400,14 +400,14 @@ impl Reader {
         }
     }
 
-    fn strings(&mut self, message: &Message, name: &str) -> Vec<Sp<String>> {
+    fn strings(&mut self, message: &Message, name: &str) -> Vec<Spanned<String>> {
         let mut out = Vec::new();
         for f in message.all(name) {
             match &f.value {
                 Value::List(items, _) => {
                     for item in items {
                         match item {
-                            Value::Str(s, sp) => out.push(Sp::new(s.clone(), *sp)),
+                            Value::Str(s, sp) => out.push(Spanned::new(s.clone(), *sp)),
                             other => {
                                 let kind = other.kind().to_string();
                                 self.wrong_kind(other.span(), name, "strings", &kind)
@@ -415,7 +415,7 @@ impl Reader {
                         }
                     }
                 }
-                Value::Str(s, sp) => out.push(Sp::new(s.clone(), *sp)),
+                Value::Str(s, sp) => out.push(Spanned::new(s.clone(), *sp)),
                 other => {
                     let kind = other.kind().to_string();
                     self.wrong_kind(other.span(), name, "a list of strings", &kind)
@@ -449,7 +449,7 @@ impl Reader {
         }
     }
 
-    fn platforms(&mut self, message: &Message, name: &str) -> Vec<Sp<Platform>> {
+    fn platforms(&mut self, message: &Message, name: &str) -> Vec<Spanned<Platform>> {
         let mut out = Vec::new();
         for f in message.all(name) {
             let items: Vec<&Value> = match &f.value {
@@ -459,7 +459,7 @@ impl Reader {
             for item in items {
                 match item {
                     Value::Ident(s, sp) => match Platform::parse(s) {
-                        Some(p) => out.push(Sp::new(p, *sp)),
+                        Some(p) => out.push(Spanned::new(p, *sp)),
                         None => {
                             let mut d =
                                 Diagnostic::error(*sp, format!("`{s}` is not a platform"));
@@ -490,11 +490,14 @@ impl Reader {
     /// `visibility`, parsed. The shape mirrors `platforms`: a bad entry is
     /// reported where it is written and dropped, rather than carried forward as
     /// a string.
-    fn visibility(&mut self, message: &Message) -> Vec<Sp<crate::build::workspace::Visibility>> {
+    fn visibility(
+        &mut self,
+        message: &Message,
+    ) -> Vec<Spanned<crate::build::workspace::Visibility>> {
         let mut out = Vec::new();
         for entry in self.strings(message, "visibility") {
             match crate::build::workspace::Visibility::parse(&entry.value) {
-                Ok(v) => out.push(Sp::new(v, entry.span)),
+                Ok(v) => out.push(Spanned::new(v, entry.span)),
                 Err(why) => self.err(
                     entry.span,
                     why,
@@ -562,7 +565,7 @@ impl Reader {
 
                 let platform = m.get("platform").and_then(|pf| match &pf.value {
                     Value::Ident(s, sp) => match Platform::parse(s) {
-                        Some(p) => Some(Sp::new(p, *sp)),
+                        Some(p) => Some(Spanned::new(p, *sp)),
                         None => {
                             self.err(
                                 *sp,
@@ -583,7 +586,7 @@ impl Reader {
                 });
                 let arch = m.get("arch").and_then(|af| match &af.value {
                     Value::Ident(s, sp) => match Arch::parse(s) {
-                        Some(a) => Some(Sp::new(a, *sp)),
+                        Some(a) => Some(Spanned::new(a, *sp)),
                         None => {
                             self.err(
                                 *sp,
@@ -820,7 +823,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
 
         let name_field = m.get("name");
         let name = match name_field.map(|nf| &nf.value) {
-            Some(Value::Str(s, sp)) => Sp::new(s.clone(), *sp),
+            Some(Value::Str(s, sp)) => Spanned::new(s.clone(), *sp),
             Some(other) => {
                 r.err(other.span(), "`name` holds a string", "quote it, as in `name: \"server\"`");
                 continue;

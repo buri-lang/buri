@@ -10,7 +10,7 @@
 //! 4. Tests live in `test/` and see only the target's surface.
 //! 5. Everything is declared — a file on disk that no rule lists is an error.
 
-use crate::build::buildfile::{self, BuildFile, Platform, RepoConfig, Sp};
+use crate::build::buildfile::{self, BuildFile, Platform, RepoConfig, Spanned};
 use crate::build::textproto::Document;
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -429,7 +429,7 @@ impl Workspace {
     }
 
     /// The declared dependencies of a target, as labels with spans.
-    pub fn declared_deps(&self, t: TargetId) -> &[Sp<String>] {
+    pub fn declared_deps(&self, t: TargetId) -> &[Spanned<String>] {
         let p = self.package(t.package);
         match t.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.dependencies[..]).unwrap_or(&[]),
@@ -437,7 +437,7 @@ impl Workspace {
         }
     }
 
-    pub fn tags(&self, t: TargetId) -> &[Sp<String>] {
+    pub fn tags(&self, t: TargetId) -> &[Spanned<String>] {
         let p = self.package(t.package);
         match t.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.tags[..]).unwrap_or(&[]),
@@ -474,7 +474,7 @@ impl Workspace {
     /// reaching a library named in `test.dependencies`, is checked normally".
     pub fn test_dep_edges(&self, t: TargetId) -> Vec<(TargetId, Option<Span>)> {
         let p = self.package(t.package);
-        let mut declared: Vec<&Sp<String>> = Vec::new();
+        let mut declared: Vec<&Spanned<String>> = Vec::new();
         match t.kind {
             RuleKind::Library => {
                 if let Some(l) = &p.build.library {

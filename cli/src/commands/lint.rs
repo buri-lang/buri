@@ -288,7 +288,7 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
 fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
     let p = session.workspace.package(package);
     let mut declared: Vec<(String, Span)> = Vec::new();
-    let push = |list: &[crate::build::buildfile::Sp<String>], out: &mut Vec<(String, Span)>| {
+    let push = |list: &[crate::build::buildfile::Spanned<String>], out: &mut Vec<(String, Span)>| {
         for x in list {
             out.push((x.value.clone(), x.span));
         }
@@ -405,7 +405,7 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
     // loaded, so they ride along rather than paying for a second one.
     check_hygiene(session, target, &analysis, diagnostics);
 
-    let declared: Vec<crate::build::buildfile::Sp<String>> =
+    let declared: Vec<crate::build::buildfile::Spanned<String>> =
         session.workspace.declared_deps(target).to_vec();
     let own = target.package;
     // Use is what requires a dep, and an import is not the only way to use: a
