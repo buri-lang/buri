@@ -18,8 +18,9 @@
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, ExprId, FieldPatData,
-    InitData, Kind, LambdaParamData, Loc, PKind, PartData, PatId, PatPayloadData, StmtData,
-    StmtKind, TKind, Tree, TypeId, TypeList, NONE,
+    InitData, Kind, LambdaParamData, Location, PartData, PatId, PatPayloadData, PatternKind,
+    StmtData,
+    StmtKind, TypeKind, Tree, TypeId, TypeList, NONE,
 };
 use crate::parsing::lexer::{lex, Keyword, Punctuation, TokenKind, Tokens, Trivia};
 use crate::parsing::tree::*;
@@ -289,7 +290,7 @@ struct Scratch {
     lparams: Vec<LambdaParamData>,
     parts: Vec<PartData>,
     binds: Vec<CtxBindData>,
-    names: Vec<Loc>,
+    names: Vec<Location>,
     tys: Vec<TypeId>,
 }
 
@@ -1409,7 +1410,7 @@ impl<'a> Parser<'a> {
             let effect = self.named_type()?;
             self.expect(Punctuation::Colon)?;
             let value = self.expr()?;
-            let span = Loc::of(bstart.to(self.prev_span()));
+            let span = Location::of(bstart.to(self.prev_span()));
             self.scratch.binds.push(CtxBindData { effect: effect.0, value: value.0, span });
             if !self.eat(Punctuation::Comma) {
                 break;
@@ -1422,7 +1423,7 @@ impl<'a> Parser<'a> {
             spread,
             bind_start: bs,
             bind_len: bl,
-            span: Loc::of(start.to(end)),
+            span: Location::of(start.to(end)),
         }))
     }
 
@@ -1440,21 +1441,21 @@ impl<'a> Parser<'a> {
         // `Self` is a legal bound position spelling in an impl's type list.
         if self.is_keyword(Keyword::SelfType) {
             let span = self.bump();
-            return Ok(self.tree.push_type(TKind::SelfType, [0; 4], span));
+            return Ok(self.tree.push_type(TypeKind::SelfType, [0; 4], span));
         }
         let nbase = self.scratch.names.len();
         let first = self.expect_name()?;
-        self.scratch.names.push(Loc::of(first));
+        self.scratch.names.push(Location::of(first));
         while self.is(Punctuation::Dot) {
             self.bump();
             let seg = self.expect_name()?;
-            self.scratch.names.push(Loc::of(seg));
+            self.scratch.names.push(Location::of(seg));
         }
         let (ps, pl) = self.tree.push_names(since(&self.scratch.names, nbase));
         self.scratch.names.truncate(nbase);
         let args = self.type_args()?;
         let span = start.to(self.prev_span());
-        Ok(self.tree.push_type(TKind::Named, [ps, pl, args.start, args.len], span))
+        Ok(self.tree.push_type(TypeKind::Named, [ps, pl, args.start, args.len], span))
     }
 
     /// A type-argument list, appended to the tree. No `<` is the empty list,
@@ -1615,12 +1616,13 @@ impl<'a> Parser<'a> {
             self.expect(Punctuation::FatArrow)?;
             let ret = self.ty()?;
             let span = start.to(self.prev_span());
-            return Ok(self.tree.push_type(TKind::Fn, [params.start, params.len, ret.0, 0], span));
+            let payload = [params.start, params.len, ret.0, 0];
+            return Ok(self.tree.push_type(TypeKind::Fn, payload, span));
         }
 
         if self.is_keyword(Keyword::SelfType) {
             let span = self.bump();
-            return Ok(self.tree.push_type(TKind::SelfType, [0; 4], span));
+            return Ok(self.tree.push_type(TypeKind::SelfType, [0; 4], span));
         }
 
         if self.is(Punctuation::LBracket) {
@@ -1628,7 +1630,7 @@ impl<'a> Parser<'a> {
             let elem = self.ty()?;
             self.expect(Punctuation::RBracket)?;
             let span = start.to(self.prev_span());
-            return Ok(self.tree.push_type(TKind::Array, [elem.0, 0, 0, 0], span));
+            return Ok(self.tree.push_type(TypeKind::Array, [elem.0, 0, 0, 0], span));
         }
 
         if self.is(Punctuation::LParen) {
@@ -1636,7 +1638,7 @@ impl<'a> Parser<'a> {
             // `()` is unit, `(T)` is grouping, `(T, U)` is a tuple.
             if self.is(Punctuation::RParen) {
                 let end = self.bump();
-                return Ok(self.tree.push_type(TKind::Unit, [0; 4], start.to(end)));
+                return Ok(self.tree.push_type(TypeKind::Unit, [0; 4], start.to(end)));
             }
             let first = self.ty()?;
             if self.is(Punctuation::RParen) {
@@ -1666,7 +1668,7 @@ impl<'a> Parser<'a> {
                 .map(|d| d.note("`(T)` is a parenthesized type and `()` is unit"));
             }
             let span = start.to(self.prev_span());
-            return Ok(self.tree.push_type(TKind::Tuple, [elems.start, elems.len, 0, 0], span));
+            return Ok(self.tree.push_type(TypeKind::Tuple, [elems.start, elems.len, 0, 0], span));
         }
 
         match self.peek() {
@@ -1720,7 +1722,7 @@ impl<'a> Parser<'a> {
                                 pattern: NONE,
                                 ty: NONE,
                                 value: e.0,
-                                span: Loc::of(estart.to(end)),
+                                span: Location::of(estart.to(end)),
                             });
                         } else {
                             tail = e.0;
@@ -1745,7 +1747,7 @@ impl<'a> Parser<'a> {
             stmts_start: ss,
             stmts_len: sl,
             tail,
-            span: Loc::of(start.to(end)),
+            span: Location::of(start.to(end)),
         }))
     }
 
@@ -1763,15 +1765,15 @@ impl<'a> Parser<'a> {
             // source under the span *is* the name — as it is for every other
             // name in the flat tree.
             let at = self.tree.next_pat();
-            let pattern =
-                self.tree.ppush(PKind::Bind, [name_span.start, name_span.end, NONE, 0], name_span, at);
+            let payload = [name_span.start, name_span.end, NONE, 0];
+            let pattern = self.tree.ppush(PatternKind::Bind, payload, name_span, at);
             return Ok(StmtData {
                 kind: StmtKind::Let,
                 is_ctx: true,
                 pattern: pattern.0,
                 ty: NONE,
                 value: value.0,
-                span: Loc::of(start.to(end)),
+                span: Location::of(start.to(end)),
             });
         }
         let pattern = self.pattern()?;
@@ -1789,7 +1791,7 @@ impl<'a> Parser<'a> {
             pattern: pattern.0,
             ty,
             value: value.0,
-            span: Loc::of(start.to(end)),
+            span: Location::of(start.to(end)),
         })
     }
 
@@ -1822,9 +1824,9 @@ impl<'a> Parser<'a> {
             let ty = if self.eat(Punctuation::Colon) { self.ty()?.0 } else { NONE };
             let span = name.to(self.prev_span());
             self.scratch.lparams.push(LambdaParamData {
-                name: Loc::of(name),
+                name: Location::of(name),
                 ty,
-                span: Loc::of(span),
+                span: Location::of(span),
             });
             if !self.eat(Punctuation::Comma) {
                 break;
@@ -2110,7 +2112,7 @@ impl<'a> Parser<'a> {
             pattern: pattern.0,
             guard,
             body: body.0,
-            span: Loc::of(astart.to(self.prev_span())),
+            span: Location::of(astart.to(self.prev_span())),
         })
     }
 
@@ -2473,9 +2475,9 @@ impl<'a> Parser<'a> {
                             if self.eat(Punctuation::Colon) { self.expr()?.0 } else { NONE };
                         let fspan = fname.to(self.prev_span());
                         self.scratch.inits.push(InitData {
-                            name: Loc::of(fname),
+                            name: Location::of(fname),
                             value,
-                            span: Loc::of(fspan),
+                            span: Location::of(fspan),
                         });
                         if !self.eat(Punctuation::Comma) {
                             break;
@@ -2522,7 +2524,7 @@ impl<'a> Parser<'a> {
         let end = last.map_or(start, |p| self.tree.pspan(p));
         let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
         self.scratch.pats.truncate(base);
-        Ok(self.tree.ppush(PKind::Or, [ks, kl, 0, 0], start.to(end), at))
+        Ok(self.tree.ppush(PatternKind::Or, [ks, kl, 0, 0], start.to(end), at))
     }
 
     fn pattern_primary(&mut self) -> PResult<PatId> {
@@ -2531,7 +2533,7 @@ impl<'a> Parser<'a> {
         match self.peek() {
             TokenKind::Underscore => {
                 let span = self.bump();
-                Ok(self.tree.ppush(PKind::Wild, [0; 4], span, at))
+                Ok(self.tree.ppush(PatternKind::Wild, [0; 4], span, at))
             }
             // The trap this whole layout exists for: a negative literal's
             // *span* starts at the `-` and its *spelling* does not. `-1` has
@@ -2546,7 +2548,7 @@ impl<'a> Parser<'a> {
                         let end = self.bump();
                         let ix = self.tree.push_int(value);
                         Ok(self.tree.ppush(
-                            PKind::LitInt,
+                            PatternKind::LitInt,
                             [ix, end.start, end.end, 1],
                             start.to(end),
                             at,
@@ -2557,7 +2559,7 @@ impl<'a> Parser<'a> {
                         let end = self.bump();
                         let ix = self.tree.push_float(value);
                         Ok(self.tree.ppush(
-                            PKind::LitFloat,
+                            PatternKind::LitFloat,
                             [ix, end.start, end.end, 1],
                             start.to(end),
                             at,
@@ -2580,41 +2582,41 @@ impl<'a> Parser<'a> {
                 let value = self.int_value();
                 let span = self.bump();
                 let ix = self.tree.push_int(value);
-                Ok(self.tree.ppush(PKind::LitInt, [ix, span.start, span.end, 0], span, at))
+                Ok(self.tree.ppush(PatternKind::LitInt, [ix, span.start, span.end, 0], span, at))
             }
             TokenKind::Float => {
                 let value = self.float_value();
                 let span = self.bump();
                 let ix = self.tree.push_float(value);
-                Ok(self.tree.ppush(PKind::LitFloat, [ix, span.start, span.end, 0], span, at))
+                Ok(self.tree.ppush(PatternKind::LitFloat, [ix, span.start, span.end, 0], span, at))
             }
             TokenKind::Str => {
                 let value = self.take_text();
                 let span = self.bump();
                 let ix = self.tree.push_str(value);
-                Ok(self.tree.ppush(PKind::LitStr, [ix, 0, 0, 0], span, at))
+                Ok(self.tree.ppush(PatternKind::LitStr, [ix, 0, 0, 0], span, at))
             }
             TokenKind::Char => {
                 let value = self.char_value();
                 let span = self.bump();
-                Ok(self.tree.ppush(PKind::LitChar, [value, 0, 0, 0], span, at))
+                Ok(self.tree.ppush(PatternKind::LitChar, [value, 0, 0, 0], span, at))
             }
             TokenKind::KeywordTrue => {
                 let span = self.bump();
-                Ok(self.tree.ppush(PKind::LitTrue, [0; 4], span, at))
+                Ok(self.tree.ppush(PatternKind::LitTrue, [0; 4], span, at))
             }
             TokenKind::KeywordFalse => {
                 let span = self.bump();
-                Ok(self.tree.ppush(PKind::LitFalse, [0; 4], span, at))
+                Ok(self.tree.ppush(PatternKind::LitFalse, [0; 4], span, at))
             }
             // `.Variant`, with or without a payload.
             TokenKind::Dot => {
                 self.bump();
                 let name = self.expect_name()?;
                 let payload = self.pattern_payload()?;
-                let (ns, nl) = self.tree.push_names(&[Loc::of(name)]);
+                let (ns, nl) = self.tree.push_names(&[Location::of(name)]);
                 Ok(self.tree.ppush(
-                    PKind::Path,
+                    PatternKind::Path,
                     [ns, nl, payload, 1],
                     start.to(self.prev_span()),
                     at,
@@ -2625,7 +2627,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 if self.is(Punctuation::RParen) {
                     let end = self.bump();
-                    return Ok(self.tree.ppush(PKind::Unit, [0; 4], start.to(end), at));
+                    return Ok(self.tree.ppush(PatternKind::Unit, [0; 4], start.to(end), at));
                 }
                 let first = self.pattern()?;
                 if self.is(Punctuation::RParen) {
@@ -2644,7 +2646,7 @@ impl<'a> Parser<'a> {
                 let end = self.expect(Punctuation::RParen)?;
                 let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
                 self.scratch.pats.truncate(base);
-                Ok(self.tree.ppush(PKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
+                Ok(self.tree.ppush(PatternKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
             }
             TokenKind::Ident => {
                 let first = self.expect_name()?;
@@ -2652,16 +2654,16 @@ impl<'a> Parser<'a> {
                 // what the identifier means (SPEC 12.7).
                 if self.is(Punctuation::Dot) {
                     let nbase = self.scratch.names.len();
-                    self.scratch.names.push(Loc::of(first));
+                    self.scratch.names.push(Location::of(first));
                     while self.eat(Punctuation::Dot) {
                         let n = self.expect_name()?;
-                        self.scratch.names.push(Loc::of(n));
+                        self.scratch.names.push(Location::of(n));
                     }
                     let payload = self.pattern_payload()?;
                     let (ns, nl) = self.tree.push_names(since(&self.scratch.names, nbase));
                     self.scratch.names.truncate(nbase);
                     return Ok(self.tree.ppush(
-                        PKind::Path,
+                        PatternKind::Path,
                         [ns, nl, payload, 0],
                         start.to(self.prev_span()),
                         at,
@@ -2669,9 +2671,9 @@ impl<'a> Parser<'a> {
                 }
                 if self.is(Punctuation::LParen) || self.is(Punctuation::LBrace) {
                     let payload = self.pattern_payload()?;
-                    let (ns, nl) = self.tree.push_names(&[Loc::of(first)]);
+                    let (ns, nl) = self.tree.push_names(&[Location::of(first)]);
                     return Ok(self.tree.ppush(
-                        PKind::Path,
+                        PatternKind::Path,
                         [ns, nl, payload, 0],
                         start.to(self.prev_span()),
                         at,
@@ -2680,7 +2682,7 @@ impl<'a> Parser<'a> {
                 // A bare identifier is ALWAYS a binding.
                 let sub = if self.eat(Punctuation::At) { self.pattern_primary()?.0 } else { NONE };
                 let span = start.to(self.prev_span());
-                Ok(self.tree.ppush(PKind::Bind, [first.start, first.end, sub, 0], span, at))
+                Ok(self.tree.ppush(PatternKind::Bind, [first.start, first.end, sub, 0], span, at))
             }
             _ => {
                 let found = self.found();
@@ -2732,9 +2734,9 @@ impl<'a> Parser<'a> {
                 let pattern = if self.eat(Punctuation::Colon) { self.pattern()?.0 } else { NONE };
                 let span = name.to(self.prev_span());
                 self.scratch.fpats.push(FieldPatData {
-                    name: Loc::of(name),
+                    name: Location::of(name),
                     pattern,
-                    span: Loc::of(span),
+                    span: Location::of(span),
                 });
                 if !self.eat(Punctuation::Comma) {
                     break;
@@ -2779,7 +2781,7 @@ impl<'a> Parser<'a> {
                 match name {
                     Some(n) => {
                         rest_kind = 2;
-                        rest_name = self.tree.push_name(Loc::of(n));
+                        rest_name = self.tree.push_name(Location::of(n));
                     }
                     None => rest_kind = 1,
                 }
@@ -2811,7 +2813,7 @@ impl<'a> Parser<'a> {
         let end = self.expect(Punctuation::RBracket)?;
         let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
         self.scratch.pats.truncate(base);
-        Ok(self.tree.ppush(PKind::Array, [ks, kl, rest_kind, rest_name], start.to(end), at))
+        Ok(self.tree.ppush(PatternKind::Array, [ks, kl, rest_kind, rest_name], start.to(end), at))
     }
 }
 

@@ -12,7 +12,7 @@
 //!   resumes template text by which of the two is on top.
 
 use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
-use crate::parsing::flat::Loc;
+use crate::parsing::flat::Location;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Keyword {
@@ -567,7 +567,7 @@ pub struct Tokens<'a> {
     src: &'a str,
     file: FileId,
     kinds: Vec<TokenKind>,
-    locs: Vec<Loc>,
+    locations: Vec<Location>,
     /// Decoded by kind: an index into `ints`, `floats` or `strs`, the scalar
     /// value of a character literal, and unread for every other kind.
     pays: Vec<u32>,
@@ -581,11 +581,11 @@ pub struct Tokens<'a> {
 
 /// What one token costs in the three columns.
 const BYTES_PER_TOKEN: usize = std::mem::size_of::<TokenKind>()
-    .saturating_add(std::mem::size_of::<Loc>())
+    .saturating_add(std::mem::size_of::<Location>())
     .saturating_add(std::mem::size_of::<u32>());
 
 const _: () = assert!(std::mem::size_of::<TokenKind>() == 1);
-const _: () = assert!(std::mem::size_of::<Loc>() == 8);
+const _: () = assert!(std::mem::size_of::<Location>() == 8);
 const _: () = assert!(BYTES_PER_TOKEN == 13);
 /// `Token` is a view built on demand and never stored, so its width is a
 /// register-allocation question rather than a memory one. It is pinned anyway,
@@ -603,7 +603,7 @@ impl<'a> Tokens<'a> {
             src,
             file,
             kinds: Vec::with_capacity(n),
-            locs: Vec::with_capacity(n),
+            locations: Vec::with_capacity(n),
             pays: Vec::with_capacity(n),
             ints: Vec::new(),
             floats: Vec::new(),
@@ -612,9 +612,9 @@ impl<'a> Tokens<'a> {
     }
 
     #[inline]
-    fn push(&mut self, kind: TokenKind, pay: u32, loc: Loc) {
+    fn push(&mut self, kind: TokenKind, pay: u32, loc: Location) {
         self.kinds.push(kind);
-        self.locs.push(loc);
+        self.locations.push(loc);
         self.pays.push(pay);
     }
 
@@ -636,8 +636,8 @@ impl<'a> Tokens<'a> {
         self.kinds.get(i).copied().unwrap_or(TokenKind::Eof)
     }
 
-    pub fn loc(&self, i: usize) -> Loc {
-        self.locs.get(i).copied().unwrap_or_default()
+    pub fn loc(&self, i: usize) -> Location {
+        self.locations.get(i).copied().unwrap_or_default()
     }
 
     pub fn span(&self, i: usize) -> Span {
@@ -860,7 +860,7 @@ impl<'a> Lexer<'a> {
         if self.has_trivia {
             self.attach_trivia();
         }
-        self.tokens.push(kind, pay, Loc { start: start as u32, end: self.pos as u32 });
+        self.tokens.push(kind, pay, Location { start: start as u32, end: self.pos as u32 });
     }
 
     /// Hand what was written above the next token to the trivia table.

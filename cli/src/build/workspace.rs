@@ -218,7 +218,7 @@ impl Visibility {
 
 /// What a module inside a package is. There is deliberately no `Std` here: a
 /// `core/...` module has no package, no file on disk and no repository-relative
-/// name, so it is a variant of [`ModuleLoc`] rather than a kind with three
+/// name, so it is a variant of [`ModuleLocation`] rather than a kind with three
 /// fields nulled out.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ModuleKind {
@@ -245,7 +245,7 @@ pub enum ModuleKind {
 /// an `Option` to skip past — and there is no longer an empty `PathBuf` standing
 /// in for "there is no file".
 #[derive(Clone, Debug)]
-pub enum ModuleLoc {
+pub enum ModuleLocation {
     /// A `core/...` module, shipping with the toolchain.
     Std { path: String },
     InPackage(PackageModule),
@@ -262,18 +262,18 @@ pub struct PackageModule {
     pub rel: String,
 }
 
-impl ModuleLoc {
+impl ModuleLocation {
     pub fn path(&self) -> &str {
         match self {
-            ModuleLoc::Std { path } => path,
-            ModuleLoc::InPackage(m) => &m.path,
+            ModuleLocation::Std { path } => path,
+            ModuleLocation::InPackage(m) => &m.path,
         }
     }
 
     pub fn in_package(&self) -> Option<&PackageModule> {
         match self {
-            ModuleLoc::Std { .. } => None,
-            ModuleLoc::InPackage(m) => Some(m),
+            ModuleLocation::Std { .. } => None,
+            ModuleLocation::InPackage(m) => Some(m),
         }
     }
 }
@@ -622,7 +622,7 @@ impl Workspace {
         if !path.starts_with("//") {
             return None;
         }
-        let Ok(ModuleLoc::InPackage(loc)) = self.resolve_module(path) else {
+        let Ok(ModuleLocation::InPackage(loc)) = self.resolve_module(path) else {
             return None;
         };
         if loc.package == own {
@@ -633,7 +633,7 @@ impl Workspace {
     }
 
     /// Resolves a module path written in an import.
-    pub fn resolve_module(&self, path: &str) -> Result<ModuleLoc, String> {
+    pub fn resolve_module(&self, path: &str) -> Result<ModuleLocation, String> {
         if path.starts_with('.') {
             return Err(format!(
                 "\"{path}\" is a relative path; every module path is absolute, so a file can \
@@ -641,7 +641,7 @@ impl Workspace {
             ));
         }
         if crate::compiler::standard_library::is_std_path(path) {
-            return Ok(ModuleLoc::Std { path: path.to_string() });
+            return Ok(ModuleLocation::Std { path: path.to_string() });
         }
         if path == "core" {
             return Err("\"core\" is not a module; name one, as in \"core/list\"".into());
@@ -698,7 +698,7 @@ impl Workspace {
                 return Err(format!("\"{path}\" names no file ({})", self.rel_of(&file)));
             }
             let rel = self.rel_of(&file);
-            return Ok(ModuleLoc::InPackage(PackageModule {
+            return Ok(ModuleLocation::InPackage(PackageModule {
                 path: path.to_string(),
                 kind,
                 package: *id,

@@ -88,14 +88,14 @@ id!(CtxBodyId);
 /// One `Module` is one file, so the `FileId` in every `Span` was the same
 /// thirty-two bits repeated once per node. [`Tree::span`] puts it back.
 #[derive(Clone, Copy, Default, Debug)]
-pub struct Loc {
+pub struct Location {
     pub start: u32,
     pub end: u32,
 }
 
-impl Loc {
-    pub fn of(s: Span) -> Loc {
-        Loc { start: s.start, end: s.end }
+impl Location {
+    pub fn of(s: Span) -> Location {
+        Location { start: s.start, end: s.end }
     }
 }
 
@@ -234,7 +234,7 @@ impl Kind {
 /// What a pattern node is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum PKind {
+pub enum PatternKind {
     Wild,
     Bind,
     LitInt,
@@ -253,7 +253,7 @@ pub enum PKind {
 /// What a type expression is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum TKind {
+pub enum TypeKind {
     Named,
     SelfType,
     Unit,
@@ -289,9 +289,9 @@ impl TypeList {
 /// an expression a type is not read span-first.
 #[derive(Clone, Copy, Debug)]
 pub struct TypeData {
-    pub kind: TKind,
+    pub kind: TypeKind,
     pub payload: [u32; 4],
-    pub span: Loc,
+    pub span: Location,
 }
 
 /// One node of either arena.
@@ -315,7 +315,7 @@ pub struct Node {
 
 #[derive(Clone, Copy, Debug)]
 pub struct PNode {
-    pub kind: PKind,
+    pub kind: PatternKind,
     pub subtree: u32,
     pub payload: [u32; 4],
 }
@@ -324,7 +324,7 @@ const _: () = assert!(std::mem::size_of::<Node>() == 24);
 const _: () = assert!(std::mem::size_of::<PNode>() == 24);
 const _: () = assert!(std::mem::size_of::<TypeData>() == 28);
 const _: () = assert!(std::mem::size_of::<TypeList>() == 8);
-const _: () = assert!(std::mem::size_of::<Loc>() == 8);
+const _: () = assert!(std::mem::size_of::<Location>() == 8);
 
 // ---------------------------------------------------------------------------
 // Satellite records
@@ -336,7 +336,7 @@ pub struct BlockData {
     pub stmts_start: u32,
     pub stmts_len: u32,
     pub tail: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -358,7 +358,7 @@ pub struct StmtData {
     pub pattern: u32,
     pub ty: u32,
     pub value: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -366,30 +366,30 @@ pub struct ArmData {
     pub pattern: u32,
     pub guard: u32,
     pub body: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 /// A struct-literal field. `value` is [`NONE`] for the shorthand form.
 #[derive(Clone, Copy, Debug)]
 pub struct InitData {
-    pub name: Loc,
+    pub name: Location,
     pub value: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 /// A struct-pattern field. `pattern` is [`NONE`] for the shorthand form.
 #[derive(Clone, Copy, Debug)]
 pub struct FieldPatData {
-    pub name: Loc,
+    pub name: Location,
     pub pattern: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct LambdaParamData {
-    pub name: Loc,
+    pub name: Location,
     pub ty: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 /// One piece of a template literal: exactly one of the two is set.
@@ -404,14 +404,14 @@ pub struct CtxBodyData {
     pub spread: u32,
     pub bind_start: u32,
     pub bind_len: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct CtxBindData {
     pub effect: u32,
     pub value: u32,
-    pub span: Loc,
+    pub span: Location,
 }
 
 /// A variant pattern's payload: `Some(x)` or `User { id, .. }`.
@@ -464,9 +464,9 @@ pub struct Tree {
     /// sites in `expressions.rs`, about thirty-one in `formatting.rs` — and
     /// eight bytes of an otherwise thirty-two-byte record is a fourfold
     /// bandwidth difference for those passes.
-    spans: Vec<Loc>,
+    spans: Vec<Location>,
     pnodes: Vec<PNode>,
-    pspans: Vec<Loc>,
+    pspans: Vec<Location>,
 
     /// Every variadic expression child list, end to end, in source order.
     kids: Vec<ExprId>,
@@ -475,7 +475,7 @@ pub struct Tree {
     /// Every dotted path — a pattern's and a named type's — end to end. A
     /// name is the source under its own span, so a path is a range of spans
     /// and the segments themselves are not stored anywhere.
-    names: Vec<Loc>,
+    names: Vec<Location>,
 
     blocks: Vec<BlockData>,
     stmts: Vec<StmtData>,
@@ -595,11 +595,11 @@ impl Tree {
     /// offset here came from the lexer, so in a correct front end that cannot
     /// happen, and a total accessor makes the one arrangement of bytes where
     /// it does a wrong answer rather than a panic.
-    pub fn text(&self, at: Loc) -> &str {
+    pub fn text(&self, at: Location) -> &str {
         self.src.get(at.start as usize..at.end as usize).unwrap_or("")
     }
 
-    pub fn span_of(&self, at: Loc) -> Span {
+    pub fn span_of(&self, at: Location) -> Span {
         Span { file: self.file, start: at.start, end: at.end }
     }
 
@@ -615,8 +615,8 @@ impl Tree {
         self.nodes.get(id.index()).map_or(Kind::Unit, |n| n.kind)
     }
 
-    pub fn pkind(&self, id: PatId) -> PKind {
-        self.pnodes.get(id.index()).map_or(PKind::Wild, |n| n.kind)
+    pub fn pkind(&self, id: PatId) -> PatternKind {
+        self.pnodes.get(id.index()).map_or(PatternKind::Wild, |n| n.kind)
     }
 
     /// The optional-id decoding, in one place.
@@ -647,21 +647,21 @@ impl Tree {
     /// The one place a type payload is decoded.
     pub fn ty(&self, id: TypeId) -> TypeView<'_> {
         let Some(n) = self.types.get(id.index()) else {
-            return TypeView::Unit { span: self.span_of(Loc::default()) };
+            return TypeView::Unit { span: self.span_of(Location::default()) };
         };
         let span = self.span_of(n.span);
         let p = n.payload;
         match n.kind {
-            TKind::Named => TypeView::Named {
+            TypeKind::Named => TypeView::Named {
                 path: self.slice(&self.names, p[0], p[1]),
                 args: self.slice(&self.tkids, p[2], p[3]),
                 span,
             },
-            TKind::SelfType => TypeView::SelfType { span },
-            TKind::Unit => TypeView::Unit { span },
-            TKind::Tuple => TypeView::Tuple { elems: self.slice(&self.tkids, p[0], p[1]), span },
-            TKind::Array => TypeView::Array { elem: TypeId(p[0]), span },
-            TKind::Fn => TypeView::Fn {
+            TypeKind::SelfType => TypeView::SelfType { span },
+            TypeKind::Unit => TypeView::Unit { span },
+            TypeKind::Tuple => TypeView::Tuple { elems: self.slice(&self.tkids, p[0], p[1]), span },
+            TypeKind::Array => TypeView::Array { elem: TypeId(p[0]), span },
+            TypeKind::Fn => TypeView::Fn {
                 params: self.slice(&self.tkids, p[0], p[1]),
                 ret: TypeId(p[2]),
                 span,
@@ -683,7 +683,7 @@ impl Tree {
 
     /// A named type's path as it was written, dots and all. For the diagnostic
     /// that quotes a type nobody declared.
-    pub fn path_text(&self, path: &[Loc]) -> String {
+    pub fn path_text(&self, path: &[Location]) -> String {
         let mut out = String::new();
         for (i, seg) in path.iter().enumerate() {
             if i > 0 {
@@ -700,7 +700,7 @@ impl Tree {
 
     /// The text a declaration's name was written with.
     pub fn name(&self, n: crate::parsing::tree::Name) -> &str {
-        self.text(Loc { start: n.span.start, end: n.span.end })
+        self.text(Location { start: n.span.start, end: n.span.end })
     }
 
     pub fn block(&self, id: BlockId) -> BlockData {
@@ -708,7 +708,7 @@ impl Tree {
             stmts_start: 0,
             stmts_len: 0,
             tail: NONE,
-            span: Loc::default(),
+            span: Location::default(),
         })
     }
 
@@ -721,7 +721,7 @@ impl Tree {
             spread: NONE,
             bind_start: 0,
             bind_len: 0,
-            span: Loc::default(),
+            span: Location::default(),
         })
     }
 
@@ -845,7 +845,7 @@ impl Tree {
                 op,
                 lhs: ExprId(p[0]),
                 rhs: ExprId(p[1]),
-                op_span: self.span_of(Loc { start: p[2], end: p[3] }),
+                op_span: self.span_of(Location { start: p[2], end: p[3] }),
                 span,
             };
         }
@@ -855,12 +855,12 @@ impl Tree {
         match n.kind {
             Kind::Int => ExprView::Int {
                 value: self.ints.get(p[0] as usize).copied().unwrap_or(0),
-                raw: self.text(Loc { start: p[1], end: p[2] }),
+                raw: self.text(Location { start: p[1], end: p[2] }),
                 span,
             },
             Kind::Float => ExprView::Float {
                 value: self.floats.get(p[0] as usize).copied().unwrap_or(0.0),
-                raw: self.text(Loc { start: p[1], end: p[2] }),
+                raw: self.text(Location { start: p[1], end: p[2] }),
                 span,
             },
             Kind::Str => ExprView::Str {
@@ -875,11 +875,14 @@ impl Tree {
             Kind::Template => {
                 ExprView::Template { parts: self.slice(&self.parts, p[0], p[1]), span }
             }
-            Kind::Ident => ExprView::Ident { name: self.text(Loc { start: span.start, end: span.end }), span },
+            Kind::Ident => {
+                let at = Location { start: span.start, end: span.end };
+                ExprView::Ident { name: self.text(at), span }
+            }
             Kind::SelfValue => ExprView::SelfValue { span },
             Kind::Ctx => ExprView::Ctx { span },
             Kind::DotVariant => {
-                let at = Loc { start: p[0], end: p[1] };
+                let at = Location { start: p[0], end: p[1] };
                 ExprView::DotVariant { name: self.text(at), name_span: self.span_of(at), span }
             }
             Kind::Unit => ExprView::Unit { span },
@@ -905,7 +908,7 @@ impl Tree {
                 span,
             },
             Kind::Field => {
-                let at = Loc { start: p[1], end: p[2] };
+                let at = Location { start: p[1], end: p[2] };
                 ExprView::Field {
                     base: ExprId(p[0]),
                     name: self.text(at),
@@ -916,7 +919,7 @@ impl Tree {
             Kind::TupleIndex => ExprView::TupleIndex {
                 base: ExprId(p[0]),
                 index: p[1],
-                index_span: self.span_of(Loc { start: p[2], end: p[3] }),
+                index_span: self.span_of(Location { start: p[2], end: p[3] }),
                 span,
             },
             Kind::Call => ExprView::Call {
@@ -968,9 +971,9 @@ impl Tree {
         let span = self.pspan(id);
         let p = n.payload;
         match n.kind {
-            PKind::Wild => PatView::Wild { span },
-            PKind::Bind => {
-                let at = Loc { start: p[0], end: p[1] };
+            PatternKind::Wild => PatView::Wild { span },
+            PatternKind::Bind => {
+                let at = Location { start: p[0], end: p[1] };
                 PatView::Bind {
                     name: self.text(at),
                     name_span: self.span_of(at),
@@ -978,35 +981,37 @@ impl Tree {
                     span,
                 }
             }
-            PKind::LitInt => PatView::LitInt {
+            PatternKind::LitInt => PatView::LitInt {
                 value: self.ints.get(p[0] as usize).copied().unwrap_or(0),
                 negative: p[3] != 0,
-                raw: self.text(Loc { start: p[1], end: p[2] }),
+                raw: self.text(Location { start: p[1], end: p[2] }),
                 span,
             },
-            PKind::LitFloat => PatView::LitFloat {
+            PatternKind::LitFloat => PatView::LitFloat {
                 value: self.floats.get(p[0] as usize).copied().unwrap_or(0.0),
                 negative: p[3] != 0,
-                raw: self.text(Loc { start: p[1], end: p[2] }),
+                raw: self.text(Location { start: p[1], end: p[2] }),
                 span,
             },
-            PKind::LitStr => {
+            PatternKind::LitStr => {
                 PatView::LitStr { value: self.strs.get(p[0] as usize).map_or("", String::as_str), span }
             }
-            PKind::LitChar => {
+            PatternKind::LitChar => {
                 PatView::LitChar { value: char::from_u32(p[0]).unwrap_or('\u{0}'), span }
             }
-            PKind::LitTrue => PatView::LitBool { value: true, span },
-            PKind::LitFalse => PatView::LitBool { value: false, span },
-            PKind::Path => PatView::Path {
+            PatternKind::LitTrue => PatView::LitBool { value: true, span },
+            PatternKind::LitFalse => PatView::LitBool { value: false, span },
+            PatternKind::Path => PatView::Path {
                 path: self.slice(&self.names, p[0], p[1]),
                 dotted: p[3] != 0,
                 payload: self.payload(p[2]),
                 span,
             },
-            PKind::Unit => PatView::Unit { span },
-            PKind::Tuple => PatView::Tuple { elems: self.slice(&self.pkids, p[0], p[1]), span },
-            PKind::Array => PatView::Array {
+            PatternKind::Unit => PatView::Unit { span },
+            PatternKind::Tuple => {
+                PatView::Tuple { elems: self.slice(&self.pkids, p[0], p[1]), span }
+            }
+            PatternKind::Array => PatView::Array {
                 elems: self.slice(&self.pkids, p[0], p[1]),
                 // `Option<Option<Ident>>`: absent, present and anonymous, or
                 // present and named.
@@ -1017,7 +1022,7 @@ impl Tree {
                 },
                 span,
             },
-            PKind::Or => PatView::Or { alts: self.slice(&self.pkids, p[0], p[1]), span },
+            PatternKind::Or => PatView::Or { alts: self.slice(&self.pkids, p[0], p[1]), span },
         }
     }
 
@@ -1049,15 +1054,15 @@ impl Tree {
         let id = self.nodes.len() as u32;
         let subtree = id.saturating_sub(start).saturating_add(1);
         self.nodes.push(Node { kind, subtree, payload });
-        self.spans.push(Loc::of(span));
+        self.spans.push(Location::of(span));
         ExprId(id)
     }
 
-    pub fn ppush(&mut self, kind: PKind, payload: [u32; 4], span: Span, start: u32) -> PatId {
+    pub fn ppush(&mut self, kind: PatternKind, payload: [u32; 4], span: Span, start: u32) -> PatId {
         let id = self.pnodes.len() as u32;
         let subtree = id.saturating_sub(start).saturating_add(1);
         self.pnodes.push(PNode { kind, subtree, payload });
-        self.pspans.push(Loc::of(span));
+        self.pspans.push(Location::of(span));
         PatId(id)
     }
 
@@ -1073,13 +1078,13 @@ impl Tree {
         (at, ids.len() as u32)
     }
 
-    pub fn push_names(&mut self, path: &[Loc]) -> (u32, u32) {
+    pub fn push_names(&mut self, path: &[Location]) -> (u32, u32) {
         let at = self.names.len() as u32;
         self.names.extend_from_slice(path);
         (at, path.len() as u32)
     }
 
-    pub fn push_name(&mut self, at: Loc) -> u32 {
+    pub fn push_name(&mut self, at: Location) -> u32 {
         let i = self.names.len() as u32;
         self.names.push(at);
         i
@@ -1148,8 +1153,8 @@ impl Tree {
         TypeList { start: at, len: ids.len() as u32 }
     }
 
-    pub fn push_type(&mut self, kind: TKind, payload: [u32; 4], span: Span) -> TypeId {
-        self.types.push(TypeData { kind, payload, span: Loc::of(span) });
+    pub fn push_type(&mut self, kind: TypeKind, payload: [u32; 4], span: Span) -> TypeId {
+        self.types.push(TypeData { kind, payload, span: Location::of(span) });
         TypeId(self.types.len().saturating_sub(1) as u32)
     }
 
@@ -1283,7 +1288,7 @@ pub enum PartView<'t> {
 /// One type node, decoded.
 #[derive(Clone, Copy, Debug)]
 pub enum TypeView<'t> {
-    Named { path: &'t [Loc], args: &'t [TypeId], span: Span },
+    Named { path: &'t [Location], args: &'t [TypeId], span: Span },
     SelfType { span: Span },
     Unit { span: Span },
     Tuple { elems: &'t [TypeId], span: Span },
@@ -1314,9 +1319,9 @@ pub enum PatView<'t> {
     LitStr { value: &'t str, span: Span },
     LitChar { value: char, span: Span },
     LitBool { value: bool, span: Span },
-    Path { path: &'t [Loc], dotted: bool, payload: Option<PatPayloadData>, span: Span },
+    Path { path: &'t [Location], dotted: bool, payload: Option<PatPayloadData>, span: Span },
     Unit { span: Span },
     Tuple { elems: &'t [PatId], span: Span },
-    Array { elems: &'t [PatId], rest: Option<Option<Loc>>, span: Span },
+    Array { elems: &'t [PatId], rest: Option<Option<Location>>, span: Span },
     Or { alts: &'t [PatId], span: Span },
 }

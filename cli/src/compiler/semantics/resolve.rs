@@ -1206,7 +1206,7 @@ impl<'a> Checker<'a> {
 
     /// Resolves a possibly-qualified path (`Order`, `effects.Alloc`) in a module's
     /// scope.
-    pub fn resolve_path(&mut self, module: ModuleId, path: &[flat::Loc]) -> Option<Sym> {
+    pub fn resolve_path(&mut self, module: ModuleId, path: &[flat::Location]) -> Option<Sym> {
         let t = self.tree(module);
         match path {
             [name] => self.scope(module).names.get(t.text(*name)).cloned(),

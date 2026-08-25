@@ -8,7 +8,7 @@
 
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{
-    is_test_only_path, ModuleKind, ModuleLoc, RuleKind, TargetId, Workspace,
+    is_test_only_path, ModuleKind, ModuleLocation, RuleKind, TargetId, Workspace,
 };
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::standard_library;
@@ -505,7 +505,7 @@ impl<'a> Loader<'a> {
         for import in &schema.imports {
             let dep_path = crate::build::protogen::import_module_path(&import.path);
             match self.ws.map(|ws| ws.resolve_module(&dep_path)) {
-                Some(Ok(ModuleLoc::InPackage(m))) if m.kind == ModuleKind::Proto => {
+                Some(Ok(ModuleLocation::InPackage(m))) if m.kind == ModuleKind::Proto => {
                     self.load_proto(&dep_path, m.file, role, import.span);
                 }
                 _ => {
@@ -581,11 +581,11 @@ impl<'a> Loader<'a> {
             return None;
         };
         match ws.resolve_module(path) {
-            Ok(ModuleLoc::InPackage(m)) if m.kind == ModuleKind::Proto => {
+            Ok(ModuleLocation::InPackage(m)) if m.kind == ModuleKind::Proto => {
                 self.load_proto(path, m.file, role, span)
             }
-            Ok(ModuleLoc::InPackage(m)) => self.load_file(path, m.file, role, span),
-            Ok(ModuleLoc::Std { .. }) => self.load_std(path, span),
+            Ok(ModuleLocation::InPackage(m)) => self.load_file(path, m.file, role, span),
+            Ok(ModuleLocation::Std { .. }) => self.load_std(path, span),
             Err(msg) => {
                 self.diags.push(Diagnostic::error(span, msg).with_code("module-not-found").with_fix(
                     "create the file the path names, or correct the path — a module path maps \
@@ -726,8 +726,12 @@ impl<'a> Loader<'a> {
             return Role::TestOnly;
         }
         if let Some(ws) = self.ws {
-            if matches!(ws.resolve_module(path), Ok(ModuleLoc::InPackage(m)) if m.kind == ModuleKind::BinaryEntry)
-            {
+            let resolved = ws.resolve_module(path);
+            let entry = matches!(
+                resolved,
+                Ok(ModuleLocation::InPackage(m)) if m.kind == ModuleKind::BinaryEntry
+            );
+            if entry {
                 return Role::Entry;
             }
         }
@@ -803,7 +807,7 @@ impl<'a> Loader<'a> {
 
         // A `//...` path always resolves inside this repository, so there is no
         // `core/` case to skip past here.
-        let Ok(ModuleLoc::InPackage(loc)) = ws.resolve_module(path) else {
+        let Ok(ModuleLocation::InPackage(loc)) = ws.resolve_module(path) else {
             // `load_path` reports the resolution failure itself.
             return true;
         };

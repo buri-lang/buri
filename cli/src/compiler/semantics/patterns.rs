@@ -11,7 +11,7 @@ use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Invariant as _, Span};
-use crate::parsing::flat::{Loc, PatId, PatPayloadData, PatView as P};
+use crate::parsing::flat::{Location, PatId, PatPayloadData, PatView as P};
 
 impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn check_pattern(&mut self, p: PatId, ty: &Ty) -> typed::Pattern {
@@ -242,7 +242,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_path_pattern(
         &mut self,
-        path: &[Loc],
+        path: &[Location],
         dotted: bool,
         payload: Option<PatPayloadData>,
         ty: &Ty,

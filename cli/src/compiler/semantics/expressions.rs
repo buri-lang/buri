@@ -126,7 +126,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // A value of type `Result<T, E>` may not be discarded by a `_`
         // pattern. Since `let _ =` is the only place a value can be thrown
         // away, the rule has no holes (SPEC 5.7.1).
-        if self.tree().pkind(pattern) == flat::PKind::Wild && self.is_known_result(&ty) {
+        if self.tree().pkind(pattern) == flat::PatternKind::Wild && self.is_known_result(&ty) {
             self.err(span, "a `Result` may not be discarded").code("result-discarded")
                 .fix(
                     "consume it: `?` to propagate, `match` to handle both cases, \
