@@ -194,9 +194,9 @@ const MAX_DEPTH: u32 = 128;
 /// Parses one complete value. Trailing data is an error, not a stopping point.
 pub fn parse(text: &str) -> Result<Value, String> {
     let mut p = Parser { b: text.as_bytes(), i: 0, depth: 0 };
-    p.ws();
+    p.skip_whitespace();
     let v = p.value()?;
-    p.ws();
+    p.skip_whitespace();
     if p.i != p.b.len() {
         return Err(format!("trailing data at byte {}", p.i));
     }
@@ -211,7 +211,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn ws(&mut self) {
+    fn skip_whitespace(&mut self) {
         while self.b.get(self.i).is_some_and(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r')) {
             self.bump();
         }
@@ -272,15 +272,15 @@ impl<'a> Parser<'a> {
     fn array(&mut self) -> Result<Value, String> {
         self.eat(b'[')?;
         let mut items = Vec::new();
-        self.ws();
+        self.skip_whitespace();
         if self.b.get(self.i) == Some(&b']') {
             self.bump();
             return Ok(Value::Array(items));
         }
         loop {
-            self.ws();
+            self.skip_whitespace();
             items.push(self.value()?);
-            self.ws();
+            self.skip_whitespace();
             match self.b.get(self.i) {
                 Some(b',') => self.bump(),
                 Some(b']') => {
@@ -295,19 +295,19 @@ impl<'a> Parser<'a> {
     fn object(&mut self) -> Result<Value, String> {
         self.eat(b'{')?;
         let mut map = BTreeMap::new();
-        self.ws();
+        self.skip_whitespace();
         if self.b.get(self.i) == Some(&b'}') {
             self.bump();
             return Ok(Value::Object(map));
         }
         loop {
-            self.ws();
+            self.skip_whitespace();
             let key = self.string()?;
-            self.ws();
+            self.skip_whitespace();
             self.eat(b':')?;
-            self.ws();
+            self.skip_whitespace();
             map.insert(key, self.value()?);
-            self.ws();
+            self.skip_whitespace();
             match self.b.get(self.i) {
                 Some(b',') => self.bump(),
                 Some(b'}') => {
