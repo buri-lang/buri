@@ -219,7 +219,7 @@ pub struct EnumValue {
 }
 
 #[derive(Clone, Debug)]
-pub struct EnumDef {
+pub struct Enum {
     pub name: String,
     pub span: Span,
     pub values: Vec<EnumValue>,
@@ -233,7 +233,7 @@ pub struct Message {
     pub fields: Vec<Field>,
     pub oneofs: Vec<Oneof>,
     pub messages: Vec<Message>,
-    pub enums: Vec<EnumDef>,
+    pub enums: Vec<Enum>,
     /// Declared on the message, and inherited by its fields and its nested
     /// types.
     pub features: Features,
@@ -250,7 +250,7 @@ pub struct Schema {
     pub package: Option<String>,
     pub imports: Vec<Import>,
     pub messages: Vec<Message>,
-    pub enums: Vec<EnumDef>,
+    pub enums: Vec<Enum>,
     /// The file's own `option features.…`, layered over the edition's defaults
     /// by [`Features::edition_defaults`] when a field is resolved.
     pub features: Features,
@@ -844,7 +844,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                     "enum" => {
-                        if let Some(e) = self.enum_def() {
+                        if let Some(e) = self.enum_declaration() {
                             schema.enums.push(e);
                         }
                     }
@@ -983,7 +983,7 @@ impl<'a> Parser<'a> {
                     }
                     "enum" => {
                         self.next();
-                        if let Some(e) = self.enum_def() {
+                        if let Some(e) = self.enum_declaration() {
                             m.enums.push(e);
                         }
                     }
@@ -1275,12 +1275,12 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn enum_def(&mut self) -> Option<EnumDef> {
+    fn enum_declaration(&mut self) -> Option<Enum> {
         let (name, span) = self.word("an enum name")?;
         if !self.expect('{', "an enum name") {
             return None;
         }
-        let mut e = EnumDef { name, span, values: Vec::new() };
+        let mut e = Enum { name, span, values: Vec::new() };
         loop {
             self.skip_trivia();
             let start = self.pos;

@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 
 use crate::build::protoschema::{
-    EnumDef, Features, Field, Label, Message, OneofCase, Presence, Scalar, Schema, TypeRef,
+    Enum, Features, Field, Label, Message, OneofCase, Presence, Scalar, Schema, TypeRef,
 };
 use crate::diagnostics::{Diagnostic, Span};
 
@@ -68,21 +68,21 @@ impl Entry {
 
 /// Where a field's type landed.
 #[derive(Clone, Debug)]
-enum FTy {
+enum FieldType {
     Scalar(Scalar),
     Named(Entry),
 }
 
-impl FTy {
+impl FieldType {
     fn wire(&self) -> &'static str {
         match self {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Fixed64 | Scalar::Sfixed64 | Scalar::Double => "proto.I64",
                 Scalar::Fixed32 | Scalar::Sfixed32 | Scalar::Float => "proto.I32",
                 Scalar::Str | Scalar::Bytes => "proto.LEN",
                 _ => "proto.VARINT",
             },
-            FTy::Named(e) => match e.kind {
+            FieldType::Named(e) => match e.kind {
                 Kind::Enum => "proto.VARINT",
                 Kind::Message => "proto.LEN",
             },
@@ -98,21 +98,21 @@ impl FTy {
 
     fn buri(&self) -> String {
         match self {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Bool => "Bool".into(),
                 Scalar::Str => "Str".into(),
                 Scalar::Bytes => "[U8]".into(),
                 Scalar::Double | Scalar::Float => "Float".into(),
                 _ => "Int".into(),
             },
-            FTy::Named(e) => e.buri.clone(),
+            FieldType::Named(e) => e.buri.clone(),
         }
     }
 }
 
 /// A field with its type resolved and its two names settled.
 #[derive(Clone)]
-struct RField {
+struct ResolvedField {
     /// The Buri field or variant name.
     name: String,
     /// The name proto3 JSON writes. The same string unless it collided with a
@@ -123,7 +123,7 @@ struct RField {
     proto: String,
     number: i64,
     label: Label,
-    ty: FTy,
+    ty: FieldType,
     /// Resolved against the field, the message and the file, in that order.
     /// `EXPLICIT` — the edition's default — is what makes a singular field an
     /// `Option`.
@@ -133,7 +133,7 @@ struct RField {
     packed: bool,
 }
 
-impl RField {
+impl ResolvedField {
     /// Whether the Buri field is an `Option`.
     ///
     /// Under editions this is the *default* for a singular field rather than
@@ -147,7 +147,7 @@ impl RField {
     }
 
     fn is_message(&self) -> bool {
-        matches!(&self.ty, FTy::Named(e) if e.kind == Kind::Message)
+        matches!(&self.ty, FieldType::Named(e) if e.kind == Kind::Message)
     }
 
     fn buri_type(&self) -> String {
@@ -161,12 +161,12 @@ impl RField {
 }
 
 /// A `oneof`, resolved.
-struct ROneof {
+struct ResolvedOneof {
     /// The Buri field on the enclosing struct.
     field: String,
     /// The Buri enum the cases became.
     enum_name: String,
-    cases: Vec<RField>,
+    cases: Vec<ResolvedField>,
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +316,7 @@ impl Table {
 
     fn add_enum(
         &mut self,
-        e: &EnumDef,
+        e: &Enum,
         scope: &[String],
         package: &str,
         module: Option<&str>,
@@ -410,7 +410,7 @@ impl Table {
 /// The name gives way to a declared one rather than the other way round: a
 /// schema is allowed to have a value called `Unrecognized`, and its meaning
 /// wins.
-fn unrecognized_name(e: &EnumDef) -> String {
+fn unrecognized_name(e: &Enum) -> String {
     let mut name = "Unrecognized".to_string();
     while e.values.iter().any(|v| escape(&v.name) == name) {
         name.push('_');
@@ -418,7 +418,7 @@ fn unrecognized_name(e: &EnumDef) -> String {
     name
 }
 
-fn zero_value(e: &EnumDef) -> Option<String> {
+fn zero_value(e: &Enum) -> Option<String> {
     e.values
         .iter()
         .find(|v| v.number == 0)
@@ -470,7 +470,7 @@ pub fn generate(
         diagnostics.push(d);
     }
 
-    let mut g = Gen {
+    let mut g = Generator {
         table,
         package: schema.package.clone().unwrap_or_default(),
         // The file's own `option features.…` over the edition's defaults, which
@@ -550,7 +550,7 @@ struct FieldLike {
     span: Span,
 }
 
-struct Gen<'a> {
+struct Generator<'a> {
     table: Table,
     package: String,
     /// The file's resolved features, which a message layers over and a field
@@ -587,7 +587,7 @@ fn if_chain(indent: &str, arms: &[(String, Vec<String>)], otherwise: &[String]) 
     out
 }
 
-impl<'a> Gen<'a> {
+impl<'a> Generator<'a> {
     fn line(&mut self, s: &str) {
         self.out.push_str(s);
         self.out.push('\n');
@@ -599,20 +599,20 @@ impl<'a> Gen<'a> {
         }
     }
 
-    fn resolve(&mut self, f: &Field, scope: &[String]) -> Option<FTy> {
+    fn resolve(&mut self, f: &Field, scope: &[String]) -> Option<FieldType> {
         self.resolve_type(&f.ty, f.span, scope)
     }
 
     /// The same, for a oneof case, which is the same question about a type that
     /// simply has no label to ask about.
-    fn resolve_case(&mut self, c: &OneofCase, scope: &[String]) -> Option<FTy> {
+    fn resolve_case(&mut self, c: &OneofCase, scope: &[String]) -> Option<FieldType> {
         self.resolve_type(&c.ty, c.span, scope)
     }
 
-    fn resolve_type(&mut self, ty: &TypeRef, span: Span, scope: &[String]) -> Option<FTy> {
+    fn resolve_type(&mut self, ty: &TypeRef, span: Span, scope: &[String]) -> Option<FieldType> {
         let f = &FieldLike { ty: ty.clone(), span };
         match &f.ty {
-            TypeRef::Scalar(s) => Some(FTy::Scalar(*s)),
+            TypeRef::Scalar(s) => Some(FieldType::Scalar(*s)),
             TypeRef::Named(name) => match self.table.resolve(name, scope, &self.package) {
                 Some((key, e)) => {
                     // Two packages can both have a `Status`, and a short name
@@ -640,7 +640,7 @@ impl<'a> Gen<'a> {
                         return None;
                     }
                     self.used.insert(e.buri.clone(), e.clone());
-                    Some(FTy::Named(e))
+                    Some(FieldType::Named(e))
                 }
                 None => {
                     let name = name.clone();
@@ -658,30 +658,30 @@ impl<'a> Gen<'a> {
         }
     }
 
-    fn rfield(&mut self, f: &Field, ty: FTy, scope: Features) -> RField {
-        self.rname(&f.name, f.number, f.label, f.features, ty, scope)
+    fn resolved_field(&mut self, f: &Field, ty: FieldType, scope: Features) -> ResolvedField {
+        self.build_field(&f.name, f.number, f.label, f.features, ty, scope)
     }
 
     /// A oneof case, which is a field with no label: the case being selected is
     /// its presence, so both are fixed rather than resolved.
-    fn rcase(&mut self, c: &OneofCase, ty: FTy, scope: Features) -> RField {
-        let mut out = self.rname(&c.name, c.number, Label::Single, c.features, ty, scope);
+    fn resolved_case(&mut self, c: &OneofCase, ty: FieldType, scope: Features) -> ResolvedField {
+        let mut out = self.build_field(&c.name, c.number, Label::Single, c.features, ty, scope);
         out.presence = Presence::Explicit;
         out
     }
 
-    fn rname(
+    fn build_field(
         &mut self,
         name: &str,
         number: i64,
         label: Label,
         own: Features,
-        ty: FTy,
+        ty: FieldType,
         scope: Features,
-    ) -> RField {
+    ) -> ResolvedField {
         let json = camel_case(name);
         let features = own.over(scope);
-        RField {
+        ResolvedField {
             name: escape(&json),
             json: json.clone(),
             proto: name.to_string(),
@@ -699,11 +699,11 @@ impl<'a> Gen<'a> {
         scope: &[String],
         name: &str,
         inherited: Features,
-    ) -> (Vec<RField>, Vec<ROneof>) {
+    ) -> (Vec<ResolvedField>, Vec<ResolvedOneof>) {
         let mut fields = Vec::new();
         for f in &m.fields {
             if let Some(ty) = self.resolve(f, scope) {
-                fields.push(self.rfield(f, ty, inherited));
+                fields.push(self.resolved_field(f, ty, inherited));
             }
         }
         let mut oneofs = Vec::new();
@@ -711,7 +711,7 @@ impl<'a> Gen<'a> {
             let mut cases = Vec::new();
             for f in &o.cases {
                 if let Some(ty) = self.resolve_case(f, scope) {
-                    cases.push(self.rcase(f, ty, inherited));
+                    cases.push(self.resolved_case(f, ty, inherited));
                 }
             }
             // A oneof with no cases would be an uninhabited enum, which the
@@ -719,7 +719,7 @@ impl<'a> Gen<'a> {
             if cases.is_empty() {
                 continue;
             }
-            oneofs.push(ROneof {
+            oneofs.push(ResolvedOneof {
                 field: escape(&camel_case(&o.name)),
                 enum_name: format!("{name}_{}", upper_first(&camel_case(&o.name))),
                 cases,
@@ -775,7 +775,7 @@ impl<'a> Gen<'a> {
         }
     }
 
-    fn enum_type(&mut self, e: &EnumDef, scope: &[String]) {
+    fn enum_type(&mut self, e: &Enum, scope: &[String]) {
         let mut path = scope.to_vec();
         path.push(e.name.clone());
         let name = path.join("_");
@@ -882,7 +882,7 @@ impl<'a> Gen<'a> {
 
     // -- defaults ----------------------------------------------------------
 
-    fn default_of(&self, f: &RField) -> String {
+    fn default_of(&self, f: &ResolvedField) -> String {
         if f.label == Label::Repeated {
             return format!("list.empty<{}>()", f.ty.buri());
         }
@@ -890,18 +890,18 @@ impl<'a> Gen<'a> {
             return ".None".into();
         }
         match &f.ty {
-            FTy::Scalar(Scalar::Bool) => "false".into(),
-            FTy::Scalar(Scalar::Str) => "\"\"".into(),
-            FTy::Scalar(Scalar::Bytes) => "list.empty<U8>()".into(),
-            FTy::Scalar(Scalar::Double | Scalar::Float) => "0.0".into(),
-            FTy::Scalar(_) => "0".into(),
-            FTy::Named(e) => {
+            FieldType::Scalar(Scalar::Bool) => "false".into(),
+            FieldType::Scalar(Scalar::Str) => "\"\"".into(),
+            FieldType::Scalar(Scalar::Bytes) => "list.empty<U8>()".into(),
+            FieldType::Scalar(Scalar::Double | Scalar::Float) => "0.0".into(),
+            FieldType::Scalar(_) => "0".into(),
+            FieldType::Named(e) => {
                 format!("{}.{}", e.buri, e.zero.clone().unwrap_or_else(|| "UNSPECIFIED".into()))
             }
         }
     }
 
-    fn default_fn(&mut self, name: &str, fields: &[RField], oneofs: &[ROneof]) {
+    fn default_fn(&mut self, name: &str, fields: &[ResolvedField], oneofs: &[ResolvedOneof]) {
         self.line("/// Every field at its proto3 default: what a message of no bytes decodes to.");
         self.line(&format!("export fn default{name}(): {name} {{"));
         if fields.is_empty() && oneofs.is_empty() {
@@ -925,10 +925,10 @@ impl<'a> Gen<'a> {
 
     /// The bytes of one whole field — header included — given an expression
     /// holding its value.
-    fn write_one(&self, f: &RField, value: &str, ctx: &str) -> String {
+    fn write_one(&self, f: &ResolvedField, value: &str, ctx: &str) -> String {
         let n = f.number;
         match &f.ty {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Sint32 | Scalar::Sint64 => {
                     format!("proto.varintField({ctx}, {n}, bytes.zigzag({value}))")
                 }
@@ -947,7 +947,7 @@ impl<'a> Gen<'a> {
                 Scalar::Bytes => format!("proto.bytesField({ctx}, {n}, {value})"),
                 _ => format!("proto.varintField({ctx}, {n}, {value})"),
             },
-            FTy::Named(e) => match e.kind {
+            FieldType::Named(e) => match e.kind {
                 Kind::Enum => format!("proto.varintField({ctx}, {n}, encode{}({value}))", e.buri),
                 Kind::Message => {
                     format!("proto.bytesField({ctx}, {n}, encode{}({ctx}, {value}))", e.buri)
@@ -957,9 +957,9 @@ impl<'a> Gen<'a> {
     }
 
     /// One element of a packed repeated field: the value with no header.
-    fn write_raw(&self, f: &RField, value: &str, ctx: &str) -> String {
+    fn write_raw(&self, f: &ResolvedField, value: &str, ctx: &str) -> String {
         match &f.ty {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Sint32 | Scalar::Sint64 => {
                     format!("bytes.toVarint({ctx}, bytes.zigzag({value}))")
                 }
@@ -972,25 +972,25 @@ impl<'a> Gen<'a> {
                 Scalar::Float => format!("bytes.f32ToBytes({ctx}, {value})"),
                 _ => format!("bytes.toVarint({ctx}, {value})"),
             },
-            FTy::Named(e) => format!("bytes.toVarint({ctx}, encode{}({value}))", e.buri),
+            FieldType::Named(e) => format!("bytes.toVarint({ctx}, encode{}({value}))", e.buri),
         }
     }
 
     /// The test that decides whether a singular field is written at all.
     /// proto3 omits a field holding its default, and that is what makes an
     /// encoding canonical rather than merely correct.
-    fn is_default(&self, f: &RField, value: &str) -> String {
+    fn is_default(&self, f: &ResolvedField, value: &str) -> String {
         match &f.ty {
-            FTy::Scalar(Scalar::Bool) => format!("{value} == false"),
-            FTy::Scalar(Scalar::Str) => format!("{value} == \"\""),
-            FTy::Scalar(Scalar::Bytes) => format!("{value}.len() == 0"),
-            FTy::Scalar(Scalar::Double | Scalar::Float) => format!("{value} == 0.0"),
-            FTy::Scalar(_) => format!("{value} == 0"),
-            FTy::Named(e) => format!("encode{}({value}) == 0", e.buri),
+            FieldType::Scalar(Scalar::Bool) => format!("{value} == false"),
+            FieldType::Scalar(Scalar::Str) => format!("{value} == \"\""),
+            FieldType::Scalar(Scalar::Bytes) => format!("{value}.len() == 0"),
+            FieldType::Scalar(Scalar::Double | Scalar::Float) => format!("{value} == 0.0"),
+            FieldType::Scalar(_) => format!("{value} == 0"),
+            FieldType::Named(e) => format!("encode{}({value}) == 0", e.buri),
         }
     }
 
-    fn encode_fn(&mut self, name: &str, fields: &[RField], oneofs: &[ROneof]) {
+    fn encode_fn(&mut self, name: &str, fields: &[ResolvedField], oneofs: &[ResolvedOneof]) {
         self.line("/// The protobuf wire encoding, fields in schema order.");
         self.line("///");
         self.line("/// A singular field holding its default is omitted, which is what proto3");
@@ -1054,9 +1054,9 @@ impl<'a> Gen<'a> {
 
     /// What to read at `next`: a `Result` of the raw value and the index just
     /// past it.
-    fn read_one(&self, f: &RField) -> String {
+    fn read_one(&self, f: &ResolvedField) -> String {
         match &f.ty {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Str => "proto.readStr(ctx, b, next)?".into(),
                 Scalar::Bytes => "proto.readBytes(ctx, b, next)?".into(),
                 Scalar::Double => "proto.readF64(b, next)?".into(),
@@ -1070,7 +1070,7 @@ impl<'a> Gen<'a> {
                 }
                 _ => "proto.readVarint(b, next)?".into(),
             },
-            FTy::Named(e) => match e.kind {
+            FieldType::Named(e) => match e.kind {
                 // An enum value is an int32.
                 Kind::Enum => "proto.readVarint32(b, next)?".into(),
                 Kind::Message => "proto.readBytes(ctx, b, next)?".into(),
@@ -1084,17 +1084,17 @@ impl<'a> Gen<'a> {
     /// `uint32` field can arrive carrying 2^33; protobuf reads the low 32 bits
     /// and every implementation agrees on that, so a decoder that kept the
     /// whole number would disagree with all of them.
-    fn adapt(&self, f: &RField, raw: &str) -> String {
+    fn adapt(&self, f: &ResolvedField, raw: &str) -> String {
         match &f.ty {
             // `raw` is already the low 32 bits, unsigned; the signed types
             // reinterpret it and the zigzag one undoes its transform.
-            FTy::Scalar(Scalar::Int32) => format!("proto.signed32({raw})"),
-            FTy::Scalar(Scalar::Uint32) => raw.to_string(),
-            FTy::Scalar(Scalar::Sint32) => format!("bytes.unzigzag({raw})"),
-            FTy::Scalar(Scalar::Sint64) => format!("bytes.unzigzag({raw})"),
-            FTy::Scalar(Scalar::Bool) => format!("{raw} != 0"),
-            FTy::Scalar(Scalar::Sfixed32) => format!("proto.signed32({raw})"),
-            FTy::Named(e) => match e.kind {
+            FieldType::Scalar(Scalar::Int32) => format!("proto.signed32({raw})"),
+            FieldType::Scalar(Scalar::Uint32) => raw.to_string(),
+            FieldType::Scalar(Scalar::Sint32) => format!("bytes.unzigzag({raw})"),
+            FieldType::Scalar(Scalar::Sint64) => format!("bytes.unzigzag({raw})"),
+            FieldType::Scalar(Scalar::Bool) => format!("{raw} != 0"),
+            FieldType::Scalar(Scalar::Sfixed32) => format!("proto.signed32({raw})"),
+            FieldType::Named(e) => match e.kind {
                 Kind::Enum => format!("decode{}(proto.signed32({raw}))", e.buri),
                 Kind::Message => format!("decode{}(ctx, {raw})?", e.buri),
             },
@@ -1104,41 +1104,47 @@ impl<'a> Gen<'a> {
 
     /// The same, for one element of a packed field, where the values arrive as
     /// a list rather than one at a time.
-    fn adapt_packed(&self, f: &RField) -> String {
+    fn adapt_packed(&self, f: &ResolvedField) -> String {
         match &f.ty {
-            FTy::Scalar(Scalar::Bool) => "values.map(ctx, fn(v) => v != 0)".into(),
-            FTy::Scalar(Scalar::Int32) => "values.map(ctx, fn(v) => proto.signed32(v))".into(),
-            FTy::Scalar(Scalar::Uint32) => "values".into(),
-            FTy::Scalar(Scalar::Sint32 | Scalar::Sint64) => {
+            FieldType::Scalar(Scalar::Bool) => "values.map(ctx, fn(v) => v != 0)".into(),
+            FieldType::Scalar(Scalar::Int32) => {
+                "values.map(ctx, fn(v) => proto.signed32(v))".into()
+            }
+            FieldType::Scalar(Scalar::Uint32) => "values".into(),
+            FieldType::Scalar(Scalar::Sint32 | Scalar::Sint64) => {
                 "values.map(ctx, fn(v) => bytes.unzigzag(v))".into()
             }
-            FTy::Scalar(Scalar::Sfixed32) => "values.map(ctx, fn(v) => proto.signed32(v))".into(),
-            FTy::Named(e) => {
+            FieldType::Scalar(Scalar::Sfixed32) => {
+                "values.map(ctx, fn(v) => proto.signed32(v))".into()
+            }
+            FieldType::Named(e) => {
                 format!("values.map(ctx, fn(v) => decode{}(proto.signed32(v)))", e.buri)
             }
             _ => "values".into(),
         }
     }
 
-    fn packed_reader(&self, f: &RField) -> String {
+    fn packed_reader(&self, f: &ResolvedField) -> String {
         match &f.ty {
-            FTy::Scalar(Scalar::Int32 | Scalar::Uint32 | Scalar::Sint32) => {
+            FieldType::Scalar(Scalar::Int32 | Scalar::Uint32 | Scalar::Sint32) => {
                 "proto.packedVarints32(ctx, raw)?".into()
             }
-            FTy::Named(e) if e.kind == Kind::Enum => "proto.packedVarints32(ctx, raw)?".into(),
-            FTy::Scalar(Scalar::Double) => "proto.packedF64(ctx, raw)?".into(),
-            FTy::Scalar(Scalar::Float) => "proto.packedF32(ctx, raw)?".into(),
-            FTy::Scalar(Scalar::Fixed32 | Scalar::Sfixed32) => {
+            FieldType::Named(e) if e.kind == Kind::Enum => {
+                "proto.packedVarints32(ctx, raw)?".into()
+            }
+            FieldType::Scalar(Scalar::Double) => "proto.packedF64(ctx, raw)?".into(),
+            FieldType::Scalar(Scalar::Float) => "proto.packedF32(ctx, raw)?".into(),
+            FieldType::Scalar(Scalar::Fixed32 | Scalar::Sfixed32) => {
                 "proto.packedFixed32(ctx, raw)?".into()
             }
-            FTy::Scalar(Scalar::Fixed64 | Scalar::Sfixed64) => {
+            FieldType::Scalar(Scalar::Fixed64 | Scalar::Sfixed64) => {
                 "proto.packedFixed64(ctx, raw)?".into()
             }
             _ => "proto.packedVarints(ctx, raw)?".into(),
         }
     }
 
-    fn decode_fn(&mut self, name: &str, fields: &[RField], oneofs: &[ROneof]) {
+    fn decode_fn(&mut self, name: &str, fields: &[ResolvedField], oneofs: &[ResolvedOneof]) {
         self.line("/// Reads one message. A field this schema does not know is skipped, which is");
         self.line("/// proto3's forward compatibility and the whole of it.");
         self.line(&format!(
@@ -1172,7 +1178,7 @@ impl<'a> Gen<'a> {
 
         // Every case a header can name: the message's own fields, then each
         // oneof's, which are ordinary fields with a different place to land.
-        let mut all: Vec<(RField, Option<&ROneof>)> = Vec::new();
+        let mut all: Vec<(ResolvedField, Option<&ResolvedOneof>)> = Vec::new();
         for f in fields {
             all.push((f.clone(), None));
         }
@@ -1207,7 +1213,9 @@ impl<'a> Gen<'a> {
             // The seed is the accumulator's own value, so two encodings of one
             // message read as the message they describe together.
             let adapted = match (&f.ty, f.label, in_oneof) {
-                (FTy::Named(e), label, seat) if e.kind == Kind::Message && label != Label::Repeated => {
+                (FieldType::Named(e), label, seat)
+                    if e.kind == Kind::Message && label != Label::Repeated =>
+                {
                     let seed = match seat {
                         Some(o) => format!(
                             "match (acc.{}) {{ .Some(.{}(prev)) => prev, _ => default{}() }}",
@@ -1263,9 +1271,9 @@ impl<'a> Gen<'a> {
 
     // -- JSON ---------------------------------------------------------------
 
-    fn json_of(&self, f: &RField, value: &str, ctx: &str) -> String {
+    fn json_of(&self, f: &ResolvedField, value: &str, ctx: &str) -> String {
         match &f.ty {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Int64 | Scalar::Uint64 | Scalar::Sint64 | Scalar::Fixed64
                 | Scalar::Sfixed64 => format!("proto.jsonInt64({ctx}, {value})"),
                 Scalar::Bool => format!("Json.Bool({value})"),
@@ -1274,14 +1282,14 @@ impl<'a> Gen<'a> {
                 Scalar::Double | Scalar::Float => format!("proto.jsonFloat({value})"),
                 _ => format!("proto.jsonInt32({value})"),
             },
-            FTy::Named(e) => match e.kind {
+            FieldType::Named(e) => match e.kind {
                 Kind::Enum => format!("encode{}Json({value})", e.buri),
                 Kind::Message => format!("encode{}Json({ctx}, {value})", e.buri),
             },
         }
     }
 
-    fn json_encode_fn(&mut self, name: &str, fields: &[RField], oneofs: &[ROneof]) {
+    fn json_encode_fn(&mut self, name: &str, fields: &[ResolvedField], oneofs: &[ResolvedOneof]) {
         self.line("/// The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit");
         self.line("/// integer is a string, `bytes` is base64, an enum is its value's name, and");
         self.line("/// a oneof's case is an ordinary member of this object.");
@@ -1354,7 +1362,7 @@ impl<'a> Gen<'a> {
     /// proto3 JSON *writes* the camelCase name and *accepts* either it or the
     /// name the schema wrote. A field whose schema name is already camel needs
     /// only the one lookup, and gets it.
-    fn member_call(&self, f: &RField) -> String {
+    fn member_call(&self, f: &ResolvedField) -> String {
         if f.json == f.proto {
             format!("proto.member(doc, \"{}\")", f.json)
         } else {
@@ -1367,9 +1375,9 @@ impl<'a> Gen<'a> {
     /// `ctx` is named rather than assumed: inside a fold over an array the
     /// context is the lambda's parameter, and a lambda may not capture the
     /// enclosing one (SPEC 10.6).
-    fn json_read(&self, f: &RField, doc: &str, path: &str, ctx: &str) -> String {
+    fn json_read(&self, f: &ResolvedField, doc: &str, path: &str, ctx: &str) -> String {
         match &f.ty {
-            FTy::Scalar(s) => match s {
+            FieldType::Scalar(s) => match s {
                 Scalar::Bool => format!("proto.asBool({doc}, {path})"),
                 Scalar::Str => format!("proto.asStr({doc}, {path})"),
                 Scalar::Bytes => format!("proto.asBytes({ctx}, {doc}, {path})"),
@@ -1383,7 +1391,7 @@ impl<'a> Gen<'a> {
                     format!("proto.asInt({doc}, {path}, {lo}, {hi})")
                 }
             },
-            FTy::Named(e) => match e.kind {
+            FieldType::Named(e) => match e.kind {
                 Kind::Enum => format!("decode{}Json({doc}, {path})", e.buri),
                 Kind::Message => format!("decode{}JsonAt({ctx}, {doc}, {path})", e.buri),
             },
@@ -1392,7 +1400,7 @@ impl<'a> Gen<'a> {
 
     /// A oneof's cases, read in order: the first member present wins, which is
     /// what a document holding two of them means to every other implementation.
-    fn oneof_json_fn(&mut self, o: &ROneof) {
+    fn oneof_json_fn(&mut self, o: &ResolvedOneof) {
         self.line(&format!(
             "fn read{}<C: Alloc>(\n  ctx: C,\n  doc: Json,\n  path: Str,\n): Result<Option<{}>, ProtoError> {{",
             o.enum_name, o.enum_name
@@ -1424,7 +1432,7 @@ impl<'a> Gen<'a> {
         self.line("");
     }
 
-    fn json_decode_fn(&mut self, name: &str, fields: &[RField], oneofs: &[ROneof]) {
+    fn json_decode_fn(&mut self, name: &str, fields: &[ResolvedField], oneofs: &[ResolvedOneof]) {
         for o in oneofs {
             self.oneof_json_fn(o);
         }
