@@ -96,7 +96,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     &mut session.parsed,
                     &unit,
                 );
-                diagnostics.extend(analysis.diags.items);
+                diagnostics.extend(analysis.diagnostics.items);
             }
             failed |= session.print(&diagnostics);
             continue;

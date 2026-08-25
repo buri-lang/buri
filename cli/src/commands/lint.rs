@@ -396,8 +396,8 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
         &mut session.parsed,
         &unit,
     );
-    if analysis.diags.has_errors() {
-        diagnostics.extend(analysis.diags.items);
+    if analysis.diagnostics.has_errors() {
+        diagnostics.extend(analysis.diagnostics.items);
         return;
     }
 

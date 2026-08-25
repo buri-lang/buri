@@ -10,7 +10,7 @@ use crate::diagnostics::{Diagnostic, Diagnostics, SourceMap, Span};
 pub struct Analysis {
     pub loaded: Loaded,
     pub checked: Checked,
-    pub diags: Diagnostics,
+    pub diagnostics: Diagnostics,
 }
 
 /// Loads and checks one unit. The two halves are separate so that `lint` and
@@ -70,7 +70,7 @@ pub fn analyze_all(
     };
     let checked = Checker::new(&loaded, ws, &mut diags).run();
     diags.sort(map);
-    Analysis { loaded, checked, diags }
+    Analysis { loaded, checked, diagnostics: diags }
 }
 
 /// Loads and checks every module of the standard library, with no repository.
@@ -86,7 +86,7 @@ pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
     };
     let checked = Checker::new(&loaded, None, &mut diags).run();
     diags.sort(map);
-    Analysis { loaded, checked, diags }
+    Analysis { loaded, checked, diagnostics: diags }
 }
 
 /// Loads and checks one standard library module the way a *program* would
@@ -109,7 +109,7 @@ pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
     };
     let checked = Checker::new(&loaded, None, &mut diags).run();
     diags.sort(map);
-    Analysis { loaded, checked, diags }
+    Analysis { loaded, checked, diagnostics: diags }
 }
 
 /// Loads and checks one module given as text, on top of the whole standard
@@ -199,7 +199,7 @@ pub fn analyze_snippet_on(
     };
     let checked = Checker::new(&loaded, ws, &mut diags).run();
     diags.sort(map);
-    Analysis { loaded, checked, diags }
+    Analysis { loaded, checked, diagnostics: diags }
 }
 
 /// Compiles a snippet that exports `main`, runs it, and returns its standard
@@ -223,8 +223,8 @@ pub fn run_snippet_in(
     let mut cache = crate::parsing::parser::Cache::new();
     let analysis =
         analyze_snippet_in(ws, map, &mut cache, name, text, crate::compiler::modules::Role::Entry);
-    if analysis.diags.has_errors() {
-        return Err(analysis.diags);
+    if analysis.diagnostics.has_errors() {
+        return Err(analysis.diagnostics);
     }
     let mut diags = Diagnostics::new();
     let Some(entry) = analysis.checked.entry else {

@@ -2152,7 +2152,7 @@ mod tests {
             crate::compiler::modules::Role::Entry,
         );
         let errors: Vec<String> = analysis
-            .diags
+            .diagnostics
             .items
             .iter()
             .filter(|d| d.is_error())

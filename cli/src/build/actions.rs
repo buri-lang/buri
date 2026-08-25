@@ -182,10 +182,10 @@ fn monomorphized_main(
         &mut session.parsed,
         &unit,
     );
-    if analysis.diags.has_errors() {
-        return Err(analysis.diags);
+    if analysis.diagnostics.has_errors() {
+        return Err(analysis.diagnostics);
     }
-    diagnostics.extend(std::mem::take(&mut analysis.diags.items));
+    diagnostics.extend(std::mem::take(&mut analysis.diagnostics.items));
 
     let Some(entry) = analysis.checked.entry else {
         diagnostics.push(

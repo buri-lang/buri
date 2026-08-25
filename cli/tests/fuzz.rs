@@ -618,7 +618,7 @@ fn safety_in_process(input: &str, cache: &mut buri::parsing::parser::Cache) -> O
         let mut map = SourceMap::new();
         let analysis =
             driver::analyze_snippet_in(None, &mut map, cache, "main", input, Role::Entry);
-        for d in &analysis.diags.items {
+        for d in &analysis.diagnostics.items {
             std::hint::black_box(map.render(d, false));
         }
     })
@@ -770,7 +770,7 @@ fn compiles_fires(input: &str) -> Option<String> {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
     let errors: Vec<String> = analysis
-        .diags
+        .diagnostics
         .items
         .iter()
         .filter(|d| matches!(d.severity, Severity::Error))
@@ -835,7 +835,7 @@ fn deterministic_fires(input: &str) -> Option<String> {
 fn diagnostics_of(input: &str) -> String {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
-    analysis.diags.items.iter().map(|d| map.render(d, false)).collect()
+    analysis.diagnostics.items.iter().map(|d| map.render(d, false)).collect()
 }
 
 // -- output -----------------------------------------------------------------
@@ -1027,7 +1027,7 @@ mod native {
         }
         let mut map = SourceMap::new();
         let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
-        if analysis.diags.has_errors() {
+        if analysis.diagnostics.has_errors() {
             return None;
         }
         let entry = analysis.checked.entry?;

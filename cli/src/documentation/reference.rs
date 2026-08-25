@@ -524,7 +524,7 @@ mod tests {
     fn stdlib() -> Vec<ApiModule> {
         let mut map = SourceMap::new();
         let analysis = crate::compiler::driver::analyze_stdlib(&mut map);
-        assert!(!analysis.diags.has_errors(), "the standard library must check");
+        assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
         from_loaded(&analysis.loaded, &std_filter)
     }
 

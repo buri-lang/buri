@@ -1830,8 +1830,8 @@ mod tests {
         let mut map = SourceMap::new();
         let analysis = driver::analyze_snippet(&mut map, "test", text, Role::Entry);
         let complaints: Vec<&str> =
-            analysis.diags.items.iter().map(|d| d.message.as_str()).collect();
-        assert!(!analysis.diags.has_errors(), "snippet did not compile: {complaints:?}");
+            analysis.diagnostics.items.iter().map(|d| d.message.as_str()).collect();
+        assert!(!analysis.diagnostics.has_errors(), "snippet did not compile: {complaints:?}");
         let entry = analysis.checked.entry.expect("the snippet exports `main`");
         let module_paths: Vec<String> =
             analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();

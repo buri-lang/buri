@@ -418,7 +418,7 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
         return published.into_iter().map(|(uri, items)| publish(&uri, items)).collect();
     };
 
-    for d in &analyzed.analysis.diags.items {
+    for d in &analyzed.analysis.diagnostics.items {
         if d.span.is_none() {
             continue;
         }

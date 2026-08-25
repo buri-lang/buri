@@ -763,7 +763,7 @@ fn run_block_in(
         block.platform,
     );
     let diagnostics: Vec<String> = analysis
-        .diags
+        .diagnostics
         .items
         .iter()
         .filter(|d| d.is_error())
@@ -778,7 +778,7 @@ fn run_block_in(
             // error the compiler no longer emits.
             if let Some(want) = code {
                 let got: Vec<String> = analysis
-                    .diags
+                    .diagnostics
                     .items
                     .iter()
                     .filter(|d| d.is_error())
@@ -857,7 +857,7 @@ fn run_block_in(
             block.platform,
         );
         let got: Vec<String> = a
-            .diags
+            .diagnostics
             .items
             .iter()
             .filter(|d| d.is_error())

@@ -344,9 +344,9 @@ fn analyze(row: &str, source: &str) -> (Checked, Vec<String>) {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     assert!(
-        !analysis.diags.has_errors(),
+        !analysis.diagnostics.has_errors(),
         "{row}: the program does not compile:\n{}",
-        analysis.diags.items.iter().map(|d| map.render(d, false)).collect::<Vec<_>>().join("\n")
+        analysis.diagnostics.items.iter().map(|d| map.render(d, false)).collect::<Vec<_>>().join("\n")
     );
     let paths = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     (analysis.checked, paths)

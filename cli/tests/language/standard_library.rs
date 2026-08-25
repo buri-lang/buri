@@ -6,7 +6,7 @@ fn the_standard_library_checks() {
     let mut map = buri::diagnostics::SourceMap::new();
     let analysis = buri::compiler::driver::analyze_stdlib(&mut map);
     let mut out = String::new();
-    for d in &analysis.diags.items {
+    for d in &analysis.diagnostics.items {
         out.push_str(&map.render(d, false));
     }
     assert!(out.is_empty(), "the standard library does not check:\n{out}");
@@ -89,7 +89,7 @@ fn every_module_checks_on_its_own() {
         let mut map = buri::diagnostics::SourceMap::new();
         let analysis = buri::compiler::driver::analyze_std_module(&mut map, path);
         let mut out = String::new();
-        for d in &analysis.diags.items {
+        for d in &analysis.diagnostics.items {
             out.push_str(&map.render(d, false));
         }
         if !out.is_empty() {

@@ -153,7 +153,7 @@ fn check_batch(prelude: &[String], batch: &[Vector]) -> Vec<(u32, Observed)> {
         .map(|l| (l.id, Observed { exhaustive: true, unreachable: Vec::new() }))
         .collect();
 
-    for d in &analysis.diags.items {
+    for d in &analysis.diagnostics.items {
         let at = d.span.start as usize;
         let which = layouts.iter().position(|l| l.body.contains(&at));
         match d.code.as_deref() {

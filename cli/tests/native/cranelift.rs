@@ -93,9 +93,9 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     assert!(
-        !analysis.diags.has_errors(),
+        !analysis.diagnostics.has_errors(),
         "the snippet did not compile: {:?}",
-        analysis.diags.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+        analysis.diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
     );
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();

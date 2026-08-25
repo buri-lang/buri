@@ -37,10 +37,10 @@ pub fn command_version(args: &arguments::Args) -> i32 {
     if args.flags.self_check {
         let mut map = crate::diagnostics::SourceMap::new();
         let analysis = crate::compiler::driver::analyze_stdlib(&mut map);
-        for d in &analysis.diags.items {
+        for d in &analysis.diagnostics.items {
             eprint!("{}", map.render(d, false));
         }
-        if !analysis.diags.items.is_empty() {
+        if !analysis.diagnostics.items.is_empty() {
             eprintln!("the bundled standard library does not check");
             return 1;
         }

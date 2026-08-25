@@ -379,7 +379,7 @@ fn derive_dependencies(
             &mut session.parsed,
             &unit,
         );
-        if analysis.diags.has_errors() {
+        if analysis.diagnostics.has_errors() {
             // Without a clean check there is no method-resolution information,
             // so the imports alone would be an incomplete answer.
             return None;

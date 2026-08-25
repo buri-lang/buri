@@ -436,7 +436,7 @@ fn archive() -> &'static Path {
 fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
-    if analysis.diags.has_errors() {
+    if analysis.diagnostics.has_errors() {
         return None;
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -508,9 +508,9 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 fn refusal(name: &str, source: &str) -> Result<String, String> {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
-    if analysis.diags.has_errors() {
+    if analysis.diagnostics.has_errors() {
         return Err(analysis
-            .diags
+            .diagnostics
             .items
             .iter()
             .take(2)
@@ -548,9 +548,9 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
 fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
-    if analysis.diags.has_errors() {
+    if analysis.diagnostics.has_errors() {
         return Err(analysis
-            .diags
+            .diagnostics
             .items
             .iter()
             .take(2)

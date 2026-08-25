@@ -22,7 +22,7 @@ fn check_target(kind: buri::build::workspace::RuleKind, package: &str, with_test
     let mut cache = buri::parsing::parser::Cache::new();
     let analysis = buri::compiler::driver::analyze(Some(&workspace), &mut map, &mut cache, &unit);
     let mut out = String::new();
-    for d in diagnostics.items.iter().chain(analysis.diags.items.iter()) {
+    for d in diagnostics.items.iter().chain(analysis.diagnostics.items.iter()) {
         out.push_str(&map.render(d, false));
     }
     out

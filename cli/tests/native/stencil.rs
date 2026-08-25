@@ -110,9 +110,9 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     assert!(
-        !analysis.diags.has_errors(),
+        !analysis.diagnostics.has_errors(),
         "the snippet did not compile: {:?}",
-        analysis.diags.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+        analysis.diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
     );
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -877,7 +877,7 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
         &source,
         Role::TestSource,
     );
-    if analysis.diags.has_errors() {
+    if analysis.diagnostics.has_errors() {
         return Err(String::from("the front end refused it"));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -1023,7 +1023,7 @@ fn run_corpus(path: &str, source: &str) -> Ran {
         source,
         Role::TestSource,
     );
-    assert!(!analysis.diags.has_errors(), "`{path}`: the front end refused it");
+    assert!(!analysis.diagnostics.has_errors(), "`{path}`: the front end refused it");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
     let mut program =
@@ -1264,9 +1264,9 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::TestSource);
     assert!(
-        !analysis.diags.has_errors(),
+        !analysis.diagnostics.has_errors(),
         "the snippet did not compile: {:?}",
-        analysis.diags.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+        analysis.diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
     );
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();

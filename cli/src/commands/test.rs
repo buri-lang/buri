@@ -524,8 +524,8 @@ fn run_on(
         &mut session.parsed,
         &unit,
     );
-    if analysis.diags.has_errors() {
-        return Err(analysis.diags);
+    if analysis.diagnostics.has_errors() {
+        return Err(analysis.diagnostics);
     }
 
     let module_paths: Vec<String> =
@@ -581,7 +581,7 @@ fn run_on(
         // thousand lines, and by here the verdict already exists. `Loaded`
         // holds its modules behind `Rc` — shared with the session's parse
         // cache — so it is not one of the things that can be handed over.
-        let crate::compiler::driver::Analysis { loaded, checked, diags: diagnostics } = analysis;
+        let crate::compiler::driver::Analysis { loaded, checked, diagnostics } = analysis;
         drop(loaded);
         drop(diagnostics);
         crate::parallel::discard(checked);
@@ -1402,7 +1402,7 @@ fn run_batch(
         &mut session.parsed,
         &units,
     );
-    if analysis.diags.has_errors() {
+    if analysis.diagnostics.has_errors() {
         return;
     }
     let module_paths: Vec<String> =
@@ -1537,7 +1537,7 @@ fn run_batch(
         ));
     }
 
-    let crate::compiler::driver::Analysis { loaded, checked, diags: analysed } = analysis;
+    let crate::compiler::driver::Analysis { loaded, checked, diagnostics: analysed } = analysis;
     drop(loaded);
     drop(analysed);
     crate::parallel::discard(checked);

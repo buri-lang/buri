@@ -428,7 +428,7 @@ fn a_closed_pipe_is_not_an_error() {
 fn the_standard_library_reference_is_complete() {
     let mut map = buri::diagnostics::SourceMap::new();
     let analysis = buri::compiler::driver::analyze_stdlib(&mut map);
-    assert!(!analysis.diags.has_errors(), "the standard library must check");
+    assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
     let modules = buri::documentation::reference::from_loaded(&analysis.loaded, &buri::documentation::reference::std_filter);
 
     assert_eq!(modules.len(), buri::compiler::standard_library::MODULES.len(), "a module is missing from the reference");
