@@ -309,6 +309,7 @@ NORET void buri_rt_abort_unreachable(void);
 NORET void buri_rt_abort(const char *, uint64_t);
 void buri_rt_decref(uint64_t, void *);
 uint64_t buri_rt_alloc(uint64_t);
+uint64_t buri_rt_alloc_zeroed(uint64_t);
 // 128-bit division, which is a call on every backend: clang would otherwise
 // reach compiler-rt's `__divti3`, and a Buri artifact links `libburi_rt.a` and
 // the C library and nothing else. The runtime's entry also owns the
@@ -654,10 +655,12 @@ fn moves(o: &mut Out) {
     // A null block for an empty list is what `buri_rt_list_new` answers and what
     // `cranelift/emit.rs::list_filter` tests for before its `memcpy`, so it is
     // the same convention on both sides.
+    // Zeroed, not raw: the release glue walks a block's whole capacity and
+    // skips null entries, and `filter` leaves its rejected slots unwritten.
     o.push(
         "elemalloc",
         "void $NAME(ARGS0) { uint64_t n = AT(uint64_t, _JIT_A); \
-         AT(uint64_t, _JIT_D) = n ? (uint64_t)(uintptr_t)buri_rt_alloc(n * (uint64_t)OFF(_JIT_P)) \
+         AT(uint64_t, _JIT_D) = n ? (uint64_t)(uintptr_t)buri_rt_alloc_zeroed(n * (uint64_t)OFF(_JIT_P)) \
          : (uint64_t)0; TAIL0; }"
             .into(),
     );
