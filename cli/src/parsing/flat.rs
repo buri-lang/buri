@@ -804,7 +804,7 @@ impl Tree {
     /// For the benchmark's structural check, which is what verifies the
     /// post-order and `subtree` invariants the module comment promises — no
     /// pass reads `subtree` yet, so without a checker the field would be
-    /// believed rather than known until the wave that first depends on it.
+    /// believed rather than known until the first pass that depends on it.
     pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
@@ -814,7 +814,7 @@ impl Tree {
     }
 
     /// How many nodes, blocks and so on this tree holds. For the benchmark and
-    /// for the wave reports; nothing in the compiler reads it.
+    /// for reporting; nothing in the compiler reads it.
     pub fn counts(&self) -> [usize; 6] {
         [
             self.nodes.len(),

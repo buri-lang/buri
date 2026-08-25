@@ -30,7 +30,7 @@ impl Name {
 // A name is its span and nothing else. The `String` that used to sit beside it
 // was one allocation per declared name — about four hundred and fifty per
 // thousand lines — and a name that grows storage again is a compile error here
-// rather than a number in the next wave's report.
+// rather than a number in a later report.
 const _: () = assert!(std::mem::size_of::<Name>() == 12);
 const _: () = assert!(std::mem::size_of::<Param>() == 32);
 

@@ -161,7 +161,7 @@ Two rules keep the budget honest. **Coverage never pays for it**: the way
 under the line is faster mechanics — build profiles, caching, shared
 analysis, deduplicating a binary that literally re-runs tests another suite
 already ran — never running less. And **the number is measured, not
-asserted**: a wave that touches this suite's cost reports the bar's wall time
+asserted**: a change that touches this suite's cost reports the bar's wall time
 against the budget in its verification section.
 
 #### What "the bar" is
@@ -202,11 +202,11 @@ it cannot cover and the honest place for it is here: `backend::select` answers
 with LLVM for a *native release* build, so a test that drove one through the CLI
 would differ under the feature with no `cfg` of its own. Every `--release` in
 the suite today builds a `platform: JS` output, and `native_ready` rejects `Js`
-before `select` is reached — but a wave that adds a native `--release` test owes
+before `select` is reached — but a change that adds a native `--release` test owes
 this paragraph a second look.
 
 **CI is not this.** CI runs everything under both feature sets, on both hosts.
-The sequence above is the local wave loop, where the only thing being taken away
+The sequence above is the local edit loop, where the only thing being taken away
 is the same run happening a second time on the same machine a minute later.
 
 #### The measured number
@@ -239,7 +239,7 @@ not reach. Still inside the line, with the build being four fifths of it.
 A *fully* cold bar, in an empty `CARGO_TARGET_DIR`, is not measured here and the
 reason is worth keeping: it needs on the order of fifteen gigabytes, and this
 directory has filled a disk mid-measurement twice already. It is also not the
-budget. The budget is the loop a wave actually runs, which is the second column
+budget. The budget is the loop an edit actually runs, which is the second column
 above: a warm target directory and an edited `cli/src`.
 
 Two entries in that table are worth naming, because both were bought rather
@@ -247,7 +247,7 @@ than found. `--validate` is 10.5 s instead of 11.7 s *plus a 169-second
 link-time-optimized build*, because it runs under `[profile.validate]` rather
 than `[profile.bench]` — the root `Cargo.toml` states why that cannot change a
 verdict. And the feature leg is 41.8 s instead of the 94 s a second full suite
-costs, which is the dedup above: **56 seconds a wave, for zero tests.**
+costs, which is the dedup above: **56 seconds a run, for zero tests.**
 
 #### Things that were priced and are not worth doing
 

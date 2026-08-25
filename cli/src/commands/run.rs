@@ -130,7 +130,7 @@ mod tests {
 
     /// What `buri run` picks, in the two states a toolchain can be in.
     ///
-    /// The second half is the promise this wave owes every existing golden
+    /// The second half is the promise this command owes every existing golden
     /// file: where a native artifact cannot be produced, the command chooses
     /// exactly what it chose before, which is the JavaScript output.
     #[test]
