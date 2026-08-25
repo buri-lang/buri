@@ -563,7 +563,7 @@ impl Reader {
                 };
                 self.check_known(m, textproto::schema_order("outputs"), "an output");
 
-                let platform = m.get("platform").and_then(|pf| match &pf.value {
+                let platform = m.get("platform").and_then(|field| match &field.value {
                     Value::Ident(s, sp) => match Platform::parse(s) {
                         Some(p) => Some(Spanned::new(p, *sp)),
                         None => {
@@ -584,7 +584,7 @@ impl Reader {
                         None
                     }
                 });
-                let arch = m.get("arch").and_then(|af| match &af.value {
+                let arch = m.get("arch").and_then(|field| match &field.value {
                     Value::Ident(s, sp) => match Arch::parse(s) {
                         Some(a) => Some(Spanned::new(a, *sp)),
                         None => {
@@ -609,11 +609,11 @@ impl Reader {
                 let artifact_name = self.string(m, "artifact_name");
                 let mut js_module = JsModule::Esm;
                 let mut js_block: Option<Span> = None;
-                if let Some((jm, js_span)) = self.sub_message(m, "js") {
+                if let Some((js_message, js_span)) = self.sub_message(m, "js") {
                     js_block = Some(js_span);
-                    self.check_known(jm, textproto::schema_order("js"), "a `js` block");
-                    if let Some(mf) = jm.get("module") {
-                        match &mf.value {
+                    self.check_known(js_message, textproto::schema_order("js"), "a `js` block");
+                    if let Some(module_field) = js_message.get("module") {
+                        match &module_field.value {
                             Value::Ident(s, sp) => match s.as_str() {
                                 "ESM" | "MODULE_UNSPECIFIED" => js_module = JsModule::Esm,
                                 "CJS" => js_module = JsModule::Cjs,
@@ -752,29 +752,29 @@ pub struct ReadResult<T> {
 
 pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let parsed = textproto::parse(text, file);
-    let mut r = Reader { errors: parsed.errors };
+    let mut reader = Reader { errors: parsed.errors };
     let message = parsed.document.as_message();
-    r.check_known(&message, BUILD_FILE_RULES, "a build file");
+    reader.check_known(&message, BUILD_FILE_RULES, "a build file");
 
-    let library = r.sub_message(&message, "library").map(|(m, span)| {
-        r.check_known(m, textproto::schema_order("library"), "a `library` rule");
+    let library = reader.sub_message(&message, "library").map(|(m, span)| {
+        reader.check_known(m, textproto::schema_order("library"), "a `library` rule");
         Library {
-            sources: r.strings(m, "sources"),
-            proto_sources: r.strings(m, "proto_sources"),
-            dependencies: r.strings(m, "dependencies"),
-            tags: r.strings(m, "tags"),
-            platforms: r.platforms(m, "platforms"),
-            visibility: r.visibility(m),
-            test: r.test_suite(m),
-            testing: r.testing_surface(m),
+            sources: reader.strings(m, "sources"),
+            proto_sources: reader.strings(m, "proto_sources"),
+            dependencies: reader.strings(m, "dependencies"),
+            tags: reader.strings(m, "tags"),
+            platforms: reader.platforms(m, "platforms"),
+            visibility: reader.visibility(m),
+            test: reader.test_suite(m),
+            testing: reader.testing_surface(m),
             span,
         }
     });
 
-    let binary = r.sub_message(&message, "binary").map(|(m, span)| {
+    let binary = reader.sub_message(&message, "binary").map(|(m, span)| {
         // A binary has no `platforms` field of its own — `outputs` already
         // says — and no `visibility`, because nothing can depend on a binary.
-        r.check_known(m, textproto::schema_order("binary"), "a `binary` rule");
+        reader.check_known(m, textproto::schema_order("binary"), "a `binary` rule");
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {
@@ -782,7 +782,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
                 } else {
                     "nothing can depend on a binary, so there is no one to be visible to"
                 };
-                r.errors.push(
+                reader.errors.push(
                     Diagnostic::error(f.name_span, format!("a `binary` has no `{bad}` field"))
                         .with_fix(format!("remove `{bad}`"))
                         .with_note(note),
@@ -790,12 +790,12 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
             }
         }
         Binary {
-            sources: r.strings(m, "sources"),
-            proto_sources: r.strings(m, "proto_sources"),
-            dependencies: r.strings(m, "dependencies"),
-            tags: r.strings(m, "tags"),
-            outputs: r.outputs(m),
-            test: r.test_suite(m),
+            sources: reader.strings(m, "sources"),
+            proto_sources: reader.strings(m, "proto_sources"),
+            dependencies: reader.strings(m, "dependencies"),
+            tags: reader.strings(m, "tags"),
+            outputs: reader.outputs(m),
+            test: reader.test_suite(m),
             span,
         }
     });
@@ -803,44 +803,52 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     ReadResult {
         value: BuildFile { library, binary },
         document: parsed.document,
-        errors: r.errors,
+        errors: reader.errors,
     }
 }
 
 pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let parsed = textproto::parse(text, file);
-    let mut r = Reader { errors: parsed.errors };
+    let mut reader = Reader { errors: parsed.errors };
     let message = parsed.document.as_message();
-    r.check_known(&message, REPO_FILE_RULES, "REPO.buri");
+    reader.check_known(&message, REPO_FILE_RULES, "REPO.buri");
 
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.document.all("tag") {
         let Value::Message(m, span) = &f.value else {
-            r.err(f.value.span(), "`tag` is a block", "write `tag { name: \"...\" ... }`");
+            reader.err(f.value.span(), "`tag` is a block", "write `tag { name: \"...\" ... }`");
             continue;
         };
-        r.check_known(m, textproto::schema_order("tag"), "a `tag` block");
+        reader.check_known(m, textproto::schema_order("tag"), "a `tag` block");
 
         let name_field = m.get("name");
-        let name = match name_field.map(|nf| &nf.value) {
+        let name = match name_field.map(|field| &field.value) {
             Some(Value::Str(s, sp)) => Spanned::new(s.clone(), *sp),
             Some(other) => {
-                r.err(other.span(), "`name` holds a string", "quote it, as in `name: \"server\"`");
+                reader.err(
+                    other.span(),
+                    "`name` holds a string",
+                    "quote it, as in `name: \"server\"`",
+                );
                 continue;
             }
             None => {
-                r.err(*span, "a `tag` block must have a `name`", "add `name: \"...\"`; a tag is identified by it");
+                reader.err(
+                    *span,
+                    "a `tag` block must have a `name`",
+                    "add `name: \"...\"`; a tag is identified by it",
+                );
                 continue;
             }
         };
 
         let mut forbids_tags = Vec::new();
-        if let Some((fm, _)) = r.sub_message(m, "forbids") {
+        if let Some((forbids, _)) = reader.sub_message(m, "forbids") {
             // There is deliberately no `platforms` under `forbids`: a platform
             // restriction is always a whitelist under `requires`.
-            r.check_known(fm, textproto::schema_order("forbids"), "a `forbids` block");
-            if let Some(p) = fm.get("platforms") {
-                r.errors.push(
+            reader.check_known(forbids, textproto::schema_order("forbids"), "a `forbids` block");
+            if let Some(p) = forbids.get("platforms") {
+                reader.errors.push(
                     Diagnostic::error(p.name_span, "`forbids` takes no `platforms`")
                         .with_fix("move the list under `requires { platforms: [...] }`")
                         .with_note(
@@ -850,14 +858,14 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
                         ),
                 );
             }
-            forbids_tags = r.strings(fm, "tags");
+            forbids_tags = reader.strings(forbids, "tags");
         }
 
         let mut requires_platforms = Vec::new();
-        if let Some((rm, _)) = r.sub_message(m, "requires") {
-            r.check_known(rm, textproto::schema_order("requires"), "a `requires` block");
-            if let Some(t) = rm.get("tags") {
-                r.errors.push(
+        if let Some((requires, _)) = reader.sub_message(m, "requires") {
+            reader.check_known(requires, textproto::schema_order("requires"), "a `requires` block");
+            if let Some(t) = requires.get("tags") {
+                reader.errors.push(
                     Diagnostic::error(t.name_span, "`requires` takes no `tags`")
                         .with_fix("what this usually means is `forbids { tags: [...] }`")
                         .with_note(
@@ -867,13 +875,13 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
                     ),
                 );
             }
-            requires_platforms = r.platforms(rm, "platforms");
+            requires_platforms = reader.platforms(requires, "platforms");
         }
 
         // Tags form one flat namespace, so a name declared twice is rejected
         // rather than quietly meaning whichever came first.
         if let Some(prev) = tags.iter().find(|t| t.name.value == name.value) {
-            r.errors.push(
+            reader.errors.push(
                 Diagnostic::error(name.span, format!("tag `{}` is declared twice", name.value))
                     .with_fix("rename one, or delete the duplicate")
                     .with_secondary_span(prev.name.span, "first declared here")
@@ -884,7 +892,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
 
         tags.push(Tag {
             name,
-            doc: r.string(m, "doc").unwrap_or_default(),
+            doc: reader.string(m, "doc").unwrap_or_default(),
             forbids_tags,
             requires_platforms,
             span: *span,
@@ -894,7 +902,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     ReadResult {
         value: RepoConfig { tags },
         document: parsed.document,
-        errors: r.errors,
+        errors: reader.errors,
     }
 }
 
@@ -930,9 +938,9 @@ library {
   }
 }
 "#;
-        let r = read_build_file(src, FileId(0));
-        assert!(r.errors.is_empty(), "{:#?}", r.errors);
-        let lib = r.value.library.unwrap();
+        let read = read_build_file(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let lib = read.value.library.unwrap();
         assert_eq!(lib.sources.len(), 2);
         assert_eq!(lib.visibility[0].value, crate::build::workspace::Visibility::Public);
         assert_eq!(lib.test.unwrap().sources.len(), 1);
@@ -941,9 +949,9 @@ library {
     #[test]
     fn reads_outputs() {
         let src = "binary {\n  outputs: [\n    { platform: LINUX, arch: X86_64 },\n    { platform: JS, js { module: ESM } },\n  ]\n}\n";
-        let r = read_build_file(src, FileId(0));
-        assert!(r.errors.is_empty(), "{:#?}", r.errors);
-        let b = r.value.binary.unwrap();
+        let read = read_build_file(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let b = read.value.binary.unwrap();
         assert_eq!(b.outputs.len(), 2);
         assert_eq!(b.outputs[0].dir(), "linux-x86_64");
         assert_eq!(b.outputs[1].dir(), "js");
@@ -978,27 +986,27 @@ library {
     #[test]
     fn a_web_output_has_no_arch_and_no_module_kind() {
         let src = "binary {\n  outputs: [\n    { platform: WEB },\n  ]\n}\n";
-        let r = read_build_file(src, FileId(0));
-        assert!(r.errors.is_empty(), "{:#?}", r.errors);
-        let b = r.value.binary.unwrap();
+        let read = read_build_file(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let b = read.value.binary.unwrap();
         assert_eq!(b.outputs[0].dir(), "web");
         assert_eq!(b.outputs[0].platform(), Platform::Web);
         assert_eq!(b.outputs[0].arch(), None);
         assert!(b.outputs[0].matches_selector("web"));
 
         let src = "binary {\n  outputs: [{ platform: WEB  arch: ARM64  js { module: CJS } }]\n}\n";
-        let r = read_build_file(src, FileId(0));
-        assert_eq!(r.errors.len(), 2, "{:#?}", r.errors);
-        assert!(r.errors.iter().any(|e| e.message.contains("no architecture")));
-        assert!(r.errors.iter().any(|e| e.message.contains("no `js` block")));
+        let read = read_build_file(src, FileId(0));
+        assert_eq!(read.errors.len(), 2, "{:#?}", read.errors);
+        assert!(read.errors.iter().any(|e| e.message.contains("no architecture")));
+        assert!(read.errors.iter().any(|e| e.message.contains("no `js` block")));
     }
 
     #[test]
     fn unknown_field_is_an_error_with_a_suggestion() {
-        let r = read_build_file("library {\n  source: []\n}\n", FileId(0));
-        assert!(r.errors[0].message.contains("unknown field `source`"));
+        let read = read_build_file("library {\n  source: []\n}\n", FileId(0));
+        assert!(read.errors[0].message.contains("unknown field `source`"));
         // The suggestion is the fix, not background: it is the edit to make.
-        assert!(r.errors[0].fix.as_deref().is_some_and(|f| f.contains("sources")));
+        assert!(read.errors[0].fix.as_deref().is_some_and(|f| f.contains("sources")));
     }
 
     /// A typo in a `visibility` entry is reported where it is written. Before,
@@ -1006,35 +1014,38 @@ library {
     /// and then printed the typo back as if it were in force.
     #[test]
     fn a_visibility_that_is_not_one_is_an_error() {
-        let r = read_build_file("library {\n  visibility: [\"//visibility:pubic\"]\n}\n", FileId(0));
-        assert!(r.errors.iter().any(|e| e.message.contains("//visibility:pubic")), "{:#?}", r.errors);
-        assert!(r.value.library.unwrap().visibility.is_empty());
+        let source = "library {\n  visibility: [\"//visibility:pubic\"]\n}\n";
+        let read = read_build_file(source, FileId(0));
+        let named = read.errors.iter().any(|e| e.message.contains("//visibility:pubic"));
+        assert!(named, "{:#?}", read.errors);
+        assert!(read.value.library.unwrap().visibility.is_empty());
     }
 
     #[test]
     fn a_binary_has_no_visibility() {
-        let r = read_build_file("binary {\n  visibility: []\n}\n", FileId(0));
-        assert!(r.errors.iter().any(|e| e.message.contains("no `visibility` field")));
+        let read = read_build_file("binary {\n  visibility: []\n}\n", FileId(0));
+        assert!(read.errors.iter().any(|e| e.message.contains("no `visibility` field")));
     }
 
     #[test]
     fn js_output_rejects_arch() {
-        let r = read_build_file("binary {\n  outputs: [{ platform: JS, arch: ARM64 }]\n}\n", FileId(0));
-        assert!(r.errors.iter().any(|e| e.message.contains("no architecture")));
+        let source = "binary {\n  outputs: [{ platform: JS, arch: ARM64 }]\n}\n";
+        let read = read_build_file(source, FileId(0));
+        assert!(read.errors.iter().any(|e| e.message.contains("no architecture")));
     }
 
     #[test]
     fn forbids_takes_no_platforms() {
         let src = "tag {\n  name: \"a\"\n  forbids { platforms: [JS] }\n}\n";
-        let r = read_repo_config(src, FileId(0));
-        assert!(r.errors.iter().any(|e| e.message.contains("no `platforms`")));
+        let read = read_repo_config(src, FileId(0));
+        assert!(read.errors.iter().any(|e| e.message.contains("no `platforms`")));
     }
 
     #[test]
     fn duplicate_tags_are_rejected() {
         let src = "tag { name: \"a\" }\ntag { name: \"a\" }\n";
-        let r = read_repo_config(src, FileId(0));
-        assert!(r.errors.iter().any(|e| e.message.contains("declared twice")));
+        let read = read_repo_config(src, FileId(0));
+        assert!(read.errors.iter().any(|e| e.message.contains("declared twice")));
     }
 
     /// The toolchain pin was removed, so a `REPO.buri` still carrying one is a
@@ -1047,13 +1058,16 @@ library {
     #[test]
     fn a_leftover_toolchain_block_is_an_unknown_field() {
         let src = "toolchain {\n  version: \"0.3.0\"\n  sha256: \"00\"\n}\n";
-        let r = read_repo_config(src, FileId(0));
-        let d = r.errors.first().expect("a removed field is still a field REPO.buri does not have");
+        let read = read_repo_config(src, FileId(0));
+        let d = read
+            .errors
+            .first()
+            .expect("a removed field is still a field REPO.buri does not have");
         assert_eq!(d.message, "unknown field `toolchain` in REPO.buri");
         assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag"));
         assert!(nearest("toolchain", &["tag"]).is_none(), "`tag` was suggested for `toolchain`");
         // The block's contents are not read at all: one diagnostic, on the
         // field that does not exist, rather than one per field inside it.
-        assert_eq!(r.errors.len(), 1, "{:#?}", r.errors);
+        assert_eq!(read.errors.len(), 1, "{:#?}", read.errors);
     }
 }

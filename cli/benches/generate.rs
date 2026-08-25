@@ -968,18 +968,18 @@ fn tag(counter: usize, p: &Params) -> String {
     }
 }
 
-fn chunk_record_struct(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut Rng) {
-    let fields = rng.span(p.fields_per_struct) as usize;
+fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Params, rng: &mut Rng) {
+    let fields = rng.span(params.fields_per_struct) as usize;
     let types = ["Int", "Str", "Float", "Bool"];
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// A record with {fields} fields, derived comparisons and two methods.\n\
-         export struct Rec{m}_{n} {{\n"
+         export struct Rec{index}_{name} {{\n"
     ));
     for f in 0..fields {
-        s.push_str(&format!("  export f{f}: {},\n", types[f % types.len()]));
+        out.push_str(&format!("  export f{f}: {},\n", types[f % types.len()]));
     }
-    s.push_str("}\n\n");
-    s.push_str(&derive_clause(p.derives, &format!("Rec{m}_{n}")));
+    out.push_str("}\n\n");
+    out.push_str(&derive_clause(params.derives, &format!("Rec{index}_{name}")));
     // Both bodies read fields, and the field count is a dimension: a body that
     // names `f1` on a struct drawn with one field is a program that does not
     // compile. Two fields is the low end of the default range, so what those
@@ -994,39 +994,39 @@ fn chunk_record_struct(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut 
         .collect::<Vec<_>>()
         .join("/");
     let shown = if fields == 0 { String::new() } else { format!(": {shown}") };
-    s.push_str(&format!(
-        "impl Rec{m}_{n} {{\n\
+    out.push_str(&format!(
+        "impl Rec{index}_{name} {{\n\
          \x20 /// A pure accessor, of the kind that is most of a real impl block.\n\
-         \x20 export fn scaled(self: Rec{m}_{n}, factor: Int): Int {{\n\
+         \x20 export fn scaled(self: Rec{index}_{name}, factor: Int): Int {{\n\
          \x20   {scaled} + {}\n\
          \x20 }}\n\n\
          \x20 /// Allocates, and says so with `C: Alloc`.\n\
-         \x20 export fn render<C: Alloc>(self: Rec{m}_{n}, ctx: C): Str {{\n\
-         \x20   str.format(ctx, \"rec{m}_{n}{shown}\")\n\
+         \x20 export fn render<C: Alloc>(self: Rec{index}_{name}, ctx: C): Str {{\n\
+         \x20   str.format(ctx, \"rec{index}_{name}{shown}\")\n\
          \x20 }}\n",
         rng.below(1000)
     ));
     // Beyond the two above, which every struct has. `methods_per_struct = 2`
     // adds nothing and the bytes are unchanged.
-    let extra = p.methods_per_struct.saturating_sub(2);
+    let extra = params.methods_per_struct.saturating_sub(2);
     for j in 0..extra {
-        s.push_str(&format!(
+        out.push_str(&format!(
             "\n\x20 /// Method {j} of the impl-density dial.\n\
-             \x20 export fn extra{j}(self: Rec{m}_{n}, k: Int): Int {{\n\
+             \x20 export fn extra{j}(self: Rec{index}_{name}, k: Int): Int {{\n\
              \x20   self.f0 + k * {} + {j}\n\
              \x20 }}\n",
             j + 1
         ));
     }
-    s.push_str("}\n\n");
+    out.push_str("}\n\n");
     let inits: Vec<String> = (0..fields)
         .map(|f| format!("f{f}: {}", literal_for(types[f % types.len()])))
         .collect();
     let calls: String = (0..extra).map(|j| format!(" + r.extra{j}(2)")).collect();
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
-         \x20 let r = Rec{m}_{n} {{ {} }};\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         \x20 let r = Rec{index}_{name} {{ {} }};\n\
          \x20 r.scaled(3) + r.render(ctx).len(){calls}\n\
          }}\n\n",
         inits.join(", ")
@@ -1043,35 +1043,35 @@ fn literal_for(ty: &str) -> &'static str {
     }
 }
 
-fn chunk_enum(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut Rng) {
-    let variants = rng.span(p.variants_per_enum) as usize;
-    s.push_str(&format!(
+fn chunk_enum(out: &mut String, index: usize, name: &str, params: &Params, rng: &mut Rng) {
+    let variants = rng.span(params.variants_per_enum) as usize;
+    out.push_str(&format!(
         "/// An enum of {variants} variants, matched exhaustively below.\n\
-         export enum State{m}_{n} {{\n\
+         export enum State{index}_{name} {{\n\
          \x20 export Idle,\n\
          \x20 export Running(Int),\n\
          \x20 export Failed {{ code: Int, message: Str }},\n"
     ));
     for v in 3..variants {
-        s.push_str(&format!("  export Step{v}(Int, Str),\n"));
+        out.push_str(&format!("  export Step{v}(Int, Str),\n"));
     }
-    s.push_str("}\n\n");
-    s.push_str(&derive_clause(p.derives, &format!("State{m}_{n}")));
-    s.push_str(&format!(
+    out.push_str("}\n\n");
+    out.push_str(&derive_clause(params.derives, &format!("State{index}_{name}")));
+    out.push_str(&format!(
         "/// The match every enum in a real program has somewhere.\n\
-         export fn rank{m}_{n}(state: State{m}_{n}): Int {{\n\
+         export fn rank{index}_{name}(state: State{index}_{name}): Int {{\n\
          \x20 match (state) {{\n\
          \x20   .Idle => 0,\n\
          \x20   .Running(ticks) => ticks + 1,\n\
          \x20   .Failed {{ code, .. }} => code * -1,\n"
     ));
     for v in 3..variants {
-        s.push_str(&format!("    .Step{v}(k, _) => k + {v},\n"));
+        out.push_str(&format!("    .Step{v}(k, _) => k + {v},\n"));
     }
-    s.push_str("  }\n}\n\n");
-    s.push_str(&format!(
+    out.push_str("  }\n}\n\n");
+    out.push_str(&format!(
         "/// Construction, so the variants are reachable from a root.\n\
-         export fn start{m}_{n}(ticks: Int): State{m}_{n} {{\n\
+         export fn start{index}_{name}(ticks: Int): State{index}_{name} {{\n\
          \x20 if (ticks == 0) {{ .Idle }} else if (ticks < {}) {{ .Running(ticks) }}\n\
          \x20 else {{ .Failed {{ code: ticks, message: \"overrun\" }} }}\n\
          }}\n\n",
@@ -1081,16 +1081,16 @@ fn chunk_enum(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut Rng) {
     // Below that the probe allocates through `str` instead, so it still needs
     // the `C: Alloc` its signature declares. `Show` is the second of
     // `DERIVABLE`, so every draw at the default of 2 or above is unchanged.
-    let allocates = if derives_trait(p.derives, "Show") {
+    let allocates = if derives_trait(params.derives, "Show") {
         String::from("s.show(ctx).len()")
     } else {
-        format!("str.format(ctx, \"state{m}_{n}\").len()")
+        format!("str.format(ctx, \"state{index}_{name}\").len()")
     };
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
-         \x20 let s = start{m}_{n}(5);\n\
-         \x20 rank{m}_{n}(s) + {allocates}\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         \x20 let s = start{index}_{name}(5);\n\
+         \x20 rank{index}_{name}(s) + {allocates}\n\
          }}\n\n"
     ));
 }
@@ -1107,10 +1107,10 @@ const EXTRA_ARGS: &[(&str, &str)] = &[
     ("[Bool]", "[[true]]"),
 ];
 
-fn chunk_generic_fn(s: &mut String, m: usize, n: &str, p: &Params) {
-    s.push_str(&format!(
+fn chunk_generic_fn(out: &mut String, index: usize, name: &str, params: &Params) {
+    out.push_str(&format!(
         "/// A generic over an unconstrained parameter, instantiated below.\n\
-         export fn firstOr{m}_{n}<T>(xs: [T], fallback: T): T {{\n\
+         export fn firstOr{index}_{name}<T>(xs: [T], fallback: T): T {{\n\
          \x20 match (xs.first()) {{\n\
          \x20   .Some(v) => v,\n\
          \x20   .None => fallback,\n\
@@ -1118,62 +1118,64 @@ fn chunk_generic_fn(s: &mut String, m: usize, n: &str, p: &Params) {
          }}\n\n\
          /// A generic with a bound, which is the case the checker does real\n\
          /// work for: the bound has to be discharged at each instantiation.\n\
-         export fn describeAll{m}_{n}<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {{\n\
+         export fn describeAll{index}_{name}<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {{\n\
          \x20 xs.mapCtx(ctx, fn(c, x) => x.show(c))\n\
          }}\n\n"
     ));
     // Past the two below, each extra type argument is one more copy
     // monomorphization has to make at the same source size. `generic_args = 2`
     // emits nothing here and the bytes are unchanged.
-    let extra = (p.generic_args.saturating_sub(2) as usize).min(EXTRA_ARGS.len());
+    let extra = (params.generic_args.saturating_sub(2) as usize).min(EXTRA_ARGS.len());
     if extra > 0 {
-        s.push_str(&format!(
+        out.push_str(&format!(
             "/// One more generic, instantiated at {extra} further types below,\n\
              /// so monomorphization pays without the source growing.\n\
-             export fn countOf{m}_{n}<T>(xs: [T]): Int {{\n\
+             export fn countOf{index}_{name}<T>(xs: [T]): Int {{\n\
              \x20 xs.len()\n\
              }}\n\n"
         ));
     }
     let more: String = EXTRA_ARGS[..extra]
         .iter()
-        .map(|(ty, lit)| format!("\n    + countOf{m}_{n}<{ty}>({lit})"))
+        .map(|(ty, lit)| format!("\n    + countOf{index}_{name}<{ty}>({lit})"))
         .collect();
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// Two instantiations, so monomorphization has copies to make.\n\
-         export fn useGeneric{m}_{n}(ns: [Int], ss: [Str]): Int {{\n\
-         \x20 firstOr{m}_{n}<Int>(ns, 0) + firstOr{m}_{n}<Str>(ss, \"\").len(){more}\n\
+         export fn useGeneric{index}_{name}(ns: [Int], ss: [Str]): Int {{\n\
+         \x20 firstOr{index}_{name}<Int>(ns, 0) + \
+         firstOr{index}_{name}<Str>(ss, \"\").len(){more}\n\
          }}\n\n\
          /// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
-         \x20 useGeneric{m}_{n}([1, 2], [\"a\"]) + describeAll{m}_{n}(ctx, [1, 2]).len()\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         \x20 useGeneric{index}_{name}([1, 2], [\"a\"]) + \
+         describeAll{index}_{name}(ctx, [1, 2]).len()\n\
          }}\n\n"
     ));
 }
 
-fn chunk_arithmetic_fn(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut Rng) {
-    let lets = rng.span(p.body_lets) as usize;
-    s.push_str(&format!(
+fn chunk_arithmetic_fn(out: &mut String, index: usize, name: &str, params: &Params, rng: &mut Rng) {
+    let lets = rng.span(params.body_lets) as usize;
+    out.push_str(&format!(
         "/// A body of {lets} bindings over integer arithmetic — the shape most\n\
          /// lines in most programs actually have.\n\
-         export fn compute{m}_{n}(input: Int): Int {{\n\
+         export fn compute{index}_{name}(input: Int): Int {{\n\
          \x20 let a0 = input * {} + {};\n",
         1 + rng.below(9),
         rng.below(1000)
     ));
     // `nesting = 1` is no parentheses at all, which is what the pre-parameter
     // generator emitted.
-    let open = "(".repeat(p.nesting.saturating_sub(1) as usize);
-    let close = ")".repeat(p.nesting.saturating_sub(1) as usize);
+    let open = "(".repeat(params.nesting.saturating_sub(1) as usize);
+    let close = ")".repeat(params.nesting.saturating_sub(1) as usize);
     for i in 1..lets {
         let op = *rng.pick(&["+", "-", "*"]);
-        s.push_str(&format!(
+        out.push_str(&format!(
             "  let a{i} = {open}a{} {op} {}{close};\n",
             i - 1,
             1 + rng.below(97)
         ));
     }
-    s.push_str(&format!(
+    out.push_str(&format!(
         "  if (a{} > {}) {{ a{} }} else {{ a{} - {} }}\n}}\n\n",
         lets - 1,
         rng.below(10_000),
@@ -1181,20 +1183,26 @@ fn chunk_arithmetic_fn(s: &mut String, m: usize, n: &str, p: &Params, rng: &mut 
         lets - 1,
         rng.below(100)
     ));
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
          \x20 let _ = ctx;\n\
-         \x20 compute{m}_{n}(7)\n\
+         \x20 compute{index}_{name}(7)\n\
          }}\n\n"
     ));
 }
 
-fn chunk_match_fn(s: &mut String, m: usize, n: &str, p: &Params, aux: &mut Rng) {
-    s.push_str(&format!(
+fn chunk_match_fn(
+    out: &mut String,
+    index: usize,
+    name: &str,
+    params: &Params,
+    auxiliary: &mut Rng,
+) {
+    out.push_str(&format!(
         "/// Nested matching over `Option` and a tuple, with a guard — the\n\
          /// three things a decision tree has to merge.\n\
-         export fn choose{m}_{n}(a: Option<Int>, b: Option<Int>): Int {{\n\
+         export fn choose{index}_{name}(a: Option<Int>, b: Option<Int>): Int {{\n\
          \x20 match ((a, b)) {{\n\
          \x20   (.Some(x), .Some(y)) if x > y => x - y,\n\
          \x20   (.Some(x), .Some(y)) => y - x,\n\
@@ -1204,7 +1212,7 @@ fn chunk_match_fn(s: &mut String, m: usize, n: &str, p: &Params, aux: &mut Rng) 
          \x20 }}\n\
          }}\n\n\
          /// A `?` chain, which is the other half of how errors move.\n\
-         export fn parseBoth{m}_{n}(left: Str, right: Str): Option<Int> {{\n\
+         export fn parseBoth{index}_{name}(left: Str, right: Str): Option<Int> {{\n\
          \x20 let a = left.toInt()?;\n\
          \x20 let b = right.toInt()?;\n\
          \x20 .Some(a + b)\n\
@@ -1213,14 +1221,15 @@ fn chunk_match_fn(s: &mut String, m: usize, n: &str, p: &Params, aux: &mut Rng) 
     // `match_arms = 0..0` emits nothing and takes no draw — not even from the
     // auxiliary stream, so that the corpus is identical under any future
     // change to the ones that do.
-    let arms = if p.match_arms.1 == 0 { 0 } else { aux.span(p.match_arms) as usize };
+    let arms =
+        if params.match_arms.1 == 0 { 0 } else { auxiliary.span(params.match_arms) as usize };
     let bucket = if arms == 0 {
         String::new()
     } else {
         let mut b = format!(
             "/// A flat integer `match` of {arms} arms, which is what a decision\n\
              /// tree is actually built over in most programs.\n\
-             export fn bucket{m}_{n}(v: Int): Int {{\n\
+             export fn bucket{index}_{name}(v: Int): Int {{\n\
              \x20 match (v) {{\n"
         );
         for a in 0..arms {
@@ -1229,42 +1238,42 @@ fn chunk_match_fn(s: &mut String, m: usize, n: &str, p: &Params, aux: &mut Rng) 
         b.push_str("    _ => 0,\n  }\n}\n\n");
         b
     };
-    s.push_str(&bucket);
-    let extra = if arms == 0 { String::new() } else { format!(" + bucket{m}_{n}(3)") };
-    s.push_str(&format!(
+    out.push_str(&bucket);
+    let extra = if arms == 0 { String::new() } else { format!(" + bucket{index}_{name}(3)") };
+    out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
          \x20 let _ = ctx;\n\
-         \x20 let extra = match (parseBoth{m}_{n}(\"1\", \"2\")) {{\n\
+         \x20 let extra = match (parseBoth{index}_{name}(\"1\", \"2\")) {{\n\
          \x20   .Some(v) => v,\n\
          \x20   .None => 0,\n\
          \x20 }};\n\
-         \x20 choose{m}_{n}(.Some(3), .None) + extra{extra}\n\
+         \x20 choose{index}_{name}(.Some(3), .None) + extra{extra}\n\
          }}\n\n"
     ));
 }
 
-fn chunk_string_fn(s: &mut String, m: usize, n: &str, rng: &mut Rng) {
+fn chunk_string_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
     let words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
     let w0 = rng.pick(&words);
     let w1 = rng.pick(&words);
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// String building through interpolation, which is a template\n\
          /// literal in the lexer and a `format` call in the backend.\n\
-         export fn label{m}_{n}<C: Alloc>(ctx: C, id: Int, name: Str): Str {{\n\
+         export fn label{index}_{name}<C: Alloc>(ctx: C, id: Int, name: Str): Str {{\n\
          \x20 let prefix = if (id < 0) {{ \"{w0}\" }} else {{ \"{w1}\" }};\n\
          \x20 let body = str.format(ctx, \"${{prefix}}-${{name}}-${{id}}\");\n\
          \x20 body.toUpper(ctx)\n\
          }}\n\n\
          /// Literals of the kinds the lexer has separate paths for: decimal,\n\
          /// hexadecimal, float, char, escaped string.\n\
-         export fn constants{m}_{n}(): (Int, Int, Float, Char, Str) {{\n\
+         export fn constants{index}_{name}(): (Int, Int, Float, Char, Str) {{\n\
          \x20 ({}, 0x{:04X}, {}.{:03}, 'q', \"a\\ttab and a \\\"quote\\\"\")\n\
          }}\n\n\
          /// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
-         \x20 let (a, b, _, _, e) = constants{m}_{n}();\n\
-         \x20 label{m}_{n}(ctx, a, e).len() + b\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         \x20 let (a, b, _, _, e) = constants{index}_{name}();\n\
+         \x20 label{index}_{name}(ctx, a, e).len() + b\n\
          }}\n\n",
         rng.below(1_000_000),
         rng.below(0xFFFF),
@@ -1273,13 +1282,13 @@ fn chunk_string_fn(s: &mut String, m: usize, n: &str, rng: &mut Rng) {
     ));
 }
 
-fn chunk_list_fn(s: &mut String, m: usize, n: &str, rng: &mut Rng) {
+fn chunk_list_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
     let len = 4 + rng.below(8) as usize;
     let items: Vec<String> = (0..len).map(|_| rng.below(10_000).to_string()).collect();
-    s.push_str(&format!(
+    out.push_str(&format!(
         "/// A fold and a filter over a literal list, with lambdas — closures\n\
          /// are their own path in both the checker and the backend.\n\
-         export fn digest{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
+         export fn digest{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
          \x20 let xs: [Int] = [{}];\n\
          \x20 let kept = xs.filter(ctx, fn(x) => x % 2 == 0);\n\
          \x20 let total = kept.fold(fn(acc, x) => acc + x, 0);\n\
@@ -1287,13 +1296,13 @@ fn chunk_list_fn(s: &mut String, m: usize, n: &str, rng: &mut Rng) {
          }}\n\n\
          /// An empty list of an explicit type, which is the other side of\n\
          /// inference: nothing constrains the element type but the annotation.\n\
-         export fn drain{m}_{n}(): Int {{\n\
+         export fn drain{index}_{name}(): Int {{\n\
          \x20 let empty: [Int] = list.empty<Int>();\n\
          \x20 empty.len()\n\
          }}\n\n\
          /// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{m}_{n}<C: Alloc>(ctx: C): Int {{\n\
-         \x20 digest{m}_{n}(ctx) + drain{m}_{n}()\n\
+         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         \x20 digest{index}_{name}(ctx) + drain{index}_{name}()\n\
          }}\n\n",
         items.join(", ")
     ));

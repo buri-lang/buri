@@ -424,22 +424,22 @@ impl Workspace {
         out
     }
 
-    pub fn label(&self, t: TargetId) -> String {
-        self.package(t.package).label()
+    pub fn label(&self, target: TargetId) -> String {
+        self.package(target.package).label()
     }
 
     /// The declared dependencies of a target, as labels with spans.
-    pub fn declared_deps(&self, t: TargetId) -> &[Spanned<String>] {
-        let p = self.package(t.package);
-        match t.kind {
+    pub fn declared_deps(&self, target: TargetId) -> &[Spanned<String>] {
+        let p = self.package(target.package);
+        match target.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.dependencies[..]).unwrap_or(&[]),
             RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.dependencies[..]).unwrap_or(&[]),
         }
     }
 
-    pub fn tags(&self, t: TargetId) -> &[Spanned<String>] {
-        let p = self.package(t.package);
-        match t.kind {
+    pub fn tags(&self, target: TargetId) -> &[Spanned<String>] {
+        let p = self.package(target.package);
+        match target.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.tags[..]).unwrap_or(&[]),
             RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.tags[..]).unwrap_or(&[]),
         }
@@ -448,12 +448,12 @@ impl Workspace {
     /// Resolved dependency edges: (dependency library target, the label span).
     /// A binary additionally depends on the library in its own package, which
     /// is implicit and carries no span.
-    pub fn dep_edges(&self, t: TargetId) -> Vec<(TargetId, Option<Span>)> {
+    pub fn dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
         let mut out = Vec::new();
-        if t.kind == RuleKind::Binary && self.package(t.package).has_library() {
-            out.push((TargetId { package: t.package, kind: RuleKind::Library }, None));
+        if target.kind == RuleKind::Binary && self.package(target.package).has_library() {
+            out.push((TargetId { package: target.package, kind: RuleKind::Library }, None));
         }
-        for dep in self.declared_deps(t) {
+        for dep in self.declared_deps(target) {
             if let Some(id) = self.dep_target(&dep.value) {
                 out.push((id, Some(dep.span)));
             }
@@ -472,10 +472,10 @@ impl Workspace {
     /// visibility: BUILD-FILES.md:359-360 exempts only a suite reaching the
     /// target under test, and says everything else "including a test suite
     /// reaching a library named in `test.dependencies`, is checked normally".
-    pub fn test_dep_edges(&self, t: TargetId) -> Vec<(TargetId, Option<Span>)> {
-        let p = self.package(t.package);
+    pub fn test_dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
+        let p = self.package(target.package);
         let mut declared: Vec<&Spanned<String>> = Vec::new();
-        match t.kind {
+        match target.kind {
             RuleKind::Library => {
                 if let Some(l) = &p.build.library {
                     declared.extend(l.test.iter().flat_map(|t| t.dependencies.iter()));
@@ -563,10 +563,10 @@ impl Workspace {
         None
     }
 
-    /// Everything reachable from `t` through `dependencies`, including `t`.
-    pub fn closure(&self, t: TargetId) -> Vec<TargetId> {
+    /// Everything reachable from `target` through `dependencies`, including it.
+    pub fn closure(&self, target: TargetId) -> Vec<TargetId> {
         let mut seen = BTreeSet::new();
-        let mut stack = vec![t];
+        let mut stack = vec![target];
         while let Some(cur) = stack.pop() {
             if !seen.insert(cur) {
                 continue;
@@ -765,9 +765,9 @@ impl Workspace {
     /// The platforms a target can be built for: the intersection, over every
     /// target in its closure, of that target's `platforms` and the
     /// `requires.platforms` of every tag it carries — treating unset as "all".
-    pub fn platforms(&self, t: TargetId) -> BTreeSet<Platform> {
+    pub fn platforms(&self, target: TargetId) -> BTreeSet<Platform> {
         let mut allowed: BTreeSet<Platform> = Platform::ALL.into_iter().collect();
-        for member in self.closure(t) {
+        for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library && !lib.platforms.is_empty() {
                     let declared: BTreeSet<Platform> =
@@ -788,14 +788,14 @@ impl Workspace {
         allowed
     }
 
-    /// Explains why `platform` is not available to `t`: the member of the
+    /// Explains why `platform` is not available to `target`: the member of the
     /// closure that rules it out, and how it was reached.
     pub fn platform_blocker(
         &self,
-        t: TargetId,
+        target: TargetId,
         platform: Platform,
     ) -> Option<(TargetId, String)> {
-        for member in self.closure(t) {
+        for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library
                     && !lib.platforms.is_empty()
@@ -836,9 +836,9 @@ impl Workspace {
 
     /// Every tag carried anywhere in a target's closure, with the target that
     /// carries it.
-    pub fn closure_tags(&self, t: TargetId) -> BTreeMap<String, TargetId> {
+    pub fn closure_tags(&self, target: TargetId) -> BTreeMap<String, TargetId> {
         let mut out = BTreeMap::new();
-        for member in self.closure(t) {
+        for member in self.closure(target) {
             for tag in self.tags(member) {
                 out.entry(tag.value.clone()).or_insert(member);
             }
@@ -851,8 +851,8 @@ impl Workspace {
     /// over the closure rather than a path — a binary that pulls client-only
     /// code down one dependency and server-only code down another is an error
     /// even though neither reaches the other.
-    pub fn forbidden_pair(&self, t: TargetId) -> Option<(String, TargetId, String, TargetId)> {
-        let carried = self.closure_tags(t);
+    pub fn forbidden_pair(&self, target: TargetId) -> Option<(String, TargetId, String, TargetId)> {
+        let carried = self.closure_tags(target);
         for (a, a_by) in &carried {
             for (b, b_by) in &carried {
                 if a >= b {

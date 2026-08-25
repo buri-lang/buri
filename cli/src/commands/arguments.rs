@@ -123,16 +123,16 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
     // skipped for it rather than special-cased inside the loop.
     let known_command = crate::commands::find(&command).is_some();
 
-    for arg in it {
+    for argument in it {
         if after_dashdash {
-            passthrough.push(arg.clone());
+            passthrough.push(argument.clone());
             continue;
         }
-        if arg == "--" {
+        if argument == "--" {
             after_dashdash = true;
             continue;
         }
-        if let Some(rest) = arg.strip_prefix("--") {
+        if let Some(rest) = argument.strip_prefix("--") {
             let (name, value) = match rest.split_once('=') {
                 Some((n, v)) => (n, Some(v.to_string())),
                 None => (rest, None),
@@ -172,7 +172,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             (flag.set)(&mut flags, value.as_deref())?;
             continue;
         }
-        targets.push(arg.clone());
+        targets.push(argument.clone());
     }
 
     if flags.watch {

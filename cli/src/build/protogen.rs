@@ -588,14 +588,14 @@ fn if_chain(indent: &str, arms: &[(String, Vec<String>)], otherwise: &[String]) 
 }
 
 impl<'a> Generator<'a> {
-    fn line(&mut self, s: &str) {
-        self.out.push_str(s);
+    fn line(&mut self, text: &str) {
+        self.out.push_str(text);
         self.out.push('\n');
     }
 
-    fn lines(&mut self, ls: &[String]) {
-        for l in ls {
-            self.line(l);
+    fn lines(&mut self, lines: &[String]) {
+        for line in lines {
+            self.line(line);
         }
     }
 
