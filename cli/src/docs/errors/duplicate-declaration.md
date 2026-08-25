@@ -1,3 +1,7 @@
+---
+title: A name is declared once
+message: {declaration} is declared twice
+---
 # A name is declared once
 
 ```text

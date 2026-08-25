@@ -5,3 +5,17 @@ error: `?` on a `Result` needs a `Result` return type, not `I64` [question-mark-
   |           ^^
   |
   = fix: return a `Result` from this function, or handle the error here with `match` or `??`
+
+    What to do
+    ──────────
+
+    Return a Result from this function, or handle the error here with match or
+    ??.
+
+    Why
+    ───
+
+    ? is an early return of the error, so the function it appears in has to be
+    able to return one. A version that aborted instead would make every ? a
+    possible crash, which is the property this language does not want.
+

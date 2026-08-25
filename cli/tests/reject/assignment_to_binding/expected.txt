@@ -7,6 +7,13 @@ error: expected `}`, found `=` [unexpected-token]
   = expected: `}`
   = actual: `=`
   = fix: write `}` here
+
+    What to do
+    ──────────
+
+    Write what the message names. This is the parser's catch-all, so the useful
+    half of it is always the "expected" part.
+
 error: expected a declaration, found `let` [unexpected-token]
  --> cmd/assignment_to_binding/main.buri:9:3
   |

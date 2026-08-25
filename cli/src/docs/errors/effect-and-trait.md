@@ -1,3 +1,8 @@
+---
+title: No type implements both an effect and a trait
+message: `{type}` cannot implement both the effect `{effect}` and the trait `{trait}`
+fix: split it in two: a type is either part of the world or part of your data
+---
 # No type implements both an effect and a trait
 
 ```text

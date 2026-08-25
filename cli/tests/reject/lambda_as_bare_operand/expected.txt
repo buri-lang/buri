@@ -7,3 +7,10 @@ error: expected an expression, found `fn` [unexpected-token]
   = expected: an expression
   = actual: `fn`
   = fix: write a value here
+
+    What to do
+    ──────────
+
+    Write what the message names. This is the parser's catch-all, so the useful
+    half of it is always the "expected" part.
+

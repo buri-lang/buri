@@ -1,4 +1,4 @@
-error: `Holder<a context>` carries an effect, so it does not satisfy `Eq` [missing-conformance]
+error: `Holder<a context>` carries an effect, so it does not satisfy `Eq` [effect-carrying-bound]
   --> cmd/effect_carrying_type_fails_a_trait_bound/main.buri:21:18
    |
 21 |   let smuggler = hide(Holder { inner: ctx });

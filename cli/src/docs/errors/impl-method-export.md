@@ -1,3 +1,9 @@
+---
+title: An `impl` method is not separately exported
+message: an `impl` method is not separately exported
+note: conformance is a property of the type, visible wherever the type is
+fix: drop the `export`
+---
 # An `impl` method is not separately exported
 
 ```text

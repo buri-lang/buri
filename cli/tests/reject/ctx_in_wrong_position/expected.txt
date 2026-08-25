@@ -6,3 +6,17 @@ error: `ctx` must come first, or immediately after `self` [ctx-not-first]
   |
   = the calling convention is receiver first, context second, everything else after
   = fix: move `ctx` to that position
+
+    What to do
+    ──────────
+
+    Move ctx to that position.
+
+    Why
+    ───
+
+    The position is the whole of what makes effectfulness readable: a reader
+    answers "can this function touch the world?" from the first two parameters
+    and stops. A ctx in fourth place would make that a question about the whole
+    signature.
+

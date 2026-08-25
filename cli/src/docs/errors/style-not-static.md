@@ -1,3 +1,8 @@
+---
+title: A conditional style is known at compile time
+message: {problem}
+fix: write the value out, or make it a `const`, or apply it outside the `On`/`At`, where it can be an inline style
+---
 # A conditional style is known at compile time
 
 ```text

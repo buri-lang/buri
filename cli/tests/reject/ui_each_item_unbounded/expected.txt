@@ -1,4 +1,4 @@
-error: `T` does not satisfy `Eq` [missing-conformance]
+error: `T` does not satisfy `Eq` [unsatisfied-bound]
   --> cmd/ui_each_item_unbounded/main.buri:17:3
    |
 17 |   ui.each(items, name, fn(c, item, index) => ui.text(.Const(name(item))))

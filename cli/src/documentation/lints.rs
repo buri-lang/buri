@@ -31,10 +31,6 @@ impl LintDoc {
     }
 }
 
-#[allow(
-    unused_macros,
-    reason = "the catalog is registered a page at a time, and the first page is not written yet"
-)]
 macro_rules! l {
     ($code:literal, $title:literal) => {
         l!($code, $title, &[])
@@ -50,7 +46,20 @@ macro_rules! l {
 }
 
 /// Every `buri lint` finding, in the order the index lists them.
-pub const LINTS: &[LintDoc] = &[];
+pub const LINTS: &[LintDoc] = &[
+    l!("dep-cycle", "Two targets may not depend on each other", &["build/build-files"]),
+    l!("discarded-result", "Every deliberately dropped `Result` is reported", &["build/cli"]),
+    l!("duplicate-source", "A source file is listed by one rule", &["build/build-files"]),
+    l!("empty-test-suite", "A `test` block declares the sources it tests"),
+    l!("missing-dep", "Every library a package uses is in its dependencies", &["build/build-files"]),
+    l!("test-title-newline", "A test title is one line"),
+    l!("test-without-assertion", "A test asserts something"),
+    l!("undeclared-source", "Every source file is declared by a rule", &["build/build-files"]),
+    l!("unreachable-export", "An `export` reaches somebody", &["build/libraries"]),
+    l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
+    l!("unused-dep", "Every dependency is used", &["build/build-files"]),
+    l!("unused-import", "Every import is used"),
+];
 
 pub fn find(code: &str) -> Option<&'static LintDoc> {
     LINTS.iter().find(|l| l.code == code)
@@ -82,6 +91,30 @@ mod tests {
         for l in LINTS {
             assert!(seen.insert(l.code), "`{}` is registered twice", l.code);
             assert!(!l.text.trim().is_empty(), "`{}` has an empty page", l.code);
+        }
+    }
+
+    /// A page that points somewhere is a page that had prose deleted in favour
+    /// of the pointer, so a broken one loses the explanation rather than merely
+    /// a link.
+    #[test]
+    fn every_see_also_names_a_topic() {
+        for l in LINTS {
+            for other in l.see_also {
+                assert!(
+                    crate::documentation::topics::find(other).is_some(),
+                    "`{}` points at `{other}`, which is not a topic",
+                    l.code
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_migrated_page_is_titled_and_worded() {
+        for p in catalog().pages() {
+            assert!(!p.front.title.trim().is_empty(), "`{}` has an empty title", p.code);
+            assert!(!p.front.message.trim().is_empty(), "`{}` has an empty message", p.code);
         }
     }
 

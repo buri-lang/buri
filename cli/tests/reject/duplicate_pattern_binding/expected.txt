@@ -1,4 +1,4 @@
-error: `a` is bound twice in this pattern [duplicate-bound]
+error: `a` is bound twice in this pattern [duplicate-pattern-binding]
  --> cmd/duplicate_pattern_binding/main.buri:7:9
   |
 7 |     (a, a) => a,

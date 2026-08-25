@@ -67,6 +67,7 @@ Build-graph rules — always errors, not configurable:
 | `visibility-violation` | A dependency the target is not visible to. |
 | `tag-violation` | Two tags that forbid each other in one dependency closure. |
 | `platform-violation` | A target in the closure that does not admit the platform being built. |
+| `unsatisfiable-target` | A target whose dependency closure admits no platform at all, so there is no platform to build it for. Reported at the target itself rather than at whichever binary happens to reach it first. |
 | `unknown-tag` | A `tags` entry naming no `tag` block in `REPO.buri`. Suggests the nearest declared name. |
 | `proto-edition` | A `.proto` file that does not declare `edition = "2026"` — a `syntax = "proto3"` or `proto2` file, an older edition, or no declaration at all. The fix is the migration. |
 | `proto-schema` | A `.proto` file that is not a well-formed schema: a field number outside 1..536870911, an enum whose first value is not zero, an unclosed message. |

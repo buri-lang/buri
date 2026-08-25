@@ -1,4 +1,4 @@
-error: //lib/impossible can never be built [platform-violation]
+error: //lib/impossible can never be built [unsatisfiable-target]
  --> lib/impossible/BUILD.buri:3:12
   |
 3 |     tags: ["server", "browser"]

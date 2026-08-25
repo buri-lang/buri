@@ -1,3 +1,7 @@
+---
+title: A bound names a trait or an effect
+message: `{name}` is not a trait or effect
+---
 # A bound names a trait or an effect
 
 ```text

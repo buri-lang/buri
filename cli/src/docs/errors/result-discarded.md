@@ -1,3 +1,8 @@
+---
+title: A `Result` may not be discarded
+message: a `Result` may not be discarded
+fix: consume it: `?` to propagate, `match` to handle both cases, `result.withDefault` to supply one — or, when you really mean to drop it, the explicit and greppable `result.ignore`
+---
 # A `Result` may not be discarded
 
 ```text

@@ -1,3 +1,9 @@
+---
+title: A rest pattern comes last
+message: a rest pattern must come last
+note: `[first, ..rest]` is legal; `[..init, last]` is not
+fix: move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an array pattern does
+---
 # A rest pattern comes last
 
 ```text

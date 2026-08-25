@@ -1,3 +1,8 @@
+---
+title: A `.Variant` needs a known expected type
+message: `.{variant}` needs a known expected type
+fix: write the qualified form, as in `Option.{variant}(...)`, or annotate what this value is being used as
+---
 # A `.Variant` needs a known expected type
 
 ```text

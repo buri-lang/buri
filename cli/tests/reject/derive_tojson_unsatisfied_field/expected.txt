@@ -6,7 +6,22 @@ error: `Outer` cannot derive `ToJson`: `inner` has type `Inner` [underivable]
    |
    = a derived implementation is a fold over the type's components, and `Inner` does not satisfy `ToJson`
    = fix: make `Inner` satisfy `ToJson` first — `derive ToJson for Inner;` in its own module — or drop `ToJson` from this `derive`
-error: `Outer` does not satisfy `ToJson` [missing-conformance]
+
+     What to do
+     ──────────
+
+     Make Inner satisfy Eq first — derive Eq for Inner; in its own module, or an
+     impl — or drop Eq from this derive.
+
+     Why
+     ───
+
+     A derived implementation is exactly the fold: Outer's eq is its fields' eq.
+     So a derive is only ever as available as the components it is built from,
+     and the diagnostic names the component rather than the type you wrote it
+     on.
+
+error: `Outer` does not satisfy `ToJson` [unsatisfied-bound]
   --> cmd/derive_tojson_unsatisfied_field/main.buri:16:43
    |
 16 |   let _ = ctx.println(json.stringify(ctx, json.encode(ctx, a)));

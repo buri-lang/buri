@@ -1,3 +1,9 @@
+---
+title: Only a platform module declares an effect
+message: only a platform module may declare an effect
+note: the set of things a Buri program can do to the world is fixed by its platform rather than open-ended
+fix: declare it as a plain `trait`, or move it into a platform module
+---
 # Only a platform module declares an effect
 
 ```text

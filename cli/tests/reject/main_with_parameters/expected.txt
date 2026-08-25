@@ -6,3 +6,16 @@ error: `main` takes no parameters [main-signature]
   |
   = it builds the one context the program has, which is why there is no fake to pass it and why logic worth testing goes in a function it calls
   = fix: drop them, and build the context `main` needs in its own body
+
+    What to do
+    ──────────
+
+    Drop them. main takes no parameters, declares no generic parameters, and
+    returns Result<(), Str>.
+
+    Why
+    ───
+
+    main is called by the runtime rather than by a program, so there is no call
+    site to infer a type argument from and nothing to pass an argument in.
+

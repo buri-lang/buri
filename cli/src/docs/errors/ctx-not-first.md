@@ -1,3 +1,9 @@
+---
+title: `ctx` comes first, or immediately after `self`
+message: `ctx` must come first, or immediately after `self`
+note: the calling convention is receiver first, context second, everything else after
+fix: move `ctx` to that position
+---
 # `ctx` comes first, or immediately after `self`
 
 ```text

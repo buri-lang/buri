@@ -5,3 +5,18 @@ error: `Str` has no method `nonexistentMethod` [no-such-method]
   |     ^^^^^^^^^^^^^^^^^
   |
   = fix: check the spelling, or declare it in `impl Str { ... }` in that type's own module — a method may not be added from anywhere else
+
+    What to do
+    ──────────
+
+    Check the spelling, or declare it in an impl block in that type's own
+    module.
+
+    Why
+    ───
+
+    A method is looked up in exactly one place: the module that declares the
+    receiver's type. There is no extension mechanism, so a method cannot be
+    added to a type from outside — which is also what makes resolution a single
+    lookup rather than a search.
+

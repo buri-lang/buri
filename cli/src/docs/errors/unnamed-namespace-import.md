@@ -1,3 +1,9 @@
+---
+title: A namespace import must be named
+message: a namespace import must be named
+note: write `import * as name`; bare `import *` is not derivable from the grammar, so that no identifier enters a module's scope without appearing in that module's own source
+fix: write `import * as list`, so every name it brings in is reached through one prefix
+---
 # A namespace import must be named
 
 ```text

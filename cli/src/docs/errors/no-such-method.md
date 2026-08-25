@@ -1,3 +1,8 @@
+---
+title: A method is looked up in its type's defining module
+message: `{type}` has no method `{method}`
+fix: check the spelling, or declare it in `impl {type} {{ ... }}` in that type's own module — a method may not be added from anywhere else
+---
 # A method is looked up in its type's defining module
 
 ```text

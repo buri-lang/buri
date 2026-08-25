@@ -220,9 +220,11 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
     applied
 }
 
-/// `platform-violation`. An unsatisfiable target is an error at the target
-/// itself, before any binary asks for it: otherwise the mistake surfaces as a
-/// confusing failure in whichever binary happens to reach it first.
+/// `unsatisfiable-target`. A target whose closure admits no platform at all is
+/// an error at the target itself, before any binary asks for it: otherwise the
+/// mistake surfaces as a confusing failure in whichever binary happens to reach
+/// it first. A target that merely refuses one platform is `platform-violation`,
+/// reported by `actions::check_platform` below.
 fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     let allowed = session.workspace.platforms(target);
     if allowed.is_empty() {
@@ -233,12 +235,8 @@ fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut
             .first()
             .map(|t| t.span)
             .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
-        diagnostics.push(
-            Diagnostic::error(span, format!("{label} can never be built"))
-                .with_code("platform-violation")
-                .with_fix("widen a tag's `requires { platforms }` in REPO.buri, or drop the dependency that narrows it to nothing")
-                .with_note("its dependency closure admits no platform at all"),
-        );
+        diagnostics
+            .push(Diagnostic::templated("unsatisfiable-target", span).with_bind("target", label));
         return;
     }
     if target.kind != RuleKind::Binary {
@@ -265,13 +263,7 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
             return;
         }
         diagnostics.push(
-            Diagnostic::warning(
-                suite.span,
-                format!("this {rule}'s `test` block declares no sources"),
-            )
-            .with_code("empty-test-suite")
-            .with_fix("list the suite's files in `test { sources }`, or drop the empty block")
-            .with_note("an empty suite reads as coverage to anything that walks the build graph"),
+            Diagnostic::templated("empty-test-suite", suite.span).with_bind("rule", rule),
         );
     };
     if let Some(l) = &p.build.library {
@@ -315,9 +307,8 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         for (name, span) in declared.iter().skip(i + 1) {
             if first_name == name {
                 diagnostics.push(
-                    Diagnostic::error(*span, format!("{name} is listed by two rules"))
-                        .with_code("duplicate-source")
-                        .with_fix("list it under one rule only")
+                    Diagnostic::templated("duplicate-source", *span)
+                        .with_bind("source", name.as_str())
                         .with_secondary_span(*first_span, "first listed here"),
                 );
             }
@@ -341,16 +332,10 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         // declared"), so the code is the same code.
         let field = if rel.ends_with(".proto") { "proto_sources" } else { "sources" };
         diagnostics.push(
-            Diagnostic::error(
-                Span::point(p.build_file_id, 0),
-                format!("{}/{rel} is not declared by any rule", p.path),
-            )
-            .with_code("undeclared-source")
-            .with_fix(format!(
-                "add it to a rule's `{field}`, or delete it — `buri gen //{}` does this \
-                 automatically",
-                p.path
-            )),
+            Diagnostic::templated("undeclared-source", Span::point(p.build_file_id, 0))
+                .with_bind("package_path", p.path.as_str())
+                .with_bind("file", rel)
+                .with_bind("field", field),
         );
     }
 }
@@ -436,15 +421,11 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
                 let package_path = session.workspace.package(own).path.clone();
                 reported.insert(wanted.clone());
                 diagnostics.push(
-                    Diagnostic::error(
-                        span,
-                        format!("{importer} imports {wanted}, which is not in dependencies"),
-                    )
-                    .with_code("missing-dep")
-                    .with_fix(format!(
-                        "add \"{wanted}\" to dependencies in {package_path}/BUILD.buri — \
-                         `buri gen //{package_path}` does this automatically"
-                    )),
+                    Diagnostic::templated("missing-dep", span)
+                        .with_bind("user", importer)
+                        .with_bind("reaches", "imports")
+                        .with_bind("dependency", wanted.as_str())
+                        .with_bind("package_path", package_path),
                 );
             }
         }
@@ -464,29 +445,28 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
             continue;
         }
         diagnostics.push(
-            Diagnostic::error(
+            Diagnostic::templated(
+                "missing-dep",
                 Span::point(session.workspace.package(own).build_file_id, 0),
-                format!("{own_label} uses {wanted}, which is not in dependencies"),
             )
-            .with_code("missing-dep")
+            .with_bind("user", own_label.as_str())
+            .with_bind("reaches", "uses")
+            .with_bind("dependency", wanted.as_str())
+            .with_bind("package_path", package_path.as_str())
+            // Only this site: no import names the library, so the page cannot
+            // carry the note — the other site would print it wrongly.
             .with_note(
                 "a method resolves through its receiver's type rather than through scope, \
                  so no import names it",
-            )
-            .with_fix(format!(
-                "add \"{wanted}\" to dependencies in {package_path}/BUILD.buri — \
-                 `buri gen //{package_path}` does this automatically"
-            )),
+            ),
         );
     }
 
     for d in &declared {
         if !used.contains(&d.value) {
             diagnostics.push(
-                Diagnostic::error(d.span, format!("{} is declared but nothing uses it", d.value))
-                    .with_code("unused-dep")
-                    .with_fix("remove it from `dependencies`")
-                    .with_note("a dependencies entry no source uses makes the graph a description of something other than the code"),
+                Diagnostic::templated("unused-dep", d.span)
+                    .with_bind("dependency", d.value.as_str()),
             );
         }
     }
@@ -545,13 +525,8 @@ fn check_test_titles(
             continue;
         }
         diagnostics.push(
-            Diagnostic::warning(case.span, format!("test {:?} has a newline in its title", case.name))
-                .with_code("test-title-newline")
-                .with_fix("write the title on one line; a sentence is enough, and the body says the rest")
-                .with_note(
-                    "a failure report is one line per test, so the runner prints the title \
-                     escaped — the break shows up as `\\n` rather than as a line break",
-                ),
+            Diagnostic::templated("test-title-newline", case.span)
+                .with_bind("title", format!("{:?}", case.name)),
         );
     }
 }
@@ -635,16 +610,9 @@ fn check_unreachable_exports(
             }
             let lib = format!("{}/lib.buri", session.workspace.package(own).path);
             diagnostics.push(
-                Diagnostic::error(span, format!("`{name}` is exported and reaches nobody"))
-                    .with_code("unreachable-export")
-                    .with_fix(format!(
-                        "re-export it from {lib} to put it on the library's surface, or drop the \
-                         `export`"
-                    ))
-                    .with_note(
-                        "inside a library `export` means visible to the rest of the library, and \
-                         `lib.buri` decides what leaves it",
-                    ),
+                Diagnostic::templated("unreachable-export", span)
+                    .with_bind("name", name)
+                    .with_bind("library_file", lib),
             );
         }
     }
@@ -753,13 +721,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
             if used.contains(name) {
                 continue;
             }
-            let mut d = Diagnostic::error(*span, format!("`{name}` is imported and never used"))
-                .with_code("unused-import")
-                .with_fix(format!("remove `{name}` from the import"))
-                .with_note(
-                    "an import that names something the module does not use makes the \
-                     dependency graph describe something other than the code",
-                );
+            let mut d = Diagnostic::templated("unused-import", *span).with_bind("name", *name);
             // The edit rides on the first finding in the statement; the rest
             // are reported and carry none, because there is one edit between
             // them and it has already been claimed.
@@ -798,18 +760,7 @@ fn check_discarded_results(
     diagnostics: &mut Diagnostics,
 ) {
     for (span, _) in calls_into(analysis, own, "core/result", &["ignore"]) {
-        diagnostics.push(
-            Diagnostic::warning(span, "this discards a `Result`")
-                .with_code("discarded-result")
-                .with_fix(
-                    "handle the error with `match`, propagate it with `?`, or keep `ignore` if \
-                     dropping it is deliberate",
-                )
-                .with_note(
-                    "`ignore` is the one way to drop a `Result`, so every place a failure is \
-                     deliberately unhandled is one of these",
-                ),
-        );
+        diagnostics.push(Diagnostic::templated("discarded-result", span));
     }
 }
 
@@ -865,13 +816,8 @@ fn check_tests_assert(
             continue;
         }
         diagnostics.push(
-            Diagnostic::warning(case.span, format!("test {:?} asserts nothing", case.name))
-                .with_code("test-without-assertion")
-                .with_fix("assert what the test is for, or delete it")
-                .with_note(
-                    "nothing reachable from this test calls `core/testing/assert`, so it passes \
-                     as long as it does not abort",
-                ),
+            Diagnostic::templated("test-without-assertion", case.span)
+                .with_bind("title", format!("{:?}", case.name)),
         );
     }
 }
@@ -983,15 +929,15 @@ fn check_cycles(session: &Session, diagnostics: &mut Diagnostics) {
             let a = session.workspace.label(t);
             let b = session.workspace.label(dep);
             diagnostics.push(
-                Diagnostic::error(
+                Diagnostic::templated(
+                    "dep-cycle",
                     span.unwrap_or(Span::point(
                         session.workspace.package(t.package).build_file_id,
                         0,
                     )),
-                    format!("{a} and {b} depend on each other"),
                 )
-                .with_code("dep-cycle")
-                .with_fix("break the cycle: move what both need into a third target"),
+                .with_bind("target", a)
+                .with_bind("other", b),
             );
         }
     }

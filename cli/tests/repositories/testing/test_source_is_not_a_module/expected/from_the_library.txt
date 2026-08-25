@@ -14,6 +14,19 @@ error: "//lib/money/test/parse" does not export `digits` [no-such-export]
   |
   = `digits` is declared in "//lib/money/test/parse" but not exported
   = fix: check the spelling, or add `export` to `digits`'s declaration in "//lib/money/test/parse"
+
+    What to do
+    ──────────
+
+    Add export to the declaration in the module the path names, or drop the name
+    from this list.
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface can never be wider than the modules it is built from.
+
 error: there is nothing named `digits` in scope [unresolved-name]
  --> lib/money/cents.buri:3:36
   |
@@ -21,3 +34,18 @@ error: there is nothing named `digits` in scope [unresolved-name]
   |                                    ^^^^^^
   |
   = fix: declare `digits`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    What to do
+    ──────────
+
+    Correct the spelling, or declare it. The diagnostic offers the nearest name
+    in scope.
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope: the names available in a module
+    are the ones it declares plus the ones its own imports name. That is what
+    makes the suggestion trustworthy — the set it is drawn from is exactly the
+    set the file put there.
+

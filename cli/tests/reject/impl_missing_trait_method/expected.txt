@@ -6,3 +6,16 @@ error: `Bag`'s `impl Measurable` is missing `isEmptyThing` [incomplete-impl]
    |
    = an `impl` supplies every method its trait declares
    = fix: add `isEmptyThing` to the block, with the signature `Measurable` declares
+
+     What to do
+     ──────────
+
+     Add isEmptyThing to the block, with the signature Measurable declares.
+
+     Why
+     ───
+
+     There are no default method bodies, so a trait's method list is the whole
+     of what an impl owes it. A partial conformance would be a value that
+     satisfies a bound and aborts when the bound is used.
+

@@ -1,3 +1,8 @@
+---
+title: A block comment is closed
+message: unterminated block comment
+fix: close it with `*/`; block comments nest, so each `/*` needs one
+---
 # A block comment is closed
 
 ```text

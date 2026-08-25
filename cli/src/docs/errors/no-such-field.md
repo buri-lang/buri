@@ -1,3 +1,8 @@
+---
+title: A field is named by the type that declares it
+message: `{type}` has no field `{field}`
+fix: check the spelling, or name a field the type declares
+---
 # A field is named by the type that declares it
 
 ```text

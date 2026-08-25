@@ -1,3 +1,9 @@
+---
+title: A field name is used once
+message: `{name}` is already a field of `{type}`
+note: a `.` resolves to a field before a method, so the two may not share a name
+fix: rename the method, or rename the field
+---
 # A field name is used once
 
 ```text

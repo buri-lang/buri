@@ -1,3 +1,9 @@
+---
+title: Some traits are derived, never implemented
+message: `{trait}` is derived, not implemented
+note: a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
+fix: write `derive {trait} for {type};` instead
+---
 # Some traits are derived, never implemented
 
 ```text

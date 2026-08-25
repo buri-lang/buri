@@ -1,3 +1,7 @@
+---
+title: A literal must fit the type it is pinned to
+message: {literal} is not representable in `{type}`
+---
 # A literal must fit the type it is pinned to
 
 ```text

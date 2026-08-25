@@ -5,3 +5,20 @@ error: a `Result` may not be discarded [result-discarded]
    |   ^^^^^^^^^^^^^^^^^^^^
    |
    = fix: consume it: `?` to propagate, `match` to handle both cases, `result.withDefault` to supply one — or, when you really mean to drop it, the explicit and greppable `result.ignore`
+
+     What to do
+     ──────────
+
+     Consume it: ? to propagate, match to handle both cases, result.withDefault
+     to supply one — or, when you really mean to drop it, the explicit and
+     greppable result.ignore.
+
+     Why
+     ───
+
+     There are no expression statements outside a test source, so let _ = is the
+     only way to discard a value at all. Closing that one hole is what makes
+     must-use total rather than a convention: result.ignore is then the single
+     spelling of a deliberate drop, and buri lint reports it as
+     discarded-result.
+

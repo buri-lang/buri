@@ -1,3 +1,8 @@
+---
+title: `//!` documents the module, so it comes first
+message: `//!` documents the module, so it must come first
+fix: move it above the first declaration, or write `///` to document the declaration below it
+---
 # `//!` documents the module, so it comes first
 
 ```text

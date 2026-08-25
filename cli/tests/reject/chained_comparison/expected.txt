@@ -6,3 +6,18 @@ error: comparison operators are non-associative [chained-comparison]
   |
   = write `a < b && b < c` rather than `a < b < c`
   = fix: write `a < b && b < c` rather than `a < b < c`
+
+    What to do
+    ──────────
+
+    Write a < b && b < c.
+
+    Why
+    ───
+
+    Non-associativity is not a taste decision here. It is what makes f<T>(x)
+    readable as a call: under it, (f < T) > (x) is not a program either, so
+    there is no source the two readings both accept and disagree about. a < b <
+    c is therefore refused where a chaining language would have quietly parsed
+    it as (a < b) < c.
+

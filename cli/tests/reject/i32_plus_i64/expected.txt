@@ -8,6 +8,22 @@ error: expected `I64`, found `I32` [type-mismatch]
   = actual: `I32`
   = there is no implicit promotion of any kind
   = fix: convert explicitly: `.toI64()`, which is exact for every `I32`
+
+    What to do
+    ──────────
+
+    Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+    for every I32, while a narrowing one returns a Result because not every
+    value fits.
+
+    Why
+    ───
+
+    No promotion of any kind, in either direction. A language that widened
+    silently would make the width of an arithmetic result a property of the
+    expression's shape rather than of what was written, and the one place it
+    matters is the one place nobody looks.
+
 error: expected `I32`, found `I64` [type-mismatch]
  --> cmd/i32_plus_i64/main.buri:6:7
   |

@@ -1,3 +1,9 @@
+---
+title: A `derive` clause names at least one trait
+message: a `derive` clause names no traits
+note: `derive` generates one implementation per trait it names, so a clause naming none would generate nothing; delete it, or name what the type should derive
+fix: name the traits between `derive` and `for`, as in `derive Eq, Show for Meters;`
+---
 # A `derive` clause names at least one trait
 
 ```text

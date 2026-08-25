@@ -664,7 +664,8 @@ fn copy_tree(from: &Path, to: &Path) {
 /// Two catalogues, because there are two kinds of diagnostic. A compile error
 /// can be provoked by one program, so it earns a page with that program on it.
 /// A build-graph finding cannot — `dep-cycle` needs two packages — so those
-/// live in the CLI reference's tables, next to the command that reports them.
+/// live in the CLI reference's tables, next to the command that reports them,
+/// and in `documentation/lints.rs` where the finding is one `buri lint` reports.
 #[test]
 fn every_emitted_code_is_documented() {
     let root = repo_root();
@@ -680,7 +681,8 @@ fn every_emitted_code_is_documented() {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         for code in codes_in(&text) {
             found += 1;
-            let has_page = buri::documentation::errors::find(&code).is_some();
+            let has_page = buri::documentation::errors::find(&code).is_some()
+                || buri::documentation::lints::find(&code).is_some();
             let in_catalogue = catalogue.contains(&format!("`{code}`"));
             if !has_page && !in_catalogue {
                 undocumented.push(format!(
@@ -697,8 +699,9 @@ fn every_emitted_code_is_documented() {
         undocumented.is_empty(),
         "{} code(s) are emitted and documented nowhere:\n  {}\n\nAdd a page under \
          cli/src/docs/errors/ (and register it in documentation/errors.rs) for a diagnostic one \
-         program can provoke, or a row in the cli/src/docs/build/cli.md tables for one \
-         about the build graph.",
+         program can provoke, one under cli/src/docs/lints/ (registered in \
+         documentation/lints.rs) for a `buri lint` finding, or a row in the \
+         cli/src/docs/build/cli.md tables for one about the build graph.",
         undocumented.len(),
         undocumented.join("\n  ")
     );

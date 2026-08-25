@@ -1,3 +1,9 @@
+---
+title: Type arguments are written without `::`
+message: type arguments in an expression are written without `::`
+note: `::` was needed when `<` in expression position was always a comparison; it no longer is
+fix: remove the `::`, as in `list.empty<Int>()`
+---
 # Type arguments are written without `::`
 
 ```text
