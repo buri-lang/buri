@@ -21,7 +21,7 @@ use crate::parsing::flat::{
     InitData, Kind, LambdaParamData, Loc, PKind, PartData, PatId, PatPayloadData, StmtData,
     StmtKind, TKind, Tree, TypeId, TypeList, NONE,
 };
-use crate::parsing::lexer::{lex, Kw, Punct, TokKind, Tokens, Trivia};
+use crate::parsing::lexer::{lex, Keyword, Punctuation, TokenKind, Tokens, Trivia};
 use crate::parsing::tree::*;
 
 pub struct Parsed {
@@ -98,7 +98,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         tree: Tree::new(file, text),
         scratch: Scratch::default(),
         last: lexed.tokens.len().saturating_sub(1),
-        toks: lexed.tokens,
+        tokens: lexed.tokens,
         trivia: lexed.trivia,
         pos: 0,
         reported: lexed.errors.iter().map(|e| (e.span.start, e.span.end)).collect(),
@@ -134,80 +134,80 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
 /// first set of `primary_expr` and the prefixes that reach it — kept beside
 /// them rather than derived, because a new way to begin an expression is a new
 /// arm there and a new line here, and the parser's own tests cover the pair.
-fn starts_expr(t: TokKind) -> bool {
+fn starts_expr(t: TokenKind) -> bool {
     match t {
-        TokKind::Ident
-        | TokKind::Int
-        | TokKind::Float
-        | TokKind::Str
-        | TokKind::Char
-        | TokKind::TemplateHead
-        | TokKind::KwTrue
-        | TokKind::KwFalse
-        | TokKind::KwSelfValue
-        | TokKind::KwCtx
-        | TokKind::KwIf
-        | TokKind::KwMatch
-        | TokKind::KwContext
-        | TokKind::KwFn
+        TokenKind::Ident
+        | TokenKind::Int
+        | TokenKind::Float
+        | TokenKind::Str
+        | TokenKind::Char
+        | TokenKind::TemplateHead
+        | TokenKind::KeywordTrue
+        | TokenKind::KeywordFalse
+        | TokenKind::KeywordSelfValue
+        | TokenKind::KeywordCtx
+        | TokenKind::KeywordIf
+        | TokenKind::KeywordMatch
+        | TokenKind::KeywordContext
+        | TokenKind::KeywordFn
         // `.Variant`, an array, a tuple or grouping, a block, and the three
         // prefix operators.
-        | TokKind::Dot
-        | TokKind::LBracket
-        | TokKind::LParen
-        | TokKind::LBrace
-        | TokKind::Minus
-        | TokKind::Bang
-        | TokKind::Tilde => true,
-        TokKind::TemplateSpan
-        | TokKind::TemplateTail
-        | TokKind::Eof
-        | TokKind::KwAs
-        | TokKind::KwConst
-        | TokKind::KwDerive
-        | TokKind::KwEffect
-        | TokKind::KwElse
-        | TokKind::KwEnum
-        | TokKind::KwExport
-        | TokKind::KwFor
-        | TokKind::KwFrom
-        | TokKind::KwImpl
-        | TokKind::KwImport
-        | TokKind::KwLet
-        | TokKind::KwSelfType
-        | TokKind::KwStruct
-        | TokKind::KwTest
-        | TokKind::KwTrait
-        | TokKind::KwType
-        | TokKind::RBrace
-        | TokKind::RParen
-        | TokKind::RBracket
-        | TokKind::Comma
-        | TokKind::Semi
-        | TokKind::Colon
-        | TokKind::ColonColon
-        | TokKind::DotDot
-        | TokKind::At
-        | TokKind::Underscore
-        | TokKind::Eq
-        | TokKind::FatArrow
-        | TokKind::EqEq
-        | TokKind::BangEq
-        | TokKind::Lt
-        | TokKind::LtEq
-        | TokKind::Gt
-        | TokKind::GtEq
-        | TokKind::Plus
-        | TokKind::Star
-        | TokKind::Slash
-        | TokKind::Percent
-        | TokKind::AndAnd
-        | TokKind::OrOr
-        | TokKind::QuestionQuestion
-        | TokKind::And
-        | TokKind::Or
-        | TokKind::Caret
-        | TokKind::Question => false,
+        | TokenKind::Dot
+        | TokenKind::LBracket
+        | TokenKind::LParen
+        | TokenKind::LBrace
+        | TokenKind::Minus
+        | TokenKind::Bang
+        | TokenKind::Tilde => true,
+        TokenKind::TemplateSpan
+        | TokenKind::TemplateTail
+        | TokenKind::Eof
+        | TokenKind::KeywordAs
+        | TokenKind::KeywordConst
+        | TokenKind::KeywordDerive
+        | TokenKind::KeywordEffect
+        | TokenKind::KeywordElse
+        | TokenKind::KeywordEnum
+        | TokenKind::KeywordExport
+        | TokenKind::KeywordFor
+        | TokenKind::KeywordFrom
+        | TokenKind::KeywordImpl
+        | TokenKind::KeywordImport
+        | TokenKind::KeywordLet
+        | TokenKind::KeywordSelfType
+        | TokenKind::KeywordStruct
+        | TokenKind::KeywordTest
+        | TokenKind::KeywordTrait
+        | TokenKind::KeywordType
+        | TokenKind::RBrace
+        | TokenKind::RParen
+        | TokenKind::RBracket
+        | TokenKind::Comma
+        | TokenKind::Semi
+        | TokenKind::Colon
+        | TokenKind::ColonColon
+        | TokenKind::DotDot
+        | TokenKind::At
+        | TokenKind::Underscore
+        | TokenKind::Eq
+        | TokenKind::FatArrow
+        | TokenKind::EqEq
+        | TokenKind::BangEq
+        | TokenKind::Lt
+        | TokenKind::LtEq
+        | TokenKind::Gt
+        | TokenKind::GtEq
+        | TokenKind::Plus
+        | TokenKind::Star
+        | TokenKind::Slash
+        | TokenKind::Percent
+        | TokenKind::AndAnd
+        | TokenKind::OrOr
+        | TokenKind::QuestionQuestion
+        | TokenKind::And
+        | TokenKind::Or
+        | TokenKind::Caret
+        | TokenKind::Question => false,
     }
 }
 
@@ -233,25 +233,25 @@ const COALESCE_LEVEL: usize = 2;
 ///
 /// This is the whole of the operator table. `starts_expr` and the postfix
 /// chain are the other two places a new operator would have to be named.
-fn binding_power(p: Punct) -> Option<(BinOp, u8, u8, usize)> {
+fn binding_power(p: Punctuation) -> Option<(BinOp, u8, u8, usize)> {
     let (op, level) = match p {
-        Punct::OrOr => (BinOp::Or, 1),
-        Punct::QuestionQuestion => (BinOp::Coalesce, COALESCE_LEVEL),
-        Punct::AndAnd => (BinOp::And, 3),
-        Punct::EqEq => (BinOp::Eq, CMP_LEVEL),
-        Punct::BangEq => (BinOp::Ne, CMP_LEVEL),
-        Punct::Lt => (BinOp::Lt, CMP_LEVEL),
-        Punct::LtEq => (BinOp::Le, CMP_LEVEL),
-        Punct::Gt => (BinOp::Gt, CMP_LEVEL),
-        Punct::GtEq => (BinOp::Ge, CMP_LEVEL),
-        Punct::Or => (BinOp::BitOr, 5),
-        Punct::Caret => (BinOp::BitXor, 6),
-        Punct::And => (BinOp::BitAnd, 7),
-        Punct::Plus => (BinOp::Add, 8),
-        Punct::Minus => (BinOp::Sub, 8),
-        Punct::Star => (BinOp::Mul, 9),
-        Punct::Slash => (BinOp::Div, 9),
-        Punct::Percent => (BinOp::Rem, 9),
+        Punctuation::OrOr => (BinOp::Or, 1),
+        Punctuation::QuestionQuestion => (BinOp::Coalesce, COALESCE_LEVEL),
+        Punctuation::AndAnd => (BinOp::And, 3),
+        Punctuation::EqEq => (BinOp::Eq, CMP_LEVEL),
+        Punctuation::BangEq => (BinOp::Ne, CMP_LEVEL),
+        Punctuation::Lt => (BinOp::Lt, CMP_LEVEL),
+        Punctuation::LtEq => (BinOp::Le, CMP_LEVEL),
+        Punctuation::Gt => (BinOp::Gt, CMP_LEVEL),
+        Punctuation::GtEq => (BinOp::Ge, CMP_LEVEL),
+        Punctuation::Or => (BinOp::BitOr, 5),
+        Punctuation::Caret => (BinOp::BitXor, 6),
+        Punctuation::And => (BinOp::BitAnd, 7),
+        Punctuation::Plus => (BinOp::Add, 8),
+        Punctuation::Minus => (BinOp::Sub, 8),
+        Punctuation::Star => (BinOp::Mul, 9),
+        Punctuation::Slash => (BinOp::Div, 9),
+        Punctuation::Percent => (BinOp::Rem, 9),
         _ => return None,
     };
     let base = (level as u8).saturating_mul(2);
@@ -339,7 +339,7 @@ struct Parser<'a> {
     /// [`Parser::block`] and [`crate::parsing::flat`].
     tree: Tree,
     scratch: Scratch,
-    toks: Tokens<'a>,
+    tokens: Tokens<'a>,
     /// What was written above a token, by token index, ascending — see
     /// [`Trivia`]. Only declarations read it, so it is searched rather than
     /// indexed.
@@ -424,20 +424,20 @@ impl<'a> Parser<'a> {
     /// One load and one comparison per question asked of it, against a
     /// forty-eight-byte record's discriminant and payload — which is the
     /// reason the token buffer is columns. See [`crate::parsing::lexer::Tokens`].
-    fn peek(&self) -> TokKind {
-        self.toks.kind(self.at(self.pos))
+    fn peek(&self) -> TokenKind {
+        self.tokens.kind(self.at(self.pos))
     }
 
-    fn kind_at(&self, i: usize) -> TokKind {
-        self.toks.kind(self.at(i))
+    fn kind_at(&self, i: usize) -> TokenKind {
+        self.tokens.kind(self.at(i))
     }
 
     fn span(&self) -> Span {
-        self.toks.span(self.at(self.pos))
+        self.tokens.span(self.at(self.pos))
     }
 
     fn prev_span(&self) -> Span {
-        self.toks.span(self.at(self.pos.saturating_sub(1)))
+        self.tokens.span(self.at(self.pos.saturating_sub(1)))
     }
 
     /// The doc lines attached to the token about to be read, moved out of the
@@ -477,18 +477,18 @@ impl<'a> Parser<'a> {
     /// This is where a numeric literal's spelling comes from: `0xFF` and `255`
     /// are one value and two literals, and the token carries only the value.
     fn raw(&self) -> &'a str {
-        self.toks.text(self.at(self.pos))
+        self.tokens.text(self.at(self.pos))
     }
 
     /// The same, as a message names it — see
-    /// [`crate::parsing::lexer::Tok::describe`]. Every "expected …, found …"
+    /// [`crate::parsing::lexer::Token::describe`]. Every "expected …, found …"
     /// goes through this.
     fn found(&self) -> String {
-        self.toks.describe(self.at(self.pos))
+        self.tokens.describe(self.at(self.pos))
     }
 
     fn at_eof(&self) -> bool {
-        self.peek() == TokKind::Eof
+        self.peek() == TokenKind::Eof
     }
 
     /// The value of the literal the parser is standing on.
@@ -499,15 +499,15 @@ impl<'a> Parser<'a> {
     /// them. Each of these is reached only from the arm that has already read
     /// the kind, so a token that is not a literal of that kind cannot get here.
     fn int_value(&self) -> u128 {
-        self.toks.int(self.at(self.pos))
+        self.tokens.int(self.at(self.pos))
     }
 
     fn float_value(&self) -> f64 {
-        self.toks.float(self.at(self.pos))
+        self.tokens.float(self.at(self.pos))
     }
 
     fn char_value(&self) -> u32 {
-        self.toks.ch(self.at(self.pos)) as u32
+        self.tokens.ch(self.at(self.pos)) as u32
     }
 
     /// Consume the current token and hand back its span.
@@ -539,27 +539,30 @@ impl<'a> Parser<'a> {
     fn take_text(&mut self) -> String {
         let pos = self.at(self.pos);
         if !matches!(
-            self.toks.kind(pos),
-            TokKind::Str | TokKind::TemplateHead | TokKind::TemplateSpan | TokKind::TemplateTail
+            self.tokens.kind(pos),
+            TokenKind::Str
+                | TokenKind::TemplateHead
+                | TokenKind::TemplateSpan
+                | TokenKind::TemplateTail
         ) {
             return String::new();
         }
         if self.trial > 0 {
-            self.toks.str_at(pos).to_string()
+            self.tokens.str_at(pos).to_string()
         } else {
-            self.toks.take_str(pos)
+            self.tokens.take_str(pos)
         }
     }
 
-    fn is(&self, p: Punct) -> bool {
-        self.peek() == TokKind::of_punct(p)
+    fn is(&self, p: Punctuation) -> bool {
+        self.peek() == TokenKind::of_punctuation(p)
     }
 
-    fn is_kw(&self, k: Kw) -> bool {
-        self.peek() == TokKind::of_kw(k)
+    fn is_keyword(&self, k: Keyword) -> bool {
+        self.peek() == TokenKind::of_keyword(k)
     }
 
-    fn eat(&mut self, p: Punct) -> bool {
+    fn eat(&mut self, p: Punctuation) -> bool {
         if self.is(p) {
             self.bump();
             true
@@ -568,8 +571,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eat_kw(&mut self, k: Kw) -> bool {
-        if self.is_kw(k) {
+    fn eat_keyword(&mut self, k: Keyword) -> bool {
+        if self.is_keyword(k) {
             self.bump();
             true
         } else {
@@ -621,7 +624,7 @@ impl<'a> Parser<'a> {
         self.errors.last_mut()
     }
 
-    fn expect(&mut self, p: Punct) -> PResult<Span> {
+    fn expect(&mut self, p: Punctuation) -> PResult<Span> {
         if self.is(p) {
             Ok(self.bump())
         } else {
@@ -633,8 +636,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_kw(&mut self, k: Kw) -> PResult<Span> {
-        if self.is_kw(k) {
+    fn expect_keyword(&mut self, k: Keyword) -> PResult<Span> {
+        if self.is_keyword(k) {
             Ok(self.bump())
         } else {
             let found = self.found();
@@ -654,7 +657,7 @@ impl<'a> Parser<'a> {
     /// identifier token, about thirty-five percent of all tokens — without
     /// interning and without hashing.
     fn expect_name(&mut self) -> PResult<Span> {
-        if self.peek() == TokKind::Ident {
+        if self.peek() == TokenKind::Ident {
             return Ok(self.bump());
         }
         let found = self.found();
@@ -707,7 +710,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_string(&mut self) -> PResult<(String, Span)> {
-        if matches!(self.peek(), TokKind::Str) {
+        if matches!(self.peek(), TokenKind::Str) {
             let s = self.take_text();
             let span = self.bump();
             return Ok((s, span));
@@ -770,23 +773,38 @@ impl<'a> Parser<'a> {
         let mut depth = 0i32;
         loop {
             match self.peek() {
-                TokKind::Eof => return,
-                TokKind::LBrace => {
+                TokenKind::Eof => return,
+                TokenKind::LBrace => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                TokKind::RBrace => {
+                TokenKind::RBrace => {
                     depth = depth.saturating_sub(1);
                     self.bump();
                     if depth <= 0 {
                         return;
                     }
                 }
-                TokKind::Semi if depth <= 0 => {
+                TokenKind::Semi if depth <= 0 => {
                     self.bump();
                     return;
                 }
-                TokKind::KwFrom | TokKind::KwExport | TokKind::KwFn | TokKind::KwStruct | TokKind::KwEnum | TokKind::KwType | TokKind::KwConst | TokKind::KwTrait | TokKind::KwEffect | TokKind::KwImpl | TokKind::KwDerive | TokKind::KwTest if depth <= 0 => return,
+                TokenKind::KeywordFrom
+                | TokenKind::KeywordExport
+                | TokenKind::KeywordFn
+                | TokenKind::KeywordStruct
+                | TokenKind::KeywordEnum
+                | TokenKind::KeywordType
+                | TokenKind::KeywordConst
+                | TokenKind::KeywordTrait
+                | TokenKind::KeywordEffect
+                | TokenKind::KeywordImpl
+                | TokenKind::KeywordDerive
+                | TokenKind::KeywordTest
+                    if depth <= 0 =>
+                {
+                    return;
+                }
                 _ => {
                     self.bump();
                 }
@@ -799,17 +817,17 @@ impl<'a> Parser<'a> {
         let mut depth = 0i32;
         loop {
             match self.peek() {
-                TokKind::Eof => return,
-                TokKind::Semi if depth <= 0 => {
+                TokenKind::Eof => return,
+                TokenKind::Semi if depth <= 0 => {
                     self.bump();
                     return;
                 }
-                TokKind::LBrace | TokKind::LParen | TokKind::LBracket => {
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                TokKind::RBrace if depth <= 0 => return,
-                TokKind::RBrace | TokKind::RParen | TokKind::RBracket => {
+                TokenKind::RBrace if depth <= 0 => return,
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
                     depth = depth.saturating_sub(1);
                     self.bump();
                 }
@@ -847,32 +865,42 @@ impl<'a> Parser<'a> {
         let docs = self.docs();
         let start = self.span();
 
-        if self.is_kw(Kw::From) {
+        if self.is_keyword(Keyword::From) {
             return Ok(Some(self.import_or_reexport()?));
         }
-        if self.is_kw(Kw::Impl) {
+        if self.is_keyword(Keyword::Impl) {
             return Ok(Some(Item::Impl(Box::new(self.impl_decl(docs)?))));
         }
-        if self.is_kw(Kw::Derive) {
+        if self.is_keyword(Keyword::Derive) {
             return Ok(Some(Item::Derive(Box::new(self.derive_decl()?))));
         }
-        if self.is_kw(Kw::Test) {
+        if self.is_keyword(Keyword::Test) {
             return Ok(Some(Item::Test(Box::new(self.test_decl(docs)?))));
         }
 
-        let exported = self.eat_kw(Kw::Export);
-        let kw = self.peek().as_kw();
-        let item = match kw {
-            Some(Kw::Fn) => Item::Fn(Box::new(self.fn_decl(exported, docs, start)?)),
-            Some(Kw::Struct) => Item::Struct(Box::new(self.struct_decl(exported, docs, start)?)),
-            Some(Kw::Enum) => Item::Enum(Box::new(self.enum_decl(exported, docs, start)?)),
-            Some(Kw::Type) => Item::TypeAlias(Box::new(self.type_alias(exported, docs, start)?)),
-            Some(Kw::Const) => Item::Const(Box::new(self.const_decl(exported, docs, start)?)),
-            Some(Kw::Trait) => Item::Trait(Box::new(self.trait_decl(exported, docs, start, false)?)),
-            Some(Kw::Effect) => Item::Trait(Box::new(self.trait_decl(exported, docs, start, true)?)),
-            Some(Kw::Context) => Item::Context(Box::new(self.context_decl(exported, docs, start)?)),
+        let exported = self.eat_keyword(Keyword::Export);
+        let keyword = self.peek().as_keyword();
+        let item = match keyword {
+            Some(Keyword::Fn) => Item::Fn(Box::new(self.fn_decl(exported, docs, start)?)),
+            Some(Keyword::Struct) => {
+                Item::Struct(Box::new(self.struct_decl(exported, docs, start)?))
+            }
+            Some(Keyword::Enum) => Item::Enum(Box::new(self.enum_decl(exported, docs, start)?)),
+            Some(Keyword::Type) => {
+                Item::TypeAlias(Box::new(self.type_alias(exported, docs, start)?))
+            }
+            Some(Keyword::Const) => Item::Const(Box::new(self.const_decl(exported, docs, start)?)),
+            Some(Keyword::Trait) => {
+                Item::Trait(Box::new(self.trait_decl(exported, docs, start, false)?))
+            }
+            Some(Keyword::Effect) => {
+                Item::Trait(Box::new(self.trait_decl(exported, docs, start, true)?))
+            }
+            Some(Keyword::Context) => {
+                Item::Context(Box::new(self.context_decl(exported, docs, start)?))
+            }
             // `from "..." export { ... }` after a stray `export`.
-            Some(Kw::From) if exported => {
+            Some(Keyword::From) if exported => {
                 let span = self.span();
                 self.error(
                     span,
@@ -900,22 +928,22 @@ impl<'a> Parser<'a> {
     }
 
     fn import_or_reexport(&mut self) -> PResult<Item> {
-        let start = self.expect_kw(Kw::From)?;
+        let start = self.expect_keyword(Keyword::From)?;
         let (path, path_span) = self.expect_string()?;
 
-        if self.eat_kw(Kw::Export) {
-            self.expect(Punct::LBrace)?;
-            let specs = self.import_specs(Punct::RBrace)?;
-            self.expect(Punct::RBrace)?;
-            let end = self.expect(Punct::Semi)?;
+        if self.eat_keyword(Keyword::Export) {
+            self.expect(Punctuation::LBrace)?;
+            let specs = self.import_specs(Punctuation::RBrace)?;
+            self.expect(Punctuation::RBrace)?;
+            let end = self.expect(Punctuation::Semi)?;
             return Ok(Item::ReExport(Box::new(ReExport { path, path_span, specs, span: start.to(end) })));
         }
 
-        self.expect_kw(Kw::Import)?;
-        let clause = if self.eat(Punct::Star) {
+        self.expect_keyword(Keyword::Import)?;
+        let clause = if self.eat(Punctuation::Star) {
             // A namespace import must be named. Bare `import *` is not
             // derivable from the grammar, and the diagnostic says so.
-            if !self.is_kw(Kw::As) {
+            if !self.is_keyword(Keyword::As) {
                 let span = self.prev_span();
                 self.error(
                     span,
@@ -934,23 +962,24 @@ impl<'a> Parser<'a> {
             self.bump();
             ImportClause::Namespace(self.expect_ident()?)
         } else {
-            self.expect(Punct::LBrace)?;
-            let specs = self.import_specs(Punct::RBrace)?;
-            self.expect(Punct::RBrace)?;
+            self.expect(Punctuation::LBrace)?;
+            let specs = self.import_specs(Punctuation::RBrace)?;
+            self.expect(Punctuation::RBrace)?;
             ImportClause::Named(specs)
         };
-        let end = self.expect(Punct::Semi)?;
+        let end = self.expect(Punctuation::Semi)?;
         Ok(Item::Import(Box::new(Import { path, path_span, clause, span: start.to(end) })))
     }
 
-    fn import_specs(&mut self, close: Punct) -> PResult<Vec<ImportSpec>> {
+    fn import_specs(&mut self, close: Punctuation) -> PResult<Vec<ImportSpec>> {
         let mut specs = Vec::new();
         while !self.is(close) && !self.at_eof() {
             let name = self.expect_ident()?;
-            let alias = if self.eat_kw(Kw::As) { Some(self.expect_ident()?) } else { None };
+            let alias =
+                if self.eat_keyword(Keyword::As) { Some(self.expect_ident()?) } else { None };
             let span = name.span.to(alias.as_ref().map(|a| a.span).unwrap_or(name.span));
             specs.push(ImportSpec { name, alias, span });
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
@@ -960,19 +989,19 @@ impl<'a> Parser<'a> {
     // -- declarations -------------------------------------------------------
 
     fn generic_params(&mut self) -> PResult<Vec<GenericParam>> {
-        if !self.is(Punct::Lt) {
+        if !self.is(Punctuation::Lt) {
             return Ok(Vec::new());
         }
         self.bump();
         let mut params = Vec::new();
-        while !self.is(Punct::Gt) && !self.at_eof() {
+        while !self.is(Punctuation::Gt) && !self.at_eof() {
             let name = self.expect_ident()?;
             let base = self.scratch.tys.len();
-            if self.eat(Punct::Colon) {
+            if self.eat(Punctuation::Colon) {
                 loop {
                     let b = self.named_type()?;
                     self.scratch.tys.push(b);
-                    if !self.eat(Punct::Plus) {
+                    if !self.eat(Punctuation::Plus) {
                         break;
                     }
                 }
@@ -981,23 +1010,23 @@ impl<'a> Parser<'a> {
             self.scratch.tys.truncate(base);
             let span = name.span.to(self.prev_span());
             params.push(GenericParam { name, bounds, span });
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
-        self.expect(Punct::Gt)?;
+        self.expect(Punctuation::Gt)?;
         Ok(params)
     }
 
     fn params(&mut self) -> PResult<Vec<Param>> {
         let mut params = Vec::new();
         let mut first = true;
-        while !self.is(Punct::RParen) && !self.at_eof() {
+        while !self.is(Punctuation::RParen) && !self.at_eof() {
             let start = self.span();
-            let (kind, name) = if self.is_kw(Kw::SelfValue) {
+            let (kind, name) = if self.is_keyword(Keyword::SelfValue) {
                 let span = self.bump();
                 (ParamKind::SelfParam, Name::new(span))
-            } else if self.is_kw(Kw::Ctx) {
+            } else if self.is_keyword(Keyword::Ctx) {
                 let span = self.bump();
                 (ParamKind::CtxParam, Name::new(span))
             } else {
@@ -1010,12 +1039,12 @@ impl<'a> Parser<'a> {
                     "move it to the front, or rename it if this parameter is not the receiver",
                 ).map(|d| d.code("self-not-first"));
             }
-            self.expect(Punct::Colon)?;
+            self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
             let span = start.to(self.tree.type_span(ty));
             params.push(Param { kind, name, ty, span });
             first = false;
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
@@ -1023,20 +1052,20 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<FnDecl> {
-        self.expect_kw(Kw::Fn)?;
+        self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punct::LParen)?;
+        self.expect(Punctuation::LParen)?;
         let params = self.params()?;
-        self.expect(Punct::RParen)?;
+        self.expect(Punctuation::RParen)?;
         // The return type annotation is required on every top-level `fn`
         // (SPEC 9), which is what keeps inference local to a body.
-        self.expect(Punct::Colon)?;
+        self.expect(Punctuation::Colon)?;
         let ret = self.ty()?;
 
-        let body = if self.is(Punct::LBrace) {
+        let body = if self.is(Punctuation::LBrace) {
             Some(self.block()?)
-        } else if self.is(Punct::Semi) {
+        } else if self.is(Punctuation::Semi) {
             if !self.allow_bodyless {
                 let span = self.span();
                 let n = self.slice(name.span).to_string();
@@ -1066,15 +1095,15 @@ impl<'a> Parser<'a> {
     fn method_sig(&mut self) -> PResult<FnDecl> {
         let docs = self.docs();
         let start = self.span();
-        self.expect_kw(Kw::Fn)?;
+        self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punct::LParen)?;
+        self.expect(Punctuation::LParen)?;
         let params = self.params()?;
-        self.expect(Punct::RParen)?;
-        self.expect(Punct::Colon)?;
+        self.expect(Punctuation::RParen)?;
+        self.expect(Punctuation::Colon)?;
         let ret = self.ty()?;
-        let end = self.expect(Punct::Semi)?;
+        let end = self.expect(Punctuation::Semi)?;
         Ok(FnDecl {
             name,
             generics,
@@ -1088,48 +1117,48 @@ impl<'a> Parser<'a> {
     }
 
     fn struct_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<StructDecl> {
-        self.expect_kw(Kw::Struct)?;
+        self.expect_keyword(Keyword::Struct)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
 
-        let body = if self.eat(Punct::LParen) {
+        let body = if self.eat(Punctuation::LParen) {
             // Tuple struct. Fields carry the same `export` marker.
             let mut fields = Vec::new();
-            while !self.is(Punct::RParen) && !self.at_eof() {
+            while !self.is(Punctuation::RParen) && !self.at_eof() {
                 let fstart = self.span();
-                let fexported = self.eat_kw(Kw::Export);
+                let fexported = self.eat_keyword(Keyword::Export);
                 let ty = self.ty()?;
                 fields.push(TupleField { exported: fexported, ty, span: fstart.to(self.prev_span()) });
-                if !self.eat(Punct::Comma) {
+                if !self.eat(Punctuation::Comma) {
                     break;
                 }
             }
-            self.expect(Punct::RParen)?;
+            self.expect(Punctuation::RParen)?;
             // Tuple-struct declarations are terminated with `;`; record-struct
             // declarations are not.
-            self.expect(Punct::Semi)?;
+            self.expect(Punctuation::Semi)?;
             StructBody::Tuple(fields)
         } else {
-            self.expect(Punct::LBrace)?;
-            let fields = self.field_decls(Punct::RBrace)?;
-            self.expect(Punct::RBrace)?;
+            self.expect(Punctuation::LBrace)?;
+            let fields = self.field_decls(Punctuation::RBrace)?;
+            self.expect(Punctuation::RBrace)?;
             StructBody::Record(fields)
         };
         let span = start.to(self.prev_span());
         Ok(StructDecl { name, generics, body, exported, span, docs })
     }
 
-    fn field_decls(&mut self, close: Punct) -> PResult<Vec<FieldDecl>> {
+    fn field_decls(&mut self, close: Punctuation) -> PResult<Vec<FieldDecl>> {
         let mut fields = Vec::new();
         while !self.is(close) && !self.at_eof() {
             let docs = self.docs();
             let start = self.span();
-            let exported = self.eat_kw(Kw::Export);
+            let exported = self.eat_keyword(Keyword::Export);
             let name = self.expect_ident()?;
-            self.expect(Punct::Colon)?;
+            self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
             fields.push(FieldDecl { exported, name, ty, span: start.to(self.prev_span()), docs });
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
@@ -1137,32 +1166,32 @@ impl<'a> Parser<'a> {
     }
 
     fn enum_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<EnumDecl> {
-        self.expect_kw(Kw::Enum)?;
+        self.expect_keyword(Keyword::Enum)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punct::LBrace)?;
+        self.expect(Punctuation::LBrace)?;
         let mut variants = Vec::new();
-        while !self.is(Punct::RBrace) && !self.at_eof() {
+        while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let vdocs = self.docs();
             let vstart = self.span();
-            let vexported = self.eat_kw(Kw::Export);
+            let vexported = self.eat_keyword(Keyword::Export);
             let vname = self.expect_ident()?;
-            let payload = if self.eat(Punct::LParen) {
+            let payload = if self.eat(Punctuation::LParen) {
                 let base = self.scratch.tys.len();
-                while !self.is(Punct::RParen) && !self.at_eof() {
+                while !self.is(Punctuation::RParen) && !self.at_eof() {
                     let t = self.ty()?;
                     self.scratch.tys.push(t);
-                    if !self.eat(Punct::Comma) {
+                    if !self.eat(Punctuation::Comma) {
                         break;
                     }
                 }
-                self.expect(Punct::RParen)?;
+                self.expect(Punctuation::RParen)?;
                 let tys = self.tree.push_tkids(since(&self.scratch.tys, base));
                 self.scratch.tys.truncate(base);
                 VariantPayload::Tuple(tys)
-            } else if self.eat(Punct::LBrace) {
-                let fields = self.field_decls(Punct::RBrace)?;
-                self.expect(Punct::RBrace)?;
+            } else if self.eat(Punctuation::LBrace) {
+                let fields = self.field_decls(Punctuation::RBrace)?;
+                self.expect(Punctuation::RBrace)?;
                 VariantPayload::Record(fields)
             } else {
                 VariantPayload::None
@@ -1174,33 +1203,33 @@ impl<'a> Parser<'a> {
                 span: vstart.to(self.prev_span()),
                 docs: vdocs,
             });
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
-        self.expect(Punct::RBrace)?;
+        self.expect(Punctuation::RBrace)?;
         let span = start.to(self.prev_span());
         Ok(EnumDecl { name, generics, variants, exported, span, docs })
     }
 
     fn type_alias(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<TypeAliasDecl> {
-        self.expect_kw(Kw::Type)?;
+        self.expect_keyword(Keyword::Type)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punct::Eq)?;
+        self.expect(Punctuation::Eq)?;
         let ty = self.ty()?;
-        let end = self.expect(Punct::Semi)?;
+        let end = self.expect(Punctuation::Semi)?;
         Ok(TypeAliasDecl { name, generics, ty, exported, span: start.to(end), docs })
     }
 
     fn const_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<ConstDecl> {
-        self.expect_kw(Kw::Const)?;
+        self.expect_keyword(Keyword::Const)?;
         let name = self.expect_ident()?;
-        self.expect(Punct::Colon)?;
+        self.expect(Punctuation::Colon)?;
         let ty = self.ty()?;
-        self.expect(Punct::Eq)?;
+        self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
-        let end = self.expect(Punct::Semi)?;
+        let end = self.expect(Punctuation::Semi)?;
         Ok(ConstDecl { name, ty, value, exported, span: start.to(end), docs })
     }
 
@@ -1214,9 +1243,9 @@ impl<'a> Parser<'a> {
         self.bump(); // `trait` or `effect`
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punct::LBrace)?;
+        self.expect(Punctuation::LBrace)?;
         let mut methods = Vec::new();
-        while !self.is(Punct::RBrace) && !self.at_eof() {
+        while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
             let save = self.save();
             match self.method_sig() {
@@ -1224,19 +1253,19 @@ impl<'a> Parser<'a> {
                 Err(Bail) => {
                     self.restore(save);
                     self.sync_stmt();
-                    if self.is(Punct::RBrace) || self.pos == before {
+                    if self.is(Punctuation::RBrace) || self.pos == before {
                         break;
                     }
                 }
             }
         }
-        self.expect(Punct::RBrace)?;
+        self.expect(Punctuation::RBrace)?;
         let span = start.to(self.prev_span());
         Ok(TraitDecl { name, generics, methods, is_effect, exported, span, docs })
     }
 
     fn impl_decl(&mut self, docs: Vec<String>) -> PResult<ImplDecl> {
-        let start = self.expect_kw(Kw::Impl)?;
+        let start = self.expect_keyword(Keyword::Impl)?;
         let generics = self.generic_params()?;
         // A full type either side: `[T]` has methods of its own, so the self
         // position is not restricted to a named type. The trait position is,
@@ -1245,15 +1274,15 @@ impl<'a> Parser<'a> {
         let first = self.ty()?;
         // One token of lookahead: `for` makes this a conformance declaration,
         // and its absence makes it the type's own methods.
-        let (trait_ty, self_ty) = if self.eat_kw(Kw::For) {
+        let (trait_ty, self_ty) = if self.eat_keyword(Keyword::For) {
             (Some(first), self.ty()?)
         } else {
             (None, first)
         };
-        self.expect(Punct::LBrace)?;
+        self.expect(Punctuation::LBrace)?;
         let mut methods = Vec::new();
         let mut escaped = false;
-        while !self.is(Punct::RBrace) && !self.at_eof() {
+        while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
             let save = self.save();
             let docs = self.docs();
@@ -1261,7 +1290,7 @@ impl<'a> Parser<'a> {
             // A method of the type's own is exported on its own terms. A
             // method that satisfies a trait is not: conformance belongs to
             // the type, so it is visible wherever the type is.
-            let exported = if self.is_kw(Kw::Export) {
+            let exported = if self.is_keyword(Keyword::Export) {
                 if trait_ty.is_some() {
                     let span = self.span();
                     self.error(
@@ -1292,7 +1321,7 @@ impl<'a> Parser<'a> {
                     // used to hang the compiler outright.
                     self.restore(save);
                     self.sync_stmt();
-                    if self.is(Punct::RBrace) {
+                    if self.is(Punctuation::RBrace) {
                         break;
                     }
                     if self.pos == before {
@@ -1314,18 +1343,18 @@ impl<'a> Parser<'a> {
                 "an `impl` holds `fn` declarations and nothing else",
             );
         } else {
-            self.expect(Punct::RBrace)?;
+            self.expect(Punctuation::RBrace)?;
         }
         Ok(ImplDecl { docs, generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
     }
 
     fn derive_decl(&mut self) -> PResult<DeriveDecl> {
-        let start = self.expect_kw(Kw::Derive)?;
+        let start = self.expect_keyword(Keyword::Derive)?;
         // `derive for Meters;` reaches the type-name parser at `for`, which
         // reports "expected an identifier" and offers to name a binding. The
         // grammar is not what is confusing here: the clause is empty, and a
         // clause naming no traits would generate nothing.
-        if self.is_kw(Kw::For) {
+        if self.is_keyword(Keyword::For) {
             let span = self.span();
             self.error(
                 span,
@@ -1344,20 +1373,20 @@ impl<'a> Parser<'a> {
         let base = self.scratch.tys.len();
         let first = self.named_type()?;
         self.scratch.tys.push(first);
-        while self.eat(Punct::Comma) {
+        while self.eat(Punctuation::Comma) {
             let t = self.named_type()?;
             self.scratch.tys.push(t);
         }
         let traits = self.tree.push_tkids(since(&self.scratch.tys, base));
         self.scratch.tys.truncate(base);
-        self.expect_kw(Kw::For)?;
+        self.expect_keyword(Keyword::For)?;
         let self_ty = self.named_type()?;
-        let end = self.expect(Punct::Semi)?;
+        let end = self.expect(Punctuation::Semi)?;
         Ok(DeriveDecl { traits, self_ty, span: start.to(end) })
     }
 
     fn context_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<ContextDecl> {
-        self.expect_kw(Kw::Context)?;
+        self.expect_keyword(Keyword::Context)?;
         let name = self.expect_ident()?;
         let body = self.context_body()?;
         let span = start.to(self.prev_span());
@@ -1365,28 +1394,28 @@ impl<'a> Parser<'a> {
     }
 
     fn context_body(&mut self) -> PResult<CtxBodyId> {
-        let start = self.expect(Punct::LBrace)?;
-        let spread = if self.is(Punct::DotDot) {
+        let start = self.expect(Punctuation::LBrace)?;
+        let spread = if self.is(Punctuation::DotDot) {
             self.bump();
             let e = self.expr()?;
-            self.eat(Punct::Comma);
+            self.eat(Punctuation::Comma);
             e.0
         } else {
             NONE
         };
         let base = self.scratch.binds.len();
-        while !self.is(Punct::RBrace) && !self.at_eof() {
+        while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let bstart = self.span();
             let effect = self.named_type()?;
-            self.expect(Punct::Colon)?;
+            self.expect(Punctuation::Colon)?;
             let value = self.expr()?;
             let span = Loc::of(bstart.to(self.prev_span()));
             self.scratch.binds.push(CtxBindData { effect: effect.0, value: value.0, span });
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
-        let end = self.expect(Punct::RBrace)?;
+        let end = self.expect(Punctuation::RBrace)?;
         let (bs, bl) = self.tree.push_bindings(since(&self.scratch.binds, base));
         self.scratch.binds.truncate(base);
         Ok(self.tree.push_ctx_body(CtxBodyData {
@@ -1398,7 +1427,7 @@ impl<'a> Parser<'a> {
     }
 
     fn test_decl(&mut self, docs: Vec<String>) -> PResult<TestDecl> {
-        let start = self.expect_kw(Kw::Test)?;
+        let start = self.expect_keyword(Keyword::Test)?;
         let (name, name_span) = self.expect_string()?;
         let body = self.block()?;
         Ok(TestDecl { name, name_span, body, span: start.to(self.prev_span()), docs })
@@ -1409,14 +1438,14 @@ impl<'a> Parser<'a> {
     fn named_type(&mut self) -> PResult<TypeId> {
         let start = self.span();
         // `Self` is a legal bound position spelling in an impl's type list.
-        if self.is_kw(Kw::SelfType) {
+        if self.is_keyword(Keyword::SelfType) {
             let span = self.bump();
             return Ok(self.tree.push_type(TKind::SelfType, [0; 4], span));
         }
         let nbase = self.scratch.names.len();
         let first = self.expect_name()?;
         self.scratch.names.push(Loc::of(first));
-        while self.is(Punct::Dot) {
+        while self.is(Punctuation::Dot) {
             self.bump();
             let seg = self.expect_name()?;
             self.scratch.names.push(Loc::of(seg));
@@ -1431,19 +1460,19 @@ impl<'a> Parser<'a> {
     /// A type-argument list, appended to the tree. No `<` is the empty list,
     /// which occupies nothing.
     fn type_args(&mut self) -> PResult<TypeList> {
-        if !self.is(Punct::Lt) {
+        if !self.is(Punctuation::Lt) {
             return Ok(TypeList::default());
         }
         self.bump();
         let base = self.scratch.tys.len();
-        while !self.is(Punct::Gt) && !self.at_eof() {
+        while !self.is(Punctuation::Gt) && !self.at_eof() {
             let t = self.ty()?;
             self.scratch.tys.push(t);
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
-        self.expect(Punct::Gt)?;
+        self.expect(Punctuation::Gt)?;
         let args = self.tree.push_tkids(since(&self.scratch.tys, base));
         self.scratch.tys.truncate(base);
         Ok(args)
@@ -1518,7 +1547,7 @@ impl<'a> Parser<'a> {
     ///   rather than a type error about `a` not being generic.
     fn commits_to_type_args(&self) -> bool {
         match self.peek() {
-            TokKind::LParen | TokKind::LBrace => true,
+            TokenKind::LParen | TokenKind::LBrace => true,
             other => !starts_expr(other),
         }
     }
@@ -1535,23 +1564,23 @@ impl<'a> Parser<'a> {
         let mut depth = 0u32;
         for i in 0..MAX_TYPE_ARG_LOOKAHEAD {
             match self.kind_at(self.pos.saturating_add(i)) {
-                TokKind::Lt => depth = depth.saturating_add(1),
-                TokKind::Gt => {
+                TokenKind::Lt => depth = depth.saturating_add(1),
+                TokenKind::Gt => {
                     depth = depth.saturating_sub(1);
                     if depth == 0 {
                         return true;
                     }
                 }
-                TokKind::Ident
-                | TokKind::KwSelfType
-                | TokKind::KwFn
-                | TokKind::Dot
-                | TokKind::Comma
-                | TokKind::LParen
-                | TokKind::RParen
-                | TokKind::LBracket
-                | TokKind::RBracket
-                | TokKind::FatArrow => {}
+                TokenKind::Ident
+                | TokenKind::KeywordSelfType
+                | TokenKind::KeywordFn
+                | TokenKind::Dot
+                | TokenKind::Comma
+                | TokenKind::LParen
+                | TokenKind::RParen
+                | TokenKind::LBracket
+                | TokenKind::RBracket
+                | TokenKind::FatArrow => {}
                 _ => return false,
             }
         }
@@ -1569,61 +1598,61 @@ impl<'a> Parser<'a> {
         let start = self.span();
         // Function types are written with `fn` for the same reason lambdas are:
         // it makes `(A, B)` unambiguously a tuple everywhere.
-        if self.is_kw(Kw::Fn) {
+        if self.is_keyword(Keyword::Fn) {
             self.bump();
-            self.expect(Punct::LParen)?;
+            self.expect(Punctuation::LParen)?;
             let base = self.scratch.tys.len();
-            while !self.is(Punct::RParen) && !self.at_eof() {
+            while !self.is(Punctuation::RParen) && !self.at_eof() {
                 let t = self.ty()?;
                 self.scratch.tys.push(t);
-                if !self.eat(Punct::Comma) {
+                if !self.eat(Punctuation::Comma) {
                     break;
                 }
             }
             let params = self.tree.push_tkids(since(&self.scratch.tys, base));
             self.scratch.tys.truncate(base);
-            self.expect(Punct::RParen)?;
-            self.expect(Punct::FatArrow)?;
+            self.expect(Punctuation::RParen)?;
+            self.expect(Punctuation::FatArrow)?;
             let ret = self.ty()?;
             let span = start.to(self.prev_span());
             return Ok(self.tree.push_type(TKind::Fn, [params.start, params.len, ret.0, 0], span));
         }
 
-        if self.is_kw(Kw::SelfType) {
+        if self.is_keyword(Keyword::SelfType) {
             let span = self.bump();
             return Ok(self.tree.push_type(TKind::SelfType, [0; 4], span));
         }
 
-        if self.is(Punct::LBracket) {
+        if self.is(Punctuation::LBracket) {
             self.bump();
             let elem = self.ty()?;
-            self.expect(Punct::RBracket)?;
+            self.expect(Punctuation::RBracket)?;
             let span = start.to(self.prev_span());
             return Ok(self.tree.push_type(TKind::Array, [elem.0, 0, 0, 0], span));
         }
 
-        if self.is(Punct::LParen) {
+        if self.is(Punctuation::LParen) {
             self.bump();
             // `()` is unit, `(T)` is grouping, `(T, U)` is a tuple.
-            if self.is(Punct::RParen) {
+            if self.is(Punctuation::RParen) {
                 let end = self.bump();
                 return Ok(self.tree.push_type(TKind::Unit, [0; 4], start.to(end)));
             }
             let first = self.ty()?;
-            if self.is(Punct::RParen) {
+            if self.is(Punctuation::RParen) {
                 self.bump();
                 return Ok(first);
             }
             let base = self.scratch.tys.len();
             self.scratch.tys.push(first);
-            while self.eat(Punct::Comma) {
-                if self.is(Punct::RParen) {
+            while self.eat(Punctuation::Comma) {
+                if self.is(Punctuation::RParen) {
                     break;
                 }
                 let t = self.ty()?;
                 self.scratch.tys.push(t);
             }
-            self.expect(Punct::RParen)?;
+            self.expect(Punctuation::RParen)?;
             let n = self.scratch.tys.len().saturating_sub(base);
             let elems = self.tree.push_tkids(since(&self.scratch.tys, base));
             self.scratch.tys.truncate(base);
@@ -1641,7 +1670,7 @@ impl<'a> Parser<'a> {
         }
 
         match self.peek() {
-            TokKind::Ident => self.named_type(),
+            TokenKind::Ident => self.named_type(),
             _ => {
                 let found = self.found();
                 let span = self.span();
@@ -1661,14 +1690,14 @@ impl<'a> Parser<'a> {
     }
 
     fn block_inner(&mut self) -> PResult<BlockId> {
-        let start = self.expect(Punct::LBrace)?;
+        let start = self.expect(Punctuation::LBrace)?;
         let base = self.scratch.stmts.len();
         let mut tail = NONE;
 
-        while !self.is(Punct::RBrace) && !self.at_eof() {
+        while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
             let save = self.save();
-            if self.is_kw(Kw::Let) {
+            if self.is_keyword(Keyword::Let) {
                 match self.let_stmt() {
                     Ok(s) => self.scratch.stmts.push(s),
                     Err(Bail) => {
@@ -1680,7 +1709,7 @@ impl<'a> Parser<'a> {
                 let estart = self.span();
                 match self.expr() {
                     Ok(e) => {
-                        if self.is(Punct::Semi) {
+                        if self.is(Punctuation::Semi) {
                             let end = self.bump();
                             // An expression statement is legal only in a test
                             // source and only when its type is `()`; both are
@@ -1709,7 +1738,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let end = self.expect(Punct::RBrace)?;
+        let end = self.expect(Punctuation::RBrace)?;
         let (ss, sl) = self.tree.push_stmts(since(&self.scratch.stmts, base));
         self.scratch.stmts.truncate(base);
         Ok(self.tree.push_block(BlockData {
@@ -1721,15 +1750,15 @@ impl<'a> Parser<'a> {
     }
 
     fn let_stmt(&mut self) -> PResult<StmtData> {
-        let start = self.expect_kw(Kw::Let)?;
+        let start = self.expect_keyword(Keyword::Let)?;
         // After `let`, one token of lookahead decides which form this is: the
         // `ctx` keyword takes no pattern and no annotation, because a context's
         // type is generated and never written.
-        if self.is_kw(Kw::Ctx) {
+        if self.is_keyword(Keyword::Ctx) {
             let name_span = self.bump();
-            self.expect(Punct::Eq)?;
+            self.expect(Punctuation::Eq)?;
             let value = self.expr()?;
-            let end = self.expect(Punct::Semi)?;
+            let end = self.expect(Punctuation::Semi)?;
             // The binding is spelled `ctx` at the keyword's own span, so the
             // source under the span *is* the name — as it is for every other
             // name in the flat tree.
@@ -1746,14 +1775,14 @@ impl<'a> Parser<'a> {
             });
         }
         let pattern = self.pattern()?;
-        let ty = if self.eat(Punct::Colon) {
+        let ty = if self.eat(Punctuation::Colon) {
             self.ty()?.0
         } else {
             NONE
         };
-        self.expect(Punct::Eq)?;
+        self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
-        let end = self.expect(Punct::Semi)?;
+        let end = self.expect(Punctuation::Semi)?;
         Ok(StmtData {
             kind: StmtKind::Let,
             is_ctx: false,
@@ -1777,7 +1806,7 @@ impl<'a> Parser<'a> {
         // A lambda is top-level-only: its body extends as far right as
         // possible, so allowing it as an operand would make
         // `2 * fn(x) => x + 1` ambiguous (SPEC 12.11).
-        if self.is_kw(Kw::Fn) {
+        if self.is_keyword(Keyword::Fn) {
             return self.lambda();
         }
         self.binary_expr(0)
@@ -1785,29 +1814,29 @@ impl<'a> Parser<'a> {
 
     fn lambda(&mut self) -> PResult<ExprId> {
         let at = self.tree.next_node();
-        let start = self.expect_kw(Kw::Fn)?;
-        self.expect(Punct::LParen)?;
+        let start = self.expect_keyword(Keyword::Fn)?;
+        self.expect(Punctuation::LParen)?;
         let base = self.scratch.lparams.len();
-        while !self.is(Punct::RParen) && !self.at_eof() {
+        while !self.is(Punctuation::RParen) && !self.at_eof() {
             let name = self.expect_name()?;
-            let ty = if self.eat(Punct::Colon) { self.ty()?.0 } else { NONE };
+            let ty = if self.eat(Punctuation::Colon) { self.ty()?.0 } else { NONE };
             let span = name.to(self.prev_span());
             self.scratch.lparams.push(LambdaParamData {
                 name: Loc::of(name),
                 ty,
                 span: Loc::of(span),
             });
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
-        self.expect(Punct::RParen)?;
-        let ret = if self.eat(Punct::Colon) {
+        self.expect(Punctuation::RParen)?;
+        let ret = if self.eat(Punctuation::Colon) {
             self.ty()?.0
         } else {
             NONE
         };
-        self.expect(Punct::FatArrow)?;
+        self.expect(Punctuation::FatArrow)?;
         let body = self.expr()?;
         let span = start.to(self.tree.span(body));
         let (ps, pl) = self.tree.push_lparams(since(&self.scratch.lparams, base));
@@ -1839,7 +1868,7 @@ impl<'a> Parser<'a> {
         let mut links = 0u32;
         let mut rung = usize::MAX;
         loop {
-            let Some(p) = self.peek().as_punct() else { return Ok(lhs) };
+            let Some(p) = self.peek().as_punctuation() else { return Ok(lhs) };
             let Some((op, lbp, rbp, level)) = binding_power(p) else { return Ok(lhs) };
             if lbp < min_bp {
                 return Ok(lhs);
@@ -1925,7 +1954,12 @@ impl<'a> Parser<'a> {
     fn at_cmp_op(&self) -> bool {
         matches!(
             self.peek(),
-            TokKind::EqEq | TokKind::BangEq | TokKind::Lt | TokKind::LtEq | TokKind::Gt | TokKind::GtEq
+            TokenKind::EqEq
+                | TokenKind::BangEq
+                | TokenKind::Lt
+                | TokenKind::LtEq
+                | TokenKind::Gt
+                | TokenKind::GtEq
         )
     }
 
@@ -1944,9 +1978,9 @@ impl<'a> Parser<'a> {
     fn unary_inner(&mut self) -> PResult<ExprId> {
         let at = self.tree.next_node();
         let op = match self.peek() {
-            TokKind::Minus => Some(UnOp::Neg),
-            TokKind::Bang => Some(UnOp::Not),
-            TokKind::Tilde => Some(UnOp::BitNot),
+            TokenKind::Minus => Some(UnOp::Neg),
+            TokenKind::Bang => Some(UnOp::Not),
+            TokenKind::Tilde => Some(UnOp::BitNot),
             _ => None,
         };
         if let Some(op) = op {
@@ -1960,18 +1994,18 @@ impl<'a> Parser<'a> {
         // which is what stops `if (c) { a } else { b } { x: 1 }` from having
         // two parses (SPEC 12.13). They are returned without entering
         // `postfix_ops`.
-        if self.is(Punct::LBrace) {
+        if self.is(Punctuation::LBrace) {
             let b = self.block()?;
             let span = self.tree.span_of(self.tree.block(b).span);
             return Ok(self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, at));
         }
-        if self.is_kw(Kw::If) {
+        if self.is_keyword(Keyword::If) {
             return self.if_expr();
         }
-        if self.is_kw(Kw::Match) {
+        if self.is_keyword(Keyword::Match) {
             return self.match_expr();
         }
-        if self.is_kw(Kw::Context) {
+        if self.is_keyword(Keyword::Context) {
             let start = self.bump();
             let body = self.context_body()?;
             let span = start.to(self.tree.span_of(self.tree.ctx_body(body).span));
@@ -1984,16 +2018,16 @@ impl<'a> Parser<'a> {
 
     fn if_expr(&mut self) -> PResult<ExprId> {
         let at = self.tree.next_node();
-        let start = self.expect_kw(Kw::If)?;
+        let start = self.expect_keyword(Keyword::If)?;
         // The condition is parenthesized, so the `{` that follows is always a
         // block (SPEC 12.1).
-        self.expect(Punct::LParen)?;
+        self.expect(Punctuation::LParen)?;
         let cond = self.expr()?;
-        self.expect(Punct::RParen)?;
+        self.expect(Punctuation::RParen)?;
         let then = self.block()?;
         // `else` is mandatory. There is nothing sensible for a missing branch
         // to produce in a language where `if` is an expression.
-        if !self.is_kw(Kw::Else) {
+        if !self.is_keyword(Keyword::Else) {
             let span = self.tree.span_of(self.tree.block(then).span);
             self.error(
                 span,
@@ -2008,7 +2042,7 @@ impl<'a> Parser<'a> {
             return Err(Bail);
         }
         self.bump();
-        let else_ = if self.is_kw(Kw::If) {
+        let else_ = if self.is_keyword(Keyword::If) {
             // `else if` builds the chain by recursing, so it is the chain
             // budget it spends rather than the nesting one: a generated
             // decoder is one of these per field.
@@ -2028,13 +2062,13 @@ impl<'a> Parser<'a> {
 
     fn match_expr(&mut self) -> PResult<ExprId> {
         let at = self.tree.next_node();
-        let start = self.expect_kw(Kw::Match)?;
-        self.expect(Punct::LParen)?;
+        let start = self.expect_keyword(Keyword::Match)?;
+        self.expect(Punctuation::LParen)?;
         let scrutinee = self.expr()?;
-        self.expect(Punct::RParen)?;
-        self.expect(Punct::LBrace)?;
+        self.expect(Punctuation::RParen)?;
+        self.expect(Punctuation::LBrace)?;
         let base = self.scratch.arms.len();
-        while !self.is(Punct::RBrace) && !self.at_eof() {
+        while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
             let astart = self.span();
             let save = self.save();
@@ -2043,7 +2077,7 @@ impl<'a> Parser<'a> {
                 Err(Bail) => {
                     self.restore(save);
                     self.sync_match_arm();
-                    if self.is(Punct::RBrace) {
+                    if self.is(Punctuation::RBrace) {
                         break;
                     }
                 }
@@ -2051,14 +2085,14 @@ impl<'a> Parser<'a> {
             // Arms are comma-separated, always — the comma is required even
             // after a brace-terminated body, because without it `A => x`
             // followed by `-1 =>` would greedily parse as `x - 1` (SPEC 12.12).
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
             if self.pos == before {
                 self.bump();
             }
         }
-        let end = self.expect(Punct::RBrace)?;
+        let end = self.expect(Punctuation::RBrace)?;
         let (as_, al) = self.tree.push_arms(since(&self.scratch.arms, base));
         self.scratch.arms.truncate(base);
         Ok(self.tree.push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at))
@@ -2069,8 +2103,8 @@ impl<'a> Parser<'a> {
     /// it holds the arm stack.
     fn match_arm(&mut self, astart: Span) -> PResult<ArmData> {
         let pattern = self.pattern()?;
-        let guard = if self.eat_kw(Kw::If) { self.expr()?.0 } else { NONE };
-        self.expect(Punct::FatArrow)?;
+        let guard = if self.eat_keyword(Keyword::If) { self.expr()?.0 } else { NONE };
+        self.expect(Punctuation::FatArrow)?;
         let body = self.expr()?;
         Ok(ArmData {
             pattern: pattern.0,
@@ -2084,14 +2118,14 @@ impl<'a> Parser<'a> {
         let mut depth = 0i32;
         loop {
             match self.peek() {
-                TokKind::Eof => return,
-                TokKind::Comma if depth <= 0 => return,
-                TokKind::RBrace if depth <= 0 => return,
-                TokKind::LBrace | TokKind::LParen | TokKind::LBracket => {
+                TokenKind::Eof => return,
+                TokenKind::Comma if depth <= 0 => return,
+                TokenKind::RBrace if depth <= 0 => return,
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                TokKind::RBrace | TokKind::RParen | TokKind::RBracket => {
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
                     depth = depth.saturating_sub(1);
                     self.bump();
                 }
@@ -2111,78 +2145,78 @@ impl<'a> Parser<'a> {
             // see `pattern_primary`, where `-1` spans the `-` as well. The two
             // are carried separately for that reason, here as well as there,
             // so that there is one rule rather than two.
-            TokKind::Int => {
+            TokenKind::Int => {
                 let value = self.int_value();
                 let span = self.bump();
                 let ix = self.tree.push_int(value);
                 Ok(self.tree.push(Kind::Int, [ix, span.start, span.end, 0], span, at))
             }
-            TokKind::Float => {
+            TokenKind::Float => {
                 let value = self.float_value();
                 let span = self.bump();
                 let ix = self.tree.push_float(value);
                 Ok(self.tree.push(Kind::Float, [ix, span.start, span.end, 0], span, at))
             }
-            TokKind::Str => {
+            TokenKind::Str => {
                 let value = self.take_text();
                 let span = self.bump();
                 let ix = self.tree.push_str(value);
                 Ok(self.tree.push(Kind::Str, [ix, 0, 0, 0], span, at))
             }
-            TokKind::Char => {
+            TokenKind::Char => {
                 let value = self.char_value();
                 let span = self.bump();
                 Ok(self.tree.push(Kind::Char, [value, 0, 0, 0], span, at))
             }
-            TokKind::KwTrue => {
+            TokenKind::KeywordTrue => {
                 let span = self.bump();
                 Ok(self.tree.push(Kind::True, [0; 4], span, at))
             }
-            TokKind::KwFalse => {
+            TokenKind::KeywordFalse => {
                 let span = self.bump();
                 Ok(self.tree.push(Kind::False, [0; 4], span, at))
             }
-            TokKind::TemplateHead => {
+            TokenKind::TemplateHead => {
                 let head = self.take_text();
                 self.template(head, start)
             }
-            TokKind::Ident => {
+            TokenKind::Ident => {
                 let span = self.bump();
                 Ok(self.tree.push(Kind::Ident, [0; 4], span, at))
             }
-            TokKind::KwSelfValue => {
+            TokenKind::KeywordSelfValue => {
                 let span = self.bump();
                 Ok(self.tree.push(Kind::SelfValue, [0; 4], span, at))
             }
-            TokKind::KwCtx => {
+            TokenKind::KeywordCtx => {
                 let span = self.bump();
                 Ok(self.tree.push(Kind::Ctx, [0; 4], span, at))
             }
             // `.Variant` — the inferred-type dot form.
-            TokKind::Dot => {
+            TokenKind::Dot => {
                 self.bump();
                 let name = self.expect_name()?;
                 let span = start.to(name);
                 Ok(self.tree.push(Kind::DotVariant, [name.start, name.end, 0, 0], span, at))
             }
-            TokKind::LBracket => {
+            TokenKind::LBracket => {
                 self.bump();
                 let base = self.scratch.exprs.len();
-                while !self.is(Punct::RBracket) && !self.at_eof() {
+                while !self.is(Punctuation::RBracket) && !self.at_eof() {
                     let e = self.expr()?;
                     self.scratch.exprs.push(e);
-                    if !self.eat(Punct::Comma) {
+                    if !self.eat(Punctuation::Comma) {
                         break;
                     }
                 }
-                let end = self.expect(Punct::RBracket)?;
+                let end = self.expect(Punctuation::RBracket)?;
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
                 Ok(self.tree.push(Kind::Array, [ks, kl, 0, 0], start.to(end), at))
             }
-            TokKind::LParen => {
+            TokenKind::LParen => {
                 self.bump();
-                if self.is(Punct::RParen) {
+                if self.is(Punctuation::RParen) {
                     let end = self.bump();
                     return Ok(self.tree.push(Kind::Unit, [0; 4], start.to(end), at));
                 }
@@ -2190,20 +2224,20 @@ impl<'a> Parser<'a> {
                 // Grouping hands back the inner expression, so `(e)` keeps
                 // `e`'s span and not the parentheses'. Several golden
                 // diagnostics are pinned to that.
-                if self.is(Punct::RParen) {
+                if self.is(Punctuation::RParen) {
                     self.bump();
                     return Ok(first);
                 }
                 let base = self.scratch.exprs.len();
                 self.scratch.exprs.push(first);
-                while self.eat(Punct::Comma) {
-                    if self.is(Punct::RParen) {
+                while self.eat(Punctuation::Comma) {
+                    if self.is(Punctuation::RParen) {
                         break;
                     }
                     let e = self.expr()?;
                     self.scratch.exprs.push(e);
                 }
-                let end = self.expect(Punct::RParen)?;
+                let end = self.expect(Punctuation::RParen)?;
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
                     self.error(
                         start.to(end),
@@ -2237,7 +2271,7 @@ impl<'a> Parser<'a> {
             let hole = self.expr()?;
             self.scratch.parts.push(PartData { text: NONE, hole: hole.0 });
             match self.peek() {
-                TokKind::TemplateSpan => {
+                TokenKind::TemplateSpan => {
                     let text = self.take_text();
                     self.bump();
                     if !text.is_empty() {
@@ -2245,7 +2279,7 @@ impl<'a> Parser<'a> {
                         self.scratch.parts.push(PartData { text: ix, hole: NONE });
                     }
                 }
-                TokKind::TemplateTail => {
+                TokenKind::TemplateTail => {
                     let text = self.take_text();
                     let end = self.bump();
                     if !text.is_empty() {
@@ -2288,12 +2322,12 @@ impl<'a> Parser<'a> {
             self.link(links)?;
             let start = self.tree.span(base);
             match self.peek() {
-                TokKind::Dot => {
+                TokenKind::Dot => {
                     self.bump();
                     match self.peek() {
                         // Tuple element access. `t.0.1` lexes as `t` `.` `0.1`,
                         // a known wart; write `(t.0).1`.
-                        TokKind::Int => {
+                        TokenKind::Int => {
                             let value = self.int_value();
                             if value > u32::MAX as u128 {
                                 let raw = self.raw();
@@ -2312,7 +2346,7 @@ impl<'a> Parser<'a> {
                                 at,
                             );
                         }
-                        TokKind::Float => {
+                        TokenKind::Float => {
                             let raw = self.raw();
                             let span = self.span();
                             self.error(
@@ -2334,26 +2368,26 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                TokKind::LParen => {
+                TokenKind::LParen => {
                     self.bump();
                     let abase = self.scratch.exprs.len();
-                    while !self.is(Punct::RParen) && !self.at_eof() {
+                    while !self.is(Punctuation::RParen) && !self.at_eof() {
                         let e = self.expr()?;
                         self.scratch.exprs.push(e);
-                        if !self.eat(Punct::Comma) {
+                        if !self.eat(Punctuation::Comma) {
                             break;
                         }
                     }
-                    let end = self.expect(Punct::RParen)?;
+                    let end = self.expect(Punctuation::RParen)?;
                     let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, abase));
                     self.scratch.exprs.truncate(abase);
                     base =
                         self.tree.push(Kind::Call, [base.0, ks, kl, 0], start.to(end), at);
                 }
-                TokKind::LBracket => {
+                TokenKind::LBracket => {
                     self.bump();
                     let index = self.expr()?;
-                    let end = self.expect(Punct::RBracket)?;
+                    let end = self.expect(Punctuation::RBracket)?;
                     base = self.tree.push(
                         Kind::Index,
                         [base.0, index.0, 0, 0],
@@ -2361,14 +2395,14 @@ impl<'a> Parser<'a> {
                         at,
                     );
                 }
-                TokKind::Question => {
+                TokenKind::Question => {
                     let end = self.bump();
                     base = self.tree.push(Kind::Try, [base.0, 0, 0, 0], start.to(end), at);
                 }
                 // Type arguments, or the comparison operator that is spelled
                 // the same. `type_args_in_expr` decides and rewinds if it is
                 // the latter, leaving the `<` for the binary parser above.
-                TokKind::Lt => match self.type_args_in_expr() {
+                TokenKind::Lt => match self.type_args_in_expr() {
                     Some(args) => {
                         base = self.tree.push(
                             Kind::Generic,
@@ -2390,9 +2424,9 @@ impl<'a> Parser<'a> {
                 // one error names the whole mistake, and everything after it
                 // in the file is read for what it says rather than through a
                 // recovery.
-                TokKind::ColonColon => {
+                TokenKind::ColonColon => {
                     let colons = self.bump();
-                    if !self.is(Punct::Lt) {
+                    if !self.is(Punctuation::Lt) {
                         // `::` is not an operator at all any more.
                         self.error(
                             colons,
@@ -2422,32 +2456,32 @@ impl<'a> Parser<'a> {
                 }
                 // With records gone, a `{` following a path is always a struct
                 // literal. Nothing competes, so field shorthand is unambiguous.
-                TokKind::LBrace => {
+                TokenKind::LBrace => {
                     self.bump();
-                    let spread = if self.is(Punct::DotDot) {
+                    let spread = if self.is(Punctuation::DotDot) {
                         self.bump();
                         let e = self.expr()?;
-                        self.eat(Punct::Comma);
+                        self.eat(Punctuation::Comma);
                         e.0
                     } else {
                         NONE
                     };
                     let fbase = self.scratch.inits.len();
-                    while !self.is(Punct::RBrace) && !self.at_eof() {
+                    while !self.is(Punctuation::RBrace) && !self.at_eof() {
                         let fname = self.expect_name()?;
                         let value =
-                            if self.eat(Punct::Colon) { self.expr()?.0 } else { NONE };
+                            if self.eat(Punctuation::Colon) { self.expr()?.0 } else { NONE };
                         let fspan = fname.to(self.prev_span());
                         self.scratch.inits.push(InitData {
                             name: Loc::of(fname),
                             value,
                             span: Loc::of(fspan),
                         });
-                        if !self.eat(Punct::Comma) {
+                        if !self.eat(Punctuation::Comma) {
                             break;
                         }
                     }
-                    let end = self.expect(Punct::RBrace)?;
+                    let end = self.expect(Punctuation::RBrace)?;
                     let (is, il) = self.tree.push_inits(since(&self.scratch.inits, fbase));
                     self.scratch.inits.truncate(fbase);
                     base = self.tree.push(
@@ -2474,13 +2508,13 @@ impl<'a> Parser<'a> {
     fn pattern_or(&mut self) -> PResult<PatId> {
         let at = self.tree.next_pat();
         let first = self.pattern_primary()?;
-        if !self.is(Punct::Or) {
+        if !self.is(Punctuation::Or) {
             return Ok(first);
         }
         let start = self.tree.pspan(first);
         let base = self.scratch.pats.len();
         self.scratch.pats.push(first);
-        while self.eat(Punct::Or) {
+        while self.eat(Punctuation::Or) {
             let p = self.pattern_primary()?;
             self.scratch.pats.push(p);
         }
@@ -2495,7 +2529,7 @@ impl<'a> Parser<'a> {
         let at = self.tree.next_pat();
         let start = self.span();
         match self.peek() {
-            TokKind::Underscore => {
+            TokenKind::Underscore => {
                 let span = self.bump();
                 Ok(self.tree.ppush(PKind::Wild, [0; 4], span, at))
             }
@@ -2504,10 +2538,10 @@ impl<'a> Parser<'a> {
             // `raw == "1"`, and a formatter that derived the spelling from the
             // span would print `--1`. So the literal's own extent is carried
             // in the payload, separately from the node's span.
-            TokKind::Minus => {
+            TokenKind::Minus => {
                 self.bump();
                 match self.peek() {
-                    TokKind::Int => {
+                    TokenKind::Int => {
                         let value = self.int_value();
                         let end = self.bump();
                         let ix = self.tree.push_int(value);
@@ -2518,7 +2552,7 @@ impl<'a> Parser<'a> {
                             at,
                         ))
                     }
-                    TokKind::Float => {
+                    TokenKind::Float => {
                         let value = self.float_value();
                         let end = self.bump();
                         let ix = self.tree.push_float(value);
@@ -2542,39 +2576,39 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            TokKind::Int => {
+            TokenKind::Int => {
                 let value = self.int_value();
                 let span = self.bump();
                 let ix = self.tree.push_int(value);
                 Ok(self.tree.ppush(PKind::LitInt, [ix, span.start, span.end, 0], span, at))
             }
-            TokKind::Float => {
+            TokenKind::Float => {
                 let value = self.float_value();
                 let span = self.bump();
                 let ix = self.tree.push_float(value);
                 Ok(self.tree.ppush(PKind::LitFloat, [ix, span.start, span.end, 0], span, at))
             }
-            TokKind::Str => {
+            TokenKind::Str => {
                 let value = self.take_text();
                 let span = self.bump();
                 let ix = self.tree.push_str(value);
                 Ok(self.tree.ppush(PKind::LitStr, [ix, 0, 0, 0], span, at))
             }
-            TokKind::Char => {
+            TokenKind::Char => {
                 let value = self.char_value();
                 let span = self.bump();
                 Ok(self.tree.ppush(PKind::LitChar, [value, 0, 0, 0], span, at))
             }
-            TokKind::KwTrue => {
+            TokenKind::KeywordTrue => {
                 let span = self.bump();
                 Ok(self.tree.ppush(PKind::LitTrue, [0; 4], span, at))
             }
-            TokKind::KwFalse => {
+            TokenKind::KeywordFalse => {
                 let span = self.bump();
                 Ok(self.tree.ppush(PKind::LitFalse, [0; 4], span, at))
             }
             // `.Variant`, with or without a payload.
-            TokKind::Dot => {
+            TokenKind::Dot => {
                 self.bump();
                 let name = self.expect_name()?;
                 let payload = self.pattern_payload()?;
@@ -2586,40 +2620,40 @@ impl<'a> Parser<'a> {
                     at,
                 ))
             }
-            TokKind::LBracket => self.array_pattern(),
-            TokKind::LParen => {
+            TokenKind::LBracket => self.array_pattern(),
+            TokenKind::LParen => {
                 self.bump();
-                if self.is(Punct::RParen) {
+                if self.is(Punctuation::RParen) {
                     let end = self.bump();
                     return Ok(self.tree.ppush(PKind::Unit, [0; 4], start.to(end), at));
                 }
                 let first = self.pattern()?;
-                if self.is(Punct::RParen) {
+                if self.is(Punctuation::RParen) {
                     self.bump();
                     return Ok(first);
                 }
                 let base = self.scratch.pats.len();
                 self.scratch.pats.push(first);
-                while self.eat(Punct::Comma) {
-                    if self.is(Punct::RParen) {
+                while self.eat(Punctuation::Comma) {
+                    if self.is(Punctuation::RParen) {
                         break;
                     }
                     let p = self.pattern()?;
                     self.scratch.pats.push(p);
                 }
-                let end = self.expect(Punct::RParen)?;
+                let end = self.expect(Punctuation::RParen)?;
                 let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
                 self.scratch.pats.truncate(base);
                 Ok(self.tree.ppush(PKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
             }
-            TokKind::Ident => {
+            TokenKind::Ident => {
                 let first = self.expect_name()?;
                 // The token *after* the identifier decides what this is, never
                 // what the identifier means (SPEC 12.7).
-                if self.is(Punct::Dot) {
+                if self.is(Punctuation::Dot) {
                     let nbase = self.scratch.names.len();
                     self.scratch.names.push(Loc::of(first));
-                    while self.eat(Punct::Dot) {
+                    while self.eat(Punctuation::Dot) {
                         let n = self.expect_name()?;
                         self.scratch.names.push(Loc::of(n));
                     }
@@ -2633,7 +2667,7 @@ impl<'a> Parser<'a> {
                         at,
                     ));
                 }
-                if self.is(Punct::LParen) || self.is(Punct::LBrace) {
+                if self.is(Punctuation::LParen) || self.is(Punctuation::LBrace) {
                     let payload = self.pattern_payload()?;
                     let (ns, nl) = self.tree.push_names(&[Loc::of(first)]);
                     return Ok(self.tree.ppush(
@@ -2644,7 +2678,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 // A bare identifier is ALWAYS a binding.
-                let sub = if self.eat(Punct::At) { self.pattern_primary()?.0 } else { NONE };
+                let sub = if self.eat(Punctuation::At) { self.pattern_primary()?.0 } else { NONE };
                 let span = start.to(self.prev_span());
                 Ok(self.tree.ppush(PKind::Bind, [first.start, first.end, sub, 0], span, at))
             }
@@ -2665,16 +2699,16 @@ impl<'a> Parser<'a> {
     /// A variant pattern's payload, as an index into the payload table or
     /// [`NONE`].
     fn pattern_payload(&mut self) -> PResult<u32> {
-        if self.eat(Punct::LParen) {
+        if self.eat(Punctuation::LParen) {
             let base = self.scratch.pats.len();
-            while !self.is(Punct::RParen) && !self.at_eof() {
+            while !self.is(Punctuation::RParen) && !self.at_eof() {
                 let p = self.pattern()?;
                 self.scratch.pats.push(p);
-                if !self.eat(Punct::Comma) {
+                if !self.eat(Punctuation::Comma) {
                     break;
                 }
             }
-            self.expect(Punct::RParen)?;
+            self.expect(Punctuation::RParen)?;
             let (s, l) = self.tree.push_pkids(since(&self.scratch.pats, base));
             self.scratch.pats.truncate(base);
             return Ok(self.tree.push_payload(PatPayloadData {
@@ -2684,29 +2718,29 @@ impl<'a> Parser<'a> {
                 len: l,
             }));
         }
-        if self.eat(Punct::LBrace) {
+        if self.eat(Punctuation::LBrace) {
             let base = self.scratch.fpats.len();
             let mut rest = false;
-            while !self.is(Punct::RBrace) && !self.at_eof() {
-                if self.is(Punct::DotDot) {
+            while !self.is(Punctuation::RBrace) && !self.at_eof() {
+                if self.is(Punctuation::DotDot) {
                     self.bump();
                     rest = true;
-                    self.eat(Punct::Comma);
+                    self.eat(Punctuation::Comma);
                     break;
                 }
                 let name = self.expect_name()?;
-                let pattern = if self.eat(Punct::Colon) { self.pattern()?.0 } else { NONE };
+                let pattern = if self.eat(Punctuation::Colon) { self.pattern()?.0 } else { NONE };
                 let span = name.to(self.prev_span());
                 self.scratch.fpats.push(FieldPatData {
                     name: Loc::of(name),
                     pattern,
                     span: Loc::of(span),
                 });
-                if !self.eat(Punct::Comma) {
+                if !self.eat(Punctuation::Comma) {
                     break;
                 }
             }
-            self.expect(Punct::RBrace)?;
+            self.expect(Punctuation::RBrace)?;
             let (s, l) = self.tree.push_fpats(since(&self.scratch.fpats, base));
             self.scratch.fpats.truncate(base);
             return Ok(self.tree.push_payload(PatPayloadData {
@@ -2721,16 +2755,16 @@ impl<'a> Parser<'a> {
 
     fn array_pattern(&mut self) -> PResult<PatId> {
         let at = self.tree.next_pat();
-        let start = self.expect(Punct::LBracket)?;
+        let start = self.expect(Punctuation::LBracket)?;
         let base = self.scratch.pats.len();
         // `Option<Option<Ident>>` in three states: absent, present and
         // anonymous, present and named.
         let mut rest_kind = 0u32;
         let mut rest_name = 0u32;
-        while !self.is(Punct::RBracket) && !self.at_eof() {
-            if self.is(Punct::DotDot) {
+        while !self.is(Punctuation::RBracket) && !self.at_eof() {
+            if self.is(Punctuation::DotDot) {
                 let dd = self.bump();
-                let name = if matches!(self.peek(), TokKind::Ident) {
+                let name = if matches!(self.peek(), TokenKind::Ident) {
                     Some(self.expect_name()?)
                 } else {
                     None
@@ -2749,10 +2783,10 @@ impl<'a> Parser<'a> {
                     }
                     None => rest_kind = 1,
                 }
-                self.eat(Punct::Comma);
+                self.eat(Punctuation::Comma);
                 // Rest patterns bind only at the end: `[first, ..rest]` is
                 // legal, `[..init, last]` is not.
-                if !self.is(Punct::RBracket) {
+                if !self.is(Punctuation::RBracket) {
                     let span = self.span();
                     self.error(
                         span,
@@ -2770,11 +2804,11 @@ impl<'a> Parser<'a> {
             }
             let p = self.pattern()?;
             self.scratch.pats.push(p);
-            if !self.eat(Punct::Comma) {
+            if !self.eat(Punctuation::Comma) {
                 break;
             }
         }
-        let end = self.expect(Punct::RBracket)?;
+        let end = self.expect(Punctuation::RBracket)?;
         let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
         self.scratch.pats.truncate(base);
         Ok(self.tree.ppush(PKind::Array, [ks, kl, rest_kind, rest_name], start.to(end), at))

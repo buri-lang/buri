@@ -72,7 +72,7 @@ const CLASS: [u8; 256] = {
 /// and what a write-side ceiling should therefore be measured against.
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct TokenRec {
+struct TokenRecord {
     kind: u8,
     start: u32,
     end: u32,
@@ -215,14 +215,14 @@ pub fn run(
     // The lexer's write side without its scan: one 12-byte record per token,
     // into a buffer sized once. `clear` rather than a fresh `Vec` for the same
     // reason as above — the allocation has its own row.
-    let mut toks: Vec<TokenRec> = Vec::with_capacity(corpus.tokens + 1);
-    let ntok = corpus.tokens;
+    let mut tokens: Vec<TokenRecord> = Vec::with_capacity(corpus.tokens + 1);
+    let token_count = corpus.tokens;
     let (median, dispersion, fastest, _) = bench(&mut || {
-        toks.clear();
-        for i in 0..ntok {
-            toks.push(TokenRec { kind: (i & 0x3f) as u8, start: i as u32, end: i as u32 + 3 });
+        tokens.clear();
+        for i in 0..token_count {
+            tokens.push(TokenRecord { kind: (i & 0x3f) as u8, start: i as u32, end: i as u32 + 3 });
         }
-        std::hint::black_box(&toks);
+        std::hint::black_box(&tokens);
     });
     out.push(Ceiling {
         name: "token-write",
@@ -271,7 +271,7 @@ pub fn run(
     // The box is `black_box`ed before it is dropped so the pair cannot be
     // elided; that is the whole loop.
     let (median, dispersion, fastest, _) = bench(&mut || {
-        for i in 0..ntok {
+        for i in 0..token_count {
             let b = Box::new(i as u64);
             std::hint::black_box(&b);
             drop(b);

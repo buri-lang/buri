@@ -282,22 +282,22 @@ struct Parser<'a> {
 
 /// One token. A `.proto` schema needs no more vocabulary than this.
 #[derive(Clone, Debug, PartialEq)]
-enum Tok {
+enum Token {
     Word(String),
     Num(i64),
     Str(String),
-    Punct(char),
+    Punctuation(char),
     End,
 }
 
-impl Tok {
+impl Token {
     fn describe(&self) -> String {
         match self {
-            Tok::Word(w) => format!("`{w}`"),
-            Tok::Num(n) => format!("`{n}`"),
-            Tok::Str(s) => format!("\"{s}\""),
-            Tok::Punct(c) => format!("`{c}`"),
-            Tok::End => "the end of the file".to_string(),
+            Token::Word(w) => format!("`{w}`"),
+            Token::Num(n) => format!("`{n}`"),
+            Token::Str(s) => format!("\"{s}\""),
+            Token::Punctuation(c) => format!("`{c}`"),
+            Token::End => "the end of the file".to_string(),
         }
     }
 }
@@ -384,10 +384,10 @@ impl<'a> Parser<'a> {
 
     /// The next token, consuming it. The span of what was read is
     /// `start..self.pos` for whatever `start` the caller recorded first.
-    fn next(&mut self) -> Tok {
+    fn next(&mut self) -> Token {
         self.skip_trivia();
         if self.pos >= self.src.len() {
-            return Tok::End;
+            return Token::End;
         }
         let c = self.peek_byte();
         if c.is_ascii_alphabetic() || c == b'_' {
@@ -398,7 +398,7 @@ impl<'a> Parser<'a> {
             {
                 self.pos = self.pos.saturating_add(1);
             }
-            return Tok::Word(self.slice(start, self.pos).to_string());
+            return Token::Word(self.slice(start, self.pos).to_string());
         }
         if c.is_ascii_digit() || (c == b'-' && self.byte_after().is_some_and(|d| d.is_ascii_digit())) {
             let start = self.pos;
@@ -415,12 +415,12 @@ impl<'a> Parser<'a> {
                 raw.parse::<i64>().ok()
             };
             return match parsed {
-                Some(n) => Tok::Num(n),
+                Some(n) => Token::Num(n),
                 None => {
                     let span = Span::new(self.file, start, self.pos);
                     let raw = raw.to_string();
                     self.err(span, format!("`{raw}` is not a number"), "write a decimal or `0x` field number");
-                    Tok::Num(0)
+                    Token::Num(0)
                 }
             };
         }
@@ -433,12 +433,12 @@ impl<'a> Parser<'a> {
                 if self.pos >= self.src.len() || self.peek_byte() == b'\n' {
                     let span = Span::new(self.file, start, self.pos);
                     self.err(span, "unterminated string", "close it with a quote");
-                    return Tok::Str(s);
+                    return Token::Str(s);
                 }
                 let ch = self.peek_byte();
                 if ch == quote {
                     self.pos = self.pos.saturating_add(1);
-                    return Tok::Str(s);
+                    return Token::Str(s);
                 }
                 if ch == b'\\' {
                     self.pos = self.pos.saturating_add(1);
@@ -472,12 +472,12 @@ impl<'a> Parser<'a> {
         // A byte that begins no token is one punctuation character. Stepping by
         // the whole character keeps the cursor on a boundary when the schema
         // holds a stray `é` or an emoji.
-        let punct = self.rest().chars().next().unwrap_or(c as char);
+        let punctuation = self.rest().chars().next().unwrap_or(c as char);
         self.bump_char();
-        Tok::Punct(punct)
+        Token::Punctuation(punctuation)
     }
 
-    fn peek(&mut self) -> Tok {
+    fn peek(&mut self) -> Token {
         let save = self.pos;
         let t = self.next();
         self.pos = save;
@@ -491,7 +491,7 @@ impl<'a> Parser<'a> {
             self.pos
         };
         let t = self.next();
-        if t == Tok::Punct(c) {
+        if t == Token::Punctuation(c) {
             return true;
         }
         let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
@@ -508,7 +508,7 @@ impl<'a> Parser<'a> {
         self.skip_trivia();
         let start = self.pos;
         match self.next() {
-            Tok::Word(w) => Some((w, Span::new(self.file, start, self.pos))),
+            Token::Word(w) => Some((w, Span::new(self.file, start, self.pos))),
             other => {
                 let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
                 let found = other.describe();
@@ -531,7 +531,7 @@ impl<'a> Parser<'a> {
         self.skip_trivia();
         let start = self.pos;
         let name = match self.next() {
-            Tok::Word(w) => w,
+            Token::Word(w) => w,
             _ => {
                 self.pos = start;
                 self.skip_statement();
@@ -541,9 +541,9 @@ impl<'a> Parser<'a> {
         // `option features = { ... };` sets several at once. Refused rather
         // than read: the block form nests, and one spelling of a thing is
         // enough for a reader this size to have to be right about.
-        if name == "features" && self.peek() == Tok::Punct('=') {
+        if name == "features" && self.peek() == Token::Punctuation('=') {
             self.next();
-            if self.peek() == Tok::Punct('{') {
+            if self.peek() == Token::Punctuation('{') {
                 let span = Span::new(self.file, start, self.pos);
                 self.unsupported(
                     span,
@@ -566,7 +566,7 @@ impl<'a> Parser<'a> {
         self.skip_trivia();
         let value_at = self.pos;
         let value = match self.next() {
-            Tok::Word(v) => v,
+            Token::Word(v) => v,
             other => {
                 let span = Span::new(self.file, value_at, self.pos.max(value_at.saturating_add(1)));
                 let found = other.describe();
@@ -688,9 +688,9 @@ impl<'a> Parser<'a> {
     fn skip_statement(&mut self) {
         loop {
             match self.next() {
-                Tok::Punct(';') | Tok::End => return,
+                Token::Punctuation(';') | Token::End => return,
                 // An option value may be a block: `option (x) = { a: 1 };`.
-                Tok::Punct('{') => self.skip_braces(),
+                Token::Punctuation('{') => self.skip_braces(),
                 _ => {}
             }
         }
@@ -700,14 +700,14 @@ impl<'a> Parser<'a> {
         let mut depth: u32 = 1;
         loop {
             match self.next() {
-                Tok::Punct('{') => depth = depth.saturating_add(1),
-                Tok::Punct('}') => {
+                Token::Punctuation('{') => depth = depth.saturating_add(1),
+                Token::Punctuation('}') => {
                     depth = depth.saturating_sub(1);
                     if depth == 0 {
                         return;
                     }
                 }
-                Tok::End => return,
+                Token::End => return,
                 _ => {}
             }
         }
@@ -723,9 +723,9 @@ impl<'a> Parser<'a> {
             let start = self.pos;
             let t = self.next();
             match t {
-                Tok::End => break,
-                Tok::Punct(';') => {}
-                Tok::Word(w) => match w.as_str() {
+                Token::End => break,
+                Token::Punctuation(';') => {}
+                Token::Word(w) => match w.as_str() {
                     // `syntax` is what a proto2 or proto3 file declares, and
                     // neither is accepted. The diagnostic is about migrating
                     // rather than about the word, because the word is not the
@@ -739,7 +739,7 @@ impl<'a> Parser<'a> {
                         let at = self.pos;
                         let value = self.next();
                         let named = match &value {
-                            Tok::Str(v) => format!("`syntax = \"{v}\"`"),
+                            Token::Str(v) => format!("`syntax = \"{v}\"`"),
                             other => format!("syntax {}", other.describe()),
                         };
                         let span = Span::new(self.file, start, self.pos.max(at.saturating_add(1)));
@@ -768,10 +768,10 @@ impl<'a> Parser<'a> {
                         self.skip_trivia();
                         let at = self.pos;
                         let value = self.next();
-                        if value != Tok::Str(REQUIRED_EDITION.to_string()) {
+                        if value != Token::Str(REQUIRED_EDITION.to_string()) {
                             let span = Span::new(self.file, at, self.pos.max(at.saturating_add(1)));
                             let named = match &value {
-                                Tok::Str(v) => format!("edition {v}"),
+                                Token::Str(v) => format!("edition {v}"),
                                 other => format!("edition {}", other.describe()),
                             };
                             self.errors.push(
@@ -802,10 +802,10 @@ impl<'a> Parser<'a> {
                         self.skip_trivia();
                         let at = self.pos;
                         match self.next() {
-                            Tok::Str(path) => schema
+                            Token::Str(path) => schema
                                 .imports
                                 .push(Import { path, span: Span::new(self.file, at, self.pos) }),
-                            Tok::Word(w) if w == "public" || w == "weak" => {
+                            Token::Word(w) if w == "public" || w == "weak" => {
                                 let span = Span::new(self.file, at, self.pos);
                                 self.unsupported(
                                     span,
@@ -916,12 +916,12 @@ impl<'a> Parser<'a> {
     fn recover_block(&mut self) {
         loop {
             match self.peek() {
-                Tok::Punct('{') => {
+                Token::Punctuation('{') => {
                     self.next();
                     self.skip_braces();
                     return;
                 }
-                Tok::Punct(';') | Tok::End => {
+                Token::Punctuation(';') | Token::End => {
                     self.next();
                     return;
                 }
@@ -959,11 +959,11 @@ impl<'a> Parser<'a> {
             self.skip_trivia();
             let start = self.pos;
             match self.peek() {
-                Tok::Punct('}') => {
+                Token::Punctuation('}') => {
                     self.next();
                     break;
                 }
-                Tok::End => {
+                Token::End => {
                     self.err(
                         Span::new(self.file, start, start.saturating_add(1)),
                         format!("`{}` is not closed", m.name),
@@ -971,10 +971,10 @@ impl<'a> Parser<'a> {
                     );
                     break;
                 }
-                Tok::Punct(';') => {
+                Token::Punctuation(';') => {
                     self.next();
                 }
-                Tok::Word(w) => match w.as_str() {
+                Token::Word(w) => match w.as_str() {
                     "message" => {
                         self.next();
                         if let Some(inner) = self.message() {
@@ -1081,11 +1081,11 @@ impl<'a> Parser<'a> {
             self.skip_trivia();
             let start = self.pos;
             match self.peek() {
-                Tok::Punct('}') => {
+                Token::Punctuation('}') => {
                     self.next();
                     break;
                 }
-                Tok::End => {
+                Token::End => {
                     self.err(
                         Span::new(self.file, start, start.saturating_add(1)),
                         format!("`oneof {}` is not closed", o.name),
@@ -1093,10 +1093,10 @@ impl<'a> Parser<'a> {
                     );
                     break;
                 }
-                Tok::Punct(';') => {
+                Token::Punctuation(';') => {
                     self.next();
                 }
-                Tok::Word(w) if w == "option" => {
+                Token::Word(w) if w == "option" => {
                     self.next();
                     self.feature_option();
                 }
@@ -1170,7 +1170,7 @@ impl<'a> Parser<'a> {
             _ => (Label::Single, (first, first_span)),
         };
 
-        if ty_word == "map" || self.peek() == Tok::Punct('<') {
+        if ty_word == "map" || self.peek() == Token::Punctuation('<') {
             self.unsupported(
                 ty_span,
                 "`map<>`",
@@ -1202,7 +1202,7 @@ impl<'a> Parser<'a> {
         self.skip_trivia();
         let num_at = self.pos;
         let number = match self.next() {
-            Tok::Num(n) => n,
+            Token::Num(n) => n,
             other => {
                 let span = Span::new(self.file, num_at, self.pos.max(num_at.saturating_add(1)));
                 let found = other.describe();
@@ -1233,25 +1233,25 @@ impl<'a> Parser<'a> {
         // The field's own options. `features.…` is read and everything else —
         // `ctype`, `deprecated`, `json_name` — is stepped over.
         let mut features = Features::default();
-        if self.peek() == Tok::Punct('[') {
+        if self.peek() == Token::Punctuation('[') {
             self.next();
             loop {
                 self.skip_trivia();
                 let at = self.pos;
                 match self.next() {
-                    Tok::Punct(']') | Tok::End => break,
-                    Tok::Punct(',') => {}
-                    Tok::Word(w) => {
+                    Token::Punctuation(']') | Token::End => break,
+                    Token::Punctuation(',') => {}
+                    Token::Word(w) => {
                         let feature = w.strip_prefix("features.").map(str::to_string);
                         // `name = value`, whatever the name was.
-                        if self.peek() == Tok::Punct('=') {
+                        if self.peek() == Token::Punctuation('=') {
                             self.next();
                             self.skip_trivia();
                             let value = self.next();
                             if let Some(feature) = feature {
                                 let span = Span::new(self.file, at, self.pos);
                                 let value = match value {
-                                    Tok::Word(v) => v,
+                                    Token::Word(v) => v,
                                     other => other.describe(),
                                 };
                                 if let Some(f) = self.feature(&feature, &value, span) {
@@ -1285,11 +1285,11 @@ impl<'a> Parser<'a> {
             self.skip_trivia();
             let start = self.pos;
             match self.peek() {
-                Tok::Punct('}') => {
+                Token::Punctuation('}') => {
                     self.next();
                     break;
                 }
-                Tok::End => {
+                Token::End => {
                     self.err(
                         Span::new(self.file, start, start.saturating_add(1)),
                         format!("`enum {}` is not closed", e.name),
@@ -1297,17 +1297,17 @@ impl<'a> Parser<'a> {
                     );
                     break;
                 }
-                Tok::Punct(';') => {
+                Token::Punctuation(';') => {
                     self.next();
                 }
-                Tok::Word(w) if w == "option" => {
+                Token::Word(w) if w == "option" => {
                     self.next();
                     // Read for its diagnostics: only `field_presence` and
                     // `repeated_field_encoding` are modelled and neither
                     // targets an enum, so there is nothing here to keep.
                     self.feature_option();
                 }
-                Tok::Word(w) if w == "reserved" => {
+                Token::Word(w) if w == "reserved" => {
                     self.next();
                     self.skip_statement();
                 }
@@ -1323,7 +1323,7 @@ impl<'a> Parser<'a> {
                     self.skip_trivia();
                     let num_at = self.pos;
                     let number = match self.next() {
-                        Tok::Num(n) => n,
+                        Token::Num(n) => n,
                         other => {
                             let span = Span::new(self.file, num_at, self.pos.max(num_at.saturating_add(1)));
                             let found = other.describe();
@@ -1336,11 +1336,11 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                     };
-                    if self.peek() == Tok::Punct('[') {
+                    if self.peek() == Token::Punctuation('[') {
                         self.next();
                         loop {
                             match self.next() {
-                                Tok::Punct(']') | Tok::End => break,
+                                Token::Punctuation(']') | Token::End => break,
                                 _ => {}
                             }
                         }

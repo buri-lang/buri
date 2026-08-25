@@ -203,10 +203,10 @@ fn the_assembled_documents_are_not_stale() {
 fn every_grammar_keyword_is_a_keyword() {
     let grammar = topics::GRAMMAR;
     let mut missing = Vec::new();
-    for kw in buri::parsing::lexer::Kw::ALL {
-        let quoted = format!("\"{}\"", kw.text());
+    for keyword in buri::parsing::lexer::Keyword::ALL {
+        let quoted = format!("\"{}\"", keyword.text());
         if !grammar.contains(&quoted) {
-            missing.push(kw.text());
+            missing.push(keyword.text());
         }
     }
     assert!(

@@ -15,7 +15,7 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
 use crate::parsing::flat::Loc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Kw {
+pub enum Keyword {
     As,
     Const,
     Context,
@@ -43,66 +43,66 @@ pub enum Kw {
     Type,
 }
 
-impl Kw {
+impl Keyword {
     /// Every keyword, so a test can hold the hand-written grammar and the
     /// lexer to the same list. Adding a variant without adding it here is a
     /// compile error, because `text` matches exhaustively and this is checked
     /// against it.
-    pub const ALL: &'static [Kw] = &[
-        Kw::As,
-        Kw::Const,
-        Kw::Context,
-        Kw::Ctx,
-        Kw::Derive,
-        Kw::Effect,
-        Kw::Else,
-        Kw::Enum,
-        Kw::Export,
-        Kw::False,
-        Kw::Fn,
-        Kw::For,
-        Kw::From,
-        Kw::If,
-        Kw::Impl,
-        Kw::Import,
-        Kw::Let,
-        Kw::Match,
-        Kw::SelfValue,
-        Kw::SelfType,
-        Kw::Struct,
-        Kw::Test,
-        Kw::Trait,
-        Kw::True,
-        Kw::Type,
+    pub const ALL: &'static [Keyword] = &[
+        Keyword::As,
+        Keyword::Const,
+        Keyword::Context,
+        Keyword::Ctx,
+        Keyword::Derive,
+        Keyword::Effect,
+        Keyword::Else,
+        Keyword::Enum,
+        Keyword::Export,
+        Keyword::False,
+        Keyword::Fn,
+        Keyword::For,
+        Keyword::From,
+        Keyword::If,
+        Keyword::Impl,
+        Keyword::Import,
+        Keyword::Let,
+        Keyword::Match,
+        Keyword::SelfValue,
+        Keyword::SelfType,
+        Keyword::Struct,
+        Keyword::Test,
+        Keyword::Trait,
+        Keyword::True,
+        Keyword::Type,
     ];
 
     pub fn text(self) -> &'static str {
         match self {
-            Kw::As => "as",
-            Kw::Const => "const",
-            Kw::Context => "context",
-            Kw::Ctx => "ctx",
-            Kw::Derive => "derive",
-            Kw::Effect => "effect",
-            Kw::Else => "else",
-            Kw::Enum => "enum",
-            Kw::Export => "export",
-            Kw::False => "false",
-            Kw::Fn => "fn",
-            Kw::For => "for",
-            Kw::From => "from",
-            Kw::If => "if",
-            Kw::Impl => "impl",
-            Kw::Import => "import",
-            Kw::Let => "let",
-            Kw::Match => "match",
-            Kw::SelfValue => "self",
-            Kw::SelfType => "Self",
-            Kw::Struct => "struct",
-            Kw::Test => "test",
-            Kw::Trait => "trait",
-            Kw::True => "true",
-            Kw::Type => "type",
+            Keyword::As => "as",
+            Keyword::Const => "const",
+            Keyword::Context => "context",
+            Keyword::Ctx => "ctx",
+            Keyword::Derive => "derive",
+            Keyword::Effect => "effect",
+            Keyword::Else => "else",
+            Keyword::Enum => "enum",
+            Keyword::Export => "export",
+            Keyword::False => "false",
+            Keyword::Fn => "fn",
+            Keyword::For => "for",
+            Keyword::From => "from",
+            Keyword::If => "if",
+            Keyword::Impl => "impl",
+            Keyword::Import => "import",
+            Keyword::Let => "let",
+            Keyword::Match => "match",
+            Keyword::SelfValue => "self",
+            Keyword::SelfType => "Self",
+            Keyword::Struct => "struct",
+            Keyword::Test => "test",
+            Keyword::Trait => "trait",
+            Keyword::True => "true",
+            Keyword::Type => "type",
         }
     }
 
@@ -114,50 +114,50 @@ impl Kw {
     /// lowers a single `match` on a `&str` to a switch on the length and a
     /// short chain of comparisons within it.
     fn from_str(s: &str) -> Option<Word> {
-        Some(Word::Kw(match s {
+        Some(Word::Keyword(match s {
             "async" | "await" | "break" | "continue" | "do" | "in" | "is" | "loop" | "module"
             | "mut" | "opaque" | "panic" | "pub" | "return" | "unreachable" | "use" | "when"
             | "where" | "while" | "with" | "yield" => return Some(Word::Reserved),
-            "as" => Kw::As,
-            "const" => Kw::Const,
-            "context" => Kw::Context,
-            "ctx" => Kw::Ctx,
-            "derive" => Kw::Derive,
-            "effect" => Kw::Effect,
-            "else" => Kw::Else,
-            "enum" => Kw::Enum,
-            "export" => Kw::Export,
-            "false" => Kw::False,
-            "fn" => Kw::Fn,
-            "for" => Kw::For,
-            "from" => Kw::From,
-            "if" => Kw::If,
-            "impl" => Kw::Impl,
-            "import" => Kw::Import,
-            "let" => Kw::Let,
-            "match" => Kw::Match,
-            "self" => Kw::SelfValue,
-            "Self" => Kw::SelfType,
-            "struct" => Kw::Struct,
-            "test" => Kw::Test,
-            "trait" => Kw::Trait,
-            "true" => Kw::True,
-            "type" => Kw::Type,
+            "as" => Keyword::As,
+            "const" => Keyword::Const,
+            "context" => Keyword::Context,
+            "ctx" => Keyword::Ctx,
+            "derive" => Keyword::Derive,
+            "effect" => Keyword::Effect,
+            "else" => Keyword::Else,
+            "enum" => Keyword::Enum,
+            "export" => Keyword::Export,
+            "false" => Keyword::False,
+            "fn" => Keyword::Fn,
+            "for" => Keyword::For,
+            "from" => Keyword::From,
+            "if" => Keyword::If,
+            "impl" => Keyword::Impl,
+            "import" => Keyword::Import,
+            "let" => Keyword::Let,
+            "match" => Keyword::Match,
+            "self" => Keyword::SelfValue,
+            "Self" => Keyword::SelfType,
+            "struct" => Keyword::Struct,
+            "test" => Keyword::Test,
+            "trait" => Keyword::Trait,
+            "true" => Keyword::True,
+            "type" => Keyword::Type,
             _ => return None,
         }))
     }
 }
 
-/// What [`Kw::from_str`] found: a keyword, or a word reserved but unused in
-/// v0.3 and rejected by the lexer so that later versions can claim it without
-/// breaking source compatibility.
+/// What [`Keyword::from_str`] found: a keyword, or a word reserved but unused
+/// in v0.3 and rejected by the lexer so that later versions can claim it
+/// without breaking source compatibility.
 enum Word {
-    Kw(Kw),
+    Keyword(Keyword),
     Reserved,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Punct {
+pub enum Punctuation {
     LBrace,
     RBrace,
     LParen,
@@ -196,45 +196,45 @@ pub enum Punct {
     Question,
 }
 
-impl Punct {
+impl Punctuation {
     pub fn text(self) -> &'static str {
         match self {
-            Punct::LBrace => "{",
-            Punct::RBrace => "}",
-            Punct::LParen => "(",
-            Punct::RParen => ")",
-            Punct::LBracket => "[",
-            Punct::RBracket => "]",
-            Punct::Comma => ",",
-            Punct::Semi => ";",
-            Punct::Colon => ":",
-            Punct::ColonColon => "::",
-            Punct::Dot => ".",
-            Punct::DotDot => "..",
-            Punct::At => "@",
-            Punct::Underscore => "_",
-            Punct::Eq => "=",
-            Punct::FatArrow => "=>",
-            Punct::EqEq => "==",
-            Punct::BangEq => "!=",
-            Punct::Lt => "<",
-            Punct::LtEq => "<=",
-            Punct::Gt => ">",
-            Punct::GtEq => ">=",
-            Punct::Plus => "+",
-            Punct::Minus => "-",
-            Punct::Star => "*",
-            Punct::Slash => "/",
-            Punct::Percent => "%",
-            Punct::AndAnd => "&&",
-            Punct::OrOr => "||",
-            Punct::Bang => "!",
-            Punct::QuestionQuestion => "??",
-            Punct::And => "&",
-            Punct::Or => "|",
-            Punct::Caret => "^",
-            Punct::Tilde => "~",
-            Punct::Question => "?",
+            Punctuation::LBrace => "{",
+            Punctuation::RBrace => "}",
+            Punctuation::LParen => "(",
+            Punctuation::RParen => ")",
+            Punctuation::LBracket => "[",
+            Punctuation::RBracket => "]",
+            Punctuation::Comma => ",",
+            Punctuation::Semi => ";",
+            Punctuation::Colon => ":",
+            Punctuation::ColonColon => "::",
+            Punctuation::Dot => ".",
+            Punctuation::DotDot => "..",
+            Punctuation::At => "@",
+            Punctuation::Underscore => "_",
+            Punctuation::Eq => "=",
+            Punctuation::FatArrow => "=>",
+            Punctuation::EqEq => "==",
+            Punctuation::BangEq => "!=",
+            Punctuation::Lt => "<",
+            Punctuation::LtEq => "<=",
+            Punctuation::Gt => ">",
+            Punctuation::GtEq => ">=",
+            Punctuation::Plus => "+",
+            Punctuation::Minus => "-",
+            Punctuation::Star => "*",
+            Punctuation::Slash => "/",
+            Punctuation::Percent => "%",
+            Punctuation::AndAnd => "&&",
+            Punctuation::OrOr => "||",
+            Punctuation::Bang => "!",
+            Punctuation::QuestionQuestion => "??",
+            Punctuation::And => "&",
+            Punctuation::Or => "|",
+            Punctuation::Caret => "^",
+            Punctuation::Tilde => "~",
+            Punctuation::Question => "?",
         }
     }
 }
@@ -247,12 +247,13 @@ impl Punct {
 /// the kind column is a dense `u8` stream the parser walks in order — which is
 /// the whole reason the token buffer is columns rather than records.
 ///
-/// `Kw` and `Punct` survive as public enums, and [`TokKind::as_kw`] and
-/// [`TokKind::as_punct`] hand one back, so the formatter's tables and every
-/// diagnostic that spells a token are untouched.
+/// `Keyword` and `Punctuation` survive as public enums, and
+/// [`TokenKind::as_keyword`] and [`TokenKind::as_punctuation`] hand one back,
+/// so the formatter's tables and every diagnostic that spells a token are
+/// untouched.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum TokKind {
+pub enum TokenKind {
     Ident,
     Int,
     Float,
@@ -262,33 +263,33 @@ pub enum TokKind {
     TemplateSpan,
     TemplateTail,
     Eof,
-    // `Kw`, in its own order.
-    KwAs,
-    KwConst,
-    KwContext,
-    KwCtx,
-    KwDerive,
-    KwEffect,
-    KwElse,
-    KwEnum,
-    KwExport,
-    KwFalse,
-    KwFn,
-    KwFor,
-    KwFrom,
-    KwIf,
-    KwImpl,
-    KwImport,
-    KwLet,
-    KwMatch,
-    KwSelfValue,
-    KwSelfType,
-    KwStruct,
-    KwTest,
-    KwTrait,
-    KwTrue,
-    KwType,
-    // `Punct`, in its own order.
+    // `Keyword`, in its own order.
+    KeywordAs,
+    KeywordConst,
+    KeywordContext,
+    KeywordCtx,
+    KeywordDerive,
+    KeywordEffect,
+    KeywordElse,
+    KeywordEnum,
+    KeywordExport,
+    KeywordFalse,
+    KeywordFn,
+    KeywordFor,
+    KeywordFrom,
+    KeywordIf,
+    KeywordImpl,
+    KeywordImport,
+    KeywordLet,
+    KeywordMatch,
+    KeywordSelfValue,
+    KeywordSelfType,
+    KeywordStruct,
+    KeywordTest,
+    KeywordTrait,
+    KeywordTrue,
+    KeywordType,
+    // `Punctuation`, in its own order.
     LBrace,
     RBrace,
     LParen,
@@ -330,68 +331,68 @@ pub enum TokKind {
 /// The keyword and punctuator tables, written once and expanded in both
 /// directions.
 ///
-/// A token's kind has to become a `Kw` or a `Punct` again — the formatter's
-/// tables and every "expected `,`" message are written against those — so the
-/// mapping is needed forwards and backwards. Written as two hand-kept matches
-/// they could disagree, and a disagreement is a keyword that lexes as another
-/// keyword: not a compile error, not obviously a bug in a diff. One list
-/// generating both makes that unrepresentable, and the forward arm is
-/// exhaustive over the source enum, so a new keyword or punctuator is a build
-/// error here rather than a token nothing produces.
+/// A token's kind has to become a `Keyword` or a `Punctuation` again — the
+/// formatter's tables and every "expected `,`" message are written against
+/// those — so the mapping is needed forwards and backwards. Written as two
+/// hand-kept matches they could disagree, and a disagreement is a keyword that
+/// lexes as another keyword: not a compile error, not obviously a bug in a
+/// diff. One list generating both makes that unrepresentable, and the forward
+/// arm is exhaustive over the source enum, so a new keyword or punctuator is a
+/// build error here rather than a token nothing produces.
 macro_rules! kind_tables {
-    (kw: $($k:ident => $kt:ident),* $(,)?; punct: $($p:ident => $pt:ident),* $(,)?) => {
-        impl TokKind {
+    (keyword: $($k:ident => $kt:ident),* $(,)?; punctuation: $($p:ident => $pt:ident),* $(,)?) => {
+        impl TokenKind {
             /// The kind a keyword lexes to.
-            pub fn of_kw(k: Kw) -> TokKind {
-                match k { $(Kw::$k => TokKind::$kt),* }
+            pub fn of_keyword(k: Keyword) -> TokenKind {
+                match k { $(Keyword::$k => TokenKind::$kt),* }
             }
 
             /// The kind a punctuator lexes to.
-            pub fn of_punct(p: Punct) -> TokKind {
-                match p { $(Punct::$p => TokKind::$pt),* }
+            pub fn of_punctuation(p: Punctuation) -> TokenKind {
+                match p { $(Punctuation::$p => TokenKind::$pt),* }
             }
 
             /// The keyword this kind is, if it is one.
-            pub fn as_kw(self) -> Option<Kw> {
-                Some(match self { $(TokKind::$kt => Kw::$k,)* _ => return None })
+            pub fn as_keyword(self) -> Option<Keyword> {
+                Some(match self { $(TokenKind::$kt => Keyword::$k,)* _ => return None })
             }
 
             /// The punctuator this kind is, if it is one.
-            pub fn as_punct(self) -> Option<Punct> {
-                Some(match self { $(TokKind::$pt => Punct::$p,)* _ => return None })
+            pub fn as_punctuation(self) -> Option<Punctuation> {
+                Some(match self { $(TokenKind::$pt => Punctuation::$p,)* _ => return None })
             }
         }
     };
 }
 
 kind_tables! {
-    kw:
-        As => KwAs,
-        Const => KwConst,
-        Context => KwContext,
-        Ctx => KwCtx,
-        Derive => KwDerive,
-        Effect => KwEffect,
-        Else => KwElse,
-        Enum => KwEnum,
-        Export => KwExport,
-        False => KwFalse,
-        Fn => KwFn,
-        For => KwFor,
-        From => KwFrom,
-        If => KwIf,
-        Impl => KwImpl,
-        Import => KwImport,
-        Let => KwLet,
-        Match => KwMatch,
-        SelfValue => KwSelfValue,
-        SelfType => KwSelfType,
-        Struct => KwStruct,
-        Test => KwTest,
-        Trait => KwTrait,
-        True => KwTrue,
-        Type => KwType;
-    punct:
+    keyword:
+        As => KeywordAs,
+        Const => KeywordConst,
+        Context => KeywordContext,
+        Ctx => KeywordCtx,
+        Derive => KeywordDerive,
+        Effect => KeywordEffect,
+        Else => KeywordElse,
+        Enum => KeywordEnum,
+        Export => KeywordExport,
+        False => KeywordFalse,
+        Fn => KeywordFn,
+        For => KeywordFor,
+        From => KeywordFrom,
+        If => KeywordIf,
+        Impl => KeywordImpl,
+        Import => KeywordImport,
+        Let => KeywordLet,
+        Match => KeywordMatch,
+        SelfValue => KeywordSelfValue,
+        SelfType => KeywordSelfType,
+        Struct => KeywordStruct,
+        Test => KeywordTest,
+        Trait => KeywordTrait,
+        True => KeywordTrue,
+        Type => KeywordType;
+    punctuation:
         LBrace => LBrace,
         RBrace => RBrace,
         LParen => LParen,
@@ -434,20 +435,20 @@ kind_tables! {
 ///
 /// This is a *view* on [`Tokens`], not what the buffer holds: a token is
 /// stored as a byte in the kind column, a span in the location column and at
-/// most one index in the payload column, and [`Tokens::tok`] puts one of these
-/// back together on demand. Every reader of it is cold — a diagnostic that
-/// spells the token it found, the formatter's shape check, the lexer's own
+/// most one index in the payload column, and [`Tokens::token`] puts one of
+/// these back together on demand. Every reader of it is cold — a diagnostic
+/// that spells the token it found, the formatter's shape check, the lexer's own
 /// tests — and the parser, which is not, reads the kind column directly.
 #[derive(Clone, PartialEq, Debug)]
-pub enum Tok<'a> {
+pub enum Token<'a> {
     /// Borrowed from the source rather than copied out of it. An identifier is
     /// about a third of the tokens in a file and its text is exactly the
     /// bytes under the token's span, so a `String` here was one allocation per
     /// identifier — the largest single line of the front end's allocation
     /// budget — buying nothing the source did not already hold.
     Ident(&'a str),
-    Kw(Kw),
-    Punct(Punct),
+    Keyword(Keyword),
+    Punctuation(Punctuation),
     /// The value only. What was *written* — `0xFF` rather than `255` — is the
     /// source under the token's span, which every reader of a token already
     /// has; carrying a second copy of it cost a `String` per literal, and made
@@ -465,7 +466,7 @@ pub enum Tok<'a> {
     Eof,
 }
 
-impl Tok<'_> {
+impl Token<'_> {
     /// How this token reads in a message, given the source under its span.
     ///
     /// `raw` is a parameter rather than something the token carries because a
@@ -475,16 +476,16 @@ impl Tok<'_> {
     /// is named by its kind, and ignores it.
     pub fn describe(&self, raw: &str) -> String {
         match self {
-            Tok::Ident(s) => format!("`{s}`"),
-            Tok::Kw(k) => format!("`{}`", k.text()),
-            Tok::Punct(p) => format!("`{}`", p.text()),
-            Tok::Int(_) | Tok::Float(_) => format!("`{raw}`"),
-            Tok::Str(_) => "a string literal".to_string(),
-            Tok::Char(_) => "a character literal".to_string(),
-            Tok::TemplateHead(_) | Tok::TemplateSpan(_) | Tok::TemplateTail(_) => {
+            Token::Ident(s) => format!("`{s}`"),
+            Token::Keyword(k) => format!("`{}`", k.text()),
+            Token::Punctuation(p) => format!("`{}`", p.text()),
+            Token::Int(_) | Token::Float(_) => format!("`{raw}`"),
+            Token::Str(_) => "a string literal".to_string(),
+            Token::Char(_) => "a character literal".to_string(),
+            Token::TemplateHead(_) | Token::TemplateSpan(_) | Token::TemplateTail(_) => {
                 "an interpolated string".to_string()
             }
-            Tok::Eof => "end of file".to_string(),
+            Token::Eof => "end of file".to_string(),
         }
     }
 }
@@ -565,7 +566,7 @@ pub struct Trivia {
 pub struct Tokens<'a> {
     src: &'a str,
     file: FileId,
-    kinds: Vec<TokKind>,
+    kinds: Vec<TokenKind>,
     locs: Vec<Loc>,
     /// Decoded by kind: an index into `ints`, `floats` or `strs`, the scalar
     /// value of a character literal, and unread for every other kind.
@@ -579,18 +580,18 @@ pub struct Tokens<'a> {
 }
 
 /// What one token costs in the three columns.
-const BYTES_PER_TOKEN: usize = std::mem::size_of::<TokKind>()
+const BYTES_PER_TOKEN: usize = std::mem::size_of::<TokenKind>()
     .saturating_add(std::mem::size_of::<Loc>())
     .saturating_add(std::mem::size_of::<u32>());
 
-const _: () = assert!(std::mem::size_of::<TokKind>() == 1);
+const _: () = assert!(std::mem::size_of::<TokenKind>() == 1);
 const _: () = assert!(std::mem::size_of::<Loc>() == 8);
 const _: () = assert!(BYTES_PER_TOKEN == 13);
-/// `Tok` is a view built on demand and never stored, so its width is a
+/// `Token` is a view built on demand and never stored, so its width is a
 /// register-allocation question rather than a memory one. It is pinned anyway,
 /// because a variant that grew past this would mean somebody had put owned
 /// data on a token again.
-const _: () = assert!(std::mem::size_of::<Tok<'_>>() == 32);
+const _: () = assert!(std::mem::size_of::<Token<'_>>() == 32);
 
 impl<'a> Tokens<'a> {
     fn new(src: &'a str, file: FileId) -> Tokens<'a> {
@@ -611,7 +612,7 @@ impl<'a> Tokens<'a> {
     }
 
     #[inline]
-    fn push(&mut self, kind: TokKind, pay: u32, loc: Loc) {
+    fn push(&mut self, kind: TokenKind, pay: u32, loc: Loc) {
         self.kinds.push(kind);
         self.locs.push(loc);
         self.pays.push(pay);
@@ -631,8 +632,8 @@ impl<'a> Tokens<'a> {
     /// what lets the parser peek unconditionally; `lex` finishes by pushing an
     /// `Eof` on every path, so in a correct front end the fallback is
     /// unreachable and this is the one place that has to know it.
-    pub fn kind(&self, i: usize) -> TokKind {
-        self.kinds.get(i).copied().unwrap_or(TokKind::Eof)
+    pub fn kind(&self, i: usize) -> TokenKind {
+        self.kinds.get(i).copied().unwrap_or(TokenKind::Eof)
     }
 
     pub fn loc(&self, i: usize) -> Loc {
@@ -683,34 +684,34 @@ impl<'a> Tokens<'a> {
         char::from_u32(self.pays.get(i).copied().unwrap_or(0)).unwrap_or('\0')
     }
 
-    /// The token at `i`, decoded. See [`Tok`].
-    pub fn tok(&self, i: usize) -> Tok<'a> {
+    /// The token at `i`, decoded. See [`Token`].
+    pub fn token(&self, i: usize) -> Token<'a> {
         match self.kind(i) {
-            TokKind::Ident => Tok::Ident(self.text(i)),
-            TokKind::Int => Tok::Int(self.int(i)),
-            TokKind::Float => Tok::Float(self.float(i)),
-            TokKind::Str => Tok::Str(self.str_at(i).to_string()),
-            TokKind::Char => Tok::Char(self.ch(i)),
-            TokKind::TemplateHead => Tok::TemplateHead(self.str_at(i).to_string()),
-            TokKind::TemplateSpan => Tok::TemplateSpan(self.str_at(i).to_string()),
-            TokKind::TemplateTail => Tok::TemplateTail(self.str_at(i).to_string()),
-            TokKind::Eof => Tok::Eof,
-            k => match (k.as_kw(), k.as_punct()) {
-                (Some(kw), _) => Tok::Kw(kw),
-                (_, Some(p)) => Tok::Punct(p),
-                _ => Tok::Eof,
+            TokenKind::Ident => Token::Ident(self.text(i)),
+            TokenKind::Int => Token::Int(self.int(i)),
+            TokenKind::Float => Token::Float(self.float(i)),
+            TokenKind::Str => Token::Str(self.str_at(i).to_string()),
+            TokenKind::Char => Token::Char(self.ch(i)),
+            TokenKind::TemplateHead => Token::TemplateHead(self.str_at(i).to_string()),
+            TokenKind::TemplateSpan => Token::TemplateSpan(self.str_at(i).to_string()),
+            TokenKind::TemplateTail => Token::TemplateTail(self.str_at(i).to_string()),
+            TokenKind::Eof => Token::Eof,
+            k => match (k.as_keyword(), k.as_punctuation()) {
+                (Some(keyword), _) => Token::Keyword(keyword),
+                (_, Some(p)) => Token::Punctuation(p),
+                _ => Token::Eof,
             },
         }
     }
 
     /// Every token, decoded, in source order.
-    pub fn toks(&self) -> impl Iterator<Item = Tok<'a>> + '_ {
-        (0..self.len()).map(|i| self.tok(i))
+    pub fn tokens(&self) -> impl Iterator<Item = Token<'a>> + '_ {
+        (0..self.len()).map(|i| self.token(i))
     }
 
-    /// How a message names the token at `i` — see [`Tok::describe`].
+    /// How a message names the token at `i` — see [`Token::describe`].
     pub fn describe(&self, i: usize) -> String {
-        self.tok(i).describe(self.text(i))
+        self.token(i).describe(self.text(i))
     }
 }
 
@@ -855,7 +856,7 @@ impl<'a> Lexer<'a> {
     /// [`Lexer::has_trivia`] and outlined, because a body large enough to be
     /// worth a call is a body the ten call sites pay a call for.
     #[inline]
-    fn push(&mut self, kind: TokKind, pay: u32, start: usize) {
+    fn push(&mut self, kind: TokenKind, pay: u32, start: usize) {
         if self.has_trivia {
             self.attach_trivia();
         }
@@ -901,16 +902,16 @@ impl<'a> Lexer<'a> {
     fn push_int(&mut self, v: u128, start: usize) {
         let at = self.tokens.ints.len() as u32;
         self.tokens.ints.push(v);
-        self.push(TokKind::Int, at, start);
+        self.push(TokenKind::Int, at, start);
     }
 
     fn push_float(&mut self, v: f64, start: usize) {
         let at = self.tokens.floats.len() as u32;
         self.tokens.floats.push(v);
-        self.push(TokKind::Float, at, start);
+        self.push(TokenKind::Float, at, start);
     }
 
-    fn push_text(&mut self, kind: TokKind, body: String, start: usize) {
+    fn push_text(&mut self, kind: TokenKind, body: String, start: usize) {
         let at = self.tokens.strs.len() as u32;
         self.tokens.strs.push(body);
         self.push(kind, at, start);
@@ -921,7 +922,7 @@ impl<'a> Lexer<'a> {
             self.skip_trivia();
             if self.pos >= self.src.len() {
                 let start = self.pos;
-                self.push(TokKind::Eof, 0, start);
+                self.push(TokenKind::Eof, 0, start);
                 return;
             }
             let start = self.pos;
@@ -931,7 +932,7 @@ impl<'a> Lexer<'a> {
                 b'"' => self.string_or_template(start),
                 b'\'' => self.char_literal(start),
                 c if is_ident_start(c) => self.ident(start),
-                _ => self.punct(start),
+                _ => self.punctuation(start),
             }
         }
     }
@@ -1052,11 +1053,11 @@ impl<'a> Lexer<'a> {
         }
         let s = self.slice(start, self.pos);
         if s == "_" {
-            self.push(TokKind::Underscore, 0, start);
+            self.push(TokenKind::Underscore, 0, start);
             return;
         }
-        match Kw::from_str(s) {
-            Some(Word::Kw(kw)) => self.push(TokKind::of_kw(kw), 0, start),
+        match Keyword::from_str(s) {
+            Some(Word::Keyword(keyword)) => self.push(TokenKind::of_keyword(keyword), 0, start),
             Some(Word::Reserved) => {
                 let span = self.span(start);
                 self.err(
@@ -1070,9 +1071,9 @@ impl<'a> Lexer<'a> {
                             .into(),
                     );
                 }
-                self.push(TokKind::Ident, 0, start);
+                self.push(TokenKind::Ident, 0, start);
             }
-            None => self.push(TokKind::Ident, 0, start),
+            None => self.push(TokenKind::Ident, 0, start),
         }
     }
 
@@ -1315,10 +1316,10 @@ impl<'a> Lexer<'a> {
         self.pos = self.pos.saturating_add(1); // the opening quote
         let (body, hole) = self.scan_str_body();
         if hole {
-            self.push_text(TokKind::TemplateHead, body, start);
+            self.push_text(TokenKind::TemplateHead, body, start);
             self.modes.push(LexMode::Interpolation);
         } else {
-            self.push_text(TokKind::Str, body, start);
+            self.push_text(TokenKind::Str, body, start);
         }
     }
 
@@ -1326,9 +1327,9 @@ impl<'a> Lexer<'a> {
     fn resume_template(&mut self, start: usize) {
         let (body, hole) = self.scan_str_body();
         if hole {
-            self.push_text(TokKind::TemplateSpan, body, start);
+            self.push_text(TokenKind::TemplateSpan, body, start);
         } else {
-            self.push_text(TokKind::TemplateTail, body, start);
+            self.push_text(TokenKind::TemplateTail, body, start);
             debug_assert_eq!(self.modes.last(), Some(&LexMode::Interpolation));
             self.modes.pop();
         }
@@ -1343,7 +1344,7 @@ impl<'a> Lexer<'a> {
         } else if self.pos >= self.src.len() || self.peek() == b'\n' {
             let span = self.span(start);
             self.err(span, "unterminated character literal", "close it with `\'`");
-            self.push(TokKind::Char, 0, start);
+            self.push(TokenKind::Char, 0, start);
             return;
         } else {
             self.next_char()
@@ -1363,18 +1364,18 @@ impl<'a> Lexer<'a> {
         if self.peek() == b'\'' {
             self.pos = self.pos.saturating_add(1);
         }
-        self.push(TokKind::Char, c as u32, start);
+        self.push(TokenKind::Char, c as u32, start);
     }
 
     /// A two-character token, the first character of which `bump` has already
     /// taken: this consumes the second.
-    fn second(&mut self, p: Punct) -> Punct {
+    fn second(&mut self, p: Punctuation) -> Punctuation {
         self.pos = self.pos.saturating_add(1);
         p
     }
 
-    fn punct(&mut self, start: usize) {
-        use Punct::*;
+    fn punctuation(&mut self, start: usize) {
+        use Punctuation::*;
         let c = self.bump();
         let two = self.peek();
         let p = match (c, two) {
@@ -1457,7 +1458,7 @@ impl<'a> Lexer<'a> {
                 return;
             }
         };
-        self.push(TokKind::of_punct(p), 0, start);
+        self.push(TokenKind::of_punctuation(p), 0, start);
     }
 }
 
@@ -1482,20 +1483,20 @@ fn is_ident_continue(c: u8) -> bool {
 }
 
 #[cfg(test)]
-mod kw_tests {
-    use super::Kw;
+mod keyword_tests {
+    use super::Keyword;
 
     /// `ALL` must list every variant. `text` matches exhaustively, so the
     /// compiler catches a missing variant there; this catches a variant that
     /// exists but was left out of `ALL`.
     #[test]
     fn all_lists_every_keyword() {
-        let mut texts: Vec<&str> = Kw::ALL.iter().map(|k| k.text()).collect();
+        let mut texts: Vec<&str> = Keyword::ALL.iter().map(|k| k.text()).collect();
         texts.sort();
         texts.dedup();
-        assert_eq!(texts.len(), Kw::ALL.len(), "`ALL` repeats a keyword");
+        assert_eq!(texts.len(), Keyword::ALL.len(), "`ALL` repeats a keyword");
         // `self` and `Self` differ only in case, so the count is the guard.
-        assert_eq!(Kw::ALL.len(), 25, "a keyword was added without updating `ALL`");
+        assert_eq!(Keyword::ALL.len(), 25, "a keyword was added without updating `ALL`");
     }
 }
 
@@ -1503,7 +1504,7 @@ mod kw_tests {
 mod tests {
     use super::*;
 
-    /// `punct` reported the byte it had bumped past, and every character
+    /// `punctuation` reported the byte it had bumped past, and every character
     /// outside ASCII is more than one byte — so a stray `×`, an emoji, or a
     /// non-breaking space out of a word processor panicked the lexer on a
     /// `String` index that was not a character boundary. The message names the
@@ -1534,13 +1535,13 @@ mod tests {
         let text = "×÷≠🙂\u{a0}\u{200f}—“”";
         let l = lex(text, FileId(0));
         assert_eq!(l.errors.len(), text.chars().count(), "one per character");
-        assert_eq!(l.tokens.toks().last(), Some(Tok::Eof));
+        assert_eq!(l.tokens.tokens().last(), Some(Token::Eof));
     }
 
-    fn toks(src: &str) -> Vec<Tok<'_>> {
+    fn tokens(src: &str) -> Vec<Token<'_>> {
         let l = lex(src, FileId(0));
         assert!(l.errors.is_empty(), "unexpected errors: {:?}", l.errors);
-        l.tokens.toks().collect()
+        l.tokens.tokens().collect()
     }
 
     #[test]
@@ -1548,40 +1549,41 @@ mod tests {
         // `pair.0` must not lex as IDENT FLOAT — this is why a float literal
         // has to begin with a digit (SPEC 12.14).
         assert_eq!(
-            toks("pair.0"),
+            tokens("pair.0"),
             vec![
-                Tok::Ident("pair"),
-                Tok::Punct(Punct::Dot),
-                Tok::Int(0),
-                Tok::Eof
+                Token::Ident("pair"),
+                Token::Punctuation(Punctuation::Dot),
+                Token::Int(0),
+                Token::Eof
             ]
         );
     }
 
     #[test]
     fn nested_generics_close_with_two_gt() {
-        let t = toks("Foo<Bar<Int>>");
-        assert_eq!(t[t.len() - 3..t.len() - 1], [Tok::Punct(Punct::Gt), Tok::Punct(Punct::Gt)]);
+        let t = tokens("Foo<Bar<Int>>");
+        let shifted = [Token::Punctuation(Punctuation::Gt), Token::Punctuation(Punctuation::Gt)];
+        assert_eq!(t[t.len() - 3..t.len() - 1], shifted);
     }
 
     #[test]
     fn the_known_wart_still_lexes_as_documented() {
         // `Foo<Bar<Int>>= x` lexes `>` `>=`. Documented in grammar.ebnf.
-        let t = toks("Foo<Bar<Int>>= x");
-        assert!(t.contains(&Tok::Punct(Punct::GtEq)));
+        let t = tokens("Foo<Bar<Int>>= x");
+        assert!(t.contains(&Token::Punctuation(Punctuation::GtEq)));
     }
 
     #[test]
     fn block_comments_nest() {
-        assert_eq!(toks("/* a /* b */ c */ x"), vec![Tok::Ident("x"), Tok::Eof]);
+        assert_eq!(tokens("/* a /* b */ c */ x"), vec![Token::Ident("x"), Token::Eof]);
     }
 
     #[test]
     fn template_holes_track_brace_depth() {
         // The `}` closing the block inside the hole must not end the template.
-        let t = toks(r#""a${ { let x = 1; x } }b""#);
-        assert_eq!(t[0], Tok::TemplateHead("a".into()));
-        assert_eq!(t[t.len() - 2], Tok::TemplateTail("b".into()));
+        let t = tokens(r#""a${ { let x = 1; x } }b""#);
+        assert_eq!(t[0], Token::TemplateHead("a".into()));
+        assert_eq!(t[t.len() - 2], Token::TemplateTail("b".into()));
     }
 
     /// A `}` that closes nothing used to clamp a counter with `saturating_sub`,
@@ -1591,43 +1593,43 @@ mod tests {
     /// template after it still lexes as a template.
     #[test]
     fn an_unbalanced_brace_does_not_derail_a_later_template() {
-        let t = toks(r#"} { let s = "a${x}b"; }"#);
+        let t = tokens(r#"} { let s = "a${x}b"; }"#);
         assert!(
-            t.contains(&Tok::TemplateHead("a".into())),
+            t.contains(&Token::TemplateHead("a".into())),
             "the template head was swallowed: {t:?}"
         );
         assert!(
-            t.contains(&Tok::TemplateTail("b".into())),
+            t.contains(&Token::TemplateTail("b".into())),
             "the template never ended: {t:?}"
         );
-        assert_eq!(t.last(), Some(&Tok::Eof));
+        assert_eq!(t.last(), Some(&Token::Eof));
     }
 
     #[test]
     fn multiple_holes() {
-        let t = toks(r#""${a}m${b}s""#);
-        assert_eq!(t[0], Tok::TemplateHead("".into()));
-        assert_eq!(t[2], Tok::TemplateSpan("m".into()));
-        assert_eq!(t[4], Tok::TemplateTail("s".into()));
+        let t = tokens(r#""${a}m${b}s""#);
+        assert_eq!(t[0], Token::TemplateHead("".into()));
+        assert_eq!(t[2], Token::TemplateSpan("m".into()));
+        assert_eq!(t[4], Token::TemplateTail("s".into()));
     }
 
     #[test]
     fn escaped_dollar_is_not_a_hole() {
-        assert_eq!(toks(r#""\$19.05""#), vec![Tok::Str("$19.05".into()), Tok::Eof]);
+        assert_eq!(tokens(r#""\$19.05""#), vec![Token::Str("$19.05".into()), Token::Eof]);
     }
 
     #[test]
     fn radix_and_separators() {
-        assert_eq!(toks("0xFF"), vec![Tok::Int(255), Tok::Eof]);
-        assert_eq!(toks("0o755"), vec![Tok::Int(0o755), Tok::Eof]);
-        assert_eq!(toks("0b1010_0110"), vec![Tok::Int(0b1010_0110), Tok::Eof]);
-        assert_eq!(toks("1_000_000"), vec![Tok::Int(1_000_000), Tok::Eof]);
+        assert_eq!(tokens("0xFF"), vec![Token::Int(255), Token::Eof]);
+        assert_eq!(tokens("0o755"), vec![Token::Int(0o755), Token::Eof]);
+        assert_eq!(tokens("0b1010_0110"), vec![Token::Int(0b1010_0110), Token::Eof]);
+        assert_eq!(tokens("1_000_000"), vec![Token::Int(1_000_000), Token::Eof]);
     }
 
     #[test]
     fn floats_need_a_leading_digit() {
-        assert_eq!(toks("1.0e-9"), vec![Tok::Float(1.0e-9), Tok::Eof]);
-        assert_eq!(toks("6.02e23"), vec![Tok::Float(6.02e23), Tok::Eof]);
+        assert_eq!(tokens("1.0e-9"), vec![Token::Float(1.0e-9), Token::Eof]);
+        assert_eq!(tokens("6.02e23"), vec![Token::Float(6.02e23), Token::Eof]);
     }
 
     #[test]
@@ -1638,20 +1640,20 @@ mod tests {
 
     #[test]
     fn underscore_is_its_own_token() {
-        assert_eq!(toks("_"), vec![Tok::Punct(Punct::Underscore), Tok::Eof]);
-        assert_eq!(toks("_x"), vec![Tok::Ident("_x"), Tok::Eof]);
+        assert_eq!(tokens("_"), vec![Token::Punctuation(Punctuation::Underscore), Token::Eof]);
+        assert_eq!(tokens("_x"), vec![Token::Ident("_x"), Token::Eof]);
     }
 
     #[test]
     fn no_question_dot_token() {
         assert_eq!(
-            toks("x?.f"),
+            tokens("x?.f"),
             vec![
-                Tok::Ident("x"),
-                Tok::Punct(Punct::Question),
-                Tok::Punct(Punct::Dot),
-                Tok::Ident("f"),
-                Tok::Eof
+                Token::Ident("x"),
+                Token::Punctuation(Punctuation::Question),
+                Token::Punctuation(Punctuation::Dot),
+                Token::Ident("f"),
+                Token::Eof
             ]
         );
     }

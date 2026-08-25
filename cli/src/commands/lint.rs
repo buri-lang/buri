@@ -699,7 +699,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
     let lexed = crate::parsing::lexer::lex(text, m.file);
     let mut used: BTreeSet<&str> = BTreeSet::new();
     for i in 0..lexed.tokens.len() {
-        if lexed.tokens.kind(i) != crate::parsing::lexer::TokKind::Ident {
+        if lexed.tokens.kind(i) != crate::parsing::lexer::TokenKind::Ident {
             continue;
         }
         let span = lexed.tokens.span(i);

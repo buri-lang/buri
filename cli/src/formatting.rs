@@ -64,7 +64,7 @@ use crate::parsing::flat::{
     ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, PartView, PatId,
     PatView, StmtKind, Tree, TypeId, TypeView,
 };
-use crate::parsing::lexer::{lex, Comment, TokKind};
+use crate::parsing::lexer::{lex, Comment, TokenKind};
 use crate::parsing::tree::*;
 use std::fmt::Write as _;
 
@@ -1370,10 +1370,10 @@ impl<'t> Build<'t> {
             }
             Item::Trait(d) => {
                 let ex = if d.exported { "export " } else { "" };
-                let kw = if d.is_effect { "effect" } else { "trait" };
+                let keyword = if d.is_effect { "effect" } else { "trait" };
                 let t = self.tree();
                 let g = generics(t, &d.generics);
-                let head = format!("{ex}{kw} {}{g}", t.name(d.name));
+                let head = format!("{ex}{keyword} {}{g}", t.name(d.name));
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
                     return text(format!("{head} {{}}"));
                 }
@@ -2658,7 +2658,7 @@ fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
                 out.push(Shape::Doc(d.trim().to_string()));
             }
         }
-        if tokens && lexed.tokens.kind(i) != TokKind::Eof {
+        if tokens && lexed.tokens.kind(i) != TokenKind::Eof {
             out.push(Shape::Token(lexed.tokens.describe(i)));
         }
     }

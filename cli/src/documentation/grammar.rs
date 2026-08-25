@@ -246,7 +246,7 @@ impl Ebnf {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq)]
-enum Tok {
+enum Token {
     Ident(String),
     Str(String),
     /// `::=`
@@ -266,7 +266,7 @@ enum Tok {
 }
 
 struct Lexed {
-    toks: Vec<Tok>,
+    tokens: Vec<Token>,
     lines: Vec<usize>,
 }
 
@@ -274,7 +274,7 @@ fn lex(src: &str) -> Result<Lexed, String> {
     let b: Vec<char> = src.chars().collect();
     let mut i = 0;
     let mut line = 1;
-    let mut toks = Vec::new();
+    let mut tokens = Vec::new();
     let mut lines = Vec::new();
     while let Some(&c) = b.get(i) {
         if c == '\n' {
@@ -316,16 +316,16 @@ fn lex(src: &str) -> Result<Lexed, String> {
             // there are at least four characters between `start` and `i`.
             let text: String =
                 b.get(start + 2..i.saturating_sub(2)).unwrap_or_default().iter().collect();
-            toks.push(Tok::Comment(text));
+            tokens.push(Token::Comment(text));
             lines.push(at);
             continue;
         }
-        let tok = if c == ':' && b.get(i + 1) == Some(&':') && b.get(i + 2) == Some(&'=') {
+        let token = if c == ':' && b.get(i + 1) == Some(&':') && b.get(i + 2) == Some(&'=') {
             i += 3;
-            Tok::Define
+            Token::Define
         } else if c == '.' && b.get(i + 1) == Some(&'.') {
             i += 2;
-            Tok::DotDot
+            Token::DotDot
         } else if c == '"' || c == '\'' {
             let quote = c;
             i += 1;
@@ -355,30 +355,30 @@ fn lex(src: &str) -> Result<Lexed, String> {
                 s.push(ch);
                 i += 1;
             }
-            Tok::Str(s)
+            Token::Str(s)
         } else if c.is_alphanumeric() || c == '_' {
             let start = i;
             while b.get(i).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
                 i += 1;
             }
-            Tok::Ident(b.get(start..i).unwrap_or_default().iter().collect())
+            Token::Ident(b.get(start..i).unwrap_or_default().iter().collect())
         } else {
             i += 1;
             match c {
-                '|' => Tok::Bar,
-                '(' => Tok::LParen,
-                ')' => Tok::RParen,
-                '?' => Tok::Question,
-                '*' => Tok::Star,
-                '+' => Tok::Plus,
-                '=' => Tok::Eq,
-                other => Tok::Other(other),
+                '|' => Token::Bar,
+                '(' => Token::LParen,
+                ')' => Token::RParen,
+                '?' => Token::Question,
+                '*' => Token::Star,
+                '+' => Token::Plus,
+                '=' => Token::Eq,
+                other => Token::Other(other),
             }
         };
-        toks.push(tok);
+        tokens.push(token);
         lines.push(at);
     }
-    Ok(Lexed { toks, lines })
+    Ok(Lexed { tokens, lines })
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +462,7 @@ fn directives(comment: &str) -> Vec<(String, String)> {
 // ---------------------------------------------------------------------------
 
 pub fn parse(src: &str) -> Result<Ebnf, String> {
-    let Lexed { toks, lines } = lex(src)?;
+    let Lexed { tokens, lines } = lex(src)?;
     // `lex` pushes a line number with every token it pushes, so the two vectors
     // are the same length and this is a lookup, not a question.
     let line_of = |k: usize| {
@@ -471,20 +471,20 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
     let mut out = Ebnf { grammar_name: String::new(), ..Default::default() };
     let mut pending = Annotations::default();
     let mut i = 0;
-    while let Some(tok) = toks.get(i) {
-        match tok {
-            Tok::Comment(text) => {
+    while let Some(token) = tokens.get(i) {
+        match token {
+            Token::Comment(text) => {
                 take_directives(text, &mut out, &mut pending, line_of(i))?;
                 i += 1;
             }
-            Tok::Ident(name) if toks.get(i + 1) == Some(&Tok::Define) => {
+            Token::Ident(name) if tokens.get(i + 1) == Some(&Token::Define) => {
                 let line = line_of(i);
                 let name = name.clone();
                 let start = i + 2;
                 let mut end = start;
-                while end < toks.len() {
-                    if matches!(toks.get(end), Some(Tok::Ident(_)))
-                        && toks.get(end + 1) == Some(&Tok::Define)
+                while end < tokens.len() {
+                    if matches!(tokens.get(end), Some(Token::Ident(_)))
+                        && tokens.get(end + 1) == Some(&Token::Define)
                     {
                         break;
                     }
@@ -492,12 +492,12 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                 }
                 let ann = std::mem::take(&mut pending);
                 // A comment inside the body belongs to whatever comes next.
-                let mut body_toks = Vec::new();
+                let mut body_tokens = Vec::new();
                 let mut trailing = Vec::new();
-                for (k, t) in toks.iter().enumerate().take(end).skip(start) {
+                for (k, t) in tokens.iter().enumerate().take(end).skip(start) {
                     match t {
-                        Tok::Comment(text) => trailing.push((text.clone(), line_of(k))),
-                        t => body_toks.push(t.clone()),
+                        Token::Comment(text) => trailing.push((text.clone(), line_of(k))),
+                        t => body_tokens.push(t.clone()),
                     }
                 }
                 let body = if ann.body_is_prose() {
@@ -506,9 +506,9 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                     // non-terminals that do not exist.
                     Node::Seq(Vec::new())
                 } else {
-                    let mut p = Body { toks: &body_toks, i: 0, line };
+                    let mut p = Body { tokens: &body_tokens, i: 0, line };
                     let node = p.alternation()?;
-                    if p.i != body_toks.len() {
+                    if p.i != body_tokens.len() {
                         return Err(format!("line {line}: `{name}` has trailing input"));
                     }
                     node
@@ -668,25 +668,25 @@ fn parse_cascade(value: &str, line: usize) -> Result<Cascade, String> {
 }
 
 struct Body<'a> {
-    toks: &'a [Tok],
+    tokens: &'a [Token],
     i: usize,
     line: usize,
 }
 
 impl Body<'_> {
-    fn peek(&self) -> Option<&Tok> {
-        self.toks.get(self.i)
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.i)
     }
 
     fn alternation(&mut self) -> Result<Node, String> {
         let first = self.sequence()?;
         // One alternative is not a choice, so it does not become a `Choice`
         // node that every consumer would then have to see through.
-        if self.peek() != Some(&Tok::Bar) {
+        if self.peek() != Some(&Token::Bar) {
             return Ok(first);
         }
         let mut alts = vec![first];
-        while self.peek() == Some(&Tok::Bar) {
+        while self.peek() == Some(&Token::Bar) {
             self.i += 1;
             alts.push(self.sequence()?);
         }
@@ -695,7 +695,7 @@ impl Body<'_> {
 
     fn sequence(&mut self) -> Result<Node, String> {
         let mut items = Vec::new();
-        while matches!(self.peek(), Some(Tok::Ident(_) | Tok::Str(_) | Tok::LParen)) {
+        while matches!(self.peek(), Some(Token::Ident(_) | Token::Str(_) | Token::LParen)) {
             items.push(self.labelled()?);
         }
         if items.len() > 1 {
@@ -705,7 +705,8 @@ impl Body<'_> {
     }
 
     fn labelled(&mut self) -> Result<Node, String> {
-        if let (Some(Tok::Ident(label)), Some(Tok::Eq)) = (self.peek(), self.toks.get(self.i + 1)) {
+        let next = self.tokens.get(self.i + 1);
+        if let (Some(Token::Ident(label)), Some(Token::Eq)) = (self.peek(), next) {
             let label = label.clone();
             self.i += 2;
             let inner = self.postfix()?;
@@ -718,9 +719,9 @@ impl Body<'_> {
         let mut node = self.atom()?;
         loop {
             node = match self.peek() {
-                Some(Tok::Question) => Node::Opt(Box::new(node)),
-                Some(Tok::Star) => Node::Star(Box::new(node)),
-                Some(Tok::Plus) => Node::Plus(Box::new(node)),
+                Some(Token::Question) => Node::Opt(Box::new(node)),
+                Some(Token::Star) => Node::Star(Box::new(node)),
+                Some(Token::Plus) => Node::Plus(Box::new(node)),
                 _ => break,
             };
             self.i += 1;
@@ -730,11 +731,11 @@ impl Body<'_> {
 
     fn atom(&mut self) -> Result<Node, String> {
         match self.peek().cloned() {
-            Some(Tok::Str(s)) => {
+            Some(Token::Str(s)) => {
                 self.i += 1;
-                if self.peek() == Some(&Tok::DotDot) {
+                if self.peek() == Some(&Token::DotDot) {
                     self.i += 1;
-                    let Some(Tok::Str(hi)) = self.peek().cloned() else {
+                    let Some(Token::Str(hi)) = self.peek().cloned() else {
                         return Err(format!("line {}: a range needs a second terminal", self.line));
                     };
                     self.i += 1;
@@ -745,14 +746,14 @@ impl Body<'_> {
                 }
                 Ok(Node::Lit(s))
             }
-            Some(Tok::Ident(name)) => {
+            Some(Token::Ident(name)) => {
                 self.i += 1;
                 Ok(Node::Ref(name))
             }
-            Some(Tok::LParen) => {
+            Some(Token::LParen) => {
                 self.i += 1;
                 let inner = self.alternation()?;
-                if self.peek() != Some(&Tok::RParen) {
+                if self.peek() != Some(&Token::RParen) {
                     return Err(format!("line {}: a group is never closed", self.line));
                 }
                 self.i += 1;
