@@ -188,9 +188,9 @@ pub fn command_test(args: &arguments::Args) -> i32 {
     // shape, against the outputs a target declares; here the set is closed, so
     // the fix can name all of it.
     if args.flags.output.is_some() && selected_platform(&args.flags).is_none() {
-        let sel = args.flags.output.as_deref().unwrap_or_default();
+        let selector = args.flags.output.as_deref().unwrap_or_default();
         let names: Vec<&str> = Platform::ALL.iter().map(|p| p.slug()).collect();
-        eprintln!("error: no platform matches `--output={sel}`");
+        eprintln!("error: no platform matches `--output={selector}`");
         eprintln!("  = a suite runs on one of: {}", names.join(", "));
         eprintln!("  = fix: name one of them, as in `--output=js`");
         return 2;
@@ -741,10 +741,13 @@ fn linker_name() -> String {
 /// naming nothing is not an error at this seam: `command_test` refuses it once,
 /// for the invocation, rather than once per suite.
 fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
-    let sel = flags.output.as_ref()?;
+    let selector = flags.output.as_ref()?;
     Platform::ALL
         .into_iter()
-        .find(|p| crate::build::buildfile::Output::for_platform(*p, Span::NONE).matches_selector(sel))
+        .find(|p| {
+            crate::build::buildfile::Output::for_platform(*p, Span::NONE)
+                .matches_selector(selector)
+        })
 }
 
 /// Where a suite that names no platform runs.

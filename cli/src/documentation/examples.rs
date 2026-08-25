@@ -609,13 +609,13 @@ impl Default for Registry {
 /// all.
 pub fn assemble(
     block: &Block,
-    reg: &Registry,
+    registry: &Registry,
     only_error: Option<usize>,
 ) -> Result<Compiland, Failure> {
     let mut prefix = String::new();
 
     for name in &block.uses {
-        let Some(text) = reg.get(name) else {
+        let Some(text) = registry.get(name) else {
             return Err(Failure {
                 origin: block.origin.clone(),
                 what: format!("there is no preamble named `{name}`"),
@@ -711,7 +711,7 @@ fn declares_main(source: &str) -> bool {
 fn run_block_in(
     workspace: Option<&crate::build::workspace::Workspace>,
     block: &Block,
-    reg: &Registry,
+    registry: &Registry,
     map: &mut SourceMap,
     cache: &mut crate::parsing::parser::Cache,
 ) -> Vec<Failure> {
@@ -747,7 +747,7 @@ fn run_block_in(
     // The block with every annotated line blanked must be clean, whatever the
     // annotations say — otherwise a `// ERROR:` would be hiding a second,
     // unrelated mistake.
-    let base = match assemble(block, reg, None) {
+    let base = match assemble(block, registry, None) {
         Ok(c) => c,
         Err(f) => return vec![f],
     };
@@ -839,7 +839,7 @@ fn run_block_in(
 
     // Each annotated line, compiled on its own.
     for (index, want) in block.claim.errors() {
-        let variant = match assemble(block, reg, Some(*index)) {
+        let variant = match assemble(block, registry, Some(*index)) {
             Ok(c) => c,
             Err(f) => {
                 failures.push(f);
@@ -958,7 +958,7 @@ fn run_file_with(
 ) -> Vec<Failure> {
     let extracted = extract(file, text);
     let mut failures = extracted.failures;
-    let mut reg = Registry::new();
+    let mut registry = Registry::new();
     let mut map = SourceMap::new();
     let mut cache = crate::parsing::parser::Cache::new();
     // One `Workspace` per repository named in this document, not per block:
@@ -999,8 +999,8 @@ fn run_file_with(
                 }
             }
         };
-        failures.extend(run_block_in(workspace, block, &reg, &mut map, &mut cache));
-        reg.record(block);
+        failures.extend(run_block_in(workspace, block, &registry, &mut map, &mut cache));
+        registry.record(block);
     }
     for proto in &extracted.protos {
         failures.extend(run_proto(proto));

@@ -35,7 +35,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     // matches none of them is the thing you asked *with* being wrong, and has
     // to say so: the build would otherwise report success having produced
     // nothing, which is the one answer a build system must never give.
-    if let Some(sel) = &args.flags.output {
+    if let Some(selector) = &args.flags.output {
         let mut declared: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let mut matched = false;
         for t in &targets {
@@ -44,7 +44,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
             }
             for o in actions::selected_outputs(&session, *t, &arguments::Flags::default()) {
                 declared.insert(o.dir());
-                matched |= o.matches_selector(sel);
+                matched |= o.matches_selector(selector);
             }
         }
         // A target that declares no outputs at all has nothing for the fix to
@@ -53,7 +53,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         let example = if matched { None } else { declared.first() };
         if let Some(example) = example {
             let names: Vec<&str> = declared.iter().map(String::as_str).collect();
-            eprintln!("error: no declared output matches `--output={sel}`");
+            eprintln!("error: no declared output matches `--output={selector}`");
             eprintln!("  = declared: {}", names.join(", "));
             eprintln!(
                 "  = fix: name one of them, as in `--output={example}`, or add the output to \

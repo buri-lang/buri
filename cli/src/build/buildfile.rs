@@ -272,11 +272,11 @@ impl Output {
         }
     }
 
-    /// Whether `--output=<sel>` selects this entry. Accepts `js`,
+    /// Whether `--output=<selector>` selects this entry. Accepts `js`,
     /// `linux/x86_64`, and `linux-x86_64`.
-    pub fn matches_selector(&self, sel: &str) -> bool {
-        let sel = sel.replace('/', "-");
-        self.dir() == sel || self.platform().slug() == sel
+    pub fn matches_selector(&self, selector: &str) -> bool {
+        let selector = selector.replace('/', "-");
+        self.dir() == selector || self.platform().slug() == selector
     }
 }
 

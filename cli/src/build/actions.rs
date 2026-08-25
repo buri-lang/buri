@@ -1774,7 +1774,7 @@ pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> V
         outputs.push(Output::js(Span::NONE));
     }
     match &flags.output {
-        Some(sel) => outputs.into_iter().filter(|o| o.matches_selector(sel)).collect(),
+        Some(selector) => outputs.into_iter().filter(|o| o.matches_selector(selector)).collect(),
         None => outputs,
     }
 }

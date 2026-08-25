@@ -295,22 +295,22 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         }
 
         ("textDocument/hover", Some(id)) => {
-            let result = with_analysis(state, &params, |a, path, text, pos| {
-                features::hover(a, path, text, pos)
+            let result = with_analysis(state, &params, |analyzed, path, text, position| {
+                features::hover(analyzed, path, text, position)
             });
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
         ("textDocument/definition", Some(id)) => {
-            let result = with_analysis(state, &params, |a, path, text, pos| {
-                features::definition(a, path, text, pos)
+            let result = with_analysis(state, &params, |analyzed, path, text, position| {
+                features::definition(analyzed, path, text, position)
             });
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
         ("textDocument/completion", Some(id)) => {
-            let result = with_analysis(state, &params, |a, path, text, pos| {
-                Some(features::completion(a, path, text, pos))
+            let result = with_analysis(state, &params, |analyzed, path, text, position| {
+                Some(features::completion(analyzed, path, text, position))
             });
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -381,10 +381,10 @@ fn with_analysis<T>(
     f: impl Fn(&state::Analyzed, &std::path::Path, &str, Position) -> Option<T>,
 ) -> Option<T> {
     let path = uri_param(params)?;
-    let pos = Position::from_json(params.get("position")?)?;
+    let position = Position::from_json(params.get("position")?)?;
     let text = state.text_of(&path)?;
-    let a = state.analyze(&path)?;
-    f(&a, &path, &text, pos)
+    let analyzed = state.analyze(&path)?;
+    f(&analyzed, &path, &text, position)
 }
 
 // ---------------------------------------------------------------------------
@@ -414,15 +414,15 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
         published.insert(convert::uri_of(open), Vec::new());
     }
 
-    let Some(a) = state.analyze(path) else {
+    let Some(analyzed) = state.analyze(path) else {
         return published.into_iter().map(|(uri, items)| publish(&uri, items)).collect();
     };
 
-    for d in &a.analysis.diags.items {
+    for d in &analyzed.analysis.diags.items {
         if d.span.is_none() {
             continue;
         }
-        let f = a.session.map.get(d.span.file);
+        let f = analyzed.session.map.get(d.span.file);
         if f.abs_path.as_os_str().is_empty() {
             continue;
         }
@@ -459,8 +459,8 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
 }
 
 /// Whether two diagnostics are the same one seen twice: same place, same words.
-fn same_finding(a: &Value, b: &Value) -> bool {
-    a.get("message") == b.get("message") && a.get("range") == b.get("range")
+fn same_finding(analyzed: &Value, b: &Value) -> bool {
+    analyzed.get("message") == b.get("message") && analyzed.get("range") == b.get("range")
 }
 
 fn publish(uri: &str, items: Vec<Value>) -> Value {

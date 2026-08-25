@@ -113,7 +113,7 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
     let mut p = Parser {
         src: text.as_bytes(),
         text,
-        pos: 0,
+        position: 0,
         file,
         errors: Vec::new(),
         comments: Vec::new(),
@@ -122,8 +122,8 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
     };
     let fields = p.fields(None);
     let trailing = std::mem::take(&mut p.comments);
-    if p.pos < p.src.len() {
-        let span = Span::new(file, p.pos, p.src.len());
+    if p.position < p.src.len() {
+        let span = Span::new(file, p.position, p.src.len());
         p.errors.push(Diagnostic::error(span, "expected a field").with_fix(
             "a build file is a list of `name: value` and `name { ... }` fields",
         ));
@@ -134,7 +134,7 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
 struct Parser<'a> {
     src: &'a [u8],
     text: &'a str,
-    pos: usize,
+    position: usize,
     file: FileId,
     errors: Vec<Diagnostic>,
     comments: Vec<String>,
@@ -151,12 +151,12 @@ const MAX_NESTING: u32 = 32;
 
 impl<'a> Parser<'a> {
     fn peek(&self) -> u8 {
-        *self.src.get(self.pos).unwrap_or(&0)
+        *self.src.get(self.position).unwrap_or(&0)
     }
 
     /// The text from the cursor on, or `""` if the cursor has run past the end.
     fn rest(&self) -> &'a str {
-        self.text.get(self.pos..).unwrap_or("")
+        self.text.get(self.position..).unwrap_or("")
     }
 
     fn slice(&self, start: usize, end: usize) -> &'a str {
@@ -170,7 +170,7 @@ impl<'a> Parser<'a> {
     /// into a panic — and a build file is free to contain one anywhere.
     fn bump_char(&mut self) {
         let step = self.rest().chars().next().map_or(1, char::len_utf8);
-        self.pos = self.pos.saturating_add(step);
+        self.position = self.position.saturating_add(step);
     }
 
     /// Every textproto error carries the edit that resolves it, the same way
@@ -185,23 +185,23 @@ impl<'a> Parser<'a> {
         let mut newlines: u32 = 0;
         loop {
             match self.peek() {
-                b' ' | b'\t' | b'\r' => self.pos = self.pos.saturating_add(1),
+                b' ' | b'\t' | b'\r' => self.position = self.position.saturating_add(1),
                 b'\n' => {
                     newlines = newlines.saturating_add(1);
                     if newlines >= 2 {
                         self.blank = true;
                     }
-                    self.pos = self.pos.saturating_add(1);
+                    self.position = self.position.saturating_add(1);
                 }
                 b'#' => {
-                    let start = self.pos;
+                    let start = self.position;
                     // A comment runs to the newline. Stepping by whole
                     // characters keeps the cursor on a boundary even when the
                     // comment holds text that is not ASCII.
-                    while self.pos < self.src.len() && self.peek() != b'\n' {
+                    while self.position < self.src.len() && self.peek() != b'\n' {
                         self.bump_char();
                     }
-                    self.comments.push(self.slice(start, self.pos).trim_end().to_string());
+                    self.comments.push(self.slice(start, self.position).trim_end().to_string());
                     newlines = 0;
                 }
                 _ => return,
@@ -214,7 +214,7 @@ impl<'a> Parser<'a> {
         let mut out = Vec::new();
         loop {
             self.skip_trivia();
-            if self.pos >= self.src.len() {
+            if self.position >= self.src.len() {
                 return out;
             }
             if let Some(c) = close {
@@ -222,15 +222,15 @@ impl<'a> Parser<'a> {
                     return out;
                 }
             }
-            let before = self.pos;
+            let before = self.position;
             match self.field() {
                 Some(f) => out.push(f),
                 None => {
                     // Recover: skip a token and try again.
-                    if self.pos == before {
+                    if self.position == before {
                         self.bump_char();
                     }
-                    if close.is_none() && self.pos >= self.src.len() {
+                    if close.is_none() && self.position >= self.src.len() {
                         return out;
                     }
                 }
@@ -238,7 +238,7 @@ impl<'a> Parser<'a> {
             // Fields may be separated by a comma or by nothing at all.
             self.skip_trivia();
             if self.peek() == b',' {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
             }
         }
     }
@@ -246,20 +246,20 @@ impl<'a> Parser<'a> {
     fn field(&mut self) -> Option<Field> {
         let comments = std::mem::take(&mut self.comments);
         let blank_before = std::mem::take(&mut self.blank);
-        let start = self.pos;
+        let start = self.position;
         let name = self.ident()?;
-        let name_span = Span::new(self.file, start, self.pos);
+        let name_span = Span::new(self.file, start, self.position);
         self.skip_trivia();
 
         let value = if self.peek() == b':' {
-            self.pos = self.pos.saturating_add(1);
+            self.position = self.position.saturating_add(1);
             self.skip_trivia();
             self.value()?
         } else if self.peek() == b'{' {
             // A message field takes no colon.
             self.msg_value()?
         } else {
-            let span = Span::new(self.file, self.pos, self.pos.saturating_add(1));
+            let span = Span::new(self.file, self.position, self.position.saturating_add(1));
             self.err(
             span,
             format!("expected `:` or `{{` after `{name}`"),
@@ -271,7 +271,7 @@ impl<'a> Parser<'a> {
         Some(Field {
             name,
             name_span,
-            span: Span::new(self.file, start, self.pos),
+            span: Span::new(self.file, start, self.position),
             value,
             comments,
             blank_before,
@@ -279,11 +279,11 @@ impl<'a> Parser<'a> {
     }
 
     fn ident(&mut self) -> Option<String> {
-        let start = self.pos;
+        let start = self.position;
         while self.peek().is_ascii_alphanumeric() || self.peek() == b'_' {
-            self.pos = self.pos.saturating_add(1);
+            self.position = self.position.saturating_add(1);
         }
-        if self.pos == start {
+        if self.position == start {
             let span = Span::new(self.file, start, start.saturating_add(1));
             let found = self.rest().chars().next().unwrap_or(' ').to_string();
             self.err(
@@ -293,15 +293,15 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        Some(self.slice(start, self.pos).to_string())
+        Some(self.slice(start, self.position).to_string())
     }
 
     fn msg_value(&mut self) -> Option<Value> {
-        let start = self.pos;
-        self.pos = self.pos.saturating_add(1); // `{`
+        let start = self.position;
+        self.position = self.position.saturating_add(1); // `{`
         self.depth = self.depth.saturating_add(1);
         if self.depth > MAX_NESTING {
-            let span = Span::new(self.file, start, self.pos);
+            let span = Span::new(self.file, start, self.position);
             self.err(
                 span,
                 "message nests too deeply",
@@ -314,40 +314,41 @@ impl<'a> Parser<'a> {
         let trailing = std::mem::take(&mut self.comments);
         self.depth = self.depth.saturating_sub(1);
         if self.peek() != b'}' {
-            let span = Span::new(self.file, start, self.pos);
+            let span = Span::new(self.file, start, self.position);
             self.err(span, "unterminated message", "close it with `}`");
             return None;
         }
-        self.pos = self.pos.saturating_add(1);
-        Some(Value::Message(Message { fields, trailing }, Span::new(self.file, start, self.pos)))
+        self.position = self.position.saturating_add(1);
+        let span = Span::new(self.file, start, self.position);
+        Some(Value::Message(Message { fields, trailing }, span))
     }
 
     fn value(&mut self) -> Option<Value> {
-        let start = self.pos;
+        let start = self.position;
         match self.peek() {
             b'"' => {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
                 let mut s = String::new();
                 loop {
-                    if self.pos >= self.src.len() || self.peek() == b'\n' {
-                        let span = Span::new(self.file, start, self.pos);
+                    if self.position >= self.src.len() || self.peek() == b'\n' {
+                        let span = Span::new(self.file, start, self.position);
                         self.err(span, "unterminated string", "close it with a quote");
                         return None;
                     }
                     match self.peek() {
                         b'"' => {
-                            self.pos = self.pos.saturating_add(1);
+                            self.position = self.position.saturating_add(1);
                             break;
                         }
                         b'\\' => {
-                            self.pos = self.pos.saturating_add(1);
+                            self.position = self.position.saturating_add(1);
                             // An escape names a character, not a byte: `\é` has
                             // to step over the whole `é`, or the cursor lands
                             // inside it. A backslash at the end of the input
                             // leaves the cursor there and the loop head reports
                             // the unterminated string.
                             if let Some(c) = self.rest().chars().next() {
-                                self.pos = self.pos.saturating_add(c.len_utf8());
+                                self.position = self.position.saturating_add(c.len_utf8());
                                 s.push(match c {
                                     'n' => '\n',
                                     't' => '\t',
@@ -358,17 +359,17 @@ impl<'a> Parser<'a> {
                         }
                         _ => match self.rest().chars().next() {
                             Some(ch) => {
-                                self.pos = self.pos.saturating_add(ch.len_utf8());
+                                self.position = self.position.saturating_add(ch.len_utf8());
                                 s.push(ch);
                             }
                             // The loop head established there is input left, so
                             // this says the text is not valid UTF-8 from here;
                             // step off the byte rather than spin on it.
-                            None => self.pos = self.pos.saturating_add(1),
+                            None => self.position = self.position.saturating_add(1),
                         },
                     }
                 }
-                Some(Value::Str(s, Span::new(self.file, start, self.pos)))
+                Some(Value::Str(s, Span::new(self.file, start, self.position)))
             }
             b'{' => self.msg_value(),
             b'[' => {
@@ -376,7 +377,7 @@ impl<'a> Parser<'a> {
                 // the same bound; `[[[[…` is as easy to write as `{{{{…`.
                 self.depth = self.depth.saturating_add(1);
                 if self.depth > MAX_NESTING {
-                    let span = Span::new(self.file, start, self.pos.saturating_add(1));
+                    let span = Span::new(self.file, start, self.position.saturating_add(1));
                     self.err(
                         span,
                         "list nests too deeply",
@@ -391,16 +392,16 @@ impl<'a> Parser<'a> {
             }
             b'-' | b'0'..=b'9' => {
                 if self.peek() == b'-' {
-                    self.pos = self.pos.saturating_add(1);
+                    self.position = self.position.saturating_add(1);
                 }
                 while self.peek().is_ascii_digit() {
-                    self.pos = self.pos.saturating_add(1);
+                    self.position = self.position.saturating_add(1);
                 }
-                let raw = self.slice(start, self.pos);
+                let raw = self.slice(start, self.position);
                 match raw.parse::<i64>() {
-                    Ok(v) => Some(Value::Int(v, Span::new(self.file, start, self.pos))),
+                    Ok(v) => Some(Value::Int(v, Span::new(self.file, start, self.position))),
                     Err(_) => {
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         let raw = raw.to_string();
                         self.err(span, format!("`{raw}` is not a number"), "write a decimal integer, or quote it if it is meant to be text");
                         None
@@ -409,10 +410,10 @@ impl<'a> Parser<'a> {
             }
             c if c.is_ascii_alphabetic() || c == b'_' => {
                 let id = self.ident()?;
-                Some(Value::Ident(id, Span::new(self.file, start, self.pos)))
+                Some(Value::Ident(id, Span::new(self.file, start, self.position)))
             }
             _ => {
-                let span = Span::new(self.file, self.pos, self.pos.saturating_add(1));
+                let span = Span::new(self.file, self.position, self.position.saturating_add(1));
                 let found = self.rest().chars().next().unwrap_or(' ').to_string();
                 self.err(
                 span,
@@ -428,37 +429,37 @@ impl<'a> Parser<'a> {
     /// [`Parser::value`] so that the nesting counter is raised and lowered in
     /// one place rather than on each of the ways out of the loop.
     fn list_value(&mut self, start: usize) -> Option<Value> {
-        self.pos = self.pos.saturating_add(1);
+        self.position = self.position.saturating_add(1);
         let mut items = Vec::new();
         loop {
             self.skip_trivia();
-            if self.pos >= self.src.len() {
-                let span = Span::new(self.file, start, self.pos);
+            if self.position >= self.src.len() {
+                let span = Span::new(self.file, start, self.position);
                 self.err(span, "unterminated list", "close it with `]`");
                 return None;
             }
             if self.peek() == b']' {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
                 break;
             }
             // Comments inside a list are dropped; `gen` rewrites list
             // contents wholesale, so there is nothing to attach them to.
             self.comments.clear();
-            let before = self.pos;
+            let before = self.position;
             match self.value() {
                 Some(v) => items.push(v),
                 None => {
-                    if self.pos == before {
+                    if self.position == before {
                         self.bump_char();
                     }
                 }
             }
             self.skip_trivia();
             if self.peek() == b',' {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
             }
         }
-        Some(Value::List(items, Span::new(self.file, start, self.pos)))
+        Some(Value::List(items, Span::new(self.file, start, self.position)))
     }
 }
 

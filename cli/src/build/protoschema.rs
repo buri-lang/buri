@@ -266,7 +266,8 @@ pub struct Parsed {
 // ---------------------------------------------------------------------------
 
 pub fn parse(text: &str, file: FileId) -> Parsed {
-    let mut p = Parser { src: text.as_bytes(), text, pos: 0, file, errors: Vec::new(), depth: 0 };
+    let mut p =
+        Parser { src: text.as_bytes(), text, position: 0, file, errors: Vec::new(), depth: 0 };
     let schema = p.file();
     Parsed { schema, errors: p.errors }
 }
@@ -274,7 +275,7 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
 struct Parser<'a> {
     src: &'a [u8],
     text: &'a str,
-    pos: usize,
+    position: usize,
     file: FileId,
     errors: Vec<Diagnostic>,
     depth: u32,
@@ -325,16 +326,16 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_byte(&self) -> u8 {
-        *self.src.get(self.pos).unwrap_or(&0)
+        *self.src.get(self.position).unwrap_or(&0)
     }
 
     fn byte_after(&self) -> Option<&u8> {
-        self.src.get(self.pos.saturating_add(1))
+        self.src.get(self.position.saturating_add(1))
     }
 
     /// The text from the cursor on, or `""` if the cursor has run past the end.
     fn rest(&self) -> &'a str {
-        self.text.get(self.pos..).unwrap_or("")
+        self.text.get(self.position..).unwrap_or("")
     }
 
     fn slice(&self, start: usize, end: usize) -> &'a str {
@@ -348,30 +349,30 @@ impl<'a> Parser<'a> {
     /// a panic — and a schema is free to contain one anywhere.
     fn bump_char(&mut self) {
         let step = self.rest().chars().next().map_or(1, char::len_utf8);
-        self.pos = self.pos.saturating_add(step);
+        self.position = self.position.saturating_add(step);
     }
 
     fn skip_trivia(&mut self) {
         loop {
             match self.peek_byte() {
-                b' ' | b'\t' | b'\r' | b'\n' => self.pos = self.pos.saturating_add(1),
+                b' ' | b'\t' | b'\r' | b'\n' => self.position = self.position.saturating_add(1),
                 b'/' if self.byte_after() == Some(&b'/') => {
-                    while self.pos < self.src.len() && self.peek_byte() != b'\n' {
+                    while self.position < self.src.len() && self.peek_byte() != b'\n' {
                         self.bump_char();
                     }
                 }
                 b'/' if self.byte_after() == Some(&b'*') => {
-                    let start = self.pos;
-                    self.pos = self.pos.saturating_add(2);
+                    let start = self.position;
+                    self.position = self.position.saturating_add(2);
                     loop {
                         let Some(&next) = self.byte_after() else {
-                            self.pos = self.src.len();
-                            let span = Span::new(self.file, start, self.pos);
+                            self.position = self.src.len();
+                            let span = Span::new(self.file, start, self.position);
                             self.err(span, "unterminated block comment", "close it with `*/`");
                             return;
                         };
                         if self.peek_byte() == b'*' && next == b'/' {
-                            self.pos = self.pos.saturating_add(2);
+                            self.position = self.position.saturating_add(2);
                             break;
                         }
                         self.bump_char();
@@ -386,29 +387,29 @@ impl<'a> Parser<'a> {
     /// `start..self.pos` for whatever `start` the caller recorded first.
     fn next(&mut self) -> Token {
         self.skip_trivia();
-        if self.pos >= self.src.len() {
+        if self.position >= self.src.len() {
             return Token::End;
         }
         let c = self.peek_byte();
         if c.is_ascii_alphabetic() || c == b'_' {
-            let start = self.pos;
+            let start = self.position;
             while self.peek_byte().is_ascii_alphanumeric()
                 || self.peek_byte() == b'_'
                 || self.peek_byte() == b'.'
             {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
             }
-            return Token::Word(self.slice(start, self.pos).to_string());
+            return Token::Word(self.slice(start, self.position).to_string());
         }
         if c.is_ascii_digit() || (c == b'-' && self.byte_after().is_some_and(|d| d.is_ascii_digit())) {
-            let start = self.pos;
+            let start = self.position;
             if c == b'-' {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
             }
             while self.peek_byte().is_ascii_alphanumeric() {
-                self.pos = self.pos.saturating_add(1);
+                self.position = self.position.saturating_add(1);
             }
-            let raw = self.slice(start, self.pos);
+            let raw = self.slice(start, self.position);
             let parsed = if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
                 i64::from_str_radix(hex, 16).ok()
             } else {
@@ -417,7 +418,7 @@ impl<'a> Parser<'a> {
             return match parsed {
                 Some(n) => Token::Num(n),
                 None => {
-                    let span = Span::new(self.file, start, self.pos);
+                    let span = Span::new(self.file, start, self.position);
                     let raw = raw.to_string();
                     self.err(span, format!("`{raw}` is not a number"), "write a decimal or `0x` field number");
                     Token::Num(0)
@@ -426,28 +427,28 @@ impl<'a> Parser<'a> {
         }
         if c == b'"' || c == b'\'' {
             let quote = c;
-            let start = self.pos;
-            self.pos = self.pos.saturating_add(1);
+            let start = self.position;
+            self.position = self.position.saturating_add(1);
             let mut s = String::new();
             loop {
-                if self.pos >= self.src.len() || self.peek_byte() == b'\n' {
-                    let span = Span::new(self.file, start, self.pos);
+                if self.position >= self.src.len() || self.peek_byte() == b'\n' {
+                    let span = Span::new(self.file, start, self.position);
                     self.err(span, "unterminated string", "close it with a quote");
                     return Token::Str(s);
                 }
                 let ch = self.peek_byte();
                 if ch == quote {
-                    self.pos = self.pos.saturating_add(1);
+                    self.position = self.position.saturating_add(1);
                     return Token::Str(s);
                 }
                 if ch == b'\\' {
-                    self.pos = self.pos.saturating_add(1);
+                    self.position = self.position.saturating_add(1);
                     // An escape names a character, not a byte: `\é` has to step
                     // over the whole `é`, or the cursor lands inside it. A
                     // backslash at the end of the input leaves the cursor
                     // there, and the loop head reports the unterminated string.
                     if let Some(e) = self.rest().chars().next() {
-                        self.pos = self.pos.saturating_add(e.len_utf8());
+                        self.position = self.position.saturating_add(e.len_utf8());
                         s.push(match e {
                             'n' => '\n',
                             't' => '\t',
@@ -459,13 +460,13 @@ impl<'a> Parser<'a> {
                 }
                 match self.rest().chars().next() {
                     Some(ch) => {
-                        self.pos = self.pos.saturating_add(ch.len_utf8());
+                        self.position = self.position.saturating_add(ch.len_utf8());
                         s.push(ch);
                     }
                     // The loop head established there is input left, so this
                     // says the text is not valid UTF-8 from here; step off the
                     // byte rather than spin on it.
-                    None => self.pos = self.pos.saturating_add(1),
+                    None => self.position = self.position.saturating_add(1),
                 }
             }
         }
@@ -478,9 +479,9 @@ impl<'a> Parser<'a> {
     }
 
     fn peek(&mut self) -> Token {
-        let save = self.pos;
+        let save = self.position;
         let t = self.next();
-        self.pos = save;
+        self.position = save;
         t
     }
 
@@ -488,13 +489,13 @@ impl<'a> Parser<'a> {
     fn expect(&mut self, c: char, context: &str) -> bool {
         let start = {
             self.skip_trivia();
-            self.pos
+            self.position
         };
         let t = self.next();
         if t == Token::Punctuation(c) {
             return true;
         }
-        let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
+        let span = Span::new(self.file, start, self.position.max(start.saturating_add(1)));
         let found = t.describe();
         self.err(
             span,
@@ -506,11 +507,11 @@ impl<'a> Parser<'a> {
 
     fn word(&mut self, what: &str) -> Option<(String, Span)> {
         self.skip_trivia();
-        let start = self.pos;
+        let start = self.position;
         match self.next() {
-            Token::Word(w) => Some((w, Span::new(self.file, start, self.pos))),
+            Token::Word(w) => Some((w, Span::new(self.file, start, self.position))),
             other => {
-                let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
+                let span = Span::new(self.file, start, self.position.max(start.saturating_add(1)));
                 let found = other.describe();
                 self.err(
                     span,
@@ -529,11 +530,11 @@ impl<'a> Parser<'a> {
     /// this one and says nothing about the shape of a message.
     fn feature_option(&mut self) -> Option<Features> {
         self.skip_trivia();
-        let start = self.pos;
+        let start = self.position;
         let name = match self.next() {
             Token::Word(w) => w,
             _ => {
-                self.pos = start;
+                self.position = start;
                 self.skip_statement();
                 return None;
             }
@@ -544,7 +545,7 @@ impl<'a> Parser<'a> {
         if name == "features" && self.peek() == Token::Punctuation('=') {
             self.next();
             if self.peek() == Token::Punctuation('{') {
-                let span = Span::new(self.file, start, self.pos);
+                let span = Span::new(self.file, start, self.position);
                 self.unsupported(
                     span,
                     "`option features = { ... }`",
@@ -557,18 +558,19 @@ impl<'a> Parser<'a> {
             return None;
         }
         let Some(feature) = name.strip_prefix("features.") else {
-            self.pos = start;
+            self.position = start;
             self.skip_statement();
             return None;
         };
         let feature = feature.to_string();
         self.expect('=', "an option name");
         self.skip_trivia();
-        let value_at = self.pos;
+        let value_at = self.position;
         let value = match self.next() {
             Token::Word(v) => v,
             other => {
-                let span = Span::new(self.file, value_at, self.pos.max(value_at.saturating_add(1)));
+                let span =
+                    Span::new(self.file, value_at, self.position.max(value_at.saturating_add(1)));
                 let found = other.describe();
                 self.err(
                     span,
@@ -579,7 +581,7 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        let span = Span::new(self.file, start, self.pos);
+        let span = Span::new(self.file, start, self.position);
         let out = self.feature(&feature, &value, span);
         self.expect(';', "an option");
         out
@@ -720,7 +722,7 @@ impl<'a> Parser<'a> {
         let mut seen_edition = false;
         loop {
             self.skip_trivia();
-            let start = self.pos;
+            let start = self.position;
             let t = self.next();
             match t {
                 Token::End => break,
@@ -736,13 +738,14 @@ impl<'a> Parser<'a> {
                         seen_edition = true;
                         self.expect('=', "`syntax`");
                         self.skip_trivia();
-                        let at = self.pos;
+                        let at = self.position;
                         let value = self.next();
                         let named = match &value {
                             Token::Str(v) => format!("`syntax = \"{v}\"`"),
                             other => format!("syntax {}", other.describe()),
                         };
-                        let span = Span::new(self.file, start, self.pos.max(at.saturating_add(1)));
+                        let span =
+                            Span::new(self.file, start, self.position.max(at.saturating_add(1)));
                         self.errors.push(
                             Diagnostic::error(span, format!("{named} is not accepted"))
                                 .with_code("proto-edition")
@@ -766,10 +769,11 @@ impl<'a> Parser<'a> {
                         seen_edition = true;
                         self.expect('=', "`edition`");
                         self.skip_trivia();
-                        let at = self.pos;
+                        let at = self.position;
                         let value = self.next();
                         if value != Token::Str(REQUIRED_EDITION.to_string()) {
-                            let span = Span::new(self.file, at, self.pos.max(at.saturating_add(1)));
+                            let span =
+                                Span::new(self.file, at, self.position.max(at.saturating_add(1)));
                             let named = match &value {
                                 Token::Str(v) => format!("edition {v}"),
                                 other => format!("edition {}", other.describe()),
@@ -800,13 +804,14 @@ impl<'a> Parser<'a> {
                     }
                     "import" => {
                         self.skip_trivia();
-                        let at = self.pos;
+                        let at = self.position;
                         match self.next() {
-                            Token::Str(path) => schema
-                                .imports
-                                .push(Import { path, span: Span::new(self.file, at, self.pos) }),
+                            Token::Str(path) => {
+                                let span = Span::new(self.file, at, self.position);
+                                schema.imports.push(Import { path, span })
+                            }
                             Token::Word(w) if w == "public" || w == "weak" => {
-                                let span = Span::new(self.file, at, self.pos);
+                                let span = Span::new(self.file, at, self.position);
                                 self.unsupported(
                                     span,
                                     &format!("`import {w}`"),
@@ -819,7 +824,8 @@ impl<'a> Parser<'a> {
                                 continue;
                             }
                             other => {
-                                let span = Span::new(self.file, at, self.pos.max(at.saturating_add(1)));
+                                let end = self.position.max(at.saturating_add(1));
+                                let span = Span::new(self.file, at, end);
                                 let found = other.describe();
                                 self.err(
                                     span,
@@ -849,7 +855,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                     "service" | "extend" | "extensions" => {
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         let (why, fix): (&str, &str) = match w.as_str() {
                             "service" => (
                                 "this reader turns a schema into data types; it has no RPC \
@@ -869,7 +875,7 @@ impl<'a> Parser<'a> {
                         self.recover_block();
                     }
                     other => {
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         let other = other.to_string();
                         self.err(
                             span,
@@ -881,7 +887,8 @@ impl<'a> Parser<'a> {
                     }
                 },
                 other => {
-                    let span = Span::new(self.file, start, self.pos.max(start.saturating_add(1)));
+                    let span =
+                        Span::new(self.file, start, self.position.max(start.saturating_add(1)));
                     let found = other.describe();
                     self.err(
                         span,
@@ -957,7 +964,7 @@ impl<'a> Parser<'a> {
         };
         loop {
             self.skip_trivia();
-            let start = self.pos;
+            let start = self.position;
             match self.peek() {
                 Token::Punctuation('}') => {
                     self.next();
@@ -1005,7 +1012,7 @@ impl<'a> Parser<'a> {
                     }
                     "extensions" | "extend" => {
                         self.next();
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         self.unsupported(
                             span,
                             &format!("`{w}`"),
@@ -1017,7 +1024,7 @@ impl<'a> Parser<'a> {
                     }
                     "group" => {
                         self.next();
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         self.unsupported(
                             span,
                             "`group`",
@@ -1031,7 +1038,7 @@ impl<'a> Parser<'a> {
                     // now, and protoc refuses these in exactly the same way.
                     "required" => {
                         self.next();
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         self.unsupported(
                             span,
                             "the `required` label",
@@ -1044,7 +1051,7 @@ impl<'a> Parser<'a> {
                     }
                     "optional" => {
                         self.next();
-                        let span = Span::new(self.file, start, self.pos);
+                        let span = Span::new(self.file, start, self.position);
                         self.unsupported(
                             span,
                             "the `optional` label",
@@ -1079,7 +1086,7 @@ impl<'a> Parser<'a> {
         let mut o = Oneof { name: name.clone(), span, cases: Vec::new() };
         loop {
             self.skip_trivia();
-            let start = self.pos;
+            let start = self.position;
             match self.peek() {
                 Token::Punctuation('}') => {
                     self.next();
@@ -1144,14 +1151,14 @@ impl<'a> Parser<'a> {
     /// `[repeated] Type name = N [options];`
     fn field(&mut self) -> Option<Field> {
         self.skip_trivia();
-        let start = self.pos;
+        let start = self.position;
         let (first, first_span) = self.word("a field type")?;
         let (label, (ty_word, ty_span)) = match first.as_str() {
             "repeated" => (Label::Repeated, self.word("a field type")?),
             // Both removed labels are refused where they are written, so that
             // a migrated file is told once per field rather than once per file.
             "optional" | "required" => {
-                let span = Span::new(self.file, start, self.pos);
+                let span = Span::new(self.file, start, self.position);
                 let which = first.clone();
                 self.unsupported(
                     span,
@@ -1200,11 +1207,12 @@ impl<'a> Parser<'a> {
             return None;
         }
         self.skip_trivia();
-        let num_at = self.pos;
+        let num_at = self.position;
         let number = match self.next() {
             Token::Num(n) => n,
             other => {
-                let span = Span::new(self.file, num_at, self.pos.max(num_at.saturating_add(1)));
+                let span =
+                    Span::new(self.file, num_at, self.position.max(num_at.saturating_add(1)));
                 let found = other.describe();
                 self.err(
                     span,
@@ -1216,7 +1224,7 @@ impl<'a> Parser<'a> {
         };
         if !(1..=536870911).contains(&number) {
             self.err(
-                Span::new(self.file, num_at, self.pos),
+                Span::new(self.file, num_at, self.position),
                 format!("{number} is not a field number"),
                 "field numbers run from 1 to 536870911",
             );
@@ -1224,7 +1232,7 @@ impl<'a> Parser<'a> {
         }
         if (19000..=19999).contains(&number) {
             self.err(
-                Span::new(self.file, num_at, self.pos),
+                Span::new(self.file, num_at, self.position),
                 format!("{number} is in the range protobuf reserves for itself"),
                 "use a number outside 19000..19999",
             );
@@ -1237,7 +1245,7 @@ impl<'a> Parser<'a> {
             self.next();
             loop {
                 self.skip_trivia();
-                let at = self.pos;
+                let at = self.position;
                 match self.next() {
                     Token::Punctuation(']') | Token::End => break,
                     Token::Punctuation(',') => {}
@@ -1249,7 +1257,7 @@ impl<'a> Parser<'a> {
                             self.skip_trivia();
                             let value = self.next();
                             if let Some(feature) = feature {
-                                let span = Span::new(self.file, at, self.pos);
+                                let span = Span::new(self.file, at, self.position);
                                 let value = match value {
                                     Token::Word(v) => v,
                                     other => other.describe(),
@@ -1270,7 +1278,7 @@ impl<'a> Parser<'a> {
             number,
             label,
             ty,
-            span: Span::new(self.file, start, self.pos),
+            span: Span::new(self.file, start, self.position),
             features,
         })
     }
@@ -1283,7 +1291,7 @@ impl<'a> Parser<'a> {
         let mut e = Enum { name, span, values: Vec::new() };
         loop {
             self.skip_trivia();
-            let start = self.pos;
+            let start = self.position;
             match self.peek() {
                 Token::Punctuation('}') => {
                     self.next();
@@ -1321,11 +1329,12 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     self.skip_trivia();
-                    let num_at = self.pos;
+                    let num_at = self.position;
                     let number = match self.next() {
                         Token::Num(n) => n,
                         other => {
-                            let span = Span::new(self.file, num_at, self.pos.max(num_at.saturating_add(1)));
+                            let end = self.position.max(num_at.saturating_add(1));
+                            let span = Span::new(self.file, num_at, end);
                             let found = other.describe();
                             self.err(
                                 span,

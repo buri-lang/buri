@@ -16,21 +16,21 @@ use super::convert::{self, Position};
 use super::state::Analyzed;
 
 /// The innermost typed expression covering `offset`, and its rendered type.
-pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Value> {
-    let offset = convert::offset_of(text, pos);
-    let file = a.session.map.find(&a.session.workspace.rel_of(path))?;
+pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
+    let offset = convert::offset_of(text, position);
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
 
     // A declaration's own name renders as its signature plus its doc comment,
     // which is what you want when you point at `fn parse` — the type of the
     // name is the least interesting thing about it.
-    if let Some((sig, docs, span)) = declaration_at(a, path, offset) {
-        let mut md = format!("```buri\n{sig}\n```");
+    if let Some((sig, docs, span)) = declaration_at(analyzed, path, offset) {
+        let mut markdown = format!("```buri\n{sig}\n```");
         if !docs.is_empty() {
-            md.push_str("\n\n");
-            md.push_str(&docs.join("\n"));
+            markdown.push_str("\n\n");
+            markdown.push_str(&docs.join("\n"));
         }
         return Some(Value::object(vec![
-            ("contents", markup(&md)),
+            ("contents", markup(&markdown)),
             ("range", convert::range(text, span)),
         ]));
     }
@@ -38,8 +38,8 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
     // Otherwise the innermost expression whose span contains the offset. It is
     // innermost because a smaller span is always the more specific answer.
     let mut best: Option<(u32, String, crate::diagnostics::Span)> = None;
-    for (fid, body) in &a.analysis.checked.bodies {
-        if a.analysis.checked.tables.fn_info(*fid).span.file != file {
+    for (fid, body) in &analyzed.analysis.checked.bodies {
+        if analyzed.analysis.checked.tables.fn_info(*fid).span.file != file {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -48,7 +48,7 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
             }
             let width = e.span.end.saturating_sub(e.span.start);
             if best.as_ref().is_none_or(|(w, _, _)| width < *w) {
-                let ty = types::show(&a.analysis.checked.tables, None, &[], &e.ty);
+                let ty = types::show(&analyzed.analysis.checked.tables, None, &[], &e.ty);
                 best = Some((width, ty, e.span));
             }
         });
@@ -60,19 +60,19 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
     ]))
 }
 
-fn markup(md: &str) -> Value {
-    Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(md))])
+fn markup(markdown: &str) -> Value {
+    Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(markdown))])
 }
 
 /// The declaration whose *name* covers `offset`, rendered the way the formatter
 /// would print it.
 fn declaration_at(
-    a: &Analyzed,
+    analyzed: &Analyzed,
     path: &Path,
     offset: u32,
 ) -> Option<(String, Vec<String>, crate::diagnostics::Span)> {
-    let file = a.session.map.find(&a.session.workspace.rel_of(path))?;
-    let m = a.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let m = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
     for item in &m.ast.items {
         // A function renders as its signature, which is what `buri format`
         // prints; everything else renders as the keyword and its name, because
@@ -95,16 +95,21 @@ fn declaration_at(
 }
 
 /// Where the name under the cursor was declared.
-pub fn definition(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Value> {
-    let offset = convert::offset_of(text, pos);
-    let file = a.session.map.find(&a.session.workspace.rel_of(path))?;
+pub fn definition(
+    analyzed: &Analyzed,
+    path: &Path,
+    text: &str,
+    position: Position,
+) -> Option<Value> {
+    let offset = convert::offset_of(text, position);
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
 
     // The innermost call or function reference covering the offset. Walking to
     // the innermost matters for `f(g(x))`, where both spans contain a cursor
     // inside `g`.
     let mut best: Option<(u32, FnId)> = None;
-    for (fid, body) in &a.analysis.checked.bodies {
-        if a.analysis.checked.tables.fn_info(*fid).span.file != file {
+    for (fid, body) in &analyzed.analysis.checked.bodies {
+        if analyzed.analysis.checked.tables.fn_info(*fid).span.file != file {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -124,15 +129,15 @@ pub fn definition(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Optio
         });
     }
     let (_, target) = best?;
-    let span = a.analysis.checked.tables.fn_info(target).span;
-    location(a, span)
+    let span = analyzed.analysis.checked.tables.fn_info(target).span;
+    location(analyzed, span)
 }
 
-fn location(a: &Analyzed, span: crate::diagnostics::Span) -> Option<Value> {
+fn location(analyzed: &Analyzed, span: crate::diagnostics::Span) -> Option<Value> {
     if span.is_none() {
         return None;
     }
-    let f = a.session.map.get(span.file);
+    let f = analyzed.session.map.get(span.file);
     // The standard library has no file on disk — it is `include_str!`d into the
     // binary — so there is nowhere to send the editor.
     if f.abs_path.as_os_str().is_empty() {
@@ -181,8 +186,8 @@ pub fn document_symbols(text: &str) -> Value {
 /// Completion, for the two places that need no type information and are the
 /// two the CLI reference promises: inside a module path, and inside the `{ … }`
 /// of an import.
-pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value {
-    let offset = convert::offset_of(text, pos) as usize;
+pub fn completion(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Value {
+    let offset = convert::offset_of(text, position) as usize;
     // `offset_of` clamps into `text` and onto a character boundary, so the only
     // way this fails is a caller that did not go through it.
     let Some(before_cursor) = text.get(..offset) else {
@@ -197,13 +202,13 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
     let inside_string = line.bytes().filter(|c| *c == b'"').count() % 2 == 1;
     if inside_string && line.trim_start().starts_with("from") {
         let prefix = line.rsplit('"').next().unwrap_or(line);
-        return module_paths(a, path, prefix);
+        return module_paths(analyzed, path, prefix);
     }
 
     // Inside the `{ … }` of `from "path" import { … }`.
     if !inside_string && line.contains("import") && line.rfind('{') > line.rfind('}') {
         if let Some(p) = line.split('"').nth(1) {
-            return exported_names(a, p);
+            return exported_names(analyzed, p);
         }
     }
 
@@ -213,15 +218,15 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
 /// Every module the file could legally import: the standard library, and the
 /// packages its own target already declares. Offering a label the target does
 /// not depend on would be offering a `missing-dep`.
-fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
+fn module_paths(analyzed: &Analyzed, path: &Path, prefix: &str) -> Value {
     let mut out: Vec<String> = standard_library::MODULES.iter().map(|m| m.path.to_string()).collect();
-    if let Some(package) = a.session.workspace.owning_package(path) {
-        for t in a.session.workspace.targets().into_iter().filter(|t| t.package == package) {
-            for d in a.session.workspace.declared_deps(t) {
+    if let Some(package) = analyzed.session.workspace.owning_package(path) {
+        for t in analyzed.session.workspace.targets().into_iter().filter(|t| t.package == package) {
+            for d in analyzed.session.workspace.declared_deps(t) {
                 out.push(d.value.clone());
             }
         }
-        out.push(a.session.workspace.package(package).label());
+        out.push(analyzed.session.workspace.package(package).label());
     }
     out.sort();
     out.dedup();
@@ -240,11 +245,11 @@ fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
 }
 
 /// What a module exports, for the `{ … }` half.
-fn exported_names(a: &Analyzed, path: &str) -> Value {
-    let Some(&id) = a.analysis.loaded.by_path.get(path) else {
+fn exported_names(analyzed: &Analyzed, path: &str) -> Value {
+    let Some(&id) = analyzed.analysis.loaded.by_path.get(path) else {
         return Value::Array(Vec::new());
     };
-    let Some(scope) = a.analysis.checked.scopes.get(id.index()) else {
+    let Some(scope) = analyzed.analysis.checked.scopes.get(id.index()) else {
         return Value::Array(Vec::new());
     };
     let mut names: Vec<&String> = scope.exports.keys().collect();
