@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct PkgId(pub u32);
+pub struct PackageId(pub u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum RuleKind {
@@ -29,7 +29,7 @@ pub enum RuleKind {
 /// because a package holds at most one of each.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct TargetId {
-    pub pkg: PkgId,
+    pub package: PackageId,
     pub kind: RuleKind,
 }
 
@@ -76,10 +76,10 @@ pub struct Workspace {
     pub root: PathBuf,
     pub repo: RepoConfig,
     pub packages: Vec<Package>,
-    by_path: HashMap<String, PkgId>,
+    by_path: HashMap<String, PackageId>,
     /// Package paths longest-first, for resolving a module path to the package
     /// that contains it.
-    sorted_paths: Vec<(String, PkgId)>,
+    sorted_paths: Vec<(String, PackageId)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -113,8 +113,8 @@ impl Pattern {
                 "`{s}` is not a label; labels are repository-absolute and start with `//`"
             ));
         };
-        if let Some(pkg) = rest.strip_suffix("/...") {
-            return Ok(Pattern::Recursive(pkg.to_string()));
+        if let Some(package) = rest.strip_suffix("/...") {
+            return Ok(Pattern::Recursive(package.to_string()));
         }
         if rest.ends_with('/') {
             return Err(format!("`{s}` has a trailing slash"));
@@ -125,10 +125,10 @@ impl Pattern {
         Ok(Pattern::Package(rest.to_string()))
     }
 
-    pub fn matches(&self, pkg_path: &str) -> bool {
+    pub fn matches(&self, package_path: &str) -> bool {
         match self {
             Pattern::All => true,
-            Pattern::Package(p) => p == pkg_path,
+            Pattern::Package(p) => p == package_path,
             // `p` empty means every package, which is how `///...` — the one
             // spelling that parses to `Recursive("")` — selects the whole
             // repository. `Visibility::allows` deliberately does *not* read an
@@ -137,8 +137,8 @@ impl Pattern {
             // The asymmetry is load-bearing until somebody decides which of the
             // two is wrong; merging the arms is not a behaviour-preserving edit.
             Pattern::Recursive(p) => {
-                pkg_path == p
-                    || (p.is_empty() || pkg_path.starts_with(&format!("{p}/")))
+                package_path == p
+                    || (p.is_empty() || package_path.starts_with(&format!("{p}/")))
             }
         }
     }
@@ -195,17 +195,19 @@ impl Visibility {
         }
     }
 
-    pub fn allows(&self, pkg_path: &str) -> bool {
+    pub fn allows(&self, package_path: &str) -> bool {
         match self {
             Visibility::Public => true,
             Visibility::Private => false,
             Visibility::Everything => true,
-            Visibility::Package(p) => p == pkg_path,
+            Visibility::Package(p) => p == package_path,
             // No `p.is_empty()` arm, unlike `Pattern::matches` above: a
             // `Recursive("")` visibility grants the root package and nothing
             // else, where the same shape as a target pattern selects every
             // package. See the note there — the two are not merged on purpose.
-            Visibility::Recursive(p) => pkg_path == p || pkg_path.starts_with(&format!("{p}/")),
+            Visibility::Recursive(p) => {
+                package_path == p || package_path.starts_with(&format!("{p}/"))
+            }
         }
     }
 }
@@ -253,7 +255,7 @@ pub enum ModuleLoc {
 pub struct PackageModule {
     pub path: String,
     pub kind: ModuleKind,
-    pub pkg: PkgId,
+    pub package: PackageId,
     /// Absolute path on disk.
     pub file: PathBuf,
     /// Repository-relative name, used in diagnostics and in cache keys.
@@ -347,33 +349,34 @@ impl Workspace {
             });
         }
 
-        let by_path: HashMap<String, PkgId> = packages
+        let by_path: HashMap<String, PackageId> = packages
             .iter()
             .enumerate()
-            .map(|(i, p)| (p.path.clone(), PkgId(i as u32)))
+            .map(|(i, p)| (p.path.clone(), PackageId(i as u32)))
             .collect();
-        let mut sorted_paths: Vec<(String, PkgId)> =
+        let mut sorted_paths: Vec<(String, PackageId)> =
             by_path.iter().map(|(k, v)| (k.clone(), *v)).collect();
         // Longest first, so `//lib/money/cents` finds `lib/money` before `lib`.
         sorted_paths.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
 
-        let workspace = Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
+        let workspace =
+            Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
         workspace.check_package_module_collisions(diagnostics);
         Ok(workspace)
     }
 
-    pub fn pkg(&self, id: PkgId) -> &Package {
+    pub fn package(&self, id: PackageId) -> &Package {
         self.packages
             .get(id.0 as usize)
-            .or_ice("every PkgId is an index this table minted while loading the repository")
+            .or_ice("every PackageId is an index this table minted while loading the repository")
     }
 
-    pub fn pkg_by_path(&self, path: &str) -> Option<PkgId> {
+    pub fn package_by_path(&self, path: &str) -> Option<PackageId> {
         self.by_path.get(path).copied()
     }
 
-    pub fn ids(&self) -> impl Iterator<Item = PkgId> {
-        (0..self.packages.len() as u32).map(PkgId)
+    pub fn ids(&self) -> impl Iterator<Item = PackageId> {
+        (0..self.packages.len() as u32).map(PackageId)
     }
 
     /// Rule 3 of LIBRARIES.md: a module path may not also be a package path.
@@ -385,8 +388,8 @@ impl Workspace {
                 continue;
             }
             let Some((parent, last)) = p.path.rsplit_once('/') else { continue };
-            let Some(parent_id) = self.pkg_by_path(parent) else { continue };
-            let sibling = self.pkg(parent_id).dir.join(format!("{last}.buri"));
+            let Some(parent_id) = self.package_by_path(parent) else { continue };
+            let sibling = self.package(parent_id).dir.join(format!("{last}.buri"));
             if sibling.is_file() {
                 diagnostics.push(
                     Diagnostic::error(
@@ -410,24 +413,24 @@ impl Workspace {
     pub fn targets(&self) -> Vec<TargetId> {
         let mut out = Vec::new();
         for id in self.ids() {
-            let p = self.pkg(id);
+            let p = self.package(id);
             if p.has_library() {
-                out.push(TargetId { pkg: id, kind: RuleKind::Library });
+                out.push(TargetId { package: id, kind: RuleKind::Library });
             }
             if p.has_binary() {
-                out.push(TargetId { pkg: id, kind: RuleKind::Binary });
+                out.push(TargetId { package: id, kind: RuleKind::Binary });
             }
         }
         out
     }
 
     pub fn label(&self, t: TargetId) -> String {
-        self.pkg(t.pkg).label()
+        self.package(t.package).label()
     }
 
     /// The declared dependencies of a target, as labels with spans.
     pub fn declared_deps(&self, t: TargetId) -> &[Sp<String>] {
-        let p = self.pkg(t.pkg);
+        let p = self.package(t.package);
         match t.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.dependencies[..]).unwrap_or(&[]),
             RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.dependencies[..]).unwrap_or(&[]),
@@ -435,7 +438,7 @@ impl Workspace {
     }
 
     pub fn tags(&self, t: TargetId) -> &[Sp<String>] {
-        let p = self.pkg(t.pkg);
+        let p = self.package(t.package);
         match t.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.tags[..]).unwrap_or(&[]),
             RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.tags[..]).unwrap_or(&[]),
@@ -447,8 +450,8 @@ impl Workspace {
     /// is implicit and carries no span.
     pub fn dep_edges(&self, t: TargetId) -> Vec<(TargetId, Option<Span>)> {
         let mut out = Vec::new();
-        if t.kind == RuleKind::Binary && self.pkg(t.pkg).has_library() {
-            out.push((TargetId { pkg: t.pkg, kind: RuleKind::Library }, None));
+        if t.kind == RuleKind::Binary && self.package(t.package).has_library() {
+            out.push((TargetId { package: t.package, kind: RuleKind::Library }, None));
         }
         for dep in self.declared_deps(t) {
             if let Some(id) = self.dep_target(&dep.value) {
@@ -470,7 +473,7 @@ impl Workspace {
     /// target under test, and says everything else "including a test suite
     /// reaching a library named in `test.dependencies`, is checked normally".
     pub fn test_dep_edges(&self, t: TargetId) -> Vec<(TargetId, Option<Span>)> {
-        let p = self.pkg(t.pkg);
+        let p = self.package(t.package);
         let mut declared: Vec<&Sp<String>> = Vec::new();
         match t.kind {
             RuleKind::Library => {
@@ -500,21 +503,21 @@ impl Workspace {
     /// same package's library rule.
     fn dep_target(&self, label: &str) -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
-        if let Some(id) = self.pkg_by_path(path) {
-            if self.pkg(id).has_library() {
-                return Some(TargetId { pkg: id, kind: RuleKind::Library });
+        if let Some(id) = self.package_by_path(path) {
+            if self.package(id).has_library() {
+                return Some(TargetId { package: id, kind: RuleKind::Library });
             }
             return None;
         }
         // `//lib/ledger/testing` -> the library rule of //lib/ledger.
         let owner = path.strip_suffix("/testing")?;
-        let id = self.pkg_by_path(owner)?;
-        self.pkg(id)
+        let id = self.package_by_path(owner)?;
+        self.package(id)
             .build
             .library
             .as_ref()
             .filter(|l| l.testing.is_some())
-            .map(|_| TargetId { pkg: id, kind: RuleKind::Library })
+            .map(|_| TargetId { package: id, kind: RuleKind::Library })
     }
 
     /// Which rule a file in a package belongs to, by its package-relative
@@ -529,8 +532,8 @@ impl Workspace {
     /// The entry points answer first, because they are named by the rule kind
     /// rather than listed. A file no rule reaches is `None`, which is
     /// `undeclared-source`'s business rather than this function's.
-    pub fn rule_of_file(&self, pkg: PkgId, rel: &str) -> Option<RuleKind> {
-        let p = self.pkg(pkg);
+    pub fn rule_of_file(&self, package: PackageId, rel: &str) -> Option<RuleKind> {
+        let p = self.package(package);
         match rel {
             "lib.buri" | "testing/lib.buri" if p.has_library() => return Some(RuleKind::Library),
             "main.buri" if p.has_binary() => return Some(RuleKind::Binary),
@@ -615,17 +618,17 @@ impl Workspace {
     /// `gen`'s on-disk import scan each walked these same steps, and a
     /// `/testing` suffix decided in three places is one place for the rule to
     /// be forgotten.
-    pub fn dependency_label(&self, own: PkgId, path: &str) -> Option<String> {
+    pub fn dependency_label(&self, own: PackageId, path: &str) -> Option<String> {
         if !path.starts_with("//") {
             return None;
         }
         let Ok(ModuleLoc::InPackage(loc)) = self.resolve_module(path) else {
             return None;
         };
-        if loc.pkg == own {
+        if loc.package == own {
             return None;
         }
-        let label = self.pkg(loc.pkg).label();
+        let label = self.package(loc.package).label();
         Some(if is_test_only_path(path) { format!("{label}/testing") } else { label })
     }
 
@@ -659,37 +662,37 @@ impl Workspace {
 
         // `//pkg` is `lib.buri` and nothing else — one spelling per module.
         if rest.ends_with("/lib") {
-            let pkg = rest.trim_end_matches("/lib");
+            let package = rest.trim_end_matches("/lib");
             return Err(format!(
-                "\"{path}\" is not a legal module path; write \"//{pkg}\", which is that \
+                "\"{path}\" is not a legal module path; write \"//{package}\", which is that \
                  library's surface"
             ));
         }
 
         // Longest package prefix wins.
-        for (pkg_path, id) in &self.sorted_paths {
-            let remainder = if rest == pkg_path {
+        for (package_path, id) in &self.sorted_paths {
+            let remainder = if rest == package_path {
                 ""
-            } else if pkg_path.is_empty() {
+            } else if package_path.is_empty() {
                 rest
-            } else if let Some(r) = rest.strip_prefix(&format!("{pkg_path}/")) {
+            } else if let Some(r) = rest.strip_prefix(&format!("{package_path}/")) {
                 r
             } else {
                 continue;
             };
 
-            let pkg = self.pkg(*id);
+            let package = self.package(*id);
             let (kind, file) = match remainder {
-                "" => (ModuleKind::LibrarySurface, pkg.dir.join("lib.buri")),
-                "testing" => (ModuleKind::TestingSurface, pkg.dir.join("testing/lib.buri")),
-                "main" => (ModuleKind::BinaryEntry, pkg.dir.join("main.buri")),
+                "" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
+                "testing" => (ModuleKind::TestingSurface, package.dir.join("testing/lib.buri")),
+                "main" => (ModuleKind::BinaryEntry, package.dir.join("main.buri")),
                 // A `.proto` path names the schema itself, extension and all.
                 // `build.proto`'s own header writes the import that way —
                 // `from "//proto/foo.proto" import ...` — so the module path
                 // and the file on disk are the same string, and there is no
                 // second spelling to learn.
-                r if r.ends_with(".proto") => (ModuleKind::Proto, pkg.dir.join(r)),
-                r => (ModuleKind::Internal, pkg.dir.join(format!("{r}.buri"))),
+                r if r.ends_with(".proto") => (ModuleKind::Proto, package.dir.join(r)),
+                r => (ModuleKind::Internal, package.dir.join(format!("{r}.buri"))),
             };
             if !file.is_file() {
                 return Err(format!("\"{path}\" names no file ({})", self.rel_of(&file)));
@@ -698,7 +701,7 @@ impl Workspace {
             return Ok(ModuleLoc::InPackage(PackageModule {
                 path: path.to_string(),
                 kind,
-                pkg: *id,
+                package: *id,
                 file,
                 rel,
             }));
@@ -712,11 +715,11 @@ impl Workspace {
 
     /// The package a path on disk belongs to: the nearest ancestor with a
     /// `BUILD.buri`.
-    pub fn owning_package(&self, p: &Path) -> Option<PkgId> {
+    pub fn owning_package(&self, p: &Path) -> Option<PackageId> {
         let rel = self.rel_of(p);
         let mut dir = rel.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
         loop {
-            if let Some(id) = self.pkg_by_path(&dir) {
+            if let Some(id) = self.package_by_path(&dir) {
                 return Some(id);
             }
             match dir.rsplit_once('/') {
@@ -737,17 +740,17 @@ impl Workspace {
     /// the check because neither is a dependency anyone chose: a target's own
     /// test suite reaching the target under test, and a binary reaching the
     /// library in its own package.
-    pub fn visible(&self, from: PkgId, to: TargetId) -> bool {
-        if from == to.pkg {
+    pub fn visible(&self, from: PackageId, to: TargetId) -> bool {
+        if from == to.package {
             return true;
         }
-        let Some(lib) = &self.pkg(to.pkg).build.library else { return false };
-        let from_path = &self.pkg(from).path;
+        let Some(lib) = &self.package(to.package).build.library else { return false };
+        let from_path = &self.package(from).path;
         lib.visibility.iter().any(|v| v.value.allows(from_path))
     }
 
     pub fn visibility_list(&self, to: TargetId) -> String {
-        match &self.pkg(to.pkg).build.library {
+        match &self.package(to.package).build.library {
             Some(l) if !l.visibility.is_empty() => {
                 l.visibility.iter().map(|v| v.value.spelling()).collect::<Vec<_>>().join(", ")
             }
@@ -765,7 +768,7 @@ impl Workspace {
     pub fn platforms(&self, t: TargetId) -> BTreeSet<Platform> {
         let mut allowed: BTreeSet<Platform> = Platform::ALL.into_iter().collect();
         for member in self.closure(t) {
-            if let Some(lib) = &self.pkg(member.pkg).build.library {
+            if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library && !lib.platforms.is_empty() {
                     let declared: BTreeSet<Platform> =
                         lib.platforms.iter().map(|p| p.value).collect();
@@ -793,7 +796,7 @@ impl Workspace {
         platform: Platform,
     ) -> Option<(TargetId, String)> {
         for member in self.closure(t) {
-            if let Some(lib) = &self.pkg(member.pkg).build.library {
+            if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library
                     && !lib.platforms.is_empty()
                     && !lib.platforms.iter().any(|p| p.value == platform)

@@ -86,7 +86,7 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
     let mut out: BTreeSet<PathBuf> = BTreeSet::new();
     out.insert(s.root.join("REPO.buri"));
     for id in s.workspace.ids() {
-        out.insert(s.workspace.pkg(id).build_path.clone());
+        out.insert(s.workspace.package(id).build_path.clone());
     }
     for &target in targets {
         for member in s.workspace.closure(target) {
@@ -105,10 +105,10 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
         // The suite's own inputs, which are on the selected target rather than
         // on its closure: a dependency's test sources are not built by this
         // run and are not in this run's key.
-        let pkg = s.workspace.pkg(target.pkg);
-        if let Some(suite) = pkg.test_suite(target.kind) {
+        let package = s.workspace.package(target.package);
+        if let Some(suite) = package.test_suite(target.kind) {
             for x in suite.sources.iter().chain(&suite.data) {
-                out.insert(pkg.dir.join(&x.value));
+                out.insert(package.dir.join(&x.value));
             }
         }
     }
@@ -120,13 +120,13 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
 /// mirrors the key" is a shared enumeration rather than two lists that have to
 /// be kept in step by hand.
 fn declared_sources(s: &Session, member: TargetId, out: &mut BTreeSet<PathBuf>) {
-    let pkg = s.workspace.pkg(member.pkg);
-    out.insert(pkg.build_path.clone());
-    let dir = &pkg.dir;
+    let package = s.workspace.package(member.package);
+    out.insert(package.build_path.clone());
+    let dir = &package.dir;
     match member.kind {
         RuleKind::Library => {
             out.insert(dir.join("lib.buri"));
-            if let Some(lib) = &pkg.build.library {
+            if let Some(lib) = &package.build.library {
                 for x in lib.sources.iter().chain(&lib.proto_sources) {
                     out.insert(dir.join(&x.value));
                 }
@@ -140,7 +140,7 @@ fn declared_sources(s: &Session, member: TargetId, out: &mut BTreeSet<PathBuf>) 
         }
         RuleKind::Binary => {
             out.insert(dir.join("main.buri"));
-            if let Some(bin) = &pkg.build.binary {
+            if let Some(bin) = &package.build.binary {
                 for x in bin.sources.iter().chain(&bin.proto_sources) {
                     out.insert(dir.join(&x.value));
                 }

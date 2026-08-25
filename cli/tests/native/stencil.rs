@@ -866,10 +866,17 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
     let source = std::fs::read_to_string(&full).map_err(|e| e.to_string())?;
     let mut map = SourceMap::new();
     let repository = repository();
-    let pkg = repository.and_then(|w| w.pkg_by_path(&format!("lib/{package}")));
+    let package = repository.and_then(|w| w.package_by_path(&format!("lib/{package}")));
     let mut cache = buri::parsing::parser::Cache::new();
-    let analysis =
-        driver::analyze_snippet_as(repository, pkg, &mut map, &mut cache, "main", &source, Role::TestSource);
+    let analysis = driver::analyze_snippet_as(
+        repository,
+        package,
+        &mut map,
+        &mut cache,
+        "main",
+        &source,
+        Role::TestSource,
+    );
     if analysis.diags.has_errors() {
         return Err(String::from("the front end refused it"));
     }
@@ -1005,10 +1012,17 @@ fn run_corpus(path: &str, source: &str) -> Ran {
     let (package, _) = path.split_once('/').unwrap_or((path, ""));
     let mut map = SourceMap::new();
     let repository = repository();
-    let pkg = repository.and_then(|w| w.pkg_by_path(&format!("lib/{package}")));
+    let package = repository.and_then(|w| w.package_by_path(&format!("lib/{package}")));
     let mut cache = buri::parsing::parser::Cache::new();
-    let analysis =
-        driver::analyze_snippet_as(repository, pkg, &mut map, &mut cache, "main", source, Role::TestSource);
+    let analysis = driver::analyze_snippet_as(
+        repository,
+        package,
+        &mut map,
+        &mut cache,
+        "main",
+        source,
+        Role::TestSource,
+    );
     assert!(!analysis.diags.has_errors(), "`{path}`: the front end refused it");
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();

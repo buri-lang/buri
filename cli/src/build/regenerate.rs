@@ -9,7 +9,7 @@
 
 use crate::build::session::Session;
 use crate::build::textproto::{Doc, Field, Msg, Value};
-use crate::build::workspace::{PkgId, RuleKind};
+use crate::build::workspace::{PackageId, RuleKind};
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -25,11 +25,11 @@ pub struct Update {
               boxing it would put an allocation on a path that runs once and reads worse at \
               all three call sites"
 )]
-pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnostic> {
-    let p = s.workspace.pkg(pkg);
+pub fn regenerate(s: &mut Session, package: PackageId) -> Result<Option<Update>, Diagnostic> {
+    let p = s.workspace.package(package);
     let build_path = p.build_path.clone();
     let dir = p.dir.clone();
-    let pkg_path = p.path.clone();
+    let package_path = p.path.clone();
     let file_id = p.build_file_id;
     let original = std::fs::read_to_string(&build_path).unwrap_or_default();
 
@@ -77,9 +77,9 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
     // belongs to, and the answer is which entry point reaches it. Computed
     // once, and only where the question can arise: a package with one rule has
     // one answer, and asking would be work with nothing to decide.
-    let main_module = format!("//{pkg_path}/main");
+    let main_module = format!("//{package_path}/main");
     let (from_main, from_lib) = if has_library && has_binary {
-        (reachable(&dir, &pkg_path, "main.buri"), reachable(&dir, &pkg_path, "lib.buri"))
+        (reachable(&dir, &package_path, "main.buri"), reachable(&dir, &package_path, "lib.buri"))
     } else {
         (BTreeSet::new(), BTreeSet::new())
     };
@@ -187,8 +187,8 @@ pub fn regenerate(s: &mut Session, pkg: PkgId) -> Result<Option<Update>, Diagnos
         .with_note("guessing would move code across a boundary that exists to be explicit"));
     }
 
-    let deps = derive_dependencies(s, pkg, &dir, &lib_tests, &bin_tests);
-    let p = s.workspace.pkg(pkg);
+    let deps = derive_dependencies(s, package, &dir, &lib_tests, &bin_tests);
+    let p = s.workspace.package(package);
     let mut summary = Vec::new();
 
     // In a package with both rules, `+ sources: ...` twice is two claims a
@@ -350,7 +350,7 @@ struct BinaryDeps {
 /// and the answers are split by role afterwards.
 fn derive_dependencies(
     s: &mut Session,
-    pkg: PkgId,
+    package: PackageId,
     dir: &Path,
     lib_tests: &[String],
     bin_tests: &[String],
@@ -359,13 +359,13 @@ fn derive_dependencies(
     let mut out = Derived::default();
     for kind in [RuleKind::Library, RuleKind::Binary] {
         let has = match kind {
-            RuleKind::Library => s.workspace.pkg(pkg).has_library(),
-            RuleKind::Binary => s.workspace.pkg(pkg).has_binary(),
+            RuleKind::Library => s.workspace.package(package).has_library(),
+            RuleKind::Binary => s.workspace.package(package).has_binary(),
         };
         if !has {
             continue;
         }
-        let target = crate::build::workspace::TargetId { pkg, kind };
+        let target = crate::build::workspace::TargetId { package, kind };
         let unit = crate::compiler::modules::Unit {
             target: Some(target),
             // Regeneration reads a target's imports; it builds nothing. See
@@ -373,7 +373,8 @@ fn derive_dependencies(
             platform: None,
             with_tests: true,
         };
-        let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+        let analysis =
+            crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
         if analysis.diags.has_errors() {
             // Without a clean check there is no method-resolution information,
             // so the imports alone would be an incomplete answer.
@@ -387,9 +388,9 @@ fn derive_dependencies(
         // that lands in another library counts even though no import names it.
         // The role of the module the call sits in decides which field it
         // belongs to, exactly as the import loop below does.
-        resolved_by_role(s, &analysis, pkg, &mut production, &mut test, &mut testing);
+        resolved_by_role(s, &analysis, package, &mut production, &mut test, &mut testing);
         for m in &analysis.loaded.modules {
-            if m.pkg != Some(pkg) {
+            if m.pkg != Some(package) {
                 continue;
             }
             let into = match m.role {
@@ -403,7 +404,7 @@ fn derive_dependencies(
                     crate::parsing::tree::Item::ReExport(r) => r.path.clone(),
                     _ => continue,
                 };
-                if let Some(label) = s.workspace.dependency_label(pkg, &path) {
+                if let Some(label) = s.workspace.dependency_label(package, &path) {
                     into.insert(label);
                 }
             }
@@ -418,7 +419,7 @@ fn derive_dependencies(
             RuleKind::Library => lib_tests,
             RuleKind::Binary => bin_tests,
         };
-        test.extend(imported_labels(s, pkg, dir, on_disk));
+        test.extend(imported_labels(s, package, dir, on_disk));
         // `test.dependencies` is what the suite adds: the target under test is
         // this package and is already excluded, and its `dependencies` reach
         // the suite through it, so naming them again would be two claims about
@@ -449,7 +450,7 @@ fn derive_dependencies(
 fn resolved_by_role(
     s: &Session,
     analysis: &crate::compiler::driver::Analysis,
-    own: PkgId,
+    own: PackageId,
     production: &mut BTreeSet<String>,
     test: &mut BTreeSet<String>,
     testing: &mut BTreeSet<String>,
@@ -472,11 +473,11 @@ fn resolved_by_role(
             let Some(f) = called else { return };
             let callee = analysis.checked.tables.fn_info(f);
             let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
-            let Some(pkg) = m.pkg else { return };
-            if pkg == own {
+            let Some(package) = m.pkg else { return };
+            if package == own {
                 return;
             }
-            let label = s.workspace.pkg(pkg).label();
+            let label = s.workspace.package(package).label();
             reached.push(if crate::build::workspace::is_test_only_path(&m.path) {
                 format!("{label}/testing")
             } else {
@@ -498,13 +499,13 @@ fn resolved_by_role(
 /// other path is another target's business. Read off the syntax rather than
 /// off a checked analysis, because the file being placed is a file no rule
 /// lists yet — the loader would not have it, so there is nothing to ask.
-fn reachable(dir: &Path, pkg_path: &str, entry: &str) -> BTreeSet<String> {
+fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
     let mut seen = BTreeSet::new();
     let mut queue = vec![entry.to_string()];
     while let Some(f) = queue.pop() {
         for path in imports_of(dir, &f) {
             let Some(rest) = path.strip_prefix("//") else { continue };
-            let Some(rel) = rest.strip_prefix(pkg_path).and_then(|r| r.strip_prefix('/')) else {
+            let Some(rel) = rest.strip_prefix(package_path).and_then(|r| r.strip_prefix('/')) else {
                 continue;
             };
             let file =
@@ -521,11 +522,16 @@ fn reachable(dir: &Path, pkg_path: &str, entry: &str) -> BTreeSet<String> {
 ///
 /// The syntactic half of the same question `derive_dependencies` asks of the
 /// analysis, for the files the analysis has not been told about yet.
-fn imported_labels(s: &Session, pkg: PkgId, dir: &Path, files: &[String]) -> BTreeSet<String> {
+fn imported_labels(
+    s: &Session,
+    package: PackageId,
+    dir: &Path,
+    files: &[String],
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for f in files {
         for path in imports_of(dir, f) {
-            if let Some(label) = s.workspace.dependency_label(pkg, &path) {
+            if let Some(label) = s.workspace.dependency_label(package, &path) {
                 out.insert(label);
             }
         }

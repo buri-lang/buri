@@ -151,7 +151,7 @@ pub fn analyze_snippet_in(
 /// makes a document about a library's internals compilable.
 pub fn analyze_snippet_as(
     ws: Option<&Workspace>,
-    pkg: Option<crate::build::workspace::PkgId>,
+    pkg: Option<crate::build::workspace::PackageId>,
     map: &mut SourceMap,
     cache: &mut crate::parsing::parser::Cache,
     name: &str,
@@ -177,7 +177,7 @@ pub fn analyze_snippet_as(
 )]
 pub fn analyze_snippet_on(
     ws: Option<&Workspace>,
-    pkg: Option<crate::build::workspace::PkgId>,
+    pkg: Option<crate::build::workspace::PackageId>,
     map: &mut SourceMap,
     cache: &mut crate::parsing::parser::Cache,
     name: &str,

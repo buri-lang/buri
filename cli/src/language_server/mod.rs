@@ -542,12 +542,12 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         {
             continue;
         }
-        let Some(pkg) = package_of(&session, d.span.file, &path) else { continue };
-        if !regenerated.insert(session.workspace.pkg(pkg).path.clone()) {
+        let Some(package) = package_of(&session, d.span.file, &path) else { continue };
+        if !regenerated.insert(session.workspace.package(package).path.clone()) {
             continue;
         }
-        let Ok(Some(update)) = regenerate::regenerate(&mut session, pkg) else { continue };
-        let build = session.workspace.pkg(pkg).build_path.clone();
+        let Ok(Some(update)) = regenerate::regenerate(&mut session, package) else { continue };
+        let build = session.workspace.package(package).build_path.clone();
         let Some(id) = session.map.find(&session.workspace.rel_of(&build)) else { continue };
         let text = session.map.get(id).text.clone();
         let whole = Value::obj(vec![
@@ -563,7 +563,11 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
             ])],
         );
         out.push(action(
-            &format!("{}/BUILD.buri: {}", session.workspace.pkg(pkg).path, update.summary.join(", ")),
+            &format!(
+                "{}/BUILD.buri: {}",
+                session.workspace.package(package).path,
+                update.summary.join(", ")
+            ),
             code,
             by_file,
         ));
@@ -577,7 +581,7 @@ fn package_of(
     session: &Session,
     file: crate::diagnostics::FileId,
     fallback: &std::path::Path,
-) -> Option<crate::build::workspace::PkgId> {
+) -> Option<crate::build::workspace::PackageId> {
     let f = session.map.get(file);
     if !f.abs_path.as_os_str().is_empty() {
         if let Some(p) = session.workspace.owning_package(&f.abs_path) {

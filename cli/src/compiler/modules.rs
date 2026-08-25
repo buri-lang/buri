@@ -60,7 +60,7 @@ pub struct ModuleData {
     /// target that imports it reads the same tree.
     pub ast: std::rc::Rc<tree::Module>,
     /// The package this module belongs to, and the target that compiles it.
-    pub pkg: Option<crate::build::workspace::PkgId>,
+    pub pkg: Option<crate::build::workspace::PackageId>,
     /// The file this module was read from, for a module that came from disk.
     /// `None` for the embedded standard library and for generated modules,
     /// which have no file — that used to be an empty `PathBuf`, whose
@@ -184,7 +184,7 @@ impl<'a> Loader<'a> {
         // that has never heard of it.
         self.load_builtin_modules();
         let (Some(ws), Some(target)) = (self.ws, unit.target) else { return };
-        let pkg = ws.pkg(target.pkg);
+        let pkg = ws.package(target.package);
 
         match target.kind {
             RuleKind::Library => {
@@ -304,7 +304,7 @@ impl<'a> Loader<'a> {
         path: &str,
         role: Role,
         text: String,
-        pkg: Option<crate::build::workspace::PkgId>,
+        pkg: Option<crate::build::workspace::PackageId>,
     ) -> Option<ModuleId> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
@@ -341,14 +341,14 @@ impl<'a> Loader<'a> {
     /// `//pkg/testing` resolved to a file the build had never heard of.
     fn check_testing_surface_declared(&mut self, target: TargetId) {
         let Some(ws) = self.ws else { return };
-        let pkg = ws.pkg(target.pkg);
+        let pkg = ws.package(target.package);
         let dir = pkg.dir.join("testing");
         if !dir.is_dir() {
             return;
         }
         // A `testing/` that carries its own BUILD.buri is a package of its
         // own, and its files are that package's business.
-        if ws.owning_package(&dir.join("x")) != Some(target.pkg) {
+        if ws.owning_package(&dir.join("x")) != Some(target.package) {
             return;
         }
         if pkg.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
@@ -381,7 +381,7 @@ impl<'a> Loader<'a> {
         span: Span,
     ) -> Option<ModuleId> {
         let ws = self.ws?;
-        let pkg = ws.pkg(target.pkg);
+        let pkg = ws.package(target.package);
         // An entry point is named by the rule kind rather than listed
         // (BUILD-FILES.md:140-144, 194-196). Listing one says nothing the rule
         // did not already say, and it reads as though the rule could be
@@ -421,7 +421,7 @@ impl<'a> Loader<'a> {
     /// A `.proto` a rule lists in `proto_sources`.
     fn load_declared_proto(&mut self, target: TargetId, rel: &str, span: Span) -> Option<ModuleId> {
         let ws = self.ws?;
-        let pkg = ws.pkg(target.pkg);
+        let pkg = ws.package(target.package);
         if !rel.ends_with(".proto") {
             self.diags.push(
                 Diagnostic::error(span, format!("{rel} is not a .proto file"))
@@ -739,7 +739,7 @@ impl<'a> Loader<'a> {
     fn check_import_legality(
         &mut self,
         importer_path: &str,
-        importer_pkg: Option<crate::build::workspace::PkgId>,
+        importer_pkg: Option<crate::build::workspace::PackageId>,
         role: Role,
         path: &str,
         span: Span,
@@ -812,7 +812,7 @@ impl<'a> Loader<'a> {
         // compiled independently — one test binary each — so there is nothing
         // for an import to resolve to, whoever writes it (TESTING.md, "What a
         // test can reach").
-        if is_declared_test_source(ws, Some(loc.pkg), path) {
+        if is_declared_test_source(ws, Some(loc.package), path) {
             self.diags.push(
                 Diagnostic::error(span, format!("{path} is a test source"))
                     .with_code("test-source-import")
@@ -835,8 +835,8 @@ impl<'a> Loader<'a> {
             // rule that declared the schema, and reaches the outside world the
             // way every other internal module does — through `lib.buri`.
             ModuleKind::Internal | ModuleKind::Proto => {
-                if Some(loc.pkg) != importer_pkg {
-                    let owner = ws.pkg(loc.pkg).label();
+                if Some(loc.package) != importer_pkg {
+                    let owner = ws.package(loc.package).label();
                     self.diags.push(
                         Diagnostic::error(
                             span,
@@ -855,7 +855,7 @@ impl<'a> Loader<'a> {
                 // dependent does, and that is the rule that confines a suite to
                 // the public surface (TESTING.md:105-130).
                 if is_declared_test_source(ws, importer_pkg, importer_path) {
-                    let owner = ws.pkg(loc.pkg).label();
+                    let owner = ws.package(loc.package).label();
                     let dir = owner.trim_start_matches("//");
                     let what = match names {
                         [] => "what the test needs".to_string(),
@@ -887,16 +887,16 @@ impl<'a> Loader<'a> {
                 // all. Asking which package the importer is in answered the
                 // first question with "yes, it is right there", which is
                 // exactly the case the two rules are about.
-                let rule_of = |pkg: Option<crate::build::workspace::PkgId>, p: &str| {
+                let rule_of = |pkg: Option<crate::build::workspace::PackageId>, p: &str| {
                     let id = pkg?;
                     let rel = package_relative_source(ws, id, p)?;
                     ws.rule_of_file(id, &rel)
                 };
                 let importer_rule = rule_of(importer_pkg, importer_path);
-                let target_rule = rule_of(Some(loc.pkg), path);
+                let target_rule = rule_of(Some(loc.package), path);
                 if let (Some(from), Some(to)) = (importer_rule, target_rule) {
                     if from != to {
-                        let owner = ws.pkg(loc.pkg).label();
+                        let owner = ws.package(loc.package).label();
                         let dir = owner.trim_start_matches("//");
                         let importer_file = source_file_of(importer_path);
                         let d = match to {
@@ -936,7 +936,7 @@ impl<'a> Loader<'a> {
             // A binary's entry point is importable only from that binary's own
             // test sources.
             ModuleKind::BinaryEntry => {
-                let same_package = Some(loc.pkg) == importer_pkg;
+                let same_package = Some(loc.package) == importer_pkg;
                 if !same_package || !role.is_test_context() {
                     self.diags.push(
                         Diagnostic::error(span, format!("{path} is a binary's entry point")).with_code("binary-entry-import")
@@ -981,11 +981,11 @@ fn source_file_of(path: &str) -> String {
 /// `//lib/money/test/cents` -> `test/cents.buri`.
 fn package_relative_source(
     ws: &Workspace,
-    pkg: crate::build::workspace::PkgId,
+    pkg: crate::build::workspace::PackageId,
     path: &str,
 ) -> Option<String> {
     let rest = path.strip_prefix("//")?;
-    let pkg_path = ws.pkg(pkg).path.clone();
+    let pkg_path = ws.package(pkg).path.clone();
     let rel = if pkg_path.is_empty() {
         rest
     } else {
@@ -1006,12 +1006,12 @@ fn package_relative_source(
 /// documented example of a library's own internals compilable.
 fn is_declared_test_source(
     ws: &Workspace,
-    pkg: Option<crate::build::workspace::PkgId>,
+    pkg: Option<crate::build::workspace::PackageId>,
     path: &str,
 ) -> bool {
     let Some(pkg_id) = pkg else { return false };
     let Some(rel) = package_relative_source(ws, pkg_id, path) else { return false };
-    let build = &ws.pkg(pkg_id).build;
+    let build = &ws.package(pkg_id).build;
     let listed = |suite: &crate::build::buildfile::TestSuite| {
         suite.sources.iter().any(|s| s.value == rel)
     };

@@ -31,7 +31,7 @@ CONFORMANCE_TEST_RUNNER at it:
 
   curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v35.1/protobuf-35.1.tar.gz
   tar xzf protobuf-35.1.tar.gz && cd protobuf-35.1
-  nix-shell -p cmake ninja abseil-cpp zlib pkg-config --run '
+  nix-shell -p cmake ninja abseil-cpp zlib package-config --run '
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_CONFORMANCE=ON \
       -Dprotobuf_ABSL_PROVIDER=package &&

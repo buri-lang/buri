@@ -17,7 +17,7 @@
 //! Only step 5 needs inference, and it never crosses a function boundary,
 //! because top-level signatures are mandatory.
 
-use crate::build::workspace::{PkgId, Workspace};
+use crate::build::workspace::{PackageId, Workspace};
 use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
@@ -89,7 +89,7 @@ pub struct Checked {
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `unreachable-export` needs
     /// it to ask the opposite question — what is exported and reaches nobody.
-    pub surfaces: HashMap<PkgId, HashSet<String>>,
+    pub surfaces: HashMap<PackageId, HashSet<String>>,
 }
 
 /// The traits `derive` can generate. Derivation is a fold over one type
@@ -125,7 +125,7 @@ pub struct Checker<'a> {
     pub prim_module: ModuleId,
     /// Per package, the set of names its `lib.buri` puts on the surface. A
     /// method call from outside a library resolves only to these.
-    pub surfaces: HashMap<PkgId, HashSet<String>>,
+    pub surfaces: HashMap<PackageId, HashSet<String>>,
     /// Traits by well-known name, for operators and `derive`.
     pub known_traits: HashMap<String, TraitId>,
     /// Enums by well-known name.
@@ -880,7 +880,10 @@ impl<'a> Checker<'a> {
                         let fid = match sym {
                             Sym::Fn(f) => f,
                             Sym::Overloaded(fs) => {
-                                match fs.iter().find(|f| self.tables.fn_info(**f).span == d.name.span) {
+                                match fs
+                                    .iter()
+                                    .find(|f| self.tables.fn_info(**f).span == d.name.span)
+                                {
                                     Some(f) => *f,
                                     None => continue,
                                 }
@@ -2063,7 +2066,7 @@ impl<'a> Checker<'a> {
             let Some(pkg) = module.pkg else { continue };
             let is_surface = self
                 .ws
-                .map(|ws| ws.pkg(pkg).label() == module.path)
+                .map(|ws| ws.package(pkg).label() == module.path)
                 .unwrap_or(false);
             if !is_surface {
                 continue;

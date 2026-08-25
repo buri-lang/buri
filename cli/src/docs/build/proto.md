@@ -3,7 +3,7 @@
 A `.proto` file in a package is a source, and the module it becomes is
 generated rather than read:
 
-```buri repo=cli/tests/conformance pkg=//lib/proto
+```buri repo=cli/tests/conformance package=//lib/proto
 from "//lib/proto/address.proto" import { Address, encodeAddress, decodeAddress };
 from "core/effect" import { Alloc };
 from "core/proto" import { ProtoError };
@@ -290,7 +290,7 @@ and `decodeEJson(Json, path): Result<E, ProtoError>`.
 
 `defaultM` is what makes a message with more than a few fields writable at all:
 
-```buri repo=cli/tests/conformance pkg=//lib/proto
+```buri repo=cli/tests/conformance package=//lib/proto
 from "//lib/proto/demo.proto" import { Everything, Shade, defaultEverything };
 
 export fn dark(): Everything {

@@ -187,7 +187,7 @@ fn monomorphized_main(
         diagnostics.push(
             Diagnostic::error(
                 Span::NONE,
-                format!("{} exports no `main`", s.workspace.pkg(target.pkg).label()),
+                format!("{} exports no `main`", s.workspace.package(target.package).label()),
             )
             .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
         );
@@ -196,8 +196,12 @@ fn monomorphized_main(
 
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let program =
-        monomorphize::run(&analysis.checked, module_paths, diagnostics, monomorphize::Roots::Main(entry));
+    let program = monomorphize::run(
+        &analysis.checked,
+        module_paths,
+        diagnostics,
+        monomorphize::Roots::Main(entry),
+    );
     if diagnostics.has_errors() {
         return Err(std::mem::take(diagnostics));
     }
@@ -278,7 +282,7 @@ pub fn action_key(
 /// what makes "editing this file changed this target's key and not that one"
 /// something a test can watch rather than something a comment asserts.
 fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
-    let pkg = s.workspace.pkg(member.pkg);
+    let package = s.workspace.package(member.package);
     let kind = match member.kind {
         RuleKind::Library => "library",
         RuleKind::Binary => "binary",
@@ -288,7 +292,7 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
     sources.push(entry.to_string());
     match member.kind {
         RuleKind::Library => {
-            if let Some(lib) = &pkg.build.library {
+            if let Some(lib) = &package.build.library {
                 sources.extend(lib.sources.iter().map(|x| x.value.clone()));
                 // A `.proto` is an input like any other: the module it becomes
                 // is a pure function of its bytes, so editing a schema changes
@@ -301,14 +305,14 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
             }
         }
         RuleKind::Binary => {
-            if let Some(bin) = &pkg.build.binary {
+            if let Some(bin) = &package.build.binary {
                 sources.extend(bin.sources.iter().map(|x| x.value.clone()));
                 sources.extend(bin.proto_sources.iter().map(|x| x.value.clone()));
             }
         }
     }
     sources.sort();
-    k.rule_identity(&pkg.label(), kind, &sources);
+    k.rule_identity(&package.label(), kind, &sources);
     // Read in parallel, hashed in order. A key is a fold over the sources in
     // sorted order and that fold stays exactly where it was, on this thread; a
     // library of three hundred and sixty files is three hundred and sixty
@@ -316,10 +320,13 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
     // for. `parallel::map` returns in index order, so the bytes reach the
     // builder in the order `sources` is in.
     let contents: Vec<Vec<u8>> = crate::parallel::map(sources.len(), |i| {
-        sources.get(i).map(|rel| std::fs::read(pkg.dir.join(rel)).unwrap_or_default()).unwrap_or_default()
+        sources
+            .get(i)
+            .map(|rel| std::fs::read(package.dir.join(rel)).unwrap_or_default())
+            .unwrap_or_default()
     });
     for (rel, contents) in sources.iter().zip(&contents) {
-        k.input(&s.workspace.rel_of(&pkg.dir.join(rel)), contents);
+        k.input(&s.workspace.rel_of(&package.dir.join(rel)), contents);
     }
 }
 
@@ -339,15 +346,15 @@ fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) ->
 
 /// The schemas a rule declares, package-relative and sorted.
 pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
-    let pkg = s.workspace.pkg(target.pkg);
+    let package = s.workspace.package(target.package);
     let mut out: Vec<String> = match target.kind {
-        RuleKind::Library => pkg
+        RuleKind::Library => package
             .build
             .library
             .as_ref()
             .map(|l| l.proto_sources.iter().map(|x| x.value.clone()).collect())
             .unwrap_or_default(),
-        RuleKind::Binary => pkg
+        RuleKind::Binary => package
             .build
             .binary
             .as_ref()
@@ -368,11 +375,11 @@ pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
 fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Proto, flags.mode);
     k.platform(output.platform(), output.arch());
-    let pkg = s.workspace.pkg(target.pkg);
+    let package = s.workspace.package(target.package);
     let schemas = proto_sources(s, target);
-    k.rule_identity(&pkg.label(), "proto", &schemas);
+    k.rule_identity(&package.label(), "proto", &schemas);
     for rel in &schemas {
-        let full = pkg.dir.join(rel);
+        let full = package.dir.join(rel);
         k.input(&s.workspace.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
     }
     k.finish()
@@ -449,18 +456,18 @@ pub fn test_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -
         }
         contribute(s, member, &mut k);
     }
-    let pkg = s.workspace.pkg(target.pkg);
+    let package = s.workspace.package(target.package);
     let suite = match target.kind {
-        RuleKind::Library => pkg.build.library.as_ref().and_then(|l| l.test.as_ref()),
-        RuleKind::Binary => pkg.build.binary.as_ref().and_then(|b| b.test.as_ref()),
+        RuleKind::Library => package.build.library.as_ref().and_then(|l| l.test.as_ref()),
+        RuleKind::Binary => package.build.binary.as_ref().and_then(|b| b.test.as_ref()),
     };
     if let Some(suite) = suite {
         let mut files: Vec<String> =
             suite.sources.iter().chain(suite.data.iter()).map(|x| x.value.clone()).collect();
         files.sort();
-        k.rule_identity(&pkg.label(), "test", &files);
+        k.rule_identity(&package.label(), "test", &files);
         for rel in &files {
-            let full = pkg.dir.join(rel);
+            let full = package.dir.join(rel);
             k.input(rel, &std::fs::read(&full).unwrap_or_default());
         }
     }
@@ -996,7 +1003,7 @@ pub fn objects_of(
     // the same string in a debug section. This is the same rule `action_key`
     // follows for input paths, and it is the source of nondeterminism
     // ARCHITECTURE.md §7 calls out by name.
-    let prefix = s.workspace.pkg(target.pkg).path.clone();
+    let prefix = s.workspace.package(target.package).path.clone();
     let label = s.workspace.label(target);
     objects_named(s, &prefix, &label, output, flags, program, tables, diagnostics)
 }
@@ -1143,7 +1150,7 @@ fn build_native(
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let prefix = s.workspace.pkg(target.pkg).path.clone();
+    let prefix = s.workspace.package(target.package).path.clone();
     let opts = LinkOptions {
         profile: profile_of(flags),
         target: target_of(output),
@@ -1300,10 +1307,10 @@ pub fn native_test_binary(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let prefix = s.workspace.pkg(target.pkg).path.clone();
+    let prefix = s.workspace.package(target.package).path.clone();
     let label = s.workspace.label(target);
     let dir = s.root.join(".buri/out").join(output.dir());
-    let private = dir.join(&s.workspace.pkg(target.pkg).path).join("test");
+    let private = dir.join(&s.workspace.package(target.package).path).join("test");
     test_binary_named(
         s, &prefix, &label, private, output, flags, program, tables, diagnostics,
     )
@@ -1353,7 +1360,7 @@ pub fn native_test_batch(
     // from a new one. Deterministic: `targets` is in the pass's order.
     let dir = s.root.join(".buri/out").join(output.dir());
     let private = match targets.first() {
-        Some(t) => dir.join(&s.workspace.pkg(t.pkg).path).join("test"),
+        Some(t) => dir.join(&s.workspace.package(t.package).path).join("test"),
         None => dir.join("test"),
     };
     test_binary_named(s, "", &label, private, output, flags, program, tables, diagnostics)
@@ -1378,7 +1385,9 @@ fn test_binary_named(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let Some(linker) = linker_for(output, diagnostics) else { return Err(std::mem::take(diagnostics)) };
+    let Some(linker) = linker_for(output, diagnostics) else {
+        return Err(std::mem::take(diagnostics));
+    };
     let objects = objects_named(s, prefix, label, output, flags, program, tables, diagnostics)?;
     let key = link_key(output, flags, &linker, &objects.keys);
     let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
@@ -1427,14 +1436,14 @@ fn write_executable(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
 }
 
 pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf {
-    let pkg = s.workspace.pkg(target.pkg);
-    let dir_name = if pkg.path.is_empty() {
+    let package = s.workspace.package(target.package);
+    let dir_name = if package.path.is_empty() {
         s.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
     } else {
         // `rsplit` yields the whole string when there is no separator, so the
         // last segment is there for any non-empty path — and the branch above
         // is the empty one.
-        pkg.path.rsplit('/').next().unwrap_or(&pkg.path).to_string()
+        package.path.rsplit('/').next().unwrap_or(&package.path).to_string()
     };
     let base = output.artifact_name.clone().unwrap_or(dir_name);
     // The catch-all this used to end in would have given a WEB artifact no
@@ -1442,7 +1451,7 @@ pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf 
     // native one writes the bare name, so the match is over the two answers
     // rather than over one platform and everything else.
     let name = if output.platform().is_javascript() { format!("{base}.mjs") } else { base };
-    s.root.join(".buri/out").join(output.dir()).join(&pkg.path).join(name)
+    s.root.join(".buri/out").join(output.dir()).join(&package.path).join(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -1586,12 +1595,12 @@ pub fn check_visibility(s: &Session, target: TargetId, diagnostics: &mut Diagnos
     for (member, member_edges) in edges {
         for (dep, span) in member_edges {
             let Some(span) = span else { continue };
-            if s.workspace.visible(member.pkg, dep) {
+            if s.workspace.visible(member.package, dep) {
                 continue;
             }
-            let from = s.workspace.pkg(member.pkg).label();
+            let from = s.workspace.package(member.package).label();
             let to = s.workspace.label(dep);
-            let to_path = s.workspace.pkg(dep.pkg).path.clone();
+            let to_path = s.workspace.package(dep.package).path.clone();
             diagnostics.push(
                 Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
                     .with_code("visibility-violation")
@@ -1646,7 +1655,7 @@ pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) 
         .iter()
         .map(|t| t.span)
         .next()
-        .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
+        .unwrap_or(Span::point(s.workspace.package(target.package).build_file_id, 0));
 
     let mut d = Diagnostic::error(
         span,
@@ -1703,13 +1712,13 @@ pub fn check_platform(
     let label = s.workspace.label(target);
     let span = s
         .workspace
-        .pkg(target.pkg)
+        .package(target.package)
         .build
         .binary
         .as_ref()
         .and_then(|b| b.outputs.iter().find(|o| o.platform() == platform))
         .map(|o| o.span)
-        .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
+        .unwrap_or(Span::point(s.workspace.package(target.package).build_file_id, 0));
 
     let mut d = Diagnostic::error(
         span,
@@ -1745,7 +1754,7 @@ pub fn selected_outputs(s: &Session, target: TargetId, flags: &Flags) -> Vec<Out
     if target.kind != RuleKind::Binary {
         return Vec::new();
     }
-    let Some(bin) = &s.workspace.pkg(target.pkg).build.binary else { return Vec::new() };
+    let Some(bin) = &s.workspace.package(target.package).build.binary else { return Vec::new() };
     let mut outputs = bin.outputs.clone();
     if outputs.is_empty() {
         // A binary with no declared output still builds for the host, which is

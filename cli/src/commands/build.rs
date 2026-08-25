@@ -76,7 +76,12 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
             // thing it decides is a tag's `requires { platforms }`, which a
             // library is asked about again — per output — by every binary that
             // depends on it.
-            actions::check_policy(&s, target, crate::build::buildfile::Platform::Js, &mut diagnostics);
+            actions::check_policy(
+                &s,
+                target,
+                crate::build::buildfile::Platform::Js,
+                &mut diagnostics,
+            );
             if !diagnostics.has_errors() {
                 let unit = crate::compiler::modules::Unit {
                     target: Some(target),
@@ -85,7 +90,12 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                     platform: None,
                     with_tests: false,
                 };
-                let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+                let analysis = crate::compiler::driver::analyze(
+                    Some(&s.workspace),
+                    &mut s.map,
+                    &mut s.parsed,
+                    &unit,
+                );
                 diagnostics.extend(analysis.diags.items);
             }
             failed |= s.print(&diagnostics);
@@ -161,14 +171,14 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
     };
 
     for entry in plan {
-        let Entry { label, path, pkg_path, artifact, platform, output } = entry;
+        let Entry { label, path, package_path, artifact, platform, output } = entry;
         if platform.is_native() {
             if !actions::native_ready(actions::target_of(&output), actions::profile_of(&flags)) {
                 eprintln!("error: the {} backend is not implemented", platform.slug());
                 eprintln!("  = this toolchain emits JavaScript; check `--output=js`");
                 return 1;
             }
-            match check_native(&label, &path, &pkg_path, &artifact, &output, &flags, args) {
+            match check_native(&label, &path, &package_path, &artifact, &output, &flags, args) {
                 Ok(moved) => {
                     compared += 1;
                     differed |= moved;
@@ -196,8 +206,13 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                 Err(code) => return code,
             };
             let mut diagnostics = crate::diagnostics::Diagnostics::new();
-            let compiled = match actions::compile_artifact(&mut s, target, platform, &flags, &mut diagnostics)
-            {
+            let compiled = match actions::compile_artifact(
+                &mut s,
+                target,
+                platform,
+                &flags,
+                &mut diagnostics,
+            ) {
                 Ok(compiled) => compiled,
                 Err(diagnostics) => {
                     s.print(&diagnostics);
@@ -207,7 +222,7 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             // Written and read back rather than compared in memory, under two
             // different absolute paths, so that a path which leaked into an
             // artifact leaks differently in the two rounds.
-            let written = round_dir.join(&pkg_path).join(&artifact);
+            let written = round_dir.join(&package_path).join(&artifact);
             let mut files: Vec<(String, String)> =
                 vec![(artifact.clone(), compiled.module.clone())];
             for (companion, text) in
@@ -325,8 +340,11 @@ fn round_session(
     if s.report() {
         return Err(2);
     }
-    let Some(target) =
-        s.workspace.targets().into_iter().find(|t| s.workspace.label(*t) == label && t.kind == RuleKind::Binary)
+    let Some(target) = s
+        .workspace
+        .targets()
+        .into_iter()
+        .find(|t| s.workspace.label(*t) == label && t.kind == RuleKind::Binary)
     else {
         eprintln!("error: {label} disappeared between two builds of one tree");
         return Err(2);
@@ -354,7 +372,7 @@ struct Entry {
     label: String,
     /// What a failure names, repository-relative.
     path: String,
-    pkg_path: std::path::PathBuf,
+    package_path: std::path::PathBuf,
     artifact: String,
     platform: crate::build::buildfile::Platform,
     /// The declared output itself, because a native round needs the arch and
@@ -382,7 +400,7 @@ struct Entry {
 fn check_native(
     label: &str,
     path: &str,
-    pkg_path: &std::path::Path,
+    package_path: &std::path::Path,
     artifact: &str,
     output: &crate::build::buildfile::Output,
     flags: &arguments::Flags,
@@ -404,7 +422,13 @@ fn check_native(
         let _ = std::fs::remove_dir_all(&round_dir);
         let (mut s, target) = round_session(label, flags)?;
         let mut diagnostics = crate::diagnostics::Diagnostics::new();
-        let objects = match actions::compile_objects(&mut s, target, output, flags, &mut diagnostics) {
+        let objects = match actions::compile_objects(
+            &mut s,
+            target,
+            output,
+            flags,
+            &mut diagnostics,
+        ) {
             Ok(objects) => objects,
             Err(diagnostics) => {
                 s.print(&diagnostics);
@@ -418,20 +442,22 @@ fn check_native(
                 return Err(1);
             }
         };
-        let written = round_dir.join(pkg_path).join(artifact);
+        let written = round_dir.join(package_path).join(artifact);
         if let Some(parent) = written.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 eprintln!("error: cannot write {}: {e}", written.display());
                 return Err(2);
             }
         }
-        let prefix = s.workspace.pkg(target.pkg).path.clone();
+        let prefix = s.workspace.package(target.package).path.clone();
         let opts = crate::compiler::backend::LinkOptions {
             profile: actions::profile_of(flags),
             target: actions::target_of(output),
             unit_prefix: &prefix,
         };
-        if let Err(diagnostics) = link::run(&objects.units, &objects.rows, &linker, &written, &opts) {
+        if let Err(diagnostics) =
+            link::run(&objects.units, &objects.rows, &linker, &written, &opts)
+        {
             s.print(&diagnostics);
             return Err(1);
         }
@@ -536,7 +562,7 @@ fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
             plan.push(Entry {
                 label: s.workspace.label(target),
                 path: reported,
-                pkg_path: std::path::PathBuf::from(&s.workspace.pkg(target.pkg).path),
+                package_path: std::path::PathBuf::from(&s.workspace.package(target.package).path),
                 artifact: name,
                 platform: output.platform(),
                 output,

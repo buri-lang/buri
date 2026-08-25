@@ -54,7 +54,14 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
             color: flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
         },
     };
-    Ok(Session { root, map, parsed: crate::parsing::parser::Cache::new(), diagnostics, workspace, rendering })
+    Ok(Session {
+        root,
+        map,
+        parsed: crate::parsing::parser::Cache::new(),
+        diagnostics,
+        workspace,
+        rendering,
+    })
 }
 
 impl Session {
@@ -66,7 +73,7 @@ impl Session {
             let rel = self.workspace.rel_of(&cwd);
             let rel = if rel == "." { String::new() } else { rel };
             match self.workspace.owning_package(&cwd.join("x")) {
-                Some(id) => vec![Pattern::Package(self.workspace.pkg(id).path.clone())],
+                Some(id) => vec![Pattern::Package(self.workspace.package(id).path.clone())],
                 None => {
                     return Err(format!(
                         "no package at `{rel}`; name one, as in `buri build //lib/money`"
@@ -81,7 +88,7 @@ impl Session {
         for p in &patterns {
             let mut matched = false;
             for t in self.workspace.targets() {
-                if p.matches(&self.workspace.pkg(t.pkg).path) {
+                if p.matches(&self.workspace.package(t.package).path) {
                     out.push(t);
                     matched = true;
                 }

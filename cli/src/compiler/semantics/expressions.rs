@@ -1157,7 +1157,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !surface.contains(&self.c.tables.fn_info(f).name) {
                 let name = self.c.tables.fn_info(f).name.clone();
                 let label =
-                    self.c.ws.map(|w| w.pkg(there).label()).unwrap_or_default();
+                    self.c.ws.map(|w| w.package(there).label()).unwrap_or_default();
                 self.err(span, format!("`{name}` is not on {label}'s surface"))
                     .fix(format!("re-export `{name}` from that library's lib.buri, if it is part of the API"))
                     .notes

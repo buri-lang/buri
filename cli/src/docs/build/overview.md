@@ -98,7 +98,7 @@ it. Everything else in the package is listed one path at a time.
 
 `lib/money/lib.buri`:
 
-```buri repo=cli/tests/example pkg=//lib/money
+```buri repo=cli/tests/example package=//lib/money
 // The public surface of //lib/money. A dependent can import these names and no
 // others; `toCents` below is exported by cents.buri but not from here, so it is
 // visible inside this library and nowhere else.
@@ -149,7 +149,7 @@ sees, and it is the compiler's rule rather than a convention — a name `lib.bur
 withholds is not callable from another package, as a free function or as a
 method. `tools/report/test/render.buri`:
 
-```buri repo=cli/tests/example role=test pkg=//tools/report
+```buri repo=cli/tests/example role=test package=//tools/report
 # from "//lib/money" import { fromCents };
 # from "core/testing/assert" import * as assert;
 test "the surface is the whole of what a dependent can call" {

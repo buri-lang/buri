@@ -201,7 +201,7 @@ A component is an ordinary function returning a value. It takes no context, no
 allocator and no authority, because building a tree is fixed-size construction —
 so a component cannot do anything, and there is nothing to mock:
 
-```buri pkg=//cmd/basket platform=WEB
+```buri package=//cmd/basket platform=WEB
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -232,7 +232,7 @@ fn runningTotal<C>(lines: Signal<[Entry]>): Node<C> {
 A library that uses design tokens declares its own closed vocabulary and styles
 itself against that. The app closes the loop with one `match`:
 
-```buri pkg=//cmd/basket platform=WEB
+```buri package=//cmd/basket platform=WEB
 from "ui/style" import { Color };
 from "ui/theme" import { Theme };
 
@@ -259,7 +259,7 @@ contract in this language is — by not compiling. Leave a token out and the day
 //lib/kit adds a fifth one is the day this stops building, which is the only
 moment the omission is still cheap to fix:
 
-```buri fail code=match-not-exhaustive pkg=//cmd/basket platform=WEB
+```buri fail code=match-not-exhaustive package=//cmd/basket platform=WEB
 from "ui/style" import { Color };
 
 from "//lib/kit" import { Token };

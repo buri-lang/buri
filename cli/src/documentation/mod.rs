@@ -367,7 +367,8 @@ impl Workspace {
         let root = crate::build::workspace::find_root(&cwd)?;
         let mut map = crate::diagnostics::SourceMap::new();
         let mut diagnostics = crate::diagnostics::Diagnostics::new();
-        let workspace = crate::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).ok()?;
+        let workspace =
+            crate::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).ok()?;
 
         // Every library in the repository, checked together, so a page shows
         // what an importer would actually see.
@@ -382,8 +383,8 @@ impl Workspace {
             };
             let analysis =
                 crate::compiler::driver::analyze(Some(&workspace), &mut map, &mut cache, &unit);
-            let pkg = target.pkg;
-            let owned = |m: &crate::compiler::modules::ModuleData| m.pkg == Some(pkg);
+            let package = target.package;
+            let owned = |m: &crate::compiler::modules::ModuleData| m.pkg == Some(package);
             for m in reference::from_loaded(&analysis.loaded, &owned) {
                 if !modules.iter().any(|e: &reference::ApiModule| e.path == m.path) {
                     modules.push(m);

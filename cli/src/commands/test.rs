@@ -350,11 +350,14 @@ fn may_cache_produced(cases: &[Case], flags: &arguments::Flags) -> bool {
 }
 
 fn has_tests(s: &Session, target: TargetId) -> bool {
-    s.workspace.pkg(target.pkg).test_suite(target.kind).is_some_and(|t| !t.sources.is_empty())
+    s.workspace
+        .package(target.package)
+        .test_suite(target.kind)
+        .is_some_and(|t| !t.sources.is_empty())
 }
 
 fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestSuite> {
-    s.workspace.pkg(target.pkg).test_suite(target.kind).cloned()
+    s.workspace.package(target.package).test_suite(target.kind).cloned()
 }
 
 /// One suite, once per platform it runs on.
@@ -511,15 +514,20 @@ fn run_on(
     // and a test never binds `core/host` — only the entry point a batched
     // binary happens to drag in does. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+    let analysis =
+        crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
 
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut program =
-        monomorphize::run(&analysis.checked, module_paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        module_paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     if diagnostics.has_errors() {
         return Err(diagnostics);
     }
@@ -616,7 +624,7 @@ fn run_on(
         "$write(1,JSON.stringify($run({filter})));\n"
     ));
 
-    let dir = s.root.join(".buri/out/js").join(&s.workspace.pkg(target.pkg).path);
+    let dir = s.root.join(".buri/out/js").join(&s.workspace.package(target.package).path);
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("test.mjs");
     if let Err(e) = std::fs::write(&path, &source) {
@@ -1329,7 +1337,7 @@ fn batches_of(s: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> {
 /// is named by its package-relative path from the repository root.
 fn test_modules_of(s: &Session, target: TargetId) -> Vec<String> {
     let Some(suite) = suite(s, target) else { return Vec::new() };
-    let path = s.workspace.pkg(target.pkg).path.clone();
+    let path = s.workspace.package(target.package).path.clone();
     suite
         .sources
         .iter()
@@ -1372,8 +1380,12 @@ fn run_batch(
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, module_paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        module_paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     if diagnostics.has_errors() || program.roots.tests().is_empty() {
         return;
     }
@@ -1604,7 +1616,10 @@ fn timed_out(s: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
     let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
     let seconds = limit.unwrap_or(0);
     diagnostics.push(
-        Diagnostic::error(span, format!("{}'s test suite ran longer than {seconds}s", s.workspace.label(target)))
+        Diagnostic::error(
+            span,
+            format!("{}'s test suite ran longer than {seconds}s", s.workspace.label(target)),
+        )
             .with_code("test-timeout")
             .with_label("the timeout this suite declares")
             .with_note(
@@ -1706,7 +1721,7 @@ fn accept_goldens(s: &Session, target: TargetId, cases: &[Case], out: &mut Out) 
     if suite.data.is_empty() {
         return 0;
     }
-    let dir = s.workspace.pkg(target.pkg).dir.clone();
+    let dir = s.workspace.package(target.package).dir.clone();
     let label = s.workspace.label(target);
     let mut accepted = 0usize;
     for c in cases {
@@ -1796,7 +1811,7 @@ fn unquote(shown: &str) -> Option<String> {
 
 fn load_test_data(s: &Session, target: TargetId) -> String {
     let Some(suite) = suite(s, target) else { return "{}".into() };
-    let dir = s.workspace.pkg(target.pkg).dir.clone();
+    let dir = s.workspace.package(target.package).dir.clone();
     let mut fields = Vec::new();
     for d in &suite.data {
         let p: PathBuf = dir.join(&d.value);
@@ -1943,7 +1958,7 @@ fn report_failure(
 ) {
     let label = s.workspace.label(target);
     let file = c.module.trim_start_matches("//");
-    let file = file.strip_prefix(&s.workspace.pkg(target.pkg).path).unwrap_or(file);
+    let file = file.strip_prefix(&s.workspace.package(target.package).path).unwrap_or(file);
     let file = file.trim_start_matches('/');
     out.line(&format!("FAIL {label}  {file}.buri  {}", quote_title(&c.name)));
     out.line(&indented(message));

@@ -14,7 +14,7 @@
 )]
 
 use crate::build::session;
-use crate::build::workspace::PkgId;
+use crate::build::workspace::PackageId;
 use crate::commands::arguments;
 
 /// Rewrites the fields that restate the sources, and no others. `tags`,
@@ -28,18 +28,18 @@ pub fn cmd_gen(args: &arguments::Args) -> i32 {
     };
 
     let mut stale = Vec::new();
-    let mut packages: Vec<PkgId> = targets.iter().map(|t| t.pkg).collect();
+    let mut packages: Vec<PackageId> = targets.iter().map(|t| t.package).collect();
     packages.sort();
     packages.dedup();
 
-    for pkg in packages {
-        match crate::build::regenerate::regenerate(&mut s, pkg) {
+    for package in packages {
+        match crate::build::regenerate::regenerate(&mut s, package) {
             Ok(Some(update)) => {
-                stale.push(s.workspace.pkg(pkg).path.clone());
+                stale.push(s.workspace.package(package).path.clone());
                 if !args.flags.check {
-                    let path = s.workspace.pkg(pkg).build_path.clone();
+                    let path = s.workspace.package(package).build_path.clone();
                     if std::fs::write(&path, &update.text).is_ok() {
-                        println!("updated {}/BUILD.buri", s.workspace.pkg(pkg).path);
+                        println!("updated {}/BUILD.buri", s.workspace.package(package).path);
                         for line in &update.summary {
                             println!("  {line}");
                         }

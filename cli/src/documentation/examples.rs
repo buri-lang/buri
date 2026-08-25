@@ -132,7 +132,7 @@ pub struct Block {
     /// The package this example stands in, as a label. A document about a
     /// library shows the library's own files, and their imports are legal only
     /// from inside it.
-    pub pkg: Option<String>,
+    pub package: Option<String>,
     /// What the block is being compiled *as*, when the default is wrong: a
     /// document showing an `effect` declaration is showing a platform module,
     /// and one showing a `test` is showing a test source.
@@ -314,7 +314,7 @@ fn parse_block(
     };
 
     let repo = info.get("repo").map(String::from);
-    let pkg = info.get("pkg").map(String::from);
+    let package = info.get("package").map(String::from);
 
     let effects = match info.get("ctx") {
         Some(_) => info.list("ctx"),
@@ -457,7 +457,7 @@ fn parse_block(
         name: info.get("name").map(String::from),
         effects,
         repo,
-        pkg,
+        package,
         role,
         platform,
         source,
@@ -715,16 +715,16 @@ fn run_block_in(
     map: &mut SourceMap,
     cache: &mut crate::parsing::parser::Cache,
 ) -> Vec<Failure> {
-    let pkg = match (&block.pkg, workspace) {
+    let package = match (&block.package, workspace) {
         (Some(label), Some(workspace)) => {
             let path = label.trim_start_matches('/');
-            match workspace.pkg_by_path(path) {
+            match workspace.package_by_path(path) {
                 Some(id) => Some(id),
                 None => {
                     return vec![Failure {
                         origin: block.origin.clone(),
-                        what: format!("`pkg={label}` is not a package of this repository"),
-                        detail: "name a package that exists, as in `pkg=//lib/money`".into(),
+                        what: format!("`package={label}` is not a package of this repository"),
+                        detail: "name a package that exists, as in `package=//lib/money`".into(),
                     }]
                 }
             }
@@ -732,7 +732,7 @@ fn run_block_in(
         (Some(label), None) => {
             return vec![Failure {
                 origin: block.origin.clone(),
-                what: format!("`pkg={label}` needs a repository"),
+                what: format!("`package={label}` needs a repository"),
                 detail: "add `repo=...`, or run this inside the repository the package is in"
                     .into(),
             }]
@@ -754,7 +754,7 @@ fn run_block_in(
     let name = format!("{}", block.origin);
     let analysis = driver::analyze_snippet_on(
         workspace,
-        pkg,
+        package,
         map,
         cache,
         &name,
@@ -791,7 +791,11 @@ fn run_block_in(
                         detail: if got.is_empty() {
                             format!(
                                 "it produced no coded diagnostic; got:\n{}",
-                                if diagnostics.is_empty() { "nothing".into() } else { diagnostics.join("\n") }
+                                if diagnostics.is_empty() {
+                                    "nothing".into()
+                                } else {
+                                    diagnostics.join("\n")
+                                }
                             )
                         } else {
                             format!("it produced: {}", got.join(", "))
@@ -844,7 +848,7 @@ fn run_block_in(
         };
         let a = driver::analyze_snippet_on(
             workspace,
-            pkg,
+            package,
             map,
             cache,
             &name,

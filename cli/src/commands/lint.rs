@@ -19,7 +19,7 @@
 )]
 
 use crate::build::session::{self, Session};
-use crate::build::workspace::{PkgId, RuleKind, TargetId};
+use crate::build::workspace::{PackageId, RuleKind, TargetId};
 use crate::commands::arguments;
 use crate::compiler::modules::{ModuleData, Unit};
 use crate::compiler::semantics::typed;
@@ -74,9 +74,9 @@ pub fn findings_for(s: &mut Session, targets: &[TargetId]) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
     for target in targets {
-        if seen_packages.insert(target.pkg) {
-            check_sources_declared(s, target.pkg, &mut diagnostics);
-            check_test_suites(s, target.pkg, &mut diagnostics);
+        if seen_packages.insert(target.package) {
+            check_sources_declared(s, target.package, &mut diagnostics);
+            check_test_suites(s, target.package, &mut diagnostics);
         }
         // `lint` is not building, so it checks a binary against the platforms
         // its own `outputs` name, and a library against the question TAGS.md
@@ -126,36 +126,36 @@ fn regenerate_build_files(s: &mut Session, diagnostics: &Diagnostics) -> usize {
     // Which package a finding is about. `missing-dep` points at the import in
     // a source file, not at the build file, so this is by path prefix — the
     // longest package path the file sits under.
-    let mut packages: BTreeSet<PkgId> = BTreeSet::new();
+    let mut packages: BTreeSet<PackageId> = BTreeSet::new();
     for d in &diagnostics.items {
         if !d.code.as_deref().is_some_and(|c| REGENERABLE.contains(&c)) {
             continue;
         }
         let name = s.map.name(d.span.file).to_string();
-        let mut best: Option<(usize, PkgId)> = None;
+        let mut best: Option<(usize, PackageId)> = None;
         for t in s.workspace.targets() {
-            let p = s.workspace.pkg(t.pkg);
+            let p = s.workspace.package(t.package);
             let owns = p.build_file_id == d.span.file
                 || name.strip_prefix(&p.path).is_some_and(|r| r.starts_with('/'));
             if owns && best.is_none_or(|(len, _)| p.path.len() > len) {
-                best = Some((p.path.len(), t.pkg));
+                best = Some((p.path.len(), t.package));
             }
         }
-        if let Some((_, pkg)) = best {
-            packages.insert(pkg);
+        if let Some((_, package)) = best {
+            packages.insert(package);
         }
     }
 
     let mut fixed = 0;
-    for pkg in packages {
-        match crate::build::regenerate::regenerate(s, pkg) {
+    for package in packages {
+        match crate::build::regenerate::regenerate(s, package) {
             Ok(Some(update)) => {
-                let path = s.workspace.pkg(pkg).build_path.clone();
+                let path = s.workspace.package(package).build_path.clone();
                 if let Err(err) = std::fs::write(&path, &update.text) {
                     eprintln!("error: writing {}: {err}", path.display());
                     continue;
                 }
-                println!("updated {}/BUILD.buri", s.workspace.pkg(pkg).path);
+                println!("updated {}/BUILD.buri", s.workspace.package(package).path);
                 for line in &update.summary {
                     println!("  {line}");
                 }
@@ -229,7 +229,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diagnostics: &mut Diagn
             .tags(target)
             .first()
             .map(|t| t.span)
-            .unwrap_or(Span::point(s.workspace.pkg(target.pkg).build_file_id, 0));
+            .unwrap_or(Span::point(s.workspace.package(target.package).build_file_id, 0));
         diagnostics.push(
             Diagnostic::error(span, format!("{label} can never be built"))
                 .with_code("platform-violation")
@@ -241,7 +241,7 @@ fn check_target_platforms(s: &Session, target: TargetId, diagnostics: &mut Diagn
     if target.kind != RuleKind::Binary {
         return;
     }
-    let Some(bin) = &s.workspace.pkg(target.pkg).build.binary else { return };
+    let Some(bin) = &s.workspace.package(target.package).build.binary else { return };
     for output in &bin.outputs {
         let p = output.platform();
         if !allowed.contains(&p) {
@@ -254,8 +254,8 @@ fn check_target_platforms(s: &Session, target: TargetId, diagnostics: &mut Diagn
 /// something is tested, backed by nothing — and it reads as coverage in every
 /// tool that walks the build graph. Writing the block is the deliberate act, so
 /// the empty one is a leftover rather than a decision.
-fn check_test_suites(s: &Session, pkg: PkgId, diagnostics: &mut Diagnostics) {
-    let p = s.workspace.pkg(pkg);
+fn check_test_suites(s: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
+    let p = s.workspace.package(package);
     let mut report = |suite: Option<&crate::build::buildfile::TestSuite>, rule: &str| {
         let Some(suite) = suite else { return };
         if !suite.sources.is_empty() {
@@ -282,8 +282,8 @@ fn check_test_suites(s: &Session, pkg: PkgId, diagnostics: &mut Diagnostics) {
 /// `undeclared-source` and `duplicate-source`: every `.buri` file in a package
 /// must appear in exactly one rule. A file that appears in none can be dropped
 /// from the build by a typo and never noticed.
-fn check_sources_declared(s: &Session, pkg: PkgId, diagnostics: &mut Diagnostics) {
-    let p = s.workspace.pkg(pkg);
+fn check_sources_declared(s: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
+    let p = s.workspace.package(package);
     let mut declared: Vec<(String, Span)> = Vec::new();
     let push = |list: &[crate::build::buildfile::Sp<String>], out: &mut Vec<(String, Span)>| {
         for x in list {
@@ -387,7 +387,8 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+    let analysis =
+        crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
     if analysis.diags.has_errors() {
         diagnostics.extend(analysis.diags.items);
         return;
@@ -397,8 +398,9 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
     // loaded, so they ride along rather than paying for a second one.
     check_hygiene(s, target, &analysis, diagnostics);
 
-    let declared: Vec<crate::build::buildfile::Sp<String>> = s.workspace.declared_deps(target).to_vec();
-    let own = target.pkg;
+    let declared: Vec<crate::build::buildfile::Sp<String>> =
+        s.workspace.declared_deps(target).to_vec();
+    let own = target.package;
     // Use is what requires a dep, and an import is not the only way to use: a
     // method resolves through its receiver's type rather than through scope,
     // so a call that lands in another library counts even though no import
@@ -422,7 +424,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
             used.insert(wanted.clone());
             if !declared.iter().any(|d| d.value == wanted) && !in_test_deps(s, target, &wanted) {
                 let importer = s.map.name(m.file).to_string();
-                let pkg_path = s.workspace.pkg(own).path.clone();
+                let package_path = s.workspace.package(own).path.clone();
                 reported.insert(wanted.clone());
                 diagnostics.push(
                     Diagnostic::error(
@@ -431,8 +433,8 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
                     )
                     .with_code("missing-dep")
                     .with_fix(format!(
-                        "add \"{wanted}\" to dependencies in {pkg_path}/BUILD.buri — \
-                         `buri gen //{pkg_path}` does this automatically"
+                        "add \"{wanted}\" to dependencies in {package_path}/BUILD.buri — \
+                         `buri gen //{package_path}` does this automatically"
                     )),
                 );
             }
@@ -443,8 +445,8 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
     // there is nothing in a source file to point at — the claim that is wrong
     // is the one the build file makes, and that is where the span goes
     // (BUILD-FILES.md, "Dependencies": "an import is not the only way to use").
-    let pkg_path = s.workspace.pkg(own).path.clone();
-    let own_label = s.workspace.pkg(own).label();
+    let package_path = s.workspace.package(own).path.clone();
+    let own_label = s.workspace.package(own).label();
     for wanted in &resolved {
         if declared.iter().any(|d| &d.value == wanted)
             || in_test_deps(s, target, wanted)
@@ -454,7 +456,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
         }
         diagnostics.push(
             Diagnostic::error(
-                Span::point(s.workspace.pkg(own).build_file_id, 0),
+                Span::point(s.workspace.package(own).build_file_id, 0),
                 format!("{own_label} uses {wanted}, which is not in dependencies"),
             )
             .with_code("missing-dep")
@@ -463,8 +465,8 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
                  so no import names it",
             )
             .with_fix(format!(
-                "add \"{wanted}\" to dependencies in {pkg_path}/BUILD.buri — \
-                 `buri gen //{pkg_path}` does this automatically"
+                "add \"{wanted}\" to dependencies in {package_path}/BUILD.buri — \
+                 `buri gen //{package_path}` does this automatically"
             )),
         );
     }
@@ -493,7 +495,7 @@ fn check_dependencies(s: &mut Session, target: TargetId, diagnostics: &mut Diagn
 /// against code the author cannot edit.
 fn modules_of(
     analysis: &crate::compiler::driver::Analysis,
-    own: PkgId,
+    own: PackageId,
 ) -> BTreeSet<crate::compiler::semantics::types::ModuleId> {
     analysis.loaded.modules.iter().filter(|m| m.pkg == Some(own)).map(|m| m.id).collect()
 }
@@ -504,7 +506,7 @@ fn check_hygiene(
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
-    let own = target.pkg;
+    let own = target.package;
     for m in &analysis.loaded.modules {
         if m.pkg == Some(own) && !is_generated(&m.path) {
             check_unused_imports(s, m, diagnostics);
@@ -524,7 +526,7 @@ fn check_hygiene(
 /// A warning rather than an error, because it is a matter of taste about the
 /// text and not a rule about the program: `duplicate-test-name` is the rule.
 fn check_test_titles(
-    own: PkgId,
+    own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
@@ -563,7 +565,7 @@ fn check_unreachable_exports(
     if target.kind != RuleKind::Library {
         return;
     }
-    let own = target.pkg;
+    let own = target.package;
     let Some(surface) = analysis.checked.surfaces.get(&own) else { return };
 
     // What a sibling module inside the same package imports or re-exports, and
@@ -589,7 +591,7 @@ fn check_unreachable_exports(
                 _ => continue,
             };
             let Ok(loc) = s.workspace.resolve_module(path) else { continue };
-            if loc.in_package().map(|m| m.pkg) != Some(own) {
+            if loc.in_package().map(|m| m.package) != Some(own) {
                 continue;
             }
             for sp in specs {
@@ -622,7 +624,7 @@ fn check_unreachable_exports(
             if surface.contains(name) || wanted.contains(name) {
                 continue;
             }
-            let lib = format!("{}/lib.buri", s.workspace.pkg(own).path);
+            let lib = format!("{}/lib.buri", s.workspace.package(own).path);
             diagnostics.push(
                 Diagnostic::error(span, format!("`{name}` is exported and reaches nobody"))
                     .with_code("unreachable-export")
@@ -782,7 +784,7 @@ fn line_end(text: &str, at: u32) -> u32 {
 /// promoted to a warning so it appears in a report rather than only when
 /// somebody thinks to look.
 fn check_discarded_results(
-    own: PkgId,
+    own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
@@ -807,7 +809,7 @@ fn check_discarded_results(
 /// is most of the ones worth writing. So it is transitive: a test passes if
 /// anything reachable from it calls into `core/testing/assert`.
 fn check_tests_assert(
-    own: PkgId,
+    own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
@@ -868,7 +870,7 @@ fn check_tests_assert(
 /// Every call site in `own`'s code that lands on one of `names` in `module`.
 fn calls_into(
     analysis: &crate::compiler::driver::Analysis,
-    own: PkgId,
+    own: PackageId,
     module: &str,
     names: &[&str],
 ) -> Vec<(Span, String)> {
@@ -900,7 +902,7 @@ fn calls_into(
 pub(crate) fn reached_by_resolution(
     s: &Session,
     analysis: &crate::compiler::driver::Analysis,
-    own: PkgId,
+    own: PackageId,
 ) -> BTreeSet<String> {
     let mine = modules_of(analysis, own);
     let mut out = BTreeSet::new();
@@ -917,11 +919,11 @@ pub(crate) fn reached_by_resolution(
             let Some(f) = called else { return };
             let callee = analysis.checked.tables.fn_info(f);
             let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
-            let Some(pkg) = m.pkg else { return };
-            if pkg == own {
+            let Some(package) = m.pkg else { return };
+            if package == own {
                 return;
             }
-            let label = s.workspace.pkg(pkg).label();
+            let label = s.workspace.package(package).label();
             out.insert(if crate::build::workspace::is_test_only_path(&m.path) {
                 format!("{label}/testing")
             } else {
@@ -933,7 +935,7 @@ pub(crate) fn reached_by_resolution(
 }
 
 fn in_test_deps(s: &Session, target: TargetId, label: &str) -> bool {
-    let p = s.workspace.pkg(target.pkg);
+    let p = s.workspace.package(target.package);
     let suite = p.test_suite(target.kind);
     let testing = p.build.library.as_ref().and_then(|l| l.testing.as_ref());
     suite.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
@@ -973,7 +975,7 @@ fn check_cycles(s: &Session, diagnostics: &mut Diagnostics) {
             let b = s.workspace.label(dep);
             diagnostics.push(
                 Diagnostic::error(
-                    span.unwrap_or(Span::point(s.workspace.pkg(t.pkg).build_file_id, 0)),
+                    span.unwrap_or(Span::point(s.workspace.package(t.package).build_file_id, 0)),
                     format!("{a} and {b} depend on each other"),
                 )
                 .with_code("dep-cycle")

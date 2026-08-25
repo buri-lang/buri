@@ -440,29 +440,29 @@ impl Scratch {
         run_in_with_env(&self.root, args, env)
     }
 
-    /// The artifact `//<pkg_path>` builds to, under the JS runtime.
-    pub fn artifact(&self, pkg_path: &str) -> PathBuf {
-        self.artifact_in("js", pkg_path)
+    /// The artifact `//<package_path>` builds to, under the JS runtime.
+    pub fn artifact(&self, package_path: &str) -> PathBuf {
+        self.artifact_in("js", package_path)
     }
 
     /// The same, in a named output directory — `web` for a page, whose module
     /// is the same `.mjs` under a different platform's roof.
-    pub fn artifact_in(&self, dir: &str, pkg_path: &str) -> PathBuf {
-        let leaf = pkg_path.rsplit('/').next().unwrap();
-        self.path(&format!(".buri/out/{dir}/{pkg_path}/{leaf}.mjs"))
+    pub fn artifact_in(&self, dir: &str, package_path: &str) -> PathBuf {
+        let leaf = package_path.rsplit('/').next().unwrap();
+        self.path(&format!(".buri/out/{dir}/{package_path}/{leaf}.mjs"))
     }
 
     /// Runs that artifact. Not through `buri run`, because several suites need
     /// the artifact's own exit code and streams rather than the CLI's.
-    pub fn exec_js(&self, pkg_path: &str) -> Run {
-        self.exec_js_in("js", pkg_path)
+    pub fn exec_js(&self, package_path: &str) -> Run {
+        self.exec_js_in("js", package_path)
     }
 
     /// The same, from a named output directory. A page runs headlessly here:
     /// the runtime supplies a document where the host has none, so `mount`
     /// mounts and whatever `main` printed is printed.
-    pub fn exec_js_in(&self, dir: &str, pkg_path: &str) -> Run {
-        let artifact = self.artifact_in(dir, pkg_path);
+    pub fn exec_js_in(&self, dir: &str, package_path: &str) -> Run {
+        let artifact = self.artifact_in(dir, package_path);
         let out = Command::new(js_runtime())
             .arg(&artifact)
             .output()

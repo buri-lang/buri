@@ -382,12 +382,20 @@ fn repository() -> Option<&'static Workspace> {
 /// — the same split [`read`] makes, for the same reason.
 fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analysis {
     let repository = repository();
-    let pkg = repository.and_then(|w| {
+    let package = repository.and_then(|w| {
         let (package, _) = case_path.split_once('/')?;
-        w.pkg_by_path(&format!("lib/{package}"))
+        w.package_by_path(&format!("lib/{package}"))
     });
     let mut cache = buri::parsing::parser::Cache::new();
-    driver::analyze_snippet_as(repository, pkg, map, &mut cache, "main", source, Role::TestSource)
+    driver::analyze_snippet_as(
+        repository,
+        package,
+        map,
+        &mut cache,
+        "main",
+        source,
+        Role::TestSource,
+    )
 }
 
 /// A directory this *process* owns, per case.

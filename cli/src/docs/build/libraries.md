@@ -19,7 +19,7 @@ Nothing changes about `export` itself. A library-level export is a re-export
 name of, and the rule is mechanical: **if it is not named in `lib.buri`, it is
 not reachable from outside the library.**
 
-```buri repo=cli/tests/example pkg=//lib/money
+```buri repo=cli/tests/example package=//lib/money
 // lib/money/lib.buri — the surface of //lib/money, complete.
 
 from "//lib/money/cents" export { Cents, fromDollars, fromCents, add, isZero, format };
@@ -48,7 +48,7 @@ impl Cents {
 
 From `//cmd/server`:
 
-```buri repo=cli/tests/example pkg=//cmd/server
+```buri repo=cli/tests/example package=//cmd/server
 from "//lib/money" import { Cents, format };        // fine
 from "//lib/money" import { toCents };              // ERROR: "//lib/money" does not export `toCents`
 from "//lib/money/cents" import { toCents };        // ERROR: internal to //lib/money
@@ -173,7 +173,7 @@ exactly like the first one level down: it is the complete surface of
 `//lib/ledger/testing`, made of re-exports, and a name absent from it is
 unreachable.
 
-```buri repo=cli/tests/example pkg=//lib/ledger role=test
+```buri repo=cli/tests/example package=//lib/ledger role=test
 // lib/ledger/testing/lib.buri — the surface of //lib/ledger/testing.
 from "//lib/ledger/testing/fixtures" export { sample, oneOff };
 ```
@@ -217,7 +217,7 @@ moment you try.
 
 `lib.buri` is made of re-exports:
 
-```buri repo=cli/tests/example pkg=//lib/money
+```buri repo=cli/tests/example package=//lib/money
 from "//lib/money/cents" export { Cents, fromCents };
 from "//lib/money/cents" export { add as addMoney };   // renaming is allowed
 from "//lib/money/cents" export *;                     // ERROR: expected `{`, found `*`
@@ -232,7 +232,7 @@ shows up in review as a change to the API, which is what it is.
 A `lib.buri` may also declare things itself. It is an ordinary module that
 happens to be the entry point, so this is fine:
 
-```buri repo=cli/tests/example pkg=//lib/money
+```buri repo=cli/tests/example package=//lib/money
 from "//lib/money/cents" export { Cents, fromCents };
 from "//lib/money/cents" import { Cents, toCents };
 
@@ -325,7 +325,7 @@ Within the library, `entry.buri` imports `//lib/ledger/posting/rules` and
 `rules.buri` imports `//lib/ledger/entry` — absolute paths, no visibility rules,
 no build graph. `lib.buri` re-exports from wherever the names live:
 
-```buri repo=cli/tests/example pkg=//lib/ledger
+```buri repo=cli/tests/example package=//lib/ledger
 // lib/ledger/lib.buri
 from "//lib/ledger/entry" export { Entry, entry, total };
 from "//lib/ledger/posting/rules" export { Rule, apply };

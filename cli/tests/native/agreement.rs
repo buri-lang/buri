@@ -361,8 +361,12 @@ fn prepared(
 ) -> monomorphize::Program {
     let entry = checked.entry.expect("the program exports `main`");
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(checked, paths.to_vec(), &mut diagnostics, monomorphize::Roots::Main(entry));
+    let mut program = monomorphize::run(
+        checked,
+        paths.to_vec(),
+        &mut diagnostics,
+        monomorphize::Roots::Main(entry),
+    );
     assert!(!diagnostics.has_errors(), "{row}: monomorphization failed");
     // The product's own seam: `middle::run` for everybody, `middle::native`
     // for the platforms that are not JavaScript.

@@ -45,8 +45,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
 
     let lookup = |label: &str| -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
-        let id = s.workspace.pkg_by_path(path)?;
-        s.workspace.targets().into_iter().find(|t| t.pkg == id)
+        let id = s.workspace.package_by_path(path)?;
+        s.workspace.targets().into_iter().find(|t| t.package == id)
     };
 
     // Five of the six queries take one label and refuse an unknown one
@@ -147,7 +147,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         }
         "sources" => {
             let Some(t) = operand(first) else { return 2 };
-            let p = s.workspace.pkg(t.pkg);
+            let p = s.workspace.package(t.package);
             let mut all = Vec::new();
             if let Some(lib) = &p.build.library {
                 all.push("lib.buri".to_string());

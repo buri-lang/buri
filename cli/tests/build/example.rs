@@ -7,14 +7,15 @@ fn example_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("cli/tests/example")
 }
 
-fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: bool) -> String {
+fn check_target(kind: buri::build::workspace::RuleKind, package: &str, with_tests: bool) -> String {
     let root = example_root();
     let mut map = buri::diagnostics::SourceMap::new();
     let mut diagnostics = buri::diagnostics::Diagnostics::new();
-    let workspace = buri::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).unwrap();
-    let Some(id) = workspace.pkg_by_path(pkg) else { panic!("no package {pkg}") };
+    let workspace =
+        buri::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).unwrap();
+    let Some(id) = workspace.package_by_path(package) else { panic!("no package {package}") };
     let unit = buri::compiler::modules::Unit {
-        target: Some(buri::build::workspace::TargetId { pkg: id, kind }),
+        target: Some(buri::build::workspace::TargetId { package: id, kind }),
         platform: None,
         with_tests,
     };
@@ -31,8 +32,8 @@ fn check_target(kind: buri::build::workspace::RuleKind, pkg: &str, with_tests: b
 fn every_library_checks() {
     use buri::build::workspace::RuleKind::Library;
     let mut out = String::new();
-    for pkg in ["lib/money", "lib/ledger", "lib/store", "lib/kit", "tools/report"] {
-        out.push_str(&check_target(Library, pkg, true));
+    for package in ["lib/money", "lib/ledger", "lib/store", "lib/kit", "tools/report"] {
+        out.push_str(&check_target(Library, package, true));
     }
     assert!(out.is_empty(), "the example libraries do not check:\n{out}");
 }
@@ -41,8 +42,8 @@ fn every_library_checks() {
 fn every_binary_checks() {
     use buri::build::workspace::RuleKind::Binary;
     let mut out = String::new();
-    for pkg in ["cmd/server", "cmd/web", "cmd/basket", "tools/report"] {
-        out.push_str(&check_target(Binary, pkg, true));
+    for package in ["cmd/server", "cmd/web", "cmd/basket", "tools/report"] {
+        out.push_str(&check_target(Binary, package, true));
     }
     assert!(out.is_empty(), "the example binaries do not check:\n{out}");
 }

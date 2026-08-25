@@ -143,7 +143,7 @@ A helper that more than one suite needs is not a test source — it is ordinary
 library code that happens to be test-only, and it lives behind a path with a
 `testing` segment ([`libraries.md`](./libraries.md#the-testing-surface)):
 
-```buri repo=cli/tests/example pkg=//lib/ledger role=testing
+```buri repo=cli/tests/example package=//lib/ledger role=testing
 # from "core/testing/context" import { Hermetic, files };
 # from "core/effect" import { Fs };
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
@@ -174,7 +174,7 @@ A `testing { sources: [...] }` block in `lib/ledger/BUILD.buri` is what puts
 that file in the build. A consumer's suite then reaches it the way it reaches
 any library — declared, and by label:
 
-```buri repo=cli/tests/example pkg=//tools/report role=test
+```buri repo=cli/tests/example package=//tools/report role=test
 // tools/report/test/render.buri — a different package's suite, using it. A
 // name reaches this suite only if `testing/lib.buri` re-exports it, exactly as
 // `lib.buri` decides the library's own surface one level up.
@@ -192,7 +192,7 @@ public surface is an API, and it will be depended on.
 A binary's `main.buri` is its surface, exactly as `lib.buri` is a library's, and
 its test sources import it by its module path:
 
-```buri repo=cli/tests/example pkg=//cmd/server
+```buri repo=cli/tests/example package=//cmd/server
 // cmd/server/main.buri
 
 from "//cmd/server/routes" export { Route, route };
@@ -211,7 +211,7 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-```buri repo=cli/tests/example pkg=//cmd/server role=test
+```buri repo=cli/tests/example package=//cmd/server role=test
 # from "core/testing/assert" import * as assert;
 // cmd/server/test/routes.buri
 

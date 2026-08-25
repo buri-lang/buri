@@ -215,13 +215,13 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
 /// not depend on would be offering a `missing-dep`.
 fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
     let mut out: Vec<String> = standard_library::MODULES.iter().map(|m| m.path.to_string()).collect();
-    if let Some(pkg) = a.session.workspace.owning_package(path) {
-        for t in a.session.workspace.targets().into_iter().filter(|t| t.pkg == pkg) {
+    if let Some(package) = a.session.workspace.owning_package(path) {
+        for t in a.session.workspace.targets().into_iter().filter(|t| t.package == package) {
             for d in a.session.workspace.declared_deps(t) {
                 out.push(d.value.clone());
             }
         }
-        out.push(a.session.workspace.pkg(pkg).label());
+        out.push(a.session.workspace.package(package).label());
     }
     out.sort();
     out.dedup();

@@ -282,23 +282,23 @@ impl Table {
     }
 
     fn collect(&mut self, schema: &Schema, module: Option<&str>, origin: &str) {
-        let pkg = schema.package.clone().unwrap_or_default();
+        let package = schema.package.clone().unwrap_or_default();
         for e in &schema.enums {
-            self.add_enum(e, &[], &pkg, module, origin);
+            self.add_enum(e, &[], &package, module, origin);
         }
         for m in &schema.messages {
-            self.add_message(m, &[], &pkg, module, origin);
+            self.add_message(m, &[], &package, module, origin);
         }
     }
 
     /// Every name a field could reach this type by, widest first. The first is
     /// the whole of it; the rest are abbreviations another package may also be
     /// using.
-    fn keys(scope: &[String], name: &str, pkg: &str) -> Vec<(String, KeyKind)> {
+    fn keys(scope: &[String], name: &str, package: &str) -> Vec<(String, KeyKind)> {
         let mut path = scope.to_vec();
         path.push(name.to_string());
         let relative = path.join(".");
-        if pkg.is_empty() {
+        if package.is_empty() {
             // With no package the relative name *is* the whole name.
             let mut out = vec![(relative.clone(), KeyKind::Qualified)];
             if relative != name {
@@ -306,7 +306,7 @@ impl Table {
             }
             return out;
         }
-        let mut out = vec![(format!("{pkg}.{relative}"), KeyKind::Qualified)];
+        let mut out = vec![(format!("{package}.{relative}"), KeyKind::Qualified)];
         out.push((relative.clone(), KeyKind::Short));
         if relative != name {
             out.push((name.to_string(), KeyKind::Short));
@@ -318,7 +318,7 @@ impl Table {
         &mut self,
         e: &EnumDef,
         scope: &[String],
-        pkg: &str,
+        package: &str,
         module: Option<&str>,
         origin: &str,
     ) {
@@ -332,7 +332,7 @@ impl Table {
             origin: origin.to_string(),
             span: e.span,
         };
-        for (key, kind) in Table::keys(scope, &e.name, pkg) {
+        for (key, kind) in Table::keys(scope, &e.name, package) {
             self.add(key, entry.clone(), kind);
         }
     }
@@ -341,7 +341,7 @@ impl Table {
         &mut self,
         m: &Message,
         scope: &[String],
-        pkg: &str,
+        package: &str,
         module: Option<&str>,
         origin: &str,
     ) {
@@ -355,14 +355,14 @@ impl Table {
             origin: origin.to_string(),
             span: m.span,
         };
-        for (key, kind) in Table::keys(scope, &m.name, pkg) {
+        for (key, kind) in Table::keys(scope, &m.name, package) {
             self.add(key, entry.clone(), kind);
         }
         for e in &m.enums {
-            self.add_enum(e, &path, pkg, module, origin);
+            self.add_enum(e, &path, package, module, origin);
         }
         for inner in &m.messages {
-            self.add_message(inner, &path, pkg, module, origin);
+            self.add_message(inner, &path, package, module, origin);
         }
     }
 
@@ -372,7 +372,7 @@ impl Table {
     ///
     /// Returns the key it matched as well as the entry, because whether the
     /// answer is trustworthy depends on which name found it.
-    fn resolve(&self, name: &str, scope: &[String], pkg: &str) -> Option<(String, Entry)> {
+    fn resolve(&self, name: &str, scope: &[String], package: &str) -> Option<(String, Entry)> {
         let found = |key: String| self.by_name.get(&key).cloned().map(|e| (key, e));
         if let Some(absolute) = name.strip_prefix('.') {
             return found(absolute.to_string());
@@ -384,8 +384,8 @@ impl Table {
             if let Some(hit) = found(joined.clone()) {
                 return Some(hit);
             }
-            if !pkg.is_empty() {
-                if let Some(hit) = found(format!("{pkg}.{joined}")) {
+            if !package.is_empty() {
+                if let Some(hit) = found(format!("{package}.{joined}")) {
                     return Some(hit);
                 }
             }
@@ -472,7 +472,7 @@ pub fn generate(
 
     let mut g = Gen {
         table,
-        pkg: schema.package.clone().unwrap_or_default(),
+        package: schema.package.clone().unwrap_or_default(),
         // The file's own `option features.…` over the edition's defaults, which
         // is where every field's resolution starts.
         features: schema.features.over(Features::edition_defaults()),
@@ -552,7 +552,7 @@ struct FieldLike {
 
 struct Gen<'a> {
     table: Table,
-    pkg: String,
+    package: String,
     /// The file's resolved features, which a message layers over and a field
     /// layers over that.
     features: Features,
@@ -613,7 +613,7 @@ impl<'a> Gen<'a> {
         let f = &FieldLike { ty: ty.clone(), span };
         match &f.ty {
             TypeRef::Scalar(s) => Some(FTy::Scalar(*s)),
-            TypeRef::Named(name) => match self.table.resolve(name, scope, &self.pkg) {
+            TypeRef::Named(name) => match self.table.resolve(name, scope, &self.package) {
                 Some((key, e)) => {
                     // Two packages can both have a `Status`, and a short name
                     // that reaches both is not an answer — it is a coin toss
