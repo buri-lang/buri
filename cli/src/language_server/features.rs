@@ -29,7 +29,7 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
             md.push_str("\n\n");
             md.push_str(&docs.join("\n"));
         }
-        return Some(Value::obj(vec![
+        return Some(Value::object(vec![
             ("contents", markup(&md)),
             ("range", convert::range(text, span)),
         ]));
@@ -54,14 +54,14 @@ pub fn hover(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Option<Val
         });
     }
     let (_, ty, span) = best?;
-    Some(Value::obj(vec![
+    Some(Value::object(vec![
         ("contents", markup(&format!("```buri\n{ty}\n```"))),
         ("range", convert::range(text, span)),
     ]))
 }
 
 fn markup(md: &str) -> Value {
-    Value::obj(vec![("kind", Value::str("markdown")), ("value", Value::str(md))])
+    Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(md))])
 }
 
 /// The declaration whose *name* covers `offset`, rendered the way the formatter
@@ -139,7 +139,7 @@ fn location(a: &Analyzed, span: crate::diagnostics::Span) -> Option<Value> {
         return None;
     }
     let text = &f.text;
-    Some(Value::obj(vec![
+    Some(Value::object(vec![
         ("uri", Value::str(convert::uri_of(&f.abs_path))),
         ("range", convert::range(text, span)),
     ]))
@@ -168,14 +168,14 @@ pub fn document_symbols(text: &str) -> Value {
             Item::TypeAlias(d) => (d.name, 26),
             _ => continue,
         };
-        out.push(Value::obj(vec![
+        out.push(Value::object(vec![
             ("name", Value::str(parsed.module.tree.name(name))),
-            ("kind", Value::num(kind)),
+            ("kind", Value::number(kind)),
             ("range", convert::range(text, item.span())),
             ("selectionRange", convert::range(text, name.span)),
         ]));
     }
-    Value::Arr(out)
+    Value::Array(out)
 }
 
 /// Completion, for the two places that need no type information and are the
@@ -186,7 +186,7 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
     // `offset_of` clamps into `text` and onto a character boundary, so the only
     // way this fails is a caller that did not go through it.
     let Some(before_cursor) = text.get(..offset) else {
-        return Value::Arr(Vec::new());
+        return Value::Array(Vec::new());
     };
     let line = before_cursor.rsplit('\n').next().unwrap_or(before_cursor);
 
@@ -207,7 +207,7 @@ pub fn completion(a: &Analyzed, path: &Path, text: &str, pos: Position) -> Value
         }
     }
 
-    Value::Arr(Vec::new())
+    Value::Array(Vec::new())
 }
 
 /// Every module the file could legally import: the standard library, and the
@@ -225,14 +225,14 @@ fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
     }
     out.sort();
     out.dedup();
-    Value::Arr(
+    Value::Array(
         out.iter()
             .filter(|m| m.starts_with(prefix))
             .map(|m| {
-                Value::obj(vec![
+                Value::object(vec![
                     ("label", Value::str(m)),
                     // 9 module.
-                    ("kind", Value::num(9)),
+                    ("kind", Value::number(9)),
                 ])
             })
             .collect(),
@@ -242,21 +242,21 @@ fn module_paths(a: &Analyzed, path: &Path, prefix: &str) -> Value {
 /// What a module exports, for the `{ … }` half.
 fn exported_names(a: &Analyzed, path: &str) -> Value {
     let Some(&id) = a.analysis.loaded.by_path.get(path) else {
-        return Value::Arr(Vec::new());
+        return Value::Array(Vec::new());
     };
     let Some(scope) = a.analysis.checked.scopes.get(id.index()) else {
-        return Value::Arr(Vec::new());
+        return Value::Array(Vec::new());
     };
     let mut names: Vec<&String> = scope.exports.keys().collect();
     names.sort();
-    Value::Arr(
+    Value::Array(
         names
             .iter()
             .map(|n| {
-                Value::obj(vec![
+                Value::object(vec![
                     ("label", Value::str(n.as_str())),
                     // 6 variable — the protocol has no "exported name".
-                    ("kind", Value::num(6)),
+                    ("kind", Value::number(6)),
                 ])
             })
             .collect(),

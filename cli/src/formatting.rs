@@ -1357,13 +1357,13 @@ impl<'t> Build<'t> {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
                 let g = generics(t, &d.generics);
-                text(format!("{ex}type {}{g} = {};", t.name(d.name), ty(t, d.ty)))
+                text(format!("{ex}type {}{g} = {};", t.name(d.name), type_text(t, d.ty)))
             }
             Item::Const(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
                 self.assign(
-                    &format!("{ex}const {}: {} = ", t.name(d.name), ty(t, d.ty)),
+                    &format!("{ex}const {}: {} = ", t.name(d.name), type_text(t, d.ty)),
                     d.value,
                     ";",
                 )
@@ -1396,8 +1396,10 @@ impl<'t> Build<'t> {
                 let t = self.tree();
                 let g = generics(t, &d.generics);
                 let head = match d.trait_ty {
-                    Some(tr) => format!("impl{g} {} for {}", ty(t, tr), ty(t, d.self_ty)),
-                    None => format!("impl{g} {}", ty(t, d.self_ty)),
+                    Some(tr) => {
+                        format!("impl{g} {} for {}", type_text(t, tr), type_text(t, d.self_ty))
+                    }
+                    None => format!("impl{g} {}", type_text(t, d.self_ty)),
                 };
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
                     return text(format!("{head} {{}}"));
@@ -1420,14 +1422,14 @@ impl<'t> Build<'t> {
             Item::Derive(d) => {
                 let t = self.tree();
                 let traits: Vec<Doc> =
-                    t.type_list(d.traits).iter().map(|x| text(ty(t, *x))).collect();
+                    t.type_list(d.traits).iter().map(|x| text(type_text(t, *x))).collect();
                 // No trailing comma when the list wraps: the grammar has none
                 // before `for`, so a broken clause carrying one does not parse.
                 group(cat(vec![
                     text("derive"),
                     nest(cat(vec![Doc::Line, filled(traits)])),
                     Doc::Line,
-                    text(format!("for {};", ty(t, d.self_ty))),
+                    text(format!("for {};", type_text(t, d.self_ty))),
                 ]))
             }
             Item::Context(d) => {
@@ -1503,7 +1505,7 @@ impl<'t> Build<'t> {
             if let Some(c) = self.flush(lo, b.span.start) {
                 lines.push(c);
             }
-            let head = format!("{}: ", ty(self.tree(), TypeId(b.effect)));
+            let head = format!("{}: ", type_text(self.tree(), TypeId(b.effect)));
             lines.push(self.assign(&head, ExprId(b.value), ","));
         }
         if let Some(c) = self.flush(lo, body.span.end.saturating_sub(1)) {
@@ -1527,10 +1529,10 @@ impl<'t> Build<'t> {
             .iter()
             .map(|p| {
                 let c = self.flush(d.span.start, p.span.start);
-                with_comment(c, text(format!("{}: {}", t.name(p.name), ty(t, p.ty))))
+                with_comment(c, text(format!("{}: {}", t.name(p.name), type_text(t, p.ty))))
             })
             .collect();
-        let close = format!("): {}{tail}", ty(t, d.ret));
+        let close = format!("): {}{tail}", type_text(t, d.ret));
         if params.is_empty() {
             return text(format!("{lead}fn {}{}({close}", t.name(d.name), generics(t, &d.generics)));
         }
@@ -1595,7 +1597,7 @@ impl<'t> Build<'t> {
                 let inner = fields
                     .iter()
                     .map(|f| {
-                        format!("{}{}", if f.exported { "export " } else { "" }, ty(t, f.ty))
+                        format!("{}{}", if f.exported { "export " } else { "" }, type_text(t, f.ty))
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -1680,7 +1682,7 @@ impl<'t> Build<'t> {
                     let annotation = self
                         .tree()
                         .opt_type(s.ty)
-                        .map(|x| format!(": {}", ty(self.tree(), x)))
+                        .map(|x| format!(": {}", type_text(self.tree(), x)))
                         .unwrap_or_default();
                     self.assign(&format!("let {name}{annotation} = "), ExprId(s.value), ";")
                 }
@@ -2367,12 +2369,12 @@ fn lambda_head(t: &Tree, params: &[LambdaParamData], ret: Option<TypeId>) -> Str
         }
         out.push_str(t.text(p.name));
         if let Some(a) = t.opt_type(p.ty) {
-            let _ = write!(out, ": {}", ty(t, a));
+            let _ = write!(out, ": {}", type_text(t, a));
         }
     }
     out.push(')');
     if let Some(r) = ret {
-        let _ = write!(out, ": {}", ty(t, r));
+        let _ = write!(out, ": {}", type_text(t, r));
     }
     out.push_str(" =>");
     out
@@ -2429,7 +2431,7 @@ pub fn field_decl(t: &Tree, f: &FieldDecl) -> String {
         "{}{}: {}",
         if f.exported { "export " } else { "" },
         t.name(f.name),
-        ty(t, f.ty)
+        type_text(t, f.ty)
     )
 }
 
@@ -2452,14 +2454,14 @@ pub fn signature(t: &Tree, d: &FnDecl) -> String {
     let params = d
         .params
         .iter()
-        .map(|p| format!("{}: {}", t.name(p.name), ty(t, p.ty)))
+        .map(|p| format!("{}: {}", t.name(p.name), type_text(t, p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
         "fn {}{}({params}): {}",
         t.name(d.name),
         generics(t, &d.generics),
-        ty(t, d.ret)
+        type_text(t, d.ret)
     )
 }
 
@@ -2478,7 +2480,7 @@ pub fn generics(t: &Tree, g: &[GenericParam]) -> String {
                     t.name(p.name),
                     t.type_list(p.bounds)
                         .iter()
-                        .map(|b| ty(t, *b))
+                        .map(|b| type_text(t, *b))
                         .collect::<Vec<_>>()
                         .join(" + ")
                 )
@@ -2490,10 +2492,10 @@ pub fn generics(t: &Tree, g: &[GenericParam]) -> String {
 }
 
 fn type_list(t: &Tree, ids: &[TypeId]) -> String {
-    ids.iter().map(|i| ty(t, *i)).collect::<Vec<_>>().join(", ")
+    ids.iter().map(|i| type_text(t, *i)).collect::<Vec<_>>().join(", ")
 }
 
-pub fn ty(t: &Tree, id: TypeId) -> String {
+pub fn type_text(t: &Tree, id: TypeId) -> String {
     match t.ty(id) {
         TypeView::Named { path, args, .. } => {
             let base = t.path_text(path);
@@ -2506,9 +2508,9 @@ pub fn ty(t: &Tree, id: TypeId) -> String {
         TypeView::SelfType { .. } => "Self".into(),
         TypeView::Unit { .. } => "()".into(),
         TypeView::Tuple { elems, .. } => format!("({})", type_list(t, elems)),
-        TypeView::Array { elem, .. } => format!("[{}]", ty(t, elem)),
+        TypeView::Array { elem, .. } => format!("[{}]", type_text(t, elem)),
         TypeView::Fn { params, ret, .. } => {
-            format!("fn({}) => {}", type_list(t, params), ty(t, ret))
+            format!("fn({}) => {}", type_list(t, params), type_text(t, ret))
         }
     }
 }

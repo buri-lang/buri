@@ -22,9 +22,9 @@ pub struct Position {
 
 impl Position {
     pub fn to_json(self) -> Value {
-        Value::obj(vec![
-            ("line", Value::num(self.line)),
-            ("character", Value::num(self.character)),
+        Value::object(vec![
+            ("line", Value::number(self.line)),
+            ("character", Value::number(self.character)),
         ])
     }
 
@@ -88,7 +88,7 @@ pub fn offset_of(text: &str, p: Position) -> u32 {
 }
 
 pub fn range(text: &str, span: Span) -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         ("start", position_of(text, span.start).to_json()),
         ("end", position_of(text, span.end).to_json()),
     ])
@@ -150,10 +150,10 @@ fn severity(s: Severity) -> i64 {
 pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
     let mut related = Vec::new();
     let mut add = |span: Span, message: String| {
-        related.push(Value::obj(vec![
+        related.push(Value::object(vec![
             (
                 "location",
-                Value::obj(vec![
+                Value::object(vec![
                     ("uri", Value::str(uri)),
                     ("range", range(text, span)),
                 ]),
@@ -177,7 +177,7 @@ pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
 
     let mut fields = vec![
         ("range", range(text, d.span)),
-        ("severity", Value::num(severity(d.severity))),
+        ("severity", Value::number(severity(d.severity))),
         ("message", Value::str(&d.message)),
         ("source", Value::str("buri")),
     ];
@@ -185,9 +185,9 @@ pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
         fields.push(("code", Value::str(code)));
     }
     if !related.is_empty() {
-        fields.push(("relatedInformation", Value::Arr(related)));
+        fields.push(("relatedInformation", Value::Array(related)));
     }
-    Value::obj(fields)
+    Value::object(fields)
 }
 
 #[cfg(test)]

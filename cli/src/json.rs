@@ -55,16 +55,16 @@ pub enum Value {
     /// A number that is not whole. Never NaN, never infinite.
     Float(Finite),
     Str(String),
-    Arr(Vec<Value>),
+    Array(Vec<Value>),
     /// Ordered, so writing a value back produces the same bytes every time —
     /// which is what lets a test record a response as a golden.
-    Obj(BTreeMap<String, Value>),
+    Object(BTreeMap<String, Value>),
 }
 
 impl Value {
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
-            Value::Obj(m) => m.get(key),
+            Value::Object(m) => m.get(key),
             _ => None,
         }
     }
@@ -98,20 +98,20 @@ impl Value {
 
     pub fn as_array(&self) -> Option<&[Value]> {
         match self {
-            Value::Arr(v) => Some(v),
+            Value::Array(v) => Some(v),
             _ => None,
         }
     }
 
-    pub fn obj(pairs: Vec<(&str, Value)>) -> Value {
-        Value::Obj(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    pub fn object(pairs: Vec<(&str, Value)>) -> Value {
+        Value::Object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }
 
     pub fn str(s: impl Into<String>) -> Value {
         Value::Str(s.into())
     }
 
-    pub fn num(n: impl Into<i64>) -> Value {
+    pub fn number(n: impl Into<i64>) -> Value {
         Value::Int(n.into())
     }
 
@@ -141,7 +141,7 @@ impl Value {
                 let _ = write!(out, "{:?}", n.get());
             }
             Value::Str(s) => out.push_str(&json_str(s)),
-            Value::Arr(items) => {
+            Value::Array(items) => {
                 out.push('[');
                 for (i, v) in items.iter().enumerate() {
                     if i > 0 {
@@ -151,7 +151,7 @@ impl Value {
                 }
                 out.push(']');
             }
-            Value::Obj(m) => {
+            Value::Object(m) => {
                 out.push('{');
                 for (i, (k, v)) in m.iter().enumerate() {
                     if i > 0 {
@@ -275,7 +275,7 @@ impl<'a> Parser<'a> {
         self.ws();
         if self.b.get(self.i) == Some(&b']') {
             self.bump();
-            return Ok(Value::Arr(items));
+            return Ok(Value::Array(items));
         }
         loop {
             self.ws();
@@ -285,7 +285,7 @@ impl<'a> Parser<'a> {
                 Some(b',') => self.bump(),
                 Some(b']') => {
                     self.bump();
-                    return Ok(Value::Arr(items));
+                    return Ok(Value::Array(items));
                 }
                 _ => return Err(format!("expected `,` or `]` at byte {}", self.i)),
             }
@@ -298,7 +298,7 @@ impl<'a> Parser<'a> {
         self.ws();
         if self.b.get(self.i) == Some(&b'}') {
             self.bump();
-            return Ok(Value::Obj(map));
+            return Ok(Value::Object(map));
         }
         loop {
             self.ws();
@@ -312,7 +312,7 @@ impl<'a> Parser<'a> {
                 Some(b',') => self.bump(),
                 Some(b'}') => {
                     self.bump();
-                    return Ok(Value::Obj(map));
+                    return Ok(Value::Object(map));
                 }
                 _ => return Err(format!("expected `,` or `}}` at byte {}", self.i)),
             }
@@ -449,8 +449,8 @@ mod tests {
 
     #[test]
     fn a_whole_number_prints_without_a_fraction() {
-        assert_eq!(Value::num(3).to_string(), "3");
-        assert_eq!(Value::num(-1).to_string(), "-1");
+        assert_eq!(Value::number(3).to_string(), "3");
+        assert_eq!(Value::number(-1).to_string(), "-1");
     }
 
     /// `NaN` and `inf` are not JSON. They used to be representable, and
@@ -509,8 +509,8 @@ mod tests {
 
     #[test]
     fn empty_containers() {
-        assert_eq!(parse("{}").unwrap(), Value::Obj(BTreeMap::new()));
-        assert_eq!(parse("[]").unwrap(), Value::Arr(Vec::new()));
+        assert_eq!(parse("{}").unwrap(), Value::Object(BTreeMap::new()));
+        assert_eq!(parse("[]").unwrap(), Value::Array(Vec::new()));
     }
 
     /// The reader is recursive and its input arrives on a socket, so nesting is

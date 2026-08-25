@@ -234,13 +234,13 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
             Item::TypeAlias(d) if d.exported => out.push(ApiItem {
                 api: Api::TypeAlias,
                 name: t.name(d.name).to_string(),
-                signature: format!("type {} = {}", t.name(d.name), formatting::ty(t, d.ty)),
+                signature: format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
                 docs: d.docs.clone(),
             }),
             Item::Const(d) if d.exported => out.push(ApiItem {
                 api: Api::Const,
                 name: t.name(d.name).to_string(),
-                signature: format!("const {}: {}", t.name(d.name), formatting::ty(t, d.ty)),
+                signature: format!("const {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
                 docs: d.docs.clone(),
             }),
             Item::Context(d) if d.exported => out.push(ApiItem {
@@ -250,8 +250,8 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
                 docs: d.docs.clone(),
             }),
             Item::Impl(d) => {
-                let owner = formatting::ty(t, d.self_ty);
-                let via = d.trait_ty.map(|x| formatting::ty(t, x));
+                let owner = formatting::type_text(t, d.self_ty);
+                let via = d.trait_ty.map(|x| formatting::type_text(t, x));
                 for m in &d.methods {
                     // A trait's methods are visible wherever the type is, so
                     // conformance methods are listed even though they carry no
@@ -304,11 +304,11 @@ fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
     let Some(ctx) = d.params.iter().find(|p| p.kind == ParamKind::CtxParam) else {
         return Vec::new();
     };
-    let name = formatting::ty(t, ctx.ty);
+    let name = formatting::type_text(t, ctx.ty);
     d.generics
         .iter()
         .find(|g| t.name(g.name) == name)
-        .map(|g| t.type_list(g.bounds).iter().map(|b| formatting::ty(t, *b)).collect())
+        .map(|g| t.type_list(g.bounds).iter().map(|b| formatting::type_text(t, *b)).collect())
         .unwrap_or_else(|| vec![name])
 }
 
@@ -340,7 +340,7 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
             .filter(|(_, f)| f.exported)
             .map(|(i, f)| Member {
                 name: i.to_string(),
-                signature: format!("{i}: {}", formatting::ty(t, f.ty)),
+                signature: format!("{i}: {}", formatting::type_text(t, f.ty)),
                 docs: Vec::new(),
             })
             .collect(),

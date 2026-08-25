@@ -152,7 +152,7 @@ fn write_message(out: &mut impl Write, v: &Value) {
 // ---------------------------------------------------------------------------
 
 fn response(id: &Value, result: Value) -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         ("jsonrpc", Value::str("2.0")),
         ("id", id.clone()),
         ("result", result),
@@ -162,12 +162,12 @@ fn response(id: &Value, result: Value) -> Value {
 /// A JSON-RPC error reply. A request that cannot be served still gets an
 /// answer, because a client that got nothing waits forever.
 fn error(id: &Value, code: i64, message: &str) -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         ("jsonrpc", Value::str("2.0")),
         ("id", id.clone()),
         (
             "error",
-            Value::obj(vec![("code", Value::num(code)), ("message", Value::str(message))]),
+            Value::object(vec![("code", Value::number(code)), ("message", Value::str(message))]),
         ),
     ])
 }
@@ -179,7 +179,7 @@ const NOT_INITIALIZED: i64 = -32002;
 const INVALID_REQUEST: i64 = -32600;
 
 fn notification(method: &str, params: Value) -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         ("jsonrpc", Value::str("2.0")),
         ("method", Value::str(method)),
         ("params", params),
@@ -277,12 +277,12 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 if formatted == text {
                     return None;
                 }
-                Some(Value::Arr(vec![Value::obj(vec![
+                Some(Value::Array(vec![Value::object(vec![
                     ("range", whole(&text)),
                     ("newText", Value::str(formatted)),
                 ])]))
             })();
-            vec![response(&id, result.unwrap_or(Value::Arr(Vec::new())))]
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
         ("textDocument/documentSymbol", Some(id)) => {
@@ -291,7 +291,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 let text = state.text_of(&path)?;
                 Some(features::document_symbols(&text))
             })();
-            vec![response(&id, result.unwrap_or(Value::Arr(Vec::new())))]
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
         ("textDocument/hover", Some(id)) => {
@@ -312,7 +312,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = with_analysis(state, &params, |a, path, text, pos| {
                 Some(features::completion(a, path, text, pos))
             });
-            vec![response(&id, result.unwrap_or(Value::Arr(Vec::new())))]
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
         ("textDocument/codeAction", Some(id)) => {
@@ -327,13 +327,13 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
 }
 
 fn capabilities() -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         (
             "capabilities",
-            Value::obj(vec![
+            Value::object(vec![
                 // 1 = full. Incremental sync buys nothing without an
                 // incremental front end, and costs a text-edit applier.
-                ("textDocumentSync", Value::num(1)),
+                ("textDocumentSync", Value::number(1)),
                 ("hoverProvider", Value::Bool(true)),
                 ("definitionProvider", Value::Bool(true)),
                 ("documentSymbolProvider", Value::Bool(true)),
@@ -341,16 +341,16 @@ fn capabilities() -> Value {
                 ("codeActionProvider", Value::Bool(true)),
                 (
                     "completionProvider",
-                    Value::obj(vec![(
+                    Value::object(vec![(
                         "triggerCharacters",
-                        Value::Arr(vec![Value::str("\""), Value::str("{"), Value::str("/")]),
+                        Value::Array(vec![Value::str("\""), Value::str("{"), Value::str("/")]),
                     )]),
                 ),
             ]),
         ),
         (
             "serverInfo",
-            Value::obj(vec![
+            Value::object(vec![
                 ("name", Value::str("buri")),
                 ("version", Value::str(arguments::VERSION)),
             ]),
@@ -369,7 +369,7 @@ fn opened(params: &Value) -> Option<(PathBuf, String)> {
 }
 
 fn whole(text: &str) -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         ("start", Position { line: 0, character: 0 }.to_json()),
         ("end", convert::position_of(text, text.len() as u32).to_json()),
     ])
@@ -466,7 +466,7 @@ fn same_finding(a: &Value, b: &Value) -> bool {
 fn publish(uri: &str, items: Vec<Value>) -> Value {
     notification(
         "textDocument/publishDiagnostics",
-        Value::obj(vec![("uri", Value::str(uri)), ("diagnostics", Value::Arr(items))]),
+        Value::object(vec![("uri", Value::str(uri)), ("diagnostics", Value::Array(items))]),
     )
 }
 
@@ -482,24 +482,24 @@ fn publish(uri: &str, items: Vec<Value>) -> Value {
 /// to `buri gen`, which writes the whole file. Nothing here invents an answer —
 /// a `dep-cycle` has no action, because which edge to cut is a decision.
 fn code_actions(state: &mut State, params: &Value) -> Value {
-    let Some(path) = uri_param(params) else { return Value::Arr(Vec::new()) };
+    let Some(path) = uri_param(params) else { return Value::Array(Vec::new()) };
     let asked: Vec<&Value> = params
         .at("context.diagnostics")
         .and_then(|d| d.as_array())
         .map(|d| d.iter().collect())
         .unwrap_or_default();
     if asked.is_empty() {
-        return Value::Arr(Vec::new());
+        return Value::Array(Vec::new());
     }
     let wanted: Vec<String> = asked
         .iter()
         .filter_map(|d| d.get("code").and_then(|c| c.as_str()).map(String::from))
         .collect();
     if wanted.is_empty() {
-        return Value::Arr(Vec::new());
+        return Value::Array(Vec::new());
     }
 
-    let Some((mut session, lint)) = state.lint(&path) else { return Value::Arr(Vec::new()) };
+    let Some((mut session, lint)) = state.lint(&path) else { return Value::Array(Vec::new()) };
     let mut out = Vec::new();
     let mut regenerated: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
@@ -518,11 +518,11 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
                 if f.abs_path.as_os_str().is_empty() {
                     continue;
                 }
-                let range = Value::obj(vec![
+                let range = Value::object(vec![
                     ("start", convert::position_of(&f.text, e.at.start).to_json()),
                     ("end", convert::position_of(&f.text, e.at.end).to_json()),
                 ]);
-                by_file.entry(convert::uri_of(&f.abs_path)).or_default().push(Value::obj(vec![
+                by_file.entry(convert::uri_of(&f.abs_path)).or_default().push(Value::object(vec![
                     ("range", range),
                     ("newText", Value::str(&e.replacement)),
                 ]));
@@ -550,14 +550,14 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         let build = session.workspace.package(package).build_path.clone();
         let Some(id) = session.map.find(&session.workspace.rel_of(&build)) else { continue };
         let text = session.map.get(id).text.clone();
-        let whole = Value::obj(vec![
+        let whole = Value::object(vec![
             ("start", Position { line: 0, character: 0 }.to_json()),
             ("end", convert::position_of(&text, text.len() as u32).to_json()),
         ]);
         let mut by_file = std::collections::BTreeMap::new();
         by_file.insert(
             convert::uri_of(&build),
-            vec![Value::obj(vec![
+            vec![Value::object(vec![
                 ("range", whole),
                 ("newText", Value::str(&update.text)),
             ])],
@@ -573,7 +573,7 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         ));
     }
 
-    Value::Arr(out)
+    Value::Array(out)
 }
 
 /// The package a diagnostic is about: the one owning the file it points at.
@@ -596,16 +596,16 @@ fn action(
     code: &str,
     edits: std::collections::BTreeMap<String, Vec<Value>>,
 ) -> Value {
-    Value::obj(vec![
+    Value::object(vec![
         ("title", Value::str(title)),
         // "quickfix" — the kind a client offers without being asked twice.
         ("kind", Value::str("quickfix")),
         ("diagnosticCode", Value::str(code)),
         (
             "edit",
-            Value::obj(vec![(
+            Value::object(vec![(
                 "changes",
-                Value::Obj(edits.into_iter().map(|(k, v)| (k, Value::Arr(v))).collect()),
+                Value::Object(edits.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
             )]),
         ),
     ])

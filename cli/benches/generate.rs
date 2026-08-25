@@ -332,7 +332,7 @@ impl Params {
     /// `0x…` for the seed. No parser and no dependency: forty lines of `match`,
     /// with an unknown key listing the valid ones.
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
-        fn num(v: &str) -> Result<u64, String> {
+        fn number(v: &str) -> Result<u64, String> {
             let t = v.trim();
             let parsed = if let Some(hex) = t.strip_prefix("0x") {
                 u64::from_str_radix(&hex.replace('_', ""), 16)
@@ -345,8 +345,8 @@ impl Params {
             let (lo, hi) = v.split_once("..").ok_or_else(|| {
                 format!("`{v}` is not a range; write it as `lo..hi`, inclusive")
             })?;
-            let lo = num(lo)? as u32;
-            let hi = num(hi)? as u32;
+            let lo = number(lo)? as u32;
+            let hi = number(hi)? as u32;
             if hi < lo {
                 return Err(format!("`{v}` is empty: the high end is below the low one"));
             }
@@ -360,33 +360,33 @@ impl Params {
             }
         }
         match key {
-            "lines" => self.lines = num(value)? as usize,
-            "lines_per_module" => self.lines_per_module = num(value)? as usize,
-            "clusters" => self.clusters = (num(value)? as usize).max(1),
-            "cross_cluster" => self.cross_cluster = num(value)? as u32,
+            "lines" => self.lines = number(value)? as usize,
+            "lines_per_module" => self.lines_per_module = number(value)? as usize,
+            "clusters" => self.clusters = (number(value)? as usize).max(1),
+            "cross_cluster" => self.cross_cluster = number(value)? as u32,
             "fanout" => self.fanout = range(value)?,
-            "dep_span_pct" => self.dep_span_pct = num(value)? as u32,
-            "w_struct" => self.w_struct = num(value)? as u32,
-            "w_enum" => self.w_enum = num(value)? as u32,
-            "w_generic_fn" => self.w_generic_fn = num(value)? as u32,
-            "w_arith_fn" => self.w_arith_fn = num(value)? as u32,
-            "w_match_fn" => self.w_match_fn = num(value)? as u32,
-            "w_string_fn" => self.w_string_fn = num(value)? as u32,
-            "w_list_fn" => self.w_list_fn = num(value)? as u32,
+            "dep_span_pct" => self.dep_span_pct = number(value)? as u32,
+            "w_struct" => self.w_struct = number(value)? as u32,
+            "w_enum" => self.w_enum = number(value)? as u32,
+            "w_generic_fn" => self.w_generic_fn = number(value)? as u32,
+            "w_arith_fn" => self.w_arith_fn = number(value)? as u32,
+            "w_match_fn" => self.w_match_fn = number(value)? as u32,
+            "w_string_fn" => self.w_string_fn = number(value)? as u32,
+            "w_list_fn" => self.w_list_fn = number(value)? as u32,
             "fields_per_struct" => self.fields_per_struct = range(value)?,
             "variants_per_enum" => self.variants_per_enum = range(value)?,
-            "methods_per_struct" => self.methods_per_struct = num(value)? as u32,
-            "derives" => self.derives = (num(value)? as u32).min(DERIVABLE.len() as u32),
+            "methods_per_struct" => self.methods_per_struct = number(value)? as u32,
+            "derives" => self.derives = (number(value)? as u32).min(DERIVABLE.len() as u32),
             "body_lets" => self.body_lets = range(value)?,
             "match_arms" => self.match_arms = range(value)?,
-            "generic_args" => self.generic_args = num(value)? as u32,
-            "nesting" => self.nesting = (num(value)? as u32).max(1),
-            "doc_comment_pct" => self.doc_comment_pct = num(value)? as u32,
-            "comment_block_lines" => self.comment_block_lines = num(value)? as u32,
-            "blank_pct" => self.blank_pct = (num(value)? as u32).min(90),
-            "ident_len" => self.ident_len = num(value)? as u32,
+            "generic_args" => self.generic_args = number(value)? as u32,
+            "nesting" => self.nesting = (number(value)? as u32).max(1),
+            "doc_comment_pct" => self.doc_comment_pct = number(value)? as u32,
+            "comment_block_lines" => self.comment_block_lines = number(value)? as u32,
+            "blank_pct" => self.blank_pct = (number(value)? as u32).min(90),
+            "ident_len" => self.ident_len = number(value)? as u32,
             "reach" => self.reach = flag(value)?,
-            "seed" => self.seed = num(value)?,
+            "seed" => self.seed = number(value)?,
             other => {
                 return Err(format!(
                     "unknown parameter `{other}`; the dimensions are: {}",
