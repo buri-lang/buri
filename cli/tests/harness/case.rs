@@ -165,25 +165,27 @@ pub struct Case {
 /// the string munging this table exists to avoid — `Platform::slug` and
 /// `Platform::proto` are two functions in the product for the same reason.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Plat {
+pub struct Platform {
     pub slug: &'static str,
     pub proto: &'static str,
 }
 
-const LINUX: Plat = Plat { slug: "linux", proto: "LINUX" };
-const MACOS: Plat = Plat { slug: "macos", proto: "MACOS" };
+const LINUX: Platform = Platform { slug: "linux", proto: "LINUX" };
+const MACOS: Platform = Platform { slug: "macos", proto: "MACOS" };
 
 /// A platform and an architecture: everything `{ platform: .., arch: .. }` and
 /// `--output=linux/x86_64` need.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Pair {
-    pub plat: Plat,
+pub struct PlatformAndArch {
+    pub platform: Platform,
     pub arch: &'static str,
     pub arch_proto: &'static str,
 }
 
-const LINUX_X86_64: Pair = Pair { plat: LINUX, arch: "x86_64", arch_proto: "X86_64" };
-const MACOS_X86_64: Pair = Pair { plat: MACOS, arch: "x86_64", arch_proto: "X86_64" };
+const LINUX_X86_64: PlatformAndArch =
+    PlatformAndArch { platform: LINUX, arch: "x86_64", arch_proto: "X86_64" };
+const MACOS_X86_64: PlatformAndArch =
+    PlatformAndArch { platform: MACOS, arch: "x86_64", arch_proto: "X86_64" };
 
 /// The host's platform, and a platform/arch pair that is deliberately **not**
 /// the host's.
@@ -205,7 +207,7 @@ const MACOS_X86_64: Pair = Pair { plat: MACOS, arch: "x86_64", arch_proto: "X86_
 /// and no placeholder can stand in for one. `macos/x86_64` is a real target
 /// (an Intel mac) and is cross from every Linux host, which is all that is
 /// asked of it.
-pub fn platforms_for(host_os: &str) -> (Option<Plat>, Pair) {
+pub fn platforms_for(host_os: &str) -> (Option<Platform>, PlatformAndArch) {
     match host_os {
         "macos" => (Some(MACOS), LINUX_X86_64),
         "linux" => (Some(LINUX), MACOS_X86_64),
@@ -236,7 +238,10 @@ pub fn platforms_for(host_os: &str) -> (Option<Plat>, Pair) {
 pub fn families(host_os: &str) -> Vec<Vec<(&'static str, &'static str)>> {
     let (host, cross) = platforms_for(host_os);
     let mut v = vec![
-        vec![("CROSS_PLATFORM", cross.plat.slug), ("CROSS_PLATFORM_PROTO", cross.plat.proto)],
+        vec![
+            ("CROSS_PLATFORM", cross.platform.slug),
+            ("CROSS_PLATFORM_PROTO", cross.platform.proto),
+        ],
         vec![("CROSS_ARCH", cross.arch), ("CROSS_ARCH_PROTO", cross.arch_proto)],
     ];
     if let Some(h) = host {
@@ -466,14 +471,14 @@ pub fn load_case(dir: &Path) -> Case {
         match field.name.as_str() {
             "doc" => doc = Some(as_str(&name, "doc", &field.value)),
             "run" => {
-                let m = as_message(&name, "run", &field.value);
+                let message = as_message(&name, "run", &field.value);
                 steps.push(Step::Run {
-                    args: str_list(&name, "run.args", &m),
-                    exit: req_int(&name, "run", "exit", &m),
-                    golden: opt_str(&name, "run.golden", &m),
-                    stdin: opt_str(&name, "run.stdin", &m),
-                    cwd: opt_str(&name, "run.cwd", &m),
-                    stream: match opt_ident(&name, "run.stream", &m).as_deref() {
+                    args: str_list(&name, "run.args", &message),
+                    exit: required_int(&name, "run", "exit", &message),
+                    golden: optional_str(&name, "run.golden", &message),
+                    stdin: optional_str(&name, "run.stdin", &message),
+                    cwd: optional_str(&name, "run.cwd", &message),
+                    stream: match optional_ident(&name, "run.stream", &message).as_deref() {
                         None | Some("ALL") => Stream::All,
                         Some("OUT") => Stream::Out,
                         Some("ERR") => Stream::Err,
@@ -484,20 +489,20 @@ pub fn load_case(dir: &Path) -> Case {
                 });
             }
             "edit" => {
-                let m = as_message(&name, "edit", &field.value);
+                let message = as_message(&name, "edit", &field.value);
                 steps.push(Step::Edit {
-                    file: req_str(&name, "edit", "file", &m),
-                    from: req_str(&name, "edit", "replace", &m),
-                    to: req_str(&name, "edit", "with", &m),
+                    file: required_str(&name, "edit", "file", &message),
+                    from: required_str(&name, "edit", "replace", &message),
+                    to: required_str(&name, "edit", "with", &message),
                 });
             }
             "file" => {
-                let m = as_message(&name, "file", &field.value);
+                let message = as_message(&name, "file", &field.value);
                 let step = Step::File {
-                    path: req_str(&name, "file", "path", &m),
-                    golden: opt_str(&name, "file.golden", &m),
-                    contains: opt_str(&name, "file.contains", &m),
-                    absent: opt_str(&name, "file.absent", &m),
+                    path: required_str(&name, "file", "path", &message),
+                    golden: optional_str(&name, "file.golden", &message),
+                    contains: optional_str(&name, "file.contains", &message),
+                    absent: optional_str(&name, "file.absent", &message),
                 };
                 if let Step::File { golden: None, contains: None, absent: None, .. } = step {
                     panic!(
@@ -508,15 +513,16 @@ pub fn load_case(dir: &Path) -> Case {
                 steps.push(step);
             }
             "path" => {
-                let m = as_message(&name, "path", &field.value);
-                let symlink = opt_str(&name, "path.symlink", &m);
-                let exists = opt_ident(&name, "path.exists", &m).map(|v| match v.as_str() {
+                let message = as_message(&name, "path", &field.value);
+                let symlink = optional_str(&name, "path.symlink", &message);
+                let raw_exists = optional_ident(&name, "path.exists", &message);
+                let exists = raw_exists.map(|v| match v.as_str() {
                     "true" => true,
                     "false" => false,
                     other => panic!("{name}: path.exists is {other}, not true or false"),
                 });
                 steps.push(Step::Path {
-                    path: req_str(&name, "path", "path", &m),
+                    path: required_str(&name, "path", "path", &message),
                     expect: match (exists, symlink) {
                         (Some(_), Some(_)) => panic!(
                             "{name}: a `path` step says both `exists` and `symlink`; one claim each"
@@ -561,28 +567,28 @@ fn as_message(case: &str, what: &str, v: &Value) -> Message {
     }
 }
 
-fn req_str(case: &str, block: &str, field: &str, m: &Message) -> String {
-    let f = m
+fn required_str(case: &str, block: &str, field: &str, message: &Message) -> String {
+    let f = message
         .get(field)
         .unwrap_or_else(|| panic!("{case}: `{block}` has no `{field}`"));
     as_str(case, &format!("{block}.{field}"), &f.value)
 }
 
-fn opt_str(case: &str, what: &str, m: &Message) -> Option<String> {
+fn optional_str(case: &str, what: &str, message: &Message) -> Option<String> {
     let field = what.rsplit('.').next().unwrap();
-    m.get(field).map(|f| as_str(case, what, &f.value))
+    message.get(field).map(|f| as_str(case, what, &f.value))
 }
 
-fn opt_ident(case: &str, what: &str, m: &Message) -> Option<String> {
+fn optional_ident(case: &str, what: &str, message: &Message) -> Option<String> {
     let field = what.rsplit('.').next().unwrap();
-    m.get(field).map(|f| match &f.value {
+    message.get(field).map(|f| match &f.value {
         Value::Ident(s, _) => s.clone(),
         other => panic!("{case}: {what} is {}, not an identifier", other.kind()),
     })
 }
 
-fn req_int(case: &str, block: &str, field: &str, m: &Message) -> i32 {
-    let f = m
+fn required_int(case: &str, block: &str, field: &str, message: &Message) -> i32 {
+    let f = message
         .get(field)
         .unwrap_or_else(|| panic!("{case}: `{block}` has no `{field}` — an exit code is never inferred"));
     match &f.value {
@@ -591,9 +597,9 @@ fn req_int(case: &str, block: &str, field: &str, m: &Message) -> i32 {
     }
 }
 
-fn str_list(case: &str, what: &str, m: &Message) -> Vec<String> {
+fn str_list(case: &str, what: &str, message: &Message) -> Vec<String> {
     let field = what.rsplit('.').next().unwrap();
-    let f = m
+    let f = message
         .get(field)
         .unwrap_or_else(|| panic!("{case}: `run` has no `{field}`"));
     let Value::List(items, _) = &f.value else {
@@ -858,7 +864,7 @@ mod placeholder_tests {
             let (host_plat, cross) = platforms_for(host);
             assert_ne!(
                 host_plat.map(|p| p.slug),
-                Some(cross.plat.slug),
+                Some(cross.platform.slug),
                 "{host}: the cross platform is the host's, so the build would succeed"
             );
         }
