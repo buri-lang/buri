@@ -172,7 +172,7 @@ impl Severity {
 
 /// A secondary span, rendered after the primary one with its own caret line.
 #[derive(Clone, Debug)]
-pub struct SubSpan {
+pub struct SecondarySpan {
     pub span: Span,
     pub label: String,
 }
@@ -194,7 +194,7 @@ pub struct Diagnostic {
     pub notes: Vec<String>,
     /// The concrete edit that resolves this. Every diagnostic has one.
     pub fix: Option<String>,
-    pub subs: Vec<SubSpan>,
+    pub secondary_spans: Vec<SecondarySpan>,
     /// Lint name, for `buri lint` output.
     pub code: Option<String>,
     /// The `fix` as bytes, when it has exactly one mechanical form. Empty for
@@ -340,7 +340,7 @@ impl Diagnostic {
             actual: None,
             notes: Vec::new(),
             fix: None,
-            subs: Vec::new(),
+            secondary_spans: Vec::new(),
             code: None,
             edits: Vec::new(),
         }
@@ -365,8 +365,8 @@ impl Diagnostic {
         self
     }
 
-    pub fn with_sub(mut self, span: Span, label: impl Into<String>) -> Diagnostic {
-        self.sub(span, label);
+    pub fn with_secondary_span(mut self, span: Span, label: impl Into<String>) -> Diagnostic {
+        self.secondary_span(span, label);
         self
     }
 
@@ -400,8 +400,8 @@ impl Diagnostic {
         self
     }
 
-    pub fn sub(&mut self, span: Span, label: impl Into<String>) -> &mut Diagnostic {
-        self.subs.push(SubSpan { span, label: label.into() });
+    pub fn secondary_span(&mut self, span: Span, label: impl Into<String>) -> &mut Diagnostic {
+        self.secondary_spans.push(SecondarySpan { span, label: label.into() });
         self
     }
 
@@ -671,8 +671,9 @@ impl SourceMap {
 
         if !d.span.is_none() {
             self.render_snippet(&mut out, d.span, d.label.as_deref(), sev_color, c_blue, c_reset);
-            for sub in &d.subs {
-                self.render_snippet(&mut out, sub.span, Some(&sub.label), c_blue, c_blue, c_reset);
+            for secondary in &d.secondary_spans {
+                let label = Some(secondary.label.as_str());
+                self.render_snippet(&mut out, secondary.span, label, c_blue, c_blue, c_reset);
             }
             // The `=` sits in the gutter column, directly under the `|`s above
             // it, so the left edge of the block is a straight line.
@@ -742,11 +743,11 @@ impl SourceMap {
             out.push_str(&json_str(n));
         }
         out.push_str("],\"related\":[");
-        for (i, sub) in d.subs.iter().enumerate() {
+        for (i, secondary) in d.secondary_spans.iter().enumerate() {
             if i > 0 {
                 out.push(',');
             }
-            out.push_str(&self.json_location(sub.span, Some(&sub.label)));
+            out.push_str(&self.json_location(secondary.span, Some(&secondary.label)));
         }
         out.push(']');
         out.push('}');
@@ -777,13 +778,13 @@ impl SourceMap {
     /// Each snippet gets a gutter as wide as *its own* line number, so a
     /// diagnostic whose spans are on lines 10 and 5 renders two gutters of
     /// different widths. The `=` block belongs to the snippet directly above
-    /// it — the last sub-span, or the primary span when there is none — so it
-    /// is that one's width that puts the `=` under the `|`s it continues.
+    /// it — the last secondary span, or the primary span when there is none —
+    /// so it is that one's width that puts the `=` under the `|`s it continues.
     /// Taking the widest of all of them instead indented the block for a line
     /// number that is no longer the one on screen.
     fn gutter_width(&self, d: &Diagnostic) -> usize {
         let last = d
-            .subs
+            .secondary_spans
             .iter()
             .rev()
             .map(|s| s.span)
@@ -1073,7 +1074,7 @@ mod tests {
         let id = map.add("x/BUILD.buri", PathBuf::from("/tmp/BUILD.buri"), text);
         // Line 10 starts at byte 9 * 7 = 63; line 5 at byte 4 * 7 = 28.
         let d = Diagnostic::error(Span::new(id, 63, 67), "listed by two rules")
-            .with_sub(Span::new(id, 28, 32), "first listed here")
+            .with_secondary_span(Span::new(id, 28, 32), "first listed here")
             .with_fix("list it under one rule only");
         let rendered = map.render(&d, false);
         let gutters: Vec<usize> = rendered
@@ -1082,8 +1083,8 @@ mod tests {
             .map(|l| l.find(['|', '=']).unwrap())
             .collect();
         // Four lines for the primary snippet (|, source, carets, |) at width 3,
-        // then four for the sub at width 2, then the `=` — which belongs to the
-        // sub.
+        // then four for the secondary span at width 2, then the `=` — which
+        // belongs to that secondary span.
         let last = *gutters.last().unwrap();
         let under = gutters[gutters.len() - 2];
         assert_eq!(last, under, "the `=` is not under the `|` above it: {gutters:?}\n{rendered}");

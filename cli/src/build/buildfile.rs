@@ -876,7 +876,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             r.errors.push(
                 Diagnostic::error(name.span, format!("tag `{}` is declared twice", name.value))
                     .with_fix("rename one, or delete the duplicate")
-                    .with_sub(prev.name.span, "first declared here")
+                    .with_secondary_span(prev.name.span, "first declared here")
                     .with_note("tags are one flat namespace, so a name means one thing"),
             );
             continue;

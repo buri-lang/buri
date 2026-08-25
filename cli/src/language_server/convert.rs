@@ -167,11 +167,11 @@ pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
     for n in &d.notes {
         add(d.span, n.clone());
     }
-    for s in &d.subs {
-        // A sub-span may be in another file; the client resolves the URI, and
+    for secondary in &d.secondary_spans {
+        // A secondary span may be in another file; the client resolves the URI,
         // a wrong one is worse than none, so only same-file spans are related.
-        if s.span.file == d.span.file {
-            add(s.span, s.label.clone());
+        if secondary.span.file == d.span.file {
+            add(secondary.span, secondary.label.clone());
         }
     }
 

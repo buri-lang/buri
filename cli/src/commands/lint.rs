@@ -318,7 +318,7 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
                     Diagnostic::error(*span, format!("{name} is listed by two rules"))
                         .with_code("duplicate-source")
                         .with_fix("list it under one rule only")
-                        .with_sub(*first_span, "first listed here"),
+                        .with_secondary_span(*first_span, "first listed here"),
                 );
             }
         }

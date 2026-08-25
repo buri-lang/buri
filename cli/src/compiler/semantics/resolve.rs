@@ -22,7 +22,7 @@ use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span, SubSpan};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span, SecondarySpan};
 use crate::parsing::flat::{self, TypeId};
 use crate::parsing::tree;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -1597,8 +1597,8 @@ impl<'a> Checker<'a> {
             let ty = self.tables.tycon(con).name.clone();
             self.err(span, format!("`{ty}` already has a method `{name}`"))
                 .fix("rename one of them")
-                .subs
-                .push(SubSpan { span: prev_span, label: "first declared here".into() });
+                .secondary_spans
+                .push(SecondarySpan { span: prev_span, label: "first declared here".into() });
             return;
         }
         self.tables.add_method(con, name, fid);
@@ -1711,8 +1711,8 @@ impl<'a> Checker<'a> {
                 format!("`{name}` cannot implement both the effect `{eff}` and the trait `{tr}`"),
             ).code("effect-and-trait")
             .fix("split it in two: a type is either part of the world or part of your data")
-            .subs
-            .push(SubSpan { span: other_span, label: "the other one".into() });
+            .secondary_spans
+            .push(SecondarySpan { span: other_span, label: "the other one".into() });
         }
 
         if self.tables.impls.contains_key(&(trait_id, self_con)) {
@@ -2098,7 +2098,7 @@ impl<'a> Checker<'a> {
                         self.err(t.span, format!("this file already has a test called {name:?}"))
                         .code("duplicate-test-name")
                         .label("declared again here")
-                        .sub(first, "first declared here")
+                        .secondary_span(first, "first declared here")
                         .fix("rename one of them, so each test in this file has its own title")
                         .notes
                         .push(

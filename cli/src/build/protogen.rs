@@ -465,7 +465,7 @@ pub fn generate(
         // The other declaration can only be pointed at when it is in this file;
         // a span from an imported schema belongs to a different source.
         if first.module.is_none() && second.module.is_none() {
-            d = d.with_sub(first.span, "first declared here");
+            d = d.with_secondary_span(first.span, "first declared here");
         }
         diagnostics.push(d);
     }
