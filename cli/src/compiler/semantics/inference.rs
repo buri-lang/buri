@@ -619,6 +619,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.c.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
     }
 
+    /// [`Self::err`] for a diagnostic whose wording lives on its page. What
+    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    pub(crate) fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
+        self.c.diags.items.push(Diagnostic::templated(code, span));
+        self.c.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
+    }
+
     pub(crate) fn error_expr(&self, span: Span) -> typed::Expr {
         typed::Expr::new(typed::ExprKind::Error, Ty::Error, span)
     }

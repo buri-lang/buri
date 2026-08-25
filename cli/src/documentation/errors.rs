@@ -13,15 +13,35 @@
 //! Codes are kebab-case rather than numbered. `E0308` is unsearchable; a
 //! reader who sees `[result-discarded]` already knows most of the answer, and
 //! can grep for it.
+//!
+//! A page also holds the *wording*, in the `---` block at its top: the message,
+//! the label, the note and the fix, as templates the emission site binds values
+//! into (`documentation::frontmatter`). A page that carries none is a page not
+//! yet migrated, and keeps working the old way — its title comes from the list
+//! below and its emission site builds the sentence itself.
+
+use crate::documentation::frontmatter::{Catalog, Page};
 
 pub struct ErrorDoc {
     pub code: &'static str,
-    pub title: &'static str,
+    /// The docs-index title, for a page whose frontmatter does not give one.
+    /// Read through [`ErrorDoc::title`], never directly.
+    pub listed_title: &'static str,
     pub text: &'static str,
     /// Where the rule this page states is set out in full. A page explains one
     /// diagnostic; the chapter that owns the rule explains the rule, and a
     /// page that repeated it would be the second copy that goes stale.
     pub see_also: &'static [&'static str],
+}
+
+impl ErrorDoc {
+    /// The page's own title where it has one, the registered title otherwise.
+    pub fn title(&self) -> &str {
+        match page(self.code) {
+            Some(p) => &p.front.title,
+            None => self.listed_title,
+        }
+    }
 }
 
 macro_rules! e {
@@ -31,7 +51,7 @@ macro_rules! e {
     ($code:literal, $title:literal, $see:expr) => {
         ErrorDoc {
             code: $code,
-            title: $title,
+            listed_title: $title,
             text: include_str!(concat!("../docs/errors/", $code, ".md")),
             see_also: $see,
         }
@@ -106,6 +126,26 @@ pub fn find(code: &str) -> Option<&'static ErrorDoc> {
     ERRORS.iter().find(|e| e.code == code)
 }
 
+/// Every page's frontmatter, parsed on first use and kept.
+///
+/// Once per process rather than once per diagnostic: a build that reports four
+/// hundred errors reads the catalog once, and a `&'static Page` is what a
+/// [`crate::diagnostics::Diagnostic`] can hold without copying its templates.
+pub fn catalog() -> &'static Catalog {
+    static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let entries: Vec<(&'static str, &'static str)> =
+            ERRORS.iter().map(|e| (e.code, e.text)).collect();
+        Catalog::build(&entries)
+    })
+}
+
+/// The parsed page for a code, or `None` for a code with no page and for a page
+/// that has not been given frontmatter yet.
+pub fn page(code: &str) -> Option<&'static Page> {
+    catalog().page(code)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,11 +157,59 @@ mod tests {
         for e in ERRORS {
             assert!(seen.insert(e.code), "`{}` is registered twice", e.code);
             assert!(!e.text.trim().is_empty(), "`{}` has an empty page", e.code);
-            assert!(
-                e.text.contains(&format!("code={}", e.code)),
-                "`{}`'s page has no reproduction tagged with its own code",
-                e.code
-            );
+            // A page says `reproduction: none` when no single file can provoke
+            // the code; everything else carries the program that does.
+            if page(e.code).is_none_or(|p| p.front.reproducible) {
+                assert!(
+                    e.text.contains(&format!("code={}", e.code)),
+                    "`{}`'s page has no reproduction tagged with its own code, and does not say \
+                     `reproduction: none`",
+                    e.code
+                );
+            }
+        }
+    }
+
+    /// A page whose frontmatter does not parse is a page whose diagnostic
+    /// prints without its wording, which is a failure a user should never be
+    /// the one to find.
+    #[test]
+    fn every_page_parses() {
+        let failures = catalog().failures();
+        assert!(failures.is_empty(), "these pages do not parse:\n  {}", failures.join("\n  "));
+    }
+
+    #[test]
+    fn every_migrated_page_is_titled_and_worded() {
+        for p in catalog().pages() {
+            assert!(!p.front.title.trim().is_empty(), "`{}` has an empty title", p.code);
+            assert!(!p.front.message.trim().is_empty(), "`{}` has an empty message", p.code);
+        }
+    }
+
+    /// `{function}`, never `{fn}` or `{fnName}`: the project spells names out,
+    /// and a template is read by whoever edits the page.
+    #[test]
+    fn every_placeholder_is_snake_case() {
+        for p in catalog().pages() {
+            let templates = [
+                Some(&p.front.message),
+                p.front.label.as_ref(),
+                p.front.note.as_ref(),
+                p.front.fix.as_ref(),
+            ];
+            for template in templates.into_iter().flatten() {
+                for name in crate::documentation::frontmatter::placeholders(template) {
+                    assert!(
+                        !name.is_empty()
+                            && name.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                            && !name.starts_with('_')
+                            && !name.ends_with('_'),
+                        "`{}` has the placeholder `{{{name}}}`, which is not snake_case",
+                        p.code
+                    );
+                }
+            }
         }
     }
 

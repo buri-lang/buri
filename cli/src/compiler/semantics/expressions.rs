@@ -456,9 +456,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 match self.static_ref(base) {
                     Some(Static::Fn(f)) => self.fn_ref(f, Some(targs), span),
                     _ => {
-                        self.err(span, "explicit type arguments qualify a function or a call")
-                        .code("type-args-on-a-value")
-                        .fix("attach the type arguments to the call, as in `f<Str>(x)`");
+                        let function = self.written_name(base);
+                        self.templated("type-args-on-a-value", span).bind("function", function);
                         self.error_expr(span)
                     }
                 }
@@ -633,6 +632,16 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Field { base, name, .. } => self.static_ref_field(base, name),
             V::Generic { base, .. } => self.static_ref(base),
             _ => None,
+        }
+    }
+
+    /// The name the source wrote for an expression, for a diagnostic that shows
+    /// the reader their own code back. `f` where there is no name to quote —
+    /// the type arguments were attached to a literal or a call result.
+    fn written_name(&self, e: ExprId) -> String {
+        match self.tree().expr(e) {
+            V::Ident { name, .. } | V::Field { name, .. } => name.to_string(),
+            _ => "f".to_string(),
         }
     }
 

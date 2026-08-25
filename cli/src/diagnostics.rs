@@ -101,6 +101,27 @@ impl<T, E: std::fmt::Display> Invariant<T> for Result<T, E> {
     }
 }
 
+/// A repository bug, reported where a test will see it and nowhere else.
+///
+/// The templates in the documentation pages are written by hand, and the three
+/// ways they can be wrong — no page, an unbound placeholder, a binding nothing
+/// uses — are all mistakes in *this* repository. In a debug build, which is
+/// every test run, each is a panic naming the code and the placeholder. In a
+/// release build none of them is worth taking a user's build down for: the
+/// template prints as written, which is a legible bug report.
+#[allow(
+    clippy::panic,
+    reason = "a documentation page that does not match its emission site is a bug in this \
+              repository rather than in the code being compiled, and this is the debug-only \
+              panic that says so; the release build prints the template instead"
+)]
+fn debug_panic(what: &str) {
+    #[cfg(debug_assertions)]
+    panic!("{what}");
+    #[cfg(not(debug_assertions))]
+    let _ = what;
+}
+
 /// Index into the [`SourceMap`].
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct FileId(pub u32);
@@ -161,7 +182,7 @@ pub enum Severity {
 }
 
 impl Severity {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Severity::Error => "error",
             Severity::Warning => "warning",
@@ -175,6 +196,19 @@ impl Severity {
 pub struct SecondarySpan {
     pub span: Span,
     pub label: String,
+}
+
+/// The page a templated diagnostic takes its wording from, and what has been
+/// bound into it.
+///
+/// The rendered fields below are kept in step with this on every `bind`, so
+/// `message`, `label`, `notes` and `fix` are ordinary strings by the time
+/// anything reads them — deduplication, `--error-format=json`, and the language
+/// server all predate templates and none of them has to know about one.
+#[derive(Clone, Debug)]
+pub struct Template {
+    page: &'static crate::documentation::frontmatter::Page,
+    bindings: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -201,6 +235,9 @@ pub struct Diagnostic {
     /// almost every diagnostic: `fix` is prose a reader acts on, and a rule
     /// whose answer needs a judgement call must not pretend otherwise.
     pub edits: Vec<Edit>,
+    /// Where the wording came from, for a diagnostic built by
+    /// [`Diagnostic::templated`]. `None` for one whose site writes its own.
+    pub template: Option<Template>,
 }
 
 /// A replacement of one byte range.
@@ -343,11 +380,128 @@ impl Diagnostic {
             secondary_spans: Vec::new(),
             code: None,
             edits: Vec::new(),
+            template: None,
         }
     }
 
     pub fn warning(span: Span, message: impl Into<String>) -> Diagnostic {
         Diagnostic { severity: Severity::Warning, ..Diagnostic::error(span, message) }
+    }
+
+    /// A diagnostic whose wording is the page's rather than this call site's.
+    ///
+    /// The severity, the message, the label, the note and the fix all come from
+    /// the frontmatter of `cli/src/docs/errors/<code>.md` (or `lints/`), and
+    /// what the call site supplies is the data: `.bind("function", name)` fills
+    /// the `{function}` the page's fix is written around. One code is one
+    /// message, so a rule whose two sites need different sentences is two
+    /// rules.
+    ///
+    /// A code with no page, an unbound placeholder, and a binding no template
+    /// uses are each a bug in this repository rather than in the code being
+    /// compiled, so each panics in a debug build — which is every test run —
+    /// and degrades to printing the template as written in a release one. A
+    /// user meeting a `{function}` has a bug report; a user meeting a crash has
+    /// lost their build.
+    pub fn templated(code: &str, span: Span) -> Diagnostic {
+        let mut d = Diagnostic::error(span, code.to_string());
+        d.code = Some(code.to_string());
+        match crate::documentation::page_of_code(code) {
+            Some(page) => {
+                d.severity = page.front.severity;
+                d.template = Some(Template { page, bindings: Vec::new() });
+                d.render_template();
+            }
+            None => debug_panic(&format!(
+                "`{code}` has no documentation page with frontmatter, so \
+                 `Diagnostic::templated` has no message to print. Add \
+                 cli/src/docs/errors/{code}.md with a `---` block, and register it in \
+                 documentation/errors.rs"
+            )),
+        }
+        d
+    }
+
+    /// Binds one placeholder. The value is the finished phrase — a template has
+    /// no filters, so anything conditional is decided here.
+    pub fn bind(&mut self, name: impl Into<String>, value: impl Into<String>) -> &mut Diagnostic {
+        let (name, value) = (name.into(), value.into());
+        if let Some(t) = &mut self.template {
+            match t.bindings.iter_mut().find(|(n, _)| *n == name) {
+                Some(slot) => slot.1 = value,
+                None => t.bindings.push((name, value)),
+            }
+        }
+        self.render_template();
+        self
+    }
+
+    pub fn with_bind(mut self, name: impl Into<String>, value: impl Into<String>) -> Diagnostic {
+        self.bind(name, value);
+        self
+    }
+
+    /// Re-renders the templated fields from the page, with whatever is bound so
+    /// far. Cheap — four short strings and a handful of bindings — and done on
+    /// every `bind` so that no reader of a `Diagnostic` has to know that the
+    /// wording came from a template.
+    fn render_template(&mut self) {
+        let Some(t) = &self.template else { return };
+        let front = &t.page.front;
+        let bindings = &t.bindings;
+        let fill = |template: &str| crate::documentation::frontmatter::render(template, bindings);
+        self.message = fill(&front.message);
+        self.label = front.label.as_deref().map(&fill);
+        self.fix = front.fix.as_deref().map(&fill);
+        // The page's note is the first of them, put there when the diagnostic
+        // was built, so a re-render replaces it rather than the call site's own.
+        if let Some(note) = front.note.as_deref() {
+            let rendered = fill(note);
+            match self.notes.first_mut() {
+                Some(first) => *first = rendered,
+                None => self.notes.push(rendered),
+            }
+        }
+    }
+
+    /// The check that makes a mistyped binding a failure rather than a sentence
+    /// with a hole in it. Debug builds only, on the way to being rendered.
+    fn check_template(&self) {
+        #[cfg(debug_assertions)]
+        if let Some(t) = &self.template {
+            let front = &t.page.front;
+            let templates: Vec<&str> = [
+                Some(front.message.as_str()),
+                front.label.as_deref(),
+                front.note.as_deref(),
+                front.fix.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            let holes: Vec<&str> = templates
+                .iter()
+                .flat_map(|t| crate::documentation::frontmatter::placeholders(t))
+                .collect();
+            for hole in &holes {
+                if !t.bindings.iter().any(|(n, _)| n == hole) {
+                    debug_panic(&format!(
+                        "`{}` prints `{{{hole}}}`, and nothing bound it: add \
+                         `.bind(\"{hole}\", …)` at the emission site",
+                        t.page.code
+                    ));
+                }
+            }
+            for (name, _) in &t.bindings {
+                if !holes.iter().any(|h| h == name) {
+                    debug_panic(&format!(
+                        "`{}` binds `{name}`, and no template of its page uses it: either the \
+                         page has a typo or the binding is left over",
+                        t.page.code
+                    ));
+                }
+            }
+        }
     }
 
     /// The chaining forms, for the `Diagnostic` a `push` is about to take.
@@ -649,7 +803,19 @@ impl SourceMap {
         f.text.get(start..end).unwrap_or("")
     }
 
+    /// [`SourceMap::render`], followed the first time a code is seen by the
+    /// explanation from its page. Every diagnostic a command prints for a human
+    /// leaves through here.
+    pub fn render_with_body(&self, d: &Diagnostic, color: bool) -> String {
+        let mut out = self.render(d, color);
+        if let Some(body) = self.explanation(d, color) {
+            out.push_str(&body);
+        }
+        out
+    }
+
     pub fn render(&self, d: &Diagnostic, color: bool) -> String {
+        d.check_template();
         let mut out = String::new();
         let (c_bold, c_red, c_yellow, c_blue, c_reset) = if color {
             ("\x1b[1m", "\x1b[1;31m", "\x1b[1;33m", "\x1b[1;34m", "\x1b[0m")
@@ -713,6 +879,47 @@ impl SourceMap {
         out
     }
 
+    /// The page's explanation, indented under the trailer and dimmed, or
+    /// `None` — which is the usual answer.
+    ///
+    /// It is printed once per code per run. A file with forty type mismatches
+    /// in it wants the paragraph once; printing it forty times would bury the
+    /// forty locations, which are the part that differs.
+    fn explanation(&self, d: &Diagnostic, color: bool) -> Option<String> {
+        if !bodies_are_printed() {
+            return None;
+        }
+        let code = d.code.as_deref()?;
+        let page = crate::documentation::page_of_code(code)?;
+        let body = crate::documentation::explanation_of(page);
+        if body.trim().is_empty() || !first_sighting(code) {
+            return None;
+        }
+        let indent = " ".repeat(self.gutter_width(d).saturating_add(2));
+        let width = crate::documentation::Width::new(
+            crate::documentation::terminal_width().saturating_sub(indent.len()),
+        );
+        // Rendered without colour and dimmed a line at a time: the escape a
+        // heading would carry ends with a reset, and a reset in the middle of a
+        // dimmed line un-dims the rest of it.
+        let rendered = crate::documentation::markdown::to_terminal(&body, width, false);
+        let (dim, reset) = if color {
+            (crate::documentation::markdown::DIM, crate::documentation::markdown::RESET)
+        } else {
+            ("", "")
+        };
+        let mut out = String::from("\n");
+        for line in rendered.trim_end().lines() {
+            if line.trim().is_empty() {
+                out.push('\n');
+            } else {
+                let _ = writeln!(out, "{indent}{dim}{line}{reset}");
+            }
+        }
+        out.push('\n');
+        Some(out)
+    }
+
     /// One JSON object per diagnostic, for `--error-format=json`.
     ///
     /// The shape is flat and the field names are the questions they answer, so
@@ -722,6 +929,7 @@ impl SourceMap {
     /// here, because a consumer of this wants the fields, not a picture of
     /// them.
     pub fn to_json(&self, d: &Diagnostic) -> String {
+        d.check_template();
         let mut out = String::from("{");
         let _ = write!(out, "\"severity\":{}", json_str(d.severity.label()));
         let _ = write!(out, ",\"message\":{}", json_str(&d.message));
@@ -866,6 +1074,54 @@ impl SourceMap {
             }
         }
         let _ = writeln!(out, "{:w$}{c_blue}|{c_reset}", "", w = gw);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What has already been explained
+// ---------------------------------------------------------------------------
+
+/// Whether a diagnostic's page is printed under it at all. `--dense` says no.
+///
+/// Process-wide because "print this paragraph once" is a fact about the run,
+/// not about a source map: a command that opens two sessions, or analyses forty
+/// targets, still owes the reader one copy of each explanation.
+static BODIES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Set from `--dense`, once, as a command opens.
+pub fn print_bodies(yes: bool) {
+    BODIES.store(yes, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn bodies_are_printed() -> bool {
+    BODIES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The codes whose page has already been printed in this process.
+static EXPLAINED: std::sync::OnceLock<std::sync::Mutex<crate::hash::Set<String>>> =
+    std::sync::OnceLock::new();
+
+/// True the first time it is asked about a code, false every time after.
+fn first_sighting(code: &str) -> bool {
+    let seen = EXPLAINED.get_or_init(Default::default);
+    // A poisoned lock means another thread panicked mid-insert. The set is a
+    // presentation detail, so the answer is to carry on with what is in it
+    // rather than to take the build down for it.
+    let mut seen = match seen.lock() {
+        Ok(seen) => seen,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    seen.insert(code.to_string())
+}
+
+/// Forgets what has been explained. For tests, which share a process.
+#[cfg(test)]
+fn forget_explanations() {
+    if let Some(seen) = EXPLAINED.get() {
+        match seen.lock() {
+            Ok(mut seen) => seen.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
     }
 }
 
@@ -1235,6 +1491,78 @@ mod tests {
         let rendered = map.render(&d, false);
         assert!(rendered.contains("let x = 1 + 2;"), "{rendered}");
         assert!(!rendered.contains('…'), "{rendered}");
+    }
+
+    /// The one thing a migration has to preserve: the same inputs produce the
+    /// same bytes. `type-args-on-a-value` is the worked case — its message and
+    /// its fix moved from `semantics/expressions.rs` into the frontmatter of
+    /// `docs/errors/type-args-on-a-value.md` and nothing about what a user
+    /// reads changed.
+    #[test]
+    fn a_templated_diagnostic_renders_what_the_call_site_used_to_build() {
+        let (map, id) = one_file();
+        let span = Span::new(id, 16, 21);
+        let by_hand = Diagnostic::error(span, "explicit type arguments qualify a function or a call")
+            .with_code("type-args-on-a-value")
+            .with_fix("attach the type arguments to the call, as in `a<Str>(x)`");
+        let templated =
+            Diagnostic::templated("type-args-on-a-value", span).with_bind("function", "a");
+        assert_eq!(map.render(&templated, false), map.render(&by_hand, false));
+        assert_eq!(map.to_json(&templated), map.to_json(&by_hand));
+    }
+
+    /// The explanation is context, and context repeated is noise: a file with
+    /// forty of one mistake in it wants the paragraph once and the forty
+    /// locations forty times.
+    #[test]
+    fn only_the_first_of_a_code_is_explained() {
+        let (map, id) = one_file();
+        let d = Diagnostic::templated("type-args-on-a-value", Span::new(id, 16, 21))
+            .with_bind("function", "a");
+
+        forget_explanations();
+        let first = map.render_with_body(&d, false);
+        assert!(first.contains("comparison operators are non-associative"), "{first}");
+        assert_eq!(map.render_with_body(&d, false), map.render(&d, false));
+
+        // And `--dense` says not even the first time.
+        forget_explanations();
+        print_bodies(false);
+        let dense = map.render_with_body(&d, false);
+        print_bodies(true);
+        assert_eq!(dense, map.render(&d, false));
+    }
+
+    /// A page whose specimen and reproduction are all it has explains nothing,
+    /// and printing an empty block under a diagnostic is worse than printing
+    /// nothing.
+    #[test]
+    fn a_diagnostic_with_no_page_is_rendered_as_it_always_was() {
+        let (map, id) = one_file();
+        // Spelled through a binding: `docs::documents::every_emitted_code_is_documented`
+        // scans this file for the codes it attaches, and this one has no page
+        // on purpose.
+        let unknown = "a-code-with-no-page";
+        let d = Diagnostic::error(Span::new(id, 16, 21), "no").with_code(unknown);
+        assert_eq!(map.render_with_body(&d, false), map.render(&d, false));
+    }
+
+    #[test]
+    #[should_panic(expected = "nothing bound it")]
+    fn an_unbound_placeholder_is_a_failure_rather_than_a_hole_in_a_sentence() {
+        let (map, id) = one_file();
+        let d = Diagnostic::templated("type-args-on-a-value", Span::new(id, 16, 21));
+        let _ = map.render(&d, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "no template of its page uses it")]
+    fn a_binding_nothing_uses_is_a_failure_too() {
+        let (map, id) = one_file();
+        let d = Diagnostic::templated("type-args-on-a-value", Span::new(id, 16, 21))
+            .with_bind("function", "a")
+            .with_bind("callee", "a");
+        let _ = map.render(&d, false);
     }
 
     /// The map hands out every `FileId`, and every span carrying one it did not

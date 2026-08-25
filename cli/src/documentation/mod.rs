@@ -31,8 +31,10 @@
 pub mod assemble;
 pub mod errors;
 pub mod examples;
+pub mod frontmatter;
 pub mod grammar;
 pub mod harness;
+pub mod lints;
 pub mod markdown;
 pub mod reference;
 pub mod topics;
@@ -410,6 +412,83 @@ impl DocSource for Workspace {
     }
 }
 
+/// The page a diagnostic code takes its wording from, whichever catalog it is
+/// in.
+///
+/// The two catalogs are separate because a compile error and a lint finding are
+/// documented differently, and a diagnostic does not care which one it came
+/// from: it has a code, and the code has a page.
+pub fn page_of_code(code: &str) -> Option<&'static frontmatter::Page> {
+    errors::page(code).or_else(|| lints::page(code))
+}
+
+/// The part of a page that is printed under the diagnostic itself.
+///
+/// Three things are dropped, each because the diagnostic it is printed under
+/// has already said it. The title heading, which is the docs index's line. The
+/// specimen — the ```` ```text ```` block showing what the diagnostic looks
+/// like — which the reader is looking at. And the reproduction, because a
+/// reader meeting a diagnostic has a program that provokes it in front of them
+/// and does not need ours.
+///
+/// What is left is the freeform explanation, which is empty for a page carrying
+/// only frontmatter and a reproduction, and so prints nothing at all.
+pub fn explanation_of(page: &frontmatter::Page) -> String {
+    let dropped = quoted_lines(page);
+    let mut out = String::new();
+    // A section heading is held back until something is printed under it, so a
+    // section that was only a reproduction does not leave its title behind.
+    let mut pending: Option<&str> = None;
+    let mut in_fence = false;
+    for (index, line) in page.body.lines().enumerate() {
+        let number = index.saturating_add(1);
+        if dropped.iter().any(|(first, last)| number >= *first && number <= *last) {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let delimiter = trimmed.starts_with("```");
+        if delimiter {
+            in_fence = !in_fence;
+        }
+        if !in_fence && !delimiter && trimmed.starts_with('#') {
+            pending = if trimmed.starts_with("# ") { None } else { Some(line) };
+            continue;
+        }
+        if trimmed.is_empty() && !in_fence {
+            if pending.is_none() {
+                out.push('\n');
+            }
+            continue;
+        }
+        if let Some(heading) = pending.take() {
+            let _ = writeln!(out, "{heading}\n");
+        }
+        let _ = writeln!(out, "{line}");
+    }
+    out.trim().to_string()
+}
+
+/// The line range of every block a diagnostic must not print back at its
+/// reader: the `buri fail code=…` reproduction, and the transcript of the
+/// diagnostic itself. Inclusive of both fences.
+fn quoted_lines(page: &frontmatter::Page) -> Vec<(usize, usize)> {
+    let bracketed = format!("[{}]", page.code);
+    markdown::fences(page.body)
+        .iter()
+        .filter(|f| {
+            let reproduction =
+                f.lang == "buri" && f.info.as_ref().is_ok_and(|info| info.get("code").is_some());
+            let specimen = f.lang == "text"
+                && f.body
+                    .lines()
+                    .next()
+                    .is_some_and(|l| l.contains(&bracketed) && l.contains(": "));
+            reproduction || specimen
+        })
+        .map(|f| (f.line, f.body_line.saturating_add(f.body.lines().count())))
+        .collect()
+}
+
 /// The error catalog: one page per diagnostic code.
 pub struct Errors;
 
@@ -423,20 +502,30 @@ impl DocSource for Errors {
         // two-word `buri docs error result-discarded`.
         let code = id.strip_prefix("error/").unwrap_or(id);
         let e = crate::documentation::errors::find(code)?;
+        let page = errors::page(code);
         // The guarantee every page in this catalog carries, written once here
         // rather than sixty times in the pages. It is the last thing a reader
         // sees, after the program it is about, in whichever way the page is
         // rendered — the alternative was a paragraph that had to be copied,
         // kept in step, and got the code wrong the moment one was renamed.
-        let body = format!(
-            "{}\nThe program above is compiled by the test suite, which checks that it still \
-             produces `{}` — so this page cannot describe an error the compiler has stopped \
-             emitting.\n",
-            e.text, e.code
-        );
+        let promise = if page.is_some_and(|p| !p.front.reproducible) {
+            String::new()
+        } else {
+            format!(
+                "\nThe program above is compiled by the test suite, which checks that it still \
+                 produces `{code}` — so this page cannot describe an error the compiler has \
+                 stopped emitting.\n"
+            )
+        };
+        // The promise stays directly under the program it is about; the
+        // wording comes last, as reference for whoever edits the page.
+        let body = match page {
+            Some(p) => format!("{}\n{promise}{}", p.body.trim_end(), wording(&p.front)),
+            None => format!("{}{promise}", e.text),
+        };
         Some(Page {
             id: format!("error/{}", e.code),
-            title: e.title.to_string(),
+            title: e.title().to_string(),
             kind: "error",
             body,
             see_also: e.see_also.iter().map(|s| (*s).to_string()).collect(),
@@ -448,8 +537,74 @@ impl DocSource for Errors {
             .iter()
             .map(|e| Entry {
                 id: format!("error/{}", e.code),
-                title: e.title.to_string(),
+                title: e.title().to_string(),
                 summary: format!("`{}`", e.code),
+            })
+            .collect()
+    }
+}
+
+/// What a diagnostic built from this page prints, as the templates they are.
+///
+/// The frontmatter is never shown as prose — it is not prose, it is the
+/// wording — so `buri docs error <code>` renders it as a table with the
+/// placeholders left standing, which is what somebody editing the page needs
+/// to see.
+fn wording(front: &frontmatter::Frontmatter) -> String {
+    let mut out = String::from("\n## The wording\n\n");
+    let _ = writeln!(
+        out,
+        "What the diagnostic prints, from the page's frontmatter. A `{{name}}` is filled in \
+         from the code the compiler was given.\n"
+    );
+    out.push_str("| Part | Template |\n|---|---|\n");
+    let rows = [
+        ("severity", Some(front.severity.label().to_string())),
+        ("message", Some(front.message.clone())),
+        ("label", front.label.clone()),
+        ("note", front.note.clone()),
+        ("fix", front.fix.clone()),
+    ];
+    for (name, value) in rows {
+        if let Some(value) = value {
+            // A `|` in a template would otherwise end the cell it is in.
+            let _ = writeln!(out, "| {name} | {} |", value.replace('|', "\\|"));
+        }
+    }
+    out
+}
+
+/// The lint catalog: one page per `buri lint` finding.
+pub struct Lints;
+
+impl DocSource for Lints {
+    fn kind(&self) -> &'static str {
+        "lint"
+    }
+
+    fn resolve(&self, id: &str) -> Option<Page> {
+        let code = id.strip_prefix("lint/").unwrap_or(id);
+        let l = crate::documentation::lints::find(code)?;
+        let body = match lints::page(code) {
+            Some(p) => format!("{}\n{}", p.body.trim_end(), wording(&p.front)),
+            None => l.text.to_string(),
+        };
+        Some(Page {
+            id: format!("lint/{}", l.code),
+            title: l.title().to_string(),
+            kind: "lint",
+            body,
+            see_also: l.see_also.iter().map(|s| (*s).to_string()).collect(),
+        })
+    }
+
+    fn entries(&self) -> Vec<Entry> {
+        crate::documentation::lints::LINTS
+            .iter()
+            .map(|l| Entry {
+                id: format!("lint/{}", l.code),
+                title: l.title().to_string(),
+                summary: format!("`{}`", l.code),
             })
             .collect()
     }
@@ -460,8 +615,13 @@ impl DocSource for Errors {
 /// This is the seam: one line here and a new kind appears in the index, in
 /// search, in the manifest, and under `--format=json`.
 pub fn sources() -> Vec<Box<dyn DocSource>> {
-    let mut out: Vec<Box<dyn DocSource>> =
-        vec![Box::new(Prose), Box::new(Cli), Box::new(Std::load()), Box::new(Errors)];
+    let mut out: Vec<Box<dyn DocSource>> = vec![
+        Box::new(Prose),
+        Box::new(Cli),
+        Box::new(Std::load()),
+        Box::new(Errors),
+        Box::new(Lints),
+    ];
     if let Some(workspace) = Workspace::load() {
         out.push(Box::new(workspace));
     }
@@ -525,6 +685,13 @@ pub fn command_docs(args: &arguments::Args) -> i32 {
                 0
             }
         },
+        "lint" => match rest.next() {
+            Some(code) => show(&format!("lint/{code}"), &presentation),
+            None => {
+                arguments::out(&lint_index(&presentation));
+                0
+            }
+        },
         "cli" => match rest.next() {
             Some(name) => show(&format!("cli/{name}"), &presentation),
             None => {
@@ -536,13 +703,30 @@ pub fn command_docs(args: &arguments::Args) -> i32 {
     }
 }
 
+/// Every lint code, for `buri docs lint` with no argument.
+fn lint_index(presentation: &Presentation) -> String {
+    let mut out = String::new();
+    let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
+    let _ = write!(out, "{bold}buri docs lint <code>{reset} — one lint in full\n\n");
+    for l in crate::documentation::lints::LINTS {
+        let _ = writeln!(out, "  {:<28} {}", l.code, l.title());
+    }
+    let _ = write!(
+        out,
+        "\n{dim}A lint is what `buri lint` reports: a rule about a program that type checks\n\
+         and is still a mistake. Every finding names its code, and every code has a page.\
+         {reset}\n"
+    );
+    out
+}
+
 /// Every diagnostic code, for `buri docs error` with no argument.
 fn error_index(presentation: &Presentation) -> String {
     let mut out = String::new();
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let _ = write!(out, "{bold}buri docs error <code>{reset} — one diagnostic in full\n\n");
     for e in crate::documentation::errors::ERRORS {
-        let _ = writeln!(out, "  {:<28} {}", e.code, e.title);
+        let _ = writeln!(out, "  {:<28} {}", e.code, e.title());
     }
     let _ = write!(
         out,
@@ -669,9 +853,17 @@ fn index(presentation: &Presentation) -> String {
 
     let _ = writeln!(
         out,
-        "{bold}Diagnostics{reset}\n  {} codes — `buri docs error <code>`, or `buri docs error` to list them\n",
+        "{bold}Diagnostics{reset}\n  {} codes — `buri docs error <code>`, or `buri docs error` to list them",
         crate::documentation::errors::ERRORS.len()
     );
+    let lints = crate::documentation::lints::LINTS.len();
+    if lints > 0 {
+        let _ = writeln!(
+            out,
+            "  {lints} lints — `buri docs lint <code>`, or `buri docs lint` to list them"
+        );
+    }
+    out.push('\n');
 
     let _ = writeln!(out, "{bold}The standard library{reset}");
     let mut line = String::from("  ");
@@ -1053,7 +1245,9 @@ fn repo_root_of(from: &std::path::Path) -> Option<std::path::PathBuf> {
     None
 }
 
-fn terminal_width() -> usize {
+/// `$COLUMNS`, or eighty. Public because a diagnostic's explanation is wrapped
+/// to the same width as a documentation page, being the same text.
+pub fn terminal_width() -> usize {
     std::env::var("COLUMNS").ok().and_then(|c| c.parse().ok()).unwrap_or(80)
 }
 
