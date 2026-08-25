@@ -2426,10 +2426,13 @@ fn the_watchdog_reports_a_toolchain_that_does_not_stop() {
     let s = Scratch::repo("fuzz-watchdog");
     s.write("app/BUILD.buri", harness::JS_BINARY);
     s.write("app/main.buri", "export fn main(): Result<(), Str> {\n  .Ok(())\n}\n");
-    let hurried = run_watched(&s.root, &["build", "//app"], Duration::from_millis(1));
+    // Zero, not a millisecond: a fast machine can finish a no-op JS build
+    // inside any positive deadline, and the question here is whether the
+    // timer fires, not whether the build is slow.
+    let hurried = run_watched(&s.root, &["build", "//app"], Duration::ZERO);
     assert!(
         hurried.is_err_and(|why| why.contains("did not stop")),
-        "a one-millisecond deadline let a whole build through, so the deadline does nothing"
+        "a zero deadline let a whole build through, so the deadline does nothing"
     );
     assert!(
         run_watched(&s.root, &["build", "//app"], WATCHDOG).is_ok(),

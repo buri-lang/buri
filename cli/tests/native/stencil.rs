@@ -994,6 +994,7 @@ fn the_corpus_files_it_compiles_pass() {
     if !supported() {
         return;
     }
+    let mut failures: Vec<String> = Vec::new();
     for path in CORPUS_COMPILES {
         let (package, file) = path.split_once('/').unwrap_or((path, ""));
         let full = corpus().join(package).join("test").join(file);
@@ -1001,8 +1002,16 @@ fn the_corpus_files_it_compiles_pass() {
         let blocks = source.matches("\ntest \"").count();
         assert!(blocks > 0, "`{path}` has no test blocks, so running it proves nothing");
         let ran = run_corpus(path, &source);
-        assert_eq!(ran.status, 0, "`{path}` failed:\n{}\n{}", ran.stdout, ran.stderr);
+        if ran.status != 0 {
+            failures.push(format!(
+                "`{path}` exited {}:\nstdout:\n{}\nstderr:\n{}",
+                ran.status, ran.stdout, ran.stderr
+            ));
+        }
     }
+    // Every failing file, not the first: two platforms failing on two
+    // different files is one report here and two runs otherwise.
+    assert!(failures.is_empty(), "{} corpus files failed:\n{}", failures.len(), failures.join("\n"));
 }
 
 /// One corpus file, compiled as the test source of its own package, linked and
