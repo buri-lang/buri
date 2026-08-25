@@ -110,7 +110,7 @@ pub enum Density {
     Dense,
 }
 
-pub struct DocCtx {
+pub struct Presentation {
     pub width: Width,
     pub render: Render,
     pub density: Density,
@@ -474,7 +474,7 @@ pub fn sources() -> Vec<Box<dyn DocSource>> {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_docs(args: &arguments::Args) -> i32 {
-    let ctx = DocCtx {
+    let presentation = Presentation {
         width: Width::new(terminal_width()),
         // `--format` decides whether there is a human to colour for at all, so
         // the colour flag is only asked about when there is one.
@@ -493,7 +493,7 @@ pub fn cmd_docs(args: &arguments::Args) -> i32 {
 
     let mut rest = args.targets.iter().map(String::as_str);
     let Some(first) = rest.next() else {
-        arguments::out(&index(&ctx));
+        arguments::out(&index(&presentation));
         return 0;
     };
 
@@ -504,42 +504,42 @@ pub fn cmd_docs(args: &arguments::Args) -> i32 {
                 eprintln!("error: `buri docs search` takes something to search for");
                 return 2;
             }
-            search(&query.join(" "), &ctx)
+            search(&query.join(" "), &presentation)
         }
         "assemble" => cmd_assemble(args.flags.check),
-        "test" => doctest_command(&rest.collect::<Vec<_>>(), &ctx),
+        "test" => doctest_command(&rest.collect::<Vec<_>>(), &presentation),
         "manifest" => {
             arguments::out(&manifest());
             0
         }
         "list" => {
-            arguments::out(&index(&ctx));
+            arguments::out(&index(&presentation));
             0
         }
         // `buri docs cli build` reads better than `buri docs cli/build`, and
         // it is what somebody types. Both work.
         "error" => match rest.next() {
-            Some(code) => show(&format!("error/{code}"), &ctx),
+            Some(code) => show(&format!("error/{code}"), &presentation),
             None => {
-                arguments::out(&error_index(&ctx));
+                arguments::out(&error_index(&presentation));
                 0
             }
         },
         "cli" => match rest.next() {
-            Some(name) => show(&format!("cli/{name}"), &ctx),
+            Some(name) => show(&format!("cli/{name}"), &presentation),
             None => {
-                arguments::out(&command_index(&ctx));
+                arguments::out(&command_index(&presentation));
                 0
             }
         },
-        id => show(id, &ctx),
+        id => show(id, &presentation),
     }
 }
 
 /// Every diagnostic code, for `buri docs error` with no argument.
-fn error_index(ctx: &DocCtx) -> String {
+fn error_index(presentation: &Presentation) -> String {
     let mut out = String::new();
-    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
+    let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let _ = write!(out, "{bold}buri docs error <code>{reset} — one diagnostic in full\n\n");
     for e in crate::documentation::errors::ERRORS {
         let _ = writeln!(out, "  {:<28} {}", e.code, e.title);
@@ -554,9 +554,9 @@ fn error_index(ctx: &DocCtx) -> String {
 }
 
 /// Every command, for `buri docs cli` with no argument.
-fn command_index(ctx: &DocCtx) -> String {
+fn command_index(presentation: &Presentation) -> String {
     let mut out = String::new();
-    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
+    let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let _ = write!(out, "{bold}buri docs cli <command>{reset} — one command in full\n\n");
     for c in crate::commands::COMMANDS {
         let _ = writeln!(out, "  cli/{:<10} {}", c.name, c.blurb);
@@ -566,7 +566,7 @@ fn command_index(ctx: &DocCtx) -> String {
     out
 }
 
-fn show(id: &str, ctx: &DocCtx) -> i32 {
+fn show(id: &str, presentation: &Presentation) -> i32 {
     // One set of sources, not two: `sources()` loads and analyses the standard
     // library and the repository, and the "did you mean" below was doing the
     // whole of that a second time on the one path where the answer is already
@@ -574,7 +574,7 @@ fn show(id: &str, ctx: &DocCtx) -> i32 {
     let sources = sources();
     for source in &sources {
         if let Some(page) = source.resolve(id) {
-            arguments::out(&emit(&page, ctx));
+            arguments::out(&emit(&page, presentation));
             return 0;
         }
     }
@@ -588,12 +588,12 @@ fn show(id: &str, ctx: &DocCtx) -> i32 {
     2
 }
 
-fn emit(page: &Page, ctx: &DocCtx) -> String {
-    let body = match ctx.density {
+fn emit(page: &Page, presentation: &Presentation) -> String {
+    let body = match presentation.density {
         Density::Full => page.body.clone(),
         Density::Dense => markdown::dense(&page.body),
     };
-    match ctx.render {
+    match presentation.render {
         Render::Markdown => body,
         Render::Json => {
             let mut out = String::new();
@@ -614,7 +614,7 @@ fn emit(page: &Page, ctx: &DocCtx) -> String {
             out
         }
         Render::Human { color } => {
-            let mut out = markdown::to_terminal(&body, ctx.width, color);
+            let mut out = markdown::to_terminal(&body, presentation.width, color);
             if !page.see_also.is_empty() {
                 let _ = write!(out, "\nSee also: {}\n", page.see_also.join(", "));
             }
@@ -627,8 +627,8 @@ fn emit(page: &Page, ctx: &DocCtx) -> String {
 }
 
 /// The front page: what kinds exist, what is in each, and how to search.
-fn index(ctx: &DocCtx) -> String {
-    if ctx.render == Render::Json {
+fn index(presentation: &Presentation) -> String {
+    if presentation.render == Render::Json {
         let s = crate::diagnostics::json_str;
         let mut rows = Vec::new();
         for source in sources() {
@@ -646,7 +646,7 @@ fn index(ctx: &DocCtx) -> String {
     }
 
     let mut out = String::new();
-    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
+    let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let _ = writeln!(out, "{bold}buri docs{reset} — the language, the build system, and this CLI\n");
 
     for (kind, heading) in [
@@ -677,7 +677,7 @@ fn index(ctx: &DocCtx) -> String {
     let mut line = String::from("  ");
     for m in crate::compiler::standard_library::MODULES {
         let path = m.path;
-        if line.chars().count() + path.len() + 2 > ctx.width.get() {
+        if line.chars().count() + path.len() + 2 > presentation.width.get() {
             let _ = writeln!(out, "{line}");
             line = String::from("  ");
         }
@@ -754,7 +754,7 @@ fn score(needle: &str, words: &[&str], id: &str, title: &str, tags: &[&str], bod
 /// Substring search across every registered page, ranked by where the match
 /// landed. Deliberately simple and deliberately deterministic: ties break on
 /// the id, never on hash order.
-fn search(query: &str, ctx: &DocCtx) -> i32 {
+fn search(query: &str, presentation: &Presentation) -> i32 {
     let needle = query.to_lowercase();
     let all: Vec<&str> = needle.split_whitespace().collect();
     let kept: Vec<&str> = all.iter().copied().filter(|w| !STOPWORDS.contains(w)).collect();
@@ -778,7 +778,7 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
     hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     hits.truncate(12);
 
-    if ctx.render == Render::Json {
+    if presentation.render == Render::Json {
         let s = crate::diagnostics::json_str;
         let rows: Vec<String> = hits
             .iter()
@@ -800,11 +800,11 @@ fn search(query: &str, ctx: &DocCtx) -> i32 {
         eprintln!("  = `buri docs` lists every topic");
         return 1;
     }
-    let (bold, dim, reset) = markdown::emphasis(ctx.render.color());
+    let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let mut listing = String::new();
     for (_, id, title, summary) in &hits {
         let _ = writeln!(listing, "{bold}{id}{reset}  {title}");
-        let line = one_line(summary, ctx.width.get().saturating_sub(4));
+        let line = one_line(summary, presentation.width.get().saturating_sub(4));
         if !line.is_empty() {
             let _ = writeln!(listing, "  {dim}{line}{reset}");
         }
@@ -903,7 +903,7 @@ fn pages_push(pages: &mut Vec<String>) -> &mut String {
 /// else's documentation. A repository gets `wrap=body`, `use=`, `// ERROR:`,
 /// `run` blocks with pinned output, and the `repo=` key that compiles an
 /// example against its own packages — with nothing to configure.
-fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
+fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
         Err(e) => {
@@ -957,7 +957,7 @@ fn doctest_command(paths: &[&str], ctx: &DocCtx) -> i32 {
     let files_checked = checked;
 
     if failures.is_empty() {
-        let (_, dim, reset) = markdown::emphasis(ctx.render.color());
+        let (_, dim, reset) = markdown::emphasis(presentation.render.color());
         arguments::out(&format!(
             "{blocks} example(s) in {files_checked} document(s) compile{dim} — and the ones \
              that print something were run{reset}\n"
@@ -1061,8 +1061,8 @@ fn terminal_width() -> usize {
 mod tests {
     use super::*;
 
-    fn ctx() -> DocCtx {
-        DocCtx {
+    fn presentation() -> Presentation {
+        Presentation {
             width: Width::default(),
             render: Render::Human { color: false },
             density: Density::Full,
@@ -1084,7 +1084,7 @@ mod tests {
 
     #[test]
     fn the_index_lists_every_topic() {
-        let text = index(&ctx());
+        let text = index(&presentation());
         for t in topics::TOPICS {
             assert!(text.contains(t.id), "the index omits `{}`", t.id);
         }
@@ -1094,21 +1094,21 @@ mod tests {
     fn a_page_renders_in_every_style() {
         let page = Prose.resolve("lang/effects").expect("lang/effects exists");
         for render in [Render::Human { color: false }, Render::Markdown, Render::Json] {
-            let out = emit(&page, &DocCtx { render, ..ctx() });
+            let out = emit(&page, &Presentation { render, ..presentation() });
             assert!(!out.trim().is_empty(), "{render:?} rendered nothing");
         }
         // JSON is one line, so a tool can read it a page at a time.
-        let json = emit(&page, &DocCtx { render: Render::Json, ..ctx() });
+        let json = emit(&page, &Presentation { render: Render::Json, ..presentation() });
         assert_eq!(json.lines().count(), 1, "JSON output must be one line");
     }
 
     #[test]
     fn dense_is_shorter_but_keeps_the_examples() {
         let page = Prose.resolve("lang/effects").unwrap();
-        let full = emit(&page, &DocCtx { render: Render::Markdown, ..ctx() });
+        let full = emit(&page, &Presentation { render: Render::Markdown, ..presentation() });
         let dense = emit(
             &page,
-            &DocCtx { render: Render::Markdown, density: Density::Dense, ..ctx() },
+            &Presentation { render: Render::Markdown, density: Density::Dense, ..presentation() },
         );
         assert!(dense.len() < full.len());
         for f in markdown::fences(&page.body) {
