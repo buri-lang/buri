@@ -55,11 +55,14 @@ Build-graph rules — always errors, not configurable:
 | `unused-dep` | A `dependencies` entry no source uses. |
 | `dep-cycle` | A cycle between packages. |
 | `circular-import` | A cycle between *modules*, which is the same rule one level down. The message names the whole cycle, because any one edge of it looks fine alone. |
+| `proto-circular-import` | The same cycle between `.proto` schemas, which import each other the way modules do. |
 | `no-such-module` | A path that names no module. There are two kinds and no others: `core/...` and `//...`. |
 | `module-outside-repository` | A `//...` path used where there is no repository to be relative to. |
 | `host-import` | An import of `core/host` from a module other than the one exporting `main`. The context `main` builds is the program's whole effect budget; a second module able to import `core/host` would be a second place authority enters. |
 | `host-not-granted` | A `main` binding an effect the output's platform does not grant — `Ui: host.ui` under `platform: JS`, `Net: host.net` under `platform: WEB`. A platform *is* the set of effects its host exports, so the name is simply not there, and the fix names the platforms that do grant it. |
-| `internal-import` | An import of a module internal to another library — another package's, or the one sharing a package with the importing binary. The boundary is the *rule's*, not the directory's. |
+| `internal-import` | An import of a module internal to another package's library. |
+| `binary-internal-import` | A binary's source importing a module internal to the library beside it. The boundary is the *rule's*, not the directory's, so being in the same package is not enough. |
+| `binary-source-import` | A library's source importing a module that belongs to the binary beside it. The binary depends on the library, not the other way round. |
 | `binary-entry-import` | An import of a binary's entry point from outside that binary's own test sources. |
 | `test-only-import` | A non-test source importing a path with a `testing` segment. |
 | `test-internal-import` | A file listed in `test.sources` importing a module internal to the library it tests. A test reaches its library the way a dependent does. |
@@ -69,9 +72,12 @@ Build-graph rules — always errors, not configurable:
 | `platform-violation` | A target in the closure that does not admit the platform being built. |
 | `unsatisfiable-target` | A target whose dependency closure admits no platform at all, so there is no platform to build it for. Reported at the target itself rather than at whichever binary happens to reach it first. |
 | `unknown-tag` | A `tags` entry naming no `tag` block in `REPO.buri`. Suggests the nearest declared name. |
-| `proto-edition` | A `.proto` file that does not declare `edition = "2026"` — a `syntax = "proto3"` or `proto2` file, an older edition, or no declaration at all. The fix is the migration. |
+| `proto-edition` | A `.proto` file declaring an edition other than `2026`. The fix names the one edition this reader implements. |
+| `proto-syntax-declaration` | A `syntax = "proto2"` or `syntax = "proto3"` file. The fix is the migration to editions. |
+| `proto-edition-missing` | A `.proto` file with no `edition` line at all, which every other tool reads as proto2. |
 | `proto-schema` | A `.proto` file that is not a well-formed schema: a field number outside 1..536870911, an enum whose first value is not zero, an unclosed message. |
 | `proto-unsupported` | A construct or a feature value the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `google.protobuf.Any`, `import public`, the removed `optional` and `required` labels, and the `features.…` values it cannot express — `LEGACY_REQUIRED`, `CLOSED`, `DELIMITED`, `NONE`, `LEGACY_BEST_EFFORT`. [`proto.md`](./proto.md) says why each one is out. |
+| `proto-unknown-feature` | A `features.…` name the reader does not model at all, as against a value of a known one it refuses. Suggests the nearest name it knows. |
 | `proto-unknown-type` | A field whose type names no message or enum, in this schema or in one it imports. |
 | `proto-ambiguous-type` | A field whose type names a short name two imported schemas both claim. Which one it meant is not something import order should decide, so it is asked rather than guessed. |
 | `proto-duplicate-type` | One fully-qualified name declared by two schemas. Reported whether or not anything uses it, and naming both files. |

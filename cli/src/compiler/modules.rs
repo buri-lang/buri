@@ -355,20 +355,9 @@ impl<'a> Loader<'a> {
             return;
         }
         self.diags.push(
-            Diagnostic::error(
-                Span::point(pkg.build_file_id, 0),
-                format!("{} has a testing/ directory and no `testing` block", pkg.label()),
-            )
-            .with_code("undeclared-testing-surface")
-            .with_note(
-                "the block is what puts the surface in the build; without it nothing compiles \
-                 testing/lib.buri and no dependent can name it",
-            )
-            .with_fix(format!(
-                "add a `testing {{ }}` block to the library rule in {}/BUILD.buri — empty if the \
-                 entry point is the whole of it — or delete the directory",
-                pkg.path
-            )),
+            Diagnostic::templated("undeclared-testing-surface", Span::point(pkg.build_file_id, 0))
+                .with_bind("package", pkg.label())
+                .with_bind("package_path", pkg.path.as_str()),
         );
     }
 
@@ -389,14 +378,7 @@ impl<'a> Loader<'a> {
         // have a diagnostic for.
         if is_entry_point(rel) {
             self.diags.push(
-                Diagnostic::error(span, format!("{rel} is named by the rule, not listed"))
-                    .with_code("entry-point-listed")
-                    .with_note(
-                        "an entry point is named by the rule kind — lib.buri for a library, \
-                         main.buri for a binary, testing/lib.buri for a `testing` block — rather \
-                         than listed among its inputs",
-                    )
-                    .with_fix(format!("remove \"{rel}\" from the list; the rule already names it")),
+                Diagnostic::templated("entry-point-listed", span).with_bind("source", rel),
             );
             return None;
         }
@@ -424,9 +406,7 @@ impl<'a> Loader<'a> {
         let pkg = ws.package(target.package);
         if !rel.ends_with(".proto") {
             self.diags.push(
-                Diagnostic::error(span, format!("{rel} is not a .proto file"))
-                    .with_code("proto-source-not-a-schema")
-                    .with_fix("list `.buri` files under `sources`; `proto_sources` holds schemas"),
+                Diagnostic::templated("proto-source-not-a-schema", span).with_bind("source", rel),
             );
             return None;
         }
@@ -468,10 +448,9 @@ impl<'a> Loader<'a> {
         if let Some(at) = self.stack.iter().position(|p| p == path) {
             let cycle = self.stack.get(at..).unwrap_or_default().join(" -> ");
             self.diags.push(
-                Diagnostic::error(span, format!("circular import: {cycle} -> {path}"))
-                    .with_code("circular-import")
-                    .with_fix("break the cycle: move what both schemas need into a third one")
-                    .with_note("schemas form a graph with no cycles, exactly as modules do"),
+                Diagnostic::templated("proto-circular-import", span)
+                    .with_bind("cycle", cycle)
+                    .with_bind("path", path),
             );
             return None;
         }
@@ -538,11 +517,9 @@ impl<'a> Loader<'a> {
         }
         let Some(text) = standard_library::source(path) else {
             self.diags.push(
-                Diagnostic::error(span, format!("there is no module \"{path}\"")).with_code("no-such-module")
-                    .with_fix(format!(
-                        "check the path; the standard library's modules are all {}",
-                        standard_library::roots_phrase()
-                    )),
+                Diagnostic::templated("no-such-module", span)
+                    .with_bind("path", path)
+                    .with_bind("roots", standard_library::roots_phrase()),
             );
             return None;
         };
@@ -575,8 +552,7 @@ impl<'a> Loader<'a> {
         }
         let Some(ws) = self.ws else {
             self.diags.push(
-                Diagnostic::error(span, format!("\"{path}\" is outside any repository")).with_code("module-outside-repository")
-                    .with_fix("import from `\"core/...\"` or from a `//...` path in this repository"),
+                Diagnostic::templated("module-outside-repository", span).with_bind("path", path),
             );
             return None;
         };
@@ -587,10 +563,11 @@ impl<'a> Loader<'a> {
             Ok(ModuleLocation::InPackage(m)) => self.load_file(path, m.file, role, span),
             Ok(ModuleLocation::Std { .. }) => self.load_std(path, span),
             Err(msg) => {
-                self.diags.push(Diagnostic::error(span, msg).with_code("module-not-found").with_fix(
-                    "create the file the path names, or correct the path — a module path maps \
-                     to exactly one file, with no search",
-                ));
+                // The resolver says which of the several ways a path can fail
+                // to name a file this one took, so the whole sentence is bound.
+                self.diags.push(
+                    Diagnostic::templated("module-not-found", span).with_bind("problem", msg),
+                );
                 None
             }
         }
@@ -611,9 +588,9 @@ impl<'a> Loader<'a> {
         if let Some(at) = self.stack.iter().position(|p| p == path) {
             let cycle = self.stack.get(at..).unwrap_or_default().join(" -> ");
             self.diags.push(
-                Diagnostic::error(span, format!("circular import: {cycle} -> {path}")).with_code("circular-import")
-                    .with_fix("break the cycle: move what both modules need into a third one")
-                    .with_note("modules form a graph with no cycles, at the module level and at the package level alike"),
+                Diagnostic::templated("circular-import", span)
+                    .with_bind("cycle", cycle)
+                    .with_bind("path", path),
             );
             return None;
         }
@@ -750,52 +727,24 @@ impl<'a> Loader<'a> {
         names: &[String],
     ) -> bool {
         if path.starts_with('.') {
-            self.diags.push(
-                Diagnostic::error(span, format!("\"{path}\" is a relative module path")).with_code("relative-import")
-                    .with_note(
-                        "every module path is absolute, so a path means the same module wherever \
-                         it is written and a file can move without its imports changing",
-                    )
-                    .with_fix(
-                        "write the absolute path: `\"core/...\"` for the standard library, \
-                         `\"//...\"` for this repository",
-                    ),
-            );
+            self.diags
+                .push(Diagnostic::templated("relative-import", span).with_bind("path", path));
             return false;
         }
 
         // `core/host` is importable only from the module that exports `main`.
         if path == "core/host" && role != Role::Entry {
-            self.diags.push(
-                Diagnostic::error(span, "\"core/host\" is importable only from the module that exports `main`").with_code("host-import")
-                    .with_fix(
-                        "take what you need as a `ctx` bound instead, and let `main` supply the \
-                         implementation",
-                    )
-                    .with_note(
-                        "the context `main` builds is the program's complete effect budget; a \
-                         module that could import `core/host` would be a second place authority \
-                         enters",
-                    ),
-            );
+            self.diags.push(Diagnostic::templated("host-import", span));
             return false;
         }
 
         // A path containing a `testing` segment is importable only from a test
         // source — or from another test-only module.
         if is_test_only_path(path) && !role.is_test_context() {
+            // The second note names the importer, which the page cannot.
             self.diags.push(
-                Diagnostic::error(span, "this is a test-only module").with_code("test-only-import")
-                    .with_label("importable only from a test source")
-                    .with_note(
-                        "a path containing a `testing` segment may be imported only from a test \
-                         source",
-                    )
-                    .with_note(format!("{importer_path} is not one"))
-                    .with_fix(
-                        "import it from a file listed in a target's `test.sources`, or drop the \
-                         import",
-                    ),
+                Diagnostic::templated("test-only-import", span)
+                    .with_note(format!("{importer_path} is not one")),
             );
             return false;
         }
@@ -817,19 +766,8 @@ impl<'a> Loader<'a> {
         // for an import to resolve to, whoever writes it (TESTING.md, "What a
         // test can reach").
         if is_declared_test_source(ws, Some(loc.package), path) {
-            self.diags.push(
-                Diagnostic::error(span, format!("{path} is a test source"))
-                    .with_code("test-source-import")
-                    .with_label("test sources are not importable")
-                    .with_note(
-                        "test sources are compiled independently and are not modules anybody \
-                         can name",
-                    )
-                    .with_fix(
-                        "put the shared helper in a library and list it in `test.dependencies` \
-                         — a path with a `testing` segment if it is test-only",
-                    ),
-            );
+            self.diags
+                .push(Diagnostic::templated("test-source-import", span).with_bind("path", path));
             return false;
         }
 
@@ -842,15 +780,10 @@ impl<'a> Loader<'a> {
                 if Some(loc.package) != importer_pkg {
                     let owner = ws.package(loc.package).label();
                     self.diags.push(
-                        Diagnostic::error(
-                            span,
-                            format!("{path} is internal to {owner}"),
-                        ).with_code("internal-import")
-                        .with_fix(format!("import the library instead: from \"{owner}\" import {{ ... }}"))
-                        .with_note(format!(
-                            "only names re-exported by {}/lib.buri are available",
-                            owner.trim_start_matches("//")
-                        )),
+                        Diagnostic::templated("internal-import", span)
+                            .with_bind("path", path)
+                            .with_bind("owner_path", owner.trim_start_matches("//"))
+                            .with_bind("owner", owner.as_str()),
                     );
                     return false;
                 }
@@ -861,26 +794,19 @@ impl<'a> Loader<'a> {
                 if is_declared_test_source(ws, importer_pkg, importer_path) {
                     let owner = ws.package(loc.package).label();
                     let dir = owner.trim_start_matches("//");
+                    // The names the import asked for, already spelled as a
+                    // phrase — the page has no way to list them.
                     let what = match names {
                         [] => "what the test needs".to_string(),
                         [one] => format!("`{one}`"),
                         many => format!("`{}`", many.join("`, `")),
                     };
                     self.diags.push(
-                        Diagnostic::error(
-                            span,
-                            format!(
-                                "{} imports a library-internal module",
-                                source_file_of(importer_path)
-                            ),
-                        )
-                        .with_code("test-internal-import")
-                        .with_label("internal to the library under test")
-                        .with_note("tests reach their library the same way dependents do")
-                        .with_fix(format!(
-                            "import {owner}, and re-export {what} from {dir}/lib.buri if it is \
-                             part of the surface you meant to test"
-                        )),
+                        Diagnostic::templated("test-internal-import", span)
+                            .with_bind("test_source", source_file_of(importer_path))
+                            .with_bind("owner", owner.as_str())
+                            .with_bind("exports", what)
+                            .with_bind("owner_path", dir),
                     );
                     return false;
                 }
@@ -904,33 +830,19 @@ impl<'a> Loader<'a> {
                         let dir = owner.trim_start_matches("//");
                         let importer_file = source_file_of(importer_path);
                         let d = match to {
-                            RuleKind::Library => Diagnostic::error(
-                                span,
-                                format!("{path} is internal to the library {owner}"),
-                            )
-                            .with_code("internal-import")
-                            .with_label("the binary reaches the library only through its entry point")
-                            .with_note(format!(
-                                "only names re-exported by {dir}/lib.buri are available, and \
-                                 {importer_file} belongs to the binary rule rather than the library's"
-                            ))
-                            .with_fix(format!(
-                                "import the library instead: from \"{owner}\" import {{ ... }}"
-                            )),
-                            RuleKind::Binary => Diagnostic::error(
-                                span,
-                                format!("{path} belongs to the binary in {owner}"),
-                            )
-                            .with_code("internal-import")
-                            .with_label("a library may not reach the binary beside it")
-                            .with_note(format!(
-                                "{importer_file} belongs to the library rule, and the binary \
-                                 depends on the library rather than the other way round"
-                            ))
-                            .with_fix(
-                                "move what you need into the library, or into a third one both \
-                                 can depend on",
-                            ),
+                            RuleKind::Library => {
+                                Diagnostic::templated("binary-internal-import", span)
+                                    .with_bind("path", path)
+                                    .with_bind("owner", owner.as_str())
+                                    .with_bind("owner_path", dir)
+                                    .with_bind("importer_file", importer_file)
+                            }
+                            RuleKind::Binary => {
+                                Diagnostic::templated("binary-source-import", span)
+                                    .with_bind("path", path)
+                                    .with_bind("owner", owner.as_str())
+                                    .with_bind("importer_file", importer_file)
+                            }
                         };
                         self.diags.push(d);
                         return false;
@@ -943,14 +855,7 @@ impl<'a> Loader<'a> {
                 let same_package = Some(loc.package) == importer_pkg;
                 if !same_package || !role.is_test_context() {
                     self.diags.push(
-                        Diagnostic::error(span, format!("{path} is a binary's entry point")).with_code("binary-entry-import")
-                            .with_fix(
-                                "move what you need into a library both can depend on",
-                            )
-                            .with_note(
-                                "only that binary's own test sources may import it; a library may \
-                                 not reach the binary in its package at all",
-                            ),
+                        Diagnostic::templated("binary-entry-import", span).with_bind("path", path),
                     );
                     return false;
                 }

@@ -1,4 +1,4 @@
-error: //tools/report/flags belongs to the binary in //tools/report [internal-import]
+error: //tools/report/flags belongs to the binary in //tools/report [binary-source-import]
  --> tools/report/detail.buri:6:6
   |
 6 | from "//tools/report/flags" import { label };

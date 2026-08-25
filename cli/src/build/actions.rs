@@ -1607,16 +1607,11 @@ pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut D
             let to = session.workspace.label(dep);
             let to_path = session.workspace.package(dep.package).path.clone();
             diagnostics.push(
-                Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
-                    .with_code("visibility-violation")
-                    .with_label("not visible")
-                    .with_note(format!(
-                        "{to} is visible to: {}",
-                        session.workspace.visibility_list(dep)
-                    ))
-                    .with_fix(format!(
-                        "add \"{from}\" to visibility in {to_path}/BUILD.buri"
-                    )),
+                Diagnostic::templated("visibility-violation", span)
+                    .with_bind("from_target", from)
+                    .with_bind("to_target", to)
+                    .with_bind("visible_to", session.workspace.visibility_list(dep))
+                    .with_bind("to_package_path", to_path),
             );
         }
     }
@@ -1633,21 +1628,18 @@ pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnos
             if session.workspace.repo.tag(&tag.value).is_none() {
                 let known: Vec<&str> =
                     session.workspace.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
-                let mut d = Diagnostic::error(tag.span, format!("unknown tag \"{}\"", tag.value))
-                    .with_code("unknown-tag")
-                    .with_note("no `tag` block in REPO.buri declares this name");
+                let mut d = Diagnostic::templated("unknown-tag", tag.span)
+                    .with_bind("tag", tag.value.as_str());
                 // A near miss is a guess about which of the two fixes is meant,
                 // not a replacement for saying what to do. Both go in the one
-                // `fix`, because a diagnostic carries only one.
-                d = match crate::build::buildfile::nearest(&tag.value, &known) {
-                    Some(near) => d.with_fix(format!(
+                // `fix`, because a diagnostic carries only one — so the near
+                // miss replaces the page's fix rather than joining it.
+                if let Some(near) = crate::build::buildfile::nearest(&tag.value, &known) {
+                    d = d.with_fix(format!(
                         "did you mean \"{near}\"? — or declare \"{}\" with a `tag` block in REPO.buri",
                         tag.value
-                    )),
-                    None => {
-                        d.with_fix("declare it with a `tag` block in REPO.buri, or drop it here")
-                    }
-                };
+                    ));
+                }
                 diagnostics.push(d);
             }
         }
@@ -1665,14 +1657,10 @@ pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnos
         .next()
         .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
 
-    let mut d = Diagnostic::error(
-        span,
-        format!("{label} cannot contain both \"{a}\" and \"{b}\" code"),
-    )
-    .with_code("tag-violation")
-    .with_fix(format!(
-        "drop one of the two dependencies, or split {label} into a target per side"
-    ));
+    let mut d = Diagnostic::templated("tag-violation", span)
+        .with_bind("target", label.as_str())
+        .with_bind("first_tag", a.as_str())
+        .with_bind("second_tag", b.as_str());
     // Both tags get the same treatment. The introducing edge is what makes
     // this diagnostic useful (TAGS.md:191-203), and printing it for only one
     // of the two leaves the reader to go and find the other by hand — which is
@@ -1729,15 +1717,9 @@ pub fn check_platform(
         .map(|o| o.span)
         .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
 
-    let mut d = Diagnostic::error(
-        span,
-        format!("{label} cannot be built for {}", platform.slug()),
-    )
-    .with_code("platform-violation")
-    .with_fix(format!(
-        "drop the {} output, or widen the tag's `requires {{ platforms }}` in REPO.buri",
-        platform.slug()
-    ));
+    let mut d = Diagnostic::templated("platform-violation", span)
+        .with_bind("target", label.as_str())
+        .with_bind("platform", platform.slug());
     if let Some((blocker, why)) = session.workspace.platform_blocker(target, platform) {
         d = d.with_note(why);
         if let Some(path) = session.workspace.dep_path(target, blocker) {

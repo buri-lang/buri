@@ -452,16 +452,10 @@ pub fn generate(
     // anything uses the name.
     for (name, first, second) in &table.duplicates {
         let (a, b) = (&first.origin, &second.origin);
-        let mut d = Diagnostic::error(
-            second.span,
-            format!("`{name}` is declared twice"),
-        )
-        .with_code("proto-duplicate-type")
-        .with_note(format!("declared in {a} and in {b}"))
-        .with_fix(
-            "rename one of them, or put them in different packages — a fully-qualified name \
-             names one type",
-        );
+        let mut d = Diagnostic::templated("proto-duplicate-type", second.span)
+            .with_bind("name", name.as_str())
+            .with_bind("first_origin", a.as_str())
+            .with_bind("second_origin", b.as_str());
         // The other declaration can only be pointed at when it is in this file;
         // a span from an imported schema belongs to a different source.
         if first.module.is_none() && second.module.is_none() {
@@ -626,16 +620,9 @@ impl<'a> Generator<'a> {
                             .collect::<Vec<_>>();
                         where_.sort();
                         self.diagnostics.push(
-                            Diagnostic::error(
-                                f.span,
-                                format!("`{named}` is ambiguous"),
-                            )
-                            .with_code("proto-ambiguous-type")
-                            .with_note(format!("it could be {}", where_.join(", or ")))
-                            .with_fix(
-                                "write the fully-qualified name, package and all, so the field \
-                                 says which one it means",
-                            ),
+                            Diagnostic::templated("proto-ambiguous-type", f.span)
+                                .with_bind("name", named)
+                                .with_bind("candidates", where_.join(", or ")),
                         );
                         return None;
                     }
@@ -645,12 +632,7 @@ impl<'a> Generator<'a> {
                 None => {
                     let name = name.clone();
                     self.diagnostics.push(
-                        Diagnostic::error(f.span, format!("`{name}` names no message or enum"))
-                            .with_code("proto-unknown-type")
-                            .with_fix(
-                                "declare it in this file, or `import` the file that declares it — \
-                                 an import path is written from the repository root",
-                            ),
+                        Diagnostic::templated("proto-unknown-type", f.span).with_bind("name", name),
                     );
                     None
                 }
@@ -1561,13 +1543,7 @@ pub fn is_proto_path(path: &str) -> bool {
 
 /// A `.proto` import that names nothing.
 pub fn unresolved_import(span: Span, path: &str) -> Diagnostic {
-    Diagnostic::error(span, format!("\"{path}\" names no schema in this repository"))
-        .with_code("proto-import-not-found")
-        .with_note(
-            "an import inside a schema is written from the repository root, the way protoc \
-             resolves one against `-I.`",
-        )
-        .with_fix("write the path from the repository root, as in `import \"proto/address.proto\";`")
+    Diagnostic::templated("proto-import-not-found", span).with_bind("path", path)
 }
 
 #[cfg(test)]

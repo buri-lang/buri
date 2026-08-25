@@ -1,3 +1,8 @@
+---
+title: A module path names exactly one file
+message: {problem}
+fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+---
 # A module path names exactly one file
 
 ```text
