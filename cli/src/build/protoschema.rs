@@ -304,10 +304,14 @@ impl Token {
 }
 
 impl<'a> Parser<'a> {
+    /// Every way a schema can be malformed shares one code, so the sentence and
+    /// the edit are what each site supplies.
     fn err(&mut self, span: Span, msg: impl Into<String>, fix: impl Into<String>) {
         if self.errors.len() < 32 {
             self.errors.push(
-                Diagnostic::error(span, msg).with_code("proto-schema").with_fix(fix),
+                Diagnostic::templated("proto-schema", span)
+                    .with_bind("problem", msg)
+                    .with_bind("remedy", fix),
             );
         }
     }
@@ -317,10 +321,10 @@ impl<'a> Parser<'a> {
     fn unsupported(&mut self, span: Span, what: &str, why: &str, fix: impl Into<String>) {
         if self.errors.len() < 32 {
             self.errors.push(
-                Diagnostic::error(span, format!("{what} is not supported"))
-                    .with_code("proto-unsupported")
-                    .with_note(why)
-                    .with_fix(fix),
+                Diagnostic::templated("proto-unsupported", span)
+                    .with_bind("construct", what)
+                    .with_bind("reason", why)
+                    .with_bind("remedy", fix),
             );
         }
     }
@@ -661,22 +665,15 @@ impl<'a> Parser<'a> {
                     "message_encoding",
                     "json_format",
                 ];
-                let mut d = Diagnostic::error(
-                    span,
-                    format!("`features.{other} = {v}` is not a feature this reader knows"),
-                )
-                .with_code("proto-unsupported")
-                .with_note(
-                    "a feature it ignored would be a schema that means something other than what \
-                     it says",
-                );
-                d = match crate::build::buildfile::nearest(other, &known) {
-                    Some(near) => d.with_fix(format!("did you mean `features.{near}`?")),
-                    None => d.with_fix(format!(
-                        "the features this reader models are: {}",
-                        known.join(", ")
-                    )),
-                };
+                let mut d = Diagnostic::templated("proto-unknown-feature", span)
+                    .with_bind("feature", other)
+                    .with_bind("value", v)
+                    .with_bind("known_features", known.join(", "));
+                // A near miss replaces the page's list, which is the answer when
+                // there is no name close enough to guess at.
+                if let Some(near) = crate::build::buildfile::nearest(other, &known) {
+                    d = d.with_fix(format!("did you mean `features.{near}`?"));
+                }
                 if self.errors.len() < 32 {
                     self.errors.push(d);
                 }
@@ -747,21 +744,9 @@ impl<'a> Parser<'a> {
                         let span =
                             Span::new(self.file, start, self.position.max(at.saturating_add(1)));
                         self.errors.push(
-                            Diagnostic::error(span, format!("{named} is not accepted"))
-                                .with_code("proto-edition")
-                                .with_note(
-                                    "this reader implements Protobuf Editions. proto2 and proto3 \
-                                     differ from it in field presence, in what a default means on \
-                                     the wire, and in whether an enum is open — so a `syntax` file \
-                                     is not a file it can read a little differently, it is a file \
-                                     it would read wrongly",
-                                )
-                                .with_fix(format!(
-                                    "migrate it: `edition = \"{REQUIRED_EDITION}\";`, drop every \
-                                     `optional` and `required` label, and write \
-                                     `[features.field_presence = IMPLICIT]` on the fields that \
-                                     had none"
-                                )),
+                            Diagnostic::templated("proto-syntax-declaration", span)
+                                .with_bind("declaration", named)
+                                .with_bind("edition", REQUIRED_EDITION),
                         );
                         self.expect(';', "the syntax declaration");
                     }
@@ -779,19 +764,9 @@ impl<'a> Parser<'a> {
                                 other => format!("edition {}", other.describe()),
                             };
                             self.errors.push(
-                                Diagnostic::error(span, format!("{named} is not accepted"))
-                                    .with_code("proto-edition")
-                                    .with_note(format!(
-                                        "this reader implements edition {REQUIRED_EDITION} and no \
-                                         other. One edition rather than a range is the same choice \
-                                         the toolchain makes everywhere else: a schema means one \
-                                         thing, and a reader that quietly accepted an older set of \
-                                         feature defaults would decode the file in front of it as \
-                                         a different file"
-                                    ))
-                                    .with_fix(format!(
-                                        "write `edition = \"{REQUIRED_EDITION}\";`"
-                                    )),
+                                Diagnostic::templated("proto-edition", span)
+                                    .with_bind("declaration", named)
+                                    .with_bind("edition", REQUIRED_EDITION),
                             );
                         }
                         self.expect(';', "the edition declaration");
@@ -901,18 +876,8 @@ impl<'a> Parser<'a> {
         }
         if !seen_edition {
             self.errors.push(
-                Diagnostic::error(
-                    Span::point(self.file, 0),
-                    "the file does not declare its edition",
-                )
-                .with_code("proto-edition")
-                .with_note(
-                    "a file with no declaration is proto2 to every other tool, and proto2 is not \
-                     what this mapping implements",
-                )
-                .with_fix(format!(
-                    "add `edition = \"{REQUIRED_EDITION}\";` as the first line"
-                )),
+                Diagnostic::templated("proto-edition-missing", Span::point(self.file, 0))
+                    .with_bind("edition", REQUIRED_EDITION),
             );
         }
         schema
@@ -1459,14 +1424,29 @@ mod tests {
     #[test]
     fn only_the_required_edition_is_accepted() {
         assert_eq!(REQUIRED_EDITION, "2026");
+        // Three refusals rather than one: a `syntax` file wants the migration,
+        // an older edition wants one line changed, and a file with no
+        // declaration wants a line added.
         let cases = [
-            ("syntax = \"proto3\";\n", "`syntax = \"proto3\"` is not accepted"),
-            ("syntax = \"proto2\";\n", "`syntax = \"proto2\"` is not accepted"),
-            ("edition = \"2023\";\n", "edition 2023 is not accepted"),
-            ("edition = \"2024\";\n", "edition 2024 is not accepted"),
-            ("message M { int32 x = 1; }\n", "does not declare its edition"),
+            (
+                "syntax = \"proto3\";\n",
+                "`syntax = \"proto3\"` is not accepted",
+                "proto-syntax-declaration",
+            ),
+            (
+                "syntax = \"proto2\";\n",
+                "`syntax = \"proto2\"` is not accepted",
+                "proto-syntax-declaration",
+            ),
+            ("edition = \"2023\";\n", "edition 2023 is not accepted", "proto-edition"),
+            ("edition = \"2024\";\n", "edition 2024 is not accepted", "proto-edition"),
+            (
+                "message M { int32 x = 1; }\n",
+                "does not declare its edition",
+                "proto-edition-missing",
+            ),
         ];
-        for (src, want) in cases {
+        for (src, want, code) in cases {
             let es = errors(src);
             assert!(
                 es.iter().any(|e| e.message.contains(want)),
@@ -1474,8 +1454,8 @@ mod tests {
             );
             assert!(es.iter().all(|e| e.fix.is_some()), "{src}: a refusal with no fix");
             assert!(
-                es.iter().any(|e| e.code.as_deref() == Some("proto-edition")),
-                "{src}: not filed under proto-edition"
+                es.iter().any(|e| e.code.as_deref() == Some(code)),
+                "{src}: not filed under {code}"
             );
         }
         assert!(errors(&format!("{HEAD}message M {{ int32 x = 1; }}\n")).is_empty());

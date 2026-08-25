@@ -7,3 +7,17 @@ error: this is a test-only module [test-only-import]
   = a path containing a `testing` segment may be imported only from a test source
   = //cmd/testing_import_in_program/main is not one
   = fix: import it from a file listed in a target's `test.sources`, or drop the import
+
+    What to do
+    ──────────
+
+    Import it from a file listed in a target's test.sources, or drop the import.
+
+    Why
+    ───
+
+    The restriction is carried by the path rather than by a field, so it is
+    visible where the import is written and there is nothing to remember to
+    declare. Any module path with a testing segment is covered —
+    core/testing/assert, //lib/ledger/testing, //lib/testing/fakes.
+

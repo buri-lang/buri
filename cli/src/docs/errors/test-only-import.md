@@ -1,3 +1,10 @@
+---
+title: A `testing` module is reachable only from a test
+message: this is a test-only module
+label: importable only from a test source
+note: a path containing a `testing` segment may be imported only from a test source
+fix: import it from a file listed in a target's `test.sources`, or drop the import
+---
 # A `testing` module is reachable only from a test
 
 ```text

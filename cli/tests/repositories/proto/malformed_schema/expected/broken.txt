@@ -1,4 +1,4 @@
-error: the file does not declare its edition [proto-edition]
+error: the file does not declare its edition [proto-edition-missing]
  --> lib/bad/broken.proto:1:1
   |
 1 | package bad.v1;

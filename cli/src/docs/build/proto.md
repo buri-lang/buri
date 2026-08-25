@@ -74,7 +74,7 @@ mapping can read a little differently — it is a file it would read wrongly. So
 it is refused, with the migration in the `fix`:
 
 ```text
-error: `syntax = "proto3"` is not accepted [proto-edition]
+error: `syntax = "proto3"` is not accepted [proto-syntax-declaration]
   = fix: migrate it: `edition = "2026";`, drop every `optional` and `required`
     label, and write `[features.field_presence = IMPLICIT]` on the fields that
     had none

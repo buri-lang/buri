@@ -1,4 +1,4 @@
-error: `syntax = "proto3"` is not accepted [proto-edition]
+error: `syntax = "proto3"` is not accepted [proto-syntax-declaration]
  --> lib/legacy/shape.proto:1:1
   |
 1 | syntax = "proto3";

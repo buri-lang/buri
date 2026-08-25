@@ -454,16 +454,9 @@ fn run_suite(
         if platform.is_native() && !native_ready(platform, &args.flags) {
             let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
             diagnostics.push(
-                Diagnostic::error(
-                    span,
-                    format!("the {} backend is not implemented", platform.slug()),
-                )
-                .with_code("platform-not-implemented")
-                .with_note("this toolchain emits JavaScript, so only a JS run can be executed")
-                .with_fix(format!(
-                    "drop {} from `test.platforms` until the backend exists",
-                    platform.proto()
-                )),
+                Diagnostic::templated("platform-not-implemented", span)
+                    .with_bind("platform", platform.slug())
+                    .with_bind("platform_in_build_file", platform.proto()),
             );
             continue;
         }
@@ -1644,20 +1637,9 @@ fn timed_out(session: &Session, target: TargetId, limit: Option<u32>) -> Diagnos
     let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
     let seconds = limit.unwrap_or(0);
     diagnostics.push(
-        Diagnostic::error(
-            span,
-            format!("{}'s test suite ran longer than {seconds}s", session.workspace.label(target)),
-        )
-            .with_code("test-timeout")
-            .with_label("the timeout this suite declares")
-            .with_note(
-                "the run was killed, so no test in this suite has a result — a timeout is \
-                 the suite's, not one test's",
-            )
-            .with_fix(
-                "raise `timeout_seconds`, or find the test that does not finish; a test that \
-                 never returns is a loop with no exit, since nothing here blocks on I/O",
-            ),
+        Diagnostic::templated("test-timeout", span)
+            .with_bind("target", session.workspace.label(target))
+            .with_bind("seconds", seconds.to_string()),
     );
     diagnostics
 }
