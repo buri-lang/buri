@@ -1716,7 +1716,12 @@ impl Scan<'_> {
         }
         let before = union;
         let sid = self.child(id, 0);
-        let smode = if owns { Mode::Own } else { Mode::Borrow };
+        // A counted compound scrutinee is owned for `Scan::children`'s reason:
+        // borrowed, its tail's alias would be dropped inside it, before the
+        // arms read the payload.
+        let promoted =
+            !owns && compound(scrutinee) && self.counted_ty(&scrutinee.ty.clone());
+        let smode = if owns || promoted { Mode::Own } else { Mode::Borrow };
         let out = self.expr(scrutinee, sid, &before, smode);
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
@@ -1745,7 +1750,7 @@ impl Scan<'_> {
         // iteration of `match (q.pop(ctx)) { .Some(..) => drain(..), .None => acc }`:
         // the recursive arm is the back edge, the `.None` arm is the
         // fall-through, and only the second was disposing of the `Option`.
-        if !owns && fresh(scrutinee) && self.counted_ty(&scrutinee.ty.clone()) {
+        if !owns && (fresh(scrutinee) || promoted) && self.counted_ty(&scrutinee.ty.clone()) {
             for (node, at) in &arm_jumps {
                 self.push(*node, *at, RcOp::DecRef, Target::Node(sid));
             }
@@ -1967,6 +1972,14 @@ impl Scan<'_> {
         for (k, kid) in kids.iter().enumerate().rev() {
             let kid_id = self.child(id, k);
             let m = modes.get(k).copied().unwrap_or(Mode::Borrow);
+            // A counted compound child is owned, not borrowed: an arm may
+            // answer an alias of a local, and a borrowed scan drops that local
+            // inside the arm, before this construct reads the value.
+            if m == Mode::Borrow && compound(kid) && self.counted_ty(&kid.ty.clone()) {
+                after = self.expr(kid, kid_id, &after, Mode::Own);
+                self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
+                continue;
+            }
             after = self.expr(kid, kid_id, &after, m);
             if m == Mode::Borrow {
                 self.drop_temporary(kid, kid_id, id);
@@ -2006,6 +2019,12 @@ fn jump_key(id: NodeId, args: &[Expr], scan: &Scan<'_>) -> (NodeId, Position) {
         0 => (id, Position::Before),
         n => (scan.child(id, n.saturating_sub(1)), Position::After),
     }
+}
+
+/// A block, an `if`, or a `match`: a value that arrives through a tail, whose
+/// paths may answer aliases of different locals.
+fn compound(e: &Expr) -> bool {
+    matches!(e.kind, ExprKind::Block { .. } | ExprKind::If { .. } | ExprKind::Match { .. })
 }
 
 /// The local a borrowed child is an alias of: itself where it is one, and the
@@ -2371,12 +2390,22 @@ mod tests {
                     // of it at an arm entry is what "the match consumed it"
                     // looks like from outside.
                     let consumed = self.consumes_scrutinee(scrutinee);
+                    // The same promotion the scan makes for a compound scrutinee.
+                    let promoted = !consumed
+                        && compound(scrutinee)
+                        && matches!(
+                            self.counted.counted(&scrutinee.ty.clone()),
+                            Answer::Yes
+                        );
                     self.walk(
                         scrutinee,
                         sid,
-                        if consumed { Mode::Own } else { Mode::Borrow },
+                        if consumed || promoted { Mode::Own } else { Mode::Borrow },
                         st,
                     );
+                    if promoted {
+                        st.bump_temp(sid, 1);
+                    }
                     if consumed {
                         if let ExprKind::Local(l) = &scrutinee.kind {
                             // `Own` mode took the count; the arm's own decref
@@ -2475,12 +2504,21 @@ mod tests {
                     for (k, kid) in kids.iter().enumerate() {
                         let kid_id = self.child(id, k);
                         let m = modes.get(k).copied().unwrap_or(Mode::Borrow);
+                        let counted = matches!(
+                            self.counted.counted(&kid.ty.clone()),
+                            Answer::Yes
+                        );
+                        // The same promotion `Scan::children` makes: a counted
+                        // compound child is owned, and its value is a
+                        // temporary the sites drop.
+                        if m == Mode::Borrow && compound(kid) && counted {
+                            self.walk(kid, kid_id, Mode::Own, st);
+                            st.bump_temp(kid_id, 1);
+                            continue;
+                        }
                         self.walk(kid, kid_id, m, st);
-                        if m == Mode::Borrow && fresh(kid) {
-                            let ty = kid.ty.clone();
-                            if matches!(self.counted.counted(&ty), Answer::Yes) {
-                                st.bump_temp(kid_id, 1);
-                            }
+                        if m == Mode::Borrow && fresh(kid) && counted {
+                            st.bump_temp(kid_id, 1);
                         }
                     }
                 }
@@ -3351,6 +3389,7 @@ export fn main(): Result<(), Str> {
         assert!(program.funcs.len() > 5, "the snippet reaches the library");
         assert_eq!(check_balance(&program), Vec::<String>::new());
     }
+
 
     /// A match that consumes its scrutinee pairs the dying value with the
     /// construction in the arm — MEMORY.md §5.3's reuse, in its analysis form.
