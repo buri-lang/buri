@@ -46,14 +46,14 @@ pub fn file(name: &str, text: &str) -> Option<String> {
 /// configuration file. A formatter with options is a formatter whose output is
 /// a repository decision.
 pub fn cmd_format(args: &arguments::Args) -> i32 {
-    let s = match session::open_or_exit(&args.flags) {
-        Ok(s) => s,
+    let session = match session::open_or_exit(&args.flags) {
+        Ok(session) => session,
         Err(c) => return c as i32,
     };
     let roots: Vec<PathBuf> = if args.targets.is_empty() {
-        vec![s.root.clone()]
+        vec![session.root.clone()]
     } else {
-        args.targets.iter().map(|t| s.root.join(t.trim_start_matches("//"))).collect()
+        args.targets.iter().map(|t| session.root.join(t.trim_start_matches("//"))).collect()
     };
 
     let mut files = Vec::new();
@@ -73,13 +73,13 @@ pub fn cmd_format(args: &arguments::Args) -> i32 {
             // else in the repository will work until it is fixed. Source that
             // does not parse is left exactly as it is: it is being edited.
             if is_build_file(&name) {
-                eprintln!("error: {} does not parse", s.workspace.rel_of(path));
+                eprintln!("error: {} does not parse", session.workspace.rel_of(path));
                 return 2;
             }
             continue;
         };
         if formatted != text {
-            changed.push(s.workspace.rel_of(path));
+            changed.push(session.workspace.rel_of(path));
             if !args.flags.check {
                 let _ = std::fs::write(path, formatted);
             }

@@ -219,8 +219,8 @@ pub fn cmd_test(args: &arguments::Args) -> i32 {
 /// the keys the same enumeration rather than two that have to be kept in step.
 fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
     let mut out = if watching { Out::Held(String::new()) } else { Out::Direct };
-    let mut s = match session::open(&args.flags) {
-        Ok(s) => s,
+    let mut session = match session::open(&args.flags) {
+        Ok(session) => session,
         Err(msg) => {
             eprintln!("error: {msg}");
             return watch::Pass { code: 2, inputs: Vec::new(), output: out.take(), quiet: false };
@@ -232,11 +232,11 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
     // an unparseable `BUILD.buri` shows its diagnostics and the loop carries on
     // watching, with the file that broke it in the set. An error state is a
     // state, not an exit (BUILD-AND-WATCH.md §4.3).
-    let broken = s.report();
+    let broken = session.report();
     if broken && !watching {
         return watch::Pass { code: 2, inputs: Vec::new(), output: out.take(), quiet: false };
     }
-    let targets = match s.resolve_targets(&args.targets) {
+    let targets = match session.resolve_targets(&args.targets) {
         Ok(t) => t,
         Err(msg) => {
             eprintln!("error: {msg}");
@@ -245,7 +245,7 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
             return watch::Pass { code: 2, inputs: Vec::new(), output: out.take(), quiet: false };
         }
     };
-    let inputs = if watching { watch::inputs(&s, &targets) } else { Vec::new() };
+    let inputs = if watching { watch::inputs(&session, &targets) } else { Vec::new() };
     if broken {
         return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
     }
@@ -257,7 +257,7 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
     // reports them. What comes back is a verdict per suite, and a suite that is
     // not in it — because it could not batch, or because the batch was
     // abandoned — is run below exactly as it was before any of this existed.
-    let mut pre = run_batches(&mut s, &targets, args, &mut notices);
+    let mut pre = run_batches(&mut session, &targets, args, &mut notices);
     let mut passed = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
@@ -267,11 +267,11 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
     let mut hard_error = false;
 
     for &target in &targets {
-        if !has_tests(&s, target) {
+        if !has_tests(&session, target) {
             continue;
         }
         suites += 1;
-        match run_suite(&mut s, target, args, &mut out, &mut notices, &mut pre) {
+        match run_suite(&mut session, target, args, &mut out, &mut notices, &mut pre) {
             Ok(outcome) => {
                 skipped += outcome.skipped;
                 printed |= outcome.accepted > 0;
@@ -283,14 +283,14 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
                         Verdict::Passed => passed += 1,
                         Verdict::Failed { message, diff } => {
                             failed += 1;
-                            report_failure(&s, target, c, message, diff.as_ref(), &mut out);
+                            report_failure(&session, target, c, message, diff.as_ref(), &mut out);
                             printed = true;
                         }
                     }
                 }
             }
             Err(diagnostics) => {
-                hard_error |= s.print(&diagnostics);
+                hard_error |= session.print(&diagnostics);
             }
         }
     }
@@ -349,15 +349,15 @@ fn may_cache_produced(cases: &[Case], flags: &arguments::Flags) -> bool {
     !cases.is_empty() && may_cache(cases, flags)
 }
 
-fn has_tests(s: &Session, target: TargetId) -> bool {
-    s.workspace
+fn has_tests(session: &Session, target: TargetId) -> bool {
+    session.workspace
         .package(target.package)
         .test_suite(target.kind)
         .is_some_and(|t| !t.sources.is_empty())
 }
 
-fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestSuite> {
-    s.workspace.package(target.package).test_suite(target.kind).cloned()
+fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile::TestSuite> {
+    session.workspace.package(target.package).test_suite(target.kind).cloned()
 }
 
 /// One suite, once per platform it runs on.
@@ -368,7 +368,7 @@ fn suite(s: &Session, target: TargetId) -> Option<crate::build::buildfile::TestS
 /// and they are the same pure function either way — and everything from the
 /// platform decision down is skipped, because it has already been made.
 fn run_suite(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     args: &arguments::Args,
     out: &mut Out,
@@ -380,8 +380,12 @@ fn run_suite(
     // for a `server` library is checked as server code without saying
     // anything. A suite that names no platforms runs once on the host, and the
     // host here is the machine, not the JavaScript the backend emits.
-    let declared: Vec<Platform> =
-        suite(s, target).map(|x| x.platforms).unwrap_or_default().iter().map(|p| p.value).collect();
+    let declared: Vec<Platform> = suite(session, target)
+        .map(|x| x.platforms)
+        .unwrap_or_default()
+        .iter()
+        .map(|p| p.value)
+        .collect();
     let checked: Vec<Platform> = if declared.is_empty() {
         vec![crate::compiler::driver::host_native_platform()]
     } else {
@@ -391,7 +395,7 @@ fn run_suite(
     // run of a `[LINUX, MACOS]` library is an error, not a skip
     // (TAGS.md, "Tags and tests").
     for p in &checked {
-        actions::check_policy(s, target, *p, &mut diagnostics);
+        actions::check_policy(session, target, *p, &mut diagnostics);
     }
     if diagnostics.has_errors() {
         return Err(diagnostics);
@@ -434,9 +438,9 @@ fn run_suite(
         // answer the wrong thing — silently, since an empty filesystem is a
         // filesystem (`cli/runtime/testing.rs`'s header states the divergence
         // and what would close it).
-        if wanted.is_native() && suite(s, target).is_some_and(|x| !x.data.is_empty()) {
+        if wanted.is_native() && suite(session, target).is_some_and(|x| !x.data.is_empty()) {
             notices.suite(
-                &s.workspace.label(target),
+                &session.workspace.label(target),
                 "a native test binary has no runner to hand it `test { data }`, so its \
                  `data()` filesystem would be empty",
             );
@@ -448,7 +452,7 @@ fn run_suite(
     let mut outcome = Outcome::default();
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
-            let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
+            let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
             diagnostics.push(
                 Diagnostic::error(
                     span,
@@ -463,7 +467,7 @@ fn run_suite(
             );
             continue;
         }
-        match run_on(s, target, platform, chosen, args, out, notices, pre) {
+        match run_on(session, target, platform, chosen, args, out, notices, pre) {
             Ok(one) => {
                 outcome.cases.extend(one.cases);
                 outcome.skipped += one.skipped;
@@ -485,7 +489,7 @@ fn run_suite(
               log are the two places output goes; none is derivable from another"
 )]
 fn run_on(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     mut platform: Platform,
     chosen: Chosen,
@@ -496,15 +500,15 @@ fn run_on(
 ) -> Result<Outcome, Diagnostics> {
     let mut diagnostics = Diagnostics::new();
 
-    let mut key = test_key_for(s, target, platform, args, pre);
-    if let Some(cached) = served(s, target, platform, &key, args) {
+    let mut key = test_key_for(session, target, platform, args, pre);
+    if let Some(cached) = served(session, target, platform, &key, args) {
         return Ok(cached);
     }
     crate::build::cache::explain(
         args.flags.explain,
         crate::build::cache::Status::Run,
         crate::build::cache::Action::Test,
-        &s.workspace.label(target),
+        &session.workspace.label(target),
         platform,
         &key,
     );
@@ -514,8 +518,12 @@ fn run_on(
     // and a test never binds `core/host` — only the entry point a batched
     // binary happens to drag in does. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, with_tests: true };
-    let analysis =
-        crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+    let analysis = crate::compiler::driver::analyze(
+        Some(&session.workspace),
+        &mut session.map,
+        &mut session.parsed,
+        &unit,
+    );
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
@@ -557,17 +565,18 @@ fn run_on(
     if platform.is_native() && chosen == Chosen::Default {
         if let Some(reason) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
         {
-            notices.suite(&s.workspace.label(target), &reason);
+            notices.suite(&session.workspace.label(target), &reason);
             platform = Platform::Js;
-            key = test_key_for(s, target, platform, args, pre);
-            if let Some(cached) = served(s, target, platform, &key, args) {
+            key = test_key_for(session, target, platform, args, pre);
+            if let Some(cached) = served(session, target, platform, &key, args) {
                 return Ok(cached);
             }
         }
     }
 
     if platform.is_native() {
-        let out = run_native(s, target, platform, args, sink, &key, program, &analysis, skipped);
+        let out =
+            run_native(session, target, platform, args, sink, &key, program, &analysis, skipped);
         // The checked program is tens of milliseconds of `free` at a hundred
         // thousand lines, and by here the verdict already exists. `Loaded`
         // holds its modules behind `Rc` — shared with the session's parse
@@ -590,8 +599,8 @@ fn run_on(
                     .first()
                     .map(|d| d.message.clone())
                     .unwrap_or_else(|| "the native backend refused it".to_string());
-                notices.suite(&s.workspace.label(target), &reason);
-                run_on(s, target, Platform::Js, Chosen::Default, args, sink, notices, pre)
+                notices.suite(&session.workspace.label(target), &reason);
+                run_on(session, target, Platform::Js, Chosen::Default, args, sink, notices, pre)
             }
             out => out,
         };
@@ -607,7 +616,7 @@ fn run_on(
 
     // The runner's in-memory `Fs` contains exactly `test { data: [...] }`, and
     // nothing else on disk is visible.
-    let data = load_test_data(s, target);
+    let data = load_test_data(session, target);
     source.push_str(&format!("\n$t.data={data};\n"));
     // The action's clock, spliced in after the runtime is defined and before a
     // test could reach one. A test has no name for `core/host` to begin with;
@@ -624,7 +633,8 @@ fn run_on(
         "$write(1,JSON.stringify($run({filter})));\n"
     ));
 
-    let dir = s.root.join(".buri/out/js").join(&s.workspace.package(target.package).path);
+    let dir =
+        session.root.join(".buri/out/js").join(&session.workspace.package(target.package).path);
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("test.mjs");
     if let Err(e) = std::fs::write(&path, &source) {
@@ -635,10 +645,10 @@ fn run_on(
         return Err(diagnostics);
     }
 
-    let limit = suite(s, target).and_then(|x| x.timeout_seconds);
+    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let out = match execute(&js_runtime(), Some(&path), limit, &[]) {
         Ok(Execution::Finished(out)) => out,
-        Ok(Execution::TimedOut) => return Err(timed_out(s, target, limit)),
+        Ok(Execution::TimedOut) => return Err(timed_out(session, target, limit)),
         Err(e) => {
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -650,9 +660,9 @@ fn run_on(
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let mut cases = parse_results(&stdout);
     if may_cache_produced(&cases, &args.flags) {
-        crate::build::cache::Cache::open(&s.root).put(&key, stdout.as_bytes());
+        crate::build::cache::Cache::open(&session.root).put(&key, stdout.as_bytes());
     }
-    locate(s, &program, &mut cases);
+    locate(session, &program, &mut cases);
     if cases.is_empty() && !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         diagnostics.push(
@@ -662,7 +672,8 @@ fn run_on(
         );
         return Err(diagnostics);
     }
-    let accepted = if args.flags.accept { accept_goldens(s, target, &cases, sink) } else { 0 };
+    let accepted =
+        if args.flags.accept { accept_goldens(session, target, &cases, sink) } else { 0 };
     Ok(Outcome { cases, skipped, accepted })
 }
 
@@ -844,7 +855,7 @@ impl Prepass {
 /// `test { data }`. That is why the memo is only ever *filled* by the batch
 /// prepass, which `--accept` returns from before it looks at a suite.
 fn test_key_for(
-    s: &Session,
+    session: &Session,
     target: TargetId,
     platform: Platform,
     args: &arguments::Args,
@@ -854,7 +865,7 @@ fn test_key_for(
         return key.clone();
     }
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    actions::test_key(s, target, &output, &args.flags)
+    actions::test_key(session, target, &output, &args.flags)
 }
 
 /// The verdicts the cache holds for this key, where it may serve them.
@@ -863,7 +874,7 @@ fn test_key_for(
 /// `--force` re-runs anyway, which is the honest way to check that a suite is
 /// not accidentally depending on the cache.
 fn served(
-    s: &Session,
+    session: &Session,
     target: TargetId,
     platform: Platform,
     key: &crate::build::cache::ActionKey,
@@ -872,7 +883,7 @@ fn served(
     if args.flags.force || args.flags.filter.is_some() || args.flags.accept {
         return None;
     }
-    let bytes = crate::build::cache::Cache::open(&s.root).get(key)?;
+    let bytes = crate::build::cache::Cache::open(&session.root).get(key)?;
     let text = String::from_utf8_lossy(&bytes).to_string();
     let mut cases = parse_results(&text);
     if cases.is_empty() {
@@ -885,7 +896,7 @@ fn served(
         args.flags.explain,
         crate::build::cache::Status::Cached,
         crate::build::cache::Action::Test,
-        &s.workspace.label(target),
+        &session.workspace.label(target),
         platform,
         key,
     );
@@ -929,7 +940,7 @@ fn served(
               them into a struct would name the arguments twice"
 )]
 fn run_native(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     platform: Platform,
     args: &arguments::Args,
@@ -961,7 +972,7 @@ fn run_native(
     // (`actions::test_binary_at`). It is held until this function returns,
     // which is exactly as long as the file it names is the one being executed.
     let binary = actions::native_test_binary(
-        s,
+        session,
         target,
         &output,
         &args.flags,
@@ -970,12 +981,12 @@ fn run_native(
         &mut diagnostics,
     )?;
 
-    let limit = suite(s, target).and_then(|x| x.timeout_seconds);
+    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let program_path = binary.path().display().to_string();
 
     let blocks = match run_blocks(&program_path, limit, selected.len()) {
         Ok(Some(blocks)) => blocks,
-        Ok(None) => return Err(timed_out(s, target, limit)),
+        Ok(None) => return Err(timed_out(session, target, limit)),
         Err(e) => {
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -998,10 +1009,11 @@ fn run_native(
     let record = format!("[{}]", objects.join(","));
     let mut cases = parse_results(&record);
     if may_cache(&cases, &args.flags) {
-        crate::build::cache::Cache::open(&s.root).put(key, record.as_bytes());
+        crate::build::cache::Cache::open(&session.root).put(key, record.as_bytes());
     }
-    locate(s, &program, &mut cases);
-    let accepted = if args.flags.accept { accept_goldens(s, target, &cases, sink) } else { 0 };
+    locate(session, &program, &mut cases);
+    let accepted =
+        if args.flags.accept { accept_goldens(session, target, &cases, sink) } else { 0 };
     crate::parallel::discard(program);
     Ok(Outcome { cases, skipped, accepted })
 }
@@ -1176,7 +1188,7 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 /// toolchain with no native backend. The loop below neither knows nor cares —
 /// a suite that is not in here is compiled, linked and run exactly as it was.
 fn run_batches(
-    s: &mut Session,
+    session: &mut Session,
     targets: &[TargetId],
     args: &arguments::Args,
     notices: &mut Notices,
@@ -1191,8 +1203,11 @@ fn run_batches(
     // The build file's half of the question, before the platform is decided, so
     // that a repository which was never going to batch does not cause
     // `default_platform` to state a notice earlier than the suite that earns it.
-    let possible: Vec<TargetId> =
-        targets.iter().copied().filter(|&t| has_tests(s, t) && may_batch(s, t)).collect();
+    let possible: Vec<TargetId> = targets
+        .iter()
+        .copied()
+        .filter(|&t| has_tests(session, t) && may_batch(session, t))
+        .collect();
     if possible.len() < 2 {
         return pre;
     }
@@ -1205,10 +1220,10 @@ fn run_batches(
     // `buri test` with nothing to do from walking five dependency closures to
     // find that out. The lookup is **silent** — `served` is what reports a hit,
     // in the loop that reports every other suite, in order.
-    let cache = crate::build::cache::Cache::open(&s.root);
+    let cache = crate::build::cache::Cache::open(&session.root);
     let mut fresh: Vec<TargetId> = Vec::new();
     for target in possible {
-        if already_cached(s, &cache, target, platform, args, &mut pre) {
+        if already_cached(session, &cache, target, platform, args, &mut pre) {
             continue;
         }
         // The graph's own rules, asked before this suite is compiled into a
@@ -1217,19 +1232,19 @@ fn run_batches(
         // first is contribute its closure to a binary the rule exists to
         // prevent.
         let mut diagnostics = Diagnostics::new();
-        actions::check_policy(s, target, platform, &mut diagnostics);
+        actions::check_policy(session, target, platform, &mut diagnostics);
         if diagnostics.has_errors() {
             continue;
         }
         fresh.push(target);
     }
-    for members in batches_of(s, &fresh) {
+    for members in batches_of(session, &fresh) {
         // A batch of one is the path that already exists, and taking it here
         // would be a second copy of it.
         if members.len() < 2 {
             continue;
         }
-        run_batch(s, &members, platform, args, &mut pre);
+        run_batch(session, &members, platform, args, &mut pre);
     }
     pre
 }
@@ -1241,8 +1256,8 @@ fn run_batches(
 /// a declared platform is a request rather than a preference, `data` sends the
 /// suite to JavaScript, and a declared timeout has to bound one suite's process
 /// rather than several suites'.
-fn may_batch(s: &Session, target: TargetId) -> bool {
-    let Some(suite) = suite(s, target) else { return false };
+fn may_batch(session: &Session, target: TargetId) -> bool {
+    let Some(suite) = suite(session, target) else { return false };
     suite.platforms.is_empty() && suite.data.is_empty() && suite.timeout_seconds.is_none()
 }
 
@@ -1253,7 +1268,7 @@ fn may_batch(s: &Session, target: TargetId) -> bool {
 /// anything, because printing it is the reporting loop's job and doing it twice
 /// would put a suite in the transcript before its neighbours.
 fn already_cached(
-    s: &Session,
+    session: &Session,
     cache: &crate::build::cache::Cache,
     target: TargetId,
     platform: Platform,
@@ -1265,7 +1280,7 @@ fn already_cached(
     }
     // Kept, because the loop below asks for the same key again to report the
     // suite — and building one reads every source in its closure.
-    let key = test_key_for(s, target, platform, args, pre);
+    let key = test_key_for(session, target, platform, args, pre);
     pre.keys.push(((target, platform), key.clone()));
     cache.get(&key).is_some_and(|bytes| !parse_results(&String::from_utf8_lossy(&bytes)).is_empty())
 }
@@ -1278,13 +1293,13 @@ fn already_cached(
 /// shipped — but it is linked into the suite's binary, so it is part of what a
 /// shared binary would contain. A batch is refused on the wider set, which can
 /// only ever refuse more.
-fn artifact_tags(s: &Session, target: TargetId) -> std::collections::BTreeSet<String> {
+fn artifact_tags(session: &Session, target: TargetId) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
     let mut roots = vec![target];
-    roots.extend(s.workspace.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
+    roots.extend(session.workspace.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
     for root in roots {
-        for member in s.workspace.closure(root) {
-            for tag in s.workspace.tags(member) {
+        for member in session.workspace.closure(root) {
+            for tag in session.workspace.tags(member) {
                 out.insert(tag.value.clone());
             }
         }
@@ -1294,9 +1309,15 @@ fn artifact_tags(s: &Session, target: TargetId) -> std::collections::BTreeSet<St
 
 /// Whether two tags forbid each other. `forbids` is symmetric, so it is enough
 /// for either declaration to name the other (TAGS.md).
-fn tags_forbid(s: &Session, a: &str, b: &str) -> bool {
-    s.workspace.repo.tag(a).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == b))
-        || s.workspace.repo.tag(b).is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == a))
+fn tags_forbid(session: &Session, a: &str, b: &str) -> bool {
+    let forbids = |one: &str, other: &str| {
+        session
+            .workspace
+            .repo
+            .tag(one)
+            .is_some_and(|d| d.forbids_tags.iter().any(|f| f.value == other))
+    };
+    forbids(a, b) || forbids(b, a)
 }
 
 /// Partitions the candidates into batches no one of which could fail
@@ -1311,12 +1332,12 @@ fn tags_forbid(s: &Session, a: &str, b: &str) -> bool {
 /// First-fit rather than optimal: the packing that minimises the number of
 /// batches is the graph-colouring problem, and what this is for is turning five
 /// links into one on a repository whose tags mostly do not forbid anything.
-fn batches_of(s: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> {
+fn batches_of(session: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> {
     let mut batches: Vec<(std::collections::BTreeSet<String>, Vec<TargetId>)> = Vec::new();
     for &target in candidates {
-        let tags = artifact_tags(s, target);
+        let tags = artifact_tags(session, target);
         let slot = batches.iter_mut().find(|(carried, _)| {
-            !carried.iter().any(|a| tags.iter().any(|b| tags_forbid(s, a, b)))
+            !carried.iter().any(|a| tags.iter().any(|b| tags_forbid(session, a, b)))
         });
         match slot {
             Some((carried, members)) => {
@@ -1335,9 +1356,9 @@ fn batches_of(s: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> {
 /// because this is the only thing that maps a block back to the suite that owns
 /// it: a root records the module its `test` block was declared in, and a module
 /// is named by its package-relative path from the repository root.
-fn test_modules_of(s: &Session, target: TargetId) -> Vec<String> {
-    let Some(suite) = suite(s, target) else { return Vec::new() };
-    let path = s.workspace.package(target.package).path.clone();
+fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
+    let Some(suite) = suite(session, target) else { return Vec::new() };
+    let path = session.workspace.package(target.package).path.clone();
     suite
         .sources
         .iter()
@@ -1360,7 +1381,7 @@ fn test_modules_of(s: &Session, target: TargetId) -> Vec<String> {
 /// name the one suite it belongs to and where `run_on`'s two fallbacks to
 /// JavaScript already live.
 fn run_batch(
-    s: &mut Session,
+    session: &mut Session,
     members: &[TargetId],
     platform: Platform,
     args: &arguments::Args,
@@ -1372,8 +1393,12 @@ fn run_batch(
         .iter()
         .map(|&target| Unit { target: Some(target), platform: None, with_tests: true })
         .collect();
-    let analysis =
-        crate::compiler::driver::analyze_all(Some(&s.workspace), &mut s.map, &mut s.parsed, &units);
+    let analysis = crate::compiler::driver::analyze_all(
+        Some(&session.workspace),
+        &mut session.map,
+        &mut session.parsed,
+        &units,
+    );
     if analysis.diags.has_errors() {
         return;
     }
@@ -1403,7 +1428,7 @@ fn run_batch(
     let owners: Vec<(String, usize)> = members
         .iter()
         .enumerate()
-        .flat_map(|(i, &t)| test_modules_of(s, t).into_iter().map(move |m| (m, i)))
+        .flat_map(|(i, &t)| test_modules_of(session, t).into_iter().map(move |m| (m, i)))
         .collect();
     let owner_of = |module: &str| -> Option<usize> {
         owners.iter().find(|(m, _)| m == module).map(|(_, i)| *i)
@@ -1457,7 +1482,7 @@ fn run_batch(
     // Held until this function returns, which is exactly as long as the file it
     // names is the one being executed (`actions::claim_runner`).
     let binary = match actions::native_test_batch(
-        s,
+        session,
         members,
         &output,
         &args.flags,
@@ -1472,12 +1497,12 @@ fn run_batch(
     // Reported per suite, because the `test` action is per suite: the batch is
     // how the verdicts were produced, not what they are keyed on.
     for &target in members {
-        let key = test_key_for(s, target, platform, args, pre);
+        let key = test_key_for(session, target, platform, args, pre);
         crate::build::cache::explain(
             args.flags.explain,
             crate::build::cache::Status::Run,
             crate::build::cache::Action::Test,
-            &s.workspace.label(target),
+            &session.workspace.label(target),
             platform,
             &key,
         );
@@ -1495,14 +1520,14 @@ fn run_batch(
             slot.push(record_of(name, module, block));
         }
     }
-    let cache = crate::build::cache::Cache::open(&s.root);
+    let cache = crate::build::cache::Cache::open(&session.root);
     for (i, &target) in members.iter().enumerate() {
         let record = format!("[{}]", records.get(i).map(|r| r.join(",")).unwrap_or_default());
         let mut cases = parse_results(&record);
         if may_cache_produced(&cases, &args.flags) {
-            cache.put(&test_key_for(s, target, platform, args, pre), record.as_bytes());
+            cache.put(&test_key_for(session, target, platform, args, pre), record.as_bytes());
         }
-        locate(s, &program, &mut cases);
+        locate(session, &program, &mut cases);
         pre.done.push((
             target,
             Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0), accepted: 0 },
@@ -1596,13 +1621,13 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
 /// title alone gives the second file's failure the first file's location, in
 /// the first file. Two tests sharing a title inside one file cannot arise:
 /// `duplicate-test-name` refuses them before anything is compiled.
-fn locate(s: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
+fn locate(session: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
     for c in cases.iter_mut() {
         if let Some(t) =
             program.roots.tests().iter().find(|t| t.name == c.name && t.module == c.module)
         {
             if !t.span.is_none() {
-                let f = s.map.get(t.span.file);
+                let f = session.map.get(t.span.file);
                 let (line, col) = f.line_col(t.span.start);
                 c.location = Some(format!("{}:{line}:{col}", f.name));
             }
@@ -1611,14 +1636,14 @@ fn locate(s: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
 }
 
 /// The diagnostic a suite that ran past its own `timeout_seconds` gets.
-fn timed_out(s: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
+fn timed_out(session: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
-    let span = suite(s, target).map(|x| x.span).unwrap_or(Span::NONE);
+    let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
     let seconds = limit.unwrap_or(0);
     diagnostics.push(
         Diagnostic::error(
             span,
-            format!("{}'s test suite ran longer than {seconds}s", s.workspace.label(target)),
+            format!("{}'s test suite ran longer than {seconds}s", session.workspace.label(target)),
         )
             .with_code("test-timeout")
             .with_label("the timeout this suite declares")
@@ -1716,13 +1741,13 @@ fn execute(
 /// produced. Everything else about the run is unchanged — the failure is still
 /// reported and still counted, because what `--accept` changes is the source
 /// tree, not the verdict.
-fn accept_goldens(s: &Session, target: TargetId, cases: &[Case], out: &mut Out) -> usize {
-    let Some(suite) = suite(s, target) else { return 0 };
+fn accept_goldens(session: &Session, target: TargetId, cases: &[Case], out: &mut Out) -> usize {
+    let Some(suite) = suite(session, target) else { return 0 };
     if suite.data.is_empty() {
         return 0;
     }
-    let dir = s.workspace.package(target.package).dir.clone();
-    let label = s.workspace.label(target);
+    let dir = session.workspace.package(target.package).dir.clone();
+    let label = session.workspace.label(target);
     let mut accepted = 0usize;
     for c in cases {
         let Verdict::Failed { diff: Some(diff), .. } = &c.verdict else { continue };
@@ -1809,9 +1834,9 @@ fn unquote(shown: &str) -> Option<String> {
     Some(out)
 }
 
-fn load_test_data(s: &Session, target: TargetId) -> String {
-    let Some(suite) = suite(s, target) else { return "{}".into() };
-    let dir = s.workspace.package(target.package).dir.clone();
+fn load_test_data(session: &Session, target: TargetId) -> String {
+    let Some(suite) = suite(session, target) else { return "{}".into() };
+    let dir = session.workspace.package(target.package).dir.clone();
     let mut fields = Vec::new();
     for d in &suite.data {
         let p: PathBuf = dir.join(&d.value);
@@ -1949,16 +1974,16 @@ fn indented(message: &str) -> String {
 
 /// Output names the target, the file, and the test (TESTING.md, "Running").
 fn report_failure(
-    s: &Session,
+    session: &Session,
     target: TargetId,
     c: &Case,
     message: &str,
     diff: Option<&Diff>,
     out: &mut Out,
 ) {
-    let label = s.workspace.label(target);
+    let label = session.workspace.label(target);
     let file = c.module.trim_start_matches("//");
-    let file = file.strip_prefix(&s.workspace.package(target.package).path).unwrap_or(file);
+    let file = file.strip_prefix(&session.workspace.package(target.package).path).unwrap_or(file);
     let file = file.trim_start_matches('/');
     out.line(&format!("FAIL {label}  {file}.buri  {}", quote_title(&c.name)));
     out.line(&indented(message));

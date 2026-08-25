@@ -19,8 +19,8 @@ use crate::diagnostics::Invariant as _;
 
 /// `deps`, `rdeps`, `path`, `tags`, `platforms`, `sources`.
 pub fn cmd_query(args: &arguments::Args) -> i32 {
-    let s = match session::open_or_exit(&args.flags) {
-        Ok(s) => s,
+    let session = match session::open_or_exit(&args.flags) {
+        Ok(session) => session,
         Err(c) => return c as i32,
     };
     let Some(expr) = args.targets.first() else {
@@ -45,8 +45,8 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
 
     let lookup = |label: &str| -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
-        let id = s.workspace.package_by_path(path)?;
-        s.workspace.targets().into_iter().find(|t| t.package == id)
+        let id = session.workspace.package_by_path(path)?;
+        session.workspace.targets().into_iter().find(|t| t.package == id)
     };
 
     // Five of the six queries take one label and refuse an unknown one
@@ -63,17 +63,17 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
     match func.trim() {
         "deps" => {
             let Some(t) = operand(first) else { return 2 };
-            for m in s.workspace.closure(t) {
+            for m in session.workspace.closure(t) {
                 if m != t {
-                    println!("{}", s.workspace.label(m));
+                    println!("{}", session.workspace.label(m));
                 }
             }
         }
         "rdeps" => {
             let Some(t) = operand(first) else { return 2 };
-            for other in s.workspace.targets() {
-                if other != t && s.workspace.closure(other).contains(&t) {
-                    println!("{}", s.workspace.label(other));
+            for other in session.workspace.targets() {
+                if other != t && session.workspace.closure(other).contains(&t) {
+                    println!("{}", session.workspace.label(other));
                 }
             }
         }
@@ -89,24 +89,24 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
                 eprintln!("error: no such target");
                 return 2;
             };
-            match s.workspace.dep_path(from, to) {
+            match session.workspace.dep_path(from, to) {
                 Some(path) => {
                     let mut nodes = path.iter();
                     // `dep_path` builds its answer starting from `from`, so a
                     // path it returns always has that first element.
                     let (start, _) =
                         nodes.next().or_ice("`dep_path` returns a path that begins at `from`");
-                    println!("{}", s.workspace.label(*start));
+                    println!("{}", session.workspace.label(*start));
                     for (node, span) in nodes {
                         let where_ = match span {
                             Some(sp) if !sp.is_none() => {
-                                let f = s.map.get(sp.file);
+                                let f = session.map.get(sp.file);
                                 let (line, _) = f.line_col(sp.start);
                                 format!("{}:{}", f.name, line)
                             }
                             _ => "implicit".into(),
                         };
-                        println!("  -> {:<22} {where_}", s.workspace.label(*node));
+                        println!("  -> {:<22} {where_}", session.workspace.label(*node));
                     }
                 }
                 None => println!("no path"),
@@ -114,13 +114,13 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         }
         "tags" => {
             let Some(t) = operand(first) else { return 2 };
-            for (tag, by) in s.workspace.closure_tags(t) {
-                println!("{tag}  ({})", s.workspace.label(by));
+            for (tag, by) in session.workspace.closure_tags(t) {
+                println!("{tag}  ({})", session.workspace.label(by));
             }
         }
         "platforms" => {
             let Some(t) = operand(first) else { return 2 };
-            let allowed = s.workspace.platforms(t);
+            let allowed = session.workspace.platforms(t);
             // An empty answer printed as nothing is indistinguishable from a
             // command that did nothing, and "this target can be built nowhere"
             // is the one answer here a reader most needs said out loud. It
@@ -128,10 +128,13 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
             // the question, not a complaint about the invocation, so the exit
             // code stays 0 and the constraints that produced it follow.
             if allowed.is_empty() {
-                println!("no platform: {}'s dependency closure admits none", s.workspace.label(t));
+                println!(
+                    "no platform: {}'s dependency closure admits none",
+                    session.workspace.label(t)
+                );
                 let mut why = Vec::new();
                 for p in Platform::ALL {
-                    if let Some((_, reason)) = s.workspace.platform_blocker(t, p) {
+                    if let Some((_, reason)) = session.workspace.platform_blocker(t, p) {
                         if !why.contains(&reason) {
                             why.push(reason);
                         }
@@ -147,7 +150,7 @@ pub fn cmd_query(args: &arguments::Args) -> i32 {
         }
         "sources" => {
             let Some(t) = operand(first) else { return 2 };
-            let p = s.workspace.package(t.package);
+            let p = session.workspace.package(t.package);
             let mut all = Vec::new();
             if let Some(lib) = &p.build.library {
                 all.push("lib.buri".to_string());

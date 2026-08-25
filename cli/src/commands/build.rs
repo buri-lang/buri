@@ -26,7 +26,7 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
         return check_reproducible(args);
     }
-    let (mut s, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+    let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,
     };
@@ -42,7 +42,7 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
             if t.kind != RuleKind::Binary {
                 continue;
             }
-            for o in actions::selected_outputs(&s, *t, &arguments::Flags::default()) {
+            for o in actions::selected_outputs(&session, *t, &arguments::Flags::default()) {
                 declared.insert(o.dir());
                 matched |= o.matches_selector(sel);
             }
@@ -77,7 +77,7 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
             // library is asked about again — per output — by every binary that
             // depends on it.
             actions::check_policy(
-                &s,
+                &session,
                 target,
                 crate::build::buildfile::Platform::Js,
                 &mut diagnostics,
@@ -91,26 +91,26 @@ pub fn cmd_build(args: &arguments::Args) -> i32 {
                     with_tests: false,
                 };
                 let analysis = crate::compiler::driver::analyze(
-                    Some(&s.workspace),
-                    &mut s.map,
-                    &mut s.parsed,
+                    Some(&session.workspace),
+                    &mut session.map,
+                    &mut session.parsed,
                     &unit,
                 );
                 diagnostics.extend(analysis.diags.items);
             }
-            failed |= s.print(&diagnostics);
+            failed |= session.print(&diagnostics);
             continue;
         }
-        for output in actions::selected_outputs(&s, target, &args.flags) {
-            match actions::build_target(&mut s, target, &output, &args.flags) {
+        for output in actions::selected_outputs(&session, target, &args.flags) {
+            match actions::build_target(&mut session, target, &output, &args.flags) {
                 Ok(a) => {
                     built += 1;
-                    let rel = a.path.strip_prefix(&s.root).unwrap_or(&a.path);
+                    let rel = a.path.strip_prefix(&session.root).unwrap_or(&a.path);
                     let note = if a.cached { ", cached" } else { "" };
                     println!("{} ({} bytes{note})", rel.display(), a.bytes);
                 }
                 Err(diagnostics) => {
-                    failed |= s.print(&diagnostics);
+                    failed |= session.print(&diagnostics);
                 }
             }
         }
@@ -201,13 +201,13 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let round_dir = std::env::temp_dir()
                 .join(format!("buri-reproducible-{}-{round}", std::process::id()));
             let _ = std::fs::remove_dir_all(&round_dir);
-            let (mut s, target) = match round_session(&label, &flags) {
+            let (mut session, target) = match round_session(&label, &flags) {
                 Ok(both) => both,
                 Err(code) => return code,
             };
             let mut diagnostics = crate::diagnostics::Diagnostics::new();
             let compiled = match actions::compile_artifact(
-                &mut s,
+                &mut session,
                 target,
                 platform,
                 &flags,
@@ -215,7 +215,7 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             ) {
                 Ok(compiled) => compiled,
                 Err(diagnostics) => {
-                    s.print(&diagnostics);
+                    session.print(&diagnostics);
                     return 1;
                 }
             };
@@ -336,20 +336,20 @@ fn round_session(
     label: &str,
     flags: &arguments::Flags,
 ) -> Result<(session::Session, crate::build::workspace::TargetId), i32> {
-    let mut s = open_or_exit(flags).map_err(i32::from)?;
-    if s.report() {
+    let mut session = open_or_exit(flags).map_err(i32::from)?;
+    if session.report() {
         return Err(2);
     }
-    let Some(target) = s
+    let Some(target) = session
         .workspace
         .targets()
         .into_iter()
-        .find(|t| s.workspace.label(*t) == label && t.kind == RuleKind::Binary)
+        .find(|t| session.workspace.label(*t) == label && t.kind == RuleKind::Binary)
     else {
         eprintln!("error: {label} disappeared between two builds of one tree");
         return Err(2);
     };
-    Ok((s, target))
+    Ok((session, target))
 }
 
 /// The two lines every irreproducibility is reported as: the verdict, then
@@ -420,10 +420,10 @@ fn check_native(
         let round_dir =
             std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
         let _ = std::fs::remove_dir_all(&round_dir);
-        let (mut s, target) = round_session(label, flags)?;
+        let (mut session, target) = round_session(label, flags)?;
         let mut diagnostics = crate::diagnostics::Diagnostics::new();
         let objects = match actions::compile_objects(
-            &mut s,
+            &mut session,
             target,
             output,
             flags,
@@ -431,7 +431,7 @@ fn check_native(
         ) {
             Ok(objects) => objects,
             Err(diagnostics) => {
-                s.print(&diagnostics);
+                session.print(&diagnostics);
                 return Err(1);
             }
         };
@@ -449,7 +449,7 @@ fn check_native(
                 return Err(2);
             }
         }
-        let prefix = s.workspace.package(target.package).path.clone();
+        let prefix = session.workspace.package(target.package).path.clone();
         let opts = crate::compiler::backend::LinkOptions {
             profile: actions::profile_of(flags),
             target: actions::target_of(output),
@@ -458,7 +458,7 @@ fn check_native(
         if let Err(diagnostics) =
             link::run(&objects.units, &objects.rows, &linker, &written, &opts)
         {
-            s.print(&diagnostics);
+            session.print(&diagnostics);
             return Err(1);
         }
         let exe = match std::fs::read(&written) {
@@ -539,8 +539,8 @@ fn check_native(
 type Plan = Vec<Entry>;
 
 fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
-    let s = open_or_exit(flags).map_err(i32::from)?;
-    let targets = match s.resolve_targets(&args.targets) {
+    let session = open_or_exit(flags).map_err(i32::from)?;
+    let targets = match session.resolve_targets(&args.targets) {
         Ok(t) => t,
         Err(msg) => {
             eprintln!("error: {msg}");
@@ -552,17 +552,19 @@ fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
         if target.kind != RuleKind::Binary {
             continue;
         }
-        for output in actions::selected_outputs(&s, target, flags) {
-            let full = actions::artifact_path(&s, target, &output);
-            let reported = full.strip_prefix(&s.root).unwrap_or(&full).display().to_string();
+        for output in actions::selected_outputs(&session, target, flags) {
+            let full = actions::artifact_path(&session, target, &output);
+            let reported = full.strip_prefix(&session.root).unwrap_or(&full).display().to_string();
             let name = full
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "artifact".into());
             plan.push(Entry {
-                label: s.workspace.label(target),
+                label: session.workspace.label(target),
                 path: reported,
-                package_path: std::path::PathBuf::from(&s.workspace.package(target.package).path),
+                package_path: std::path::PathBuf::from(
+                    &session.workspace.package(target.package).path,
+                ),
                 artifact: name,
                 platform: output.platform(),
                 output,

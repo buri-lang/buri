@@ -22,7 +22,7 @@ use crate::commands::arguments;
 /// `test.platforms`, and every comment come back saying exactly what they
 /// said.
 pub fn cmd_gen(args: &arguments::Args) -> i32 {
-    let (mut s, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+    let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,
     };
@@ -33,13 +33,13 @@ pub fn cmd_gen(args: &arguments::Args) -> i32 {
     packages.dedup();
 
     for package in packages {
-        match crate::build::regenerate::regenerate(&mut s, package) {
+        match crate::build::regenerate::regenerate(&mut session, package) {
             Ok(Some(update)) => {
-                stale.push(s.workspace.package(package).path.clone());
+                stale.push(session.workspace.package(package).path.clone());
                 if !args.flags.check {
-                    let path = s.workspace.package(package).build_path.clone();
+                    let path = session.workspace.package(package).build_path.clone();
                     if std::fs::write(&path, &update.text).is_ok() {
-                        println!("updated {}/BUILD.buri", s.workspace.package(package).path);
+                        println!("updated {}/BUILD.buri", session.workspace.package(package).path);
                         for line in &update.summary {
                             println!("  {line}");
                         }
@@ -48,7 +48,7 @@ pub fn cmd_gen(args: &arguments::Args) -> i32 {
             }
             Ok(None) => {}
             Err(d) => {
-                s.emit(&d);
+                session.emit(&d);
                 return 1;
             }
         }

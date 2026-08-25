@@ -25,8 +25,8 @@ pub struct Update {
               boxing it would put an allocation on a path that runs once and reads worse at \
               all three call sites"
 )]
-pub fn regenerate(s: &mut Session, package: PackageId) -> Result<Option<Update>, Diagnostic> {
-    let p = s.workspace.package(package);
+pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Update>, Diagnostic> {
+    let p = session.workspace.package(package);
     let build_path = p.build_path.clone();
     let dir = p.dir.clone();
     let package_path = p.path.clone();
@@ -187,8 +187,8 @@ pub fn regenerate(s: &mut Session, package: PackageId) -> Result<Option<Update>,
         .with_note("guessing would move code across a boundary that exists to be explicit"));
     }
 
-    let deps = derive_dependencies(s, package, &dir, &lib_tests, &bin_tests);
-    let p = s.workspace.package(package);
+    let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests);
+    let p = session.workspace.package(package);
     let mut summary = Vec::new();
 
     // In a package with both rules, `+ sources: ...` twice is two claims a
@@ -349,7 +349,7 @@ struct BinaryDeps {
 /// only thing that makes one — so the analysis is run with the tests loaded
 /// and the answers are split by role afterwards.
 fn derive_dependencies(
-    s: &mut Session,
+    session: &mut Session,
     package: PackageId,
     dir: &Path,
     lib_tests: &[String],
@@ -359,8 +359,8 @@ fn derive_dependencies(
     let mut out = Derived::default();
     for kind in [RuleKind::Library, RuleKind::Binary] {
         let has = match kind {
-            RuleKind::Library => s.workspace.package(package).has_library(),
-            RuleKind::Binary => s.workspace.package(package).has_binary(),
+            RuleKind::Library => session.workspace.package(package).has_library(),
+            RuleKind::Binary => session.workspace.package(package).has_binary(),
         };
         if !has {
             continue;
@@ -373,8 +373,12 @@ fn derive_dependencies(
             platform: None,
             with_tests: true,
         };
-        let analysis =
-            crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+        let analysis = crate::compiler::driver::analyze(
+            Some(&session.workspace),
+            &mut session.map,
+            &mut session.parsed,
+            &unit,
+        );
         if analysis.diags.has_errors() {
             // Without a clean check there is no method-resolution information,
             // so the imports alone would be an incomplete answer.
@@ -388,7 +392,7 @@ fn derive_dependencies(
         // that lands in another library counts even though no import names it.
         // The role of the module the call sits in decides which field it
         // belongs to, exactly as the import loop below does.
-        resolved_by_role(s, &analysis, package, &mut production, &mut test, &mut testing);
+        resolved_by_role(session, &analysis, package, &mut production, &mut test, &mut testing);
         for m in &analysis.loaded.modules {
             if m.pkg != Some(package) {
                 continue;
@@ -404,7 +408,7 @@ fn derive_dependencies(
                     crate::parsing::tree::Item::ReExport(r) => r.path.clone(),
                     _ => continue,
                 };
-                if let Some(label) = s.workspace.dependency_label(package, &path) {
+                if let Some(label) = session.workspace.dependency_label(package, &path) {
                     into.insert(label);
                 }
             }
@@ -419,7 +423,7 @@ fn derive_dependencies(
             RuleKind::Library => lib_tests,
             RuleKind::Binary => bin_tests,
         };
-        test.extend(imported_labels(s, package, dir, on_disk));
+        test.extend(imported_labels(session, package, dir, on_disk));
         // `test.dependencies` is what the suite adds: the target under test is
         // this package and is already excluded, and its `dependencies` reach
         // the suite through it, so naming them again would be two claims about
@@ -448,7 +452,7 @@ fn derive_dependencies(
 /// `missing-dep` is satisfied by a declaration in any of the three. `gen` has
 /// to write one of them, so it needs the finer answer.
 fn resolved_by_role(
-    s: &Session,
+    session: &Session,
     analysis: &crate::compiler::driver::Analysis,
     own: PackageId,
     production: &mut BTreeSet<String>,
@@ -477,7 +481,7 @@ fn resolved_by_role(
             if package == own {
                 return;
             }
-            let label = s.workspace.package(package).label();
+            let label = session.workspace.package(package).label();
             reached.push(if crate::build::workspace::is_test_only_path(&m.path) {
                 format!("{label}/testing")
             } else {
@@ -523,7 +527,7 @@ fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
 /// The syntactic half of the same question `derive_dependencies` asks of the
 /// analysis, for the files the analysis has not been told about yet.
 fn imported_labels(
-    s: &Session,
+    session: &Session,
     package: PackageId,
     dir: &Path,
     files: &[String],
@@ -531,7 +535,7 @@ fn imported_labels(
     let mut out = BTreeSet::new();
     for f in files {
         for path in imports_of(dir, f) {
-            if let Some(label) = s.workspace.dependency_label(package, &path) {
+            if let Some(label) = session.workspace.dependency_label(package, &path) {
                 out.insert(label);
             }
         }

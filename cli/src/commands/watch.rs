@@ -82,30 +82,30 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///
 /// Sorted and deduplicated: two targets in one repository share most of their
 /// closure, and the same file must not be swept twice.
-pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
+pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
     let mut out: BTreeSet<PathBuf> = BTreeSet::new();
-    out.insert(s.root.join("REPO.buri"));
-    for id in s.workspace.ids() {
-        out.insert(s.workspace.package(id).build_path.clone());
+    out.insert(session.root.join("REPO.buri"));
+    for id in session.workspace.ids() {
+        out.insert(session.workspace.package(id).build_path.clone());
     }
     for &target in targets {
-        for member in s.workspace.closure(target) {
-            declared_sources(s, member, &mut out);
+        for member in session.workspace.closure(target) {
+            declared_sources(session, member, &mut out);
         }
         // The libraries the *test* code reaches, which are not in the closure —
         // a test dependency is not a dependency of the thing being shipped — and
         // are compiled into the suite all the same. `actions::test_key` adds
         // exactly this set, and the two enumerations are the same enumeration
         // or the loop serves a verdict for code it stopped watching.
-        for (dep, _) in s.workspace.test_dep_edges(target) {
-            for member in s.workspace.closure(dep) {
-                declared_sources(s, member, &mut out);
+        for (dep, _) in session.workspace.test_dep_edges(target) {
+            for member in session.workspace.closure(dep) {
+                declared_sources(session, member, &mut out);
             }
         }
         // The suite's own inputs, which are on the selected target rather than
         // on its closure: a dependency's test sources are not built by this
         // run and are not in this run's key.
-        let package = s.workspace.package(target.package);
+        let package = session.workspace.package(target.package);
         if let Some(suite) = package.test_suite(target.kind) {
             for x in suite.sources.iter().chain(&suite.data) {
                 out.insert(package.dir.join(&x.value));
@@ -119,8 +119,8 @@ pub fn inputs(s: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
 /// hashes into that rule's part of a key. One function, so that "the watch set
 /// mirrors the key" is a shared enumeration rather than two lists that have to
 /// be kept in step by hand.
-fn declared_sources(s: &Session, member: TargetId, out: &mut BTreeSet<PathBuf>) {
-    let package = s.workspace.package(member.package);
+fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<PathBuf>) {
+    let package = session.workspace.package(member.package);
     out.insert(package.build_path.clone());
     let dir = &package.dir;
     match member.kind {

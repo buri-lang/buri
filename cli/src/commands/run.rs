@@ -16,7 +16,7 @@ use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
 
 pub fn cmd_run(args: &arguments::Args) -> i32 {
-    let (mut s, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+    let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,
     };
@@ -28,10 +28,13 @@ pub fn cmd_run(args: &arguments::Args) -> i32 {
         );
         return 2;
     };
-    let outputs = actions::selected_outputs(&s, target, &args.flags);
+    let outputs = actions::selected_outputs(&session, target, &args.flags);
     let Some(output) = choose(&outputs, &args.flags) else {
         let declared: Vec<String> = outputs.iter().map(crate::build::buildfile::Output::dir).collect();
-        eprintln!("error: {} declares no output this toolchain can run", s.workspace.label(target));
+        eprintln!(
+            "error: {} declares no output this toolchain can run",
+            session.workspace.label(target)
+        );
         if declared.is_empty() {
             eprintln!("  = it declares no outputs at all");
         } else {
@@ -49,10 +52,10 @@ pub fn cmd_run(args: &arguments::Args) -> i32 {
     // page mean something rather than being refused.
     let native = output.platform().is_native();
 
-    let artifact = match actions::build_target(&mut s, target, &output, &args.flags) {
+    let artifact = match actions::build_target(&mut session, target, &output, &args.flags) {
         Ok(a) => a,
         Err(diagnostics) => {
-            s.print(&diagnostics);
+            session.print(&diagnostics);
             return 1;
         }
     };

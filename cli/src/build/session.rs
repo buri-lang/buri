@@ -152,7 +152,7 @@ impl Session {
 )]
 pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
     match open(flags) {
-        Ok(s) => Ok(s),
+        Ok(session) => Ok(session),
         Err(msg) => {
             eprintln!("error: {msg}");
             Err(2)
@@ -173,12 +173,12 @@ pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
               nothing is not a diagnostic about a source file, so there is no `emit` for it"
 )]
 pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
-    let mut s = open_or_exit(flags)?;
-    if s.report() {
+    let mut session = open_or_exit(flags)?;
+    if session.report() {
         return Err(2);
     }
-    match s.resolve_targets(args) {
-        Ok(targets) => Ok((s, targets)),
+    match session.resolve_targets(args) {
+        Ok(targets) => Ok((session, targets)),
         Err(msg) => {
             eprintln!("error: {msg}");
             Err(2)

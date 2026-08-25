@@ -33,7 +33,7 @@ pub struct Artifact {
 
 /// Builds one target for one output, returning the artifact's path.
 pub fn build_target(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
@@ -42,7 +42,7 @@ pub fn build_target(
     let platform = output.platform();
 
     // Every check the graph can answer before a line is compiled.
-    check_policy(s, target, platform, &mut diagnostics);
+    check_policy(session, target, platform, &mut diagnostics);
     if diagnostics.has_errors() {
         return Err(diagnostics);
     }
@@ -58,7 +58,7 @@ pub fn build_target(
         // gets, unchanged in wording, which is what
         // `repositories/cli/output_selection` pins.
         if native_ready(target_of(output), profile_of(flags)) {
-            return build_native(s, target, output, flags, diagnostics);
+            return build_native(session, target, output, flags, diagnostics);
         }
         diagnostics.push(
             Diagnostic::error(
@@ -72,16 +72,16 @@ pub fn build_target(
 
     // The key covers everything that can affect the artifact, so a hit means
     // the compiler has nothing to do.
-    let key = action_key(s, target, output, flags, Action::Link);
-    let path = artifact_path(s, target, output);
-    let cache = Cache::open(&s.root);
-    explain_closure(s, target, output, flags);
+    let key = action_key(session, target, output, flags, Action::Link);
+    let path = artifact_path(session, target, output);
+    let cache = Cache::open(&session.root);
+    explain_closure(session, target, output, flags);
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(
             flags.explain,
             status,
             Action::Link,
-            &s.workspace.label(target),
+            &session.workspace.label(target),
             platform,
             &key,
         )
@@ -108,7 +108,7 @@ pub fn build_target(
                     && write_companions(&path, output, &stylesheet, &mut diagnostics)
                 {
                     explain_link(crate::build::cache::Status::Cached);
-                    link_out_symlink(s, output);
+                    link_out_symlink(session, output);
                     return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
                 }
             }
@@ -116,7 +116,7 @@ pub fn build_target(
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let compiled = compile_artifact(s, target, platform, flags, &mut diagnostics)?;
+    let compiled = compile_artifact(session, target, platform, flags, &mut diagnostics)?;
     cache.put(&key, compiled.module.as_bytes());
     if platform == Platform::Web {
         cache.put(&sheet_key, compiled.stylesheet.as_bytes());
@@ -134,7 +134,7 @@ pub fn build_target(
     if !write_companions(&path, output, &compiled.stylesheet, &mut diagnostics) {
         return Err(diagnostics);
     }
-    link_out_symlink(s, output);
+    link_out_symlink(session, output);
     Ok(Artifact { target, path, bytes: compiled.module.len(), cached: false })
 }
 
@@ -169,15 +169,19 @@ pub struct Compiled {
 /// `main`" to be spelled, and they had already drifted over how the missing-
 /// `main` diagnostic was laid out.
 fn monomorphized_main(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     platform: Platform,
     diagnostics: &mut Diagnostics,
 ) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
     // `Some`: a build is the per-output check. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
-    let mut analysis =
-        crate::compiler::driver::analyze(Some(&s.workspace), &mut s.map, &mut s.parsed, &unit);
+    let mut analysis = crate::compiler::driver::analyze(
+        Some(&session.workspace),
+        &mut session.map,
+        &mut session.parsed,
+        &unit,
+    );
     if analysis.diags.has_errors() {
         return Err(analysis.diags);
     }
@@ -187,7 +191,7 @@ fn monomorphized_main(
         diagnostics.push(
             Diagnostic::error(
                 Span::NONE,
-                format!("{} exports no `main`", s.workspace.package(target.package).label()),
+                format!("{} exports no `main`", session.workspace.package(target.package).label()),
             )
             .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
         );
@@ -209,13 +213,13 @@ fn monomorphized_main(
 }
 
 pub fn compile_artifact(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     platform: Platform,
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
-    let (analysis, mut program) = monomorphized_main(s, target, platform, diagnostics)?;
+    let (analysis, mut program) = monomorphized_main(session, target, platform, diagnostics)?;
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
@@ -247,7 +251,7 @@ pub fn first_difference(a: &[u8], b: &[u8]) -> Option<usize> {
 /// The key for one action on one target. Paths are repository-relative, so two
 /// checkouts in different directories produce identical keys.
 pub fn action_key(
-    s: &Session,
+    session: &Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
@@ -270,8 +274,8 @@ pub fn action_key(
     }
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
-    for member in s.workspace.closure(target) {
-        contribute(s, member, &mut k);
+    for member in session.workspace.closure(target) {
+        contribute(session, member, &mut k);
     }
     k.finish()
 }
@@ -281,8 +285,8 @@ pub fn action_key(
 /// be taken alone — which is what `--explain` reports per closure member, and
 /// what makes "editing this file changed this target's key and not that one"
 /// something a test can watch rather than something a comment asserts.
-fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
-    let package = s.workspace.package(member.package);
+fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
+    let package = session.workspace.package(member.package);
     let kind = match member.kind {
         RuleKind::Library => "library",
         RuleKind::Binary => "binary",
@@ -326,7 +330,7 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
             .unwrap_or_default()
     });
     for (rel, contents) in sources.iter().zip(&contents) {
-        k.input(&s.workspace.rel_of(&package.dir.join(rel)), contents);
+        k.input(&session.workspace.rel_of(&package.dir.join(rel)), contents);
     }
 }
 
@@ -337,16 +341,16 @@ fn contribute(s: &Session, member: TargetId, k: &mut KeyBuilder) {
 /// but it is the quantity the incrementality table in
 /// `buri docs build/hermeticity` is written in terms of, so `--explain` reports
 /// it and the tests compare it between two states of one tree.
-fn compile_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
+fn compile_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Compile, flags.mode);
     k.platform(output.platform(), output.arch());
-    contribute(s, target, &mut k);
+    contribute(session, target, &mut k);
     k.finish()
 }
 
 /// The schemas a rule declares, package-relative and sorted.
-pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
-    let package = s.workspace.package(target.package);
+pub fn proto_sources(session: &Session, target: TargetId) -> Vec<String> {
+    let package = session.workspace.package(target.package);
     let mut out: Vec<String> = match target.kind {
         RuleKind::Library => package
             .build
@@ -372,15 +376,15 @@ pub fn proto_sources(s: &Session, target: TargetId) -> Vec<String> {
 /// The platform is in it for the same reason it is in every other key, even
 /// though generation does not vary along it today: a key that leaves out
 /// something a future action varies on is the shape of a stale-cache bug.
-fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
+fn proto_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Proto, flags.mode);
     k.platform(output.platform(), output.arch());
-    let package = s.workspace.package(target.package);
-    let schemas = proto_sources(s, target);
+    let package = session.workspace.package(target.package);
+    let schemas = proto_sources(session, target);
     k.rule_identity(&package.label(), "proto", &schemas);
     for rel in &schemas {
         let full = package.dir.join(rel);
-        k.input(&s.workspace.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
+        k.input(&session.workspace.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
     }
     k.finish()
 }
@@ -388,28 +392,28 @@ fn proto_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> A
 /// Reports every action a build of `target` involves, deepest first: one
 /// `proto` line per rule that declares a schema, one `compile` line per closure
 /// member, then the `link` that consumed them.
-fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags) {
+fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: &Flags) {
     if !flags.explain {
         return;
     }
     let platform = output.platform();
-    for member in s.workspace.closure(target) {
-        if !proto_sources(s, member).is_empty() {
+    for member in session.workspace.closure(target) {
+        if !proto_sources(session, member).is_empty() {
             crate::build::cache::explain(
                 true,
                 crate::build::cache::Status::Keyed,
                 Action::Proto,
-                &s.workspace.label(member),
+                &session.workspace.label(member),
                 platform,
-                &proto_key(s, member, output, flags),
+                &proto_key(session, member, output, flags),
             );
         }
-        let key = compile_key(s, member, output, flags);
+        let key = compile_key(session, member, output, flags);
         crate::build::cache::explain(
             true,
             crate::build::cache::Status::Keyed,
             Action::Compile,
-            &s.workspace.label(member),
+            &session.workspace.label(member),
             platform,
             &key,
         );
@@ -432,17 +436,17 @@ fn explain_closure(s: &Session, target: TargetId, output: &Output, flags: &Flags
 /// Each test dependency contributes its own production closure, because that is
 /// what compiling it involves — the helper's own `dependencies` are as much part
 /// of the suite as the helper is.
-pub fn test_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
-    let base = action_key(s, target, output, flags, Action::Test);
+pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
+    let base = action_key(session, target, output, flags, Action::Test);
     let mut k = KeyBuilder::new(Action::Test, flags.mode);
     k.dependency(&base);
     // Sorted and deduplicated: `test_dep_edges` yields declaration order, and a
     // key must not depend on the order two `dependencies` entries were written
     // in — nor count a helper twice because two of them reach it.
-    let production = s.workspace.closure(target);
+    let production = session.workspace.closure(target);
     let mut test_closure: Vec<TargetId> = Vec::new();
-    for (dep, _) in s.workspace.test_dep_edges(target) {
-        test_closure.extend(s.workspace.closure(dep));
+    for (dep, _) in session.workspace.test_dep_edges(target) {
+        test_closure.extend(session.workspace.closure(dep));
     }
     test_closure.sort();
     test_closure.dedup();
@@ -454,9 +458,9 @@ pub fn test_key(s: &Session, target: TargetId, output: &Output, flags: &Flags) -
         if production.contains(&member) {
             continue;
         }
-        contribute(s, member, &mut k);
+        contribute(session, member, &mut k);
     }
-    let package = s.workspace.package(target.package);
+    let package = session.workspace.package(target.package);
     let suite = match target.kind {
         RuleKind::Library => package.build.library.as_ref().and_then(|l| l.test.as_ref()),
         RuleKind::Binary => package.build.binary.as_ref().and_then(|b| b.test.as_ref()),
@@ -970,15 +974,15 @@ fn linker_for(output: &Output, diagnostics: &mut Diagnostics) -> Option<link::Cc
 }
 
 pub fn compile_objects(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     let platform = output.platform();
-    let (analysis, mut program) = monomorphized_main(s, target, platform, diagnostics)?;
-    objects_of(s, target, output, flags, &mut program, &analysis.checked.tables, diagnostics)
+    let (analysis, mut program) = monomorphized_main(session, target, platform, diagnostics)?;
+    objects_of(session, target, output, flags, &mut program, &analysis.checked.tables, diagnostics)
 }
 
 /// The middle end, the codegen keys and the objects, over a program somebody
@@ -991,7 +995,7 @@ pub fn compile_objects(
 /// is what stops `buri test --platform=macos` from being a second pipeline that
 /// drifts from the one `buri build` uses.
 pub fn objects_of(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
@@ -1003,9 +1007,9 @@ pub fn objects_of(
     // the same string in a debug section. This is the same rule `action_key`
     // follows for input paths, and it is the source of nondeterminism
     // ARCHITECTURE.md §7 calls out by name.
-    let prefix = s.workspace.package(target.package).path.clone();
-    let label = s.workspace.label(target);
-    objects_named(s, &prefix, &label, output, flags, program, tables, diagnostics)
+    let prefix = session.workspace.package(target.package).path.clone();
+    let label = session.workspace.label(target);
+    objects_named(session, &prefix, &label, output, flags, program, tables, diagnostics)
 }
 
 /// [`objects_of`] with the two things it takes a target for named directly: the
@@ -1022,7 +1026,7 @@ pub fn objects_of(
               neither is derivable from the program, the output or the flags"
 )]
 fn objects_named(
-    s: &mut Session,
+    session: &mut Session,
     prefix: &str,
     label: &str,
     output: &Output,
@@ -1083,7 +1087,7 @@ fn objects_named(
         })
         .collect();
 
-    let cache = Cache::open(&s.root);
+    let cache = Cache::open(&session.root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
         // `Units::Only` is a membership test per unit, so a build that wants
@@ -1113,26 +1117,26 @@ fn objects_named(
 
 /// A native build: codegen per unit, then one full link.
 fn build_native(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
     mut diagnostics: Diagnostics,
 ) -> Result<Artifact, Diagnostics> {
     let platform = output.platform();
-    let path = artifact_path(s, target, output);
+    let path = artifact_path(session, target, output);
     let Some(linker) = linker_for(output, &mut diagnostics) else { return Err(diagnostics) };
 
-    explain_closure(s, target, output, flags);
-    let objects = compile_objects(s, target, output, flags, &mut diagnostics)?;
+    explain_closure(session, target, output, flags);
+    let objects = compile_objects(session, target, output, flags, &mut diagnostics)?;
     let key = link_key(output, flags, &linker, &objects.keys);
-    let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
-    let label = s.workspace.label(target);
+    let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
+    let label = session.workspace.label(target);
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, &label, platform, &key);
     };
 
-    let cache = Cache::open(&s.root);
+    let cache = Cache::open(&session.root);
     // "The fastest link is the one that does not run": every unit's key
     // unchanged means the ordered list in `key` is unchanged, so the executable
     // in the cache is the executable this link would produce.
@@ -1143,14 +1147,14 @@ fn build_native(
             }
             if write_executable(&path, &bytes).is_ok() {
                 explain_link(crate::build::cache::Status::Cached);
-                link_out_symlink(s, output);
+                link_out_symlink(session, output);
                 return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
             }
         }
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let prefix = s.workspace.package(target.package).path.clone();
+    let prefix = session.workspace.package(target.package).path.clone();
     let opts = LinkOptions {
         profile: profile_of(flags),
         target: target_of(output),
@@ -1171,7 +1175,7 @@ fn build_native(
         }
     };
     cache.put(&key, &bytes);
-    link_out_symlink(s, output);
+    link_out_symlink(session, output);
     Ok(Artifact { target, path, bytes: bytes.len(), cached: false })
 }
 
@@ -1299,7 +1303,7 @@ fn claim_runner_after(
               would name each of them twice"
 )]
 pub fn native_test_binary(
-    s: &mut Session,
+    session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
@@ -1307,12 +1311,12 @@ pub fn native_test_binary(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let prefix = s.workspace.package(target.package).path.clone();
-    let label = s.workspace.label(target);
-    let dir = s.root.join(".buri/out").join(output.dir());
-    let private = dir.join(&s.workspace.package(target.package).path).join("test");
+    let prefix = session.workspace.package(target.package).path.clone();
+    let label = session.workspace.label(target);
+    let dir = session.root.join(".buri/out").join(output.dir());
+    let private = dir.join(&session.workspace.package(target.package).path).join("test");
     test_binary_named(
-        s, &prefix, &label, private, output, flags, program, tables, diagnostics,
+        session, &prefix, &label, private, output, flags, program, tables, diagnostics,
     )
 }
 
@@ -1346,7 +1350,7 @@ pub fn native_test_binary(
               run from — which is what the target used to decide"
 )]
 pub fn native_test_batch(
-    s: &mut Session,
+    session: &mut Session,
     targets: &[TargetId],
     output: &Output,
     flags: &Flags,
@@ -1354,16 +1358,16 @@ pub fn native_test_batch(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
-    let label = targets.iter().map(|t| s.workspace.label(*t)).collect::<Vec<_>>().join(",");
+    let label = targets.iter().map(|t| session.workspace.label(*t)).collect::<Vec<_>>().join(",");
     // The first member's own path, so that a batch that cannot take the shared
     // claim runs from a file some previous run has already executed rather than
     // from a new one. Deterministic: `targets` is in the pass's order.
-    let dir = s.root.join(".buri/out").join(output.dir());
+    let dir = session.root.join(".buri/out").join(output.dir());
     let private = match targets.first() {
-        Some(t) => dir.join(&s.workspace.package(t.package).path).join("test"),
+        Some(t) => dir.join(&session.workspace.package(t.package).path).join("test"),
         None => dir.join("test"),
     };
-    test_binary_named(s, "", &label, private, output, flags, program, tables, diagnostics)
+    test_binary_named(session, "", &label, private, output, flags, program, tables, diagnostics)
 }
 
 /// The body of both: link this program, cache it, and put it where it can be
@@ -1375,7 +1379,7 @@ pub fn native_test_batch(
               rather than a different shape"
 )]
 fn test_binary_named(
-    s: &mut Session,
+    session: &mut Session,
     prefix: &str,
     label: &str,
     private: PathBuf,
@@ -1388,17 +1392,18 @@ fn test_binary_named(
     let Some(linker) = linker_for(output, diagnostics) else {
         return Err(std::mem::take(diagnostics));
     };
-    let objects = objects_named(s, prefix, label, output, flags, program, tables, diagnostics)?;
+    let objects =
+        objects_named(session, prefix, label, output, flags, program, tables, diagnostics)?;
     let key = link_key(output, flags, &linker, &objects.keys);
-    let linker = linker.in_dir(link::dir(&s.root, key.as_str()));
+    let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, label, output.platform(), &key);
     };
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
-    let binary = claim_runner(&s.root.join(".buri/out").join(output.dir()), private);
+    let binary = claim_runner(&session.root.join(".buri/out").join(output.dir()), private);
     let path = binary.path().to_path_buf();
-    let cache = Cache::open(&s.root);
+    let cache = Cache::open(&session.root);
     if !flags.force {
         if let Some(bytes) = cache.get(&key) {
             if write_executable(&path, &bytes).is_ok() {
@@ -1435,10 +1440,10 @@ fn write_executable(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
     link::place(path, bytes)
 }
 
-pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf {
-    let package = s.workspace.package(target.package);
+pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> PathBuf {
+    let package = session.workspace.package(target.package);
     let dir_name = if package.path.is_empty() {
-        s.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
+        session.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
     } else {
         // `rsplit` yields the whole string when there is no separator, so the
         // last segment is there for any non-empty path — and the branch above
@@ -1451,7 +1456,7 @@ pub fn artifact_path(s: &Session, target: TargetId, output: &Output) -> PathBuf 
     // native one writes the bare name, so the match is over the two answers
     // rather than over one platform and everything else.
     let name = if output.platform().is_javascript() { format!("{base}.mjs") } else { base };
-    s.root.join(".buri/out").join(output.dir()).join(&package.path).join(name)
+    session.root.join(".buri/out").join(output.dir()).join(&package.path).join(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -1553,8 +1558,8 @@ fn write_companions(
 }
 
 /// A convenience symlink pointing at the most recent output directory.
-fn link_out_symlink(s: &Session, output: &Output) {
-    let link = s.root.join("out");
+fn link_out_symlink(session: &Session, output: &Output) {
+    let link = session.root.join("out");
     let target = PathBuf::from(".buri/out").join(output.dir());
     #[cfg(unix)]
     {
@@ -1570,42 +1575,45 @@ fn link_out_symlink(s: &Session, output: &Output) {
 /// The build-graph rules that do not need the compiler: visibility, tags, and
 /// platforms.
 pub fn check_policy(
-    s: &Session,
+    session: &Session,
     target: TargetId,
     platform: Platform,
     diagnostics: &mut Diagnostics,
 ) {
-    check_visibility(s, target, diagnostics);
-    check_tags(s, target, diagnostics);
-    check_platform(s, target, platform, diagnostics);
+    check_visibility(session, target, diagnostics);
+    check_tags(session, target, diagnostics);
+    check_platform(session, target, platform, diagnostics);
 }
 
-pub fn check_visibility(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
+pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     // Production edges are checked across the whole closure: a violation
     // anywhere in it is a reason this target may not be linked. Test edges are
     // checked on the target itself only — a suite is not linked into anything
     // downstream, so a consumer neither depends on that edge nor could fix it,
     // and `//...` reaches every target's own suite anyway.
-    let edges = s
+    let edges = session
         .workspace
         .closure(target)
         .into_iter()
-        .map(|m| (m, s.workspace.dep_edges(m)))
-        .chain(std::iter::once((target, s.workspace.test_dep_edges(target))));
+        .map(|m| (m, session.workspace.dep_edges(m)))
+        .chain(std::iter::once((target, session.workspace.test_dep_edges(target))));
     for (member, member_edges) in edges {
         for (dep, span) in member_edges {
             let Some(span) = span else { continue };
-            if s.workspace.visible(member.package, dep) {
+            if session.workspace.visible(member.package, dep) {
                 continue;
             }
-            let from = s.workspace.package(member.package).label();
-            let to = s.workspace.label(dep);
-            let to_path = s.workspace.package(dep.package).path.clone();
+            let from = session.workspace.package(member.package).label();
+            let to = session.workspace.label(dep);
+            let to_path = session.workspace.package(dep.package).path.clone();
             diagnostics.push(
                 Diagnostic::error(span, format!("{from} depends on {to}, which is not visible to it"))
                     .with_code("visibility-violation")
                     .with_label("not visible")
-                    .with_note(format!("{to} is visible to: {}", s.workspace.visibility_list(dep)))
+                    .with_note(format!(
+                        "{to} is visible to: {}",
+                        session.workspace.visibility_list(dep)
+                    ))
                     .with_fix(format!(
                         "add \"{from}\" to visibility in {to_path}/BUILD.buri"
                     )),
@@ -1618,13 +1626,13 @@ pub fn check_visibility(s: &Session, target: TargetId, diagnostics: &mut Diagnos
 /// dependency closure. The path is printed because in a repository of any size
 /// the interesting question is never "which library is tagged `server`" but
 /// "who dragged it in".
-pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
+pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     // A tag `REPO.buri` does not declare is an error, not a no-op.
-    for member in s.workspace.closure(target) {
-        for tag in s.workspace.tags(member) {
-            if s.workspace.repo.tag(&tag.value).is_none() {
+    for member in session.workspace.closure(target) {
+        for tag in session.workspace.tags(member) {
+            if session.workspace.repo.tag(&tag.value).is_none() {
                 let known: Vec<&str> =
-                    s.workspace.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
+                    session.workspace.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
                 let mut d = Diagnostic::error(tag.span, format!("unknown tag \"{}\"", tag.value))
                     .with_code("unknown-tag")
                     .with_note("no `tag` block in REPO.buri declares this name");
@@ -1645,17 +1653,17 @@ pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) 
         }
     }
 
-    let Some((a, a_by, b, b_by)) = s.workspace.forbidden_pair(target) else { return };
-    let label = s.workspace.label(target);
-    let a_label = s.workspace.label(a_by);
-    let b_label = s.workspace.label(b_by);
-    let span = s
+    let Some((a, a_by, b, b_by)) = session.workspace.forbidden_pair(target) else { return };
+    let label = session.workspace.label(target);
+    let a_label = session.workspace.label(a_by);
+    let b_label = session.workspace.label(b_by);
+    let span = session
         .workspace
         .tags(target)
         .iter()
         .map(|t| t.span)
         .next()
-        .unwrap_or(Span::point(s.workspace.package(target.package).build_file_id, 0));
+        .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
 
     let mut d = Diagnostic::error(
         span,
@@ -1676,9 +1684,10 @@ pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) 
         } else {
             format!("\"{tag}\" is carried by {by_label}")
         };
-        if let Some(path) = s.workspace.dep_path(target, by) {
+        if let Some(path) = session.workspace.dep_path(target, by) {
             if path.len() > 1 {
-                let names: Vec<String> = path.iter().map(|(t, _)| s.workspace.label(*t)).collect();
+                let names: Vec<String> =
+                    path.iter().map(|(t, _)| session.workspace.label(*t)).collect();
                 note.push_str(&format!("\n    reached by: {}", names.join(" -> ")));
             }
         }
@@ -1691,7 +1700,7 @@ pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) 
     // The doc strings are printed because the tag is a policy, and the policy
     // should say why.
     for name in [&a, &b] {
-        let doc = s.workspace.tag_doc(name);
+        let doc = session.workspace.tag_doc(name);
         if !doc.is_empty() {
             d = d.with_note(format!("\"{name}\": {doc}"));
         }
@@ -1700,17 +1709,17 @@ pub fn check_tags(s: &Session, target: TargetId, diagnostics: &mut Diagnostics) 
 }
 
 pub fn check_platform(
-    s: &Session,
+    session: &Session,
     target: TargetId,
     platform: Platform,
     diagnostics: &mut Diagnostics,
 ) {
-    let allowed = s.workspace.platforms(target);
+    let allowed = session.workspace.platforms(target);
     if allowed.contains(&platform) {
         return;
     }
-    let label = s.workspace.label(target);
-    let span = s
+    let label = session.workspace.label(target);
+    let span = session
         .workspace
         .package(target.package)
         .build
@@ -1718,7 +1727,7 @@ pub fn check_platform(
         .as_ref()
         .and_then(|b| b.outputs.iter().find(|o| o.platform() == platform))
         .map(|o| o.span)
-        .unwrap_or(Span::point(s.workspace.package(target.package).build_file_id, 0));
+        .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
 
     let mut d = Diagnostic::error(
         span,
@@ -1729,16 +1738,17 @@ pub fn check_platform(
         "drop the {} output, or widen the tag's `requires {{ platforms }}` in REPO.buri",
         platform.slug()
     ));
-    if let Some((blocker, why)) = s.workspace.platform_blocker(target, platform) {
+    if let Some((blocker, why)) = session.workspace.platform_blocker(target, platform) {
         d = d.with_note(why);
-        if let Some(path) = s.workspace.dep_path(target, blocker) {
+        if let Some(path) = session.workspace.dep_path(target, blocker) {
             if path.len() > 1 {
-                let names: Vec<String> = path.iter().map(|(t, _)| s.workspace.label(*t)).collect();
+                let names: Vec<String> =
+                    path.iter().map(|(t, _)| session.workspace.label(*t)).collect();
                 d = d.with_note(format!("reached by: {}", names.join(" -> ")));
             }
         }
-        for tag in s.workspace.tags(blocker) {
-            let doc = s.workspace.tag_doc(&tag.value);
+        for tag in session.workspace.tags(blocker) {
+            let doc = session.workspace.tag_doc(&tag.value);
             if !doc.is_empty() {
                 d = d.with_note(format!("\"{}\": {doc}", tag.value));
             }
@@ -1750,11 +1760,13 @@ pub fn check_platform(
 }
 
 /// The outputs a `build` invocation should produce for one target.
-pub fn selected_outputs(s: &Session, target: TargetId, flags: &Flags) -> Vec<Output> {
+pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> Vec<Output> {
     if target.kind != RuleKind::Binary {
         return Vec::new();
     }
-    let Some(bin) = &s.workspace.package(target.package).build.binary else { return Vec::new() };
+    let Some(bin) = &session.workspace.package(target.package).build.binary else {
+        return Vec::new();
+    };
     let mut outputs = bin.outputs.clone();
     if outputs.is_empty() {
         // A binary with no declared output still builds for the host, which is
