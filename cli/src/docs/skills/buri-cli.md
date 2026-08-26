@@ -18,6 +18,7 @@ so a page cannot describe a flag the binary does not accept.
 
 | Command | What it does |
 |---|---|
+| `buri init [directory]` | write a new repository: a library, a binary, a test, and these skills |
 | `buri build [targets]` | compile |
 | `buri test [targets]` | compile and run test suites |
 | `buri run <target> [-- args]` | build one binary and execute it |
@@ -236,6 +237,15 @@ Removes `.buri/out`, the action cache under `.buri/cache`, the staged objects
 under `.buri/link/`, and the `out` symlink. `--outputs` drops `.buri/out`
 alone. Reaching for it to fix a build is worth reporting as a bug: the cache is
 keyed on the content of every input, so a stale entry is a defect.
+
+### `init`
+
+Writes a working repository into an empty directory — `REPO.buri`, a library,
+a binary that depends on it, a test suite, a `.gitignore`, and these skills —
+and creates the directory if it is not there. What it writes builds, tests,
+lints and formats clean immediately. It never writes over a file: a `REPO.buri`
+already at the target, or any other collision, stops it with exit 2 before the
+first byte.
 
 ### `add-skills`
 

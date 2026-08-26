@@ -1,0 +1,16 @@
+// The entry point. The context it builds is this program's entire effect
+// budget: it can allocate and it can print, and nothing else.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/greeting" import { greeting };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+
+    let _ = ctx.println(greeting());
+    .Ok(())
+}

@@ -58,7 +58,7 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    fn verb(self) -> &'static str {
+    pub fn verb(self) -> &'static str {
         match self {
             Outcome::Wrote => "wrote",
             Outcome::Overwrote => "overwrote",

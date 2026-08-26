@@ -26,6 +26,13 @@ after that, drop it.
 cargo install --locked --path cli
 ```
 
+Your first repository is one command. `buri init` writes a working library, a
+binary that depends on it, and a test suite, and installs the agent skills:
+
+```sh
+buri init hello-buri && cd hello-buri && buri test //...
+```
+
 The binary carries no runtime dependencies. Linking a native binary uses the
 system C toolchain (`cc`, or whatever `CC` names); the JavaScript path resolves
 a runtime — `bun` or `node` — from `PATH`, or from `BURI_JS` naming one.

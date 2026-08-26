@@ -1,0 +1,4 @@
+# The repository root. Its presence is what `//` resolves against.
+#
+# No tags yet: this repository declares no build policy. Add a `tag` block here
+# before any BUILD.buri names one.
