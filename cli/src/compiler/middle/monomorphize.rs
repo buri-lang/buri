@@ -896,7 +896,7 @@ impl<'a> Monomorphizer<'a> {
 
         let Some(con) = recv.head() else {
             self.diags.push(
-                Diagnostic::templated("type-args-required", span)
+                Diagnostic::templated("type-arguments-required", span)
                     .with_bind("trait", self.tables().trait_(trait_id).name.clone()),
             );
             return ExprKind::Error;

@@ -1,6 +1,6 @@
 ---
 title: There are no implicit conversions
-message: expected `{expected}`, found `{actual}`
+message: expected `{expected}`, found `{found}`
 ---
 # There are no implicit conversions
 

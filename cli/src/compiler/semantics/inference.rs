@@ -571,7 +571,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let b = show(&self.c.tables, Some(&self.subst), &self.generics, &b);
             let mut d = Diagnostic::templated("type-mismatch", span)
                 .with_bind("expected", b.clone())
-                .with_bind("actual", a.clone())
+                .with_bind("found", a.clone())
                 .with_mismatch(format!("`{b}`"), format!("`{a}`"));
             if !what.is_empty() {
                 d = d.with_label(format!("{what} is `{b}`"));

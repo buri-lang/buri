@@ -2,17 +2,18 @@ error: `--watch` needs a terminal: a watch loop with nothing watching it is a hu
 
 buri — the toolchain for the Buri language
 
-  buri build    [targets]           compile
-  buri test     [targets]           compile and run test suites
-  buri run      <target> [-- args]  build one binary and execute it
-  buri format   [paths]             format .buri sources and BUILD.buri files
-  buri lint     [targets]           static checks beyond type checking
-  buri gen      [targets]           regenerate sources/deps in existing BUILD.buri files
-  buri query    <expr>              ask about the build graph
-  buri docs     [topic]             the language, the build system, and this CLI
-  buri lsp                          language server, over stdio
-  buri clean                        drop the local cache
-  buri version                      toolchain version, and --verbose its executable's hash
+  buri build      [targets]           compile
+  buri test       [targets]           compile and run test suites
+  buri run        <target> [-- args]  build one binary and execute it
+  buri format     [paths]             format .buri sources and BUILD.buri files
+  buri lint       [targets]           static checks beyond type checking
+  buri gen        [targets]           regenerate sources/deps in existing BUILD.buri files
+  buri query      <expr>              ask about the build graph
+  buri docs       [topic]             the language, the build system, and this CLI
+  buri add-skills [directory]         write the agent skills for this toolchain into .claude/skills
+  buri lsp                            language server, over stdio
+  buri clean                          drop the local cache
+  buri version                        toolchain version, and --verbose its executable's hash
 
 Target arguments accept labels and patterns: //lib/money, //lib/..., //...
 With no argument, commands operate on the package containing the working

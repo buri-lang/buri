@@ -334,7 +334,7 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         diagnostics.push(
             Diagnostic::templated("undeclared-source", Span::point(p.build_file_id, 0))
                 .with_bind("package_path", p.path.as_str())
-                .with_bind("file", rel)
+                .with_bind("source", rel)
                 .with_bind("field", field),
         );
     }
@@ -803,7 +803,7 @@ fn check_test_titles(
         }
         diagnostics.push(
             Diagnostic::templated("test-title-newline", case.span)
-                .with_bind("title", format!("{:?}", case.name)),
+                .with_bind("quoted_title", format!("{:?}", case.name)),
         );
     }
 }
@@ -1094,7 +1094,7 @@ fn check_tests_assert(
         }
         diagnostics.push(
             Diagnostic::templated("test-without-assertion", case.span)
-                .with_bind("title", format!("{:?}", case.name)),
+                .with_bind("quoted_title", format!("{:?}", case.name)),
         );
     }
 }

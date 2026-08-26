@@ -20,6 +20,7 @@
 //! Adding a command is one entry here. Dispatch, `--help`, the reference page,
 //! the manifest, and search all follow.
 
+pub mod add_skills;
 pub mod arguments;
 pub mod build;
 pub mod clean;
@@ -384,6 +385,15 @@ pub const COMMANDS: &[Command] = &[
         hidden: false,
     },
     Command {
+        name: "add-skills",
+        args: "[directory]",
+        blurb: "write the agent skills for this toolchain into .claude/skills",
+        doc: include_str!("../docs/cli/add-skills.md"),
+        flags: &[],
+        run: add_skills::command_add_skills,
+        hidden: false,
+    },
+    Command {
         name: "lsp",
         args: "",
         blurb: "language server, over stdio",
@@ -433,9 +443,13 @@ pub fn accepts(command: &str, flag_name: &str) -> bool {
 /// `buri --help`, generated.
 pub fn usage() -> String {
     let mut out = String::from("buri — the toolchain for the Buri language\n\n");
+    // Both columns are measured rather than pinned: a name longer than the
+    // widest one at the time the constant was chosen pushed every blurb on its
+    // line out of the column and left the rest of the table where it was.
+    let name_width = COMMANDS.iter().filter(|c| !c.hidden).map(|c| c.name.len()).max().unwrap_or(0);
     let width = COMMANDS.iter().filter(|c| !c.hidden).map(|c| c.args.len()).max().unwrap_or(0);
     for c in COMMANDS.iter().filter(|c| !c.hidden) {
-        let _ = writeln!(out, "  buri {:<8} {:<width$}  {}", c.name, c.args, c.blurb);
+        let _ = writeln!(out, "  buri {:<name_width$} {:<width$}  {}", c.name, c.args, c.blurb);
     }
     out.push_str(
         "\nTarget arguments accept labels and patterns: //lib/money, //lib/..., //...\n\

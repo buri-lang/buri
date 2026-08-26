@@ -1,6 +1,6 @@
 ---
 title: Every source file is declared by a rule
-message: {package_path}/{file} is not declared by any rule
+message: {package_path}/{source} is not declared by any rule
 fix: add it to a rule's `{field}`, or delete it — `buri gen //{package_path}` does this automatically
 ---
 Nothing in the project imports this file — no production code, no test, no entry point reaches it. That is more expensive than it looks: every reader who opens it has to work out whether it matters, tooling still parses and type-checks it, and a search for "where is this used" keeps landing on a dead end.
