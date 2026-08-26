@@ -1112,7 +1112,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.c.ws.map(|w| w.package(there).label()).unwrap_or_default();
                 self.templated("not-on-the-surface", span)
                     .bind("name", name.clone())
-                    .bind("library", label)
+                    .bind("owner", label)
                     .fix(format!("re-export `{name}` from that library's lib.buri, if it is part of the API"));
             }
         }
