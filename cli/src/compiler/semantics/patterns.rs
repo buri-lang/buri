@@ -95,7 +95,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     other => {
                         let shown = self.show_ty(other);
                         let n = elems.len();
-                        self.err(span, format!("`{shown}` is not a {n}-tuple"))
+                        self.templated("pattern-not-a-tuple", span)
+                            .bind("type", shown.clone())
+                            .bind("arity", n.to_string())
                             .fix(format!("match the shape of `{shown}`, not a {n}-tuple"));
                         vec![Ty::Error; elems.len()]
                     }
@@ -115,7 +117,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Ty::Error => Ty::Error,
                     other => {
                         let shown = self.show_ty(other);
-                        self.err(span, format!("`{shown}` is not an array"))
+                        self.templated("pattern-not-an-array", span)
+                            .bind("type", shown.clone())
                             .fix(format!("an array pattern matches `[T]`, not `{shown}`"));
                         Ty::Error
                     }
@@ -250,7 +253,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             let Ty::Con(con, args) = ty else {
                 if !ty.is_error() {
                     let shown = self.show_ty(ty);
-                    self.err(span, format!("`{shown}` is not an enum"))
+                    self.templated("not-an-enum", span)
+                        .bind("type", shown)
                         .fix("a `.Variant` pattern matches an enum; match this value another way");
                 }
                 return typed::PatKind::Error;
@@ -284,7 +288,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     other => {
                         let want = self.c.tables.tycon(con).name.clone();
                         let shown = self.show_ty(other);
-                        self.err(span, format!("expected `{shown}`, found a `{want}` pattern"))
+                        self.templated("pattern-type-mismatch", span)
+                            .bind("expected", shown.clone())
+                            .bind("found", want.clone())
                             .mismatch(format!("`{shown}`"), format!("a `{want}` pattern"))
                             .fix(format!("match the shape of `{shown}`"));
                         vec![Ty::Error; self.c.tables.tycon(con).arity()]
@@ -293,7 +299,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if is_enum {
                     let Some(vname) = variant_name else {
                         let n = self.c.tables.tycon(con).name.clone();
-                        self.err(span, format!("`{n}` is an enum; name a variant"))
+                        self.templated("enum-without-a-variant", span)
+                            .bind("type", n.clone())
                             .fix(format!("write `{n}.Variant` or `.Variant`"));
                         return typed::PatKind::Error;
                     };
@@ -316,9 +323,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn report_no_variant(&mut self, con: TyConId, name: &str, span: Span) {
-        let (message, note) = no_variant(&self.c.tables, con, name);
-        let d = self.err(span, message);
-        d.fix("name a variant the enum declares");
+        let ty = self.c.tables.tycon(con).name.clone();
+        let note = no_variant_note(&self.c.tables, con, name);
+        let d = self
+            .templated("no-such-variant", span)
+            .bind("type", ty)
+            .bind("variant", name.to_string());
         d.notes.extend(note);
     }
 
@@ -389,7 +399,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         match payload {
             None => {
                 if !decl.is_empty() {
-                    self.err(span, format!("`{what}` has a payload, so the pattern needs one"))
+                    self.templated("missing-payload-pattern", span)
+                        .bind("name", what.to_string())
                         .fix(format!("write `.{what}(..)`, or name each field"));
                 }
                 Vec::new()
@@ -399,12 +410,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if ps.len() != decl.len() {
                     let want = decl.len();
                     let have = ps.len();
-                    self.err(
-                        span,
-                        format!("`{what}` holds {want} values, but {have} were matched"),
-                    )
-                    .mismatch(want.to_string(), have.to_string())
-                    .fix(format!("match exactly {want}, or end the pattern with `..`"));
+                    self.templated("wrong-matched-value-count", span)
+                        .bind("name", what.to_string())
+                        .bind("expected", want.to_string())
+                        .bind("matched", have.to_string())
+                        .mismatch(want.to_string(), have.to_string());
                 }
                 // A payload with more patterns than the declaration has
                 // fields is already reported above; the extra ones have no
@@ -429,8 +439,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let fspan = t.span_of(f.name);
                     let Some((i, d)) = decl.iter().enumerate().find(|(_, d)| d.name == fname)
                     else {
-                        self.err(fspan, format!("`{what}` has no field `{fname}`"))
-                            .fix("check the spelling, or name a field it declares");
+                        self.templated("no-such-field", fspan)
+                            .bind("type", what.to_string())
+                            .bind("field", fname.to_string());
                         continue;
                     };
                     seen.push(i);
@@ -483,17 +494,15 @@ impl<'a, 'b> Infer<'a, 'b> {
 /// deserve the same sentence. They had two spellings, and the two disagreed
 /// about whether the variant names are quoted. The span stays the caller's,
 /// because it is the only thing that genuinely differs.
-pub(crate) fn no_variant(tables: &Tables, con: TyConId, name: &str) -> (String, Option<String>) {
-    let ty = tables.tycon(con).name.clone();
+pub(crate) fn no_variant_note(tables: &Tables, con: TyConId, name: &str) -> Option<String> {
     let variants: Vec<String> =
         tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect();
     let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
-    let note = match crate::build::buildfile::nearest(name, &refs) {
+    match crate::build::buildfile::nearest(name, &refs) {
         Some(x) => Some(format!("did you mean `.{x}`?")),
         None if !variants.is_empty() => {
             Some(format!("its variants are {}", crate::diagnostics::names(&variants)))
         }
         None => None,
-    };
-    (format!("`{ty}` has no variant `{name}`"), note)
+    }
 }

@@ -1,4 +1,4 @@
-error: a test source may not export
+error: a test source may not export [test-source-export]
  --> lib/money/test/cents.buri:8:1
   |
 8 | export fn twice(n: I64): I64 { n + n }
