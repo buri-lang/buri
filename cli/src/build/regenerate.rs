@@ -176,15 +176,13 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             Unplaceable::ReachableFromBoth(f) => (f, "both `lib.buri` and `main.buri`"),
             Unplaceable::ReachableFromNeither(f) => (f, "neither `lib.buri` nor `main.buri`"),
         };
-        return Err(Diagnostic::error(
-            Span::point(file_id, 0),
-            format!("{file} is reachable from {reached}, so `gen` cannot say which rule it belongs to"),
-        )
-        .with_fix(format!(
-            "add `{file}` to one rule's `{}`",
-            if file.ends_with(".proto") { "proto_sources" } else { "sources" }
-        ))
-        .with_note("guessing would move code across a boundary that exists to be explicit"));
+        return Err(Diagnostic::templated("unplaceable-source", Span::point(file_id, 0))
+            .with_bind("source", file.clone())
+            .with_bind("reached", reached)
+            .with_bind(
+                "field",
+                if file.ends_with(".proto") { "proto_sources" } else { "sources" },
+            ));
     }
 
     let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests);

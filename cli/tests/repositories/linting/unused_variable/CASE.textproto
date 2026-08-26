@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a `let` whose name nothing below reads: unused-variable, a warning, and the `_` beside it that must not be mistaken for one"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# The computation was dead, so it goes with the name. Keeping the call and
+# dropping only the binding is the other answer, and it is `let _ =`.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "  let total = 3 * 4;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -908,11 +908,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !ok {
                 let shown = show(&self.c.tables, Some(&self.subst), &self.generics, &resolved);
                 self.c.diags.push(
-                    Diagnostic::error(span, format!("`{shown}` cannot be interpolated"))
-                        .with_fix("render it first, for instance with `.show(ctx)`")
-                        .with_note(
-                            "a hole holds an `Int`, a `Float`, a `Bool`, a `Char`, or a `Str`",
-                        ),
+                    Diagnostic::templated("not-interpolatable", span).with_bind("type", shown),
                 );
             }
         }

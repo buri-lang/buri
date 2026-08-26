@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "five branches wrapped around one another: deep-nesting, and the `else if` ladder beside it that is one decision rather than four"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# The fix the diagnostic names: the inner branch becomes a named function, and
+# each of the two is shallow enough to take in at a glance.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "        if (n > 1000) {\n          if (n > 10000) { \"huge\" } else { \"large\" }\n        } else { \"big\" }\n"
+  with: "        beyondAThousand(n)\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn size(n: I64): Str {\n"
+  with: "fn beyondAThousand(n: I64): Str {\n  if (n > 1000) {\n    if (n > 10000) { \"huge\" } else { \"large\" }\n  } else { \"big\" }\n}\n\nfn size(n: I64): Str {\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

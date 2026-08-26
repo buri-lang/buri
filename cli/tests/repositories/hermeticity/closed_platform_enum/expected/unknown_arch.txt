@@ -1,4 +1,4 @@
-error: `RISCV` is not an architecture
+error: `RISCV` is not an architecture [unknown-bare-word]
  --> cmd/ok/BUILD.buri:3:31
   |
 3 |         { platform: JS  arch: RISCV },

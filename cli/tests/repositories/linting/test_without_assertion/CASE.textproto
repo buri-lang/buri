@@ -20,7 +20,7 @@ run {
 # transitive, `roundTrips` would still be reported here.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "  let c = fromCents(150);\n"
+  replace: "  let _ = fromCents(150);\n"
   with: "  assert.eq(fromCents(150), Cents(150))\n"
 }
 

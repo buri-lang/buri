@@ -124,9 +124,14 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
     let trailing = std::mem::take(&mut p.comments);
     if p.position < p.src.len() {
         let span = Span::new(file, p.position, p.src.len());
-        p.errors.push(Diagnostic::error(span, "expected a field").with_fix(
-            "a build file is a list of `name: value` and `name { ... }` fields",
-        ));
+        p.errors.push(
+            Diagnostic::templated("build-file-syntax", span)
+                .with_bind("problem", "expected a field")
+                .with_bind(
+                    "remedy",
+                    "a build file is a list of `name: value` and `name { ... }` fields",
+                ),
+        );
     }
     Parsed { document: Document { fields, trailing }, errors: p.errors }
 }
@@ -175,9 +180,17 @@ impl<'a> Parser<'a> {
 
     /// Every textproto error carries the edit that resolves it, the same way
     /// every source diagnostic does.
+    ///
+    /// One code, `build-file-syntax`, with the sentence and the edit bound by
+    /// the caller: this is the reader's general syntax refusal, the way
+    /// `unexpected-token` is the language parser's.
     fn err(&mut self, span: Span, message: impl Into<String>, fix: impl Into<String>) {
         if self.errors.len() < 32 {
-            self.errors.push(Diagnostic::error(span, message).with_fix(fix));
+            self.errors.push(
+                Diagnostic::templated("build-file-syntax", span)
+                    .with_bind("problem", message)
+                    .with_bind("remedy", fix),
+            );
         }
     }
 

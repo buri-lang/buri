@@ -385,9 +385,9 @@ impl<'a> Loader<'a> {
         let disk = pkg.dir.join(rel);
         if !disk.is_file() {
             self.diags.push(
-                Diagnostic::error(span, format!("{rel} does not exist"))
-                    .with_fix("create the file, or remove it from `sources`")
-                    .with_note("every source is declared one path at a time; there are no globs"),
+                Diagnostic::templated("no-such-source", span)
+                    .with_bind("source", rel)
+                    .with_bind("field", "sources"),
             );
             return None;
         }
@@ -413,9 +413,9 @@ impl<'a> Loader<'a> {
         let disk = pkg.dir.join(rel);
         if !disk.is_file() {
             self.diags.push(
-                Diagnostic::error(span, format!("{rel} does not exist"))
-                    .with_fix("create the file, or remove it from `proto_sources`")
-                    .with_note("every source is declared one path at a time; there are no globs"),
+                Diagnostic::templated("no-such-source", span)
+                    .with_bind("source", rel)
+                    .with_bind("field", "proto_sources"),
             );
             return None;
         }

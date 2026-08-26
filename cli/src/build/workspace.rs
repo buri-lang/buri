@@ -332,11 +332,8 @@ impl Workspace {
             diagnostics.extend(read.errors);
             if read.value.library.is_none() && read.value.binary.is_none() {
                 diagnostics.push(
-                    Diagnostic::error(
-                        Span::point(id, 0),
-                        format!("//{path} declares neither a library nor a binary"),
-                    )
-                    .with_fix("add a `library { }` or `binary { }` rule, or delete the build file"),
+                    Diagnostic::templated("package-without-a-rule", Span::point(id, 0))
+                        .with_bind("package_path", path.clone()),
                 );
             }
             packages.push(Package {
@@ -392,17 +389,13 @@ impl Workspace {
             let sibling = self.package(parent_id).dir.join(format!("{last}.buri"));
             if sibling.is_file() {
                 diagnostics.push(
-                    Diagnostic::error(
+                    Diagnostic::templated(
+                        "package-shadows-a-module",
                         Span::point(p.build_file_id, 0),
-                        format!(
-                            "//{} is a package, and {}/{last}.buri is a module in //{parent}",
-                            p.path, parent
-                        ),
                     )
-                    .with_fix(format!(
-                        "the module path \"//{}\" would name both; rename one of them",
-                        p.path
-                    )),
+                    .with_bind("package_path", p.path.clone())
+                    .with_bind("module_file", format!("{parent}/{last}.buri"))
+                    .with_bind("parent_package", parent),
                 );
             }
         }

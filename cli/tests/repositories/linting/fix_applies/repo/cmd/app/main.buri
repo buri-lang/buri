@@ -13,6 +13,6 @@ export fn main(): Result<(), Str> {
   // formatter would answer that too, and would also rewrite everything the fix
   // did not touch.
   let ctx = context { Alloc: host.alloc };
-  let _ = fromCents(150);
+  let _ = fromCents(150).show(ctx);
   .Ok(())
 }

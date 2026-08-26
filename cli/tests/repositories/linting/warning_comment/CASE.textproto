@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a TODO in a comment: warning-comment, and the same word inside a string literal, which is text rather than a marker"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# The marker goes when the work is done, and the string it was never about
+# stays exactly as it was.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "// TODO: decide what this program is for.\n"
+  with: "// It prints a banner.\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

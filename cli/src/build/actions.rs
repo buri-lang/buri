@@ -189,11 +189,8 @@ fn monomorphized_main(
 
     let Some(entry) = analysis.checked.entry else {
         diagnostics.push(
-            Diagnostic::error(
-                Span::NONE,
-                format!("{} exports no `main`", session.workspace.package(target.package).label()),
-            )
-            .with_fix("add `export fn main(): Result<(), Str> { ... }` to its `main.buri`"),
+            Diagnostic::templated("no-main", Span::NONE)
+                .with_bind("package", session.workspace.package(target.package).label()),
         );
         return Err(std::mem::take(diagnostics));
     };

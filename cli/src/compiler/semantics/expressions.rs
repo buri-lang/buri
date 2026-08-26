@@ -866,12 +866,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 (info.name.clone(), info.params.iter().any(|p| p.role == ParamRole::Ctx))
             };
             let have = args.len();
-            let mut d = Diagnostic::error(
-                span,
-                format!("`{name}` takes {expected_args} arguments, but {have} were given"),
-            )
-            .with_mismatch(expected_args.to_string(), have.to_string())
-            .with_fix(format!("pass exactly {expected_args}"));
+            let mut d = Diagnostic::templated("wrong-argument-count", span)
+                .with_bind("function", name.clone())
+                .with_bind("expected", expected_args.to_string())
+                .with_bind("given", have.to_string())
+                .with_mismatch(expected_args.to_string(), have.to_string());
             // The most common cause is forgetting the context, which is always
             // the parameter right after the receiver.
             if takes_ctx && have.saturating_add(1) == expected_args {
