@@ -7,7 +7,7 @@
 //! artifact — a typo in a field name is an error, not a silent no-op.
 
 use crate::build::textproto::{self, Document, Message, Value};
-use crate::diagnostics::{Diagnostic, FileId, Span};
+use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 
 /// The top level of a `BUILD.buri`, and the top level of a `REPO.buri`.
 ///
@@ -365,20 +365,21 @@ struct Reader {
 }
 
 impl Reader {
-    /// Every build-file error carries the edit that resolves it, the same way
-    /// every source diagnostic does.
-    fn err(&mut self, span: Span, message: impl Into<String>, fix: impl Into<String>) {
-        self.errors.push(Diagnostic::error(span, message).with_fix(fix));
+    /// A diagnostic whose wording lives on its page. What follows is
+    /// `.bind(…)` for each `{placeholder}` the page names.
+    fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
+        self.errors.push(Diagnostic::templated(code, span));
+        self.errors.last_mut().or_ice("the diagnostic just pushed is the last one")
     }
 
     /// The common shape: a field holds one kind of value and was given
     /// another.
     fn wrong_kind(&mut self, span: Span, name: &str, want: &str, found: &str) {
-        self.errors.push(
-            Diagnostic::error(span, format!("`{name}` holds {want}, found {found}"))
-                .with_mismatch(want.to_string(), found.to_string())
-                .with_fix(format!("write {want} for `{name}`")),
-        );
+        self.templated("field-wrong-kind", span)
+            .bind("field", name)
+            .bind("expected", want)
+            .bind("found", found)
+            .mismatch(want.to_string(), found.to_string());
     }
 
     /// Rejects any field the schema does not declare, naming the nearest
@@ -386,16 +387,17 @@ impl Reader {
     fn check_known(&mut self, message: &Message, known: &[&str], what: &str) {
         for f in &message.fields {
             if !known.contains(&f.name.as_str()) {
-                let mut d = Diagnostic::error(
-                    f.name_span,
-                    format!("unknown field `{}` in {what}", f.name),
-                );
-                if let Some(near) = nearest(&f.name, known) {
-                    d = d.with_fix(format!("did you mean `{near}`?"));
-                } else {
-                    d = d.with_fix(format!("{what} accepts: {}", known.join(", ")));
+                let near = nearest(&f.name, known);
+                let d = self
+                    .templated("unknown-field", f.name_span)
+                    .bind("field", f.name.clone())
+                    .bind("block", what)
+                    .bind("known_fields", known.join(", "));
+                // A near miss replaces the page's fix: the two sentences share
+                // no phrase, and it is one rule with one message.
+                if let Some(near) = near {
+                    d.fix(format!("did you mean `{near}`?"));
                 }
-                self.errors.push(d);
             }
         }
     }
@@ -461,20 +463,19 @@ impl Reader {
                     Value::Ident(s, sp) => match Platform::parse(s) {
                         Some(p) => out.push(Spanned::new(p, *sp)),
                         None => {
-                            let mut d =
-                                Diagnostic::error(*sp, format!("`{s}` is not a platform"));
-                            let known = Platform::proto_names();
-                            d = match nearest(s, &known) {
-                                Some(n) => d.with_fix(format!("did you mean `{n}`?")),
-                                None => d.with_fix(format!(
-                                    "the platforms are {}",
-                                    Platform::names_phrase()
-                                )),
-                            };
+                            let near = nearest(s, &Platform::proto_names());
+                            let d = self
+                                .templated("unknown-bare-word", *sp)
+                                .bind("value", s.clone())
+                                .bind("expected", "a platform")
+                                .bind("expected_plural", "platforms")
+                                .bind("choices", Platform::names_phrase());
                             // `Platform` is a closed enum in the schema. Adding
                             // one is a compiler change, not a configuration
                             // change.
-                            self.errors.push(d);
+                            if let Some(n) = near {
+                                d.fix(format!("did you mean `{n}`?"));
+                            }
                         }
                     },
                     other => {
@@ -498,12 +499,11 @@ impl Reader {
         for entry in self.strings(message, "visibility") {
             match crate::build::workspace::Visibility::parse(&entry.value) {
                 Ok(v) => out.push(Spanned::new(v, entry.span)),
-                Err(why) => self.err(
-                    entry.span,
-                    why,
-                    "the forms are `//visibility:public`, `//visibility:private`, `//pkg`, \
-                     `//pkg/...` and `//...`",
-                ),
+                // The sentence is the parser's: it names which of the five
+                // forms the entry came closest to.
+                Err(why) => {
+                    self.templated("unknown-visibility", entry.span).bind("problem", why);
+                }
             }
         }
         out
@@ -567,20 +567,19 @@ impl Reader {
                     Value::Ident(s, sp) => match Platform::parse(s) {
                         Some(p) => Some(Spanned::new(p, *sp)),
                         None => {
-                            self.err(
-                                *sp,
-                                format!("`{s}` is not a platform"),
-                                format!("the platforms are {}", Platform::names_phrase()),
-                            );
+                            self.templated("unknown-bare-word", *sp)
+                                .bind("value", s.clone())
+                                .bind("expected", "a platform")
+                                .bind("expected_plural", "platforms")
+                                .bind("choices", Platform::names_phrase());
                             None
                         }
                     },
                     other => {
-                        self.err(
-                            other.span(),
-                            "`platform` names a platform",
-                            format!("write a bare word: {}", Platform::names_phrase()),
-                        );
+                        self.templated("not-a-bare-word", other.span())
+                            .bind("field", "platform")
+                            .bind("expected", "a platform")
+                            .bind("choices", Platform::names_phrase());
                         None
                     }
                 });
@@ -588,20 +587,19 @@ impl Reader {
                     Value::Ident(s, sp) => match Arch::parse(s) {
                         Some(a) => Some(Spanned::new(a, *sp)),
                         None => {
-                            self.err(
-                                *sp,
-                                format!("`{s}` is not an architecture"),
-                                "the architectures are X86_64 and ARM64",
-                            );
+                            self.templated("unknown-bare-word", *sp)
+                                .bind("value", s.clone())
+                                .bind("expected", "an architecture")
+                                .bind("expected_plural", "architectures")
+                                .bind("choices", "X86_64 and ARM64");
                             None
                         }
                     },
                     other => {
-                        self.err(
-                            other.span(),
-                            "`arch` names an architecture",
-                            "write a bare word: X86_64 or ARM64",
-                        );
+                        self.templated("not-a-bare-word", other.span())
+                            .bind("field", "arch")
+                            .bind("expected", "an architecture")
+                            .bind("choices", "X86_64 or ARM64");
                         None
                     }
                 });
@@ -617,17 +615,20 @@ impl Reader {
                             Value::Ident(s, sp) => match s.as_str() {
                                 "ESM" | "MODULE_UNSPECIFIED" => js_module = JsModule::Esm,
                                 "CJS" => js_module = JsModule::Cjs,
-                                _ => self.err(
-                                    *sp,
-                                    format!("`{s}` is not a module kind"),
-                                    "the module kinds are ESM and CJS",
-                                ),
+                                _ => {
+                                    self.templated("unknown-bare-word", *sp)
+                                        .bind("value", s.clone())
+                                        .bind("expected", "a module kind")
+                                        .bind("expected_plural", "module kinds")
+                                        .bind("choices", "ESM and CJS");
+                                }
                             },
-                            other => self.err(
-                                other.span(),
-                                "`module` names ESM or CJS",
-                                "write a bare word: ESM or CJS",
-                            ),
+                            other => {
+                                self.templated("not-a-bare-word", other.span())
+                                    .bind("field", "module")
+                                    .bind("expected", "ESM or CJS")
+                                    .bind("choices", "ESM or CJS");
+                            }
                         }
                     }
                 }
@@ -636,11 +637,7 @@ impl Reader {
                 // rejected and dropped rather than carried forward for each
                 // consumer to guess about.
                 let Some(platform) = platform else {
-                    self.err(
-                        *span,
-                        "an output must name a platform",
-                        "add `platform: LINUX`, `MACOS`, `JS`, or `WEB`",
-                    );
+                    self.templated("output-without-a-platform", *span);
                     continue;
                 };
                 let target = match platform.value {
@@ -648,10 +645,9 @@ impl Reader {
                         // `arch` is ignored, and must be unset, when the
                         // platform is JS.
                         if let Some(a) = &arch {
-                            self.errors.push(
-                                Diagnostic::error(a.span, "a JS output has no architecture")
-                                    .with_fix("remove `arch`; JavaScript is not built per machine"),
-                            );
+                            self.templated("output-with-an-architecture", a.span)
+                                .bind("platform", "JS")
+                                .bind("artifact", "JavaScript");
                         }
                         OutputTarget::Js { module: js_module }
                     }
@@ -670,19 +666,12 @@ impl Reader {
                         // what keeps a field the rest of the toolchain then
                         // ignores from being writable.
                         if let Some(a) = &arch {
-                            self.errors.push(
-                                Diagnostic::error(a.span, "a WEB output has no architecture")
-                                    .with_fix("remove `arch`; a page is not built per machine"),
-                            );
+                            self.templated("output-with-an-architecture", a.span)
+                                .bind("platform", "WEB")
+                                .bind("artifact", "a page");
                         }
                         if let Some(js_span) = js_block {
-                            self.errors.push(
-                                Diagnostic::error(js_span, "a WEB output has no `js` block")
-                                    .with_fix(
-                                        "remove it; a page is always an ES module, which is what \
-                                         a browser's `<script type=\"module\">` loads",
-                                    ),
-                            );
+                            self.templated("web-output-with-a-js-block", js_span);
                         }
                         OutputTarget::Web
                     }
@@ -782,11 +771,12 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
                 } else {
                     "nothing can depend on a binary, so there is no one to be visible to"
                 };
-                reader.errors.push(
-                    Diagnostic::error(f.name_span, format!("a `binary` has no `{bad}` field"))
-                        .with_fix(format!("remove `{bad}`"))
-                        .with_note(note),
-                );
+                // The note is the site's: which of the two fields it is
+                // decides the sentence, and a page holds one note.
+                reader
+                    .templated("binary-field-not-allowed", f.name_span)
+                    .bind("field", bad)
+                    .note(note);
             }
         }
         Binary {
@@ -816,7 +806,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.document.all("tag") {
         let Value::Message(m, span) = &f.value else {
-            reader.err(f.value.span(), "`tag` is a block", "write `tag { name: \"...\" ... }`");
+            reader.templated("tag-not-a-block", f.value.span());
             continue;
         };
         reader.check_known(m, textproto::schema_order("tag"), "a `tag` block");
@@ -825,19 +815,11 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         let name = match name_field.map(|field| &field.value) {
             Some(Value::Str(s, sp)) => Spanned::new(s.clone(), *sp),
             Some(other) => {
-                reader.err(
-                    other.span(),
-                    "`name` holds a string",
-                    "quote it, as in `name: \"server\"`",
-                );
+                reader.templated("tag-name-not-a-string", other.span());
                 continue;
             }
             None => {
-                reader.err(
-                    *span,
-                    "a `tag` block must have a `name`",
-                    "add `name: \"...\"`; a tag is identified by it",
-                );
+                reader.templated("tag-without-a-name", *span);
                 continue;
             }
         };
@@ -848,15 +830,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             // restriction is always a whitelist under `requires`.
             reader.check_known(forbids, textproto::schema_order("forbids"), "a `forbids` block");
             if let Some(p) = forbids.get("platforms") {
-                reader.errors.push(
-                    Diagnostic::error(p.name_span, "`forbids` takes no `platforms`")
-                        .with_fix("move the list under `requires { platforms: [...] }`")
-                        .with_note(
-                            "a platform restriction is always a whitelist under `requires`, so \
-                             that adding a platform to the toolchain cannot silently widen code \
-                             written before it existed",
-                        ),
-                );
+                reader.templated("platforms-under-forbids", p.name_span);
             }
             forbids_tags = reader.strings(forbids, "tags");
         }
@@ -865,15 +839,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         if let Some((requires, _)) = reader.sub_message(m, "requires") {
             reader.check_known(requires, textproto::schema_order("requires"), "a `requires` block");
             if let Some(t) = requires.get("tags") {
-                reader.errors.push(
-                    Diagnostic::error(t.name_span, "`requires` takes no `tags`")
-                        .with_fix("what this usually means is `forbids { tags: [...] }`")
-                        .with_note(
-                        "carrying no tags is the common case, so requiring a tag transitively \
-                         would force it onto every library; what this usually means is \
-                         `forbids { tags: [...] }`",
-                    ),
-                );
+                reader.templated("tags-under-requires", t.name_span);
             }
             requires_platforms = reader.platforms(requires, "platforms");
         }
@@ -881,12 +847,10 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         // Tags form one flat namespace, so a name declared twice is rejected
         // rather than quietly meaning whichever came first.
         if let Some(prev) = tags.iter().find(|t| t.name.value == name.value) {
-            reader.errors.push(
-                Diagnostic::error(name.span, format!("tag `{}` is declared twice", name.value))
-                    .with_fix("rename one, or delete the duplicate")
-                    .with_secondary_span(prev.name.span, "first declared here")
-                    .with_note("tags are one flat namespace, so a name means one thing"),
-            );
+            reader
+                .templated("duplicate-tag", name.span)
+                .bind("tag", name.value.clone())
+                .secondary_span(prev.name.span, "first declared here");
             continue;
         }
 

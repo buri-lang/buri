@@ -871,12 +871,7 @@ impl<'a> Monomorphizer<'a> {
         // that implementation's own type.
         if let Ty::Ctx(id) = &recv {
             let Some(impl_ty) = self.tables().ctx_type(*id).get(trait_id).cloned() else {
-                self.diags.push(
-                    Diagnostic::error(span, "this context does not bind that effect").with_fix(
-                        "bind it where the context is built, or bound this function with the \
-                         effect it needs",
-                    ),
-                );
+                self.diags.push(Diagnostic::templated("unbound-effect", span));
                 return ExprKind::Error;
             };
             if let Some(first) = args.first_mut() {
@@ -901,14 +896,8 @@ impl<'a> Monomorphizer<'a> {
 
         let Some(con) = recv.head() else {
             self.diags.push(
-                Diagnostic::error(
-                    span,
-                    format!(
-                        "`{}` could not be resolved to a concrete type",
-                        self.tables().trait_(trait_id).name
-                    ),
-                )
-                .with_fix("annotate the call with type arguments, as in `f<Str>(x)`"),
+                Diagnostic::templated("type-args-required", span)
+                    .with_bind("trait", self.tables().trait_(trait_id).name.clone()),
             );
             return ExprKind::Error;
         };
@@ -917,7 +906,9 @@ impl<'a> Monomorphizer<'a> {
             let t = self.tables().trait_(trait_id).name.clone();
             let c = self.tables().tycon(con).name.clone();
             self.diags.push(
-                Diagnostic::error(span, format!("`{c}` does not implement `{t}`"))
+                Diagnostic::templated("missing-conformance", span)
+                    .with_bind("type", c.clone())
+                    .with_bind("trait", t.clone())
                     .with_note("conformance is nominal: a type satisfies a trait only where a declaration says so")
                     .with_fix(crate::compiler::semantics::types::conformance_fix(&t, &c)),
             );
@@ -997,8 +988,8 @@ impl<'a> Monomorphizer<'a> {
             }
             _ => {
                 self.diags.push(
-                    Diagnostic::error(span, format!("`{name}` cannot be derived structurally"))
-                        .with_fix("write the `impl` by hand"),
+                    Diagnostic::templated("no-structural-derive", span)
+                        .with_bind("trait", name.clone()),
                 );
                 ExprKind::Error
             }
@@ -1021,12 +1012,9 @@ impl<'a> Monomorphizer<'a> {
         let fields = tycon.fields().to_vec();
         let [field] = fields.as_slice() else {
             self.diags.push(
-                Diagnostic::error(
-                    span,
-                    format!("`{}` derives `{op}` only for a single-field struct", tycon.name),
-                )
-                .with_fix("write the `impl` by hand, or wrap exactly one value")
-                .with_note("an arithmetic newtype wraps exactly one value"),
+                Diagnostic::templated("derive-operator-not-a-newtype", span)
+                    .with_bind("type", tycon.name.clone())
+                    .with_bind("operator", op),
             );
             return ExprKind::Error;
         };
@@ -1043,15 +1031,10 @@ impl<'a> Monomorphizer<'a> {
             let shown =
                 crate::compiler::semantics::types::show(self.tables(), None, &[], &inner);
             self.diags.push(
-                Diagnostic::error(
-                    span,
-                    format!(
-                        "`{}` derives `{op}` only for a struct wrapping a number, not `{shown}`",
-                        tycon.name
-                    ),
-                )
-                .with_fix("write the `impl` by hand, or wrap a numeric type")
-                .with_note("a derived arithmetic operator is the operation on the wrapped value"),
+                Diagnostic::templated("derive-operator-not-numeric", span)
+                    .with_bind("type", tycon.name.clone())
+                    .with_bind("operator", op)
+                    .with_bind("wrapped", shown),
             );
             return ExprKind::Error;
         };

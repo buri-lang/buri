@@ -1,4 +1,4 @@
-error: `LINUXX` is not a platform
+error: `LINUXX` is not a platform [unknown-bare-word]
  --> REPO.buri:6:26
   |
 6 |   requires { platforms: [LINUXX] }

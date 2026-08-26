@@ -1,4 +1,4 @@
-error: shared.buri is reachable from both `lib.buri` and `main.buri`, so `gen` cannot say which rule it belongs to
+error: shared.buri is reachable from both `lib.buri` and `main.buri`, so `gen` cannot say which rule it belongs to [unplaceable-source]
  --> tools/report/BUILD.buri:1:1
   |
 1 | # A package with both a library and a binary. `render.buri` and `flags.buri`

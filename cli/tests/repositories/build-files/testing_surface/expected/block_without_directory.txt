@@ -19,7 +19,7 @@ error: "//lib/plain/testing" names no file (lib/plain/testing/lib.buri) [module-
     against the worked monorepo in cli/tests/example, where //lib/nope does not
     exist.
 
-error: testing/helpers.buri does not exist
+error: testing/helpers.buri does not exist [no-such-source]
  --> lib/plain/BUILD.buri:6:15
   |
 6 |     sources: ["testing/helpers.buri"]

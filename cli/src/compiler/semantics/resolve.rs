@@ -498,10 +498,9 @@ impl<'a> Checker<'a> {
                 }
                 return;
             }
-            let msg = format!("`{text}` is declared twice in this module");
             self.diags.push(
-                Diagnostic::error(name.span, msg)
-                    .with_fix("rename one of them; a name has one meaning in a module"),
+                Diagnostic::templated("duplicate-module-declaration", name.span)
+                    .with_bind("name", text),
             );
             return;
         }

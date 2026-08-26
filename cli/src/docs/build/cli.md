@@ -94,6 +94,12 @@ Style and hygiene rules:
 | `empty-test-suite` | warn — a `test` block with no `sources` |
 | `test-without-assertion` | warn — a `test` from which nothing reachable calls `core/testing/assert` |
 | `test-title-newline` | warn — a `test` title with a line break in it, which a report has to escape |
+| `duplicate-import` | warn — one module named by two `import` statements, both naming names |
+| `unused-variable` | warn — a `let` whose name nothing below it reads |
+| `warning-comment` | warn — a comment carrying `TODO`, `FIXME` or `HACK` |
+| `too-many-parameters` | warn — more than five parameters, counting neither `self` nor `ctx` |
+| `oversized-function` | warn — a body more than forty lines from its opening brace to its closing one |
+| `deep-nesting` | warn — a branch with more than four branches wrapped around it |
 
 Two findings belong to a `buri test` run rather than to the graph, and both are
 about the suite as a whole rather than about one test in it:
@@ -103,9 +109,9 @@ about the suite as a whole rather than about one test in it:
 | `test-timeout` | The suite ran past its `test { timeout_seconds }` and was killed, so no test in it has a result. |
 | `platform-not-implemented` | A platform in `test { platforms }` that this toolchain cannot produce a binary for — no backend compiled in for it, no runtime archive, or no way to link it from this host. Distinct from `platform-violation`, which is the target refusing a platform it could otherwise be built for. |
 
-Three of the lint rules read differently than you might expect, and the reasons
-are the same reason in three shapes — a rule that fires on the wrong thing is
-worse than no rule:
+Several of the lint rules read differently than you might expect, and the
+reasons are the same reason in several shapes — a rule that fires on the wrong
+thing is worse than no rule:
 
 - `unused-import` is **syntactic**. A name counts as used if it appears as an
   identifier token anywhere outside the import statements. That
@@ -120,6 +126,23 @@ worse than no rule:
   `assert`" it fires on every test that asserts through a helper, which is most
   of the ones worth writing. A test passes the rule if anything reachable from
   it calls into `core/testing/assert`.
+- `duplicate-import` is about two **named** clauses. A statement carries one
+  clause, so a namespace import and a named one cannot become a single
+  statement, and a rule that asked them to would be asking for something the
+  grammar does not have.
+- `unused-variable` is about `let` and nothing else. A binding in a `match` arm
+  or a lambda's parameter list is part of a shape being described rather than a
+  name introduced for the lines below, and whether one is read is a different
+  question.
+- `warning-comment` reads the gaps between tokens, which is what makes it a rule
+  about comments rather than about text: a `TODO` inside a string literal is
+  inside a token and is never looked at. `XXX` is not one of the markers,
+  because `\uXXXX` is how an escape is written in prose.
+- `oversized-function`, `too-many-parameters` and `deep-nesting` carry the only
+  numbers in the catalogue, and each sits where the whole of this repository's
+  Buri stays under it — a `test` block is not a function for the first of them,
+  an `else if` chain is one level for the last, and `self` and `ctx` are not
+  parameters a caller assembled for the middle one.
 
 Import order is not a lint. `buri format` sorts imports, so an unsorted import
 run is not a finding to report — it is a file that has not been formatted.

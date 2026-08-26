@@ -1,0 +1,14 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> cmd/app/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+
+    Resolve or remove these markers before merging.
+
+    Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
+    guides/warning-comment.md, © 2026 Ivett Ördög, used under the MIT license.
+

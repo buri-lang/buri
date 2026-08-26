@@ -228,13 +228,7 @@ pub fn run_snippet_in(
     }
     let mut diags = Diagnostics::new();
     let Some(entry) = analysis.checked.entry else {
-        diags.push(
-            Diagnostic::error(Span::NONE, "this example exports no `main`")
-                .with_fix(
-                    "give the fence `wrap=body`, which supplies one, or write \
-                     `export fn main(): Result<(), Str> { ... }`",
-                ),
-        );
+        diags.push(Diagnostic::templated("example-without-main", Span::NONE));
         return Err(diags);
     };
     let module_paths: Vec<String> =

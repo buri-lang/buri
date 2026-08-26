@@ -47,18 +47,24 @@ macro_rules! l {
 
 /// Every `buri lint` finding, in the order the index lists them.
 pub const LINTS: &[LintDoc] = &[
+    l!("deep-nesting", "Branches nest shallowly"),
     l!("dep-cycle", "Two targets may not depend on each other", &["build/build-files"]),
     l!("discarded-result", "Every deliberately dropped `Result` is reported", &["build/cli"]),
+    l!("duplicate-import", "A module is imported once"),
     l!("duplicate-source", "A source file is listed by one rule", &["build/build-files"]),
     l!("empty-test-suite", "A `test` block declares the sources it tests"),
     l!("missing-dep", "Every library a package uses is in its dependencies", &["build/build-files"]),
+    l!("oversized-function", "A function is one responsibility"),
     l!("test-title-newline", "A test title is one line"),
     l!("test-without-assertion", "A test asserts something"),
+    l!("too-many-parameters", "A function takes few parameters"),
     l!("undeclared-source", "Every source file is declared by a rule", &["build/build-files"]),
     l!("unreachable-export", "An `export` reaches somebody", &["build/libraries"]),
     l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
     l!("unused-dep", "Every dependency is used", &["build/build-files"]),
     l!("unused-import", "Every import is used"),
+    l!("unused-variable", "Every `let` names something the code below it reads"),
+    l!("warning-comment", "A marker comment is work that was left behind"),
 ];
 
 pub fn find(code: &str) -> Option<&'static LintDoc> {

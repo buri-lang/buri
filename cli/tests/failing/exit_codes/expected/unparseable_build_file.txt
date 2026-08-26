@@ -1,32 +1,32 @@
-error: //lib/subject declares neither a library nor a binary
+error: //lib/subject declares neither a library nor a binary [package-without-a-rule]
  --> lib/subject/BUILD.buri:1:1
   |
 1 | library {
   | ^
   |
   = fix: add a `library { }` or `binary { }` rule, or delete the build file
-error: unterminated message
+error: unterminated message [build-file-syntax]
  --> lib/subject/BUILD.buri:1:9
   |
 1 | library {
   |         ^
   |
   = fix: close it with `}`
-error: unterminated list
+error: unterminated list [build-file-syntax]
  --> lib/subject/BUILD.buri:2:14
   |
 2 |     sources: [
   |              ^
   |
   = fix: close it with `]`
-error: expected a value, found `:`
+error: expected a value, found `:` [build-file-syntax]
  --> lib/subject/BUILD.buri:3:12
   |
 3 |     sources: ["subject.buri"]
   |            ^
   |
   = fix: write a string, a number, a bare word, a `[list]`, or a `{{ block }}`
-error: expected a value, found `}`
+error: expected a value, found `}` [build-file-syntax]
  --> lib/subject/BUILD.buri:8:1
   |
 8 | }

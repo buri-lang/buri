@@ -14,7 +14,7 @@ fn isSame(a: Cents, b: Cents): () {
 }
 
 test "constructing a Cents does nothing observable" {
-  let c = fromCents(150);
+  let _ = fromCents(150);
 }
 
 test "roundTrips through the helper" {

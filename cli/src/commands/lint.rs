@@ -472,10 +472,10 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
     }
 }
 
-/// The hygiene rules: `unused-import`, `discarded-result`, and
-/// `test-without-assertion`. All three ask about a package's own code rather
-/// than about the build graph, so they share the analysis `check_dependencies`
-/// has already paid for.
+/// The hygiene and shape rules — `unused-import`, `discarded-result`,
+/// `test-without-assertion` and the rest. Every one of them asks about a
+/// package's own code rather than about the build graph, so they share the
+/// analysis `check_dependencies` has already paid for.
 /// The modules this package owns, which is what separates "my code" from
 /// everything the analysis loaded to check it.
 ///
@@ -489,6 +489,21 @@ fn modules_of(
     analysis.loaded.modules.iter().filter(|m| m.pkg == Some(own)).map(|m| m.id).collect()
 }
 
+/// [`modules_of`], less the ones nobody can edit. The shape rules all end in
+/// "rewrite this", which is not an instruction a generated module can be given.
+fn editable_modules_of(
+    analysis: &crate::compiler::driver::Analysis,
+    own: PackageId,
+) -> BTreeSet<crate::compiler::semantics::types::ModuleId> {
+    analysis
+        .loaded
+        .modules
+        .iter()
+        .filter(|m| m.pkg == Some(own) && !is_generated(&m.path))
+        .map(|m| m.id)
+        .collect()
+}
+
 fn check_hygiene(
     session: &Session,
     target: TargetId,
@@ -499,12 +514,274 @@ fn check_hygiene(
     for m in &analysis.loaded.modules {
         if m.pkg == Some(own) && !is_generated(&m.path) {
             check_unused_imports(session, m, diagnostics);
+            check_duplicate_imports(m, diagnostics);
+            check_warning_comments(session, m, diagnostics);
+            check_function_shapes(session, m, diagnostics);
         }
     }
     check_unreachable_exports(session, target, analysis, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
+    check_unused_variables(own, analysis, diagnostics);
+    check_deep_nesting(own, analysis, diagnostics);
     check_tests_assert(own, analysis, diagnostics);
     check_test_titles(own, analysis, diagnostics);
+}
+
+/// The three limits the shape rules hold code to. None of them is configurable,
+/// so each sits above the whole of this repository's Buri — standard library,
+/// conformance corpus and worked monorepo — and a program that crosses one has
+/// crossed it for a reason rather than by writing ordinary code.
+///
+/// The numbers reach the reader through the pages' `{limit}`, so there is one
+/// of each rather than one here and one in a sentence that can drift from it.
+const MAXIMUM_FUNCTION_LINES: usize = 40;
+const MAXIMUM_PARAMETERS: usize = 5;
+const MAXIMUM_NESTING: usize = 4;
+
+/// `oversized-function` and `too-many-parameters`, both read off the
+/// declaration rather than the body: the two questions are about the shape a
+/// reader meets, and that is what is written down.
+///
+/// A `test` block is not a function for either rule. A suite is a list of
+/// assertions, and its length is the number of cases rather than the number of
+/// things it does.
+fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+    use crate::parsing::tree::{Item, ParamKind};
+    let file = session.map.get(m.file);
+    let mut check = |d: &crate::parsing::tree::FnDecl| {
+        let name = m.ast.tree.name(d.name);
+        // `self` is the receiver and `ctx` is the effect budget. Neither is
+        // data a caller assembled, so neither is counted.
+        let parameters = d.params.iter().filter(|p| p.kind == ParamKind::Normal).count();
+        if parameters > MAXIMUM_PARAMETERS {
+            diagnostics.push(
+                Diagnostic::templated("too-many-parameters", d.name.span)
+                    .with_bind("name", name)
+                    .with_bind("count", parameters.to_string())
+                    .with_bind("limit", MAXIMUM_PARAMETERS.to_string()),
+            );
+        }
+        let Some(body) = d.body else { return };
+        let span = m.ast.tree.block_span(body);
+        let lines = file.line_col(span.end).0 - file.line_col(span.start).0 + 1;
+        if lines > MAXIMUM_FUNCTION_LINES {
+            diagnostics.push(
+                Diagnostic::templated("oversized-function", d.name.span)
+                    .with_bind("name", name)
+                    .with_bind("lines", lines.to_string())
+                    .with_bind("limit", MAXIMUM_FUNCTION_LINES.to_string()),
+            );
+        }
+    };
+    for item in &m.ast.items {
+        match item {
+            Item::Fn(d) => check(d),
+            Item::Impl(d) => d.methods.iter().for_each(&mut check),
+            Item::Trait(d) => d.methods.iter().for_each(&mut check),
+            _ => {}
+        }
+    }
+}
+
+/// `duplicate-import`. Two statements naming one module are a pair that drifts:
+/// the second is easy to miss, so an edit lands on one of them and the top of
+/// the file stops being the whole account of what the file borrows.
+///
+/// Only two named clauses. A statement carries one clause, so a namespace
+/// import cannot be merged into a named one and there is no fix to offer.
+fn check_duplicate_imports(m: &ModuleData, diagnostics: &mut Diagnostics) {
+    use crate::parsing::tree::{ImportClause, Item};
+    let mut first: std::collections::BTreeMap<&str, Span> = std::collections::BTreeMap::new();
+    for item in &m.ast.items {
+        let Item::Import(i) = item else { continue };
+        if !matches!(i.clause, ImportClause::Named(_)) {
+            continue;
+        }
+        match first.get(i.path.as_str()) {
+            Some(at) => diagnostics.push(
+                Diagnostic::templated("duplicate-import", i.path_span)
+                    .with_bind("module", i.path.as_str())
+                    .with_secondary_span(*at, "first imported here"),
+            ),
+            None => {
+                first.insert(i.path.as_str(), i.path_span);
+            }
+        }
+    }
+}
+
+/// The markers a comment uses to say the code is not finished.
+///
+/// `XXX` is deliberately not one of them: it is how a hexadecimal escape is
+/// spelled in prose, and `\uXXXX` appears in this repository's own comments.
+const WARNING_MARKERS: &[&str] = &["TODO", "FIXME", "HACK"];
+
+/// `warning-comment`. The markers are found in the gaps between tokens, which
+/// is what makes the rule about comments rather than about text: everything
+/// between two tokens is whitespace or a comment, so a `TODO` inside a string
+/// literal is inside a token and is never looked at.
+fn check_warning_comments(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+    let text = session.map.text(m.file);
+    let lexed = crate::parsing::lexer::lex(text, m.file);
+    let mut found: Vec<(usize, &'static str)> = Vec::new();
+    let mut at = 0usize;
+    for i in 0..lexed.tokens.len() {
+        let span = lexed.tokens.span(i);
+        markers_in(text, at, span.start as usize, &mut found);
+        at = at.max(span.end as usize);
+    }
+    markers_in(text, at, text.len(), &mut found);
+
+    found.sort_unstable();
+    for (offset, marker) in found {
+        diagnostics.push(
+            Diagnostic::templated(
+                "warning-comment",
+                Span::new(m.file, offset, offset + marker.len()),
+            )
+            .with_bind("marker", marker),
+        );
+    }
+}
+
+/// Every marker in `text[from..to]`, as an offset into the whole file.
+fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static str)>) {
+    let Some(gap) = text.get(from..to) else { return };
+    let is_word = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+    for marker in WARNING_MARKERS {
+        let mut at = 0usize;
+        while let Some(hit) = gap.get(at..).and_then(|rest| rest.find(marker)) {
+            let start = at + hit;
+            let end = start + marker.len();
+            // A whole word, so `HACKATHON` is prose rather than a marker.
+            if !is_word(gap.get(..start).and_then(|b| b.chars().next_back()))
+                && !is_word(gap.get(end..).and_then(|a| a.chars().next()))
+            {
+                out.push((from + start, marker));
+            }
+            at = end;
+        }
+    }
+}
+
+/// `unused-variable`. A `let` names a value for the code below it, so a name
+/// nothing below reads is a `let` that names nothing.
+///
+/// Only `let`. A binding in a `match` arm or a lambda's parameter list is part
+/// of a shape being described rather than a name introduced for later, and
+/// asking whether one is read is a different question.
+fn check_unused_variables(
+    own: PackageId,
+    analysis: &crate::compiler::driver::Analysis,
+    diagnostics: &mut Diagnostics,
+) {
+    use crate::compiler::semantics::types::LocalId;
+    let mine = editable_modules_of(analysis, own);
+    let mut found: Vec<(Span, String)> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+            continue;
+        }
+        let mut read: BTreeSet<LocalId> = BTreeSet::new();
+        typed::walk(&body.expr, &mut |e| match &e.kind {
+            typed::ExprKind::Local(local) => {
+                read.insert(*local);
+            }
+            // A capture reads the local it captures, whatever the lambda's
+            // body then does with it.
+            typed::ExprKind::Lambda { captures, .. } => read.extend(captures.iter().copied()),
+            _ => {}
+        });
+
+        let mut bound: Vec<LocalId> = Vec::new();
+        typed::walk(&body.expr, &mut |e| {
+            let typed::ExprKind::Block { stmts, .. } = &e.kind else { return };
+            for s in stmts {
+                if let typed::Stmt::Let { pattern, .. } = s {
+                    pattern.binds(&mut bound);
+                }
+            }
+        });
+
+        for local in bound {
+            if read.contains(&local) {
+                continue;
+            }
+            let Some(l) = body.locals.get(local.index()) else { continue };
+            found.push((l.span, l.name.clone()));
+        }
+    }
+    // `bodies` is a map, so the order findings are met in is not the order they
+    // are written in. Sorting here makes one run's report the same as the next.
+    found.sort_by_key(|(span, _)| (span.file.0, span.start));
+    for (span, name) in found {
+        diagnostics.push(Diagnostic::templated("unused-variable", span).with_bind("name", name));
+    }
+}
+
+/// `deep-nesting`. Every enclosing branch is a condition the reader has to hold
+/// while reading the innermost one, and past a handful nobody holds them all.
+fn check_deep_nesting(
+    own: PackageId,
+    analysis: &crate::compiler::driver::Analysis,
+    diagnostics: &mut Diagnostics,
+) {
+    let mine = editable_modules_of(analysis, own);
+    let mut found: Vec<(Span, usize)> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+            continue;
+        }
+        nesting(&body.expr, 0, false, &mut found);
+    }
+    found.sort_by_key(|(span, _)| (span.file.0, span.start));
+    for (span, depth) in found {
+        diagnostics.push(
+            Diagnostic::templated("deep-nesting", span)
+                .with_bind("depth", depth.to_string())
+                .with_bind("limit", MAXIMUM_NESTING.to_string()),
+        );
+    }
+}
+
+/// Walks a body counting the branch bodies wrapped around each expression, and
+/// reports the outermost construct that sits past the limit.
+///
+/// `reported` is what keeps one deep nest from being one finding per level:
+/// once a subtree has been reported, the levels under it are the same finding.
+fn nesting(e: &typed::Expr, depth: usize, reported: bool, out: &mut Vec<(Span, usize)>) {
+    let report = |out: &mut Vec<(Span, usize)>| {
+        if depth >= MAXIMUM_NESTING && !reported {
+            out.push((e.span, depth + 1));
+            return true;
+        }
+        reported
+    };
+    match &e.kind {
+        typed::ExprKind::If { cond, then, else_ } => {
+            nesting(cond, depth, reported, out);
+            let reported = report(out);
+            nesting(then, depth + 1, reported, out);
+            // `else if` continues a ladder rather than nesting inside one: it
+            // is written at the same indentation and read as one decision.
+            let deeper = !matches!(else_.kind, typed::ExprKind::If { .. });
+            nesting(else_, depth + usize::from(deeper), reported, out);
+        }
+        typed::ExprKind::Match { scrutinee, arms } => {
+            nesting(scrutinee, depth, reported, out);
+            let reported = report(out);
+            for a in arms {
+                if let Some(g) = &a.guard {
+                    nesting(g, depth, reported, out);
+                }
+                nesting(&a.body, depth + 1, reported, out);
+            }
+        }
+        // A lambda is a unit of reading of its own — extracting one is the fix
+        // this rule asks for — so its body starts again at nothing.
+        typed::ExprKind::Lambda { body, .. } => nesting(body, 0, false, out),
+        _ => typed::children(e, &mut |c| nesting(c, depth, reported, out)),
+    }
 }
 
 /// `test-title-newline`. A title spanning lines is legal and reported — the
