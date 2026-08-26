@@ -26,6 +26,7 @@ pub mod build;
 pub mod clean;
 pub mod format;
 pub mod generate;
+pub mod init;
 pub mod lint;
 pub mod query;
 pub mod run;
@@ -312,6 +313,15 @@ pub fn commands_taking(name: &str) -> Vec<&'static str> {
 // ---------------------------------------------------------------------------
 
 pub const COMMANDS: &[Command] = &[
+    Command {
+        name: "init",
+        args: "[directory]",
+        blurb: "write a new repository: a library, a binary, a test, and the skills",
+        doc: include_str!("../docs/cli/init.md"),
+        flags: &[],
+        run: init::command_init,
+        hidden: false,
+    },
     Command {
         name: "build",
         args: "[targets]",

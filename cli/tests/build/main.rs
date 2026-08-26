@@ -6,6 +6,7 @@
 //!
 //! | Module | Corpus | Question |
 //! |---|---|---|
+//! | [`init`] | scratch | That `buri init` writes a repository that builds and tests, and that a second run refuses. |
 //! | [`repositories`] | `repositories/` | One repository per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 //! | [`example`] | `example/` | The worked monorepo — the largest body of Buri here — builds, tests, lints and formats clean. |
 //! | [`incrementality`] | scratch | What the cache may and may not do, read off the `--explain` transcript. |
@@ -13,7 +14,7 @@
 //! | [`watch`] | scratch | What `buri watch` declares as its input set, and what it re-runs when one of them moves. |
 //!
 //! ```text
-//! cargo test -p buri --test build                          # all five
+//! cargo test -p buri --test build                          # all six
 //! BURI_BLESS=1 cargo test -p buri --test build repositories::  # record the goldens
 //! BURI_KEEP=1  cargo test -p buri --test build             # keep the scratch trees
 //! ```
@@ -41,5 +42,6 @@ mod harness;
 mod example;
 mod hermeticity;
 mod incrementality;
+mod init;
 mod repositories;
 mod watch;

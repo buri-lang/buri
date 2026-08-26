@@ -14,6 +14,7 @@ findings `buri lint` can raise.
 
 | Command | What it does | Its page |
 |---|---|---|
+| `buri init [directory]` | Writes a new repository: a library, a binary, a test, and the agent skills. | `buri docs cli init` |
 | `buri build [targets]` | Compiles the targets you name. | `buri docs cli build` |
 | `buri test [targets]` | Compiles and runs test suites. | `buri docs cli test` |
 | `buri run <target>` | Builds one binary and executes it. | `buri docs cli run` |

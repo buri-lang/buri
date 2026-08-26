@@ -1,0 +1,4 @@
+// The public surface of //lib/greeting. A dependent sees these names and no
+// others.
+
+from "//lib/greeting/greeting" export { greeting };

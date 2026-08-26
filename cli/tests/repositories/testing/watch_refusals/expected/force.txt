@@ -2,6 +2,7 @@ error: `--watch` and `--force` are exclusive: `--force` turns every cache hit in
 
 buri — the toolchain for the Buri language
 
+  buri init       [directory]         write a new repository: a library, a binary, a test, and the skills
   buri build      [targets]           compile
   buri test       [targets]           compile and run test suites
   buri run        <target> [-- args]  build one binary and execute it

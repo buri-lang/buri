@@ -1,0 +1,4 @@
+/// The greeting this repository was born with.
+export fn greeting(): Str {
+    "hello world"
+}

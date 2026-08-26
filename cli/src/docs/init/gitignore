@@ -1,0 +1,3 @@
+# Everything the build writes.
+.buri/
+out
