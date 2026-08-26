@@ -578,28 +578,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Every parser error carries the edit that resolves it. `fix` is the
-    /// third argument rather than something a caller may add later, so a new
-    /// error site cannot forget one.
-    /// Hands the diagnostic back so the caller can name the rule it enforces.
-    /// Returns `None` when the error was suppressed as a duplicate.
-    fn error(
-        &mut self,
-        span: Span,
-        msg: impl Into<String>,
-        fix: impl Into<String>,
-    ) -> Option<&mut Diagnostic> {
-        // One syntax error usually causes several; the first is the useful one.
-        if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
-            return None;
-        }
-        self.errors.push(Diagnostic::error(span, msg).with_fix(fix));
-        self.errors.last_mut()
-    }
-
-    /// [`Parser::error`] for a diagnostic whose wording lives on its page. What
-    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    /// Every parser error's wording lives on its page. What follows is
+    /// `.bind(…)` for each `{placeholder}` the page names.
+    /// Returns `None` when the error was suppressed as a duplicate, so that a
+    /// caller adding a binding adds it to the diagnostic it just made or to
+    /// nothing at all.
     fn templated(&mut self, code: &str, span: Span) -> Option<&mut Diagnostic> {
+        // One syntax error usually causes several; the first is the useful one.
         if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
             return None;
         }
@@ -736,12 +721,7 @@ impl<'a> Parser<'a> {
         self.depth = self.depth.saturating_add(1);
         if self.depth > MAX_DEPTH {
             let span = self.span();
-            self.error(
-                span,
-                "expression nests too deeply",
-                "split it with `let` bindings; the limit exists so a pathological \
-                 input cannot exhaust the parser's stack",
-            );
+            self.templated("expression-too-deep", span);
             return Err(Bail);
         }
         Ok(())
@@ -756,12 +736,7 @@ impl<'a> Parser<'a> {
     fn link(&mut self, links: u32) -> PResult<()> {
         if self.chain.saturating_add(links) > MAX_CHAIN {
             let span = self.span();
-            self.error(
-                span,
-                "this chain is too long",
-                "split it with `let` bindings; the limit exists so that a pathological input \
-                 cannot exhaust the stack of the passes that walk what this builds",
-            );
+            self.templated("chain-too-long", span);
             return Err(Bail);
         }
         Ok(())
@@ -913,12 +888,7 @@ impl<'a> Parser<'a> {
             // `from "..." export { ... }` after a stray `export`.
             Some(Keyword::From) if exported => {
                 let span = self.span();
-                self.error(
-                    span,
-                    "write `from \"...\" export { ... }`, without a leading `export`",
-                    "drop the leading `export`: the `export` after the path is the one that \
-                     re-exports",
-                );
+                self.templated("re-export-with-a-leading-export", span);
                 return Err(Bail);
             }
             _ => {
@@ -1066,15 +1036,7 @@ impl<'a> Parser<'a> {
             if !self.allow_bodyless {
                 let span = self.span();
                 let n = self.slice(name.span).to_string();
-                self.error(
-                    span,
-                    format!("`{n}` has no body"),
-                    "give it one: `{ ... }`. Only the bundled standard library declares a \
-                     signature with no body, for an operation the runtime supplies",
-                );
-                if let Some(d) = self.errors.last_mut() {
-                    d.note("a function declaration outside a trait or effect needs a block");
-                }
+                self.templated("declaration-without-a-body", span).map(|d| d.bind("name", n));
             }
             self.bump();
             None
@@ -1326,11 +1288,7 @@ impl<'a> Parser<'a> {
             // back: the `fn` after a mangled `impl` still deserves to be
             // parsed and type-checked.
             let span = self.span();
-            self.error(
-                span,
-                "this `impl` body holds something that is not a method",
-                "an `impl` holds `fn` declarations and nothing else",
-            );
+            self.templated("impl-body-not-a-method", span);
         } else {
             self.expect(Punctuation::RBrace)?;
         }
@@ -1637,12 +1595,7 @@ impl<'a> Parser<'a> {
             self.scratch.tys.truncate(base);
             if n < 2 {
                 let span = start.to(self.prev_span());
-                self.error(
-                    span,
-                    "a tuple type has arity 2 or more",
-                    "write the element type on its own for one, or `()` for none",
-                )
-                .map(|d| d.note("`(T)` is a parenthesized type and `()` is unit"));
+                self.templated("tuple-type-arity", span);
             }
             let span = start.to(self.prev_span());
             return Ok(self.tree.push_type(TypeKind::Tuple, [elems.start, elems.len, 0, 0], span));
@@ -2201,12 +2154,7 @@ impl<'a> Parser<'a> {
                 }
                 let end = self.expect(Punctuation::RParen)?;
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
-                    self.error(
-                        start.to(end),
-                        "a tuple has arity 2 or more",
-                        "drop the parentheses for one element, or write `()` for none",
-                    )
-                    .map(|d| d.note("`(e)` is grouping and `()` is the unit value"));
+                    self.templated("tuple-arity", start.to(end));
                 }
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
@@ -2294,11 +2242,8 @@ impl<'a> Parser<'a> {
                             if value > u32::MAX as u128 {
                                 let raw = self.raw();
                                 let span = self.span();
-                                self.error(
-                                span,
-                                format!("`{raw}` is not a tuple index"),
-                                "a tuple index is a plain decimal number, as in `pair.0`",
-                            );
+                                self.templated("not-a-tuple-index", span)
+                                    .map(|d| d.bind("literal", raw));
                             }
                             let index_span = self.bump();
                             base = self.tree.push(
@@ -2311,11 +2256,8 @@ impl<'a> Parser<'a> {
                         TokenKind::Float => {
                             let raw = self.raw();
                             let span = self.span();
-                            self.error(
-                                span,
-                                format!("`.{raw}` lexes as a float, not two tuple indices"),
-                                "parenthesize the first index: `(t.0).1`",
-                            );
+                            self.templated("float-as-a-tuple-index", span)
+                                .map(|d| d.bind("literal", raw));
                             return Err(Bail);
                         }
                         _ => {
@@ -2390,11 +2332,7 @@ impl<'a> Parser<'a> {
                     let colons = self.bump();
                     if !self.is(Punctuation::Lt) {
                         // `::` is not an operator at all any more.
-                        self.error(
-                            colons,
-                            "`::` is not an operator",
-                            "a module's members are reached with `.`, as in `list.empty`",
-                        );
+                        self.templated("colon-colon-not-an-operator", colons);
                         return Err(Bail);
                     }
                     self.templated("turbofish", colons).map(|d| d.edit(colons, ""));
@@ -2722,11 +2660,7 @@ impl<'a> Parser<'a> {
                     None
                 };
                 if rest_kind != 0 {
-                    self.error(
-                        dd,
-                        "an array pattern may have at most one rest pattern",
-                        "keep one `..` and match the other elements by position",
-                    );
+                    self.templated("duplicate-rest-pattern", dd);
                 }
                 match name {
                     Some(n) => {

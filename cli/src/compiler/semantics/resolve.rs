@@ -242,13 +242,8 @@ impl<'a> Checker<'a> {
         }
     }
 
-    pub fn err(&mut self, span: Span, msg: impl Into<String>) -> &mut Diagnostic {
-        self.diags.items.push(Diagnostic::error(span, msg));
-        self.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
-    }
-
-    /// [`Self::err`] for a diagnostic whose wording lives on its page. What
-    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    /// A diagnostic whose wording lives on its page. What follows is
+    /// `.bind(…)` for each `{placeholder}` the page names.
     pub fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         self.diags.items.push(Diagnostic::templated(code, span));
         self.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
@@ -423,12 +418,7 @@ impl<'a> Checker<'a> {
                     self.templated("context-declaration-not-allowed", d.span);
                 }
                 if d.exported && !matches!(role, Role::TestOnly | Role::Platform) {
-                    self.err(d.span, "a `context` may be exported only from a test-only module")
-                        .fix("drop the `export`, or move it into a test-only module")
-                        .note(
-                            "a path containing a `testing` segment is importable only from a \
-                             test source, which is what keeps the fixture out of a program",
-                        );
+                    self.templated("context-export", d.span);
                 }
                 let id = self.tables.add_ctx_decl(ContextDeclInfo {
                     name: t.name(d.name).to_string(),
@@ -1023,14 +1013,7 @@ impl<'a> Checker<'a> {
                         self.templated("ctx-not-first", p.span);
                     }
                     if ctx_count > 1 {
-                        self.err(p.span, "a function has at most one `ctx` parameter")
-                            .fix("combine the two into one context, which is what `context { ..base, ... }` is for")
-                            .notes
-                            .push(
-                            "a function cannot take two independent contexts; bundle them into \
-                             one type instead"
-                                .into(),
-                        );
+                        self.templated("duplicate-ctx-parameter", p.span);
                     }
                 }
                 ParamRole::Normal => {
@@ -1262,8 +1245,8 @@ impl<'a> Checker<'a> {
                 if path.len() == 1 {
                     if let Some(i) = generics.iter().position(|g| g.name == name) {
                         if !args.is_empty() {
-                            self.err(span, format!("`{name}` is a type parameter and takes no type arguments"))
-                    .fix("drop the arguments; a type parameter stands for one type already");
+                            self.templated("type-parameter-with-arguments", span)
+                                .bind("name", name);
                         }
                         return Ty::Param(i as u32);
                     }
@@ -1281,8 +1264,7 @@ impl<'a> Checker<'a> {
                 if path.len() == 1 {
                     if let Some(id) = self.builtin_type(name) {
                         if !elaborated_args.is_empty() {
-                            self.err(span, format!("`{name}` takes no type arguments"))
-                        .fix("drop them");
+                            self.templated("no-type-arguments", span).bind("name", name);
                         }
                         return Ty::Con(id, Vec::new());
                     }
@@ -1293,22 +1275,18 @@ impl<'a> Checker<'a> {
                         if elaborated_args.len() != arity {
                             let n = self.tables.tycon(id).name.clone();
                             let got = elaborated_args.len();
-                            self.err(
-                                span,
-                                format!("`{n}` takes {arity} type arguments, but {got} were given"),
-                            )
-                            .mismatch(arity.to_string(), got.to_string())
-                            .fix(format!("supply exactly {arity}"));
+                            self.templated("type-argument-count", span)
+                                .bind("type", n)
+                                .bind("expected", arity.to_string())
+                                .bind("given", got.to_string())
+                                .mismatch(arity.to_string(), got.to_string());
                             return Ty::Error;
                         }
                         Ty::Con(id, elaborated_args)
                     }
                     Some(Sym::Trait(_)) => {
                         let shown = name.to_string();
-                        self.err(span, format!("`{shown}` is a trait, not a type"))
-                    .fix(format!("use it as a bound — `<T: {shown}>` — and name `T` here"))
-                            .notes
-                            .push("there are no trait objects; use a bound on a type parameter".into());
+                        self.templated("trait-used-as-a-type", span).bind("name", shown);
                         Ty::Error
                     }
                     _ => {
@@ -1351,7 +1329,9 @@ impl<'a> Checker<'a> {
             .map(|g| GenericInfo { name: t.name(g.name).to_string(), bounds: Vec::new(), span: g.span })
             .collect();
         if args.len() != generics.len() {
-            self.err(span, format!("`{name}` takes {} type arguments", generics.len()))
+            self.templated("type-argument-arity", span)
+                .bind("type", name)
+                .bind("expected", generics.len().to_string())
                 .fix(format!("supply exactly {}", generics.len()));
             return Some(Ty::Error);
         }
@@ -1568,8 +1548,9 @@ impl<'a> Checker<'a> {
         if let Some(prev) = self.tables.method(con, name) {
             let prev_span = self.tables.fn_info(prev).span;
             let ty = self.tables.tycon(con).name.clone();
-            self.err(span, format!("`{ty}` already has a method `{name}`"))
-                .fix("rename one of them")
+            self.templated("duplicate-method", span)
+                .bind("type", ty)
+                .bind("name", name)
                 .secondary_spans
                 .push(SecondarySpan { span: prev_span, label: "first declared here".into() });
             return;
@@ -1618,8 +1599,8 @@ impl<'a> Checker<'a> {
         let self_ty = self.elaborate(module, &generics, d.self_ty);
         let Some(self_con) = self_ty.head() else {
             if !self_ty.is_error() {
-                self.err(self.tree(module).type_span(d.self_ty), "an `impl` names a declared type")
-                    .fix("name a struct or enum this module declares");
+                let at = self.tree(module).type_span(d.self_ty);
+                self.templated("impl-head-not-a-type", at);
             }
             return;
         };
@@ -1687,10 +1668,11 @@ impl<'a> Checker<'a> {
         if self.tables.impls.contains_key(&(trait_id, self_con)) {
             let t = self.tables.trait_(trait_id).name.clone();
             let c = self.tables.tycon(self_con).name.clone();
-            self.err(d.span, format!("`{c}` already implements `{t}`"))
+            self.templated("duplicate-implementation", d.span)
+                .bind("type", c)
+                .bind("trait", t)
                 .fix("delete one of the two, or merge them")
-                .notes
-                .push("there is exactly one candidate per (trait, type)".into());
+                .note("there is exactly one candidate per (trait, type)");
             return;
         }
 
@@ -1702,7 +1684,9 @@ impl<'a> Checker<'a> {
             let Some(slot) = trait_methods.iter().position(|m| m.name == mname) else {
                 let t = self.tables.trait_(trait_id).name.clone();
                 let n = mname.to_string();
-                self.err(method.name.span, format!("`{t}` declares no method `{n}`"))
+                self.templated("not-a-trait-method", method.name.span)
+                    .bind("trait", t.clone())
+                    .bind("method", n)
                     .fix(format!("remove it, or move it into an inherent `impl` block for the type — `{t}` supplies only what it declares"));
                 continue;
             };
@@ -1728,8 +1712,7 @@ impl<'a> Checker<'a> {
             let already = supplied.get(slot).is_some_and(Option::is_some);
             if already {
                 let n = mname.to_string();
-                self.err(method.name.span, format!("`{n}` is supplied twice"))
-                    .fix("delete one of the two");
+                self.templated("method-supplied-twice", method.name.span).bind("method", n);
             }
             if let Some(cell) = supplied.get_mut(slot) {
                 *cell = Some(fid);
@@ -1853,8 +1836,8 @@ impl<'a> Checker<'a> {
                     if self.module(module).path == "core/list" {
                         self.tables.array_methods.insert(mname.to_string(), fid);
                     } else {
-                        self.err(self.tree(module).type_span(d.self_ty), "the defining module of `[T]` is `core/list`")
-                            .fix("write a free function over the array instead");
+                        let at = self.tree(module).type_span(d.self_ty);
+                        self.templated("array-impl-outside-core-list", at);
                     }
                 }
             }
@@ -1881,26 +1864,24 @@ impl<'a> Checker<'a> {
             let at = self.tree(module).type_span(*ty);
             let Some(trait_id) = self.resolve_trait(module, *ty) else {
                 let shown = self.tree(module).type_head(*ty).unwrap_or("?").to_string();
-                self.err(at, format!("`{shown}` is not a trait"))
-                    .fix("name a declared trait; `derive` generates a trait's methods");
+                self.templated("derive-not-a-trait", at).bind("name", shown);
                 continue;
             };
             let name = self.tables.trait_(trait_id).name.clone();
             if !DERIVABLE.contains(&name.as_str()) {
-                self.err(at, format!("`{name}` cannot be derived"))
-                    .fix(format!("write `impl {name} for ... {{ ... }}` by hand"))
-                    .notes
-                    .push(format!(
-                        "derivable: {}",
-                        crate::diagnostics::names(
-                            &DERIVABLE.iter().map(|s| s.to_string()).collect::<Vec<_>>()
-                        )
-                    ));
+                self.templated("trait-not-derivable", at).bind("trait", name).note(format!(
+                    "derivable: {}",
+                    crate::diagnostics::names(
+                        &DERIVABLE.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                    )
+                ));
                 continue;
             }
             if self.tables.impls.contains_key(&(trait_id, self_con)) {
                 let c = self.tables.tycon(self_con).name.clone();
-                self.err(at, format!("`{c}` already implements `{name}`"))
+                self.templated("duplicate-implementation", at)
+                    .bind("type", c)
+                    .bind("trait", name)
                     .fix("drop it from this `derive`, or delete the hand-written `impl`");
                 continue;
             }
@@ -1916,8 +1897,8 @@ impl<'a> Checker<'a> {
     /// The type constructor a `derive` names.
     fn derive_target(&mut self, module: ModuleId, id: TypeId) -> Option<TyConId> {
         let flat::TypeView::Named { path, args, span } = self.tree(module).ty(id) else {
-            self.err(self.tree(module).type_span(id), "a `derive` names a declared type")
-                .fix("name a struct or enum this module declares");
+            let at = self.tree(module).type_span(id);
+            self.templated("derive-target-not-a-type", at);
             return None;
         };
         match self.resolve_path(module, path) {
@@ -1926,7 +1907,9 @@ impl<'a> Checker<'a> {
                 if !args.is_empty() && args.len() != self.tables.tycon(con).arity() {
                     let n = self.tables.tycon(con).name.clone();
                     let arity = self.tables.tycon(con).arity();
-                    self.err(span, format!("`{n}` takes {arity} type arguments"))
+                    self.templated("type-argument-arity", span)
+                        .bind("type", n.clone())
+                        .bind("expected", arity.to_string())
                         .fix(format!("a `derive` names the constructor alone: `derive ... for {n};`"));
                 }
                 Some(con)
@@ -2072,14 +2055,7 @@ impl<'a> Checker<'a> {
                 }
                 // A test source may not `export`, and may not be imported.
                 if role == Role::TestSource && item.is_exported() {
-                    self.err(item.span(), "a test source may not export")
-                        .fix("drop the `export`; move the declaration into a library if something else needs it")
-                        .notes
-                        .push(
-                            "test sources are compiled independently and are not modules anybody \
-                             can name; shared helpers belong in a library"
-                                .into(),
-                        );
+                    self.templated("test-source-export", item.span());
                 }
             }
         }

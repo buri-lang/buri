@@ -616,13 +616,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         show(&self.c.tables, Some(&self.subst), &self.generics, t)
     }
 
-    pub(crate) fn err(&mut self, span: Span, msg: impl Into<String>) -> &mut Diagnostic {
-        self.c.diags.items.push(Diagnostic::error(span, msg));
-        self.c.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
-    }
-
-    /// [`Self::err`] for a diagnostic whose wording lives on its page. What
-    /// follows is `.bind(…)` for each `{placeholder}` the page names.
+    /// A diagnostic whose wording lives on its page. What follows is
+    /// `.bind(…)` for each `{placeholder}` the page names.
     pub(crate) fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         self.c.diags.items.push(Diagnostic::templated(code, span));
         self.c.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")

@@ -69,14 +69,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let ty = self.resolve(&e.ty);
                     if !matches!(ty, Ty::Unit | Ty::Error) {
                         let shown = self.show_ty(&ty);
-                        self.err(span, format!("this statement has type `{shown}`, not `()`"))
-                            .fix("bind it with `let _ = ...;`")
-                            .notes
-                            .push(
-                                "only a call whose type is `()` may stand alone; bind anything \
-                                 else"
-                                    .into(),
-                            );
+                        self.templated("statement-not-unit", span).bind("type", shown);
                     }
                     stmts.push(typed::Stmt::Expr(e));
                 }
@@ -105,12 +98,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> typed::Stmt {
         // `let ctx = ...` is legal only where a context may be built.
         if is_ctx && !self.may_build_context() {
-            self.err(span, "`ctx` may be bound only where a context may be built")
-                .fix("rename the binding, or move the construction into `main` or a test source")
-                .notes
-                .push(
-                "that is `main`'s body, a test source, or a test-only module (SPEC 11.3)".into(),
-            );
+            self.templated("ctx-binding-not-allowed", span);
         }
         let expected = ann.map(|id| self.c.elaborate(self.module, &self.generics, id));
         let value_span = self.tree().span(value);
@@ -286,22 +274,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::SelfValue { span } => match self.lookup_local("self") {
                 Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), span),
                 None => {
-                    self.err(span, "`self` is legal only in a method body")
-                        .fix("name a parameter instead, or move this into an `impl` block");
+                    self.templated("self-outside-a-method", span);
                     self.error_expr(span)
                 }
             },
             V::Ctx { span } => match self.lookup_local("ctx") {
                 Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), span),
                 None => {
-                    self.err(span, "there is no `ctx` in scope")
-                        .fix("add a `ctx` parameter bounded by the effects this function needs")
-                        .notes
-                        .push(
-                        "a function that needs an effect declares a `ctx` parameter bounded by \
-                         the effects it needs"
-                            .into(),
-                    );
+                    self.templated("no-ctx-in-scope", span);
                     self.error_expr(span)
                 }
             },
@@ -369,11 +349,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                         ),
                         None => {
                             let n = elems.len();
-                            self.err(index_span, format!("a {n}-tuple has no element {index}"))
-                                .fix(format!(
-                                    "the elements are `.0` through `.{}`",
-                                    n.saturating_sub(1)
-                                ));
+                            self.templated("no-such-tuple-element", index_span)
+                                .bind("arity", n.to_string())
+                                .bind("index", index.to_string())
+                                .bind("last", n.saturating_sub(1).to_string());
                             self.error_expr(span)
                         }
                     },
@@ -392,8 +371,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                             }
                             None => {
                                 let n = self.c.tables.tycon(*con).name.clone();
-                                self.err(index_span, format!("`{n}` has no field {index}"))
-                                    .fix(format!("`{n}` has {} fields", fields.len()));
+                                self.templated("no-such-positional-field", index_span)
+                                    .bind("type", n)
+                                    .bind("index", index.to_string())
+                                    .bind("count", fields.len().to_string());
                                 self.error_expr(span)
                             }
                         }
@@ -401,8 +382,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     _ => {
                         if !bty.is_error() {
                             let shown = self.show_ty(&bty);
-                            self.err(span, format!("`{shown}` is not a tuple"))
-                                .fix("index a tuple or a tuple struct; name a field otherwise");
+                            self.templated("not-a-tuple", span).bind("type", shown);
                         }
                         self.error_expr(span)
                     }
@@ -421,10 +401,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Ty::Error => Ty::Error,
                     other => {
                         let shown = self.show_ty(other);
-                        self.err(span, format!("`{shown}` cannot be indexed"))
-                            .fix("index an array; for a tuple, write `.0`")
-                            .notes
-                            .push("indexing is defined on `[T]`, and yields `Option<T>`".into());
+                        self.templated("not-indexable", span).bind("type", shown);
                         Ty::Error
                     }
                 };
@@ -484,22 +461,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(typed::ExprKind::Const(cid), ty, span)
             }
             Some(Sym::Context(cid)) => {
-                self.err(span, format!("`{name}` is a context; construct one by calling it"))
-                    .fix(format!("write `{name}()`"))
-                    .notes
-                    .push(
-                        "each call builds a fresh context, so two tests never share one's state"
-                            .into(),
-                    );
+                self.templated("context-not-a-value", span).bind("name", name);
                 let _ = cid;
                 self.error_expr(span)
             }
             Some(Sym::Method(owner)) => {
-                self.err(span, format!("`{name}` is a method, not a value"))
-                    .fix(format!(
-                        "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
-                         pass it on, wrap it in a lambda"
-                    ));
+                self.templated("method-not-a-value", span).bind("name", name).fix(format!(
+                    "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
+                     pass it on, wrap it in a lambda"
+                ));
                 self.error_expr(span)
             }
             Some(Sym::Overloaded(fs)) => {
@@ -513,18 +483,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                         }
                     })
                     .collect();
-                self.err(span, format!("`{name}` is ambiguous as a free function"))
-                    .fix("call it on a receiver, which is what picks the one you mean")
-                    .notes
-                    .push(format!(
-                        "it is a method on several types: {}",
-                        diagnostics::names(&names)
-                    ));
+                self.templated("ambiguous-free-function", span).bind("name", name).note(format!(
+                    "it is a method on several types: {}",
+                    diagnostics::names(&names)
+                ));
                 self.error_expr(span)
             }
             Some(Sym::Ty(_)) | Some(Sym::Trait(_)) | Some(Sym::Namespace(_)) => {
-                self.err(span, format!("`{name}` is a type, not a value"))
-                    .fix("construct one, as in `Point { x: 1, y: 2 }`, or name a value");
+                self.templated("type-not-a-value", span).bind("name", name);
                 self.error_expr(span)
             }
             None => {
@@ -587,9 +553,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             Some(ts) => {
                 let want = generics.len();
                 let got = ts.len();
-                self.err(span, format!("expected {want} type arguments, found {got}"))
-                    .mismatch(want.to_string(), got.to_string())
-                    .fix(format!("supply exactly {want}"));
+                self.templated("type-argument-mismatch", span)
+                    .bind("expected", want.to_string())
+                    .bind("found", got.to_string())
+                    .mismatch(want.to_string(), got.to_string());
                 (0..generics.len()).map(|_| self.fresh(span)).collect()
             }
             None => (0..generics.len()).map(|_| self.fresh(span)).collect(),
@@ -689,12 +656,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             let n = self.c.tables.tycon(con).name.clone();
             let have = args.len();
             let want = fields.len();
-            self.err(
-                span,
-                format!("`{n}` holds {want} values, but {have} were given"),
-            )
-            .mismatch(want.to_string(), have.to_string())
-            .fix(format!("pass exactly {want}"));
+            self.templated("wrong-value-count", span)
+                .bind("name", n)
+                .bind("expected", want.to_string())
+                .bind("given", have.to_string())
+                .mismatch(want.to_string(), have.to_string());
         }
         // A struct with any private field cannot be constructed from scratch
         // outside its module.
@@ -752,14 +718,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             Some(Static::Context(cid)) => {
                 if !args.is_empty() {
-                    self.err(span, "a context declaration takes no parameters")
-                        .fix("call it with no arguments; override what varies with `context { ..base, ... }`")
-                        .notes
-                        .push(
-                        "what varies between call sites is expressed by overriding, not by \
-                         arguments"
-                            .into(),
-                    );
+                    self.templated("context-call-with-arguments", span);
                 }
                 if !self.may_build_context() {
                     self.templated("context-not-allowed", span);
@@ -779,9 +738,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                         if params.len() != args.len() {
                             let want = params.len();
                             let got = args.len();
-                            self.err(span, format!("expected {want} arguments, found {got}"))
-                                .mismatch(want.to_string(), got.to_string())
-                                .fix(format!("pass exactly {want}"));
+                            self.templated("argument-count-mismatch", span)
+                                .bind("expected", want.to_string())
+                                .bind("found", got.to_string())
+                                .mismatch(want.to_string(), got.to_string());
                         }
                         let checked = self.check_args(args, &params);
                         typed::Expr::new(
@@ -794,8 +754,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     other => {
                         let shown = self.show_ty(&other);
                         let callee_span = self.tree().span(callee);
-                        self.err(callee_span, format!("`{shown}` is not callable"))
-                            .fix("call a function, a lambda, or a field holding one — `(x.f)(...)` for a field");
+                        self.templated("not-callable", callee_span).bind("type", shown);
                         self.error_expr(span)
                     }
                 }
@@ -948,8 +907,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                     other => {
                         let shown = self.show_ty(&other);
-                        self.err(span, format!("field `{name}` has type `{shown}`, which is not callable"))
-                            .fix("this is a field access, not a method call");
+                        self.templated("field-not-callable", span)
+                            .bind("field", name.to_string())
+                            .bind("type", shown);
                         self.error_expr(span)
                     }
                 };
@@ -1045,7 +1005,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if let Some((prev, prev_index)) = found {
                     let a = self.c.tables.trait_(prev).name.clone();
                     let c = self.c.tables.trait_(*b).name.clone();
-                    self.err(span, format!("`{name}` is declared by both `{a}` and `{c}`"))
+                    self.templated("ambiguous-trait-method", span)
+                        .bind("method", name.to_string())
+                        .bind("first_trait", a.clone())
+                        .bind("second_trait", c)
                         .fix(format!("call it as a function to say which: `{a}.{name}(x, y)`"));
                     return Some(MethodTarget::Bound(prev, prev_index));
                 }
@@ -1094,9 +1057,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             let name = method.name.clone();
             let want = rest.len();
             let have = args.len();
-            self.err(span, format!("`{name}` takes {want} arguments, but {have} were given"))
-                .mismatch(want.to_string(), have.to_string())
-                .fix(format!("pass exactly {want}"));
+            self.templated("wrong-argument-count", span)
+                .bind("function", name)
+                .bind("expected", want.to_string())
+                .bind("given", have.to_string())
+                .mismatch(want.to_string(), have.to_string());
         }
         hir_args.extend(self.check_args(args, rest));
         typed::Expr::new(
@@ -1145,14 +1110,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let name = self.c.tables.fn_info(f).name.clone();
                 let label =
                     self.c.ws.map(|w| w.package(there).label()).unwrap_or_default();
-                self.err(span, format!("`{name}` is not on {label}'s surface"))
-                    .fix(format!("re-export `{name}` from that library's lib.buri, if it is part of the API"))
-                    .notes
-                    .push(
-                        "a method call from outside a library resolves only to names its \
-                         lib.buri exports"
-                            .to_string(),
-                    );
+                self.templated("not-on-the-surface", span)
+                    .bind("name", name.clone())
+                    .bind("library", label)
+                    .fix(format!("re-export `{name}` from that library's lib.buri, if it is part of the API"));
             }
         }
     }
@@ -1269,13 +1230,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.construct_variant(con, index, &[], span, expected, span)
                 }
                 Static::Context(_) => {
-                    self.err(span, "construct a context by calling it")
-                        .fix("add `()`");
+                    self.templated("context-not-called", span);
                     self.error_expr(span)
                 }
                 Static::TupleStruct(_) => {
-                    self.err(span, "a tuple struct's name constructs one; call it")
-                        .fix("write `Name(value)`");
+                    self.templated("tuple-struct-not-called", span);
                     self.error_expr(span)
                 }
             };
@@ -1412,15 +1371,22 @@ impl<'a, 'b> Infer<'a, 'b> {
         let Ty::Con(con, _) = &exp else {
             if !exp.is_error() {
                 let shown = self.show_ty(&exp);
-                self.err(dot_span, format!("`{shown}` is not an enum"))
+                self.templated("not-an-enum", dot_span)
+                    .bind("type", shown)
                     .fix("the dot form names an enum variant; write the value another way");
             }
             return self.error_expr(span);
         };
         let Some(index) = self.c.tables.variant_index(*con, name) else {
-            let (message, note) = crate::compiler::semantics::patterns::no_variant(&self.c.tables, *con, name);
-            let d = self.err(dot_span, message);
-            d.fix("name a variant the enum declares");
+            let ty = self.c.tables.tycon(*con).name.clone();
+            let note = crate::compiler::semantics::patterns::no_variant_note(
+                &self.c.tables,
+                *con,
+                name,
+            );
+            let d = self.templated("no-such-variant", dot_span)
+                .bind("type", ty)
+                .bind("variant", name.to_string());
             d.notes.extend(note);
             return self.error_expr(span);
         };
@@ -1475,9 +1441,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             let v = variant.name.clone();
             let want = param_types.len();
             let have = args.len();
-            self.err(head_span, format!("`{v}` takes {want} values, but {have} were given"))
-                .mismatch(want.to_string(), have.to_string())
-                .fix(format!("pass exactly {want}"));
+            self.templated("wrong-value-count", head_span)
+                .bind("name", v)
+                .bind("expected", want.to_string())
+                .bind("given", have.to_string())
+                .mismatch(want.to_string(), have.to_string());
         }
         let checked = self.check_args(args, &param_types);
         let ty = Ty::Con(con, targs.clone());
@@ -1551,8 +1519,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     return self.error_expr(span);
                 }
             }
-            self.err(head_span, "this is not a struct or an enum variant")
-                .fix("name a struct, or an enum variant that has fields");
+            self.templated("not-a-struct-literal-head", head_span);
             return self.error_expr(span);
         };
         // The fields are what this needs; copying the `TyCon` for them copied
@@ -1563,7 +1530,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         if !is_struct {
             let n = self.c.tables.tycon(con).name.clone();
-            self.err(head_span, format!("`{n}` is an enum; name a variant"))
+            self.templated("enum-without-a-variant", head_span)
+                .bind("type", n.clone())
                 .fix(format!("write `{n}.Variant {{ ... }}`"));
             return self.error_expr(span);
         }
@@ -1597,8 +1565,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 continue;
             };
             if seen.contains(&iname) {
-                self.err(ispan, format!("field `{iname}` is given twice"))
-                    .fix("delete one of the two");
+                self.templated("duplicate-field-initializer", ispan)
+                    .bind("field", iname.to_string());
             }
             seen.push(iname);
             self.check_field_visible(con, i, ispan);
@@ -1650,7 +1618,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if !missing.is_empty() {
                     let t = self.c.tables.tycon(con).name.clone();
                     let missing = diagnostics::names(&missing);
-                    self.err(span, format!("`{t}` is missing {missing}"))
+                    self.templated("missing-field-value", span)
+                        .bind("name", t.clone())
+                        .bind("fields", missing.clone())
                         .fix(format!(
                             "give {missing} a value, or start from an existing one with \
                              `{t} {{ ..base, field: value }}`"
@@ -1760,8 +1730,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .map(|(i, f)| (i, f.ty.clone()));
             let Some((i, decl_ty)) = found else {
                 let v = variant.name.clone();
-                self.err(ispan, format!("`{v}` has no field `{iname}`"))
-                    .fix("check the spelling, or name a field the variant declares");
+                self.templated("no-such-field", ispan)
+                    .bind("type", v)
+                    .bind("field", iname.to_string());
                 continue;
             };
             let want = substitute(&decl_ty, &targs, None);
@@ -1792,7 +1763,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         if !missing.is_empty() {
             let v = variant.name.clone();
             let missing = diagnostics::names(&missing);
-            self.err(span, format!("`{v}` is missing {missing}"))
+            self.templated("missing-field-value", span)
+                .bind("name", v)
+                .bind("fields", missing.clone())
                 .fix(format!("give {missing} a value"));
         }
         let filled: Vec<typed::Expr> = values
@@ -1891,7 +1864,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 } else {
                     let shown = self.show_ty(&ty);
                     if !ty.is_error() {
-                        self.err(span, format!("`~` is defined on integers, not `{shown}`"))
+                        self.templated("bitwise-on-a-non-integer", span)
+                            .bind("operator", "~")
+                            .bind("type", shown)
                             .fix("use `!` for a `Bool`");
                     }
                     self.error_expr(span)
@@ -1944,8 +1919,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     None if lty.is_error() => return self.error_expr(span),
                     None => {
                         let shown = self.show_ty(&lty);
-                        self.err(op_span, format!("`??` takes an `Option` or a `Result`, found `{shown}`"))
-                            .fix("`??` supplies a default for an absent or failed value; this one is neither");
+                        self.templated("coalesce-operand", op_span).bind("type", shown);
                         return self.error_expr(span);
                     }
                 };
@@ -2016,7 +1990,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             if bitwise {
                 if !ty.is_error() {
                     let shown = self.show_ty(&ty);
-                    self.err(op_span, format!("`{}` is defined on integers, not `{shown}`", op.text()))
+                    self.templated("bitwise-on-a-non-integer", op_span)
+                        .bind("operator", op.text())
+                        .bind("type", shown)
                         .fix("use `&&` and `||` for a `Bool`");
                 }
                 return self.error_expr(span);
@@ -2230,10 +2206,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ if bty.is_error() => return self.error_expr(span),
             _ => {
                 let shown = self.show_ty(&bty);
-                self.err(span, format!("`?` takes a `Result` or an `Option`, found `{shown}`"))
-                    .fix("`?` propagates a failure; this value is neither a `Result` nor an `Option`")
-                    .notes
-                    .push("note that `??` is a single token, so `x??y` is coalescing; write `(x?) ?? y`".into());
+                self.templated("try-operand", span).bind("type", shown);
                 return self.error_expr(span);
             }
         };
@@ -2420,8 +2393,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 Ty::Error => {}
                 other => {
                     let shown = self.show_ty(&other);
-                    self.err(base_span, format!("a spread takes another context, found `{shown}`"))
-                        .fix("spread a value built by a `context` expression or a context declaration");
+                    self.templated("context-spread-operand", base_span).bind("type", shown);
                 }
             }
         }
@@ -2433,8 +2405,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let binding_span = t.span_of(binding.span);
             let value_span = t.span(ExprId(binding.value));
             let flat::TypeView::Named { path, .. } = effect else {
-                self.err(effect_span, "a context binding names an effect")
-                    .fix("write `Effect: implementation`, as in `Alloc: host.alloc`");
+                self.templated("context-binding-not-an-effect", effect_span);
                 continue;
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
@@ -2444,10 +2415,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !self.c.tables.trait_(tid).is_effect {
                 let shown = self.c.tables.trait_(tid).name.clone();
-                self.err(effect_span, format!("`{shown}` is a trait, not an effect"))
-                    .fix("bind an effect here; pass a plain trait's implementations as ordinary arguments")
-                    .notes
-                    .push("a context binds effects; a trait is not one".into());
+                self.templated("trait-not-an-effect", effect_span).bind("name", shown);
                 continue;
             }
             let value = self.check_expr(ExprId(binding.value), None);
