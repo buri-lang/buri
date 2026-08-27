@@ -2,7 +2,7 @@
 // can only assert on what dependents can call.
 
 from "core/testing/assert" import * as assert;
-from "//lib/greeting" import { greeting };
+from "//libs/greeting" import { greeting };
 
 test "the greeting" {
     assert.eq(greeting(), "hello world");

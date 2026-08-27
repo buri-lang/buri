@@ -34,8 +34,8 @@ so a page cannot describe a flag the binary does not accept.
 
 Target arguments accept labels and patterns — `//lib/money`, `//lib/...`,
 `//...`. **With no argument, a command operates on the package containing the
-working directory.** All commands are safe to run concurrently; a file lock
-serializes cache writes.
+working directory** — except `buri gen`, where bare is `//...`. All commands are
+safe to run concurrently; a file lock serializes cache writes.
 
 ## Exit codes
 
@@ -192,7 +192,9 @@ lint: an unsorted run is a file that has not been formatted.
 Rewrites the seven fields that restate the sources of build files **that
 already exist**, sorted, and touches nothing else. It never creates a build
 file. In a package with both rules, a file no rule lists goes to the rule whose
-entry point reaches it; a file reached from both or neither is an error.
+entry point reaches it; a file reached from both or neither is an error. With no
+target argument it regenerates every package — bare `buri gen` is
+`buri gen //...`, the default `buri format` already has.
 
 ### `query`
 

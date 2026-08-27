@@ -1,0 +1,5 @@
+updated cmd/app/BUILD.buri
+  + sources: format.buri
+  + dependencies: //lib/money
+updated lib/money/BUILD.buri
+  + sources: cents.buri

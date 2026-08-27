@@ -43,7 +43,7 @@ fn tag_policy() {
 /// package I am standing in".
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 10);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 11);
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.

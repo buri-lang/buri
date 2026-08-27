@@ -58,28 +58,28 @@ pub const SCAFFOLD: &[ScaffoldFile] = &[
     ScaffoldFile { path: "REPO.buri", text: include_str!("../docs/init/REPO.buri") },
     ScaffoldFile { path: ".gitignore", text: include_str!("../docs/init/gitignore") },
     ScaffoldFile {
-        path: "lib/greeting/BUILD.buri",
-        text: include_str!("../docs/init/lib/greeting/BUILD.buri"),
+        path: "libs/greeting/BUILD.buri",
+        text: include_str!("../docs/init/libs/greeting/BUILD.buri"),
     },
     ScaffoldFile {
-        path: "lib/greeting/lib.buri",
-        text: include_str!("../docs/init/lib/greeting/lib.buri"),
+        path: "libs/greeting/lib.buri",
+        text: include_str!("../docs/init/libs/greeting/lib.buri"),
     },
     ScaffoldFile {
-        path: "lib/greeting/greeting.buri",
-        text: include_str!("../docs/init/lib/greeting/greeting.buri"),
+        path: "libs/greeting/greeting.buri",
+        text: include_str!("../docs/init/libs/greeting/greeting.buri"),
     },
     ScaffoldFile {
-        path: "lib/greeting/test/greeting.buri",
-        text: include_str!("../docs/init/lib/greeting/test/greeting.buri"),
+        path: "libs/greeting/test/greeting.buri",
+        text: include_str!("../docs/init/libs/greeting/test/greeting.buri"),
     },
     ScaffoldFile {
-        path: "cmd/hello/BUILD.buri",
-        text: include_str!("../docs/init/cmd/hello/BUILD.buri"),
+        path: "apps/hello/BUILD.buri",
+        text: include_str!("../docs/init/apps/hello/BUILD.buri"),
     },
     ScaffoldFile {
-        path: "cmd/hello/main.buri",
-        text: include_str!("../docs/init/cmd/hello/main.buri"),
+        path: "apps/hello/main.buri",
+        text: include_str!("../docs/init/apps/hello/main.buri"),
     },
 ];
 
@@ -267,7 +267,7 @@ mod tests {
         let root = scratch("rerun");
         generate(&root).unwrap();
         let mine = "// mine, and edited\nexport fn greeting(): Str {\n    \"goodbye\"\n}\n";
-        std::fs::write(root.join("lib/greeting/greeting.buri"), mine).unwrap();
+        std::fs::write(root.join("libs/greeting/greeting.buri"), mine).unwrap();
 
         let refused = generate(&root).unwrap_err();
         assert!(
@@ -275,7 +275,7 @@ mod tests {
             "a repository must be named as the reason: {refused}"
         );
         assert_eq!(
-            std::fs::read_to_string(root.join("lib/greeting/greeting.buri")).unwrap(),
+            std::fs::read_to_string(root.join("libs/greeting/greeting.buri")).unwrap(),
             mine,
             "a refused run leaves every file exactly as it was"
         );
@@ -288,15 +288,15 @@ mod tests {
     #[test]
     fn a_colliding_file_stops_the_run_before_any_write() {
         let root = scratch("collision");
-        std::fs::create_dir_all(root.join("cmd/hello")).unwrap();
-        std::fs::write(root.join("cmd/hello/main.buri"), "// somebody's own\n").unwrap();
+        std::fs::create_dir_all(root.join("apps/hello")).unwrap();
+        std::fs::write(root.join("apps/hello/main.buri"), "// somebody's own\n").unwrap();
 
         let refused = generate(&root).unwrap_err();
-        assert!(refused.contains("cmd/hello/main.buri"), "the collision must be named: {refused}");
+        assert!(refused.contains("apps/hello/main.buri"), "the collision must be named: {refused}");
         assert!(!root.join(REPOSITORY_FILE).exists(), "nothing is written before the check");
-        assert!(!root.join("lib").exists(), "nothing is written before the check");
+        assert!(!root.join("libs").exists(), "nothing is written before the check");
         assert_eq!(
-            std::fs::read_to_string(root.join("cmd/hello/main.buri")).unwrap(),
+            std::fs::read_to_string(root.join("apps/hello/main.buri")).unwrap(),
             "// somebody's own\n"
         );
         std::fs::remove_dir_all(&root).unwrap();
@@ -339,11 +339,11 @@ mod tests {
         for wanted in [
             REPOSITORY_FILE,
             ".gitignore",
-            "lib/greeting/BUILD.buri",
-            "lib/greeting/lib.buri",
-            "lib/greeting/test/greeting.buri",
-            "cmd/hello/BUILD.buri",
-            "cmd/hello/main.buri",
+            "libs/greeting/BUILD.buri",
+            "libs/greeting/lib.buri",
+            "libs/greeting/test/greeting.buri",
+            "apps/hello/BUILD.buri",
+            "apps/hello/main.buri",
         ] {
             assert!(paths.contains(&wanted), "the scaffold no longer ships {wanted}");
         }
