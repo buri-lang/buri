@@ -1,11 +1,11 @@
-error: `toDollars` is exported and reaches nobody [unreachable-export]
+error: nothing reaches `toDollars` [dead-code]
   --> lib/money/cents.buri:10:11
    |
 10 | export fn toDollars(c: Cents): I64 { c.0 / 100 }
    |           ^^^^^^^^^
    |
-   = inside a library `export` means visible to the rest of the library, and `lib.buri` decides what leaves it
-   = fix: re-export it from lib/money/lib.buri to put it on the library's surface, or drop the `export`
+   = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
+   = fix: delete it, or re-export it from lib/money/lib.buri to put it on the library's surface
 
      An export nothing in production reaches is one of two things, and they have
      opposite fixes. Decide which before you touch it.
@@ -29,7 +29,4 @@ error: `toDollars` is exported and reaches nobody [unreachable-export]
      the leak. The only real exception is a genuine public API surface that knip
      can't see is consumed (a published package entry); make that explicit in
      knip's entry/config, not by ignoring the smell.
-
-     Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
-     guides/unused-export.md, © 2026 Ivett Ördög, used under the MIT license.
 

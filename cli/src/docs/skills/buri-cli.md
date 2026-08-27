@@ -172,7 +172,7 @@ that asserts nothing. Each finding carries a stable code.
 
 `--fix` applies the findings with exactly one mechanical answer, then runs the
 whole check again from the files on disk. Build-file findings (`missing-dep`,
-`unused-dep`, `undeclared-source`, `duplicate-source`) are handed to `buri gen`;
+`unused-library`, `duplicate-source`) are handed to `buri gen`;
 `unused-import` is applied as bytes. `--fix` edits and does **not** reformat.
 Where two edits in one file overlap, none of that file's are applied.
 

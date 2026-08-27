@@ -113,14 +113,13 @@ fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
     }
 }
 
-/// The four findings whose answer is a build file that describes the code.
+/// The three findings whose answer is a build file that describes the code.
 ///
 /// These are never byte-edited. `buri gen` already writes exactly this file,
 /// preserving `tags`, `visibility`, `outputs` and comments, so calling it is
 /// the only way `lint --fix` and `gen` cannot end up disagreeing about what a
 /// package's `BUILD.buri` should say.
-const REGENERABLE: &[&str] =
-    &["missing-dep", "unused-dep", "undeclared-source", "duplicate-source"];
+const REGENERABLE: &[&str] = &["missing-dep", "unused-library", "duplicate-source"];
 
 fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> usize {
     // Which package a finding is about. `missing-dep` points at the import in
@@ -274,9 +273,9 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
     }
 }
 
-/// `undeclared-source` and `duplicate-source`: every `.buri` file in a package
-/// must appear in exactly one rule. A file that appears in none can be dropped
-/// from the build by a typo and never noticed.
+/// `unused-library` and `duplicate-source`: every `.buri` file in a package
+/// must appear in exactly one rule. A file that appears in none belongs to no
+/// library and no binary, so nothing ever builds it.
 fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
     let p = session.workspace.package(package);
     let mut declared: Vec<(String, Span)> = Vec::new();
@@ -332,7 +331,7 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         // declared"), so the code is the same code.
         let field = if rel.ends_with(".proto") { "proto_sources" } else { "sources" };
         diagnostics.push(
-            Diagnostic::templated("undeclared-source", Span::point(p.build_file_id, 0))
+            Diagnostic::templated("unused-library", Span::point(p.build_file_id, 0))
                 .with_bind("package_path", p.path.as_str())
                 .with_bind("source", rel)
                 .with_bind("field", field),
@@ -369,8 +368,8 @@ fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// `missing-dep` and `unused-dep`. Use is what requires a dep, and an import is
-/// not the only way to use: a method resolving into a library counts too.
+/// `missing-dep`. Use is what requires a dep, and an import is not the only way
+/// to use: a method resolving into a library counts too.
 fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut Diagnostics) {
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
@@ -398,7 +397,6 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
     // so a call that lands in another library counts even though no import
     // names it (BUILD-FILES.md, "Dependencies").
     let resolved: BTreeSet<String> = reached_by_resolution(session, &analysis, own);
-    let mut used: BTreeSet<String> = resolved.clone();
     // What an import already complained about, so a library reached both ways
     // is reported once, at the import, where there is something to point at.
     let mut reported: BTreeSet<String> = BTreeSet::new();
@@ -413,7 +411,6 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
                 _ => continue,
             };
             let Some(wanted) = session.workspace.dependency_label(own, &path) else { continue };
-            used.insert(wanted.clone());
             if !declared.iter().any(|d| d.value == wanted)
                 && !in_test_deps(session, target, &wanted)
             {
@@ -462,14 +459,6 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
         );
     }
 
-    for d in &declared {
-        if !used.contains(&d.value) {
-            diagnostics.push(
-                Diagnostic::templated("unused-dep", d.span)
-                    .with_bind("dependency", d.value.as_str()),
-            );
-        }
-    }
 }
 
 /// The hygiene and shape rules — `unused-import`, `discarded-result`,
@@ -519,7 +508,8 @@ fn check_hygiene(
             check_function_shapes(session, m, diagnostics);
         }
     }
-    check_unreachable_exports(session, target, analysis, diagnostics);
+    check_dead_code(session, target, analysis, diagnostics);
+    check_ctx_rebindings(own, analysis, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
     check_unused_variables(own, analysis, diagnostics);
     check_deep_nesting(own, analysis, diagnostics);
@@ -808,14 +798,15 @@ fn check_test_titles(
     }
 }
 
-/// `unreachable-export`. Inside a library, `export` means "visible to the rest
-/// of this library"; `lib.buri` decides what leaves it. So an `export` that
-/// `lib.buri` does not re-export and no sibling module imports is visible to
-/// nobody — the word is there, and it does nothing.
+/// `dead-code`. Production code is reached from a library's surface or from a
+/// binary's `main`. Inside a library, `export` means "visible to the rest of
+/// this library" and `lib.buri` decides what leaves it, so an `export` that
+/// `lib.buri` does not re-export and no sibling module imports is reached by
+/// nothing at all — it is dead, whatever the word in front of it says.
 ///
 /// Only module-level items. A field's or a variant's `export` is about the
 /// shape of a type, and asking whether it is "reached" is a different question.
-fn check_unreachable_exports(
+fn check_dead_code(
     session: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
@@ -887,7 +878,7 @@ fn check_unreachable_exports(
             }
             let lib = format!("{}/lib.buri", session.workspace.package(own).path);
             diagnostics.push(
-                Diagnostic::templated("unreachable-export", span)
+                Diagnostic::templated("dead-code", span)
                     .with_bind("name", name)
                     .with_bind("library_file", lib),
             );
@@ -1023,6 +1014,41 @@ fn line_end(text: &str, at: u32) -> u32 {
         // The last line of a file need not end in a newline, and then the end
         // of the line is the end of the text.
         None => text.len() as u32,
+    }
+}
+
+/// `ctx-rebinding`. `ctx` is the name a function's context arrives under, and
+/// a `let` of that name where no context may be built is holding something
+/// else — the binding creates no authority, so this is a convention rather
+/// than a rule about what a program may do, and a convention is a lint.
+///
+/// The condition is the checker's: only it knows where a context may be built,
+/// so it records the bindings and this reports the ones in the package's own
+/// editable code (see [`Checked::ctx_rebindings`]).
+///
+/// [`Checked::ctx_rebindings`]: crate::compiler::semantics::resolve::Checked::ctx_rebindings
+fn check_ctx_rebindings(
+    own: PackageId,
+    analysis: &crate::compiler::driver::Analysis,
+    diagnostics: &mut Diagnostics,
+) {
+    let mine: BTreeSet<crate::diagnostics::FileId> = analysis
+        .loaded
+        .modules
+        .iter()
+        .filter(|m| m.pkg == Some(own) && !is_generated(&m.path))
+        .map(|m| m.file)
+        .collect();
+    let mut found: Vec<Span> = analysis
+        .checked
+        .ctx_rebindings
+        .iter()
+        .copied()
+        .filter(|span| mine.contains(&span.file))
+        .collect();
+    found.sort_by_key(|span| (span.file.0, span.start));
+    for span in found {
+        diagnostics.push(Diagnostic::templated("ctx-rebinding", span));
     }
 }
 

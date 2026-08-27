@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a .buri file in a package that no rule lists: undeclared-source, naming the file and offering `buri gen`"
+doc: "a .buri file in a package that no rule lists: unused-library, naming the file and offering `buri gen`"
 
 run {
   args: ["lint", "//lib/thing"]

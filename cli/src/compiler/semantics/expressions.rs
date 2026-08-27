@@ -96,9 +96,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         is_ctx: bool,
         span: Span,
     ) -> typed::Stmt {
-        // `let ctx = ...` is legal only where a context may be built.
+        // Binding a value to `ctx` builds nothing, so it is not an error here —
+        // `context-not-allowed` guards the construction itself. The name is
+        // still a convention, and `ctx-rebinding` reports it from `buri lint`.
         if is_ctx && !self.may_build_context() {
-            self.templated("ctx-binding-not-allowed", span);
+            self.c.ctx_rebindings.push(span);
         }
         let expected = ann.map(|id| self.c.elaborate(self.module, &self.generics, id));
         let value_span = self.tree().span(value);
@@ -281,7 +283,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Ctx { span } => match self.lookup_local("ctx") {
                 Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), span),
                 None => {
-                    self.templated("no-ctx-in-scope", span);
+                    // A name nothing in scope declares, reported as one. `ctx`
+                    // is a keyword, so a parameter is the only thing that ever
+                    // puts it in scope, and that is what the fix says.
+                    self.templated("unresolved-name", span)
+                        .bind("name", "ctx")
+                        .fix("declare `ctx` as a parameter of this function");
                     self.error_expr(span)
                 }
             },

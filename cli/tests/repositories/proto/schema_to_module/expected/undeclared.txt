@@ -1,10 +1,10 @@
-error: lib/wire/point.proto is not declared by any rule [undeclared-source]
+error: lib/wire/point.proto belongs to no library or binary, so nothing builds it [unused-library]
  --> lib/wire/BUILD.buri:1:1
   |
 1 | library {
   | ^
   |
-  = fix: add it to a rule's `proto_sources`, or delete it — `buri gen //lib/wire` does this automatically
+  = fix: add it to the library's or the binary's `proto_sources`, or delete it — `buri gen //lib/wire` does this automatically
 
     Nothing in the project imports this file — no production code, no test, no
     entry point reaches it. That is more expensive than it looks: every reader
@@ -25,7 +25,4 @@ error: lib/wire/point.proto is not declared by any rule [undeclared-source]
 
     Done right, every file in the tree is reachable from a real root, and
     "unused" means deleted, not muted.
-
-    Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
-    guides/unused-file.md, © 2026 Ivett Ördög, used under the MIT license.
 

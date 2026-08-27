@@ -1,6 +1,5 @@
 # Declares //lib/a and does not import it, which is what closes the cycle in
-# the graph. The recorded goldens show both findings that follow: the cycle,
-# from each end, and the `unused-dep` on this line.
+# the graph. The recorded goldens show the cycle reported from each end.
 library {
     sources: ["b.buri"]
     dependencies: ["//lib/a"]

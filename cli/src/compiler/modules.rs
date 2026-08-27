@@ -333,7 +333,7 @@ impl<'a> Loader<'a> {
     /// The `testing` block is required when the directory is there
     /// (BUILD-FILES.md:194-196).
     ///
-    /// Nothing else can ask this. `undeclared-source` walks the files and
+    /// Nothing else can ask this. `unused-library` walks the files and
     /// finds the ones inside `testing/` — but `testing/lib.buri` is an entry
     /// point, so it is in the known set unconditionally, and a `testing/`
     /// directory holding nothing but its own entry point passed with no block

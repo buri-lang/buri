@@ -27,6 +27,3 @@ warning: `core/effect` is imported twice [duplicate-import]
     Done right, each module appears exactly once in the import list, and that
     one line is the whole truth about what this file borrows from it.
 
-    Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
-    guides/duplicate-import.md, © 2026 Ivett Ördög, used under the MIT license.
-

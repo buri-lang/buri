@@ -23,6 +23,7 @@ label: this is not a function
 note: comparison operators do not chain
 fix: attach the type arguments to the call, as in `{function}<Str>(x)`
 reproduction: none
+adapted-from: some-guide (https://example.invalid/some-guide) guides/the-file.md, © 2026 An Author, used under the MIT license
 ---
 ```
 
@@ -35,6 +36,7 @@ reproduction: none
 | `note` | no | One `= note:` line of background — *why* the rule exists, not what to do. A call site may push further notes, and they land after this one. |
 | `fix` | no in the schema | The concrete edit, printed as `= fix:`. The reject corpus requires every compiler diagnostic to carry one, so a page omits it only when every emission site sets a `fix` of its own. |
 | `reproduction` | no | The only value is `none`, and it means no single-file program can provoke this code — it needs a repository, a `BUILD.buri`, a `.proto`, a second module, or a process that runs too long. Any other page must carry a fenced `buri fail code=<code>` block. |
+| `adapted-from` | no | Where a body adapted from somebody else's writing came from — source, file and licence. **Never printed in a diagnostic**: a reader looking at their own compile error is owed the explanation, not this repository's paperwork. `buri docs error <code>` and `buri docs lint <code>` render it as the page's last line instead. |
 
 Everything is a scalar. There are no lists and no maps, and an unknown key is an
 error rather than something quietly ignored — a misspelled `mesage` fails the
@@ -171,7 +173,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{count}` | How many of a thing were declared — a tuple struct's fields, a function's parameters. | `no-such-positional-field`, `too-many-parameters` |
 | `{cycle}` | The import stack from the first repeat onwards, already joined with ` -> `. | `circular-import`, `proto-circular-import` |
 | `{declaration}` | On the language pages, the whole noun phrase for the thing declared or hidden (`` field `a` ``, `` variant `Yes` of `T` ``). On the proto pages, what the file declared, already described (`` `syntax = "proto3"` ``). See the note below the table. | `duplicate-declaration`, `private-to-module`, `proto-edition`, `proto-syntax-declaration` |
-| `{dependency}` | The label of the library in question (`//lib/store`). | `missing-dep`, `unused-dep` |
+| `{dependency}` | The label of the library in question (`//lib/store`). | `missing-dep` |
 | `{depth}` | How many branch bodies enclose the reported one, itself included. | `deep-nesting` |
 | `{edition}` | `REQUIRED_EDITION` — the one Protobuf edition this reader implements. | `proto-edition`, `proto-edition-missing`, `proto-syntax-declaration` |
 | `{effect}` | The effect's name. | `duplicate-bound`, `effect-and-trait`, `host-not-granted` |
@@ -180,7 +182,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{expected_plural}` | The plural of what a bare word should have been (`platforms`, `architectures`), because the fix names the whole set. | `unknown-bare-word` |
 | `{exports}` | The names a test's import asked for, quoted and joined (`` `a`, `b` ``), or the phrase `what the test needs`. | `test-internal-import` |
 | `{feature}` | The `features.<name>` a schema wrote. | `proto-unknown-feature` |
-| `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `arch`), a struct field as the source wrote it, or the `sources`/`proto_sources` a file belongs under. | `binary-field-not-allowed`, `duplicate-field-initializer`, `field-not-callable`, `field-wrong-kind`, `no-such-field`, `no-such-source`, `not-a-bare-word`, `undeclared-source`, `underivable`, `unknown-field`, `unplaceable-source` |
+| `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `arch`), a struct field as the source wrote it, or the `sources`/`proto_sources` a file belongs under. | `binary-field-not-allowed`, `duplicate-field-initializer`, `field-not-callable`, `field-wrong-kind`, `no-such-field`, `no-such-source`, `not-a-bare-word`, `underivable`, `unknown-field`, `unplaceable-source`, `unused-library` |
 | `{field_type}` | The type of the field that blocks a derive. | `underivable` |
 | `{fields}` | The `diagnostics::names` enumeration of the fields with no value, or with no pattern. | `missing-field-pattern`, `missing-field-value` |
 | `{first_origin}` | The first of the two schemas that declare one proto type. | `proto-duplicate-type` |
@@ -196,7 +198,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{known_features}` | The proto features this reader models, joined with `, `. | `proto-unknown-feature` |
 | `{known_fields}` | The fields a build-file block accepts, joined with `, `. | `unknown-field` |
 | `{last}` | The highest legal tuple index, which the fix names. | `no-such-tuple-element` |
-| `{library_file}` | The path of a library's `lib.buri`, which is where the re-export would go. | `unreachable-export` |
+| `{library_file}` | The path of a library's `lib.buri`, which is where the re-export would go. | `dead-code` |
 | `{limit}` | The fixed lint threshold, bound from the constant in `lint.rs` so the number exists in one place. | `deep-nesting`, `oversized-function`, `too-many-parameters` |
 | `{lines}` | How many lines a function body spans, opening brace to closing brace inclusive. | `oversized-function` |
 | `{literal}` | The literal exactly as the source wrote it — prefix, underscores and sign included. | `float-as-a-tuple-index`, `integer-not-in-base`, `integer-too-wide`, `integer-without-digits`, `literal-out-of-range`, `not-a-float-literal`, `not-a-tuple-index` |
@@ -206,13 +208,13 @@ pluralization and the joining, and the template supplies the backticks.
 | `{methods}` | The `diagnostics::names` enumeration of the methods an `impl` is missing. | `incomplete-impl` |
 | `{module}` | The module path two `import` statements both name, unquoted — the template supplies the backticks. | `duplicate-import` |
 | `{module_file}` | The colliding module's file, from the repository root (`lib/money/cents.buri`). | `package-shadows-a-module` |
-| `{name}` | The identifier the diagnostic is about, where no narrower role name applies. See the note below the table. | `ambiguous-free-function`, `context-not-a-value`, `declaration-without-a-body`, `derive-not-a-trait`, `duplicate-field`, `duplicate-method`, `duplicate-module-declaration`, `duplicate-pattern-binding`, `effect-param-not-ctx`, `host-not-granted`, `impl-fn-without-self`, `impl-outside-its-module`, `lambda-captures-effect`, `lambda-captures-generic`, `method-declared-free`, `method-not-a-value`, `missing-field-value`, `missing-payload-pattern`, `no-such-export`, `no-type-arguments`, `not-a-trait`, `not-an-effect`, `not-on-the-surface`, `oversized-function`, `proto-ambiguous-type`, `proto-duplicate-type`, `proto-unknown-type`, `too-many-parameters`, `trait-not-an-effect`, `trait-used-as-a-type`, `type-not-a-value`, `type-parameter-with-arguments`, `uninhabited`, `unreachable-export`, `unresolved-name`, `unresolved-type`, `unresolved-type-in-pattern`, `unused-import`, `unused-variable`, `wrong-matched-value-count`, `wrong-value-count` |
+| `{name}` | The identifier the diagnostic is about, where no narrower role name applies. See the note below the table. | `ambiguous-free-function`, `context-not-a-value`, `dead-code`, `declaration-without-a-body`, `derive-not-a-trait`, `duplicate-field`, `duplicate-method`, `duplicate-module-declaration`, `duplicate-pattern-binding`, `effect-param-not-ctx`, `host-not-granted`, `impl-fn-without-self`, `impl-outside-its-module`, `lambda-captures-effect`, `lambda-captures-generic`, `method-declared-free`, `method-not-a-value`, `missing-field-value`, `missing-payload-pattern`, `no-such-export`, `no-type-arguments`, `not-a-trait`, `not-an-effect`, `not-on-the-surface`, `oversized-function`, `proto-ambiguous-type`, `proto-duplicate-type`, `proto-unknown-type`, `too-many-parameters`, `trait-not-an-effect`, `trait-used-as-a-type`, `type-not-a-value`, `type-parameter-with-arguments`, `uninhabited`, `unresolved-name`, `unresolved-type`, `unresolved-type-in-pattern`, `unused-import`, `unused-variable`, `wrong-matched-value-count`, `wrong-value-count` |
 | `{operator}` | The operator's source text (`~`, `<<`, `Add`, `Neg`). | `bitwise-on-a-non-integer`, `derive-operator-not-a-newtype`, `derive-operator-not-numeric` |
 | `{other}` | The label at the far end of the reported dependency edge. | `dep-cycle` |
 | `{owner}` | The label of the library whose surface or internals are being reached (`//lib/money`). | `binary-internal-import`, `binary-source-import`, `internal-import`, `not-on-the-surface`, `test-internal-import` |
 | `{owner_path}` | That label with `//` stripped, because the note names `lib/money/lib.buri`. | `binary-internal-import`, `internal-import`, `test-internal-import` |
 | `{package}` | The label of the package the build-graph rule is reported against. | `no-main`, `undeclared-testing-surface` |
-| `{package_path}` | A package's path from the repository root, with no leading `//` — every use already prefixes it. | `missing-dep`, `package-shadows-a-module`, `package-without-a-rule`, `undeclared-source`, `undeclared-testing-surface` |
+| `{package_path}` | A package's path from the repository root, with no leading `//` — every use already prefixes it. | `missing-dep`, `package-shadows-a-module`, `package-without-a-rule`, `undeclared-testing-surface`, `unused-library` |
 | `{parent_package}` | The package that holds the colliding module. | `package-shadows-a-module` |
 | `{path}` | The module path an import wrote, or the schema path an `import` line spells. | `binary-entry-import`, `binary-internal-import`, `binary-source-import`, `circular-import`, `internal-import`, `module-outside-repository`, `no-such-export`, `no-such-module`, `proto-circular-import`, `proto-import-not-found`, `relative-import`, `test-source-import` |
 | `{platform}` | The platform, spelled as the sentence wants it — `Platform::slug()` (`js`, `linux`) in prose, `Platform::proto()` (`JS`) where the sentence quotes a build file. | `host-not-granted`, `output-with-an-architecture`, `platform-not-implemented`, `platform-violation` |
@@ -233,7 +235,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{second_tag}` | The second of the two tags that forbid each other. | `tag-violation` |
 | `{second_trait}` | The second of the two bounds declaring one method name. | `ambiguous-trait-method` |
 | `{seconds}` | A suite's declared `timeout_seconds`, or `0` when it declares none. Bound as a string; the `s` suffix is in the page. | `test-timeout` |
-| `{source}` | A source file as the rule, or the directory walk, spells it — relative to its package. | `duplicate-source`, `entry-point-listed`, `no-such-source`, `proto-source-not-a-schema`, `undeclared-source`, `unplaceable-source` |
+| `{source}` | A source file as the rule, or the directory walk, spells it — relative to its package. | `duplicate-source`, `entry-point-listed`, `no-such-source`, `proto-source-not-a-schema`, `unplaceable-source`, `unused-library` |
 | `{tag}` | A tag's name as `REPO.buri` or a `tags` list wrote it. | `duplicate-tag`, `unknown-tag` |
 | `{target}` | The label of the target the rule is reported against. | `dep-cycle`, `platform-violation`, `tag-violation`, `test-timeout`, `unsatisfiable-target` |
 | `{test_source}` | The importing test source's file. | `test-internal-import` |

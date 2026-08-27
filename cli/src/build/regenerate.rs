@@ -425,7 +425,7 @@ fn derive_dependencies(
         // `test.dependencies` is what the suite adds: the target under test is
         // this package and is already excluded, and its `dependencies` reach
         // the suite through it, so naming them again would be two claims about
-        // one edge and `unused-dep` on the second.
+        // one edge.
         let test: Vec<String> =
             test.into_iter().filter(|l| !production.contains(l)).collect();
         let testing: Vec<String> = testing.into_iter().collect();

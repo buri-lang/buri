@@ -460,8 +460,8 @@ impl Workspace {
     /// These are deliberately not part of [`Self::dep_edges`]. A test
     /// dependency is not a dependency of the thing being shipped, so it must
     /// not enter [`Self::closure`] — it would otherwise drag its tags into the
-    /// production tag closure, count against `unused-dep`, and make a cycle
-    /// out of a suite that merely borrows a helper. What it *is* subject to is
+    /// production tag closure and make a cycle out of a suite that merely
+    /// borrows a helper. What it *is* subject to is
     /// visibility: BUILD-FILES.md:359-360 exempts only a suite reaching the
     /// target under test, and says everything else "including a test suite
     /// reaching a library named in `test.dependencies`, is checked normally".
@@ -524,7 +524,7 @@ impl Workspace {
     ///
     /// The entry points answer first, because they are named by the rule kind
     /// rather than listed. A file no rule reaches is `None`, which is
-    /// `undeclared-source`'s business rather than this function's.
+    /// `unused-library`'s business rather than this function's.
     pub fn rule_of_file(&self, package: PackageId, rel: &str) -> Option<RuleKind> {
         let p = self.package(package);
         match rel {

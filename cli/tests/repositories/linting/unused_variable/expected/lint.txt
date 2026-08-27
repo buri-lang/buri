@@ -20,6 +20,3 @@ warning: `total` is bound and never used [unused-variable]
      warning. Suppressing it with a throwaway name hides the question instead of
      answering it.
 
-     Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
-     guides/unused-variable.md, © 2026 Ivett Ördög, used under the MIT license.
-

@@ -178,8 +178,8 @@ a binary reaching the library in its own package.
   `dependencies` even though no import names it.
 - Dependencies are **direct**: a library you use is one you declare.
 - `core/*` and `ui/*` ship with the toolchain and are never listed.
-- **Every entry must be used, and every use must have an entry** — both are
-  errors (`unused-dep`, `missing-dep`), and `buri gen` fixes either.
+- **Every use must have an entry** — a use with none is an error
+  (`missing-dep`), and `buri gen` adds it.
 - Cycles are an error at the package level exactly as at the module level.
 
 ## Module paths
@@ -251,7 +251,7 @@ Reaching for `buri clean` to fix a build is worth reporting as a bug.
 buri gen //...            rewrite the fields that restate the sources
 buri gen //... --check    exit 1 if anything would change; write nothing
 buri format               canonical layout for sources and build files
-buri lint //...           the graph rules: missing-dep, unused-dep, visibility, tags
+buri lint //...           the graph rules: missing-dep, visibility, tags
 ```
 
 `gen` rewrites exactly seven fields — `sources`, `proto_sources`,
