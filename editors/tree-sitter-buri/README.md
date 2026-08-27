@@ -25,8 +25,9 @@ One file is hand-written, and stays that way:
   the `}` that closes a block, and nestable block comments. Both need a lexer
   with state, which no declarative grammar can describe.
 
-Everything else in `src/` is produced by `tree-sitter generate` and is not
-checked in.
+Everything else in `src/` is produced by `tree-sitter generate`. Two of those
+products are checked in anyway — `src/parser.c` and `src/tree_sitter/` — because
+they are what Zed compiles; see [Publishing](#publishing). The rest is not.
 
 ## Checking it
 
@@ -88,7 +89,14 @@ agree, so it cannot become a place to put things.
 
 ## Publishing
 
-`../zed/extension.toml` fetches the grammar from a git repository by commit.
-Until this grammar is published to one, that entry holds a placeholder commit
-and the extension can only be used as a dev extension, which builds the grammar
-from a local path.
+`../zed/extension.toml` fetches the grammar from a git repository by commit —
+this repository, at `path = "editors/tree-sitter-buri"`. Zed shallow-clones that
+commit and compiles `src/parser.c` and `src/scanner.c` with clang. It never runs
+`tree-sitter generate`, which is why the generated parser and the
+`src/tree_sitter/` headers it includes are committed rather than ignored.
+
+Two consequences. The pinned commit must be one that is **pushed**: Zed fetches
+it from GitHub, not from the checkout you are sitting in. And a change to
+`grammar.js` is not live for an editor until `tree-sitter generate` runs, the
+regenerated parser is committed and pushed, and the `commit` in
+`../zed/extension.toml` names it.

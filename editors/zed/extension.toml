@@ -6,10 +6,16 @@ schema_version = 1
 authors = ["The Buri authors"]
 
 [grammars.buri]
-repository = "https://github.com/buri-lang/tree-sitter-buri"
+# The grammar lives in this repository rather than one of its own: a second
+# repository would be a second thing to keep in step with `cli/src/docs/grammar.ebnf`,
+# which is the one place Buri's syntax is written down.
+repository = "https://github.com/buri-lang/buri"
+path = "editors/tree-sitter-buri"
 # Pinned by commit, the same way a hermetic build pins its inputs: an extension
 # that tracks a moving grammar is an extension that breaks without a change.
-commit = "0000000000000000000000000000000000000000"
+# Zed fetches this commit from GitHub, so it must be one that is pushed —
+# editing the grammar without repinning changes nothing an editor can see.
+commit = "1d9fe590ea2df8c21935d70e0207ef7a96bb201a"
 
 [language_servers.buri]
 name = "Buri"

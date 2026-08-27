@@ -2,9 +2,20 @@
 
 Syntax highlighting, outline, indentation, and the language server.
 
-## Installing it while developing
+## Installing it
 
 Zed › Extensions › *Install Dev Extension*, and choose this directory.
+
+Zed builds the extension itself, and needs two things to do it:
+
+- **The wasm target.** Zed compiles `src/lib.rs` for `wasm32-wasip2`. If your
+  Rust toolchain does not have that target it looks for `rustup` to add it, and
+  fails if there is no `rustup` either — which is the case in a Nix shell built
+  from `pkgs.cargo`. `rustup target add wasm32-wasip2`, or a toolchain declared
+  with that target, is the fix.
+- **A pushed grammar.** The grammar is fetched from GitHub at the commit
+  `extension.toml` pins, not read from the directory next door. A local edit to
+  `../tree-sitter-buri` is invisible until it is committed, pushed, and repinned.
 
 The extension starts `buri lsp` from your `PATH`. It does not download a
 toolchain: an extension that fetched its own would be answering questions about
