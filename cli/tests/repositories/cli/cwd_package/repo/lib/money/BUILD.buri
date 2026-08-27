@@ -1,6 +1,5 @@
-# `sources` is deliberately missing, so that the no-argument `buri gen` run
-# inside this directory has something to write and says so.
 library {
+    sources: ["cents.buri"]
     visibility: ["//visibility:public"]
 
     test {

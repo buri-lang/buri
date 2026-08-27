@@ -18,18 +18,18 @@ changes nothing and a first `buri gen --check` reports nothing.
 ```text
 wrote REPO.buri
 wrote .gitignore
-wrote lib/greeting/BUILD.buri
-wrote lib/greeting/lib.buri
-wrote lib/greeting/greeting.buri
-wrote lib/greeting/test/greeting.buri
-wrote cmd/hello/BUILD.buri
-wrote cmd/hello/main.buri
+wrote libs/greeting/BUILD.buri
+wrote libs/greeting/lib.buri
+wrote libs/greeting/greeting.buri
+wrote libs/greeting/test/greeting.buri
+wrote apps/hello/BUILD.buri
+wrote apps/hello/main.buri
 wrote .claude/skills/buri-language/SKILL.md
 ```
 
 ## What it generates
 
-`//lib/greeting` is a library in two files, which is the smallest a library can
+`//libs/greeting` is a library in two files, which is the smallest a library can
 be: `lib.buri` is its public surface and may list nothing but re-exports, so it
 needs at least one module behind it to re-export from.
 
@@ -40,12 +40,12 @@ export fn greeting(): Str {
 }
 ```
 
-`//cmd/hello` is the binary. Its `main` builds a context holding two effects —
+`//apps/hello` is the binary. Its `main` builds a context holding two effects —
 allocation and standard output — and that context is the program's entire
 effect budget: nothing it calls can read a file or open a socket, because
 nothing handed it the means to.
 
-The suite under `lib/greeting/test/` imports the library by label, exactly as a
+The suite under `libs/greeting/test/` imports the library by label, exactly as a
 dependent does, so it can only assert on what a dependent can call. Run it with
 `buri test //...`.
 

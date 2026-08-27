@@ -1,0 +1,103 @@
+# `buri gen` with no argument is `buri gen //...`. Every other command with no
+# target means the package containing the working directory; this one means the
+# repository, because it restates what the tree contains rather than answering a
+# question about the code in front of you — a tree restated one directory at a
+# time is one where `gen --check` passes where you are standing and fails one
+# directory over.
+#
+# So the claim is an equality, and the case shows it rather than asserting it.
+# Every no-argument run below stands in `lib/money`, and `cmd/app` — the
+# package a scoped run could not reach — is out of date too. The bare form and
+# the `//...` form are recorded against the same goldens, twice: once for what
+# `--check` reports, and once for what a real run writes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "bare `buri gen` is `buri gen //...`: from inside one package it reports and regenerates every package"
+
+# From inside `lib/money`, and the other package is named. Under the
+# working-directory rule the second line could not appear.
+run {
+  args: ["gen", "--check"]
+  cwd: "lib/money"
+  exit: 1
+  golden: "check.txt"
+}
+
+# The same golden, deliberately: that is the equality, for the form that writes
+# nothing.
+run {
+  args: ["gen", "--check", "//..."]
+  exit: 1
+  golden: "check.txt"
+}
+
+run {
+  args: ["gen"]
+  cwd: "lib/money"
+  exit: 0
+  golden: "gen.txt"
+}
+
+file {
+  path: "lib/money/BUILD.buri"
+  golden: "money.buri"
+}
+
+file {
+  path: "cmd/app/BUILD.buri"
+  golden: "app.buri"
+}
+
+# Nothing left to do anywhere — from the directory that, under the old rule,
+# could only have answered for one package.
+run {
+  args: ["gen", "--check"]
+  cwd: "lib/money"
+  exit: 0
+}
+
+# The derived files are not merely stable, they are right: the dependency `gen`
+# wrote is the one the code needs, and the suite it named runs.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}
+
+# Now put both files back the way they started and ask for `//...` in so many
+# words. Same output, same files: the two spellings are one command.
+edit {
+  file: "lib/money/BUILD.buri"
+  replace: "    sources: [\"cents.buri\"]\n"
+  with: ""
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "    sources: [\"format.buri\"]\n    dependencies: [\"//lib/money\"]\n"
+  with: ""
+}
+
+run {
+  args: ["gen", "//..."]
+  exit: 0
+  golden: "gen.txt"
+}
+
+file {
+  path: "lib/money/BUILD.buri"
+  golden: "money.buri"
+}
+
+file {
+  path: "cmd/app/BUILD.buri"
+  golden: "app.buri"
+}

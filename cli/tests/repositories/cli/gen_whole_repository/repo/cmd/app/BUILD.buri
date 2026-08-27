@@ -1,0 +1,9 @@
+# Two managed fields are missing: `sources` does not name `format.buri`, and
+# `dependencies` does not name the library `main.buri` imports. This is the
+# half of the repository no run in the case stands in, so it is written only by
+# a `gen` that means `//...`.
+binary {
+    outputs: [
+        { platform: JS },
+    ]
+}

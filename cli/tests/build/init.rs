@@ -17,7 +17,7 @@ fn a_generated_repository_builds_and_tests() {
     // Deliberately not `Scratch::repo`: `buri init` is refused inside one, and
     // this directory is the empty one a user starts from.
     let scratch = Scratch::empty("init");
-    scratch.run(&["init"]).ok().says("wrote REPO.buri").says("wrote cmd/hello/main.buri");
+    scratch.run(&["init"]).ok().says("wrote REPO.buri").says("wrote apps/hello/main.buri");
     assert!(scratch.path(".gitignore").is_file(), "the ignore file lands with its dot");
     assert!(
         scratch.path(".claude/skills/buri-cli/SKILL.md").is_file(),
@@ -46,7 +46,7 @@ fn a_generated_repository_builds_and_tests() {
     // Once with a relative target, once from a subdirectory, because those are
     // the two spellings whose upward walk had to be made to work.
     scratch.run(&["init", "packages/nested"]).exits(2).says("is inside the Buri repository at");
-    run_in(&scratch.path("lib/greeting"), &["init"])
+    run_in(&scratch.path("libs/greeting"), &["init"])
         .exits(2)
         .says("is inside the Buri repository at");
     assert!(!scratch.path("packages").exists(), "a refused run writes nothing at all");

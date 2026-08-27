@@ -3,7 +3,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
-from "//lib/greeting" import { greeting };
+from "//libs/greeting" import { greeting };
 
 export fn main(): Result<(), Str> {
     let ctx = context {

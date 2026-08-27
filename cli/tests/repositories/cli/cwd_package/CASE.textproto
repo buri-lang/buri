@@ -2,30 +2,19 @@
 # directory." A claim about scope, so the only way to check it is to stand
 # somewhere and find that the rest of the repository was left alone.
 #
-# Two things in this repository make that visible rather than merely plausible.
 # `cmd/app` carries an `unused-import`, which is an error `buri lint` reports:
 # every no-argument run below happens inside `lib/money` and none of them may
-# mention it, and the run from the root at the end does. And `lib/money`'s
-# build file is missing its `sources`, so the no-argument `gen` has something
-# to write — a scoped command that does nothing is a scoped command that
-# proves nothing.
+# mention it, and the run from the root at the end does. A scoped command that
+# could not have said anything is a scoped command that proves nothing.
+#
+# `buri gen` is the one command the rule does not cover — with no argument it
+# means `//...` — and it is not run here. `cli/gen_whole_repository` is where
+# that exception is recorded.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
 doc: "a command with no target operates on the package containing the working directory, and on nothing else"
-
-run {
-  args: ["gen"]
-  cwd: "lib/money"
-  exit: 0
-  golden: "gen_in_money.txt"
-}
-
-file {
-  path: "lib/money/BUILD.buri"
-  golden: "money.buri"
-}
 
 run {
   args: ["build"]

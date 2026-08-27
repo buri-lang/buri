@@ -18,7 +18,7 @@ buri — the toolchain for the Buri language
 
 Target arguments accept labels and patterns: //lib/money, //lib/..., //...
 With no argument, commands operate on the package containing the working
-directory.
+directory — except `buri gen`, which regenerates the whole repository.
 
   --verbose                say more about what was skipped and why
   --color[=<when>]         ANSI escapes; also honours NO_COLOR

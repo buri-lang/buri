@@ -1,0 +1,7 @@
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "//lib/money" import { Cents };
+
+export fn label<C: Alloc>(ctx: C, c: Cents): Str {
+    str.format(ctx, "${c.value}c")
+}

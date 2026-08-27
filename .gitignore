@@ -1,6 +1,8 @@
 target/
 .buri/
 out
+# Zed rebuilds these from the grammar pin in extension.toml.
+editors/zed/grammars/
 # `nix build`'s symlink to the store path it produced.
 result
 result-*

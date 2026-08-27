@@ -1,0 +1,11 @@
+# `sources` is deliberately missing, so that a `buri gen` run standing in this
+# directory has something to write here. This is the half of the repository a
+# command scoped to the working directory reaches.
+library {
+    sources: ["cents.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/cents.buri"]
+    }
+}

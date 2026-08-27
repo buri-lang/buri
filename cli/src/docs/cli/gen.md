@@ -7,6 +7,15 @@ actually contains and what its modules actually import. Nothing else in the
 file is touched: rules, tags, platforms, visibility, outputs, `test.data`, and
 comments survive.
 
+With no target argument it regenerates every package in the repository: bare
+`buri gen` is `buri gen //...`. Every other command with no argument means the
+package containing the working directory, and this one does not, because it
+restates what the tree contains rather than answering a question about the code
+in front of you — a tree restated one directory at a time is one where
+`gen --check` passes where you are standing and fails one directory over. It is
+the default `buri format` already has, and the two commands are meant to agree
+about a file.
+
 A managed list comes back **sorted**, because `gen` decides what is in it and
 nothing about the order of a `sources` or `dependencies` entry means anything.
 `buri format` sorts nothing — it leaves every list in the order it was written,
