@@ -1,5 +1,5 @@
 // On disk, in the package, and listed by no rule. Nothing compiles it and
-// nothing says so, which is the state `undeclared-source` exists to end.
+// nothing says so, which is the state `unused-library` exists to end.
 
 // Not exported: once the rule lists this file the package compiles it, and an
 // `export` nothing reaches would be a second finding on top of the one this

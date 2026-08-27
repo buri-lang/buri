@@ -538,8 +538,7 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         }
 
         // A finding whose answer is a build file `buri gen` already writes.
-        if !matches!(code, "missing-dep" | "unused-dep" | "undeclared-source" | "duplicate-source")
-        {
+        if !matches!(code, "missing-dep" | "unused-library" | "duplicate-source") {
             continue;
         }
         let Some(package) = package_of(&session, d.span.file, &path) else { continue };

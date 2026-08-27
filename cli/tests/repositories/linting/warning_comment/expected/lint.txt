@@ -9,6 +9,3 @@ warning: this comment is marked `TODO` [warning-comment]
 
     Resolve or remove these markers before merging.
 
-    Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
-    guides/warning-comment.md, © 2026 Ivett Ördög, used under the MIT license.
-

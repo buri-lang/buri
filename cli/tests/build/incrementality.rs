@@ -333,7 +333,7 @@ fn a_test_suite_is_cached_and_force_re_runs_it() {
 ///
 /// `test { dependencies }` is deliberately not part of the production closure —
 /// a test dependency is not a dependency of the thing being shipped, so it must
-/// not drag its tags into the tag closure or count against `unused-dep` — and
+/// not drag its tags into the tag closure — and
 /// `test_key` walked the production closure. So the helper's sources were
 /// compiled into the suite and hashed into nothing, and editing one served the
 /// previous verdict for a suite whose code had changed. That is the worst

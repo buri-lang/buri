@@ -7,7 +7,7 @@
 #   - the block is required when the directory exists
 #
 # The last used to hold only by accident. Nothing looked at the directory; what
-# fired was `undeclared-source` on the files inside it, and since
+# fired was `unused-library` on the files inside it, and since
 # `testing/lib.buri` is an entry point it is in the known set unconditionally —
 # so a `testing/` directory holding nothing but its own entry point passed with
 # no block at all, and the surface was invisible to the build. The loader asks
@@ -50,7 +50,7 @@ run {
 }
 
 # The other way round: a `testing/` directory whose block has been dropped.
-# Two things fire, and they are different claims — `undeclared-source` is about
+# Two things fire, and they are different claims — `unused-library` is about
 # the file the block used to declare, and the other is about the surface
 # itself, which no target compiles now.
 edit {

@@ -44,6 +44,12 @@ pub struct Frontmatter {
     /// provoked by a single-file program, so the page carries no `buri fail`
     /// block for the doctest suite to compile.
     pub reproducible: bool,
+    /// Where a body adapted from somebody else's writing came from, licence
+    /// and all. It belongs to the page rather than to the diagnostic: a
+    /// reader at the terminal is being told about their program, not about
+    /// this repository's sources, so nothing printed under a diagnostic
+    /// carries it and `buri docs` renders it under the page instead.
+    pub adapted_from: Option<String>,
 }
 
 /// One page of a catalog, after its frontmatter has been read.
@@ -121,7 +127,8 @@ pub fn parse(text: &str) -> Result<Option<(Frontmatter, &str)>, String> {
 
 /// The keys a page may carry. Anything else is a misspelling, and is reported
 /// as one.
-const KEYS: &[&str] = &["title", "severity", "message", "label", "note", "fix", "reproduction"];
+const KEYS: &[&str] =
+    &["title", "severity", "message", "label", "note", "fix", "reproduction", "adapted-from"];
 
 fn fields(block: &str) -> Result<Frontmatter, String> {
     let mut found: Vec<(&str, String)> = Vec::new();
@@ -170,6 +177,7 @@ fn fields(block: &str) -> Result<Frontmatter, String> {
         note: get("note"),
         fix: get("fix"),
         reproducible,
+        adapted_from: get("adapted-from"),
     })
 }
 
@@ -314,7 +322,18 @@ mod tests {
         assert_eq!(front.message, "a message");
         assert_eq!(front.fix.as_deref(), Some("do the other thing"));
         assert!(front.reproducible);
+        assert_eq!(front.adapted_from, None);
         assert_eq!(body, "# A page\n\nprose\n");
+    }
+
+    /// The citation is a field rather than a last line of the body, so that a
+    /// diagnostic — which prints the body — never prints it.
+    #[test]
+    fn a_citation_is_read_off_the_frontmatter() {
+        let text = "---\ntitle: t\nmessage: m\nadapted-from: somebody, MIT license\n---\nprose\n";
+        let (front, body) = parse(text).expect("this parses").expect("there is frontmatter");
+        assert_eq!(front.adapted_from.as_deref(), Some("somebody, MIT license"));
+        assert_eq!(body, "prose\n");
     }
 
     /// Every one of these is a typo somebody will make, and each has to name

@@ -22,8 +22,8 @@ could not see.
 
 Two kinds of answer, and they are applied differently:
 
-- **A build file that disagrees with the code** — `missing-dep`, `unused-dep`,
-  `undeclared-source`, `duplicate-source` — is handed to `buri gen`, which
+- **A build file that disagrees with the code** — `missing-dep`,
+  `unused-library`, `duplicate-source` — is handed to `buri gen`, which
   already writes exactly that file and preserves `tags`, `visibility`,
   `outputs`, and comments. A `BUILD.buri` is never edited byte by byte, so
   `lint --fix` and `gen` cannot end up disagreeing about what it should say.

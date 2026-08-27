@@ -47,6 +47,10 @@ macro_rules! l {
 
 /// Every `buri lint` finding, in the order the index lists them.
 pub const LINTS: &[LintDoc] = &[
+    l!("ctx-rebinding", "`ctx` names the context a function was handed"),
+    l!("dead-code", "Every declaration is reached from a `lib.buri` or a `main.buri`", &[
+        "build/libraries"
+    ]),
     l!("deep-nesting", "Branches nest shallowly"),
     l!("dep-cycle", "Two targets may not depend on each other", &["build/build-files"]),
     l!("discarded-result", "Every deliberately dropped `Result` is reported", &["build/cli"]),
@@ -58,11 +62,11 @@ pub const LINTS: &[LintDoc] = &[
     l!("test-title-newline", "A test title is one line"),
     l!("test-without-assertion", "A test asserts something"),
     l!("too-many-parameters", "A function takes few parameters"),
-    l!("undeclared-source", "Every source file is declared by a rule", &["build/build-files"]),
-    l!("unreachable-export", "An `export` reaches somebody", &["build/libraries"]),
     l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
-    l!("unused-dep", "Every dependency is used", &["build/build-files"]),
     l!("unused-import", "Every import is used"),
+    l!("unused-library", "Every source file belongs to a library or a binary", &[
+        "build/build-files"
+    ]),
     l!("unused-variable", "Every `let` names something the code below it reads"),
     l!("warning-comment", "A marker comment is work that was left behind"),
 ];

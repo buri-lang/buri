@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a `let ctx` in a function that may not build a context: ctx-rebinding, a warning, with the one in `main` that is the real thing staying quiet"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 0
+  golden: "lint.json"
+}
+
+# The binding is fine; the name was the problem. Giving it one of its own is
+# the whole fix.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "  let ctx = \"not a context\";\n  ctx\n"
+  with: "  let description = \"not a context\";\n  description\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -7,7 +7,7 @@ warning: `spell` is 41 lines long [oversized-function]
   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
   = fix: find the responsibility boundaries in the body and give each one a function of its own
 
-    Functions over 12 lines almost always carry more than one responsibility,
+    Functions over 40 lines almost always carry more than one responsibility,
     and that is the smell to chase — not the line count itself.
 
     Analyse responsibilities first: what distinct concerns does this function
@@ -28,8 +28,4 @@ warning: `spell` is 41 lines long [oversized-function]
     Refactor until the code reads as close to that sentence as possible. If you
     cannot say what it does in one sentence, it almost certainly has more than
     one responsibility.
-
-    Adapted from habit-hooks (https://github.com/habit-hooks/habit-hooks)
-    guides/oversized-function.md, © 2026 Ivett Ördög, used under the MIT
-    license.
 

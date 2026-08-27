@@ -39,7 +39,7 @@ library {
 ```
 
 `buri gen` manages `proto_sources` exactly as it manages `sources`, and a
-schema no rule lists is [`undeclared-source`](./cli.md), the
+schema no rule lists is [`unused-library`](./cli.md), the
 same error a stray `.buri` gets — with the fix naming `proto_sources` rather
 than `sources`.
 
@@ -57,7 +57,7 @@ its generated types from the owning library's `lib.buri`, which is the same
 answer the boundary gives for a hand-written module.
 
 Two hygiene rules step around a generated module on purpose. `unused-import`
-and `unreachable-export` both ask a person to make an edit, and there is no
+and `dead-code` both ask a person to make an edit, and there is no
 file here to edit: the module is a function of the schema.
 
 ## Editions, and only one

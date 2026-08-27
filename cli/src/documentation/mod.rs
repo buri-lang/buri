@@ -520,7 +520,9 @@ impl DocSource for Errors {
         // The promise stays directly under the program it is about; the
         // wording comes last, as reference for whoever edits the page.
         let body = match page {
-            Some(p) => format!("{}\n{promise}{}", titled(p), wording(&p.front)),
+            Some(p) => {
+                format!("{}\n{promise}{}{}", titled(p), wording(&p.front), attribution(&p.front))
+            }
             None => format!("{}{promise}", e.text),
         };
         Some(Page {
@@ -589,6 +591,24 @@ fn wording(front: &frontmatter::Frontmatter) -> String {
     out
 }
 
+/// Who a borrowed body is borrowed from, as the last line of the page.
+///
+/// It is deliberately not part of the body: the body prints under a
+/// diagnostic, and a reader looking at their own compile error is owed the
+/// explanation and not this repository's paperwork. So the credit is a
+/// frontmatter field, and it surfaces here, where somebody is reading the
+/// page itself.
+///
+/// Plain prose rather than emphasised: the terminal renderer marks up code
+/// spans and headings, and `*` around a paragraph would reach the reader as
+/// two asterisks.
+fn attribution(front: &frontmatter::Frontmatter) -> String {
+    match &front.adapted_from {
+        Some(source) => format!("\nAdapted from {source}.\n"),
+        None => String::new(),
+    }
+}
+
 /// The lint catalog: one page per `buri lint` finding.
 pub struct Lints;
 
@@ -601,7 +621,7 @@ impl DocSource for Lints {
         let code = id.strip_prefix("lint/").unwrap_or(id);
         let l = crate::documentation::lints::find(code)?;
         let body = match lints::page(code) {
-            Some(p) => format!("{}\n{}", titled(p), wording(&p.front)),
+            Some(p) => format!("{}\n{}{}", titled(p), wording(&p.front), attribution(&p.front)),
             None => l.text.to_string(),
         };
         Some(Page {

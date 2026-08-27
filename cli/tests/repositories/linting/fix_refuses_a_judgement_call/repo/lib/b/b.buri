@@ -1,5 +1,5 @@
-// Genuinely imports //lib/a, so the dependency is real and `unused-dep` does
-// not fire. What is left is a cycle, and a cycle has no mechanical answer:
+// Genuinely imports //lib/a, so the dependency is real. What is left is a
+// cycle, and a cycle has no mechanical answer:
 // which of the two edges to cut is a design decision.
 
 from "//lib/a" import { callB };

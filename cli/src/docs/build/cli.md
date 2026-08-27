@@ -49,12 +49,11 @@ Build-graph rules — always errors, not configurable:
 
 | | |
 |---|---|
-| `undeclared-source` | A `.buri` or `.proto` file in a package that no rule lists. The fix names the field it belongs in — `sources` for one, `proto_sources` for the other. |
+| `unused-library` | A `.buri` or `.proto` file in a package that no rule lists, so it belongs to no library and no binary and nothing builds it. The fix names the field it belongs in — `sources` for one, `proto_sources` for the other. |
 | `duplicate-source` | A file listed by two rules. |
 | `entry-point-listed` | An entry point written into a `sources` list. `lib.buri`, `main.buri` and `testing/lib.buri` are named by the rule kind, so listing one says nothing the rule had not already said. |
 | `undeclared-testing-surface` | A `testing/` directory with no `testing` block to declare it. The block is what puts the surface in the build; without it nothing compiles `testing/lib.buri` and no dependent can name it. |
 | `missing-dep` | Use of a library that is not in `dependencies` — by import, or by a method call resolving into it. |
-| `unused-dep` | A `dependencies` entry no source uses. |
 | `dep-cycle` | A cycle between packages. |
 | `circular-import` | A cycle between *modules*, which is the same rule one level down. The message names the whole cycle, because any one edge of it looks fine alone. |
 | `proto-circular-import` | The same cycle between `.proto` schemas, which import each other the way modules do. |
@@ -90,7 +89,7 @@ Style and hygiene rules:
 
 | | Severity |
 |---|---|
-| `unreachable-export` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export |
+| `dead-code` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export, so nothing reaches it |
 | `unused-import` | error — an imported name that appears nowhere else in the module |
 | `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md) |
 | `empty-test-suite` | warn — a `test` block with no `sources` |
@@ -102,6 +101,7 @@ Style and hygiene rules:
 | `too-many-parameters` | warn — more than five parameters, counting neither `self` nor `ctx` |
 | `oversized-function` | warn — a body more than forty lines from its opening brace to its closing one |
 | `deep-nesting` | warn — a branch with more than four branches wrapped around it |
+| `ctx-rebinding` | warn — a `let ctx = ...` where no context may be built, which binds the name a function's context arrives under to something else |
 
 Two findings belong to a `buri test` run rather than to the graph, and both are
 about the suite as a whole rather than about one test in it:

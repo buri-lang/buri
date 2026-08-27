@@ -87,9 +87,14 @@ pub struct Checked {
     /// backend leave the theme half of the runtime out of one that cannot.
     pub theme_con: Option<TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
-    /// checker needs it to filter method resolution; `unreachable-export` needs
-    /// it to ask the opposite question — what is exported and reaches nobody.
+    /// checker needs it to filter method resolution; `dead-code` needs it to
+    /// ask the opposite question — what is exported and reaches nobody.
     pub surfaces: HashMap<PackageId, HashSet<String>>,
+    /// Every `let ctx = ...` written where a context may not be built, in walk
+    /// order. Binding the name is legal, so this is not a diagnostic — it is
+    /// what `ctx-rebinding` reports, and the checker records it because the
+    /// checker is the only pass that knows where the line falls (SPEC 11.3).
+    pub ctx_rebindings: Vec<Span>,
 }
 
 /// The traits `derive` can generate. Derivation is a fold over one type
@@ -126,6 +131,8 @@ pub struct Checker<'a> {
     /// Per package, the set of names its `lib.buri` puts on the surface. A
     /// method call from outside a library resolves only to these.
     pub surfaces: HashMap<PackageId, HashSet<String>>,
+    /// See [`Checked::ctx_rebindings`].
+    pub ctx_rebindings: Vec<Span>,
     /// Traits by well-known name, for operators and `derive`.
     pub known_traits: HashMap<String, TraitId>,
     /// Enums by well-known name.
@@ -170,6 +177,7 @@ impl<'a> Checker<'a> {
             tests: Vec::new(),
             prim_module: ModuleId(u32::MAX),
             surfaces: HashMap::default(),
+            ctx_rebindings: Vec::new(),
             known_traits: HashMap::default(),
             known_types: HashMap::default(),
             option_con: None,
@@ -239,6 +247,7 @@ impl<'a> Checker<'a> {
             style_con,
             theme_con,
             surfaces: self.surfaces,
+            ctx_rebindings: self.ctx_rebindings,
         }
     }
 

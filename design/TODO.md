@@ -31,7 +31,7 @@ holds what it holds, and what the deliberate absences would cost to close.
 
   The fix is one condition — an entry point is declared by the rule that names
   it only when that rule exists — and a new row in the build-graph table, next
-  to `undeclared-source`, saying that a `main.buri` with no `binary` rule (or a
+  to `unused-library`, saying that a `main.buri` with no `binary` rule (or a
   `lib.buri` with no `library` rule) is a file the build cannot see. The case
   records today's silence, so the fix will show up as a diff there.
 

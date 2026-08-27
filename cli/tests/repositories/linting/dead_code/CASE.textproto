@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an export that lib.buri does not re-export and no sibling imports: unreachable-export, with the two exports that are reached staying quiet"
+doc: "an export that lib.buri does not re-export and no sibling imports: dead-code, with the two exports that are reached staying quiet"
 
 run {
   args: ["lint", "//lib/money"]

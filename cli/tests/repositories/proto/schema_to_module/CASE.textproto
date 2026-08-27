@@ -3,7 +3,7 @@
 
 doc: "a .proto in a package is a source like any other: undeclared until a rule lists it, placed by `buri gen`, keyed by its contents, and reachable only through lib.buri"
 
-# A schema no rule lists is `undeclared-source`, exactly as a stray .buri is —
+# A schema no rule lists is `unused-library`, exactly as a stray .buri is —
 # and the fix names `proto_sources` rather than `sources`.
 run {
   args: ["lint", "//lib/wire"]
