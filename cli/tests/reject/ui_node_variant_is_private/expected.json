@@ -1,1 +1,0 @@
-{"severity":"error","message":"variant `Text` of `Node` is private to its module","code":"private-to-module","location":{"file":"cmd/ui_node_variant_is_private/main.buri","line":15,"column":3,"endLine":15,"endColumn":8,"text":"  .Text(.Const(\"hello\"))"},"fix":"add `export` to `Text`, or build the value through a function `Node`'s module provides","notes":[],"related":[]}

@@ -168,13 +168,13 @@ export fn probe26_4<C: Alloc>(ctx: C): Int {
 
 /// An enum of 7 variants, matched exhaustively below.
 export enum State26_5 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
-  export Step5(Int, Str),
-  export Step6(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
+  Step5(Int, Str),
+  Step6(Int, Str),
 }
 
 derive Eq, Show for State26_5;

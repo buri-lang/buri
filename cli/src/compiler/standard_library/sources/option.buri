@@ -7,8 +7,8 @@
 //! the standard library for no safety gain (SPEC 5.7.1).
 
 export enum Option<T> {
-  export Some(T),
-  export None,
+  Some(T),
+  None,
 }
 
 // Structural, so `Option<T>` compares and renders whenever `T` does. Without

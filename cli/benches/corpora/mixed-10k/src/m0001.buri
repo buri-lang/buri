@@ -131,9 +131,9 @@ export fn probe1_3<C: Alloc>(ctx: C): Int {
 
 /// An enum of 3 variants, matched exhaustively below.
 export enum State1_4 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
 }
 
 derive Eq, Show for State1_4;

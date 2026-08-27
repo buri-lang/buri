@@ -57,10 +57,10 @@ export fn probe3_0<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State3_1 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State3_1;
@@ -188,9 +188,9 @@ export fn probe3_5<C: Alloc>(ctx: C): Int {
 
 /// An enum of 3 variants, matched exhaustively below.
 export enum State3_6 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
 }
 
 derive Eq, Show for State3_6;

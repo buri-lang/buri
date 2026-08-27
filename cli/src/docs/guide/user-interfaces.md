@@ -145,9 +145,9 @@ from "ui/theme" import { Theme };
 
 // `cardlib`'s vocabulary, and the constructor that names each of its tokens.
 export enum Token {
-  export Surface,
-  export OnSurface,
-  export Danger,
+  Surface,
+  OnSurface,
+  Danger,
 }
 
 impl Token {

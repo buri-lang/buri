@@ -8,8 +8,8 @@ from "core/effect" import { Alloc };
 from "//lib/ledger/entry" import { Entry };
 
 export enum Rule {
-  export DropZero,
-  export MemoPrefix { export prefix: Str },
+  DropZero,
+  MemoPrefix { prefix: Str },
 }
 
 export fn apply<C: Alloc>(ctx: C, entries: [Entry], rule: Rule): [Entry] {

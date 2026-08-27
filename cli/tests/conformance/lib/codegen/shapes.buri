@@ -148,12 +148,12 @@ derive Eq for Listy;
 export struct Hollow {}
 derive Eq for Hollow;
 
-export enum Flat { export A, export B, export C }
+export enum Flat { A, B, C }
 derive Eq for Flat;
 
 /// Three variants with three different arities, so a comparison that assumed
 /// one shape per enum would be caught.
-export enum Wide { export None0, export One(Int), export Two(Int, Str) }
+export enum Wide { None0, One(Int), Two(Int, Str) }
 derive Eq for Wide;
 
 export fn mkPair(a: Int, b: Str): Pair { Pair { a: a, b: b } }

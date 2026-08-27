@@ -1,12 +1,12 @@
-# Provenance for a checked-in benchmark corpus. See
-# cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
 name = wide-match-1k
 profile = wide-match
-generator_revision = 1
-revision = 1
-recorded = 2026-08-18
+generator_revision = 4
+revision = 2
+recorded = 2026-08-27
 params = lines=1000
 lines = 1000
-bytes = 22187
+bytes = 18722
 modules = 1
-digest = 5753ad5aeb14c439a27fb1ef33c444eade0d5856654b60028c2b16153c9e3577
+digest = f26904bfa72a08222acd2e576b18699011afce315f0c3d1445957068f2fdd330

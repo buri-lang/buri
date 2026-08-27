@@ -66,7 +66,8 @@
 /// | 1 | The first one. |
 /// | 2 | `core/cap` was renamed `core/effect`, so every module's import block is three bytes longer. No construct, count or shape moved — `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
 /// | 3 | `self` stopped writing its type, so every method signature is shorter by the receiver's name and a colon. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
-pub const GENERATOR_REVISION: u32 = 3;
+/// | 4 | An enum variant stopped carrying `export`, so every variant line is shorter by the keyword and a space. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
+pub const GENERATOR_REVISION: u32 = 4;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -1049,12 +1050,12 @@ fn chunk_enum(out: &mut String, index: usize, name: &str, params: &Params, rng: 
     out.push_str(&format!(
         "/// An enum of {variants} variants, matched exhaustively below.\n\
          export enum State{index}_{name} {{\n\
-         \x20 export Idle,\n\
-         \x20 export Running(Int),\n\
-         \x20 export Failed {{ code: Int, message: Str }},\n"
+         \x20 Idle,\n\
+         \x20 Running(Int),\n\
+         \x20 Failed {{ code: Int, message: Str }},\n"
     ));
     for v in 3..variants {
-        out.push_str(&format!("  export Step{v}(Int, Str),\n"));
+        out.push_str(&format!("  Step{v}(Int, Str),\n"));
     }
     out.push_str("}\n\n");
     out.push_str(&derive_clause(params.derives, &format!("State{index}_{name}")));
@@ -1524,7 +1525,7 @@ fn wide_match(target_lines: usize) -> Program {
     let mut s = String::from("//! Stress shape: one very wide enum and one very wide match.\n\n");
     s.push_str("export enum Wide {\n");
     for i in 0..arms {
-        s.push_str(&format!("  export V{i}(Int),\n"));
+        s.push_str(&format!("  V{i}(Int),\n"));
     }
     s.push_str("}\n\nexport fn classify(w: Wide): Int {\n  match (w) {\n");
     for i in 0..arms {

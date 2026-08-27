@@ -110,19 +110,19 @@ export effect Proc {
 /// Declared here rather than in `core/fs` so that the effect signature above
 /// can name it without `core/effect` depending on a module that depends on it.
 export enum IoError {
-  export NotFound,
-  export PermissionDenied,
-  export ReadOnly,
-  export AlreadyExists,
-  export NotADirectory,
-  export Other(Str),
+  NotFound,
+  PermissionDenied,
+  ReadOnly,
+  AlreadyExists,
+  NotADirectory,
+  Other(Str),
 }
 
 export enum NetError {
-  export Timeout,
-  export Refused,
-  export BadUrl(Str),
-  export Transport(Str),
+  Timeout,
+  Refused,
+  BadUrl(Str),
+  Transport(Str),
 }
 
 export struct NetResponse {

@@ -1425,14 +1425,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             )
         };
 
-        // A type with any unexported variant cannot be constructed outside its
-        // module.
+        // A variant is exported exactly when its enum is, so this fires only
+        // where a private enum reached another module through a signature.
         if owner != self.module && !variant.exported && owner.0 != u32::MAX {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.templated("private-to-module", head_span)
                 .bind("declaration", format!("variant `{v}` of `{t}`"))
-                .fix(format!("add `export` to `{v}`, or build the value through a function `{t}`'s module provides"));
+                .fix(format!("add `export` to `{t}`, or build the value through a function `{t}`'s module provides"));
         }
 
         // Type arguments come from the expected type where there is one, and
@@ -1718,7 +1718,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let v = variant.name.clone();
             self.templated("private-to-module", head_span)
                 .bind("declaration", format!("variant `{v}` of `{t}`"))
-                .fix(format!("add `export` to `{v}`, or build the value through a function `{t}`'s module provides"));
+                .fix(format!("add `export` to `{t}`, or build the value through a function `{t}`'s module provides"));
         }
         let targs: Vec<Ty> = match expected.map(|t| self.resolve(t)) {
             Some(Ty::Con(c, ts)) if c == con => ts,

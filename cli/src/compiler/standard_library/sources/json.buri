@@ -54,13 +54,13 @@ from "core/str" import * as str;
 
 /// A JSON value.
 export enum Json {
-  export Null,
-  export Bool(Bool),
-  export Num(Float),
-  export Str(Str),
-  export Array([Json]),
+  Null,
+  Bool(Bool),
+  Num(Float),
+  Str(Str),
+  Array([Json]),
   /// Key and value, in the order they were written.
-  export Object([(Str, Json)]),
+  Object([(Str, Json)]),
 }
 
 derive Eq, Show for Json;
@@ -69,19 +69,19 @@ derive Eq, Show for Json;
 /// the input, so it is the same number whatever the encoding of the source.
 export enum JsonError {
   /// A character that cannot begin, continue, or end what was being read.
-  export Unexpected(Int),
+  Unexpected(Int),
   /// The input ran out mid-value.
-  export Unterminated,
+  Unterminated,
   /// A complete value, and then more text.
-  export Trailing(Int),
+  Trailing(Int),
   /// A number the grammar admits but the runtime cannot represent.
-  export BadNumber(Int),
+  BadNumber(Int),
   /// A `\` followed by something that is not an escape.
-  export BadEscape(Int),
+  BadEscape(Int),
   /// Nesting past `MAX_DEPTH`. Parsing is recursive and recursion here is not
   /// in tail position, so without this a deep enough document is a crash
   /// rather than an error.
-  export TooDeep(Int),
+  TooDeep(Int),
 }
 
 derive Eq, Show for JsonError;
@@ -608,11 +608,11 @@ export trait FromJson {
 /// can find in the text in front of them.
 export enum DecodeError {
   /// An object with no member of that name.
-  export Missing { path: Str },
+  Missing { path: Str },
   /// A value of the wrong shape: what the type wanted, and what was there.
-  export WrongType { path: Str, wanted: Str, found: Str },
+  WrongType { path: Str, wanted: Str, found: Str },
   /// A tag naming no variant of the enum being read.
-  export UnknownVariant { path: Str, tag: Str },
+  UnknownVariant { path: Str, tag: Str },
 }
 
 derive Eq, Show for DecodeError;

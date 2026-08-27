@@ -254,9 +254,10 @@ pub struct EnumDecl {
     pub docs: Vec<String>,
 }
 
+/// A variant carries no visibility of its own: it is exported exactly when the
+/// enum that declares it is, and so are the fields of its payload.
 #[derive(Clone, Debug)]
 pub struct Variant {
-    pub exported: bool,
     pub name: Name,
     pub payload: VariantPayload,
     pub span: Span,

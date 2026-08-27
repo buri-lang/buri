@@ -226,10 +226,10 @@ every generated enum carries one extra variant:
 
 ```text
 export enum Shade {
-  export SHADE_UNSPECIFIED,
-  export LIGHT,
-  export DARK,
-  export Unrecognized(Int),
+  SHADE_UNSPECIFIED,
+  LIGHT,
+  DARK,
+  Unrecognized(Int),
 }
 ```
 
@@ -259,8 +259,8 @@ becomes an enum of the cases, held as an `Option` — a `oneof` may be unset, an
 
 ```text
 export enum Everything_Contact {
-  export Phone(Str),
-  export Office(Address),
+  Phone(Str),
+  Office(Address),
 }
 
 export struct Everything {

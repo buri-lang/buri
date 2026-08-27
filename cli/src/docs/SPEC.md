@@ -296,16 +296,20 @@ fn helper(x: Int): Int { x * 2 }           // private
 export fn double(x: Int): Int { helper(x) } // public
 ```
 
-Struct fields and enum variants carry their own `export`, so a type's name and
-its representation are exported separately:
+Struct fields carry their own `export`, so a struct's name and its
+representation are exported separately:
 
 ```buri
 export struct UserId(Str);          // name public, contents private
 export struct Meters(export F64);   // both public
 ```
 
-A type with any unexported field or variant cannot be constructed, destructured,
-or exhaustively matched outside its module.
+A struct with any unexported field cannot be constructed, destructured, or
+exhaustively matched outside its module.
+
+An enum is the unit of its own visibility: its variants and their payload
+fields are exported exactly when it is, and a variant writes no `export` of its
+own (Section 5.7).
 
 `impl` and `derive` declarations are never exported (Section 6.7.1).
 
@@ -529,9 +533,9 @@ let forged = User { id: ..., name: ..., passwordHash: ... };   // only in the
                                                                // declaring module
 ```
 
-This is the only visibility mechanism. Earlier drafts also had an `opaque`
-modifier that hid a type's whole representation; a struct with no exported
-fields does exactly that, so `opaque` was removed as redundant.
+This is the only visibility mechanism a struct has. Earlier drafts also had an
+`opaque` modifier that hid a type's whole representation; a struct with no
+exported fields does exactly that, so `opaque` was removed as redundant.
 
 ### 5.7 Enums
 
@@ -550,6 +554,13 @@ enum Tree<T> {
   Node(Tree<T>, T, Tree<T>),               // recursive; boxed by the runtime
 }
 ```
+
+A variant writes no `export`. The enum is the unit of visibility: an exported
+enum exports every one of its variants and every field of their payloads, and a
+private one exports none. Writing `export` before a variant is the
+`variant-export` error, which carries the edit that deletes it. A type whose
+representation is meant to stay hidden is a struct with a private field, which
+is the shape the standard library uses for `Scope` and `Event`.
 
 Constructing a variant uses a qualified path or the inferred-type dot form:
 

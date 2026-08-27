@@ -38,12 +38,12 @@ export fn lift3(n: Node2): Node3 {
 
 /// An enum of 6 variants, matched exhaustively below.
 export enum State3_0 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
-  export Step5(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
+  Step5(Int, Str),
 }
 
 derive Eq, Show, Ord, Hash, ToJson, FromJson for State3_0;
@@ -122,13 +122,13 @@ export fn probe3_2<C: Alloc>(ctx: C): Int {
 
 /// An enum of 7 variants, matched exhaustively below.
 export enum State3_3 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
-  export Step5(Int, Str),
-  export Step6(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
+  Step5(Int, Str),
+  Step6(Int, Str),
 }
 
 derive Eq, Show, Ord, Hash, ToJson, FromJson for State3_3;
@@ -209,13 +209,13 @@ export fn probe3_5<C: Alloc>(ctx: C): Int {
 
 /// An enum of 7 variants, matched exhaustively below.
 export enum State3_6 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
-  export Step5(Int, Str),
-  export Step6(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
+  Step5(Int, Str),
+  Step6(Int, Str),
 }
 
 derive Eq, Show, Ord, Hash, ToJson, FromJson for State3_6;

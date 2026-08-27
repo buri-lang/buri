@@ -96,12 +96,12 @@ export fn probe16_2<C: Alloc>(ctx: C): Int {
 
 /// An enum of 6 variants, matched exhaustively below.
 export enum State16_3 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
-  export Step5(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
+  Step5(Int, Str),
 }
 
 derive Eq, Show for State16_3;
@@ -239,10 +239,10 @@ export fn probe16_8<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State16_9 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State16_9;

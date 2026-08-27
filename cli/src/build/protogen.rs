@@ -723,7 +723,7 @@ impl<'a> Generator<'a> {
             self.line(&format!("/// The cases of `{name}`'s `{}`.", o.field));
             self.line(&format!("export enum {} {{", o.enum_name));
             for c in &o.cases {
-                self.line(&format!("  export {}({}),", upper_first(&c.name), c.ty.buri()));
+                self.line(&format!("  {}({}),", upper_first(&c.name), c.ty.buri()));
             }
             self.line("}");
             self.line("");
@@ -774,14 +774,14 @@ impl<'a> Generator<'a> {
         let unknown = unrecognized_name(e);
         self.line(&format!("export enum {name} {{"));
         for (buri, _, _) in &values {
-            self.line(&format!("  export {buri},"));
+            self.line(&format!("  {buri},"));
         }
         self.line("  /// A number this schema does not name.");
         self.line("  ///");
         self.line("  /// Editions enums are open, and an open enum keeps a value it does not");
         self.line("  /// recognise rather than losing it — so a message written by a newer");
         self.line("  /// schema survives being read and written again by this one.");
-        self.line(&format!("  export {unknown}(Int),"));
+        self.line(&format!("  {unknown}(Int),"));
         self.line("}");
         self.line("");
         self.line(&format!("derive Eq, Show for {name};"));
@@ -1620,15 +1620,15 @@ mod tests {
     #[test]
     fn an_open_enum_keeps_what_it_does_not_recognise() {
         let s = gen(&format!("{HEAD}enum E {{ E_UNSPECIFIED = 0; ONE = 1; }}\n"));
-        assert!(s.contains("export Unrecognized(Int),"), "{s}");
+        assert!(s.contains("  Unrecognized(Int),"), "{s}");
         assert!(s.contains("    .Unrecognized(n) => n,"), "{s}");
         assert!(s.contains("E.Unrecognized(number)"), "{s}");
         assert!(s.contains(".Unrecognized(n) => proto.jsonInt32(n),"), "{s}");
         // A schema that already uses the name keeps it, and the escape hatch
         // moves out of the way.
         let s = gen(&format!("{HEAD}enum E {{ E_UNSPECIFIED = 0; Unrecognized = 1; }}\n"));
-        assert!(s.contains("export Unrecognized,"), "{s}");
-        assert!(s.contains("export Unrecognized_(Int),"), "{s}");
+        assert!(s.contains("  Unrecognized,"), "{s}");
+        assert!(s.contains("  Unrecognized_(Int),"), "{s}");
     }
 
     /// Two files declaring one fully-qualified name is a mistake in the
@@ -1710,7 +1710,7 @@ mod tests {
             "{HEAD}message M {{ oneof pick {{ string a = 1; int32 b = 2; }} }}\n"
         ));
         assert!(s.contains("export enum M_Pick {"), "{s}");
-        assert!(s.contains("export A(Str),"), "{s}");
+        assert!(s.contains("  A(Str),"), "{s}");
         assert!(s.contains("export pick: Option<M_Pick>,"), "{s}");
     }
 }

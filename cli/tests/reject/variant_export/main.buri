@@ -1,0 +1,19 @@
+// EXPECT: a variant carries no `export` of its own
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+// `export` before a variant was the old spelling. It is kept here, and only
+// here, so that the error a file written against the old syntax gets — and the
+// byte edit it carries, which is what `buri lint --fix` and an editor's quick
+// fix apply — are pinned by something rather than described by nothing.
+export enum Shape {
+  export Circle(Float),
+  Square(Float),
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let s: Shape = .Square(2.0);
+  let _ = ctx.println(match (s) { .Circle(_) => "round", .Square(_) => "square" });
+  .Ok(())
+}

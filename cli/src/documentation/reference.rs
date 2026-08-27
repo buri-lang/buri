@@ -313,15 +313,11 @@ fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
         .unwrap_or_else(|| vec![name])
 }
 
-/// Per-field and per-variant visibility is a declaration detail. A reference
-/// lists what is exported and nothing else, so repeating the keyword on every
-/// line is noise a reader has to skip.
+/// Per-field visibility is a declaration detail. A reference lists what is
+/// exported and nothing else, so repeating the keyword on every line is noise
+/// a reader has to skip.
 fn strip_export(sig: &str) -> String {
-    let mut out = sig.strip_prefix("export ").unwrap_or(sig).to_string();
-    for opener in ["{ ", ", "] {
-        out = out.replace(&format!("{opener}export "), opener);
-    }
-    out
+    sig.strip_prefix("export ").unwrap_or(sig).to_string()
 }
 
 fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
@@ -357,13 +353,14 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
 fn enumeration(t: &crate::parsing::flat::Tree, d: &tree::EnumDecl) -> ApiItem {
     ApiItem {
         api: Api::Enum {
+            // Every variant of an exported enum is exported, so every one of
+            // them is listed.
             variants: d
                 .variants
                 .iter()
-                .filter(|v| v.exported)
                 .map(|v| Member {
                     name: t.name(v.name).to_string(),
-                    signature: strip_export(&formatting::variant(t, v)),
+                    signature: formatting::variant(t, v),
                     docs: v.docs.clone(),
                 })
                 .collect(),

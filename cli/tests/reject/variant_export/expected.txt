@@ -1,0 +1,8 @@
+error: a variant carries no `export` of its own; an exported enum exports every one of its variants [variant-export]
+  --> cmd/variant_export/main.buri:10:3
+   |
+10 |   export Circle(Float),
+   |   ^^^^^^
+   |
+   = the enum is the unit of visibility, so a variant's payload fields carry none either
+   = fix: delete the `export`

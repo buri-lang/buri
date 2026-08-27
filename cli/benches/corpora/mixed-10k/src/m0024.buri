@@ -84,10 +84,10 @@ export fn probe24_1<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State24_2 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State24_2;
@@ -116,10 +116,10 @@ export fn probe24_2<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State24_3 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State24_3;
@@ -148,9 +148,9 @@ export fn probe24_3<C: Alloc>(ctx: C): Int {
 
 /// An enum of 3 variants, matched exhaustively below.
 export enum State24_4 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
 }
 
 derive Eq, Show for State24_4;
@@ -252,12 +252,12 @@ export fn probe24_7<C: Alloc>(ctx: C): Int {
 
 /// An enum of 6 variants, matched exhaustively below.
 export enum State24_8 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
-  export Step5(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
+  Step5(Int, Str),
 }
 
 derive Eq, Show for State24_8;

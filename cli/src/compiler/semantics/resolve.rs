@@ -810,18 +810,20 @@ impl<'a> Checker<'a> {
                                             .map(|(i, ty)| FieldInfo {
                                                 name: i.to_string(),
                                                 ty: self.elaborate(id, &generics, *ty),
-                                                exported: v.exported,
+                                                exported: d.exported,
                                                 span: t.type_span(*ty),
                                             })
                                             .collect(),
                                         false,
                                     ),
+                                    // A payload field has no `export` of its
+                                    // own; the enum's is the whole answer.
                                     tree::VariantPayload::Record(fs) => (
                                         fs.iter()
                                             .map(|f| FieldInfo {
                                                 name: t.name(f.name).to_string(),
                                                 ty: self.elaborate(id, &generics, f.ty),
-                                                exported: f.exported,
+                                                exported: d.exported,
                                                 span: f.span,
                                             })
                                             .collect(),
@@ -832,7 +834,7 @@ impl<'a> Checker<'a> {
                                     name: t.name(v.name).to_string(),
                                     fields,
                                     record,
-                                    exported: v.exported,
+                                    exported: d.exported,
                                     span: v.span,
                                 }
                             })

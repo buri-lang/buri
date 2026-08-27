@@ -267,6 +267,7 @@ pub struct VariantInfo {
     /// A record-like variant is matched and built by field name; a tuple-like
     /// one by position.
     pub record: bool,
+    /// Copied from the enum. A variant has no visibility of its own.
     pub exported: bool,
     pub span: Span,
 }

@@ -19,12 +19,12 @@ from "ui/signal" import { Signal };
 /// A time-varying value.
 export enum Prop<T> {
   /// Never changes. The runtime registers nothing.
-  export Const(T),
+  Const(T),
   /// Backed by a writable cell.
-  export Cell(Signal<T>),
+  Cell(Signal<T>),
   /// A derivation. Buildable in a pure component, since the `Scope` arrives as
   /// a parameter rather than from an enclosing context.
-  export Computed(fn(Scope) => T),
+  Computed(fn(Scope) => T),
 }
 
 impl<T> Prop<T> {
