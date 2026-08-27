@@ -904,7 +904,7 @@ fn exported_name<'t>(
         Item::Struct(d) => (d.exported, d.name),
         Item::Enum(d) => (d.exported, d.name),
         Item::TypeAlias(d) => (d.exported, d.name),
-        Item::Const(d) => (d.exported, d.name),
+        Item::Let(d) => (d.exported, d.name),
         Item::Trait(d) => (d.exported, d.name),
         _ => return None,
     };

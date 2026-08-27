@@ -40,7 +40,7 @@ impl ItemKind {
             ItemKind::Trait => "trait",
             ItemKind::Effect => "effect",
             ItemKind::TypeAlias => "type",
-            ItemKind::Const => "const",
+            ItemKind::Const => "let",
             ItemKind::Context => "context",
         }
     }
@@ -237,10 +237,10 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
                 signature: format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
                 docs: d.docs.clone(),
             }),
-            Item::Const(d) if d.exported => out.push(ApiItem {
+            Item::Let(d) if d.exported => out.push(ApiItem {
                 api: Api::Const,
                 name: t.name(d.name).to_string(),
-                signature: format!("const {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
+                signature: format!("let {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
                 docs: d.docs.clone(),
             }),
             Item::Context(d) if d.exported => out.push(ApiItem {

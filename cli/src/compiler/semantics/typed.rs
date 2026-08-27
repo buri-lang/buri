@@ -150,7 +150,7 @@ pub enum ExprKind {
     Unit,
 
     Local(LocalId),
-    /// A `const`, inlined by the backend.
+    /// A module-level `let`, inlined by the backend.
     Const(crate::compiler::semantics::types::ConstId),
     /// A top-level function used as a value.
     FnRef(Callee),

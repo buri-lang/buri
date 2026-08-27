@@ -73,7 +73,7 @@ module.exports = grammar({
       $.struct_declaration,
       $.enum_declaration,
       $.type_alias_declaration,
-      $.const_declaration,
+      $.let_declaration,
       $.trait_declaration,
       $.effect_declaration,
       $.context_declaration
@@ -157,8 +157,8 @@ module.exports = grammar({
       ';'
     ),
 
-    const_declaration: $ => seq(
-      'const',
+    let_declaration: $ => seq(
+      'let',
       field('name', $.identifier),
       ':',
       field('type', $._type),

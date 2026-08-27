@@ -6,7 +6,7 @@ error: expected a declaration, found `derive` [unexpected-token]
   |
   = expected: a declaration
   = actual: `derive`
-  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `const` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
 
     What to do
     ──────────

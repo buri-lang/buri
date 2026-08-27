@@ -45,7 +45,7 @@ from "core/list" import * as list;
 
 /// The number of bits one word holds. Not exported: it is the layout, and a
 /// caller who depended on it would be depending on the wrong thing.
-const WORD: Int = 32;
+let WORD: Int = 32;
 
 /// The words, low bits first, and how many bits the set was created to hold.
 ///

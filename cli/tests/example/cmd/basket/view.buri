@@ -30,13 +30,13 @@ from "//cmd/basket/theme" import { Shade };
 
 // --- appearance ----------------------------------------------------------------------
 //
-// The static tier: a `const` of `Style` is evaluated by the compiler, turned
+// The static tier: a `let` of `Style` is evaluated by the compiler, turned
 // into one atomic class per distinct property value, and written into the
 // stylesheet beside the module. Nothing below is built at run time, and the
 // `At` breakpoints cost nothing to have — they are media queries in that same
 // sheet, ascending, so a wider screen's rules win by being written later.
 
-const pageStyle: Style = .Group([
+let pageStyle: Style = .Group([
   .Layout(.Column),
   .Gap(.Rem(1.0)),
   .Padding(.Rem(1.0)),
@@ -48,53 +48,53 @@ const pageStyle: Style = .Group([
   .At(.Large, [.MaxWidth(.Rem(48.0))]),
 ]);
 
-const barStyle: Style = .Group([
+let barStyle: Style = .Group([
   .Layout(.Row),
   .AlignCross(.Center),
   .Gap(.Px(12)),
   .PaddingY(.Rem(0.5)),
 ]);
 
-const formStyle: Style = .Group([
+let formStyle: Style = .Group([
   .Layout(.Row),
   .Wrap(true),
   .AlignCross(.End),
   .Gap(.Px(8)),
 ]);
 
-const noticeStyle: Style = .Group([
+let noticeStyle: Style = .Group([
   .Padding(.Rem(0.5)),
   .Radius(.Px(6)),
   .FontSize(.Rem(0.875)),
   .Foreground(Shade.Accent.color()),
 ]);
 
-const listStyle: Style = .Group([
+let listStyle: Style = .Group([
   .Layout(.Column),
   .Gap(.Px(8)),
 ]);
 
-const rowStyle: Style = .Group([
+let rowStyle: Style = .Group([
   .Layout(.Row),
   .AlignCross(.Center),
   .Gap(.Px(8)),
 ]);
 
-const settledStyle: [Style] = [.TextLine(.Strike), .Opacity(0.55)];
+let settledStyle: [Style] = [.TextLine(.Strike), .Opacity(0.55)];
 
-const amountStyle: Style = .Group([
+let amountStyle: Style = .Group([
   .FontFamily(.Mono),
   .TextAlign(.End),
   .MinWidth(.Rem(5.0)),
 ]);
 
-const emptyStyle: Style = .Group([
+let emptyStyle: Style = .Group([
   .Padding(.Rem(1.5)),
   .TextAlign(.Center),
   .Opacity(0.7),
 ]);
 
-const totalStyle: Style = .Group([
+let totalStyle: Style = .Group([
   .FontSize(.Rem(1.25)),
   .FontWeight(.Semibold),
   .FontFamily(.Mono),

@@ -75,6 +75,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("circular-import", "Modules form a graph with no cycles"),
     e!("coalesce-operand", "`??` supplies a default for an absent or failed value"),
     e!("colon-colon-not-an-operator", "A module's members are reached with `.`"),
+    e!("const-declaration", "A module-level binding is written with `let`", &["lang/lexical"]),
     e!("context-binding-not-an-effect", "A context binding names an effect"),
     e!("context-call-with-arguments", "A context declaration takes no parameters"),
     e!("context-declaration-not-allowed", "A `context` declaration lives where a context may be built"),

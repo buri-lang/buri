@@ -29,7 +29,7 @@ from "ui/style" import { Color, Style };
 // block where an event would not.
 //
 // The design's example writes `Token.Surface.color()`, and a token is a call
-// rather than a literal. It reaches the stylesheet anyway: a `const`
+// rather than a literal. It reaches the stylesheet anyway: a `let`
 // initializer is folded by an interpreter that inlines any function that is
 // pure by its signature, which is what this enum's `color` is.
 enum Token {
@@ -50,7 +50,7 @@ fn tokenColor(t: Token): Color {
   t.color()
 }
 
-const badgeStyle: Style = .Group([
+let badgeStyle: Style = .Group([
   .PaddingX(.Rem(0.5)),
   .Radius(.Px(6)),
   .Background(tokenColor(.Surface)),

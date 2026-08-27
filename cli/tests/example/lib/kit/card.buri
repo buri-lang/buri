@@ -16,7 +16,7 @@ from "//lib/kit/tokens" import { Token };
 
 // --- the static tier ---------------------------------------------------------
 //
-// A `const` of `Style` is evaluated by the compiler, turned into one atomic
+// A `let` of `Style` is evaluated by the compiler, turned into one atomic
 // class per distinct property value, and written into the stylesheet that ships
 // with the artifact. Two packages asking for the same padding get the same
 // class and one rule. Nothing below is built at run time.
@@ -24,7 +24,7 @@ from "//lib/kit/tokens" import { Token };
 // Hover is a style and not an event. A pseudo-class costs nothing at run time,
 // needs no listener, and survives to a platform that has no pointer; a signal
 // written on every mouse move would cost a render each time.
-const cardStyle: Style = .Group([
+let cardStyle: Style = .Group([
   .Layout(.Column),
   .Gap(.Px(6)),
   .Padding(.Rem(0.75)),
@@ -39,13 +39,13 @@ const cardStyle: Style = .Group([
 // `Truncate` is at most two lines, ellipsised. A card is a fixed shape, and a
 // long title is the reader's problem to hover over rather than the layout's to
 // be broken by.
-const titleStyle: Style = .Group([
+let titleStyle: Style = .Group([
   .FontWeight(.Semibold),
   .TextWrap(.Balance),
   .Truncate(2),
 ]);
 
-const pillStyle: Style = .Group([
+let pillStyle: Style = .Group([
   .PaddingX(.Rem(0.5)),
   .PaddingY(.Rem(0.125)),
   .Radius(.Px(999)),
@@ -57,7 +57,7 @@ const pillStyle: Style = .Group([
 // The filled part is an ordinary child that is simply as wide as it is told, so
 // the track has to clip what does not fit — which is what `Scroll` says, and
 // what makes the rounded ends hold.
-const trackStyle: Style = .Group([
+let trackStyle: Style = .Group([
   .Height(.Px(6)),
   .Width(.Full),
   .Radius(.Px(999)),
@@ -65,7 +65,7 @@ const trackStyle: Style = .Group([
   .Scroll(.X),
 ]);
 
-const fillStyle: Style = .Group([
+let fillStyle: Style = .Group([
   .Height(.Full),
   .Radius(.Px(999)),
   .Background(Token.Accent.color()),

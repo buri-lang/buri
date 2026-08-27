@@ -14,7 +14,7 @@ from "ui/effect" import { Scope, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import { Style };
 
-const wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
+let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };

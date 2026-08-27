@@ -1359,11 +1359,11 @@ impl<'t> Build<'t> {
                 let g = generics(t, &d.generics);
                 text(format!("{ex}type {}{g} = {};", t.name(d.name), type_text(t, d.ty)))
             }
-            Item::Const(d) => {
+            Item::Let(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
                 self.assign(
-                    &format!("{ex}const {}: {} = ", t.name(d.name), type_text(t, d.ty)),
+                    &format!("{ex}let {}: {} = ", t.name(d.name), type_text(t, d.ty)),
                     d.value,
                     ";",
                 )
@@ -2767,8 +2767,8 @@ mod tests {
             // file on every other run. The second is the shape with the run
             // above the next declaration already there, which the first pass
             // has to agree with.
-            "const e: List<Int> = [\n  // nothing in it\n];\nconst g: List<Int> = [];\n",
-            "const e: List<Int> = [\n  // nothing in it\n];\n// about g\nconst g: List<Int> = [];\n",
+            "let e: List<Int> = [\n  // nothing in it\n];\nlet g: List<Int> = [];\n",
+            "let e: List<Int> = [\n  // nothing in it\n];\n// about g\nlet g: List<Int> = [];\n",
         ] {
             stable(src);
         }
@@ -2846,7 +2846,7 @@ mod tests {
             // a signature is a list of parameters
             "export fn noteResult<T, E, C: Alloc + Stdout>(\n    ctx: C,\n",
             // a list of anything goes one item to a line
-            "const SEED: [U32] = [\n    1779033703,\n    3144134277,",
+            "let SEED: [U32] = [\n    1779033703,\n    3144134277,",
             "    let structured = Working {\n        a: t.0.wrapToU32(),\n",
             // once an `if` breaks, every branch is on lines of its own
             "    } else if (structured.a > 0) {\n        \"one\"\n    } else {\n",
@@ -2879,7 +2879,7 @@ from "core/list" import * as list;
 export type Pairing<T> = (T, T);
 
 /// A table of constants, one to a line like every other list.
-const SEED: [U32] = [1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225, 1116352408, 1899447441, 3049323471, 3921009573];
+let SEED: [U32] = [1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225, 1116352408, 1899447441, 3049323471, 3921009573];
 
 export struct Working {
   // The first word of the state.

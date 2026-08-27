@@ -949,7 +949,7 @@ fn writeBoth<C: Ui>(ctx: C, first: Signal<Int>, second: Signal<Int>): () {
 // token, because a token is resolved against a theme and `ui/theme` has no way
 // to build one yet.
 
-const badgeStyle: Style = .Group([
+let badgeStyle: Style = .Group([
     .PaddingX(.Rem(0.5)),
     .Radius(.Px(6)),
     .Background(.Rgb(240, 240, 245)),

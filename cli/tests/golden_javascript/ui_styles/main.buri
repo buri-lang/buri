@@ -9,7 +9,7 @@
 // Four things to read in `expected.css`:
 //
 //   - **A token is a call, and it folded.** `tokenColor(.Surface)` is a
-//     function call inside a `const` initializer, and it is a colour in the
+//     function call inside a `let` initializer, and it is a colour in the
 //     sheet, because purity is readable off the signature.
 //   - **Dedup crosses modules.** `.Grow(1)` is written here and again by
 //     `ui/node`'s own `spacer`, and there is one `.grow-1` rule.
@@ -51,7 +51,7 @@ fn tokenColor(t: Token): Color {
   t.color()
 }
 
-const badgeStyle: Style = .Group([
+let badgeStyle: Style = .Group([
   .PaddingX(.Rem(0.5)),
   .Radius(.Px(6)),
   .Background(tokenColor(.Surface)),

@@ -437,7 +437,7 @@ mod tests {
         for line in src.lines() {
             let name = if let Some(rest) = line.strip_prefix("export struct ") {
                 rest.split([' ', '{', '(', ';']).next().unwrap_or("")
-            } else if let Some(rest) = line.strip_prefix("export const ") {
+            } else if let Some(rest) = line.strip_prefix("export let ") {
                 rest.split([':', ' ']).next().unwrap_or("")
             } else {
                 continue;
@@ -465,7 +465,7 @@ mod tests {
             for name in grant.exports {
                 assert!(
                     src.contains(&format!("export struct {name} "))
-                        || src.contains(&format!("export const {name}:")),
+                        || src.contains(&format!("export let {name}:")),
                     "`{name}` is in a HostGrant row and core/host does not export it"
                 );
             }

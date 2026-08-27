@@ -97,12 +97,12 @@ from "core/effect" import { Alloc, Region };
 // agreement is by construction rather than by test.
 
 /// The block header every heap value carries, in bytes (MEMORY.md §5.1).
-export const HEADER_BYTES: Int = 16;
+export let HEADER_BYTES: Int = 16;
 
 /// A `Str` view — `slice`, `trim`, `splitOnce` — charges nothing, and so does
 /// a fixed-size construction. The model counts what the *language* says
 /// allocates (SPEC 10.5), not what an implementation happens to do.
-export const VIEW_BYTES: Int = 0;
+export let VIEW_BYTES: Int = 0;
 
 /// The charge for a `Str` of `n` UTF-8 bytes: `16 + n`.
 ///
@@ -164,7 +164,7 @@ fn count(handle: I64): Int;
 fn total(handle: I64): Int;
 
 /// Unbounded, in the shape `newCounter` wants it.
-const UNBOUNDED: Int = -1;
+let UNBOUNDED: Int = -1;
 
 // --- GeneralPurpose -----------------------------------------------------------
 

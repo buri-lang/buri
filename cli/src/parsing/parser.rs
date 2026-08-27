@@ -875,7 +875,14 @@ impl<'a> Parser<'a> {
             Some(Keyword::Type) => {
                 Item::TypeAlias(Box::new(self.type_alias(exported, docs, start)?))
             }
-            Some(Keyword::Const) => Item::Const(Box::new(self.const_decl(exported, docs, start)?)),
+            Some(Keyword::Let) => Item::Let(Box::new(self.let_decl(exported, docs, start)?)),
+            // The old spelling: reported at the keyword with the edit that
+            // replaces it, then read on, so one error names the whole mistake.
+            Some(Keyword::Const) => {
+                let keyword = self.bump();
+                self.templated("const-declaration", keyword).map(|d| d.edit(keyword, "let"));
+                Item::Let(Box::new(self.let_decl_tail(exported, docs, start)?))
+            }
             Some(Keyword::Trait) => {
                 Item::Trait(Box::new(self.trait_decl(exported, docs, start, false)?))
             }
@@ -898,7 +905,7 @@ impl<'a> Parser<'a> {
                     span,
                     "a declaration",
                     &found,
-                    "start it with one of `from` `export` `fn` `struct` `enum` `type` `const` \
+                    "start it with one of `from` `export` `fn` `struct` `enum` `type` `let` \
                      `trait` `effect` `impl` `derive` `context` `test` — a module is a list of \
                      declarations, with no statements between them",
                 );
@@ -1181,15 +1188,21 @@ impl<'a> Parser<'a> {
         Ok(TypeAliasDecl { name, generics, ty, exported, span: start.to(end), docs })
     }
 
-    fn const_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<ConstDecl> {
-        self.expect_keyword(Keyword::Const)?;
+    fn let_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<LetDecl> {
+        self.expect_keyword(Keyword::Let)?;
+        self.let_decl_tail(exported, docs, start)
+    }
+
+    /// Everything after the binding keyword, so that the `const` spelling can
+    /// be reported and then read as what it means.
+    fn let_decl_tail(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<LetDecl> {
         let name = self.expect_ident()?;
         self.expect(Punctuation::Colon)?;
         let ty = self.ty()?;
         self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
         let end = self.expect(Punctuation::Semi)?;
-        Ok(ConstDecl { name, ty, value, exported, span: start.to(end), docs })
+        Ok(LetDecl { name, ty, value, exported, span: start.to(end), docs })
     }
 
     fn trait_decl(
@@ -2746,7 +2759,8 @@ mod tests {
         ok("struct User { export id: UserId, name: Str }");
         ok("enum Shape { Empty, Circle(Float), Rect { width: Float, height: Float } }");
         ok("type Handler<T> = fn(T) => Result<(), Str>;");
-        ok("const MAX: Int = 5;");
+        ok("let MAX: Int = 5;");
+        ok("export let MAX: Int = 5;");
         ok("trait Ord { fn compare(self: Self, other: Self): Order; }");
         ok("effect Fs { fn readFile(self: Self, path: Str): Result<Str, IoError>; }");
         ok("impl Ord for Version { fn compare(self: Version, other: Version): Order { .Equal } }");
@@ -2851,6 +2865,27 @@ mod tests {
         let at = e[0].edits[0].at;
         let src = "fn f(): [Int] { list.empty::<Int>() }";
         assert_eq!(src.get(at.start as usize..at.end as usize), Some("::"));
+    }
+
+    #[test]
+    fn const_is_the_old_spelling_of_a_module_level_let() {
+        let src = "const MAX: Int = 5;";
+        let e = bad(src);
+        assert_eq!(e.len(), 1, "one error names the whole mistake: {e:#?}");
+        assert_eq!(e[0].code.as_deref(), Some("const-declaration"));
+        // The fix is mechanical, so it travels as bytes: `const` becomes `let`.
+        assert_eq!(e[0].edits.len(), 1);
+        assert_eq!(e[0].edits[0].replacement, "let");
+        let at = e[0].edits[0].at;
+        assert_eq!(src.get(at.start as usize..at.end as usize), Some("const"));
+    }
+
+    /// The declaration is read past the keyword, so nothing after it in the
+    /// file is reported through a recovery.
+    #[test]
+    fn a_const_declaration_is_still_read_as_a_declaration() {
+        let e = bad("const MAX: Int = 5;\nfn f(): Int { MAX }");
+        assert_eq!(e.len(), 1, "{e:#?}");
     }
 
     #[test]

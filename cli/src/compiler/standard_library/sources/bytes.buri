@@ -64,7 +64,7 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 
 // --- Hexadecimal ---------------------------------------------------------------
 
-const HEX: Str = "0123456789abcdef";
+let HEX: Str = "0123456789abcdef";
 
 /// Lowercase, two characters per byte, no separator.
 export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
@@ -108,7 +108,7 @@ export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
 // form: two spellings of one encoding is two things to get wrong, and a caller
 // who needs one can replace two characters.
 
-const B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+let B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
   let n = b.len();
@@ -227,7 +227,7 @@ fn inAlphabet(ch: Char, i: Int): Bool {
 // `Int` has, which is the same caveat every double-backed implementation
 // carries and is stated here rather than discovered.
 
-const TWO32: Int = 4294967296;
+let TWO32: Int = 4294967296;
 
 /// The varint encoding of `value`.
 ///

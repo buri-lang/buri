@@ -48,6 +48,11 @@ where Section 11.3 says.
 is where contexts are built — as a `let` binding name inside `main`'s body, a
 test source, or a test-only module. Nowhere else.
 
+`const` is a keyword no production uses. It was how a module-level binding was
+spelled before `let` was the only binding keyword, and it stays reserved so that
+source which still has it is answered with `const-declaration` — which names
+`let` and carries the edit — rather than read as a name and failing later.
+
 `assert` is **not** a keyword; assertions are the ordinary module
 `core/testing/assert` (Section 11.2.1).
 

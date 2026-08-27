@@ -181,7 +181,7 @@ ExportableBody  ::= FnDecl
                   | StructDecl
                   | EnumDecl
                   | TypeAliasDecl
-                  | ConstDecl
+                  | LetDecl
                   | TraitDecl
                   | EffectDecl
                   | ContextDecl            (* exportable only from a test-only *)
@@ -247,7 +247,14 @@ VariantPayload  ::= "(" Types ")"
 
 TypeAliasDecl   ::= "type" name=IDENT GenericParams? "=" Type ";"
 
-ConstDecl       ::= "const" name=IDENT ":" type=Type "=" value=Expr ";"
+(* A module-level binding. There is one binding keyword in the language, so
+   this is the same `let` a block uses; what differs is the position, and with
+   it two requirements the position imposes. The name is an IDENT rather than a
+   Pattern, because a module's surface is a list of names and a destructuring
+   would hide them. The type is written rather than inferred, for the same
+   reason `FnDecl` writes its return type: a module's surface is read far more
+   often than it is compiled. *)
+LetDecl         ::= "let" name=IDENT ":" type=Type "=" value=Expr ";"
 
 
 (* --- Traits and effects ----------------------------------------------------
@@ -750,6 +757,12 @@ Keyword         ::= "as"     | "const"  | "context"| "ctx"    | "derive"
 (* `as` appears only in import specifiers. `for` only in `impl ... for ...`
    and `derive ... for ...`. There is no cast operator: numeric conversions
    are ordinary methods (SPEC.md 6.2.1).
+
+   `const` is the one keyword no production names. It was how a module-level
+   binding was spelled before there was one binding keyword, and it stays a
+   keyword rather than becoming an ordinary word so that the source that still
+   has it is answered with `const-declaration`, which names `let` and carries
+   the edit, instead of being read as a name and failing somewhere further on.
 
    `test` and `context` are reserved in every module, so no function is named
    either, but a TestDecl is legal only in a test source and a ContextDecl or
