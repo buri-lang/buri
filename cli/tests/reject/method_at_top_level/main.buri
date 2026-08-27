@@ -7,7 +7,7 @@ from "core/host" import * as host;
 
 struct Square { export side: Int }
 
-fn area(self: Square): Int {
+fn area(self): Int {
   self.side * self.side
 }
 

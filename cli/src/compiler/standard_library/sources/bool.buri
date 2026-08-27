@@ -4,27 +4,27 @@
 //! not, because an argument is evaluated before a call.
 
 impl Bool {
-  export fn not(self: Bool): Bool {
+  export fn not(self): Bool {
     if (self) { false } else { true }
   }
 
-  export fn and(self: Bool, other: Bool): Bool {
+  export fn and(self, other: Bool): Bool {
     if (self) { other } else { false }
   }
 
-  export fn or(self: Bool, other: Bool): Bool {
+  export fn or(self, other: Bool): Bool {
     if (self) { true } else { other }
   }
 
-  export fn xor(self: Bool, other: Bool): Bool {
+  export fn xor(self, other: Bool): Bool {
     if (self) { other.not() } else { other }
   }
 
-  export fn toStr(self: Bool): Str {
+  export fn toStr(self): Str {
     if (self) { "true" } else { "false" }
   }
 
-  export fn toInt(self: Bool): Int {
+  export fn toInt(self): Int {
     if (self) { 1 } else { 0 }
   }
 }

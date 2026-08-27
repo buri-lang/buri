@@ -34,7 +34,7 @@ is a type you convert to first, which is a function visible at the call site.
 struct Point { export x: Int, export y: Int }
 
 impl ToJson for Point {
-  fn toJson<C: Alloc>(self: Point, ctx: C): Json {
+  fn toJson<C: Alloc>(self, ctx: C): Json {
     Json.Num(0.0)
   }
 }

@@ -1013,9 +1013,15 @@ impl<'a> Parser<'a> {
                 self.templated("self-not-first", name.span)
                     .map(|d| d.bind("position", "a function's first parameter"));
             }
-            self.expect(Punctuation::Colon)?;
-            let ty = self.ty()?;
-            let span = start.to(self.tree.type_span(ty));
+            // `self` writes no type: the `impl` head, or the trait's
+            // implementing type, is the one it could have.
+            let (ty, span) = if kind == ParamKind::SelfParam {
+                (NONE, start.to(self.self_annotation()))
+            } else {
+                self.expect(Punctuation::Colon)?;
+                let ty = self.ty()?;
+                (ty.0, start.to(self.tree.type_span(ty)))
+            };
             params.push(Param { kind, name, ty, span });
             first = false;
             if !self.eat(Punctuation::Comma) {
@@ -1023,6 +1029,22 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(params)
+    }
+
+    /// The old `self: Type` form. It is read and discarded, so that one error
+    /// names the whole mistake and the rest of the signature is read for what
+    /// it says. Returns the span the parameter ends at.
+    fn self_annotation(&mut self) -> Span {
+        let keyword = self.prev_span();
+        if !self.is(Punctuation::Colon) {
+            return keyword;
+        }
+        let colon = self.bump();
+        let Ok(ty) = self.ty() else { return self.prev_span() };
+        let end = self.tree.type_span(ty);
+        self.templated("self-with-a-type", colon.to(end))
+            .map(|d| d.edit(keyword.to(end), "self"));
+        end
     }
 
     fn fn_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<FnDecl> {
@@ -2754,16 +2776,16 @@ mod tests {
 
     #[test]
     fn declarations() {
-        ok("export fn area(self: Square): Int { self.height * self.width }");
+        ok("export fn area(self): Int { self.height * self.width }");
         ok("struct Meters(export F64);");
         ok("struct User { export id: UserId, name: Str }");
         ok("enum Shape { Empty, Circle(Float), Rect { width: Float, height: Float } }");
         ok("type Handler<T> = fn(T) => Result<(), Str>;");
         ok("let MAX: Int = 5;");
         ok("export let MAX: Int = 5;");
-        ok("trait Ord { fn compare(self: Self, other: Self): Order; }");
-        ok("effect Fs { fn readFile(self: Self, path: Str): Result<Str, IoError>; }");
-        ok("impl Ord for Version { fn compare(self: Version, other: Version): Order { .Equal } }");
+        ok("trait Ord { fn compare(self, other: Self): Order; }");
+        ok("effect Fs { fn readFile(self, path: Str): Result<Str, IoError>; }");
+        ok("impl Ord for Version { fn compare(self, other: Version): Order { .Equal } }");
         ok("derive Eq, Ord, Show for Playlist;");
         ok("context Hermetic { Alloc: alloc(), Fs: data() }");
         ok(r#"test "pads the cents place" { let x = 1; }"#);
@@ -2878,6 +2900,28 @@ mod tests {
         assert_eq!(e[0].edits[0].replacement, "let");
         let at = e[0].edits[0].at;
         assert_eq!(src.get(at.start as usize..at.end as usize), Some("const"));
+    }
+
+    #[test]
+    fn self_is_written_without_a_type() {
+        let src = "impl Square { fn area(self: Square): Int { 1 } }";
+        let e = bad(src);
+        assert_eq!(e.len(), 1, "one error names the whole mistake: {e:#?}");
+        assert_eq!(e[0].code.as_deref(), Some("self-with-a-type"));
+        // The fix is mechanical, so it travels as bytes: the whole parameter
+        // is replaced, which is what makes `self : Square` come out right too.
+        assert_eq!(e[0].edits.len(), 1);
+        assert_eq!(e[0].edits[0].replacement, "self");
+        let at = e[0].edits[0].at;
+        assert_eq!(src.get(at.start as usize..at.end as usize), Some("self: Square"));
+    }
+
+    /// The annotation is read and discarded, so the rest of the signature is
+    /// read for what it says.
+    #[test]
+    fn an_annotated_self_is_still_read_as_a_method() {
+        let e = bad("impl Square { fn scaled(self: Square, factor: Int): Int { factor } }");
+        assert_eq!(e.len(), 1, "{e:#?}");
     }
 
     /// The declaration is read past the keyword, so nothing after it in the

@@ -6,7 +6,7 @@ as its first parameter:
 ```buri
 # struct Square { height: Int, width: Int }
 impl Square {
-  export fn area(self: Square): Int { self.height * self.width }
+  export fn area(self): Int { self.height * self.width }
 }
 ```
 
@@ -29,7 +29,7 @@ only where an `impl` or `derive` says so, never by accident of shape:
 `Ord` is one such interface, declared in the prelude as:
 
 ```buri sig
-trait Ord { fn compare(self: Self, other: Self): Order; }
+trait Ord { fn compare(self, other: Self): Order; }
 ```
 
 and a type takes it on in one of two ways:
@@ -38,7 +38,7 @@ and a type takes it on in one of two ways:
 # struct Version(Int);
 # struct Playlist(Int);
 impl Ord for Version {               // supplies the methods, checked against the trait
-  fn compare(self: Version, other: Version): Order { self.0.compare(other.0) }
+  fn compare(self, other: Version): Order { self.0.compare(other.0) }
 }
 derive Eq, Ord, Show for Playlist;   // generates them structurally
 ```

@@ -252,12 +252,12 @@ derive Eq, Show for Rec4_8;
 
 impl Rec4_8 {
   /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self: Rec4_8, factor: Int): Int {
+  export fn scaled(self, factor: Int): Int {
     self.f0 * factor + 594
   }
 
   /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self: Rec4_8, ctx: C): Str {
+  export fn render<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "rec4_8: ${self.f0}/${self.f1}")
   }
 }

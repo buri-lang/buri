@@ -31,6 +31,6 @@ means something there.
 export struct Version { export major: Int }
 
 impl Eq for Version {
-  export fn eq(self: Version, other: Version): Bool { self.major == other.major }
+  export fn eq(self, other: Version): Bool { self.major == other.major }
 }
 ```

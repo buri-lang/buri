@@ -11,7 +11,7 @@ export fn fromCents(n: Int): Cents {
 }
 
 impl Cents {
-  export fn plus(self: Cents, other: Cents): Cents {
+  export fn plus(self, other: Cents): Cents {
     Cents(self.0 + other.0)
   }
 }

@@ -304,7 +304,8 @@ fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
     let Some(ctx) = d.params.iter().find(|p| p.kind == ParamKind::CtxParam) else {
         return Vec::new();
     };
-    let name = formatting::type_text(t, ctx.ty);
+    let Some(ty) = ctx.written_type() else { return Vec::new() };
+    let name = formatting::type_text(t, ty);
     d.generics
         .iter()
         .find(|g| t.name(g.name) == name)

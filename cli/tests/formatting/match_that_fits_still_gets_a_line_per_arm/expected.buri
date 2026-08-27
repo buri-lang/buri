@@ -1,4 +1,4 @@
-export fn rank(self: Suit): Int {
+export fn rank(self): Int {
     match (self) {
         .Clubs => 0,
         .Diamonds => 1,

@@ -15,10 +15,10 @@ from "core/io" import * as io;
 struct Ticker(Int);
 
 impl Clock for Ticker {
-  fn nowMillis(self: Ticker): I64 {
+  fn nowMillis(self): I64 {
     0
   }
-  fn sleepMillis(self: Ticker, millis: Int): () {
+  fn sleepMillis(self, millis: Int): () {
     ()
   }
 }

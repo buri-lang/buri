@@ -204,6 +204,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("self-not-first", "`self` is the first parameter or nothing"),
     e!("self-outside-a-method", "`self` is legal only in a method body"),
     e!("self-type-outside-impl", "`Self` names the implementing type"),
+    e!("self-with-a-type", "`self` is written without a type", &["lang/expressions"]),
     e!("statement-not-unit", "A statement's value is used or bound"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
     e!("style-not-static", "A conditional style is known at compile time", &["guide/user-interfaces"]),

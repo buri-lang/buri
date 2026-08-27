@@ -189,7 +189,7 @@ ExportableBody  ::= FnDecl
 
 (* A declaration with no body ends in `;` instead of a Block. It is how the
    bundled standard library declares the operations the runtime supplies
-   (`export fn len(self: Str): Int;`, std/str.buri:18) and, as MethodSig below,
+   (`export fn len(self): Int;`, std/str.buri:18) and, as MethodSig below,
    how a trait or an effect states a method.
 
    The two are one production because they are one shape to the parser, which
@@ -210,7 +210,14 @@ FnDecl          ::= "fn" name=IDENT GenericParams? "(" Params? ")"
 Params          ::= SelfParam ("," CtxParam)? ("," Param)* ","?
                   | CtxParam ("," Param)* ","?
                   | Param ("," Param)* ","?
-SelfParam       ::= "self" ":" Type
+
+(* `self` is the one parameter that writes no type, because the declaration it
+   sits in has already written it: the `impl` head for a method, and the
+   implementing type — `Self` — for a MethodSig. The type checker reads it from
+   there rather than from the signature, so the two can no longer disagree.
+   `self: Type` was the older spelling and is now the `self-with-a-type` error,
+   which carries the edit that deletes the annotation. *)
+SelfParam       ::= "self"
 CtxParam        ::= "ctx" ":" Type
 Param           ::= name=IDENT ":" type=Type
 

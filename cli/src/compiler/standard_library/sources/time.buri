@@ -20,7 +20,7 @@ export fn since<C: Clock>(ctx: C, earlier: Instant): Int {
 }
 
 impl Instant {
-  export fn duration(self: Instant, earlier: Instant): Int {
+  export fn duration(self, earlier: Instant): Int {
     self.0 - earlier.0
   }
 }

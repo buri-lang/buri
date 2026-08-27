@@ -30,7 +30,7 @@ export enum Shade {
 
 impl Shade {
   /// The custom property this shade is, namespaced by this package.
-  export fn color(self: Shade): Color {
+  export fn color(self): Color {
     match (self) {
       .Bg => style.token("basket", "bg"),
       .Raised => style.token("basket", "raised"),

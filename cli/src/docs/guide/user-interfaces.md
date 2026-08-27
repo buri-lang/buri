@@ -151,7 +151,7 @@ export enum Token {
 }
 
 impl Token {
-  export fn color(self: Token): Color {
+  export fn color(self): Color {
     match (self) {
       .Surface => style.token("cardlib", "surface"),
       .OnSurface => style.token("cardlib", "onSurface"),

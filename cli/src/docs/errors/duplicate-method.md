@@ -8,7 +8,7 @@ fix: rename one of them
 struct Point { export x: Int }
 
 impl Point {
-  fn size(self: Point): Int { self.x }
-  fn size(self: Point): Int { self.x }
+  fn size(self): Int { self.x }
+  fn size(self): Int { self.x }
 }
 ```

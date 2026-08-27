@@ -63,7 +63,7 @@ enum Shape {
 // No context parameter, so this cannot allocate, read, write, or observe
 // anything. It is a mathematical function of its argument.
 impl Shape {
-    fn area(self: Shape): Float {
+    fn area(self): Float {
         match (self) {
             .Circle(r) => 3.14159 * r * r,
             .Rect { width, height } => width * height,
@@ -131,7 +131,7 @@ enum Tree<T> {
 }
 
 impl Meters {
-    export fn doubled(self: Meters): Meters { Meters(self.0 * 2.0) }
+    export fn doubled(self): Meters { Meters(self.0 * 2.0) }
 }
 
 derive Eq, Ord, Show for Meters;

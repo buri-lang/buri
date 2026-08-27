@@ -336,7 +336,7 @@ exactly the way the runner's own implementations are:
 struct StubNet { export failing: Str }
 
 impl Net for StubNet {
-  fn fetch(self: StubNet, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
+  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
     if (url == self.failing) {
       .Err(.Timeout)
     } else {

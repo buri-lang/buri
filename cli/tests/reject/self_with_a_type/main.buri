@@ -1,0 +1,23 @@
+// EXPECT: `self` is written without a type
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export struct Square {
+  export side: Int,
+}
+
+impl Square {
+  // `self: Square` was the old spelling. It is kept here, and only here, so
+  // that the error a file written against the old syntax gets — and the byte
+  // edit it carries, which is what `buri lint --fix` and an editor's quick fix
+  // apply — are pinned by something rather than described by nothing.
+  export fn area(self: Square): Int {
+    self.side * self.side
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${Square { side: 3 }.area()}");
+  .Ok(())
+}

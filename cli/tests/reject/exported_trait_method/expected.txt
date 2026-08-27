@@ -1,7 +1,7 @@
 error: an `impl` method is not separately exported [impl-method-export]
   --> cmd/exported_trait_method/main.buri:12:3
    |
-12 |   export fn eq(self: Version, other: Version): Bool { self.major == other.major }
+12 |   export fn eq(self, other: Version): Bool { self.major == other.major }
    |   ^^^^^^
    |
    = conformance is a property of the type, visible wherever the type is

@@ -289,9 +289,9 @@ from \"core/host\" import * as host;
 
 struct Loud(Str);
 impl Stdout for Loud {
-  fn print(self: Loud, text: Template): () { }
-  fn println(self: Loud, text: Template): () { }
-  fn writeBytes(self: Loud, b: [U8]): () { }
+  fn print(self, text: Template): () { }
+  fn println(self, text: Template): () { }
+  fn writeBytes(self, b: [U8]): () { }
 }
 
 // Recursive, so the optimiser cannot inline it away — an inlined function

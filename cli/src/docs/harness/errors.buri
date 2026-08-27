@@ -9,7 +9,7 @@ export struct Square {
 }
 
 impl Square {
-  export fn area(self: Square): Int {
+  export fn area(self): Int {
     self.side * self.side
   }
 }

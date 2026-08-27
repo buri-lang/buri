@@ -301,7 +301,7 @@ row polymorphism went away with the structural records of Section 5.5.
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
 fn identity<T>(x: T): T { x }
-fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B] { ... }
+fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
 ```
 
@@ -390,17 +390,18 @@ satisfy.
 ```buri
 # from "core/effect" import { Alloc };
 trait Ord {
-  fn compare(self: Self, other: Self): Order;
+  fn compare(self, other: Self): Order;
 }
 
 trait Show {
-  fn show<C: Alloc>(self: Self, ctx: C): Str;
+  fn show<C: Alloc>(self, ctx: C): Str;
 }
 ```
 
 `Self` stands for the implementing type and is legal only inside a trait or an
-`impl`. A trait's methods declare `self` first, exactly like any other method
-(Section 6.7.1).
+`impl`. A trait's methods declare `self` first and without a type, exactly like
+any other method (Section 6.7.1); it is the implementing type that `self` is,
+which is what `Self` names in the rest of the signature.
 
 A trait declared `effect` additionally marks its implementors as
 effect-carrying, which subjects them to the `ctx` rule of Section 10.2. That
@@ -433,7 +434,7 @@ incremental invalidation exactly where it needs to be fine.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 impl Ord for Version {
-  fn compare(self: Version, other: Version): Order { ... }
+  fn compare(self, other: Version): Order { ... }
 }
 ```
 

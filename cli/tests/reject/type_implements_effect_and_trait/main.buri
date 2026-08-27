@@ -7,13 +7,13 @@ from "core/host" import * as host;
 struct SilentOut {}
 
 impl Stdout for SilentOut {
-  fn print(self: SilentOut, text: Template): () { () }
-  fn println(self: SilentOut, text: Template): () { () }
-  fn writeBytes(self: SilentOut, b: [U8]): () { () }
+  fn print(self, text: Template): () { () }
+  fn println(self, text: Template): () { () }
+  fn writeBytes(self, b: [U8]): () { () }
 }
 
 impl Show for SilentOut {
-  fn show<C: Alloc>(self: SilentOut, ctx: C): Str { "silent" }
+  fn show<C: Alloc>(self, ctx: C): Str { "silent" }
 }
 
 export fn main(): Result<(), Str> {

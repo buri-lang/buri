@@ -24,11 +24,11 @@ export struct Working { export a: U32, export b: U32, export h: U32 }
 export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Empty }
 
 export trait Weigh {
-    fn grams<C: Alloc + Stdout>(self: Self, ctx: C, scale: Str): Float;
+    fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float;
 }
 
 impl Weigh for Working {
-    fn grams<C: Alloc + Stdout>(self: Self, ctx: C, scale: Str): Float {
+    fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float {
         let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.len() > 0;
         if (heavy) { 1.0 } else { 0.0 }
     }

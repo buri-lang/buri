@@ -24,11 +24,11 @@ from "core/effect" import { NetResponse };
 export struct Headless(I64);
 
 impl Ui for Headless {
-  fn signal<T>(self: Headless, initial: T): Int;
-  fn read<T>(self: Headless, id: Int): T;
-  fn write<T>(self: Headless, id: Int, value: T): ();
-  fn memo<T>(self: Headless, compute: fn(Scope) => T): Int;
-  fn watch(self: Headless, run: fn(Scope) => ()): ();
+  fn signal<T>(self, initial: T): Int;
+  fn read<T>(self, id: Int): T;
+  fn write<T>(self, id: Int, value: T): ();
+  fn memo<T>(self, compute: fn(Scope) => T): Int;
+  fn watch(self, run: fn(Scope) => ()): ();
 }
 
 /// A headless `Ui`.
@@ -39,7 +39,7 @@ export fn headless(): Headless;
 export struct Observer(I64);
 
 impl Watch for Observer {
-  fn read<T>(self: Observer, id: Int): T;
+  fn read<T>(self, id: Int): T;
 }
 
 /// A headless `Watch`.
@@ -50,7 +50,7 @@ export struct NoFetch {}
 
 impl Fetch for NoFetch {
   fn fetch(
-    self: NoFetch,
+    self,
     request: Request,
     done: fn(NoFetch, Result<NetResponse, FetchError>) => (),
   ): () {
@@ -108,10 +108,10 @@ impl Rendered {
   /// The runtime's own bookkeeping — the markers it puts around a region that
   /// can change — is left out, because it is not what a reader sees and not
   /// what a test should be pinned to.
-  export fn markup(self: Rendered): Str;
+  export fn markup(self): Str;
 
   /// Every run of text in the tree, in order, separated by a space.
-  export fn text(self: Rendered): Str;
+  export fn text(self): Str;
 
   /// Presses the button whose label is `label`.
   ///
@@ -119,29 +119,29 @@ impl Rendered {
   /// addresses it by, and because a test that says which button it meant does
   /// not quietly start pressing another one. Aborts when no button carries
   /// that label.
-  export fn press(self: Rendered, label: Str): ();
+  export fn press(self, label: Str): ();
 
   /// Types `value` into the field labelled `label`, as a reader replacing what
   /// was there.
-  export fn fill(self: Rendered, label: Str, value: Str): ();
+  export fn fill(self, label: Str, value: Str): ();
 
   /// Flips the toggle labelled `label`.
-  export fn flip(self: Rendered, label: Str): ();
+  export fn flip(self, label: Str): ();
 
   /// Submits the `index`th form, oldest first — what pressing Enter in one of
   /// its fields does.
-  export fn submit(self: Rendered, index: Int): ();
+  export fn submit(self, index: Int): ();
 
   /// How many elements of this kind the tree holds. The name is the one
   /// `markup` shows.
-  export fn count(self: Rendered, name: Str): Int;
+  export fn count(self, name: Str): Int;
 
   /// What the `index`th element of this kind is, as a number the runtime gives
   /// an element when it creates it and never gives to another.
   ///
   /// This is how a test says that a keyed list *moved* a row rather than
   /// rebuilding it: the identity survives a reorder and a rebuild changes it.
-  export fn identity(self: Rendered, name: Str, index: Int): Int;
+  export fn identity(self, name: Str, index: Int): Int;
 }
 
 /// The stylesheet the compiler extracted for this artifact.
@@ -190,10 +190,10 @@ export fn recorder(): Recorder;
 
 impl Recorder {
   /// Appends `tag` to the tag log.
-  export fn record(self: Recorder, tag: Str): ();
+  export fn record(self, tag: Str): ();
 
   /// Every tag recorded so far, oldest first.
-  export fn recorded(self: Recorder): [Str];
+  export fn recorded(self): [Str];
 
   /// Appends `value` to the value log, and answers it.
   ///
@@ -201,8 +201,8 @@ impl Recorder {
   /// holds only a `Scope`: it cannot allocate, so it cannot render a number
   /// into a string. It answers its argument so that it can be wrapped around
   /// the expression being watched instead of sequenced before it.
-  export fn note(self: Recorder, value: Int): Int;
+  export fn note(self, value: Int): Int;
 
   /// Every value noted so far, oldest first.
-  export fn noted(self: Recorder): [Int];
+  export fn noted(self): [Int];
 }

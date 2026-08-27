@@ -39,7 +39,7 @@ enum Token {
 }
 
 impl Token {
-  fn color(self: Token): Color {
+  fn color(self): Color {
     match (self) {
       .Surface => .Rgb(240, 240, 245),
       .OnSurface => .Rgb(24, 24, 27),

@@ -34,7 +34,7 @@ export fn send<C: Alloc + Net>(ctx: C, request: Request): Result<Response, NetEr
 }
 
 impl Response {
-  export fn isOk(self: Response): Bool {
+  export fn isOk(self): Bool {
     self.status >= 200 && self.status < 300
   }
 }

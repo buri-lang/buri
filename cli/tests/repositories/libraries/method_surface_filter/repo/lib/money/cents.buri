@@ -8,11 +8,11 @@ derive Eq, Show for Cents;
 export fn fromCents(c: I64): Cents { Cents(c) }
 
 impl Cents {
-  export fn format<C: Alloc>(self: Cents, ctx: C): Str {
+  export fn format<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "${self.0}c")
   }
 
   /// Exported from this module so //lib/money/parse can use it, and absent
   /// from lib.buri, so it stops at the library boundary.
-  export fn toCents(self: Cents): I64 { self.0 }
+  export fn toCents(self): I64 { self.0 }
 }

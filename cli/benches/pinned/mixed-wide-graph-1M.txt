@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = mixed-wide-graph-1M
 profile = mixed-wide-graph
-generator_revision = 2
-revision = 2
-recorded = 2026-08-23
+generator_revision = 3
+revision = 3
+recorded = 2026-08-27
 params = fanout=6..12 lines=1000000 seed=0x0b001a575eed0006
 lines = 1007105
-bytes = 36337255
+bytes = 36232817
 modules = 3516
-digest = 438c08e25df179752c703700ea1765a7291e32dc5153b8016f65aa377e6e67ea
+digest = e56787a455bb820cac38bfb14f9f28cb6ec5c95c69112a7982136e5de0597758
 native = false

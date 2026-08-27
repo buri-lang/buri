@@ -102,7 +102,7 @@ module.exports = grammar({
       seq($.parameter, repeat(seq(',', $.parameter)), optional(','))
     ),
 
-    self_parameter: $ => seq('self', ':', $._type),
+    self_parameter: $ => 'self',
 
     ctx_parameter: $ => seq('ctx', ':', $._type),
 

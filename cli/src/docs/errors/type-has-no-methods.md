@@ -6,7 +6,7 @@ fix: write a free function instead, and call it as one
 ---
 ```buri fail code=type-has-no-methods
 impl (Int, Int) {
-  fn total(self: (Int, Int)): Int {
+  fn total(self): Int {
     1
   }
 }

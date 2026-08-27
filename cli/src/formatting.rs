@@ -1529,7 +1529,7 @@ impl<'t> Build<'t> {
             .iter()
             .map(|p| {
                 let c = self.flush(d.span.start, p.span.start);
-                with_comment(c, text(format!("{}: {}", t.name(p.name), type_text(t, p.ty))))
+                with_comment(c, text(param_text(t, p)))
             })
             .collect();
         let close = format!("): {}{tail}", type_text(t, d.ret));
@@ -2450,11 +2450,20 @@ pub fn variant(t: &Tree, v: &Variant) -> String {
     }
 }
 
+/// One parameter of a signature. `self` is written bare: the type it would
+/// carry is the one the `impl` head already names.
+fn param_text(t: &Tree, p: &Param) -> String {
+    match p.written_type() {
+        Some(ty) => format!("{}: {}", t.name(p.name), type_text(t, ty)),
+        None => t.name(p.name).to_string(),
+    }
+}
+
 pub fn signature(t: &Tree, d: &FnDecl) -> String {
     let params = d
         .params
         .iter()
-        .map(|p| format!("{}: {}", t.name(p.name), type_text(t, p.ty)))
+        .map(|p| param_text(t, p))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
@@ -2739,8 +2748,8 @@ mod tests {
             "export fn f(): Int { 1 }\n// below the last declaration\n",
             "export struct S {\n  // about a field\n  export a: Int,\n  // and the last one\n}\n",
             "export enum E {\n  // about a variant\n  A,\n  // and the last one\n}\n",
-            "export trait T {\n  /// what this does\n  fn f(self: Self): Int;\n}\n",
-            "impl S {\n  /// what this does\n  fn f(self: Self): Int { 1 }\n}\n",
+            "export trait T {\n  /// what this does\n  fn f(self): Int;\n}\n",
+            "impl S {\n  /// what this does\n  fn f(self): Int { 1 }\n}\n",
             "export context C {\n  // why this one\n  Clock: Fixed(),\n}\n",
             "test \"a test\" {\n  // about an assertion\n  assert.eq(1, 1);\n}\n",
             "export fn f(): Int {\n  let x = {\n    // inside a nested block\n    1\n  };\n  x\n}\n",
@@ -2902,11 +2911,11 @@ export enum Shape {
 export trait Weigh {
   /// What one of these weighs, given somewhere to allocate and a scale to
   /// read.
-  fn weighWithEverything<C: Alloc + Stdout>(self: Self, ctx: C, scale: Str, precision: Int): Float;
+  fn weighWithEverything<C: Alloc + Stdout>(self, ctx: C, scale: Str, precision: Int): Float;
 }
 
 impl Weigh for Working {
-  fn weighWithEverything<C: Alloc + Stdout>(self: Self, ctx: C, scale: Str, precision: Int): Float {
+  fn weighWithEverything<C: Alloc + Stdout>(self, ctx: C, scale: Str, precision: Int): Float {
     // A chain of one operator breaks as a list.
     let heavy = self.a > 0 && self.b > 0 && self.h > 0 && precision > 0 && scale.len() > 0 && self.a != self.b;
     if (heavy) { 1.0 } else { 0.0 }

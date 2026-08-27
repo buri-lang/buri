@@ -143,22 +143,22 @@ derives them:
 
 ```buri
 trait Checked {
-  fn checkedAdd(self: Self, rhs: Self): Option<Self>;
-  fn checkedSub(self: Self, rhs: Self): Option<Self>;
-  fn checkedMul(self: Self, rhs: Self): Option<Self>;
-  fn checkedDiv(self: Self, rhs: Self): Option<Self>;
+  fn checkedAdd(self, rhs: Self): Option<Self>;
+  fn checkedSub(self, rhs: Self): Option<Self>;
+  fn checkedMul(self, rhs: Self): Option<Self>;
+  fn checkedDiv(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
-  fn wrappingAdd(self: Self, rhs: Self): Self;
-  fn wrappingSub(self: Self, rhs: Self): Self;
-  fn wrappingMul(self: Self, rhs: Self): Self;
+  fn wrappingAdd(self, rhs: Self): Self;
+  fn wrappingSub(self, rhs: Self): Self;
+  fn wrappingMul(self, rhs: Self): Self;
 }
 
 trait Saturating {
-  fn saturatingAdd(self: Self, rhs: Self): Self;
-  fn saturatingSub(self: Self, rhs: Self): Self;
-  fn saturatingMul(self: Self, rhs: Self): Self;
+  fn saturatingAdd(self, rhs: Self): Self;
+  fn saturatingSub(self, rhs: Self): Self;
+  fn saturatingMul(self, rhs: Self): Self;
 }
 
 trait Bounded {
@@ -297,9 +297,9 @@ an error:
 export struct Square { height: Int, width: Int }
 
 impl Square {
-  export fn area(self: Square): Int { self.height * self.width }
+  export fn area(self): Int { self.height * self.width }
 
-  export fn scaled(self: Square, factor: Int): Square {
+  export fn scaled(self, factor: Int): Square {
     Square { height: self.height * factor, width: self.width * factor }
   }
 }
@@ -316,6 +316,11 @@ inside an `impl` block. A top-level `fn` that takes `self` is an error — there
 is no receiver type for it to attach to — and a function inside an `impl` block
 that does not take `self` is an error too.
 
+`self` is also the one parameter that writes no type. The `impl` head has
+already written it, and a trait's signature means the implementing type, so an
+annotation could only repeat what is above it or contradict it. Writing one is
+the `self-with-a-type` error, which carries the edit that deletes it.
+
 An `impl` block may appear only in the module that declares its type, which is
 what keeps method resolution a single lookup (Section 6.7.3), and the block
 itself — like a `derive` — is never `export`ed. A method inside one is `export`ed
@@ -327,7 +332,7 @@ belong to the `impl`, the rest to the method.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 impl<T> Option<T> {
-  export fn map<U>(self: Option<T>, f: fn(T) => U): Option<U> { ... }
+  export fn map<U>(self, f: fn(T) => U): Option<U> { ... }
 }
 ```
 
@@ -351,7 +356,7 @@ comes second:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc };
 impl<A> [A] {
-  export fn map<B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B];
+  export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
 }
 
 xs.map(ctx, double)          // reads as: this list, in this world, mapped

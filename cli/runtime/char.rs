@@ -78,7 +78,7 @@
 //!
 //! ## 3. `toUpper` and `toLower` answer one scalar, and JavaScript does not
 //!
-//! `char.buri` declares `toUpper(self: Char): Char`, and a `Char` is one Unicode
+//! `char.buri` declares `toUpper(self): Char`, and a `Char` is one Unicode
 //! scalar value. Some full case mappings are not one scalar: `"ß".toUpperCase()`
 //! is `"SS"`, and the JavaScript backend hands that back as a `Char` holding two
 //! characters — a value the type does not have.

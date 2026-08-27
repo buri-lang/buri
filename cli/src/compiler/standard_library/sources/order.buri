@@ -16,26 +16,26 @@ export enum Order {
 /// `a == b` and `a != b` are `Eq.eq`. Equality is structural, never
 /// referential: Buri has no references, so there is no identity to compare.
 export trait Eq {
-  fn eq(self: Self, other: Self): Bool;
+  fn eq(self, other: Self): Bool;
 }
 
 /// `<` `<=` `>` `>=` are `Ord.compare`.
 export trait Ord {
-  fn compare(self: Self, other: Self): Order;
+  fn compare(self, other: Self): Order;
 }
 
 /// Rendering allocates, so `show` names `Alloc` and nothing else. An
 /// implementation provably cannot read a file or open a socket.
 export trait Show {
-  fn show<C: Alloc>(self: Self, ctx: C): Str;
+  fn show<C: Alloc>(self, ctx: C): Str;
 }
 
 export trait Hash {
-  fn hash(self: Self): U64;
+  fn hash(self): U64;
 }
 
 impl Order {
-  export fn flip(self: Order): Order {
+  export fn flip(self): Order {
     match (self) {
       .Less => .Greater,
       .Equal => .Equal,
@@ -51,7 +51,7 @@ export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
 }
 
 impl Order {
-  export fn isLess(self: Order): Bool {
+  export fn isLess(self): Bool {
     match (self) {
       .Less => true,
       .Equal => false,
@@ -59,7 +59,7 @@ impl Order {
     }
   }
 
-  export fn isEqual(self: Order): Bool {
+  export fn isEqual(self): Bool {
     match (self) {
       .Less => false,
       .Equal => true,
@@ -92,7 +92,7 @@ export fn char(a: Char, b: Char): Order {
 
 impl Order {
   /// Chains two comparisons: the second decides only when the first is `Equal`.
-  export fn then(self: Order, next: Order): Order {
+  export fn then(self, next: Order): Order {
     match (self) {
       .Equal => next,
       other => other,

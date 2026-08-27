@@ -6,7 +6,7 @@ from "core/host" import * as host;
 export struct Version { export major: Int }
 
 export impl Eq for Version {
-  fn eq(self: Version, other: Version): Bool { self.major == other.major }
+  fn eq(self, other: Version): Bool { self.major == other.major }
 }
 
 export fn main(): Result<(), Str> {

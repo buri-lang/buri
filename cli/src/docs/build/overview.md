@@ -121,12 +121,12 @@ export fn fromDollars(d: I64): Cents { Cents(d * 100) }
 export fn fromCents(c: I64): Cents { Cents(c) }
 
 impl Cents {
-  export fn add(self: Cents, other: Cents): Cents { Cents(self.0 + other.0) }
+  export fn add(self, other: Cents): Cents { Cents(self.0 + other.0) }
 
   // Exported from this module, so `parse.buri` can reach it. Not re-exported
   // from lib.buri, so it is invisible outside //lib/money — as a free function
   // and as a method.
-  export fn toCents(self: Cents): I64 { self.0 }
+  export fn toCents(self): I64 { self.0 }
 }
 ```
 
