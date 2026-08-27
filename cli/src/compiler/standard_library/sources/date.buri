@@ -209,19 +209,19 @@ export fn dayOfYear(d: Date): Int {
 }
 
 impl Date {
-  export fn addDays(self: Date, n: Int): Date {
+  export fn addDays(self, n: Int): Date {
     fromDays(toDays(self) + n)
   }
 
   /// How many days from `self` to `other`, negative if `other` is earlier.
-  export fn daysUntil(self: Date, other: Date): Int {
+  export fn daysUntil(self, other: Date): Int {
     toDays(other) - toDays(self)
   }
 
   /// Adds months, clamping the day to what the resulting month holds — so
   /// January 31st plus one month is the 28th or the 29th, not the 3rd of
   /// March. Clamping is a choice, and the other one is worse.
-  export fn addMonths(self: Date, n: Int): Date {
+  export fn addMonths(self, n: Int): Date {
     let total = self.year * 12 + (self.month - 1) + n;
     let year = if (total >= 0) { total / 12 } else { (total - 11) / 12 };
     let month = total - year * 12 + 1;
@@ -229,7 +229,7 @@ impl Date {
     Date { year: year, month: month, day: if (self.day > last) { last } else { self.day } }
   }
 
-  export fn addYears(self: Date, n: Int): Date {
+  export fn addYears(self, n: Int): Date {
     self.addMonths(n * 12)
   }
 }
@@ -268,23 +268,23 @@ export fn toInstant(dt: DateTime): Instant {
 }
 
 impl Duration {
-  export fn millis(self: Duration): Int {
+  export fn millis(self): Int {
     self.0
   }
 
-  export fn seconds(self: Duration): Int {
+  export fn seconds(self): Int {
     self.0 / MILLIS_PER_SECOND
   }
 
-  export fn minutes(self: Duration): Int {
+  export fn minutes(self): Int {
     self.0 / MILLIS_PER_MINUTE
   }
 
-  export fn hours(self: Duration): Int {
+  export fn hours(self): Int {
     self.0 / MILLIS_PER_HOUR
   }
 
-  export fn days(self: Duration): Int {
+  export fn days(self): Int {
     self.0 / MILLIS_PER_DAY
   }
 }

@@ -80,7 +80,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `fn toJson<C: Alloc>(self: Self, ctx: C): Json` — `Show.show`'s shape,
+    /// `fn toJson<C: Alloc>(self, ctx: C): Json` — `Show.show`'s shape,
     /// because encoding allocates for the same reason rendering does.
     fn declare_to_json(&mut self, p: Prim, json_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
@@ -347,7 +347,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `fn show<C: Alloc>(self: Self, ctx: C): Str`
+    /// `fn show<C: Alloc>(self, ctx: C): Str`
     fn show_method(&mut self, p: Prim, str_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);

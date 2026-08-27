@@ -44,7 +44,7 @@ for tool in tree-sitter cargo; do
   fi
 done
 
-# Five files where the compiler and a syntax tree are *meant* to disagree.
+# Four files where the compiler and a syntax tree are *meant* to disagree.
 # Each is a rule the grammar deliberately does not encode, because encoding it
 # would mean an editor showing a red squiggle exactly where the compiler has a
 # sentence to say instead:
@@ -66,8 +66,8 @@ done
 #                                 lexer refuses. A grammar cannot refuse a word
 #                                 without refusing the program the compiler's
 #                                 own error message is about.
-#   reserved_word_test_as_function,
-#   self_not_first_parameter      a keyword where an identifier is expected.
+#   reserved_word_test_as_function
+#                                 a keyword where an identifier is expected.
 #                                 tree-sitter's keyword extraction reads it as
 #                                 an identifier, which is what makes error
 #                                 recovery work at all.
@@ -80,8 +80,7 @@ DIVERGENCES="\
 cli/tests/reject/chained_comparison/main.buri
 cli/tests/reject/reserved_word_return_as_function/main.buri
 cli/tests/reject/reserved_word_test_as_function/main.buri
-cli/tests/reject/reserved_word_while_as_binding/main.buri
-cli/tests/reject/self_not_first_parameter/main.buri"
+cli/tests/reject/reserved_word_while_as_binding/main.buri"
 
 # The corpus: every file in the repository whose text is Buri rather than
 # textproto.

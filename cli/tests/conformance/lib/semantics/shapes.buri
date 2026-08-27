@@ -55,7 +55,7 @@ export enum Shape {
 derive Eq, Ord, Show for Shape;
 
 impl Shape {
-  export fn area(self: Shape): Float {
+  export fn area(self): Float {
     match (self) {
       .Circle(r) => 3.141592653589793 * r * r,
       .Rect { width, height } => width * height,
@@ -89,13 +89,13 @@ derive Neg, Add, Eq, Show for Delta;
 export struct Backwards(export Int);
 
 impl Eq for Backwards {
-  fn eq(self: Backwards, other: Backwards): Bool {
+  fn eq(self, other: Backwards): Bool {
     self.0 == other.0
   }
 }
 
 impl Ord for Backwards {
-  fn compare(self: Backwards, other: Backwards): Order {
+  fn compare(self, other: Backwards): Order {
     if (self.0 < other.0) {
       Order.Greater
     } else if (self.0 > other.0) {
@@ -107,7 +107,7 @@ impl Ord for Backwards {
 }
 
 impl Show for Backwards {
-  fn show<C: Alloc>(self: Backwards, ctx: C): Str {
+  fn show<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "Backwards(${self.0})")
   }
 }
@@ -123,7 +123,7 @@ export enum Suit {
 }
 
 impl Suit {
-  export fn rank(self: Suit): Int {
+  export fn rank(self): Int {
     match (self) {
       .Clubs => 0,
       .Diamonds => 1,
@@ -133,7 +133,7 @@ impl Suit {
   }
 
   /// Declaration index, so a test can say what a *derived* `Ord` would have done.
-  export fn declIndex(self: Suit): Int {
+  export fn declIndex(self): Int {
     match (self) {
       .Diamonds => 0,
       .Clubs => 1,
@@ -144,19 +144,19 @@ impl Suit {
 }
 
 impl Eq for Suit {
-  fn eq(self: Suit, other: Suit): Bool {
+  fn eq(self, other: Suit): Bool {
     self.rank() == other.rank()
   }
 }
 
 impl Ord for Suit {
-  fn compare(self: Suit, other: Suit): Order {
+  fn compare(self, other: Suit): Order {
     order.int(self.rank(), other.rank())
   }
 }
 
 impl Show for Suit {
-  fn show<C: Alloc>(self: Suit, ctx: C): Str {
+  fn show<C: Alloc>(self, ctx: C): Str {
     match (self) {
       .Clubs => "C",
       .Diamonds => "D",
@@ -174,13 +174,13 @@ export struct Loose {
 }
 
 impl Eq for Loose {
-  fn eq(self: Loose, other: Loose): Bool {
+  fn eq(self, other: Loose): Bool {
     self.word.len() == other.word.len()
   }
 }
 
 impl Show for Loose {
-  fn show<C: Alloc>(self: Loose, ctx: C): Str {
+  fn show<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "Loose(${self.word})")
   }
 }
@@ -190,20 +190,20 @@ impl Show for Loose {
 export struct Percent(export Int);
 
 impl Add for Percent {
-  fn add(self: Percent, other: Percent): Percent {
+  fn add(self, other: Percent): Percent {
     let raw = self.0 + other.0;
     if (raw > 100) { Percent(100) } else { Percent(raw) }
   }
 }
 
 impl Eq for Percent {
-  fn eq(self: Percent, other: Percent): Bool {
+  fn eq(self, other: Percent): Bool {
     self.0 == other.0
   }
 }
 
 impl Show for Percent {
-  fn show<C: Alloc>(self: Percent, ctx: C): Str {
+  fn show<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "${self.0}%")
   }
 }
@@ -213,11 +213,11 @@ impl Show for Percent {
 // =============================================================================
 
 export trait Weigh {
-  fn grams(self: Self): Int;
+  fn grams(self): Int;
 }
 
 export trait Label {
-  fn label(self: Self): Str;
+  fn label(self): Str;
 }
 
 export struct Brick {
@@ -227,13 +227,13 @@ export struct Brick {
 derive Eq, Show for Brick;
 
 impl Weigh for Brick {
-  fn grams(self: Brick): Int {
+  fn grams(self): Int {
     self.kilos * 1000
   }
 }
 
 impl Label for Brick {
-  fn label(self: Brick): Str {
+  fn label(self): Str {
     "brick"
   }
 }
@@ -245,13 +245,13 @@ export struct Feather {
 derive Eq, Show for Feather;
 
 impl Weigh for Feather {
-  fn grams(self: Feather): Int {
+  fn grams(self): Int {
     self.count
   }
 }
 
 impl Label for Feather {
-  fn label(self: Feather): Str {
+  fn label(self): Str {
     "feather"
   }
 }
@@ -354,7 +354,7 @@ export fn pair<A, B>(first: A, second: B): Pair<A, B> {
 }
 
 impl<A, B> Pair<A, B> {
-  export fn flip(self: Pair<A, B>): Pair<B, A> {
+  export fn flip(self): Pair<B, A> {
     Pair { first: self.second, second: self.first }
   }
 }
@@ -371,7 +371,7 @@ export enum Slot<T> {
 derive Eq, Show for Slot;
 
 impl<T> Slot<T> {
-  export fn slotOr(self: Slot<T>, fallback: T): T {
+  export fn slotOr(self, fallback: T): T {
     match (self) {
       .Filled(v) => v,
       .Vacant => fallback,
@@ -387,7 +387,7 @@ export enum Either<L, R> {
 derive Eq, Show for Either;
 
 impl<L> Either<L, Int> {
-  export fn eitherInt(self: Either<L, Int>): Int {
+  export fn eitherInt(self): Int {
     match (self) {
       .Left(_l) => 0,
       .Right(r) => r,
@@ -428,7 +428,7 @@ export fn roseSum(r: Rose): Int {
 }
 
 impl<T: Ord> Tree<T> {
-  export fn insert(self: Tree<T>, value: T): Tree<T> {
+  export fn insert(self, value: T): Tree<T> {
     match (self) {
       .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
       .Node(l, v, r) => if (value < v) {
@@ -447,14 +447,14 @@ export fn treeOf<T: Ord>(xs: [T]): Tree<T> {
 }
 
 impl<T> Tree<T> {
-  export fn size(self: Tree<T>): Int {
+  export fn size(self): Int {
     match (self) {
       .Leaf => 0,
       .Node(l, _v, r) => l.size() + 1 + r.size(),
     }
   }
 
-  export fn depth(self: Tree<T>): Int {
+  export fn depth(self): Int {
     match (self) {
       .Leaf => 0,
       .Node(l, _v, r) => {
@@ -467,7 +467,7 @@ impl<T> Tree<T> {
 }
 
 impl<T: Ord> Tree<T> {
-  export fn has(self: Tree<T>, needle: T): Bool {
+  export fn has(self, needle: T): Bool {
     match (self) {
       .Leaf => false,
       .Node(l, v, r) => if (needle < v) {
@@ -483,7 +483,7 @@ impl<T: Ord> Tree<T> {
 
 impl<T> Tree<T> {
   /// In-order traversal, which is what makes the tree's ordering observable.
-  export fn inOrder<C: Alloc>(self: Tree<T>, ctx: C): [T] {
+  export fn inOrder<C: Alloc>(self, ctx: C): [T] {
     match (self) {
       .Leaf => list.empty<T>(),
       .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
@@ -492,7 +492,7 @@ impl<T> Tree<T> {
 }
 
 impl<A> Tree<A> {
-  export fn mapTree<B, C: Alloc>(self: Tree<A>, ctx: C, f: fn(A) => B): Tree<B> {
+  export fn mapTree<B, C: Alloc>(self, ctx: C, f: fn(A) => B): Tree<B> {
     match (self) {
       .Leaf => Tree.Leaf,
       .Node(l, v, r) => Tree.Node(l.mapTree(ctx, f), f(v), r.mapTree(ctx, f)),
@@ -538,13 +538,13 @@ export struct Report { export n: Int }
 
 impl Report {
   /// `self` inside a lambda that is consumed on the spot.
-  export fn above<C: Alloc>(self: Report, ctx: C, xs: [Int]): [Int] {
+  export fn above<C: Alloc>(self, ctx: C, xs: [Int]): [Int] {
     xs.filter(ctx, fn(x) => x > self.n)
   }
 
   /// `self` inside a lambda that escapes. Still fine: what escapes is an
   /// `Int`, and an `Int` is not authority.
-  export fn threshold(self: Report): fn(Int) => Bool {
+  export fn threshold(self): fn(Int) => Bool {
     fn(x) => x > self.n
   }
 }
@@ -700,16 +700,16 @@ export struct StaticFs {
 }
 
 impl Fs for StaticFs {
-  fn readFile(self: StaticFs, path: Str): Result<Str, IoError> {
+  fn readFile(self, path: Str): Result<Str, IoError> {
     if (path == self.only) { .Ok(self.body) } else { .Err(.NotFound) }
   }
-  fn writeFile(self: StaticFs, path: Str, body: Str): Result<(), IoError> {
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
     .Err(.PermissionDenied)
   }
-  fn fileExists(self: StaticFs, path: Str): Bool {
+  fn fileExists(self, path: Str): Bool {
     path == self.only
   }
-  fn readDir(self: StaticFs, path: Str): Result<[Str], IoError> {
+  fn readDir(self, path: Str): Result<[Str], IoError> {
     .Ok([self.only])
   }
 }
@@ -726,16 +726,16 @@ export fn guarded<C>(ctx: C): Guarded<C> {
 }
 
 impl<C: Fs> Fs for Guarded<C> {
-  fn readFile(self: Guarded<C>, path: Str): Result<Str, IoError> {
+  fn readFile(self, path: Str): Result<Str, IoError> {
     self.0.readFile(path)
   }
-  fn writeFile(self: Guarded<C>, path: Str, body: Str): Result<(), IoError> {
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
     .Err(.Other("guarded"))
   }
-  fn fileExists(self: Guarded<C>, path: Str): Bool {
+  fn fileExists(self, path: Str): Bool {
     self.0.fileExists(path)
   }
-  fn readDir(self: Guarded<C>, path: Str): Result<[Str], IoError> {
+  fn readDir(self, path: Str): Result<[Str], IoError> {
     self.0.readDir(path)
   }
 }
@@ -746,10 +746,10 @@ export struct FrozenClock {
 }
 
 impl Clock for FrozenClock {
-  fn nowMillis(self: FrozenClock): I64 {
+  fn nowMillis(self): I64 {
     self.at
   }
-  fn sleepMillis(self: FrozenClock, millis: Int): () {
+  fn sleepMillis(self, millis: Int): () {
     ()
   }
 }
@@ -760,10 +760,10 @@ export struct EchoEnv {
 }
 
 impl Env for EchoEnv {
-  fn variable(self: EchoEnv, name: Str): Option<Str> {
+  fn variable(self, name: Str): Option<Str> {
     .Some(self.always)
   }
-  fn arguments(self: EchoEnv): [Str] {
+  fn arguments(self): [Str] {
     [self.always]
   }
 }
@@ -774,7 +774,7 @@ export struct TeapotNet {
 }
 
 impl Net for TeapotNet {
-  fn fetch(self: TeapotNet, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
+  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
     .Ok(NetResponse { status: 418, body: self.body })
   }
 }

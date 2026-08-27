@@ -25,13 +25,13 @@ impl<T> Signal<T> {
   ///
   /// Called inside a memo or a watcher, this is what subscribes that
   /// computation to this cell.
-  export fn get<C: Watch>(self: Signal<T>, ctx: C): T {
+  export fn get<C: Watch>(self, ctx: C): T {
     ctx.read(self.0)
   }
 
   /// Replaces the value. Everything that read this cell is marked out of date
   /// and re-run; writing a value identical to the current one does nothing.
-  export fn set<C: Ui>(self: Signal<T>, ctx: C, value: T): () {
+  export fn set<C: Ui>(self, ctx: C, value: T): () {
     ctx.write(self.0, value)
   }
 
@@ -42,7 +42,7 @@ impl<T> Signal<T> {
   /// nothing to record it against. The runtime tracks against the computation
   /// that is running, a computation is handed a `Scope`, and a `Scope` cannot
   /// write. So the only place `update` can be called from is outside one.
-  export fn update<C: Ui>(self: Signal<T>, ctx: C, f: fn(T) => T): () {
+  export fn update<C: Ui>(self, ctx: C, f: fn(T) => T): () {
     ctx.write(self.0, f(ctx.read(self.0)))
   }
 }

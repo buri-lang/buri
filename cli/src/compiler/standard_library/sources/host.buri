@@ -18,79 +18,79 @@ from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
 
 export struct HostAlloc {}
 impl Alloc for HostAlloc {
-  fn allocate(self: HostAlloc, bytes: Int): Region;
+  fn allocate(self, bytes: Int): Region;
 }
 
 export struct HostStdout {}
 impl Stdout for HostStdout {
-  fn print(self: HostStdout, text: Template): ();
-  fn println(self: HostStdout, text: Template): ();
-  fn writeBytes(self: HostStdout, b: [U8]): ();
+  fn print(self, text: Template): ();
+  fn println(self, text: Template): ();
+  fn writeBytes(self, b: [U8]): ();
 }
 
 export struct HostStderr {}
 impl Stderr for HostStderr {
-  fn eprint(self: HostStderr, text: Template): ();
-  fn eprintln(self: HostStderr, text: Template): ();
+  fn eprint(self, text: Template): ();
+  fn eprintln(self, text: Template): ();
 }
 
 export struct HostStdin {}
 impl Stdin for HostStdin {
-  fn readLine(self: HostStdin): Option<Str>;
-  fn readBytes(self: HostStdin, n: Int): Option<[U8]>;
+  fn readLine(self): Option<Str>;
+  fn readBytes(self, n: Int): Option<[U8]>;
 }
 
 export struct HostFs {}
 impl Fs for HostFs {
-  fn readFile(self: HostFs, path: Str): Result<Str, IoError>;
-  fn writeFile(self: HostFs, path: Str, body: Str): Result<(), IoError>;
-  fn fileExists(self: HostFs, path: Str): Bool;
-  fn readDir(self: HostFs, path: Str): Result<[Str], IoError>;
+  fn readFile(self, path: Str): Result<Str, IoError>;
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+  fn fileExists(self, path: Str): Bool;
+  fn readDir(self, path: Str): Result<[Str], IoError>;
 }
 
 export struct HostNet {}
 impl Net for HostNet {
-  fn fetch(self: HostNet, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
+  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
 }
 
 export struct HostClock {}
 impl Clock for HostClock {
-  fn nowMillis(self: HostClock): I64;
-  fn sleepMillis(self: HostClock, millis: Int): ();
+  fn nowMillis(self): I64;
+  fn sleepMillis(self, millis: Int): ();
 }
 
 export struct HostRand {}
 impl Rand for HostRand {
-  fn nextInt(self: HostRand, lo: Int, hi: Int): Int;
-  fn nextFloat(self: HostRand): Float;
+  fn nextInt(self, lo: Int, hi: Int): Int;
+  fn nextFloat(self): Float;
 }
 
 export struct HostEnv {}
 impl Env for HostEnv {
-  fn variable(self: HostEnv, name: Str): Option<Str>;
-  fn arguments(self: HostEnv): [Str];
+  fn variable(self, name: Str): Option<Str>;
+  fn arguments(self): [Str];
 }
 
 export struct HostProc {}
 impl Proc for HostProc {
-  fn exitWith(self: HostProc, code: Int): ();
+  fn exitWith(self, code: Int): ();
 }
 
 /// The reactive graph. Bound by a program with a user interface; a platform
 /// that renders nothing simply never has one asked of it.
 export struct HostUi {}
 impl Ui for HostUi {
-  fn signal<T>(self: HostUi, initial: T): Int;
-  fn read<T>(self: HostUi, id: Int): T;
-  fn write<T>(self: HostUi, id: Int, value: T): ();
-  fn memo<T>(self: HostUi, compute: fn(Scope) => T): Int;
-  fn watch(self: HostUi, run: fn(Scope) => ()): ();
+  fn signal<T>(self, initial: T): Int;
+  fn read<T>(self, id: Int): T;
+  fn write<T>(self, id: Int, value: T): ();
+  fn memo<T>(self, compute: fn(Scope) => T): Int;
+  fn watch(self, run: fn(Scope) => ()): ();
 }
 
 /// Reading the reactive graph, without the authority to change it.
 export struct HostWatch {}
 impl Watch for HostWatch {
-  fn read<T>(self: HostWatch, id: Int): T;
+  fn read<T>(self, id: Int): T;
 }
 
 /// Requests that do not block. `Net` is the blocking shape, and a platform
@@ -98,7 +98,7 @@ impl Watch for HostWatch {
 export struct HostFetch {}
 impl Fetch for HostFetch {
   fn fetch(
-    self: HostFetch,
+    self,
     request: Request,
     done: fn(HostFetch, Result<NetResponse, FetchError>) => (),
   ): ();

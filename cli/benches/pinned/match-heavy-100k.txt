@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = match-heavy-100k
 profile = match-heavy
-generator_revision = 2
-revision = 2
-recorded = 2026-08-23
+generator_revision = 3
+revision = 3
+recorded = 2026-08-27
 params = lines=100000 match_arms=8..20 seed=0x0b001a575eed000d w_match_fn=8
 lines = 100748
-bytes = 2945480
+bytes = 2942196
 modules = 354
-digest = dd9ca215d46bb9f432170d4656a440988e0882af40c9dfd1970aef26fde71c2f
+digest = b7c6f0c8bdc01ffa9b866bc767128171cc806c3be7c1fa4893bc75fef541cab4
 native = false

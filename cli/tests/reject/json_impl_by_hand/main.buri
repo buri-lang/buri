@@ -7,7 +7,7 @@ from "core/json" import * as json;
 struct Point { export x: Int, export y: Int }
 
 impl ToJson for Point {
-  fn toJson<C: Alloc>(self: Point, ctx: C): Json {
+  fn toJson<C: Alloc>(self, ctx: C): Json {
     Json.Num(0.0)
   }
 }

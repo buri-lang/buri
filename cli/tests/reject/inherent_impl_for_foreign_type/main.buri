@@ -6,7 +6,7 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 impl Str {
-  fn shout(self: Str): Str { self }
+  fn shout(self): Str { self }
 }
 
 export fn main(): Result<(), Str> {

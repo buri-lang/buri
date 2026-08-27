@@ -24,6 +24,6 @@ library could mint.
 
 ```buri fail code=effect-outside-platform
 effect Mischief {
-  fn meddle(self: Self): ();
+  fn meddle(self): ();
 }
 ```

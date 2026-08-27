@@ -34,7 +34,7 @@ impl<T> Prop<T> {
   /// `fn(Scope) => T` and has to be able to call it. That is the whole reason
   /// `Scope` is a concrete type rather than a type parameter, and it is what
   /// keeps `Prop` and `Style` free of a context parameter.
-  export fn read(self: Prop<T>, ctx: Scope): T {
+  export fn read(self, ctx: Scope): T {
     match (self) {
       .Const(v) => v,
       .Cell(s) => s.get(ctx),

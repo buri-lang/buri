@@ -38,11 +38,11 @@ export fn fromCents(c: I64): Cents { Cents(c) }
 // the module that declares the type — which is what decides how a library's
 // files are laid out.
 impl Cents {
-  export fn add(self: Cents, other: Cents): Cents { Cents(self.0 + other.0) }
+  export fn add(self, other: Cents): Cents { Cents(self.0 + other.0) }
 
   // Exported so `parse.buri` can reach it, since the field is module-private.
   // Absent from lib.buri, so it stops at the library boundary.
-  export fn toCents(self: Cents): I64 { self.0 }
+  export fn toCents(self): I64 { self.0 }
 }
 ```
 

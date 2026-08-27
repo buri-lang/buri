@@ -177,7 +177,7 @@ export struct GeneralPurpose {
 }
 
 impl Alloc for GeneralPurpose {
-  fn allocate(self: GeneralPurpose, bytes: Int): Region {
+  fn allocate(self, bytes: Int): Region {
     Region(charge(self.handle, bytes))
   }
 }
@@ -188,7 +188,7 @@ export fn generalPurpose(): GeneralPurpose {
 }
 
 impl GeneralPurpose {
-  export fn stats(self: GeneralPurpose): Stats {
+  export fn stats(self): Stats {
     Stats { allocations: count(self.handle), bytes: total(self.handle) }
   }
 }
@@ -217,7 +217,7 @@ export struct Arena {
 }
 
 impl Alloc for Arena {
-  fn allocate(self: Arena, bytes: Int): Region {
+  fn allocate(self, bytes: Int): Region {
     Region(charge(self.handle, bytes))
   }
 }
@@ -230,7 +230,7 @@ export fn arena(): Arena {
 impl Arena {
   /// Everything charged to this arena since it was made. Nothing subtracts
   /// from it, because nothing is reclaimed early — see the type.
-  export fn stats(self: Arena): Stats {
+  export fn stats(self): Stats {
     Stats { allocations: count(self.handle), bytes: total(self.handle) }
   }
 }
@@ -258,7 +258,7 @@ export struct FixedBuffer {
 }
 
 impl Alloc for FixedBuffer {
-  fn allocate(self: FixedBuffer, bytes: Int): Region {
+  fn allocate(self, bytes: Int): Region {
     Region(charge(self.handle, bytes))
   }
 }
@@ -276,13 +276,13 @@ export fn fixedBuffer(budget: Int): FixedBuffer {
 }
 
 impl FixedBuffer {
-  export fn stats(self: FixedBuffer): Stats {
+  export fn stats(self): Stats {
     Stats { allocations: count(self.handle), bytes: total(self.handle) }
   }
 
   /// `budget` less what has been charged. Never negative: a request that would
   /// make it negative aborts instead.
-  export fn remaining(self: FixedBuffer): Int {
+  export fn remaining(self): Int {
     self.budget - total(self.handle)
   }
 }

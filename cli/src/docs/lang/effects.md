@@ -8,17 +8,17 @@ methods are the operations it grants:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // core/effect
 export effect Alloc {
-  fn allocate(self: Self, bytes: Int): Region;
+  fn allocate(self, bytes: Int): Region;
 }
 
 export effect Stdout {
-  fn print(self: Self, text: Template): ();
-  fn println(self: Self, text: Template): ();
+  fn print(self, text: Template): ();
+  fn println(self, text: Template): ();
 }
 
 export effect Fs {
-  fn readFile(self: Self, path: Str): Result<Str, IoError>;
-  fn writeFile(self: Self, path: Str, body: Str): Result<(), IoError>;
+  fn readFile(self, path: Str): Result<Str, IoError>;
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 ```
 
@@ -62,8 +62,8 @@ name, never any other position, and at most one of each:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError, Net, Region };
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
-fn render<C: Alloc>(self: Report, ctx: C): Str                            // ok
-fn allocate(self: Self, bytes: Int): Region                               // ok
+fn render<C: Alloc>(self, ctx: C): Str                                    // ok
+fn allocate(self, bytes: Int): Region                                     // ok
 fn sneaky<C: Fs>(a: Int, handle: C): Bool                                 // ERROR
 fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): ()                         // ERROR
 
@@ -91,7 +91,7 @@ under another name. A parameter that occurs in no field at all — a handle that
 is phantom in it — is data for the same reason.
 
 `self` has to be allowed because an effect's own methods take the
-effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
+effect as their receiver (`fn allocate(self, ...)`), and so do the
 attenuation wrappers of Section 10.8. Outside those two places, effects arrive
 through `ctx`.
 
@@ -215,8 +215,8 @@ it is what makes "does no I/O" and "does not allocate" separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };
-fn sum(self: [Int]): Int                                              // pure
-fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]         // deterministic
+fn sum(self): Int                                                     // pure
+fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]              // deterministic
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // effectful
 ```
 
@@ -283,7 +283,7 @@ receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };
-export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]
+export fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>
 ```
 
@@ -330,13 +330,15 @@ export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
 
 // Forwards Alloc...
 impl<C: Alloc> Alloc for ReadOnly<C> {
-  fn allocate(self: ReadOnly<C>, bytes: Int): Region { self.0.allocate(bytes) }
+  fn allocate(self, bytes: Int): Region { self.0.allocate(bytes) }
 }
 
 // ...and reading, but there is deliberately no `writeFile`, so ReadOnly<C>
 // does not satisfy Fs no matter what C is.
-export fn readFile<C: Fs>(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
-  self.0.readFile(path)
+impl<C: Fs> ReadOnly<C> {
+  export fn readFile(self, path: Str): Result<Str, IoError> {
+    self.0.readFile(path)
+  }
 }
 ```
 
@@ -360,13 +362,13 @@ change, because there was never a global to stub.
 struct FakeFs { export files: [(Str, Str)] }
 
 impl Fs for FakeFs {
-  fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
+  fn readFile(self, path: Str): Result<Str, IoError> {
     match (self.files.find(fn(e) => e.0 == path)) {
       .Some(entry) => .Ok(entry.1),
       .None => .Err(.NotFound),
     }
   }
-  fn writeFile(self: FakeFs, path: Str, body: Str): Result<(), IoError> {
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
     .Err(.ReadOnly)
   }
 }

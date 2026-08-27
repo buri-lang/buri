@@ -76,11 +76,11 @@ A trait is an interface: a named set of method signatures.
 
 ```buri
 trait Ord {
-    fn compare(self: Self, other: Self): Order;
+    fn compare(self, other: Self): Order;
 }
 
 trait Show {
-    fn show<C: Alloc>(self: Self, ctx: C): Str;
+    fn show<C: Alloc>(self, ctx: C): Str;
 }
 ```
 
@@ -191,7 +191,7 @@ other name, never any other position, at most one of each.
 
 ```buri
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // ok
-fn render<C: Alloc>(self: Report, ctx: C): Str                        // ok
+fn render<C: Alloc>(self, ctx: C): Str                        // ok
 fn sneaky<C: Fs>(a: Int, handle: C): Bool                             // ERROR
 fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): ()                     // ERROR
 ```

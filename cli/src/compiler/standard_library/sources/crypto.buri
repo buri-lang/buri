@@ -54,7 +54,7 @@ derive Eq, Show for Digest;
 
 impl Digest {
   /// The digest as lowercase hex, which is how one is written down.
-  export fn toHex<C: Alloc>(self: Digest, ctx: C): Str {
+  export fn toHex<C: Alloc>(self, ctx: C): Str {
     bytes.toHex(ctx, self.0)
   }
 }

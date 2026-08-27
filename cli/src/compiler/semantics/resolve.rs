@@ -855,10 +855,14 @@ impl<'a> Checker<'a> {
                                 .map(|sig| {
                                     let mut g = generics.clone();
                                     g.extend(s.elaborate_generics(id, &sig.generics));
+                                    // A trait's `self` is the implementing
+                                    // type, which is what `Self` names.
+                                    let receiver = Some(&Ty::SelfTy);
                                     TraitMethod {
                                         name: t.name(sig.name).to_string(),
                                         generics: g.clone(),
-                                        params: s.elaborate_params(id, &g, &sig.params),
+                                        params: s
+                                            .elaborate_params(id, &g, &sig.params, receiver),
                                         ret: s.elaborate(id, &g, sig.ret),
                                         span: sig.span,
                                     }
@@ -909,7 +913,7 @@ impl<'a> Checker<'a> {
     ) {
         let generics = self.elaborate_generics(module, &d.generics);
         self.tables.fn_info_mut(fid).generics = generics.clone();
-        let params = self.elaborate_params(module, &generics, &d.params);
+        let params = self.elaborate_params(module, &generics, &d.params, None);
         let ret = self.elaborate(module, &generics, d.ret);
         self.tables.fn_info_mut(fid).params = params.clone();
         self.tables.fn_info_mut(fid).ret = ret;
@@ -1197,18 +1201,25 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// `receiver` is the type `self` stands for here — the `impl` head's type,
+    /// or `Self` inside a trait. `None` outside both, where a `self` parameter
+    /// is the mistake `method-declared-free` reports.
     fn elaborate_params(
         &mut self,
         module: ModuleId,
         generics: &[GenericInfo],
         params: &[tree::Param],
+        receiver: Option<&Ty>,
     ) -> Vec<ParamInfo> {
         let t = self.tree(module);
         params
             .iter()
             .map(|p| ParamInfo {
                 name: t.name(p.name).to_string(),
-                ty: self.elaborate(module, generics, p.ty),
+                ty: match p.written_type() {
+                    Some(ty) => self.elaborate(module, generics, ty),
+                    None => receiver.cloned().unwrap_or(Ty::Error),
+                },
                 role: match p.kind {
                     tree::ParamKind::SelfParam => ParamRole::SelfParam,
                     tree::ParamKind::CtxParam => ParamRole::Ctx,
@@ -1509,31 +1520,14 @@ impl<'a> Checker<'a> {
         self.order_con = self.known_types.get("Order").copied();
     }
 
+    /// Registers the methods of every `impl` block, and every `derive`.
+    ///
+    /// A top-level `fn` taking `self` used to be registered here as well, off
+    /// the type its annotation named. There is no such annotation now, so a
+    /// method declared free has no receiver type at all — only the
+    /// `method-declared-free` diagnostic `elaborate_fn_signature` already
+    /// reports.
     fn register_conformance(&mut self) {
-        // Methods declared as ordinary functions with a `self` parameter.
-        for f in 0..self.tables.fns.len() {
-            let fid = FnId(f as u32);
-            let info = self.tables.fn_info(fid).clone();
-            if info.impl_of.is_some() {
-                continue;
-            }
-            let Some(first) = info.params.first() else { continue };
-            if first.role != ParamRole::SelfParam {
-                continue;
-            }
-            match (&first.ty, info.self_ty) {
-                (_, Some(con)) => {
-                    self.register_method(con, &info.name, fid, info.span);
-                }
-                (Ty::Array(_), None) => {
-                    if self.module(info.module).path == "core/list" {
-                        self.tables.array_methods.insert(info.name.clone(), fid);
-                    }
-                }
-                _ => {}
-            }
-        }
-
         for m in 0..self.loaded.modules.len() {
             let id = ModuleId(m as u32);
             let items = &self.module(id).ast.items;
@@ -1701,7 +1695,7 @@ impl<'a> Checker<'a> {
             };
             let mut g = generics.clone();
             g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params);
+            let params = self.elaborate_params(module, &g, &method.params, Some(&self_ty));
             let ret = self.elaborate(module, &g, method.ret);
             let fid = self.tables.add_fn(FnInfo {
                 name: mname.to_string(),
@@ -1809,7 +1803,7 @@ impl<'a> Checker<'a> {
             let mname = self.name_text(module, method.name);
             let mut g = generics.to_vec();
             g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params);
+            let params = self.elaborate_params(module, &g, &method.params, Some(&self_ty));
             let ret = self.elaborate(module, &g, method.ret);
 
             // A method is a function whose first parameter is `self`, and an

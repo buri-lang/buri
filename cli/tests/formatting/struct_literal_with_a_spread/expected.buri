@@ -1,4 +1,4 @@
-export fn f(self: F32x4, i: Int, v: Float): F32x4 {
+export fn f(self, i: Int, v: Float): F32x4 {
     F32x4 {
         ..self,
         x: v,

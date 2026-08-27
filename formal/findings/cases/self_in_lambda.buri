@@ -9,7 +9,7 @@ from "core/list" import * as list;
 struct Report { n: Int }
 
 impl Report {
-  export fn above<C: Alloc>(self: Report, ctx: C, xs: [Int]): [Int] {
+  export fn above<C: Alloc>(self, ctx: C, xs: [Int]): [Int] {
     xs.filter(ctx, fn(x) => x > self.n)
   }
 }

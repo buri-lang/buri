@@ -95,16 +95,16 @@ export fn empty<K, V>(): Map<K, V> {
 }
 
 impl<K: Hash + Eq, V> Map<K, V> {
-  export fn len(self: Map<K, V>): Int {
+  export fn len(self): Int {
     self.size
   }
 
-  export fn isEmpty(self: Map<K, V>): Bool {
+  export fn isEmpty(self): Bool {
     self.size == 0
   }
 
   /// The value stored under `key`, if there is one.
-  export fn get(self: Map<K, V>, key: K): Option<V> {
+  export fn get(self, key: K): Option<V> {
     let buckets = self.buckets;
     let b = buckets.get(bucketOf(key.hash(), buckets.len())).withDefault(list.empty<(K, V)>());
     b.find(fn(e) => {
@@ -116,12 +116,12 @@ impl<K: Hash + Eq, V> Map<K, V> {
     })
   }
 
-  export fn has(self: Map<K, V>, key: K): Bool {
+  export fn has(self, key: K): Bool {
     self.get(key).isSome()
   }
 
   /// Stores `value` under `key`, replacing whatever was there.
-  export fn insert<C: Alloc>(self: Map<K, V>, ctx: C, key: K, value: V): Map<K, V> {
+  export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): Map<K, V> {
     let grown = if (self.size + 1 > self.buckets.len() * LOAD) {
       self.grow(ctx)
     } else {
@@ -150,7 +150,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
   /// Removes `key`, if it is there. Removing what is absent is not an error:
   /// the question a map answers is about membership, and the answer after this
   /// call is the same either way.
-  export fn remove<C: Alloc>(self: Map<K, V>, ctx: C, key: K): Map<K, V> {
+  export fn remove<C: Alloc>(self, ctx: C, key: K): Map<K, V> {
     let buckets = self.buckets;
     let target = bucketOf(key.hash(), buckets.len());
     let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
@@ -167,18 +167,18 @@ impl<K: Hash + Eq, V> Map<K, V> {
   }
 
   /// Every entry, in no particular order — see the module comment.
-  export fn entries<C: Alloc>(self: Map<K, V>, ctx: C): [(K, V)] {
+  export fn entries<C: Alloc>(self, ctx: C): [(K, V)] {
     self.buckets.flatten(ctx)
   }
 
-  export fn keys<C: Alloc>(self: Map<K, V>, ctx: C): [K] {
+  export fn keys<C: Alloc>(self, ctx: C): [K] {
     self.entries(ctx).map(ctx, fn(e) => {
       let (k, _v) = e;
       k
     })
   }
 
-  export fn values<C: Alloc>(self: Map<K, V>, ctx: C): [V] {
+  export fn values<C: Alloc>(self, ctx: C): [V] {
     self.entries(ctx).map(ctx, fn(e) => {
       let (_k, v) = e;
       v
@@ -188,7 +188,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
   /// Twice the buckets, everything rehashed. Called from `insert` when the
   /// load factor is exceeded, so the association lists stay short and lookup
   /// stays expected-constant.
-  fn grow<C: Alloc>(self: Map<K, V>, ctx: C): Map<K, V> {
+  fn grow<C: Alloc>(self, ctx: C): Map<K, V> {
     // From nothing, the initial size; otherwise twice what there was.
     let count = if (self.buckets.len() == 0) { INITIAL } else { self.buckets.len() * 2 };
     let all = self.buckets.flatten(ctx);
@@ -224,7 +224,7 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
   /// Same entries, whatever bucket layout each arrived at. `derive Eq` would
   /// compare the layout, which two equal maps built in different orders need
   /// not share.
-  export fn equals<C: Alloc>(self: Map<K, V>, ctx: C, other: Map<K, V>): Bool {
+  export fn equals<C: Alloc>(self, ctx: C, other: Map<K, V>): Bool {
     if (self.size != other.size) {
       false
     } else {

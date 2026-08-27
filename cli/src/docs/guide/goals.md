@@ -40,7 +40,7 @@ impl Shape {
   // No context parameter, so this cannot allocate, print, read a file, or open
   // a socket. It is a mathematical function of its argument, and you can see
   // that from the signature alone.
-  fn area(self: Shape): Float {
+  fn area(self): Float {
     match (self) {
       .Circle(r) => 3.14159 * r * r,
       .Rect { width, height } => width * height,

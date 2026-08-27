@@ -68,7 +68,7 @@ colouring.
 
 ## What it does not do
 
-Five files, listed in `check.sh` with a reason each, are where the compiler and
+Four files, listed in `check.sh` with a reason each, are where the compiler and
 the syntax tree are *meant* to disagree. All of them are the same argument: a
 grammar that refuses the program the compiler's own error message is about
 would replace a sentence with a red squiggle.
@@ -76,9 +76,9 @@ would replace a sentence with a red squiggle.
 - **Reserved words.** `while` is not a keyword in Buri — it is a word the lexer
   refuses — and tree-sitter parses it as an identifier. The language server
   reports it instead.
-- **Keywords where a name belongs.** `fn test(...)`, `fn f(x: Int, self: T)`.
-  tree-sitter's keyword extraction reads the word as an identifier, which is
-  what makes its error recovery work at all.
+- **Keywords where a name belongs.** `fn test(...)`. tree-sitter's keyword
+  extraction reads the word as an identifier, which is what makes its error
+  recovery work at all.
 - **Chained comparison.** `a < b < c` is not derivable from the EBNF, which
   writes comparison as non-associative. tree-sitter has no word for that, so it
   is given left-associativity and the compiler's `chained-comparison` message

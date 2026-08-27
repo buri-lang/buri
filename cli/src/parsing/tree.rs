@@ -7,7 +7,7 @@
 //! name resolution rather than during parsing.
 
 use crate::diagnostics::Span;
-use crate::parsing::flat::{TypeId, TypeList};
+use crate::parsing::flat::{NONE, TypeId, TypeList};
 
 /// A name a declaration introduces, or one segment of a written path.
 ///
@@ -168,8 +168,8 @@ pub struct GenericParam {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ParamKind {
-    /// Written literally `self`. A function is a method if and only if its
-    /// first parameter is this (SPEC 6.7.1).
+    /// Written literally `self`, with no type. A function is a method if and
+    /// only if its first parameter is this (SPEC 6.7.1).
     SelfParam,
     /// Written literally `ctx`, first or immediately after `self`.
     CtxParam,
@@ -180,8 +180,19 @@ pub enum ParamKind {
 pub struct Param {
     pub kind: ParamKind,
     pub name: Name,
-    pub ty: TypeId,
+    /// The written type, or [`flat::NONE`] where none is written. Read through
+    /// [`Param::written_type`]; the sentinel rather than an `Option` because
+    /// `TypeId` has no niche and the `Option` would grow every parameter.
+    pub ty: u32,
     pub span: Span,
+}
+
+impl Param {
+    /// `None` for `self`, which writes no type: it is the `impl` head's type,
+    /// or the implementing type of the trait the signature is declared in.
+    pub fn written_type(&self) -> Option<TypeId> {
+        (self.ty != NONE).then_some(TypeId(self.ty))
+    }
 }
 
 #[derive(Clone, Debug)]

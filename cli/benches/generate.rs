@@ -65,7 +65,8 @@
 /// |---:|---|
 /// | 1 | The first one. |
 /// | 2 | `core/cap` was renamed `core/effect`, so every module's import block is three bytes longer. No construct, count or shape moved — `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
-pub const GENERATOR_REVISION: u32 = 2;
+/// | 3 | `self` stopped writing its type, so every method signature is shorter by the receiver's name and a colon. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
+pub const GENERATOR_REVISION: u32 = 3;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -997,11 +998,11 @@ fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Para
     out.push_str(&format!(
         "impl Rec{index}_{name} {{\n\
          \x20 /// A pure accessor, of the kind that is most of a real impl block.\n\
-         \x20 export fn scaled(self: Rec{index}_{name}, factor: Int): Int {{\n\
+         \x20 export fn scaled(self, factor: Int): Int {{\n\
          \x20   {scaled} + {}\n\
          \x20 }}\n\n\
          \x20 /// Allocates, and says so with `C: Alloc`.\n\
-         \x20 export fn render<C: Alloc>(self: Rec{index}_{name}, ctx: C): Str {{\n\
+         \x20 export fn render<C: Alloc>(self, ctx: C): Str {{\n\
          \x20   str.format(ctx, \"rec{index}_{name}{shown}\")\n\
          \x20 }}\n",
         rng.below(1000)
@@ -1012,7 +1013,7 @@ fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Para
     for j in 0..extra {
         out.push_str(&format!(
             "\n\x20 /// Method {j} of the impl-density dial.\n\
-             \x20 export fn extra{j}(self: Rec{index}_{name}, k: Int): Int {{\n\
+             \x20 export fn extra{j}(self, k: Int): Int {{\n\
              \x20   self.f0 + k * {} + {j}\n\
              \x20 }}\n",
             j + 1

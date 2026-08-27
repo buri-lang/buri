@@ -46,27 +46,27 @@ export struct Region(export I64);
 /// counted, and it states which of these rows an allocator is actually told
 /// about today.
 export effect Alloc {
-  fn allocate(self: Self, bytes: Int): Region;
+  fn allocate(self, bytes: Int): Region;
 }
 
 export effect Stdout {
-  fn print(self: Self, text: Template): ();
-  fn println(self: Self, text: Template): ();
+  fn print(self, text: Template): ();
+  fn println(self, text: Template): ();
   /// Octets, written through unchanged.
   ///
   /// `print` takes a `Template` and the platform encodes it; this takes bytes
   /// and the platform encodes nothing. A program speaking a binary protocol
   /// over a pipe needs the second, and could not get it by rendering the first.
-  fn writeBytes(self: Self, b: [U8]): ();
+  fn writeBytes(self, b: [U8]): ();
 }
 
 export effect Stderr {
-  fn eprint(self: Self, text: Template): ();
-  fn eprintln(self: Self, text: Template): ();
+  fn eprint(self, text: Template): ();
+  fn eprintln(self, text: Template): ();
 }
 
 export effect Stdin {
-  fn readLine(self: Self): Option<Str>;
+  fn readLine(self): Option<Str>;
   /// Exactly `n` octets, or fewer at end of input — `.None` when there were
   /// none at all.
   ///
@@ -74,37 +74,37 @@ export effect Stdin {
   /// request/response protocol over a pipe expressible: `readLine` reads the
   /// input to its end, so a program using it cannot answer before the other
   /// side has finished speaking.
-  fn readBytes(self: Self, n: Int): Option<[U8]>;
+  fn readBytes(self, n: Int): Option<[U8]>;
 }
 
 export effect Fs {
-  fn readFile(self: Self, path: Str): Result<Str, IoError>;
-  fn writeFile(self: Self, path: Str, body: Str): Result<(), IoError>;
-  fn fileExists(self: Self, path: Str): Bool;
-  fn readDir(self: Self, path: Str): Result<[Str], IoError>;
+  fn readFile(self, path: Str): Result<Str, IoError>;
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+  fn fileExists(self, path: Str): Bool;
+  fn readDir(self, path: Str): Result<[Str], IoError>;
 }
 
 export effect Net {
-  fn fetch(self: Self, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
+  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
 }
 
 export effect Clock {
-  fn nowMillis(self: Self): I64;
-  fn sleepMillis(self: Self, millis: Int): ();
+  fn nowMillis(self): I64;
+  fn sleepMillis(self, millis: Int): ();
 }
 
 export effect Rand {
-  fn nextInt(self: Self, lo: Int, hi: Int): Int;
-  fn nextFloat(self: Self): Float;
+  fn nextInt(self, lo: Int, hi: Int): Int;
+  fn nextFloat(self): Float;
 }
 
 export effect Env {
-  fn variable(self: Self, name: Str): Option<Str>;
-  fn arguments(self: Self): [Str];
+  fn variable(self, name: Str): Option<Str>;
+  fn arguments(self): [Str];
 }
 
 export effect Proc {
-  fn exitWith(self: Self, code: Int): ();
+  fn exitWith(self, code: Int): ();
 }
 
 /// Declared here rather than in `core/fs` so that the effect signature above

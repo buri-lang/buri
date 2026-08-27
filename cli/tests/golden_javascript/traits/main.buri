@@ -4,8 +4,8 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 trait Area {
-  fn area(self: Self): Int;
-  fn describe(self: Self): Int;
+  fn area(self): Int;
+  fn describe(self): Int;
 }
 
 struct Sq { side: Int }
@@ -13,13 +13,13 @@ struct Sq { side: Int }
 struct Rect { w: Int, h: Int }
 
 impl Area for Sq {
-  fn area(self: Sq): Int { self.side * self.side }
-  fn describe(self: Sq): Int { self.area() * 2 }
+  fn area(self): Int { self.side * self.side }
+  fn describe(self): Int { self.area() * 2 }
 }
 
 impl Area for Rect {
-  fn area(self: Rect): Int { self.w * self.h }
-  fn describe(self: Rect): Int { self.area() * 3 }
+  fn area(self): Int { self.w * self.h }
+  fn describe(self): Int { self.area() * 3 }
 }
 
 fn total<T: Area>(a: T, b: T): Int { a.area() + b.area() }

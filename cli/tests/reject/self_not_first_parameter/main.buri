@@ -4,7 +4,7 @@ from "core/host" import * as host;
 
 struct Square { export side: Int }
 
-fn scaled(factor: Int, self: Square): Int {
+fn scaled(factor: Int, self): Int {
   self.side * factor
 }
 

@@ -3,7 +3,7 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 effect Mischief {
-  fn meddle(self: Self): ();
+  fn meddle(self): ();
 }
 
 export fn main(): Result<(), Str> {

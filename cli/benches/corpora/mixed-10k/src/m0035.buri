@@ -193,12 +193,12 @@ derive Eq, Show for Rec35_6;
 
 impl Rec35_6 {
   /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self: Rec35_6, factor: Int): Int {
+  export fn scaled(self, factor: Int): Int {
     self.f0 * factor + 444
   }
 
   /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self: Rec35_6, ctx: C): Str {
+  export fn render<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "rec35_6: ${self.f0}/${self.f1}")
   }
 }
@@ -270,12 +270,12 @@ derive Eq, Show for Rec35_9;
 
 impl Rec35_9 {
   /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self: Rec35_9, factor: Int): Int {
+  export fn scaled(self, factor: Int): Int {
     self.f0 * factor + 403
   }
 
   /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self: Rec35_9, ctx: C): Str {
+  export fn render<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "rec35_9: ${self.f0}/${self.f1}")
   }
 }

@@ -1,0 +1,8 @@
+error: `self` is written without a type [self-with-a-type]
+  --> cmd/self_with_a_type/main.buri:14:22
+   |
+14 |   export fn area(self: Square): Int {
+   |                      ^^^^^^^^
+   |
+   = the type is the one the `impl` head names, or the implementing type inside a `trait`
+   = fix: delete the annotation, leaving `self`

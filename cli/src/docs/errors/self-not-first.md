@@ -22,7 +22,7 @@ the front of a signature.
 ## A program that provokes it
 
 ```buri fail code=self-not-first use=errors
-fn scaled(factor: Int, self: Square): Int {
+fn scaled(factor: Int, self): Int {
   self.side * factor
 }
 ```

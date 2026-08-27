@@ -21,7 +21,7 @@ impl Grade {
   // No context parameter, so this cannot allocate, print, read a file, or open
   // a socket. That is in the signature, not in this comment, and the compiler
   // is what holds it.
-  fn shortfall(self: Grade): Int {
+  fn shortfall(self): Int {
     match (self) {
       .Pass(_) => 0,
       .Fail { score, needed } => needed - score,

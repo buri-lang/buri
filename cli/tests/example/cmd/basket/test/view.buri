@@ -44,7 +44,7 @@ struct Recorded {}
 
 impl Fetch for Recorded {
   fn fetch(
-    self: Recorded,
+    self,
     request: Request,
     done: fn(Recorded, Result<NetResponse, FetchError>) => (),
   ): () {
@@ -57,7 +57,7 @@ struct Broken {}
 
 impl Fetch for Broken {
   fn fetch(
-    self: Broken,
+    self,
     request: Request,
     done: fn(Broken, Result<NetResponse, FetchError>) => (),
   ): () {

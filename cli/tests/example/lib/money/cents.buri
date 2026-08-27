@@ -21,14 +21,14 @@ export fn fromDollars(d: I64): Cents { Cents(d * 100) }
 export fn fromCents(c: I64): Cents { Cents(c) }
 
 impl Cents {
-  export fn add(self: Cents, other: Cents): Cents { Cents(self.0 + other.0) }
+  export fn add(self, other: Cents): Cents { Cents(self.0 + other.0) }
 
-  export fn isZero(self: Cents): Bool { self.0 == 0 }
+  export fn isZero(self): Bool { self.0 == 0 }
 
   /// Receiver first, context second, as everything callable as a method is.
   /// Allocates, and says so with `C: Alloc`; performs no I/O, and says that by
   /// the bounds it does not name.
-  export fn format<C: Alloc>(self: Cents, ctx: C): Str {
+  export fn format<C: Alloc>(self, ctx: C): Str {
     let whole = self.0 / 100;
     let rest = self.0 % 100;
     let pad = if (rest < 10) { "0" } else { "" };
@@ -46,10 +46,10 @@ impl Cents {
   /// Both halves carry the amount's sign, because that is what division and
   /// remainder do. A caller rendering a negative amount takes the sign off the
   /// front itself.
-  export fn parts(self: Cents): (I64, I64) { (self.0 / 100, self.0 % 100) }
+  export fn parts(self): (I64, I64) { (self.0 / 100, self.0 % 100) }
 
   /// Exported from this module so //lib/money/parse can bounds-check a value it
   /// built, and absent from lib.buri, so it stops at the library boundary.
   /// `c.toCents()` outside //lib/money does not resolve.
-  export fn toCents(self: Cents): I64 { self.0 }
+  export fn toCents(self): I64 { self.0 }
 }

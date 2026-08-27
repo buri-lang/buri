@@ -3,14 +3,14 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 trait Measurable {
-  fn size(self: Self): Int;
-  fn isEmptyThing(self: Self): Bool;
+  fn size(self): Int;
+  fn isEmptyThing(self): Bool;
 }
 
 struct Bag { export count: Int }
 
 impl Measurable for Bag {
-  fn size(self: Bag): Int { self.count }
+  fn size(self): Int { self.count }
 }
 
 export fn main(): Result<(), Str> {

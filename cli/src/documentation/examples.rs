@@ -1117,7 +1117,7 @@ mod tests {
         let doc = "```buri sig\n\
                    # export struct Ring(export Int);\n\
                    # impl Ring {\n\
-                   export fn size(self: Ring): Int;\n\
+                   export fn size(self): Int;\n\
                    # }\n\
                    ```\n";
         assert_eq!(check(doc), "");
@@ -1133,7 +1133,7 @@ mod tests {
     fn a_builtin_impl_cannot_be_documented_as_a_compilable_block() {
         let doc = "```buri sig\n\
                    # impl<T> [T] {\n\
-                   export fn len(self: [T]): Int;\n\
+                   export fn len(self): Int;\n\
                    # }\n\
                    ```\n";
         assert!(check(doc).contains("defining module of `[T]` is `core/list`"));

@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = impl-heavy-100k
 profile = impl-heavy
-generator_revision = 2
-revision = 2
-recorded = 2026-08-23
+generator_revision = 3
+revision = 3
+recorded = 2026-08-27
 params = lines=100000 methods_per_struct=12 seed=0x0b001a575eed000c w_struct=6
 lines = 100726
-bytes = 3424936
+bytes = 3306388
 modules = 349
-digest = 05c791cf00a3e86fc2d6a9f13529c494cc699b6fd1bead7b6043a72120ad9c7a
+digest = 367de628aa1802ae05fec1cf57fc9b1c1fa3407045c1d98e5d52d55d5030ba2a
 native = false

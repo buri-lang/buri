@@ -473,7 +473,7 @@ let HEX2: Str = "0123456789abcdef";
 impl Json {
   /// The value at `key`, if this is an object that has one. O(n) in the number
   /// of entries — see the module comment.
-  export fn get(self: Json, key: Str): Option<Json> {
+  export fn get(self, key: Str): Option<Json> {
     match (self) {
       .Object(entries) => entries.find(fn(e) => {
         let (k, _v) = e;
@@ -487,42 +487,42 @@ impl Json {
   }
 
   /// The element at `index`, if this is an array that has one.
-  export fn at(self: Json, index: Int): Option<Json> {
+  export fn at(self, index: Int): Option<Json> {
     match (self) {
       .Array(items) => items.get(index),
       _ => .None,
     }
   }
 
-  export fn asBool(self: Json): Option<Bool> {
+  export fn asBool(self): Option<Bool> {
     match (self) {
       .Bool(b) => .Some(b),
       _ => .None,
     }
   }
 
-  export fn asNum(self: Json): Option<Float> {
+  export fn asNum(self): Option<Float> {
     match (self) {
       .Num(x) => .Some(x),
       _ => .None,
     }
   }
 
-  export fn asStr(self: Json): Option<Str> {
+  export fn asStr(self): Option<Str> {
     match (self) {
       .Str(s) => .Some(s),
       _ => .None,
     }
   }
 
-  export fn asArray(self: Json): Option<[Json]> {
+  export fn asArray(self): Option<[Json]> {
     match (self) {
       .Array(items) => .Some(items),
       _ => .None,
     }
   }
 
-  export fn isNull(self: Json): Bool {
+  export fn isNull(self): Bool {
     match (self) {
       .Null => true,
       _ => false,
@@ -589,7 +589,7 @@ impl Json {
 /// Rendering allocates, so `toJson` names `Alloc` and nothing else, exactly as
 /// `Show.show` does.
 export trait ToJson {
-  fn toJson<C: Alloc>(self: Self, ctx: C): Json;
+  fn toJson<C: Alloc>(self, ctx: C): Json;
 }
 
 /// Decoding a value from JSON. Derived, never written by hand — see above.

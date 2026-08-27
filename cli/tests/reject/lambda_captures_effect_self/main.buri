@@ -9,7 +9,7 @@ from "core/list" import * as list;
 struct Holder<C> { export inner: C }
 
 impl<C: Fs> Holder<C> {
-  export fn checkAll<A: Alloc>(self: Holder<C>, ctx: A, paths: [Str]): [Bool] {
+  export fn checkAll<A: Alloc>(self, ctx: A, paths: [Str]): [Bool] {
     paths.map(ctx, fn(p) => fs.exists(self.inner, p))
   }
 }

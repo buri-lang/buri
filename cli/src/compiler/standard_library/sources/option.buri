@@ -16,14 +16,14 @@ export enum Option<T> {
 derive Eq, Ord, Show, Hash for Option;
 
 impl<T> Option<T> {
-  export fn isSome(self: Option<T>): Bool {
+  export fn isSome(self): Bool {
     match (self) {
       .Some(_x) => true,
       .None => false,
     }
   }
 
-  export fn isNone(self: Option<T>): Bool {
+  export fn isNone(self): Bool {
     match (self) {
       .Some(_x) => false,
       .None => true,
@@ -31,28 +31,28 @@ impl<T> Option<T> {
   }
 
   /// The right operand is produced eagerly; `??` is the short-circuiting form.
-  export fn withDefault(self: Option<T>, fallback: T): T {
+  export fn withDefault(self, fallback: T): T {
     match (self) {
       .Some(v) => v,
       .None => fallback,
     }
   }
 
-  export fn map<U>(self: Option<T>, f: fn(T) => U): Option<U> {
+  export fn map<U>(self, f: fn(T) => U): Option<U> {
     match (self) {
       .Some(v) => .Some(f(v)),
       .None => .None,
     }
   }
 
-  export fn andThen<U>(self: Option<T>, f: fn(T) => Option<U>): Option<U> {
+  export fn andThen<U>(self, f: fn(T) => Option<U>): Option<U> {
     match (self) {
       .Some(v) => f(v),
       .None => .None,
     }
   }
 
-  export fn filter(self: Option<T>, keep: fn(T) => Bool): Option<T> {
+  export fn filter(self, keep: fn(T) => Bool): Option<T> {
     match (self) {
       .Some(v) => if (keep(v)) { .Some(v) } else { .None },
       .None => .None,
@@ -61,14 +61,14 @@ impl<T> Option<T> {
 
   /// Turns absence into an error, which is how an `Option` reaches `?` in a
   /// function that returns `Result`.
-  export fn okOr<E>(self: Option<T>, error: E): Result<T, E> {
+  export fn okOr<E>(self, error: E): Result<T, E> {
     match (self) {
       .Some(v) => .Ok(v),
       .None => .Err(error),
     }
   }
 
-  export fn or(self: Option<T>, other: Option<T>): Option<T> {
+  export fn or(self, other: Option<T>): Option<T> {
     match (self) {
       .Some(v) => .Some(v),
       .None => other,

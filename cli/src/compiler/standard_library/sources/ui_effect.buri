@@ -29,7 +29,7 @@ export effect Watch {
   ///
   /// Reading inside a computation records a dependency, so the computation
   /// re-runs when that cell changes. Reading outside one records nothing.
-  fn read<T>(self: Self, id: Int): T;
+  fn read<T>(self, id: Int): T;
 }
 
 /// Creating and writing signals, and registering computations.
@@ -41,21 +41,21 @@ export effect Watch {
 export effect Ui {
   /// A fresh cell holding `initial`. The returned `Int` names it for the
   /// lifetime of the program.
-  fn signal<T>(self: Self, initial: T): Int;
+  fn signal<T>(self, initial: T): Int;
   /// The current value of the cell `id` names.
-  fn read<T>(self: Self, id: Int): T;
+  fn read<T>(self, id: Int): T;
   /// Replaces the value of the cell `id` names, marking everything that read
   /// it out of date.
-  fn write<T>(self: Self, id: Int, value: T): ();
+  fn write<T>(self, id: Int, value: T): ();
   /// A derived cell: `compute` runs on demand and is re-run only after
   /// something it read has changed. Lazy, so a memo nothing reads never runs.
-  fn memo<T>(self: Self, compute: fn(Scope) => T): Int;
+  fn memo<T>(self, compute: fn(Scope) => T): Int;
   /// A computation run for its effect on the world rather than its value. It
   /// runs once immediately — which is how it learns what it depends on — and
   /// again whenever any of that changes.
   ///
   /// Named `watch` rather than `effect` because `effect` is a keyword.
-  fn watch(self: Self, run: fn(Scope) => ()): ();
+  fn watch(self, run: fn(Scope) => ()): ();
 }
 
 /// Starting requests. Separate from `Net` because the shape is different, not
@@ -67,7 +67,7 @@ export effect Fetch {
   /// same context this call was made with — which is what lets it write
   /// signals without capturing anything.
   fn fetch(
-    self: Self,
+    self,
     request: Request,
     done: fn(Self, Result<NetResponse, FetchError>) => (),
   ): ();
@@ -84,7 +84,7 @@ export effect Fetch {
 export struct Scope(Int);
 
 impl Watch for Scope {
-  fn read<T>(self: Scope, id: Int): T;
+  fn read<T>(self, id: Int): T;
 }
 
 /// Something a reader did.

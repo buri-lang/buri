@@ -24,13 +24,13 @@ bound and aborts when the bound is used.
 
 ```buri fail code=incomplete-impl
 trait Measurable {
-  fn size(self: Self): Int;
-  fn isEmptyThing(self: Self): Bool;
+  fn size(self): Int;
+  fn isEmptyThing(self): Bool;
 }
 
 struct Bag { export count: Int }
 
 impl Measurable for Bag {
-  fn size(self: Bag): Int { self.count }
+  fn size(self): Int { self.count }
 }
 ```

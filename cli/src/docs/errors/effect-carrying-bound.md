@@ -12,7 +12,7 @@ fix: pass a type that holds no capability, or drop the `{trait}` bound
 struct Holder<C> { export inner: C }
 
 impl<C> Eq for Holder<C> {
-  fn eq(self: Holder<C>, other: Holder<C>): Bool { true }
+  fn eq(self, other: Holder<C>): Bool { true }
 }
 
 fn hide<T: Eq>(x: T): fn() => T {

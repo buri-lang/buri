@@ -110,14 +110,17 @@ member, method — all resolved after parsing, and a method may not share a name
 with a field of the same type.
 
 **12.17 A method is declared by an `impl` block, and `self` is a keyword in a
-fixed position.**
+fixed position, written without a type.**
 "Is this a method?" is answered by where the declaration sits, and "what is the
 receiver?" by a keyword rather than by comparing types against a rule about
-argument order. Neither question needs name resolution. An `impl` block's two
-forms differ by one token of lookahead — `for` after the first type makes it a
-conformance declaration, and its absence makes it the type's own methods — and
-`derive` and `trait` likewise each begin with a distinct keyword, keeping
-top-level parsing a switch on one token.
+argument order. Neither question needs name resolution. Nor does the receiver's
+*type*: the `impl` head is above the declaration and a trait signature means
+`Self`, so a `self` annotation could only agree with what is already written or
+disagree with it, and the second is a diagnostic about a thing nobody meant.
+An `impl` block's two forms differ by one token of lookahead — `for` after the
+first type makes it a conformance declaration, and its absence makes it the
+type's own methods — and `derive` and `trait` likewise each begin with a
+distinct keyword, keeping top-level parsing a switch on one token.
 
 **12.18 `context` is a keyword, and its two forms differ at one token.**
 `context Name { ... }` is a declaration and `context { ... }` is an expression,

@@ -6,7 +6,7 @@ from "core/str" import * as str;
 struct Rec { export f0: Int }
 
 impl Rec {
-  fn render<C: Alloc>(self: Rec, ctx: C): Str {
+  fn render<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "rec: ${self.f0}/${self.f1}")
   }
 }

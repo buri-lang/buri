@@ -34,7 +34,7 @@ impl Token {
   /// A namespaced custom property, so the class an element carries is the same
   /// one whatever the app decides the token is worth — which is why switching
   /// a theme rewrites one block of values and changes no class at all.
-  export fn color(self: Token): Color {
+  export fn color(self): Color {
     match (self) {
       .Surface => style.token("kit", "surface"),
       .OnSurface => style.token("kit", "onSurface"),

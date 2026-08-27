@@ -73,26 +73,26 @@ export fn of<T>(items: [T]): Queue<T> {
 }
 
 impl<T> Queue<T> {
-  export fn len(self: Queue<T>): Int {
+  export fn len(self): Int {
     self.front.len() + self.back.len()
   }
 
-  export fn isEmpty(self: Queue<T>): Bool {
+  export fn isEmpty(self): Bool {
     self.len() == 0
   }
 
   /// Adds to the back.
-  export fn push<C: Alloc>(self: Queue<T>, ctx: C, item: T): Queue<T> {
+  export fn push<C: Alloc>(self, ctx: C, item: T): Queue<T> {
     Queue { front: self.front, back: self.back.push(ctx, item) }
   }
 
   /// Adds to the front.
-  export fn pushFront<C: Alloc>(self: Queue<T>, ctx: C, item: T): Queue<T> {
+  export fn pushFront<C: Alloc>(self, ctx: C, item: T): Queue<T> {
     Queue { front: self.front.push(ctx, item), back: self.back }
   }
 
   /// The first element, without removing it.
-  export fn peek(self: Queue<T>): Option<T> {
+  export fn peek(self): Option<T> {
     match (self.front.last()) {
       .Some(v) => .Some(v),
       .None => self.back.first(),
@@ -100,7 +100,7 @@ impl<T> Queue<T> {
   }
 
   /// The last element, without removing it.
-  export fn peekBack(self: Queue<T>): Option<T> {
+  export fn peekBack(self): Option<T> {
     match (self.back.last()) {
       .Some(v) => .Some(v),
       .None => self.front.first(),
@@ -111,7 +111,7 @@ impl<T> Queue<T> {
   ///
   /// One value rather than two calls, because `peek` and a separate `drop`
   /// would let the two disagree about which element they meant.
-  export fn pop<C: Alloc>(self: Queue<T>, ctx: C): Option<(T, Queue<T>)> {
+  export fn pop<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
     match (self.front.last()) {
       .Some(v) => {
         let rest = self.front.take(ctx, self.front.len() - 1);
@@ -130,7 +130,7 @@ impl<T> Queue<T> {
   }
 
   /// Removes the last element, returning it and the rest.
-  export fn popBack<C: Alloc>(self: Queue<T>, ctx: C): Option<(T, Queue<T>)> {
+  export fn popBack<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
     match (self.back.last()) {
       .Some(v) => {
         let rest = self.back.take(ctx, self.back.len() - 1);
@@ -148,7 +148,7 @@ impl<T> Queue<T> {
 
   /// The elements, front first. The one way to look at the whole queue, and
   /// what `Show` and `equals` are defined in terms of.
-  export fn toList<C: Alloc>(self: Queue<T>, ctx: C): [T] {
+  export fn toList<C: Alloc>(self, ctx: C): [T] {
     self.front.reverse(ctx).concat(ctx, self.back)
   }
 }
@@ -157,7 +157,7 @@ impl<T: Eq> Queue<T> {
   /// Two queues are equal when they hold the same elements in the same order,
   /// whatever split between front and back they happen to have. This is why
   /// `Queue` does not `derive Eq`: the derived one would compare the split.
-  export fn equals<C: Alloc>(self: Queue<T>, ctx: C, other: Queue<T>): Bool {
+  export fn equals<C: Alloc>(self, ctx: C, other: Queue<T>): Bool {
     let a = self.toList(ctx);
     let b = other.toList(ctx);
     if (a.len() != b.len()) {

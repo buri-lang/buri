@@ -109,12 +109,12 @@ derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec1_2;
 
 impl Rec1_2 {
   /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self: Rec1_2, factor: Int): Int {
+  export fn scaled(self, factor: Int): Int {
     self.f0 * factor + 436
   }
 
   /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self: Rec1_2, ctx: C): Str {
+  export fn render<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "rec1_2: ${self.f0}/${self.f1}")
   }
 }
@@ -284,12 +284,12 @@ derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec1_8;
 
 impl Rec1_8 {
   /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self: Rec1_8, factor: Int): Int {
+  export fn scaled(self, factor: Int): Int {
     self.f0 * factor + 782
   }
 
   /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self: Rec1_8, ctx: C): Str {
+  export fn render<C: Alloc>(self, ctx: C): Str {
     str.format(ctx, "rec1_8: ${self.f0}/${self.f1}")
   }
 }

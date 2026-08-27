@@ -57,7 +57,7 @@ enum Shape {
 // No context parameter, so this cannot allocate, read, write, or observe
 // anything. It is a mathematical function of its argument.
 impl Shape {
-  fn area(self: Shape): Float {
+  fn area(self): Float {
     match (self) {
       .Circle(r) => 3.14159 * r * r,
       .Rect { width, height } => width * height,
@@ -638,7 +638,7 @@ row polymorphism went away with the structural records of Section 5.5.
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
 fn identity<T>(x: T): T { x }
-fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B] { ... }
+fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
 ```
 
@@ -727,17 +727,18 @@ satisfy.
 ```buri
 # from "core/effect" import { Alloc };
 trait Ord {
-  fn compare(self: Self, other: Self): Order;
+  fn compare(self, other: Self): Order;
 }
 
 trait Show {
-  fn show<C: Alloc>(self: Self, ctx: C): Str;
+  fn show<C: Alloc>(self, ctx: C): Str;
 }
 ```
 
 `Self` stands for the implementing type and is legal only inside a trait or an
-`impl`. A trait's methods declare `self` first, exactly like any other method
-(Section 6.7.1).
+`impl`. A trait's methods declare `self` first and without a type, exactly like
+any other method (Section 6.7.1); it is the implementing type that `self` is,
+which is what `Self` names in the rest of the signature.
 
 A trait declared `effect` additionally marks its implementors as
 effect-carrying, which subjects them to the `ctx` rule of Section 10.2. That
@@ -770,7 +771,7 @@ incremental invalidation exactly where it needs to be fine.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 impl Ord for Version {
-  fn compare(self: Version, other: Version): Order { ... }
+  fn compare(self, other: Version): Order { ... }
 }
 ```
 
@@ -996,22 +997,22 @@ derives them:
 
 ```buri
 trait Checked {
-  fn checkedAdd(self: Self, rhs: Self): Option<Self>;
-  fn checkedSub(self: Self, rhs: Self): Option<Self>;
-  fn checkedMul(self: Self, rhs: Self): Option<Self>;
-  fn checkedDiv(self: Self, rhs: Self): Option<Self>;
+  fn checkedAdd(self, rhs: Self): Option<Self>;
+  fn checkedSub(self, rhs: Self): Option<Self>;
+  fn checkedMul(self, rhs: Self): Option<Self>;
+  fn checkedDiv(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
-  fn wrappingAdd(self: Self, rhs: Self): Self;
-  fn wrappingSub(self: Self, rhs: Self): Self;
-  fn wrappingMul(self: Self, rhs: Self): Self;
+  fn wrappingAdd(self, rhs: Self): Self;
+  fn wrappingSub(self, rhs: Self): Self;
+  fn wrappingMul(self, rhs: Self): Self;
 }
 
 trait Saturating {
-  fn saturatingAdd(self: Self, rhs: Self): Self;
-  fn saturatingSub(self: Self, rhs: Self): Self;
-  fn saturatingMul(self: Self, rhs: Self): Self;
+  fn saturatingAdd(self, rhs: Self): Self;
+  fn saturatingSub(self, rhs: Self): Self;
+  fn saturatingMul(self, rhs: Self): Self;
 }
 
 trait Bounded {
@@ -1150,9 +1151,9 @@ an error:
 export struct Square { height: Int, width: Int }
 
 impl Square {
-  export fn area(self: Square): Int { self.height * self.width }
+  export fn area(self): Int { self.height * self.width }
 
-  export fn scaled(self: Square, factor: Int): Square {
+  export fn scaled(self, factor: Int): Square {
     Square { height: self.height * factor, width: self.width * factor }
   }
 }
@@ -1169,6 +1170,11 @@ inside an `impl` block. A top-level `fn` that takes `self` is an error — there
 is no receiver type for it to attach to — and a function inside an `impl` block
 that does not take `self` is an error too.
 
+`self` is also the one parameter that writes no type. The `impl` head has
+already written it, and a trait's signature means the implementing type, so an
+annotation could only repeat what is above it or contradict it. Writing one is
+the `self-with-a-type` error, which carries the edit that deletes it.
+
 An `impl` block may appear only in the module that declares its type, which is
 what keeps method resolution a single lookup (Section 6.7.3), and the block
 itself — like a `derive` — is never `export`ed. A method inside one is `export`ed
@@ -1180,7 +1186,7 @@ belong to the `impl`, the rest to the method.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 impl<T> Option<T> {
-  export fn map<U>(self: Option<T>, f: fn(T) => U): Option<U> { ... }
+  export fn map<U>(self, f: fn(T) => U): Option<U> { ... }
 }
 ```
 
@@ -1204,7 +1210,7 @@ comes second:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc };
 impl<A> [A] {
-  export fn map<B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B];
+  export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
 }
 
 xs.map(ctx, double)          // reads as: this list, in this world, mapped
@@ -1512,17 +1518,17 @@ methods are the operations it grants:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // core/effect
 export effect Alloc {
-  fn allocate(self: Self, bytes: Int): Region;
+  fn allocate(self, bytes: Int): Region;
 }
 
 export effect Stdout {
-  fn print(self: Self, text: Template): ();
-  fn println(self: Self, text: Template): ();
+  fn print(self, text: Template): ();
+  fn println(self, text: Template): ();
 }
 
 export effect Fs {
-  fn readFile(self: Self, path: Str): Result<Str, IoError>;
-  fn writeFile(self: Self, path: Str, body: Str): Result<(), IoError>;
+  fn readFile(self, path: Str): Result<Str, IoError>;
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 ```
 
@@ -1566,8 +1572,8 @@ name, never any other position, and at most one of each:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError, Net, Region };
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
-fn render<C: Alloc>(self: Report, ctx: C): Str                            // ok
-fn allocate(self: Self, bytes: Int): Region                               // ok
+fn render<C: Alloc>(self, ctx: C): Str                                    // ok
+fn allocate(self, bytes: Int): Region                                     // ok
 fn sneaky<C: Fs>(a: Int, handle: C): Bool                                 // ERROR
 fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): ()                         // ERROR
 
@@ -1595,7 +1601,7 @@ under another name. A parameter that occurs in no field at all — a handle that
 is phantom in it — is data for the same reason.
 
 `self` has to be allowed because an effect's own methods take the
-effect as their receiver (`fn allocate(self: Self, ...)`), and so do the
+effect as their receiver (`fn allocate(self, ...)`), and so do the
 attenuation wrappers of Section 10.8. Outside those two places, effects arrive
 through `ctx`.
 
@@ -1719,8 +1725,8 @@ it is what makes "does no I/O" and "does not allocate" separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };
-fn sum(self: [Int]): Int                                              // pure
-fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]         // deterministic
+fn sum(self): Int                                                     // pure
+fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]              // deterministic
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // effectful
 ```
 
@@ -1787,7 +1793,7 @@ receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };
-export fn map<A, B, C: Alloc>(self: [A], ctx: C, f: fn(A) => B): [B]
+export fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>
 ```
 
@@ -1834,13 +1840,15 @@ export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
 
 // Forwards Alloc...
 impl<C: Alloc> Alloc for ReadOnly<C> {
-  fn allocate(self: ReadOnly<C>, bytes: Int): Region { self.0.allocate(bytes) }
+  fn allocate(self, bytes: Int): Region { self.0.allocate(bytes) }
 }
 
 // ...and reading, but there is deliberately no `writeFile`, so ReadOnly<C>
 // does not satisfy Fs no matter what C is.
-export fn readFile<C: Fs>(self: ReadOnly<C>, path: Str): Result<Str, IoError> {
-  self.0.readFile(path)
+impl<C: Fs> ReadOnly<C> {
+  export fn readFile(self, path: Str): Result<Str, IoError> {
+    self.0.readFile(path)
+  }
 }
 ```
 
@@ -1864,13 +1872,13 @@ change, because there was never a global to stub.
 struct FakeFs { export files: [(Str, Str)] }
 
 impl Fs for FakeFs {
-  fn readFile(self: FakeFs, path: Str): Result<Str, IoError> {
+  fn readFile(self, path: Str): Result<Str, IoError> {
     match (self.files.find(fn(e) => e.0 == path)) {
       .Some(entry) => .Ok(entry.1),
       .None => .Err(.NotFound),
     }
   }
-  fn writeFile(self: FakeFs, path: Str, body: Str): Result<(), IoError> {
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
     .Err(.ReadOnly)
   }
 }
@@ -2261,14 +2269,17 @@ member, method — all resolved after parsing, and a method may not share a name
 with a field of the same type.
 
 **12.17 A method is declared by an `impl` block, and `self` is a keyword in a
-fixed position.**
+fixed position, written without a type.**
 "Is this a method?" is answered by where the declaration sits, and "what is the
 receiver?" by a keyword rather than by comparing types against a rule about
-argument order. Neither question needs name resolution. An `impl` block's two
-forms differ by one token of lookahead — `for` after the first type makes it a
-conformance declaration, and its absence makes it the type's own methods — and
-`derive` and `trait` likewise each begin with a distinct keyword, keeping
-top-level parsing a switch on one token.
+argument order. Neither question needs name resolution. Nor does the receiver's
+*type*: the `impl` head is above the declaration and a trait signature means
+`Self`, so a `self` annotation could only agree with what is already written or
+disagree with it, and the second is a diagnostic about a thing nobody meant.
+An `impl` block's two forms differ by one token of lookahead — `for` after the
+first type makes it a conformance declaration, and its absence makes it the
+type's own methods — and `derive` and `trait` likewise each begin with a
+distinct keyword, keeping top-level parsing a switch on one token.
 
 **12.18 `context` is a keyword, and its two forms differ at one token.**
 `context Name { ... }` is a declaration and `context { ... }` is an expression,
@@ -2388,8 +2399,8 @@ the index, not the explanation.
 Methods and traits:
 
 17. `self` may appear only as the first parameter of a function inside an `impl`
-    block. Every function in an `impl` block must take one, and no function
-    outside an `impl` block may (Section 6.7.1).
+    block, and is written without a type. Every function in an `impl` block must
+    take one, and no function outside an `impl` block may (Section 6.7.1).
 18. A method may not share a name with a field of its `self` type
     (Section 12.16).
 19. A method call `x.f(...)` requires the receiver's type to be known and to have

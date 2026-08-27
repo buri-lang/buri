@@ -38,8 +38,8 @@ the index, not the explanation.
 Methods and traits:
 
 17. `self` may appear only as the first parameter of a function inside an `impl`
-    block. Every function in an `impl` block must take one, and no function
-    outside an `impl` block may (Section 6.7.1).
+    block, and is written without a type. Every function in an `impl` block must
+    take one, and no function outside an `impl` block may (Section 6.7.1).
 18. A method may not share a name with a field of its `self` type
     (Section 12.16).
 19. A method call `x.f(...)` requires the receiver's type to be known and to have

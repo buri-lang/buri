@@ -43,7 +43,7 @@ enum Card {
 }
 
 impl Card {
-    fn color(self: Card): Color {
+    fn color(self): Color {
         match (self) {
             .Surface => style.token("cardlib", "surface"),
             .OnSurface => style.token("cardlib", "onSurface"),
@@ -70,7 +70,7 @@ enum App {
 }
 
 impl App {
-    fn color(self: App): Color {
+    fn color(self): Color {
         match (self) {
             .Bg => style.token("app", "bg"),
             .Fg => style.token("app", "fg"),

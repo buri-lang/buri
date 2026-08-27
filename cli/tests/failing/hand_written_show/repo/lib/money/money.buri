@@ -6,7 +6,7 @@ derive Eq for Money;
 export struct Money { export cents: Int }
 
 impl Show for Money {
-    fn show(self: Money): Str {
+    fn show(self): Str {
         "Money(hand written)"
     }
 }

@@ -4,7 +4,7 @@ from "core/order" import { Ord, Order };
 from "core/host" import * as host;
 
 impl Ord for Region {
-  fn compare(self: Region, other: Region): Order { .Equal }
+  fn compare(self, other: Region): Order { .Equal }
 }
 
 export fn main(): Result<(), Str> {

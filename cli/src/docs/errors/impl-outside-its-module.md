@@ -6,7 +6,7 @@ message: "`{name}` is not declared in this module"
 # from "core/effect" import { Region };
 # from "core/order" import { Ord, Order };
 impl Ord for Region {
-  fn compare(self: Region, other: Region): Order {
+  fn compare(self, other: Region): Order {
     .Equal
   }
 }

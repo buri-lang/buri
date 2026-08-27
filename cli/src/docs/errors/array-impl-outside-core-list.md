@@ -6,6 +6,6 @@ fix: write a free function over the array instead
 
 ```buri fail code=array-impl-outside-core-list
 impl [Int] {
-  fn total(self: [Int]): Int { 0 }
+  fn total(self): Int { 0 }
 }
 ```

@@ -2491,7 +2491,7 @@ from "core/list" import * as list;
 /// only from a test source and the hazard is the *weight*, not the module.
 struct Arena { handle: Int }
 impl Alloc for Arena {
-  fn allocate(self: Arena, bytes: Int): Region { Region(bytes) }
+  fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
 export fn main(): Result<(), Str> {
