@@ -48,45 +48,45 @@ from "ui/theme" import { Theme };
 /// below.
 export enum Role {
   /// A set of links to elsewhere. `nav`.
-  export Navigation,
+  Navigation,
   /// The content of the page, once. `main`.
-  export Main,
+  Main,
   /// Introductory content at the top of the page. `header`.
-  export Banner,
+  Banner,
   /// Authorship, copyright, links at the foot. `footer`.
-  export ContentInfo,
+  ContentInfo,
   /// Related but separable content. `aside`.
-  export Complementary,
+  Complementary,
   /// A self-contained composition. `article`.
-  export Article,
+  Article,
   /// The controls that search. `search`.
-  export Search,
+  Search,
   /// A list. A screen reader announces how many items are in it, which is why
   /// a list of things is this rather than a stack of things. `ul`.
-  export List,
+  List,
   /// One item of a list. `li`.
-  export ListItem,
+  ListItem,
   /// A labelled cluster of related controls. `div role="group"`.
-  export Group,
+  Group,
   /// A break between sections. `hr`.
-  export Separator,
+  Separator,
   /// A polite live region: its changes are announced when the reader is idle.
   /// Without it a reactive change to text is silent. `div role="status"`.
-  export Status,
+  Status,
   /// An assertive live region: its changes interrupt. Validation failures.
   /// `div role="alert"`.
-  export Alert,
+  Alert,
   /// A data table — a structure of cells related to their headers, which is
   /// semantics and not arrangement. `table`.
-  export Table,
+  Table,
   /// One row of a table. `tr`.
-  export TableRow,
+  TableRow,
   /// A header for the row it is in. `th scope="row"`.
-  export RowHeader,
+  RowHeader,
   /// A header for the column it is in. `th scope="col"`.
-  export ColumnHeader,
+  ColumnHeader,
   /// One cell. `td`.
-  export Cell,
+  Cell,
 }
 
 /// What a field accepts.
@@ -98,17 +98,17 @@ export enum Role {
 /// browser.
 export enum FieldKind {
   /// A line of text.
-  export Text,
+  Text,
   /// Several lines.
-  export Multiline,
+  Multiline,
   /// A secret: never shown, never spoken.
-  export Password,
+  Password,
   /// An address.
-  export Email,
+  Email,
   /// A number.
-  export Number,
+  Number,
   /// A query.
-  export Search,
+  Search,
 }
 
 /// A user interface, as a value.

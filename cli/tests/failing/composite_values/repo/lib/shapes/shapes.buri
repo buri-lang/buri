@@ -15,11 +15,11 @@ export struct Hollow {}
 
 derive Eq, Show for Colour;
 /// Every variant payloadless.
-export enum Colour { export Red, export Green, export Blue }
+export enum Colour { Red, Green, Blue }
 
 derive Eq, Show for Shape;
 /// A positional payload beside a record one.
-export enum Shape { export Circle(Float), export Rect { export w: Int, export h: Int } }
+export enum Shape { Circle(Float), Rect { w: Int, h: Int } }
 
 derive Eq, Show for Deep;
 /// A struct whose fields are themselves every container.

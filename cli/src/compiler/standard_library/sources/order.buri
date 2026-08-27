@@ -8,9 +8,9 @@
 from "core/effect" import { Alloc };
 
 export enum Order {
-  export Less,
-  export Equal,
-  export Greater,
+  Less,
+  Equal,
+  Greater,
 }
 
 /// `a == b` and `a != b` are `Eq.eq`. Equality is structural, never

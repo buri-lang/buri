@@ -54,12 +54,12 @@ fn lineEntry(line: Str): Option<Entry> {
 /// page says something different about each of the three.
 export enum Draft {
   /// A line ready to be added.
-  export Line(Entry),
+  Line(Entry),
   /// Nothing has been typed.
-  export Blank,
+  Blank,
   /// Something has, and it is not an amount. Carries what was typed, so the
   /// page can quote it back.
-  export BadAmount(Str),
+  BadAmount(Str),
 }
 
 derive Eq, Show for Draft;

@@ -15,10 +15,11 @@ error: field `0` of `Scope` is private to its module [private-to-module]
      Why
      ───
 
-     export is the whole of visibility: a declaration, a field, a variant or a
-     method that does not carry it is reachable only from the module that wrote
-     it. One rule, so one code — the same error covers a function you cannot
-     call, a field you cannot name, and a variant you cannot construct or match.
+     export is the whole of visibility: a declaration, a field or a method that
+     does not carry it is reachable only from the module that wrote it. One
+     rule, so one code — the same error covers a function you cannot call, a
+     field you cannot name, and a variant of an enum whose own declaration is
+     private.
 
      The unusual half is that a struct with any private field cannot be
      constructed anywhere else at all, not merely read: writing Scope(0) names

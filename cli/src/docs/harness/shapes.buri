@@ -3,9 +3,9 @@
 // smallest thing that makes all three explanations concrete.
 
 export enum Shape {
-  export Point,
-  export Circle(Float),
-  export Rect(Float, Float),
+  Point,
+  Circle(Float),
+  Rect(Float, Float),
 }
 
 export fn area(shape: Shape): Float {

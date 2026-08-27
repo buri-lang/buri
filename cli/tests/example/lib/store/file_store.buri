@@ -6,7 +6,7 @@ from "//lib/ledger" import { Entry };
 from "//lib/store/codec" import { encode };
 
 export enum StoreError {
-  export Io(IoError),
+  Io(IoError),
 }
 
 // `assert.ok` renders the error when it fails, so this needs `Show`.

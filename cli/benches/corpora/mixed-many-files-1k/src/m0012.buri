@@ -41,11 +41,11 @@ export fn lift12(n: Node9): Node12 {
 
 /// An enum of 5 variants, matched exhaustively below.
 export enum State12_0 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
 }
 
 derive Eq, Show for State12_0;

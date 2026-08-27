@@ -225,9 +225,11 @@ GenericParams   ::= "<" GenericParam ("," GenericParam)* ","? ">"
 GenericParam    ::= name=IDENT (":" Bounds)?
 Bounds          ::= NamedType ("+" NamedType)*
 
-(* Struct fields and enum variants are module-private unless exported. That is
-   the only visibility mechanism: record structs, tuple structs, and enums all
-   use the same rule, and there is no `opaque` modifier. *)
+(* Struct fields are module-private unless exported. That is the only
+   visibility mechanism a type has -- record structs and tuple structs both use
+   it, and there is no `opaque` modifier. An enum works the other way round:
+   the enum is the unit, and its variants and their payload fields are exported
+   exactly when it is. *)
 StructDecl      ::= "struct" name=IDENT GenericParams? StructBody
 
 (* @inline *)
@@ -244,13 +246,22 @@ FieldDecl       ::= "export"? name=IDENT ":" type=Type
 TupleFields     ::= TupleField ("," TupleField)* ","?
 TupleField      ::= "export"? Type
 
+(* A variant writes no `export`, because the enum has already written it: an
+   exported enum exports every variant, and a private one exports none. The
+   same goes for the fields of a record payload, which is why they are their
+   own production rather than the FieldDecls a struct uses. Writing `export`
+   before a variant was the older spelling and is now the `variant-export`
+   error, which carries the edit that deletes it. *)
 EnumDecl        ::= "enum" name=IDENT GenericParams? "{" Variants? "}"
 Variants        ::= Variant ("," Variant)* ","?
-Variant         ::= "export"? name=IDENT VariantPayload?
+Variant         ::= name=IDENT VariantPayload?
 
 (* @hidden *)
 VariantPayload  ::= "(" Types ")"
-                  | "{" FieldDecls "}"
+                  | "{" VariantFields "}"
+
+VariantFields   ::= VariantField ("," VariantField)* ","?
+VariantField    ::= name=IDENT ":" type=Type
 
 TypeAliasDecl   ::= "type" name=IDENT GenericParams? "=" Type ";"
 

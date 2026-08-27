@@ -797,6 +797,23 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 `0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal is met; below
 1.0 means it is beaten.
 
+> **Generator revision 4, 2026-08-27 — a break in the series, announced.**
+> An enum variant stopped carrying `export`, so every generated variant line
+> lost the keyword and a space and every recorded digest of a corpus containing
+> an enum moved. §3.1's rule applies and was followed: the six saved corpora
+> that carry an enum were re-recorded — five at **corpus revision 4** and
+> `wide-match-1k` at **revision 2**, which is its first move since it was
+> written — thirty-eight of the forty pinned manifests were re-pinned, and the
+> ones whose bytes never moved — `many-small-fns-1k`, `few-large-fns-1k`, and
+> the `struct-heavy` pins at both scales, which set `w_enum=0` — were **left
+> where they were**, for the reason the revision-2 note gives.
+>
+> **Nothing measurable moved with it.** The change deletes bytes from a
+> declaration and nothing else: `lines` and `modules` are identical for all
+> forty pinned and all eight saved corpora, and only `bytes` and the digest
+> differ. Every reading below is still comparable with one taken at revision 4;
+> a rate quoted in lines/s is unmoved because the line count is unmoved.
+
 > **Generator revision 3, 2026-08-27 — a break in the series, announced.**
 > `self` stopped writing its type, so every generated method signature lost the
 > receiver's name and a colon and every recorded digest of a corpus containing

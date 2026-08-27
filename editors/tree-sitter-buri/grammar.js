@@ -144,9 +144,13 @@ module.exports = grammar({
 
     variants: $ => seq($.variant, repeat(seq(',', $.variant)), optional(',')),
 
-    variant: $ => seq(optional('export'), field('name', $.identifier), optional($._variant_payload)),
+    variant: $ => seq(field('name', $.identifier), optional($._variant_payload)),
 
-    _variant_payload: $ => choice(seq('(', $.types, ')'), seq('{', $.field_declarations, '}')),
+    _variant_payload: $ => choice(seq('(', $.types, ')'), seq('{', $.variant_fields, '}')),
+
+    variant_fields: $ => seq($.variant_field, repeat(seq(',', $.variant_field)), optional(',')),
+
+    variant_field: $ => seq(field('name', $.identifier), ':', field('type', $._type)),
 
     type_alias_declaration: $ => seq(
       'type',

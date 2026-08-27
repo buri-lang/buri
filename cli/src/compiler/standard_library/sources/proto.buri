@@ -45,17 +45,17 @@ from "core/str" import * as str;
 /// bisection.
 export enum ProtoError {
   /// The input ended in the middle of a field.
-  export Truncated(Int),
+  Truncated(Int),
   /// A field header carrying wire type 3 or 4 — a group, which this format no
   /// longer has — or any other number that is not 0, 1, 2 or 5.
-  export BadWireType { field: Int, wire: Int },
+  BadWireType { field: Int, wire: Int },
   /// A field number of zero, which no field may have.
-  export BadFieldNumber(Int),
+  BadFieldNumber(Int),
   /// A `string` field whose bytes are not UTF-8, at the offset it stopped.
-  export BadUtf8(Int),
+  BadUtf8(Int),
   /// A JSON document that is not the message it was read as. `path` is written
   /// the way `core/json`'s is — `$` for the document, `.name` for a member.
-  export BadJson { path: Str, wanted: Str },
+  BadJson { path: Str, wanted: Str },
 }
 
 derive Eq, Show for ProtoError;

@@ -87,16 +87,20 @@ fn helper(x: Int): Int { x * 2 }           // private
 export fn double(x: Int): Int { helper(x) } // public
 ```
 
-Struct fields and enum variants carry their own `export`, so a type's name and
-its representation are exported separately:
+Struct fields carry their own `export`, so a struct's name and its
+representation are exported separately:
 
 ```buri
 export struct UserId(Str);          // name public, contents private
 export struct Meters(export F64);   // both public
 ```
 
-A type with any unexported field or variant cannot be constructed, destructured,
-or exhaustively matched outside its module.
+A struct with any unexported field cannot be constructed, destructured, or
+exhaustively matched outside its module.
+
+An enum is the unit of its own visibility: its variants and their payload
+fields are exported exactly when it is, and a variant writes no `export` of its
+own (Section 5.7).
 
 `impl` and `derive` declarations are never exported (Section 6.7.1).
 

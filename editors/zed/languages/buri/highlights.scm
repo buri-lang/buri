@@ -62,6 +62,7 @@
 (lambda_parameter name: (identifier) @variable.parameter)
 
 (field_declaration name: (identifier) @property)
+(variant_field name: (identifier) @property)
 (field_initializer name: (identifier) @property)
 (field_pattern name: (identifier) @property)
 (field_expression field: (identifier) @property)

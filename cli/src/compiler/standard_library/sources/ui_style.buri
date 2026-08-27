@@ -65,7 +65,7 @@ from "ui/prop" import { Prop };
 export enum Style {
   /// Several properties as one value. Composition, with no allocator: an array
   /// literal is fixed-size construction.
-  export Group([Style]),
+  Group([Style]),
   /// Styles that apply only while the element is in a given state — hovered,
   /// focused, pressed. A pseudo-class in the stylesheet, so it costs nothing at
   /// run time and there is no signal write on a mouse move.
@@ -75,22 +75,22 @@ export enum Style {
   /// One state at a time. An `On` inside an `On` keeps the innermost, because
   /// two pseudo-classes at once is a rule this vocabulary has no way to name;
   /// an `On` inside an `At` is both, and is the useful nesting.
-  export On(State, [Style]),
+  On(State, [Style]),
   /// Styles that apply only from a given screen width upwards. Mobile-first: a
   /// larger breakpoint overrides a smaller one, and the styles outside any `At`
   /// are the smallest screen's.
   ///
   /// Statically known or rejected: there is no inline form of a media query.
   /// `When` inside `At` is fine; `Computed` inside it is not.
-  export At(Screen, [Style]),
+  At(Screen, [Style]),
   /// One of two style lists, chosen by something that can change. Both lists
   /// are extracted into the stylesheet, and the runtime swaps between two
   /// precomputed class strings.
-  export When(Prop<Bool>, [Style], [Style]),
+  When(Prop<Bool>, [Style], [Style]),
   /// Styles derived from whatever the closure reads. Applied inline and
   /// re-serialised on every change, and never in the stylesheet — which is why
   /// it is the last resort rather than the first.
-  export Computed(fn(Scope) => [Style]),
+  Computed(fn(Scope) => [Style]),
   /// **Compiler-produced, and the one variant a program cannot write.** Holds
   /// the pairs a static style was extracted into: a conflict slot, and the name
   /// of a class that is already in the stylesheet. Last slot wins.
@@ -101,115 +101,115 @@ export enum Style {
   Extracted([(Int, Str)]),
 
   /// How this container arranges its children.
-  export Layout(Layout),
+  Layout(Layout),
   /// Where the children sit along the axis the layout runs along.
-  export AlignMain(Align),
+  AlignMain(Align),
   /// Where the children sit across that axis.
-  export AlignCross(Align),
+  AlignCross(Align),
   /// Where this child sits across its parent's main axis, overriding the
   /// parent's `AlignCross` for it alone.
-  export AlignSelf(Align),
+  AlignSelf(Align),
   /// Whether children that do not fit start a new line.
-  export Wrap(Bool),
+  Wrap(Bool),
   /// Which way this container scrolls when its content is larger than it is.
-  export Scroll(Axis),
+  Scroll(Axis),
   /// How much of the leftover space along the main axis this child takes,
   /// relative to its siblings. `0` is "none of it".
-  export Grow(Int),
+  Grow(Int),
   /// How much this child gives up when there is not enough room, relative to
   /// its siblings. `0` is "none of it", which is how a sidebar keeps its width.
-  export Shrink(Int),
+  Shrink(Int),
   /// How many grid tracks this child covers.
-  export Span(Int),
+  Span(Int),
   /// Fixes one edge of a child at a distance, taking it out of the flow. Two
   /// `Pin`s naming different edges compose. The distance is measured from the
   /// nearest ancestor that has a `Position`, or from the page.
-  export Pin(Edge, Length),
+  Pin(Edge, Length),
   /// How this element relates to the flow — and, declared after `Pin` so that
   /// it wins, what a pinned child is measured against.
-  export Position(Position),
+  Position(Position),
 
   /// The space between children, both ways.
-  export Gap(Length),
+  Gap(Length),
   /// The space between children along the text direction.
-  export GapX(Length),
+  GapX(Length),
   /// The space between children down the page.
-  export GapY(Length),
+  GapY(Length),
   /// Space inside every edge.
-  export Padding(Length),
+  Padding(Length),
   /// Space inside the two edges the text direction runs along.
-  export PaddingX(Length),
+  PaddingX(Length),
   /// Space inside the top and bottom edges.
-  export PaddingY(Length),
+  PaddingY(Length),
   /// Space inside one edge.
-  export PaddingEdge(Edge, Length),
+  PaddingEdge(Edge, Length),
 
   /// How wide.
-  export Width(Length),
+  Width(Length),
   /// How tall.
-  export Height(Length),
+  Height(Length),
   /// No narrower than this.
-  export MinWidth(Length),
+  MinWidth(Length),
   /// No wider than this.
-  export MaxWidth(Length),
+  MaxWidth(Length),
   /// No shorter than this.
-  export MinHeight(Length),
+  MinHeight(Length),
   /// No taller than this.
-  export MaxHeight(Length),
+  MaxHeight(Length),
   /// Width divided by height, for an element that should keep its proportions
   /// as it resizes. `1.0` is a square.
-  export AspectRatio(Float),
+  AspectRatio(Float),
 
   /// What is painted behind the content.
-  export Background(Color),
+  Background(Color),
   /// What the text is painted in.
-  export Foreground(Color),
+  Foreground(Color),
   /// How thick the border is. A width on its own draws a solid border, because
   /// a border nobody can see is not what asking for one means; `BorderStyle` is
   /// declared after it and overrides that.
-  export BorderWidth(Length),
+  BorderWidth(Length),
   /// What colour the border is. A border with no colour draws in the
   /// foreground colour, which is what every other toolkit does.
-  export BorderColor(Color),
+  BorderColor(Color),
   /// What the border is drawn like.
-  export BorderStyle(BorderStyle),
+  BorderStyle(BorderStyle),
   /// How rounded the corners are.
-  export Radius(Length),
+  Radius(Length),
   /// How opaque the whole element is, `0.0` to `1.0`, content included.
-  export Opacity(Float),
+  Opacity(Float),
   /// A shadow cast by this element.
-  export Shadow(Shadow),
+  Shadow(Shadow),
 
   /// Which family the text is set in.
-  export FontFamily(FontFamily),
+  FontFamily(FontFamily),
   /// How large the text is.
-  export FontSize(Length),
+  FontSize(Length),
   /// How heavy the text is.
-  export FontWeight(Weight),
+  FontWeight(Weight),
   /// Whether the text slants.
-  export Italic(Bool),
+  Italic(Bool),
   /// The distance between baselines, as a multiple of the text size. `1.5` is
   /// the usual body setting.
-  export LineHeight(Float),
+  LineHeight(Float),
   /// Extra space between letters. Negative tightens.
-  export LetterSpacing(Length),
+  LetterSpacing(Length),
   /// Where the text sits in its line box. The three `Space*` distributions and
   /// `Stretch` all mean *justified*, which is the nearest thing text has to
   /// distributing leftover room.
-  export TextAlign(Align),
+  TextAlign(Align),
   /// Whether the text is re-cased for display. The text itself is unchanged,
   /// so what is copied out and what is announced are what was written.
-  export TextCase(TextCase),
+  TextCase(TextCase),
   /// A line drawn through or under the text.
-  export TextLine(TextLine),
+  TextLine(TextLine),
   /// How the text breaks across lines.
-  export TextWrap(TextWrap),
+  TextWrap(TextWrap),
   /// Show at most this many lines and end the last one with an ellipsis. Zero
   /// means no limit.
-  export Truncate(Int),
+  Truncate(Int),
 
   /// What the pointer looks like over this element.
-  export Cursor(Cursor),
+  Cursor(Cursor),
 }
 
 /// How a container arranges its children.
@@ -218,60 +218,60 @@ export enum Style {
 /// no `Layout` stacks its children downwards.
 export enum Layout {
   /// Children run down the page.
-  export Column,
+  Column,
   /// Children run along it.
-  export Row,
+  Row,
   /// Children are placed in named columns, left to right, wrapping into rows.
-  export Grid([Track]),
+  Grid([Track]),
   /// Children share one space, later ones over earlier ones. There is no
   /// depth number to get wrong: the order they are written in is the order
   /// they stack in.
-  export Layers,
+  Layers,
 }
 
 /// One column of a `Grid`.
 export enum Track {
   /// A share of the leftover room. Two `Fraction(1)`s split it evenly; a
   /// `Fraction(2)` beside a `Fraction(1)` takes twice as much.
-  export Fraction(Int),
+  Fraction(Int),
   /// Exactly this wide.
-  export Fixed(Length),
+  Fixed(Length),
   /// As wide as its content needs.
-  export Auto,
+  Auto,
 }
 
 /// A distance.
 export enum Length {
   /// Device-independent pixels.
-  export Px(Int),
+  Px(Int),
   /// Multiples of the root text size, so it follows a reader who has made
   /// text larger.
-  export Rem(Float),
+  Rem(Float),
   /// A fraction of the containing space, as a percentage.
-  export Percent(Float),
+  Percent(Float),
   /// Whatever the content needs.
-  export Auto,
+  Auto,
   /// All of the containing space.
-  export Full,
+  Full,
 }
 
 /// A colour.
 export enum Color {
   /// Red, green and blue, each 0-255.
-  export Rgb(Int, Int, Int),
+  Rgb(Int, Int, Int),
   /// Red, green and blue, and how opaque, 0.0 to 1.0.
-  export Rgba(Int, Int, Int, Float),
+  Rgba(Int, Int, Int, Float),
   /// One package's design token: a name whose value the app decides at mount.
   ///
   /// A token in the static tier is a custom property — `var(--cardlib-surface)`
   /// — so the class an element carries is the same one whatever the token turns
   /// out to be worth, and switching a theme changes no class at all. What each
   /// name resolves to is a `Theme` (`ui/theme`).
-  export Token(TokenReference),
+  Token(TokenReference),
   /// Nothing is painted, and whatever is behind shows through.
-  export Transparent,
+  Transparent,
   /// Whatever the containing element uses.
-  export Inherit,
+  Inherit,
 }
 
 /// An opaque name for one package's design token: the package it belongs to,
@@ -306,30 +306,30 @@ export fn token(namespace: Str, name: Str): Color {
 /// and mean nothing for a single one.
 export enum Align {
   /// Where the axis begins.
-  export Start,
+  Start,
   /// The middle.
-  export Center,
+  Center,
   /// Where the axis ends.
-  export End,
+  End,
   /// Filling the axis.
-  export Stretch,
+  Stretch,
   /// The leftover room divided between the children, none at either end.
-  export SpaceBetween,
+  SpaceBetween,
   /// The leftover room divided around the children, half of a share at each
   /// end.
-  export SpaceAround,
+  SpaceAround,
   /// The leftover room divided evenly, including at the ends.
-  export SpaceEvenly,
+  SpaceEvenly,
 }
 
 /// One direction, or both.
 export enum Axis {
   /// The direction the text runs.
-  export X,
+  X,
   /// Down the page.
-  export Y,
+  Y,
   /// Both of them.
-  export Both,
+  Both,
 }
 
 /// One edge of a box, named by where it is in the reading order rather than by
@@ -337,13 +337,13 @@ export enum Axis {
 /// construction rather than by a second stylesheet.
 export enum Edge {
   /// The top.
-  export Top,
+  Top,
   /// The bottom.
-  export Bottom,
+  Bottom,
   /// Where the text begins: the left edge in English, the right in Arabic.
-  export Start,
+  Start,
   /// Where the text ends.
-  export End,
+  End,
 }
 
 /// A screen size, from this width upwards.
@@ -353,13 +353,13 @@ export enum Edge {
 /// which follow the reader's text size rather than the device's pixels.
 export enum Screen {
   /// From 40rem up — a large phone held sideways, and everything above it.
-  export Small,
+  Small,
   /// From 48rem up — a tablet.
-  export Medium,
+  Medium,
   /// From 64rem up — a laptop.
-  export Large,
+  Large,
   /// From 80rem up — a desktop display.
-  export ExtraLarge,
+  ExtraLarge,
 }
 
 /// A state an element can be in, which the platform tracks and a program does
@@ -370,26 +370,26 @@ export enum Screen {
 /// trait — where a signal write per mouse move does none of the three.
 export enum State {
   /// A pointer is over it.
-  export Hover,
+  Hover,
   /// It has the keyboard's attention, and the platform judged that showing so
   /// is useful — `:focus-visible`, so a mouse press does not draw a focus ring.
-  export Focus,
+  Focus,
   /// It is being pressed right now.
-  export Active,
+  Active,
   /// It refuses input.
-  export Disabled,
+  Disabled,
   /// It is a toggle and it is on.
-  export Checked,
+  Checked,
 }
 
 /// How an element relates to the flow of the page.
 export enum Position {
   /// In the flow, and the origin anything pinned inside it is measured from.
-  export Flow,
+  Flow,
   /// In the flow until it would scroll out of view, and then held at the edge.
-  export Sticky,
+  Sticky,
   /// Out of the flow and fixed to the viewport, so scrolling does not move it.
-  export PinViewport,
+  PinViewport,
 }
 
 /// How heavy text is.
@@ -399,13 +399,13 @@ export enum Position {
 /// to a face on every one.
 export enum Weight {
   /// Body text.
-  export Regular,
+  Regular,
   /// A little heavier than body text.
-  export Medium,
+  Medium,
   /// Heavier again — the usual weight for a heading.
-  export Semibold,
+  Semibold,
   /// The heaviest of the four.
-  export Bold,
+  Bold,
 }
 
 /// Which kind of letterform.
@@ -414,67 +414,67 @@ export enum Weight {
 /// font is, so an app that names none of them looks native everywhere.
 export enum FontFamily {
   /// The platform's interface face.
-  export Sans,
+  Sans,
   /// A face with serifs, for long reading.
-  export Serif,
+  Serif,
   /// A fixed-pitch face, for code and figures that must line up.
-  export Mono,
+  Mono,
   /// A face by name, with the matching generic family behind it.
-  export Named(Str),
+  Named(Str),
 }
 
 /// What a border is drawn like.
 export enum BorderStyle {
   /// No border at all, whatever its width.
-  export None,
+  None,
   /// One unbroken line.
-  export Solid,
+  Solid,
   /// A broken line.
-  export Dashed,
+  Dashed,
 }
 
 /// Whether text is re-cased for display.
 export enum TextCase {
   /// However it was written.
-  export AsWritten,
+  AsWritten,
   /// ALL CAPITALS.
-  export Upper,
+  Upper,
   /// all lower case.
-  export Lower,
+  Lower,
   /// The First Letter Of Each Word.
-  export Capitalize,
+  Capitalize,
 }
 
 /// A line drawn through or under text.
 export enum TextLine {
   /// None.
-  export None,
+  None,
   /// Underlined.
-  export Underline,
+  Underline,
   /// Struck through.
-  export Strike,
+  Strike,
 }
 
 /// How text breaks across lines.
 export enum TextWrap {
   /// Wherever it has to.
-  export Wrap,
+  Wrap,
   /// Never — it overflows instead.
-  export NoWrap,
+  NoWrap,
   /// Wherever it has to, with the line lengths evened out. For headings.
-  export Balance,
+  Balance,
 }
 
 /// What the pointer looks like.
 export enum Cursor {
   /// Whatever the platform would have chosen.
-  export Default,
+  Default,
   /// Something to press.
-  export Pointer,
+  Pointer,
   /// Something to select.
-  export Text,
+  Text,
   /// Something that would refuse.
-  export NotAllowed,
+  NotAllowed,
 }
 
 /// A shadow cast by an element.

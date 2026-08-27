@@ -348,15 +348,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             .get(index)
             .or_ice("the index is a position in this same variant list")
             .clone();
-        // A type with any unexported variant cannot be matched outside its
-        // module.
+        // A variant is exported exactly when its enum is, so this fires only
+        // where a private enum reached another module through a signature.
         let owner = self.c.tables.tycon(con).module;
         if owner != self.module && owner.0 != u32::MAX && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.templated("private-to-module", span)
                 .bind("declaration", format!("variant `{v}` of `{t}`"))
-                .fix(format!("add `export` to `{v}`, or match through a function `{t}`'s module provides"));
+                .fix(format!("add `export` to `{t}`, or match through a function `{t}`'s module provides"));
         }
         let fields = self.payload_patterns(&variant.fields, &args, payload, span, &variant.name);
         typed::PatKind::Variant { con, variant: index, fields }

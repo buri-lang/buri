@@ -6,8 +6,8 @@
 //! consume one are `?`, `match`, `withDefault`, and `ignore`.
 
 export enum Result<T, E> {
-  export Ok(T),
-  export Err(E),
+  Ok(T),
+  Err(E),
 }
 
 derive Eq, Ord, Show, Hash for Result;

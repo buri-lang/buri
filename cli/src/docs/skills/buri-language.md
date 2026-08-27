@@ -107,9 +107,10 @@ from "//lib/money" import { Cents };
 
 - `from "core/list" import *;` is not derivable — the only wildcard form is
   `* as <name>`. Every unqualified name in a module is written in that module.
-- A declaration is module-private unless prefixed `export`. Struct fields and
-  enum variants carry their own `export`, so a type's name and its
-  representation are exported separately.
+- A declaration is module-private unless prefixed `export`. Struct fields carry
+  their own `export`, so a struct's name and its representation are exported
+  separately. An enum's variants take the enum's visibility and write no
+  `export` of their own.
 - Re-export mirrors import: `from "//lib/money/cents" export { Cents, add };`.
   There is no `export *`.
 - `impl` and `derive` are never exported.

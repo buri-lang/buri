@@ -83,13 +83,13 @@ export struct Zoned {
 derive Eq, Show for Zoned;
 
 export enum Weekday {
-  export Monday,
-  export Tuesday,
-  export Wednesday,
-  export Thursday,
-  export Friday,
-  export Saturday,
-  export Sunday,
+  Monday,
+  Tuesday,
+  Wednesday,
+  Thursday,
+  Friday,
+  Saturday,
+  Sunday,
 }
 
 derive Eq, Show, Hash for Weekday;

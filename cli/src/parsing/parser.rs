@@ -1047,6 +1047,13 @@ impl<'a> Parser<'a> {
         end
     }
 
+    /// The old per-variant `export`. The edit reaches from the keyword to the
+    /// name, so the space after `export` goes with it however wide it was.
+    fn variant_export(&mut self, keyword: Span, name: Span) {
+        let through_the_gap = Span { file: keyword.file, start: keyword.start, end: name.start };
+        self.templated("variant-export", keyword).map(|d| d.edit(through_the_gap, ""));
+    }
+
     fn fn_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<FnDecl> {
         self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
@@ -1128,7 +1135,7 @@ impl<'a> Parser<'a> {
             StructBody::Tuple(fields)
         } else {
             self.expect(Punctuation::LBrace)?;
-            let fields = self.field_decls(Punctuation::RBrace)?;
+            let fields = self.field_decls(Punctuation::RBrace, true)?;
             self.expect(Punctuation::RBrace)?;
             StructBody::Record(fields)
         };
@@ -1136,13 +1143,27 @@ impl<'a> Parser<'a> {
         Ok(StructDecl { name, generics, body, exported, span, docs })
     }
 
-    fn field_decls(&mut self, close: Punctuation) -> PResult<Vec<FieldDecl>> {
+    /// A struct's fields carry their own `export`; a variant's payload fields
+    /// take the enum's, so writing one there is the `variant-export` error.
+    fn field_decls(
+        &mut self,
+        close: Punctuation,
+        per_field_export: bool,
+    ) -> PResult<Vec<FieldDecl>> {
         let mut fields = Vec::new();
         while !self.is(close) && !self.at_eof() {
             let docs = self.docs();
             let start = self.span();
-            let exported = self.eat_keyword(Keyword::Export);
+            let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
+            let name_start = self.span();
             let name = self.expect_ident()?;
+            let exported = match keyword {
+                Some(keyword) if !per_field_export => {
+                    self.variant_export(keyword, name_start);
+                    false
+                }
+                other => other.is_some(),
+            };
             self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
             fields.push(FieldDecl { exported, name, ty, span: start.to(self.prev_span()), docs });
@@ -1162,8 +1183,12 @@ impl<'a> Parser<'a> {
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let vdocs = self.docs();
             let vstart = self.span();
-            let vexported = self.eat_keyword(Keyword::Export);
+            let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
+            let name_start = self.span();
             let vname = self.expect_ident()?;
+            if let Some(keyword) = keyword {
+                self.variant_export(keyword, name_start);
+            }
             let payload = if self.eat(Punctuation::LParen) {
                 let base = self.scratch.tys.len();
                 while !self.is(Punctuation::RParen) && !self.at_eof() {
@@ -1178,14 +1203,13 @@ impl<'a> Parser<'a> {
                 self.scratch.tys.truncate(base);
                 VariantPayload::Tuple(tys)
             } else if self.eat(Punctuation::LBrace) {
-                let fields = self.field_decls(Punctuation::RBrace)?;
+                let fields = self.field_decls(Punctuation::RBrace, false)?;
                 self.expect(Punctuation::RBrace)?;
                 VariantPayload::Record(fields)
             } else {
                 VariantPayload::None
             };
             variants.push(Variant {
-                exported: vexported,
                 name: vname,
                 payload,
                 span: vstart.to(self.prev_span()),
@@ -2914,6 +2938,37 @@ mod tests {
         assert_eq!(e[0].edits[0].replacement, "self");
         let at = e[0].edits[0].at;
         assert_eq!(src.get(at.start as usize..at.end as usize), Some("self: Square"));
+    }
+
+    #[test]
+    fn a_variant_carries_no_export_of_its_own() {
+        let src = "export enum Shape { export Circle(Float), Square(Float) }";
+        let e = bad(src);
+        assert_eq!(e.len(), 1, "one error names the whole mistake: {e:#?}");
+        assert_eq!(e[0].code.as_deref(), Some("variant-export"));
+        // The fix is mechanical, so it travels as bytes: the keyword and the
+        // space after it go together, however wide the space was.
+        assert_eq!(e[0].edits.len(), 1);
+        assert_eq!(e[0].edits[0].replacement, "");
+        let at = e[0].edits[0].at;
+        assert_eq!(src.get(at.start as usize..at.end as usize), Some("export "));
+    }
+
+    /// A payload field has the enum's visibility too, so `export` there is the
+    /// same mistake and gets the same code.
+    #[test]
+    fn a_variants_payload_field_carries_no_export_either() {
+        let e = bad("export enum Shape { Rect { export width: Float } }");
+        assert_eq!(e.len(), 1, "{e:#?}");
+        assert_eq!(e[0].code.as_deref(), Some("variant-export"));
+    }
+
+    /// The variant is read past the keyword, so the enum is still an enum and
+    /// nothing after it is reported through a recovery.
+    #[test]
+    fn an_exported_variant_is_still_read_as_a_variant() {
+        let e = bad("export enum Shape { export Circle(Float), Square(Float), Empty }");
+        assert_eq!(e.len(), 1, "{e:#?}");
     }
 
     /// The annotation is read and discarded, so the rest of the signature is

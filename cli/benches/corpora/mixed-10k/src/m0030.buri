@@ -199,11 +199,11 @@ export fn probe30_6<C: Alloc>(ctx: C): Int {
 
 /// An enum of 5 variants, matched exhaustively below.
 export enum State30_7 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
 }
 
 derive Eq, Show for State30_7;
@@ -274,10 +274,10 @@ export fn probe30_9<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State30_10 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State30_10;

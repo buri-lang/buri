@@ -2436,14 +2436,13 @@ pub fn field_decl(t: &Tree, f: &FieldDecl) -> String {
 }
 
 pub fn variant(t: &Tree, v: &Variant) -> String {
-    let ex = if v.exported { "export " } else { "" };
     match &v.payload {
-        VariantPayload::None => format!("{ex}{}", t.name(v.name)),
+        VariantPayload::None => t.name(v.name).to_string(),
         VariantPayload::Tuple(ts) => {
-            format!("{ex}{}({})", t.name(v.name), type_list(t, t.type_list(*ts)))
+            format!("{}({})", t.name(v.name), type_list(t, t.type_list(*ts)))
         }
         VariantPayload::Record(fs) => format!(
-            "{ex}{} {{ {} }}",
+            "{} {{ {} }}",
             t.name(v.name),
             fs.iter().map(|f| field_decl(t, f)).collect::<Vec<_>>().join(", ")
         ),

@@ -19,13 +19,13 @@ from "ui/theme" import { Theme };
 /// the omission is still cheap to fix.
 export enum Token {
   /// Behind a card.
-  export Surface,
+  Surface,
   /// Text on a surface.
-  export OnSurface,
+  OnSurface,
   /// The line around a card.
-  export Edge,
+  Edge,
   /// What draws the eye: a hovered border, the filled part of a meter.
-  export Accent,
+  Accent,
 }
 
 impl Token {

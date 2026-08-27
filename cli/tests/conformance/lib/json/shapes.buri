@@ -74,19 +74,19 @@ derive Eq, Show, ToJson, FromJson for Wrapper;
 
 /// Every variant payload-free, which is the case a bare string covers.
 export enum Colour {
-  export Red,
-  export Green,
-  export Blue,
+  Red,
+  Green,
+  Blue,
 }
 
 derive Eq, Show, ToJson, FromJson for Colour;
 
 /// All three variant shapes in one type: no payload, positional, named.
 export enum Shape {
-  export Empty,
-  export Circle(Int),
-  export Line(Point, Point),
-  export Rect { width: Int, height: Int },
+  Empty,
+  Circle(Int),
+  Line(Point, Point),
+  Rect { width: Int, height: Int },
 }
 
 derive Eq, Show, ToJson, FromJson for Shape;
@@ -97,8 +97,8 @@ derive Eq, Show, ToJson, FromJson for Shape;
 /// shape that has no type constructor at the head and so used to walk the
 /// checker off the end of its stack.
 export enum Rose {
-  export Leaf(Int),
-  export Branch([Rose]),
+  Leaf(Int),
+  Branch([Rose]),
 }
 
 derive Eq, Show, ToJson, FromJson for Rose;

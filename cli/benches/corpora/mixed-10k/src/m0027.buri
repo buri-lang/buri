@@ -37,10 +37,10 @@ export fn lift27(n: Node10): Node27 {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State27_0 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State27_0;
@@ -268,11 +268,11 @@ export fn probe27_9<C: Alloc>(ctx: C): Int {
 
 /// An enum of 5 variants, matched exhaustively below.
 export enum State27_10 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
-  export Step4(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
+  Step4(Int, Str),
 }
 
 derive Eq, Show for State27_10;

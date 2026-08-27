@@ -17,15 +17,15 @@ from "//lib/kit" import { Token };
 /// This app's palette, as names rather than colours.
 export enum Shade {
   /// The page.
-  export Bg,
+  Bg,
   /// A card standing on the page.
-  export Raised,
+  Raised,
   /// Text.
-  export Fg,
+  Fg,
   /// A hairline.
-  export Line,
+  Line,
   /// What draws the eye.
-  export Accent,
+  Accent,
 }
 
 impl Shade {

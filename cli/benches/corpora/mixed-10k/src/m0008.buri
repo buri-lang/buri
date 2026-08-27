@@ -55,10 +55,10 @@ export fn probe8_0<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State8_1 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State8_1;
@@ -87,9 +87,9 @@ export fn probe8_1<C: Alloc>(ctx: C): Int {
 
 /// An enum of 3 variants, matched exhaustively below.
 export enum State8_2 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
 }
 
 derive Eq, Show for State8_2;

@@ -260,6 +260,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unterminated-comment", "A block comment is closed"),
     e!("unterminated-string", "A string literal closes on the line it opens"),
     e!("unterminated-unicode-escape", "A Unicode escape closes its brace"),
+    e!("variant-export", "An exported enum exports every variant", &["lang/types"]),
     e!("visibility-violation", "A dependency is visible to the package that names it", &["build/build-files"]),
     e!("web-output-with-a-js-block", "A page is always an ES module", &["build/build-files"]),
     e!("wrong-argument-count", "A call passes exactly the arguments the function declares"),

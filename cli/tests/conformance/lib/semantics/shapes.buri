@@ -38,18 +38,18 @@ export fn version(major: Int, minor: Int, patch: Int): Version {
 /// Variants are in declaration order, which is the order a derived `Ord`
 /// ranks them in: `Low < Medium < High`.
 export enum Level {
-  export Low,
-  export Medium,
-  export High,
+  Low,
+  Medium,
+  High,
 }
 
 derive Eq, Ord, Show, Hash for Level;
 
 /// A three-shape enum with all three payload forms: tuple, record, and none.
 export enum Shape {
-  export Circle(Float),
-  export Rect { export width: Float, export height: Float },
-  export Empty,
+  Circle(Float),
+  Rect { width: Float, height: Float },
+  Empty,
 }
 
 derive Eq, Ord, Show for Shape;
@@ -116,10 +116,10 @@ impl Show for Backwards {
 /// declared alphabetically-ish and deliberately not in that order — so a
 /// *derived* `Ord` would disagree with the hand-written one on every pair.
 export enum Suit {
-  export Diamonds,
-  export Clubs,
-  export Spades,
-  export Hearts,
+  Diamonds,
+  Clubs,
+  Spades,
+  Hearts,
 }
 
 impl Suit {
@@ -364,8 +364,8 @@ export struct Boxed<T>(export T);
 derive Eq, Ord, Show for Boxed;
 
 export enum Slot<T> {
-  export Filled(T),
-  export Vacant,
+  Filled(T),
+  Vacant,
 }
 
 derive Eq, Show for Slot;
@@ -380,8 +380,8 @@ impl<T> Slot<T> {
 }
 
 export enum Either<L, R> {
-  export Left(L),
-  export Right(R),
+  Left(L),
+  Right(R),
 }
 
 derive Eq, Show for Either;
@@ -398,8 +398,8 @@ impl<L> Either<L, Int> {
 // --- A recursive generic enum, with real recursion over it -------------------
 
 export enum Tree<T> {
-  export Leaf,
-  export Node(Tree<T>, T, Tree<T>),
+  Leaf,
+  Node(Tree<T>, T, Tree<T>),
 }
 
 derive Eq, Show for Tree;
@@ -414,8 +414,8 @@ derive Eq, Show for Tree;
 // a type parameter is undecidable at the declaration and takes a different
 // path through the checker.
 export enum Rose {
-  export Leaf(Int),
-  export Branch([Rose]),
+  Leaf(Int),
+  Branch([Rose]),
 }
 
 derive Eq, Show for Rose;
@@ -869,9 +869,9 @@ export fn fourStrs<C: Alloc>(ctx: C, a: Str, b: Str, c: Str, d: Str): Str {
 /// ordinary data even when `C` is bounded by an effect, for exactly the reason
 /// `fn(C, A) => B` is.
 export enum Widget<C> {
-  export Label(Str),
-  export Press(Str, fn(C, Int) => Str),
-  export Group([Widget<C>]),
+  Label(Str),
+  Press(Str, fn(C, Int) => Str),
+  Group([Widget<C>]),
 }
 
 /// The shape a `mount` has: a bounded context *and* a tree over that same
@@ -916,8 +916,8 @@ export fn cellIndex<T>(cell: Cell<T>): fn() => Int {
 /// under an ordinary bound. `cli/tests/reject/covariant_param_not_capturable`
 /// pins the unbounded form still failing; this pins the bounded form working.
 export enum Held<T> {
-  export Value(T),
-  export Empty,
+  Value(T),
+  Empty,
 }
 
 derive Eq, Show for Held;

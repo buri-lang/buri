@@ -120,11 +120,11 @@ export struct Request {
 /// request can be cancelled, and the variant exists now so that adding the
 /// handle later does not change this type.
 export enum FetchError {
-  export Timeout,
-  export Refused,
-  export BadUrl(Str),
-  export Transport(Str),
-  export Aborted,
+  Timeout,
+  Refused,
+  BadUrl(Str),
+  Transport(Str),
+  Aborted,
 }
 
 /// Starts a request and returns immediately.

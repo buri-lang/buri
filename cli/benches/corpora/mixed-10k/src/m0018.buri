@@ -240,10 +240,10 @@ export fn probe18_7<C: Alloc>(ctx: C): Int {
 
 /// An enum of 4 variants, matched exhaustively below.
 export enum State18_8 {
-  export Idle,
-  export Running(Int),
-  export Failed { code: Int, message: Str },
-  export Step3(Int, Str),
+  Idle,
+  Running(Int),
+  Failed { code: Int, message: Str },
+  Step3(Int, Str),
 }
 
 derive Eq, Show for State18_8;
