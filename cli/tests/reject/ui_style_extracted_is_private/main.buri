@@ -1,0 +1,27 @@
+// EXPECT: field `0` of `Classes` is private to its module
+//
+// `Style::Extracted` is the compiler's own variant: it holds the conflict slot
+// and the class name a static style was extracted into, and every name in it is
+// already a rule in the emitted stylesheet. An exported enum exports every
+// variant it has, so what keeps the variant unwritable is its payload — a
+// `Classes`, whose field is private to `ui/style`. The only way a class reaches
+// an element is still by having been emitted, which is the whole of "nothing is
+// generated at run time".
+from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Classes, Style };
+
+fn classes(s: Style): Style {
+  match (s) {
+    .Extracted(Classes(pairs)) => .Extracted(Classes(pairs)),
+    _ => s,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([classes(.Extracted(Classes([(600, "p-8")])))], []), [])
+}

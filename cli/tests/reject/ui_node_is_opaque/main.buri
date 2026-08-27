@@ -1,0 +1,26 @@
+// EXPECT: field `0` of `Node` is private to its module
+//
+// `Node` is opaque: its one field is private to `ui/node`, so the constructors
+// there are the whole vocabulary. What a tree can be is fixed where the runtime
+// that lowers it lives, rather than being open to whoever imports the type. A
+// program that could build its own node could build one no backend has a
+// lowering for, and one that could take a node apart would be a second reader
+// of a shape only the runtime is meant to read. Both halves are refused here:
+// the pattern destructures, and the expression constructs.
+from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+fn rewrap<C>(n: Node<C>): Node<C> {
+  match (n) {
+    Node(kind) => Node(kind),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, rewrap(ui.stack([], [])), [])
+}
