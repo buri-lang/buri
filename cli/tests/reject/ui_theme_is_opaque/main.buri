@@ -1,0 +1,23 @@
+// EXPECT: field `0` of `Theme` is private to its module
+//
+// A `Theme` is built by `themed` or by `switching` and read only by `mount`.
+// Its one field is private to `ui/theme`, so the two constructors are the only
+// way one comes into being and no program can take one apart: what a theme is
+// stays a matter between that module and the runtime that installs it.
+from "core/effect" import { Alloc };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/theme" import { Theme, themed };
+
+fn rewrap(t: Theme): Theme {
+  match (t) {
+    Theme(kind) => Theme(kind),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([], []), [rewrap(themed([]))])
+}

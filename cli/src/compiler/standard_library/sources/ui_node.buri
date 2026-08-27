@@ -113,11 +113,17 @@ export enum FieldKind {
 
 /// A user interface, as a value.
 ///
-/// The variants are module-private on purpose: the constructors below are the
-/// vocabulary, so what a tree can be is fixed here rather than open to whoever
-/// imports the type. Their order is load-bearing — the JavaScript runtime
-/// reads a node by its tag.
-export enum Node<C> {
+/// Opaque on purpose: the field is private, so the constructors below are the
+/// whole vocabulary and what a tree can be is fixed here rather than open to
+/// whoever imports the type. No program can build a node the runtime has no
+/// lowering for, or take one apart. The same shape as `ui/effect`'s `Scope`,
+/// and what keeps the type closed now that an exported enum exports every
+/// variant it has.
+export struct Node<C>(NodeKind<C>);
+
+/// What a node is, kept private so that `Node` stays opaque. The variant order
+/// is load-bearing — the JavaScript runtime reads a node by its tag.
+enum NodeKind<C> {
   Nothing,
   Text(Prop<Str>),
   Heading(Int, Prop<Str>),
@@ -144,7 +150,7 @@ export enum Node<C> {
 /// has decided there is nothing to show. It occupies no space and produces no
 /// element.
 export fn nothing<C>(): Node<C> {
-  .Nothing
+  Node(.Nothing)
 }
 
 /// A container with no meaning of its own: arrangement, and nothing else.
@@ -153,12 +159,12 @@ export fn nothing<C>(): Node<C> {
 /// a list, a banner, a table row. A stack with a role would be lying to a
 /// screen reader; a region with none would be inventing a landmark.
 export fn stack<C>(styles: [Style], children: [Node<C>]): Node<C> {
-  .Stack(styles, children)
+  Node(.Stack(styles, children))
 }
 
 /// A container that means something.
 export fn region<C>(role: Role, styles: [Style], children: [Node<C>]): Node<C> {
-  .Region(role, styles, children)
+  Node(.Region(role, styles, children))
 }
 
 /// A stack whose children run along the text direction.
@@ -167,12 +173,12 @@ export fn region<C>(role: Role, styles: [Style], children: [Node<C>]): Node<C> {
 /// them, so a caller who passes their own `Layout` still wins — last one wins,
 /// per property.
 export fn row<C>(styles: [Style], children: [Node<C>]): Node<C> {
-  .Stack([.Layout(.Row), .Group(styles)], children)
+  Node(.Stack([.Layout(.Row), .Group(styles)], children))
 }
 
 /// A stack whose children run down the page.
 export fn column<C>(styles: [Style], children: [Node<C>]): Node<C> {
-  .Stack([.Layout(.Column), .Group(styles)], children)
+  Node(.Stack([.Layout(.Column), .Group(styles)], children))
 }
 
 /// Empty, and takes whatever room is left over.
@@ -181,7 +187,7 @@ export fn column<C>(styles: [Style], children: [Node<C>]): Node<C> {
 /// empty stack, so it is a child's share of the main axis rather than a margin
 /// — there are no margins in this vocabulary.
 export fn spacer<C>(): Node<C> {
-  .Stack([.Grow(1)], [])
+  Node(.Stack([.Grow(1)], []))
 }
 
 /// Text.
@@ -190,7 +196,7 @@ export fn spacer<C>(): Node<C> {
 /// styling the container it is in, which is what keeps a paragraph of text
 /// with a bold word in it from being a tree of nested spans.
 export fn text<C>(content: Prop<Str>): Node<C> {
-  .Text(content)
+  Node(.Text(content))
 }
 
 /// A heading, at a level.
@@ -199,7 +205,7 @@ export fn text<C>(content: Prop<Str>): Node<C> {
 /// it. Levels below one and above six are clamped to that range, because there
 /// is no seventh level to lower to.
 export fn heading<C>(level: Int, content: Prop<Str>): Node<C> {
-  .Heading(level, content)
+  Node(.Heading(level, content))
 }
 
 /// Something to press.
@@ -213,7 +219,7 @@ export fn heading<C>(level: Int, content: Prop<Str>): Node<C> {
 /// Space, which is what makes it survive to a touchscreen and to a native
 /// backend.
 export fn button<C>(label: Prop<Str>, onPress: fn(C, Event) => ()): Node<C> {
-  .Button(label, onPress)
+  Node(.Button(label, onPress))
 }
 
 /// Somewhere to go.
@@ -221,7 +227,7 @@ export fn button<C>(label: Prop<Str>, onPress: fn(C, Event) => ()): Node<C> {
 /// The destination is a parameter for the same reason a button's label is: a
 /// link is announced by where it goes.
 export fn link<C>(dest: Prop<Str>, children: [Node<C>]): Node<C> {
-  .Link(dest, children)
+  Node(.Link(dest, children))
 }
 
 /// A picture, and what it says.
@@ -230,7 +236,7 @@ export fn link<C>(dest: Prop<Str>, children: [Node<C>]): Node<C> {
 /// image says that it is decorative — a distinction a reader has to be told
 /// and cannot guess.
 export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
-  .Image(source, alt)
+  Node(.Image(source, alt))
 }
 
 /// Somewhere to type, and what it is for.
@@ -245,14 +251,14 @@ export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
 /// reader types is in the signal and whatever writes the signal is in the
 /// field. Two-way binding replaces an event entirely.
 export fn field<C>(label: Prop<Str>, kind: FieldKind, value: Signal<Str>): Node<C> {
-  .Field(label, kind, value)
+  Node(.Field(label, kind, value))
 }
 
 /// Something with two states, and what it is for.
 ///
 /// Bound to a `Signal<Bool>`, for the reason a field is bound to a signal.
 export fn toggle<C>(label: Prop<Str>, value: Signal<Bool>): Node<C> {
-  .Toggle(label, value)
+  Node(.Toggle(label, value))
 }
 
 /// A group of controls that is submitted.
@@ -265,7 +271,7 @@ export fn form<C>(
   styles: [Style],
   children: [Node<C>],
 ): Node<C> {
-  .Form(onSubmit, styles, children)
+  Node(.Form(onSubmit, styles, children))
 }
 
 /// One subtree or the other, decided by a condition that may vary.
@@ -280,7 +286,7 @@ export fn form<C>(
 /// one. This is the same substitution `watch` makes for `effect` in
 /// `ui/signal`, and for the same reason.
 export fn choose<C>(cond: Prop<Bool>, then: Node<C>, otherwise: Node<C>): Node<C> {
-  .When(cond, then, otherwise)
+  Node(.When(cond, then, otherwise))
 }
 
 /// A subtree derived from whatever it reads.
@@ -291,7 +297,7 @@ export fn choose<C>(cond: Prop<Bool>, then: Node<C>, otherwise: Node<C>): Node<C
 /// — so this is the coarse instrument. A `Prop` on a leaf is the fine one, and
 /// is what to reach for when only a string is changing.
 export fn computed<C>(build: fn(Scope) => Node<C>): Node<C> {
-  .Computed(build)
+  Node(.Computed(build))
 }
 
 /// One row per item, reconciled by key.
@@ -319,16 +325,18 @@ export fn each<C, T: Eq>(
   key: fn(T) => Str,
   row: fn(C, T, Int) => Node<C>,
 ): Node<C> {
-  .Each(
-    fn(scope) => items.read(scope).len(),
-    fn(scope, index) => match (items.read(scope).get(index)) {
-      .Some(item) => key(item),
-      .None => "",
-    },
-    fn(c, scope, index) => match (items.read(scope).get(index)) {
-      .Some(item) => row(c, item, index),
-      .None => .Nothing,
-    },
+  Node(
+    .Each(
+      fn(scope) => items.read(scope).len(),
+      fn(scope, index) => match (items.read(scope).get(index)) {
+        .Some(item) => key(item),
+        .None => "",
+      },
+      fn(c, scope, index) => match (items.read(scope).get(index)) {
+        .Some(item) => row(c, item, index),
+        .None => Node(.Nothing),
+      },
+    ),
   )
 }
 

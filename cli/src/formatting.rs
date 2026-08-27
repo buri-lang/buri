@@ -1181,7 +1181,7 @@ impl<'t> Build<'t> {
     /// sweep printed the run with nothing above it, this printed the mandatory
     /// blank line under it, and the next read of the file lexed the lot as one
     /// run above this declaration — which comes back with the blank line
-    /// *above* it. `const e: Int = [ //` / `];` was exactly that, and moved on
+    /// *above* it. `let e: Int = [ //` / `];` was exactly that, and moved on
     /// every other run forever.
     ///
     /// So the gap is drained here and printed through one `trivia_doc` call,

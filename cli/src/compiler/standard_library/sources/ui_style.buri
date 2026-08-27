@@ -60,6 +60,16 @@
 from "ui/effect" import { Scope };
 from "ui/prop" import { Prop };
 
+/// The pairs a static style was extracted into: a conflict slot, and the name
+/// of a class that is already in the stylesheet.
+///
+/// Its field is private, so only this module — and the compiler, which writes
+/// one wherever a style folded — can mint one. That is what keeps
+/// `Style::Extracted` unwritable now that an exported enum exports every
+/// variant it has: the variant is reachable, and its payload is not. The same
+/// shape as `ui/effect`'s `Scope` and `Event`, and for the same reason.
+export struct Classes([(Int, Str)]);
+
 /// One appearance property, or a group, a condition, or a computation over
 /// them.
 export enum Style {
@@ -95,10 +105,10 @@ export enum Style {
   /// the pairs a static style was extracted into: a conflict slot, and the name
   /// of a class that is already in the stylesheet. Last slot wins.
   ///
-  /// It is private so that the only way a class name reaches an element is by
-  /// having been emitted, which is the whole of "nothing is generated at run
-  /// time".
-  Extracted([(Int, Str)]),
+  /// Its payload is a `Classes`, whose field is private, so the only way a
+  /// class name reaches an element is by having been emitted — which is the
+  /// whole of "nothing is generated at run time".
+  Extracted(Classes),
 
   /// How this container arranges its children.
   Layout(Layout),

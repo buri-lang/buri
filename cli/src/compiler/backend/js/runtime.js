@@ -2045,8 +2045,9 @@ function $dom_fire(node, type) {
 
 // --- The tree ---------------------------------------------------------------
 //
-// `ui/node`'s vocabulary, lowered. A node is `[tag, ...payload]` and the tags
-// are the order `ui/node` declares its variants in:
+// `ui/node`'s vocabulary, lowered. A `Node` is the one-field struct that keeps
+// the tree opaque, so it is `[kind]`; the kind inside is `[tag, ...payload]`
+// and the tags are the order `ui/node` declares `NodeKind`'s variants in:
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
@@ -2243,7 +2244,7 @@ function $tree_style_collect(styles, scope, slots, inline) {
     if (tag === 5) {
       // Compiler-assigned `(slot, class)` pairs. Last slot wins, and every
       // name is one the stylesheet already has.
-      for (const pair of style[1]) slots.set(pair[0], pair[1]);
+      for (const pair of style[1][0]) slots.set(pair[0], pair[1]);
     } else if (tag === 0) {
       $tree_style_collect(style[1], scope, slots, inline);
     } else if (tag === 3) {
@@ -2561,7 +2562,11 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
 
 // Renders one node into `parent`, before `anchor` — or at the end of `parent`
 // when there is none.
-function $tree_render(ctx, node, parent, anchor) {
+//
+// A `Node` is the one-field struct `ui/node` keeps the tree opaque with, so
+// the tagged value is one unwrap in.
+function $tree_render(ctx, wrapper, parent, anchor) {
+  const node = wrapper[0];
   const tag = node[0];
   if (tag === 0) {
     // Nothing: no element, no text, no place held. A `when` that answers this
@@ -2721,7 +2726,8 @@ function $ui_theme_name(reference) {
 // map used for resolution and the blocks that are written from ever disagreeing
 // about which side of a switch the page is on.
 function $ui_theme_applied(themes, scope, out) {
-  for (const theme of themes) {
+  for (const wrapper of themes) {
+    const theme = wrapper[0];
     if (theme[0] === 0) {
       out.push(theme[1]);
     } else {
@@ -2778,8 +2784,8 @@ function $ui_theme_render(themes, scope) {
 // Whether the block can be written once. A `switching` theme is the only thing
 // in a theme list that can change.
 function $ui_theme_static(themes) {
-  for (const theme of themes) {
-    if (theme[0] !== 0) return false;
+  for (const wrapper of themes) {
+    if (wrapper[0][0] !== 0) return false;
   }
   return true;
 }

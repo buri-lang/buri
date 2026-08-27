@@ -21,8 +21,10 @@
 //!
 //! ## What the runtime is left with
 //!
-//! A style that folded is replaced, in the typed tree, by the private
-//! `Style::Extracted` variant: a list of `(slot, class)` pairs. The *slot* is
+//! A style that folded is replaced, in the typed tree, by the
+//! `Style::Extracted` variant: a `Classes`, holding a list of `(slot, class)`
+//! pairs. `Classes` has a private field, so only `ui/style` and this pass can
+//! build one, which is what keeps the variant unwritable. The *slot* is
 //! the conflict key — the property together with its condition — so the
 //! runtime's last-wins resolution is a scan over compiler-assigned pairs,
 //! choosing between classes that are already in the stylesheet. It never builds
@@ -171,6 +173,9 @@ pub fn run(
     diags: &mut Diagnostics,
 ) -> (Vec<StyleRule>, Option<TyConId>) {
     let Some(style_con) = style_constructor(loaded, scopes) else { return (Vec::new(), None) };
+    let Some(classes_con) = ui_style_type(loaded, scopes, "Classes") else {
+        return (Vec::new(), None);
+    };
 
     // The interpreter reads bodies and constants as they were *before* this
     // pass rewrote any of them: folding a call into an already-extracted style
@@ -182,6 +187,7 @@ pub fn run(
 
     let mut ex = Extractor {
         style_con,
+        classes_con,
         tables,
         original_bodies: &original_bodies,
         original_consts: &original_consts,
@@ -212,8 +218,13 @@ pub fn run(
 
 /// `ui/style`'s `Style`, when this compilation loaded it.
 fn style_constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<TyConId> {
+    ui_style_type(loaded, scopes, "Style")
+}
+
+/// One of `ui/style`'s own types, by name, when this compilation loaded it.
+fn ui_style_type(loaded: &Loaded, scopes: &[ModuleScope], name: &str) -> Option<TyConId> {
     let index = loaded.modules.iter().position(|m| m.path == "ui/style")?;
-    match scopes.get(index)?.own.get("Style")? {
+    match scopes.get(index)?.own.get(name)? {
         Sym::Ty(id) => Some(*id),
         _ => None,
     }
@@ -221,6 +232,9 @@ fn style_constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<TyConId>
 
 struct Extractor<'a> {
     style_con: TyConId,
+    /// `ui/style`'s `Classes`, the private-field wrapper an `Extracted`
+    /// payload is: only this pass and `ui/style` can build one.
+    classes_con: TyConId,
     tables: &'a Tables,
     original_bodies: &'a HashMap<FnId, typed::Body>,
     original_consts: &'a HashMap<ConstId, typed::Expr>,
@@ -441,12 +455,23 @@ impl<'a> Extractor<'a> {
             Ty::Array(Box::new(pair)),
             span,
         );
+        // The payload is a `Classes`, whose one field is private to
+        // `ui/style`. Writing it here is what a program cannot do.
+        let classes = typed::Expr::new(
+            ExprKind::StructLit {
+                con: self.classes_con,
+                targs: Vec::new(),
+                fields: vec![list],
+            },
+            Ty::Con(self.classes_con, Vec::new()),
+            span,
+        );
         typed::Expr::new(
             ExprKind::EnumLit {
                 con: self.style_con,
                 targs: Vec::new(),
                 variant: STYLE_EXTRACTED,
-                args: vec![list],
+                args: vec![classes],
             },
             Ty::Con(self.style_con, Vec::new()),
             span,
@@ -1085,7 +1110,15 @@ pub fn collect(e: &mut typed::Expr, style_con: TyConId, out: &mut Reached) {
         if *con == style_con {
             match *variant {
                 STYLE_EXTRACTED => {
-                    if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = args.first() {
+                    // `Extracted(Classes([(slot, class), …]))`: one field, and
+                    // the list is inside it.
+                    let list = match args.first() {
+                        Some(typed::Expr { kind: ExprKind::StructLit { fields, .. }, .. }) => {
+                            fields.first()
+                        }
+                        _ => None,
+                    };
+                    if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = list {
                         for item in items {
                             let ExprKind::Tuple(pair) = &item.kind else { continue };
                             if let Some(typed::Expr { kind: ExprKind::Str(class), .. }) =
@@ -1113,13 +1146,13 @@ pub fn collect(e: &mut typed::Expr, style_con: TyConId, out: &mut Reached) {
 /// Whether an expression builds a `ui/theme` `Theme`.
 ///
 /// The same question as [`Reached::inline`] and asked the same way: a `Theme`
-/// is an opaque enum with two variants and no constructor but a literal of one
-/// of them, both of which are written inside `themed` and `switching`. A
+/// is an opaque struct with a private field, wrapping a private enum, and the
+/// only two literals of it are written inside `themed` and `switching`. A
 /// program that monomorphized neither can hand `mount` nothing but an empty
 /// list, and the whole theme half of the runtime — resolution, rendering, the
 /// `:root` block, the switch's computation — is unreachable.
 pub fn builds_a_theme(e: &mut typed::Expr, theme_con: TyConId) -> bool {
-    if matches!(&e.kind, ExprKind::EnumLit { con, .. } if *con == theme_con) {
+    if matches!(&e.kind, ExprKind::StructLit { con, .. } if *con == theme_con) {
         return true;
     }
     let mut found = false;
