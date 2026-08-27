@@ -9,7 +9,7 @@
 from "//lib/money/cents" import { Cents, fromCents, toCents };
 
 /// A million dollars, in cents.
-const MAX_CENTS: I64 = 100_000_000;
+let MAX_CENTS: I64 = 100_000_000;
 
 export enum ParseError {
   export NotANumber { export text: Str },

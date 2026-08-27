@@ -1,4 +1,4 @@
-const empty: List<Int> = [
+let empty: List<Int> = [
     // nothing in it yet
 ];
-const other: List<Int> = [];
+let other: List<Int> = [];

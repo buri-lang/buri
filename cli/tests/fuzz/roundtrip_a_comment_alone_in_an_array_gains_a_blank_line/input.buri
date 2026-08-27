@@ -1,2 +1,2 @@
-const e:e=([//
-]);const e:e=([]);fn t(n:t):t{if(n<0){}else{}}
+let e:e=([//
+]);let e:e=([]);fn t(n:t):t{if(n<0){}else{}}

@@ -16,7 +16,7 @@ from "core/testing/context" import { Hermetic };
 
 /// What //cmd/server's `/entries` route answers, recorded. The same text
 /// test/view.buri feeds through a stub `Fetch`.
-const RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
+let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
 
 test "a recorded response becomes entries" {
   let ctx = Hermetic();

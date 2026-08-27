@@ -34,7 +34,7 @@ from "//lib/conformance" import {
 /// The only message type this testee knows. Everything else — proto2, the
 /// editions variants — is answered `skipped`, which is what the protocol asks
 /// an implementation that does not support a syntax to say.
-const KNOWN: Str = "protobuf_test_messages.proto3.TestAllTypesProto3";
+let KNOWN: Str = "protobuf_test_messages.proto3.TestAllTypesProto3";
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdin: host.stdin, Stdout: host.stdout };

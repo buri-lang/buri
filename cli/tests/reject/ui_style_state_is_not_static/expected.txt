@@ -4,13 +4,13 @@ error: this style is not statically known, and `On` and `At` exist only in the s
 18 |   .On(.Hover, [.Background(accent)])
    |                ^^^^^^^^^^^^^^^^^^^
    |
-   = fix: write the value out, or make it a `const`, or apply it outside the `On`/`At`, where it can be an inline style
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
 
      What to do
      ──────────
 
-     Write the value out, or make it a const, or apply it outside the On/At,
-     where it can be an inline style.
+     Write the value out, or make it a module-level let, or apply it outside the
+     On/At, where it can be an inline style.
 
      Why
      ───

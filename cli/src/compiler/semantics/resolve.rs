@@ -211,8 +211,8 @@ impl<'a> Checker<'a> {
         self.check_bodies();
         // Last, because it reads every checked body and rewrites the ones that
         // hold a static style. It must also run before `monomorphize` inlines a
-        // constant, or a `const` style would be extracted once per use site
-        // instead of once.
+        // constant, or a module-level `let` of `Style` would be extracted once
+        // per use site instead of once.
         let (styles, style_con) = crate::compiler::semantics::styles::run(
             self.loaded,
             &self.tables,
@@ -408,7 +408,7 @@ impl<'a> Checker<'a> {
                 });
                 self.declare(module, d.name, Sym::Fn(id), d.exported);
             }
-            tree::Item::Const(d) => {
+            tree::Item::Let(d) => {
                 let id = self.tables.add_const(ConstInfo {
                     name: t.name(d.name).to_string(),
                     module,
@@ -886,7 +886,7 @@ impl<'a> Checker<'a> {
                         };
                         self.elaborate_fn_signature(id, index as u32, fid, d);
                     }
-                    tree::Item::Const(d) => {
+                    tree::Item::Let(d) => {
                         let Some(Sym::Const(cid)) = self.scope(id).own.get(t.name(d.name)).cloned()
                         else {
                             continue;

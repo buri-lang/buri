@@ -12,7 +12,7 @@ from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import { Style };
 
-const forged: Style = .Extracted([(600, "p-8")]);
+let forged: Style = .Extracted([(600, "p-8")]);
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };

@@ -60,12 +60,12 @@ export enum ProtoError {
 
 derive Eq, Show for ProtoError;
 
-export const VARINT: Int = 0;
-export const I64: Int = 1;
-export const LEN: Int = 2;
-export const I32: Int = 5;
+export let VARINT: Int = 0;
+export let I64: Int = 1;
+export let LEN: Int = 2;
+export let I32: Int = 5;
 
-const TWO32: Int = 4294967296;
+let TWO32: Int = 4294967296;
 
 // -----------------------------------------------------------------------------
 // Writing
@@ -658,7 +658,7 @@ export fn asBytes<C: Alloc>(ctx: C, doc: Json, path: Str): Result<[U8], ProtoErr
   }
 }
 
-const PAD: Str = "===";
+let PAD: Str = "===";
 
 export fn asArray(doc: Json, path: Str): Result<[Json], ProtoError> {
   match (doc.asArray()) {

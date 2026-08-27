@@ -16,7 +16,7 @@ from "//lib/money" import { fromCents, parse };
 /// The two programs never share a type — they share a wire format, which is
 /// what a route is. The response is parsed by `entriesFrom` below and the
 /// suite feeds it a recorded body, so nothing here needs a server running.
-export const LEDGER_URL: Str = "/entries";
+export let LEDGER_URL: Str = "/entries";
 
 /// A response body, as entries.
 ///

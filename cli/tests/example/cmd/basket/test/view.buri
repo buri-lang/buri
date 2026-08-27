@@ -31,7 +31,7 @@ from "ui/theme" import * as theme;
 
 /// What //cmd/server's `/entries` route answers, recorded — the same three
 /// lines test/model.buri parses directly.
-const RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
+let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
 
 /// A platform that answers every request with the recording.
 ///

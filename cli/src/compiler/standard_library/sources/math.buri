@@ -29,6 +29,6 @@ export fn isNan(x: Float): Bool;
 export fn isInfinite(x: Float): Bool;
 export fn isFinite(x: Float): Bool;
 
-export const PI: Float = 3.141592653589793;
-export const E: Float = 2.718281828459045;
-export const INFINITY: Float = 1.0e400;
+export let PI: Float = 3.141592653589793;
+export let E: Float = 2.718281828459045;
+export let INFINITY: Float = 1.0e400;

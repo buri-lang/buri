@@ -751,7 +751,7 @@ impl FnLower<'_> {
             ExprKind::Unit => self.constant(ty, Const::Unit),
             ExprKind::Local(l) => self.read(*l),
 
-            // Three shapes monomorphization removes: a `const` is inlined at
+            // Three shapes monomorphization removes: a module-level `let` is inlined at
             // its use, a trait call is resolved to a direct one, and a context
             // constructor becomes a call to the function that builds it. One
             // that survives means this tree did not go through

@@ -104,16 +104,16 @@ impl Fetch for HostFetch {
   ): ();
 }
 
-export const alloc: HostAlloc = HostAlloc {};
-export const stdout: HostStdout = HostStdout {};
-export const stderr: HostStderr = HostStderr {};
-export const stdin: HostStdin = HostStdin {};
-export const fs: HostFs = HostFs {};
-export const net: HostNet = HostNet {};
-export const clock: HostClock = HostClock {};
-export const rand: HostRand = HostRand {};
-export const env: HostEnv = HostEnv {};
-export const proc: HostProc = HostProc {};
-export const ui: HostUi = HostUi {};
-export const watch: HostWatch = HostWatch {};
-export const fetch: HostFetch = HostFetch {};
+export let alloc: HostAlloc = HostAlloc {};
+export let stdout: HostStdout = HostStdout {};
+export let stderr: HostStderr = HostStderr {};
+export let stdin: HostStdin = HostStdin {};
+export let fs: HostFs = HostFs {};
+export let net: HostNet = HostNet {};
+export let clock: HostClock = HostClock {};
+export let rand: HostRand = HostRand {};
+export let env: HostEnv = HostEnv {};
+export let proc: HostProc = HostProc {};
+export let ui: HostUi = HostUi {};
+export let watch: HostWatch = HostWatch {};
+export let fetch: HostFetch = HostFetch {};

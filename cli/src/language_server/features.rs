@@ -83,7 +83,7 @@ fn declaration_at(
             Item::Struct(d) => (d.name, &d.docs, format!("struct {}", t.name(d.name))),
             Item::Enum(d) => (d.name, &d.docs, format!("enum {}", t.name(d.name))),
             Item::TypeAlias(d) => (d.name, &d.docs, format!("type {}", t.name(d.name))),
-            Item::Const(d) => (d.name, &d.docs, format!("const {}", t.name(d.name))),
+            Item::Let(d) => (d.name, &d.docs, format!("let {}", t.name(d.name))),
             Item::Trait(d) => (d.name, &d.docs, format!("trait {}", t.name(d.name))),
             _ => continue,
         };
@@ -169,7 +169,7 @@ pub fn document_symbols(text: &str) -> Value {
             Item::Struct(d) => (d.name, 23),
             Item::Enum(d) => (d.name, 10),
             Item::Trait(d) => (d.name, 5),
-            Item::Const(d) => (d.name, 14),
+            Item::Let(d) => (d.name, 14),
             Item::TypeAlias(d) => (d.name, 26),
             _ => continue,
         };

@@ -7,7 +7,7 @@ from "//lib/z" import { Zed };
 
 export type Pair<T> = (T, T);
 
-const SEED: [U32] = [
+let SEED: [U32] = [
     1779033703,
     3144134277,
     1013904242,

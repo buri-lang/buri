@@ -20,7 +20,7 @@
 ; --- Keywords ----------------------------------------------------------------
 [
   "from" "import" "export" "as"
-  "fn" "struct" "enum" "type" "const"
+  "fn" "struct" "enum" "type"
   "trait" "effect" "impl" "derive" "for"
   "let" "test" "context"
 ] @keyword
@@ -49,7 +49,7 @@
 (effect_declaration name: (identifier) @type.interface)
 (context_declaration name: (identifier) @type)
 
-(const_declaration name: (identifier) @constant)
+(let_declaration name: (identifier) @constant)
 
 (generic_parameter name: (identifier) @type.parameter)
 

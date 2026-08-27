@@ -69,7 +69,7 @@ pub enum Item {
     Struct(Box<StructDecl>),
     Enum(Box<EnumDecl>),
     TypeAlias(Box<TypeAliasDecl>),
-    Const(Box<ConstDecl>),
+    Let(Box<LetDecl>),
     Trait(Box<TraitDecl>),
     Impl(Box<ImplDecl>),
     Derive(Box<DeriveDecl>),
@@ -88,7 +88,7 @@ impl Item {
             Item::Struct(i) => i.span,
             Item::Enum(i) => i.span,
             Item::TypeAlias(i) => i.span,
-            Item::Const(i) => i.span,
+            Item::Let(i) => i.span,
             Item::Trait(i) => i.span,
             Item::Impl(i) => i.span,
             Item::Derive(i) => i.span,
@@ -104,7 +104,7 @@ impl Item {
             Item::Struct(d) => d.exported,
             Item::Enum(d) => d.exported,
             Item::TypeAlias(d) => d.exported,
-            Item::Const(d) => d.exported,
+            Item::Let(d) => d.exported,
             Item::Trait(d) => d.exported,
             Item::Context(d) => d.exported,
             _ => false,
@@ -269,8 +269,10 @@ pub struct TypeAliasDecl {
     pub docs: Vec<String>,
 }
 
+/// A module-level `let`. The block-level one is a `Stmt`, and differs in that
+/// it binds a pattern and may leave the type to inference.
 #[derive(Clone, Debug)]
-pub struct ConstDecl {
+pub struct LetDecl {
     pub name: Name,
     pub ty: TypeId,
     pub value: crate::parsing::flat::ExprId,

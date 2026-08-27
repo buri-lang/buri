@@ -91,7 +91,7 @@ derive Eq, Show for JsonError;
 /// A limit is not a nicety: `value` calls itself for each element, and those
 /// calls are not tail calls, so nothing eliminates the frames. 512 is far past
 /// any document a person writes and far short of any stack.
-export const MAX_DEPTH: Int = 512;
+export let MAX_DEPTH: Int = 512;
 
 // -----------------------------------------------------------------------------
 // Reading
@@ -464,7 +464,7 @@ fn escape<C: Alloc>(ctx: C, c: Char): Str {
   }
 }
 
-const HEX2: Str = "0123456789abcdef";
+let HEX2: Str = "0123456789abcdef";
 
 // -----------------------------------------------------------------------------
 // Looking inside one

@@ -18,7 +18,7 @@ use crate::parsing::tree;
 use crate::hash::Map as HashMap;
 
 pub fn check_all(c: &mut Checker) {
-    // Constants first: a `const` may be referenced from any body.
+    // Constants first: a module-level `let` may be referenced from any body.
     for i in 0..c.tables.consts.len() {
         check_const(c, ConstId(i as u32));
     }
@@ -90,7 +90,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
 fn check_const(c: &mut Checker, cid: ConstId) {
     let info = c.tables.const_(cid).clone();
     let Some((module, index)) = info.ast.item() else { return };
-    let Some(tree::Item::Const(decl)) = c.module(module).ast.items.get(index as usize) else {
+    let Some(tree::Item::Let(decl)) = c.module(module).ast.items.get(index as usize) else {
         return;
     };
     let mut inf = Infer::new(c, info.module, Vec::new(), info.ty.clone());

@@ -24,8 +24,8 @@
   "type" @context
   name: (identifier) @name) @item
 
-(const_declaration
-  "const" @context
+(let_declaration
+  "let" @context
   name: (identifier) @name) @item
 
 (context_declaration

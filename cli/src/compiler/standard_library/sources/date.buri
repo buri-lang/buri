@@ -101,10 +101,10 @@ export struct Duration(export I64);
 
 derive Eq, Ord, Show, Hash for Duration;
 
-export const MILLIS_PER_SECOND: Int = 1000;
-export const MILLIS_PER_MINUTE: Int = 60000;
-export const MILLIS_PER_HOUR: Int = 3600000;
-export const MILLIS_PER_DAY: Int = 86400000;
+export let MILLIS_PER_SECOND: Int = 1000;
+export let MILLIS_PER_MINUTE: Int = 60000;
+export let MILLIS_PER_HOUR: Int = 3600000;
+export let MILLIS_PER_DAY: Int = 86400000;
 
 // -----------------------------------------------------------------------------
 // The calendar

@@ -50,11 +50,11 @@ export struct Map<K, V> {
 }
 
 /// How many buckets a new map has. Small, because most maps are.
-const INITIAL: Int = 8;
+let INITIAL: Int = 8;
 
 /// Entries per bucket, averaged, before the map grows. Above this the
 /// association lists stop being short and lookup stops being constant.
-const LOAD: Int = 4;
+let LOAD: Int = 4;
 
 /// A bucket index for a hash.
 ///

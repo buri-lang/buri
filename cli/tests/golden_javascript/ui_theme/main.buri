@@ -64,7 +64,7 @@ fn cardThemed(f: fn(Card) => Color): Theme {
   ])
 }
 
-const badgeStyle: Style = .Group([
+let badgeStyle: Style = .Group([
   .PaddingX(.Rem(0.5)),
   .Radius(.Px(6)),
   .Background(Card.Surface.color()),

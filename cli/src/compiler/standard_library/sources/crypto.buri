@@ -238,7 +238,7 @@ export fn sha256Text<C: Alloc>(ctx: C, text: Str): Digest {
 
 // --- HMAC ---------------------------------------------------------------------
 
-const BLOCK: Int = 64;
+let BLOCK: Int = 64;
 
 /// HMAC-SHA-256, per RFC 2104.
 ///

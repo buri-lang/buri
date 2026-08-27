@@ -150,6 +150,11 @@ where Section 11.3 says.
 is where contexts are built — as a `let` binding name inside `main`'s body, a
 test source, or a test-only module. Nowhere else.
 
+`const` is a keyword no production uses. It was how a module-level binding was
+spelled before `let` was the only binding keyword, and it stays reserved so that
+source which still has it is answered with `const-declaration` — which names
+`let` and carries the edit — rather than read as a name and failing later.
+
 `assert` is **not** a keyword; assertions are the ordinary module
 `core/testing/assert` (Section 11.2.1).
 
@@ -2236,10 +2241,12 @@ a postfix form. *Cost:* occasional parentheses.
 So `pair.0` lexes as three tokens. *Cost:* write `0.5`.
 
 **12.15 Every declaration starts with a distinct keyword.**
-`from` `export` `fn` `struct` `enum` `type` `const` `trait` `effect` `context`
+`from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `context`
 `impl` `derive` `test`. Top-level parsing is a switch on one token — and putting
 `from` first on an import means the module path is known before the specifier
-list is parsed, which is what makes completion inside the braces possible.
+list is parsed, which is what makes completion inside the braces possible. `let`
+is the one keyword shared with a statement, and the two never compete: a module
+holds declarations and a block holds statements.
 
 **12.16 Method calls reuse `.` rather than taking a token of their own.**
 `sq.area()` needs no new production: it is the existing `PostfixExpr "." IDENT`
