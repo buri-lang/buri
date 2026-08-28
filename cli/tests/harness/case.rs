@@ -35,8 +35,8 @@
 //! ```
 //!
 //! `run { cwd }` is how the no-argument forms are covered: CLI.md says a
-//! command with no target operates on the package containing the working
-//! directory, and there is no way to ask that question from the root.
+//! command with no target operates on the whole repository wherever it is run,
+//! and there is no way to ask that question from the root.
 //!
 //! `path` is for the commands whose contract is about what they leave on
 //! disk. `buri clean --outputs` and the `out/` symlink print almost nothing,
@@ -108,7 +108,7 @@ pub enum Step {
         /// something a person can read and diff.
         stdin: Option<String>,
         /// A directory inside the repository to run from, for the forms that
-        /// take no target and mean "the package I am standing in".
+        /// take no target and mean the repository whatever directory that is.
         cwd: Option<String>,
     },
     Edit {

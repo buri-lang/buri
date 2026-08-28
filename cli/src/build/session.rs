@@ -68,21 +68,12 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
 }
 
 impl Session {
-    /// Resolves the target arguments. With none, commands operate on the
-    /// package containing the working directory.
+    /// Resolves the target arguments. With none, commands operate on the whole
+    /// repository, so where you are standing is not part of what a command
+    /// means.
     pub fn resolve_targets(&self, args: &[String]) -> Result<Vec<TargetId>, String> {
         let patterns: Vec<Pattern> = if args.is_empty() {
-            let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-            let rel = self.workspace.rel_of(&cwd);
-            let rel = if rel == "." { String::new() } else { rel };
-            match self.workspace.owning_package(&cwd.join("x")) {
-                Some(id) => vec![Pattern::Package(self.workspace.package(id).path.clone())],
-                None => {
-                    return Err(format!(
-                        "no package at `{rel}`; name one, as in `buri build //lib/money`"
-                    ))
-                }
-            }
+            vec![Pattern::All]
         } else {
             args.iter().map(|a| Pattern::parse(a)).collect::<Result<_, _>>()?
         };

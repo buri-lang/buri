@@ -1,23 +1,22 @@
-# `buri gen` with no argument is `buri gen //...`. Every other command with no
-# target means the package containing the working directory; this one means the
-# repository, because it restates what the tree contains rather than answering a
-# question about the code in front of you — a tree restated one directory at a
+# `buri gen` with no argument is `buri gen //...`, which is the default every
+# command has and which matters most here: a tree restated one directory at a
 # time is one where `gen --check` passes where you are standing and fails one
-# directory over.
+# directory over. `cli/whole_repository_default` records the rule itself; this
+# case records what it means for the command that writes files.
 #
 # So the claim is an equality, and the case shows it rather than asserting it.
 # Every no-argument run below stands in `lib/money`, and `cmd/app` — the
-# package a scoped run could not reach — is out of date too. The bare form and
-# the `//...` form are recorded against the same goldens, twice: once for what
-# `--check` reports, and once for what a real run writes.
+# package a run scoped to where it stands could not reach — is out of date too.
+# The bare form and the `//...` form are recorded against the same goldens,
+# twice: once for what `--check` reports, and once for what a real run writes.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
 doc: "bare `buri gen` is `buri gen //...`: from inside one package it reports and regenerates every package"
 
-# From inside `lib/money`, and the other package is named. Under the
-# working-directory rule the second line could not appear.
+# From inside `lib/money`, and the other package is named: the second line is
+# the whole claim, and a command scoped to where it stands could not print it.
 run {
   args: ["gen", "--check"]
   cwd: "lib/money"
@@ -50,8 +49,7 @@ file {
   golden: "app.buri"
 }
 
-# Nothing left to do anywhere — from the directory that, under the old rule,
-# could only have answered for one package.
+# Nothing left to do anywhere — asked from one package about all of them.
 run {
   args: ["gen", "--check"]
   cwd: "lib/money"

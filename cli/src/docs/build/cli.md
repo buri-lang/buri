@@ -30,7 +30,8 @@ findings `buri lint` can raise.
 
 Target arguments accept labels and patterns (`//lib/money`, `//cmd/server`,
 `//lib/...`, `//...`). A label names a package and every target in it. With no
-argument, commands operate on the package containing the working directory. All
+argument, commands operate on the whole repository — bare is `//...`, and the
+directory you happen to be standing in is not part of what a command means. All
 commands are safe to run concurrently; a file lock serializes cache writes.
 
 Two flags work on every command: `--color=never` drops the ANSI escapes, and
