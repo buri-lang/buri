@@ -1,0 +1,4 @@
+# The plural is the mistake, and it is one letter from the field that exists.
+lint {
+    fail_on_findings: true
+}

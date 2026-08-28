@@ -5,13 +5,13 @@ doc: "a test title with a line break in it: test-title-newline, and the title on
 
 run {
   args: ["lint", "//lib/prose"]
-  exit: 0
+  exit: 1
   golden: "lint.txt"
 }
 
 run {
   args: ["lint", "//lib/prose", "--error-format=json"]
-  exit: 0
+  exit: 1
   golden: "lint.json"
 }
 

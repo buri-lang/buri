@@ -16,7 +16,7 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 /// union, while the reader must refuse a `tag` in a build file. The test at
 /// the bottom of this module holds the union to these two halves.
 const BUILD_FILE_RULES: &[&str] = &["library", "binary"];
-const REPO_FILE_RULES: &[&str] = &["tag"];
+const REPO_FILE_RULES: &[&str] = &["tag", "lint"];
 
 #[derive(Clone, Debug)]
 pub struct Spanned<T> {
@@ -345,9 +345,23 @@ pub struct Tag {
     pub span: Span,
 }
 
+/// How hard the lint catalogue is run for this repository.
+///
+/// Both fields false is the whole of the default, and is exactly what a
+/// `REPO.buri` with no `lint` block means — so this is a value rather than an
+/// option, and no site has to ask whether the block was written.
+#[derive(Clone, Debug, Default)]
+pub struct LintConfig {
+    /// `buri build` and `buri test` run the catalogue too.
+    pub check_during_build: bool,
+    /// A finding fails whichever command reported it.
+    pub fail_on_finding: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RepoConfig {
     pub tags: Vec<Tag>,
+    pub lint: LintConfig,
 }
 
 impl RepoConfig {
@@ -446,6 +460,19 @@ impl Reader {
             other => {
                 let kind = other.kind().to_string();
                 self.wrong_kind(other.span(), name, "a non-negative number", &kind);
+                None
+            }
+        }
+    }
+
+    /// A bool, which textproto spells as a bare `true` or `false`.
+    fn bool_field(&mut self, message: &Message, name: &str) -> Option<bool> {
+        let f = message.get(name)?;
+        match &f.value {
+            Value::Ident(s, _) if s == "true" || s == "false" => Some(s == "true"),
+            other => {
+                let kind = other.kind().to_string();
+                self.wrong_kind(other.span(), name, "`true` or `false`", &kind);
                 None
             }
         }
@@ -863,8 +890,17 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         });
     }
 
+    // Singular, and read like `library` and `binary` are: the first block wins,
+    // and an unwritten field is the same as the field written false.
+    let mut lint = LintConfig::default();
+    if let Some((m, _)) = reader.sub_message(&message, "lint") {
+        reader.check_known(m, textproto::schema_order("lint"), "a `lint` block");
+        lint.check_during_build = reader.bool_field(m, "check_during_build").unwrap_or(false);
+        lint.fail_on_finding = reader.bool_field(m, "fail_on_finding").unwrap_or(false);
+    }
+
     ReadResult {
-        value: RepoConfig { tags },
+        value: RepoConfig { tags, lint },
         document: parsed.document,
         errors: reader.errors,
     }
@@ -1012,6 +1048,54 @@ library {
         assert!(read.errors.iter().any(|e| e.message.contains("declared twice")));
     }
 
+    /// Both fields, both spelled out, both landing where the struct says.
+    #[test]
+    fn a_lint_block_is_read() {
+        let src = "lint {\n  check_during_build: true\n  fail_on_finding: true\n}\n";
+        let read = read_repo_config(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        assert!(read.value.lint.check_during_build);
+        assert!(read.value.lint.fail_on_finding);
+    }
+
+    /// No block is not a missing answer: it is both fields false, which is the
+    /// behaviour the toolchain had before the block existed.
+    #[test]
+    fn no_lint_block_is_both_fields_false() {
+        let read = read_repo_config("tag { name: \"a\" }\n", FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        assert!(!read.value.lint.check_during_build);
+        assert!(!read.value.lint.fail_on_finding);
+
+        // And a block that names only one field says nothing about the other.
+        let read = read_repo_config("lint { fail_on_finding: true }\n", FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        assert!(!read.value.lint.check_during_build);
+        assert!(read.value.lint.fail_on_finding);
+    }
+
+    /// The block is closed like every other, and the near miss is the fix.
+    #[test]
+    fn an_unknown_field_in_the_lint_block_is_rejected() {
+        let read = read_repo_config("lint { fail_on_findings: true }\n", FileId(0));
+        let d = read.errors.first().expect("`fail_on_findings` is not a field");
+        assert_eq!(d.message, "unknown field `fail_on_findings` in a `lint` block");
+        assert!(d.fix.as_deref().is_some_and(|f| f.contains("fail_on_finding")), "{:#?}", d.fix);
+        assert!(!read.value.lint.fail_on_finding);
+    }
+
+    /// A bool is a bare `true` or `false`, so a quoted one is the wrong kind of
+    /// value rather than a truthy string.
+    #[test]
+    fn a_lint_field_that_is_not_a_bool_is_rejected() {
+        for src in ["lint { check_during_build: \"yes\" }\n", "lint { check_during_build: 1 }\n"] {
+            let read = read_repo_config(src, FileId(0));
+            let named = read.errors.iter().any(|e| e.message.contains("`true` or `false`"));
+            assert!(named, "{src:?}: {:#?}", read.errors);
+            assert!(!read.value.lint.check_during_build);
+        }
+    }
+
     /// The toolchain pin was removed, so a `REPO.buri` still carrying one is a
     /// `REPO.buri` naming a field that does not exist — the same diagnostic any
     /// other unknown field gets, with no special case remembering the pin.
@@ -1028,8 +1112,11 @@ library {
             .first()
             .expect("a removed field is still a field REPO.buri does not have");
         assert_eq!(d.message, "unknown field `toolchain` in REPO.buri");
-        assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag"));
-        assert!(nearest("toolchain", &["tag"]).is_none(), "`tag` was suggested for `toolchain`");
+        assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag, lint"));
+        assert!(
+            nearest("toolchain", REPO_FILE_RULES).is_none(),
+            "a field REPO.buri has was suggested for `toolchain`"
+        );
         // The block's contents are not read at all: one diagnostic, on the
         // field that does not exist, rather than one per field inside it.
         assert_eq!(read.errors.len(), 1, "{:#?}", read.errors);

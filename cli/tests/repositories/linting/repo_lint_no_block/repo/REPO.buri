@@ -1,0 +1,3 @@
+# No `lint` block at all. This is the baseline every other case in the family
+# is measured against: `buri build` never mentions the catalogue, and
+# `buri lint` still reports every finding it has.

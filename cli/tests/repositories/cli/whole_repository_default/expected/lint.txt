@@ -1,4 +1,4 @@
-error: fromCents is imported but not used [unused-import]
+warning: fromCents is imported but not used [unused-import]
  --> cmd/app/main.buri:8:29
   |
 8 | from "//lib/money" import { fromCents };

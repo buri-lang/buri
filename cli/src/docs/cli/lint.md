@@ -7,7 +7,24 @@ package graph, and the hygiene rules — an import nothing uses, an `export`
 nothing reaches, a test that asserts nothing.
 
 Each finding carries a stable code, so a report can be grepped and a specific
-check can be talked about by name.
+check can be talked about by name. Every one of them is a warning: there is one
+catalogue and one severity, the same in every repository, and
+[`cli.md`](../build/cli.md#lint) is the whole list.
+
+## Exit status
+
+`0` if there was nothing to report, `1` if there was anything at all. Severity
+does not enter into it — every finding is a warning, and a warning is still the
+answer to the question you asked. Running the linter is itself the request to be
+told, and a report that exits zero is one no script can branch on, so `buri
+lint //...` is usable directly as a gate with no flag to make it one.
+
+Whether a finding also stops `buri build` or `buri test` is a different
+question, and the repository answers it rather than this command: the
+[`lint` block](../build/repo-config.md#lint) in `REPO.buri` decides whether
+those two run the catalogue at all (`check_during_build`) and whether what it
+finds fails them (`fail_on_finding`). Both default to no. Neither can turn a
+check off — the block only ever tightens.
 
 ## `--fix`
 

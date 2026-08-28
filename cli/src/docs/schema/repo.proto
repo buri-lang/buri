@@ -4,10 +4,11 @@
 // `BUILD.buri` it is data: no expression language, no glob, no macro, no
 // import. Its presence is what makes a directory a repository root.
 //
-// It is deliberately small. One thing belongs here — the tag vocabulary every
-// build file draws from — and everything else that might want to live in a
-// repository-wide config file is either a flag on the command or a field on a
-// rule. See REPO-CONFIG.md for what is absent and why.
+// It is deliberately small. Two things belong here — the tag vocabulary every
+// build file draws from, and how hard the lint catalogue is run — and
+// everything else that might want to live in a repository-wide config file is
+// either a flag on the command or a field on a rule. See REPO-CONFIG.md for
+// what is absent and why.
 
 syntax = "proto3";
 
@@ -26,6 +27,34 @@ message RepoConfig {
 
   // The whole tag vocabulary, and the whole of build policy. See `buri docs build/tags`.
   repeated Tag tag = 2;
+
+  // How hard the lint catalogue is run here. One block, or none.
+  Lint lint = 3;
+}
+
+// Where the lint catalogue runs, and what a finding costs.
+//
+// Both fields default to false, and false for both is exactly the behaviour of
+// a `REPO.buri` with no `lint` block at all: the catalogue runs when `buri
+// lint` is asked to run it, and what it finds is a warning. So the block is
+// worth writing only to say yes to something.
+//
+// That is the shape of the whole message, and the reason it can be read
+// quickly: every field here is a ratchet. Each one may only make the toolchain
+// stricter — run the checks in more places, or make a finding cost more. There
+// is no field that turns a check off, exempts a directory, or downgrades a
+// finding, and there is not going to be one. A repository may hold itself to
+// more than the catalogue asks. It may not hold itself to less.
+message Lint {
+  // Whether `buri build` and `buri test` run the lint catalogue too and report
+  // what it finds, rather than leaving that to `buri lint`.
+  bool check_during_build = 1;
+
+  // Whether a finding is an error, and so fails whichever command reported it.
+  // False leaves findings as warnings that are printed and change no exit code
+  // — everywhere except `buri lint` itself, which exits nonzero on a finding
+  // either way, because running the linter is already the request to be told.
+  bool fail_on_finding = 2;
 }
 
 // A label a target may carry, and the policy attached to carrying it. Tags form

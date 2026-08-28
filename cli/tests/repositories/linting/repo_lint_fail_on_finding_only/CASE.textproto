@@ -1,0 +1,40 @@
+# `fail_on_finding` without `check_during_build`. The field says how hard a
+# finding lands, not where it is looked for, so `buri build` is as silent here
+# as it is with no block at all — there is nothing to promote until something
+# runs the catalogue. `buri lint` runs it, and there the finding is an error.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "fail_on_finding alone: build stays silent and exits 0, and lint reports the finding as an error"
+
+run {
+  args: ["build", "//lib/money", "--verbose"]
+  exit: 0
+  golden: "build.txt"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The finding's own fix: the multiplication was dead, so it goes with the name.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let doubled = n * 2;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean_lint.txt"
+}

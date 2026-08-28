@@ -1,4 +1,4 @@
-error: cmd/app/main.buri imports //lib/money, which is not in dependencies [missing-dep]
+warning: cmd/app/main.buri imports //lib/money, which is not in dependencies [missing-dep]
  --> cmd/app/main.buri:9:6
   |
 9 | from "//lib/money" import { fromCents };

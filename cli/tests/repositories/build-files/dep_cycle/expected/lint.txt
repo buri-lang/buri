@@ -1,4 +1,4 @@
-error: //lib/a and //lib/b depend on each other [dep-cycle]
+warning: //lib/a and //lib/b depend on each other [dep-cycle]
  --> lib/a/BUILD.buri:3:20
   |
 3 |     dependencies: ["//lib/b"]

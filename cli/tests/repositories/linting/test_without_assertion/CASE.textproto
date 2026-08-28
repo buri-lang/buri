@@ -5,13 +5,13 @@ doc: "a test from which nothing reachable calls assert: test-without-assertion, 
 
 run {
   args: ["lint", "//lib/money"]
-  exit: 0
+  exit: 1
   golden: "lint.txt"
 }
 
 run {
   args: ["lint", "//lib/money", "--error-format=json"]
-  exit: 0
+  exit: 1
   golden: "lint.json"
 }
 

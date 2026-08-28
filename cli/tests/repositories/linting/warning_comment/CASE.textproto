@@ -5,13 +5,13 @@ doc: "a TODO in a comment: warning-comment, and the same word inside a string li
 
 run {
   args: ["lint", "//cmd/app"]
-  exit: 0
+  exit: 1
   golden: "lint.txt"
 }
 
 run {
   args: ["lint", "//cmd/app", "--error-format=json"]
-  exit: 0
+  exit: 1
   golden: "lint.json"
 }
 

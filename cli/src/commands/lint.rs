@@ -1,10 +1,14 @@
 //! `buri lint`.
 //!
-//! Checks that type checking does not cover. None of this is configurable:
-//! there is no `lint` block in `REPO.buri`, no per-file suppression comment,
-//! and no way to promote or silence a check for one repository. A lint that
-//! cannot be turned off has to be one nobody wants to turn off, which is the
-//! bar every check here is held to.
+//! Checks that type checking does not cover. One catalogue, every check always
+//! on, every finding a warning — a lint that cannot be turned off has to be one
+//! nobody wants to turn off, which is the bar every check here is held to.
+//!
+//! A repository may only tighten. The `lint` block in `REPO.buri` can run the
+//! catalogue during `buri build` and `buri test` (`check_during_build`) and can
+//! make a finding fail the command that reported it (`fail_on_finding`). There
+//! is no per-file suppression comment and no way to silence a check: the only
+//! answers a repository is offered are "sooner" and "harder".
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -27,9 +31,9 @@ use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// Checks that type checking does not cover. None of this is configurable:
-/// there is no `lint` block in `REPO.buri`, no per-file suppression comment,
-/// and no way to promote or silence a check for one repository.
+/// Checks that type checking does not cover. Every check runs, every finding is
+/// a warning, and nothing silences one; `REPO.buri`'s `lint` block may only ask
+/// for them sooner or harder.
 pub fn command_lint(args: &arguments::Args) -> i32 {
     let (mut session, diagnostics) = match collect_findings(args) {
         Ok(v) => v,
@@ -88,29 +92,46 @@ pub fn findings_for(session: &mut Session, targets: &[TargetId]) -> Diagnostics 
     }
     check_cycles(session, &mut diagnostics);
 
+    promote(session, &mut diagnostics);
     diagnostics.sort(&session.map);
     diagnostics
 }
 
-fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
-    let mut errors = 0;
-    let mut warnings = 0;
-    for d in &diagnostics.items {
-        session.emit(d);
-        if d.is_error() {
-            errors += 1;
-        } else {
-            warnings += 1;
+/// `fail_on_finding`: every finding from the catalogue becomes an error.
+///
+/// It happens here rather than at each caller so that the editor squiggles the
+/// same colour the terminal prints, and only for codes the catalogue names —
+/// the analysis errors that ride along in the same `Diagnostics` are already
+/// errors and are nobody's to promote.
+fn promote(session: &Session, diagnostics: &mut Diagnostics) {
+    if !session.workspace.repo.lint.fail_on_finding {
+        return;
+    }
+    for d in &mut diagnostics.items {
+        let code = d.code.as_deref();
+        let known = code.is_some_and(|c| crate::documentation::lints::find(c).is_some());
+        if known && d.severity == crate::diagnostics::Severity::Warning {
+            d.severity = crate::diagnostics::Severity::Error;
         }
     }
-    if errors == 0 && warnings == 0 {
+}
+
+/// Prints every finding, and answers with the exit code.
+///
+/// Any finding at all is a nonzero exit. Severity does not gate it: running the
+/// linter is itself the request to be told, and a report that exits zero is one
+/// no script can act on. Whether a finding blocks `buri build` or `buri test` is
+/// a different question, and the repository answers it in `REPO.buri`'s `lint`
+/// block rather than here.
+fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
+    for d in &diagnostics.items {
+        session.emit(d);
+    }
+    if diagnostics.items.is_empty() {
         println!("no findings");
+        return 0;
     }
-    if errors > 0 {
-        1
-    } else {
-        0
-    }
+    1
 }
 
 /// The three findings whose answer is a build file that describes the code.
@@ -220,7 +241,7 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
 }
 
 /// `unsatisfiable-target`. A target whose closure admits no platform at all is
-/// an error at the target itself, before any binary asks for it: otherwise the
+/// reported at the target itself, before any binary asks for it: otherwise the
 /// mistake surfaces as a confusing failure in whichever binary happens to reach
 /// it first. A target that merely refuses one platform is `platform-violation`,
 /// reported by `actions::check_platform` below.
@@ -914,9 +935,9 @@ fn exported_name<'t>(
 /// `unused-import`. Deliberately syntactic: a name counts as used if it appears
 /// as an identifier token anywhere outside the import statements themselves.
 ///
-/// That over-approximates use, which is the safe direction for a rule at error
-/// severity — a shadowed binding or a field with the same spelling silences the
-/// finding rather than producing a wrong one. Reading tokens rather than the
+/// That over-approximates use, which is the safe direction for a rule nobody
+/// can turn off — a shadowed binding or a field with the same spelling silences
+/// the finding rather than producing a wrong one. Reading tokens rather than the
 /// AST is what makes it total: there is no expression form it can forget.
 fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
     // The byte ranges the import statements occupy. An identifier inside one of

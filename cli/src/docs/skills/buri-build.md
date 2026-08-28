@@ -26,7 +26,7 @@ the normative pages.
    rule lists is an error; one listed twice is an error too.
 
 ```
-REPO.buri                  # repository root, tag vocabulary
+REPO.buri                  # repository root, tag vocabulary, lint policy
 lib/money/
   BUILD.buri               # declares //lib/money
   lib.buri                 # the entire public surface
@@ -54,7 +54,7 @@ argument it means every target in it. Patterns are CLI-only: `//lib/...`,
 ## `REPO.buri`
 
 Its presence is what makes a directory a repository root. It parses as
-`buri.build.v1.RepoConfig` and has **one field**:
+`buri.build.v1.RepoConfig` and has **two fields**:
 
 ```textproto
 tag {
@@ -70,10 +70,22 @@ tag {
     name: "client"
     doc: "ships to a user's machine or browser"
 }
+
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}
 ```
 
-There is no `flags`, no toolchain pin, no `name`, no defaults block, no lint
-configuration, no dependency versions, no profiles, and no environment. A
+`lint` says where the lint catalogue runs and what a finding costs, and nothing
+else: `check_during_build` makes `buri build` and `buri test` run it too,
+`fail_on_finding` makes a finding fail whichever command reported it. Both
+default to false, both only tighten, and there is no field that turns a check
+off, exempts a directory or downgrades a finding. `buri lint` exits nonzero on
+any finding whatever this file says.
+
+There is no `flags`, no toolchain pin, no `name`, no defaults block, no per-rule
+lint configuration, no dependency versions, no profiles, and no environment. A
 repository-wide knob is a dialect; a knob goes on the command or on the rule.
 
 ## `BUILD.buri`

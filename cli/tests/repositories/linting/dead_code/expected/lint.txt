@@ -1,4 +1,4 @@
-error: nothing reaches `toDollars` [dead-code]
+warning: nothing reaches `toDollars` [dead-code]
   --> lib/money/cents.buri:10:11
    |
 10 | export fn toDollars(c: Cents): I64 { c.0 / 100 }

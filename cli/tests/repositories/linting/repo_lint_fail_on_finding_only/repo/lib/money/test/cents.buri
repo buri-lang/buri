@@ -1,0 +1,10 @@
+from "//lib/money" import { fromCents, format };
+from "core/testing/assert" import * as assert;
+
+test "pads the cents place" {
+  assert.eq(format(fromCents(1905)), "some");
+}
+
+test "zero formats as zero" {
+  assert.eq(format(fromCents(0)), "zero");
+}

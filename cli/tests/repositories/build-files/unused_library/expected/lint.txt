@@ -1,4 +1,4 @@
-error: lib/thing/orphan.buri belongs to no library or binary, so nothing builds it [unused-library]
+warning: lib/thing/orphan.buri belongs to no library or binary, so nothing builds it [unused-library]
  --> lib/thing/BUILD.buri:1:1
   |
 1 | library {

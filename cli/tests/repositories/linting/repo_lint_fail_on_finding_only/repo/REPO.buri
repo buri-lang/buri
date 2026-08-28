@@ -1,0 +1,6 @@
+# `fail_on_finding` without `check_during_build`. The two fields are
+# independent: this one says how hard a finding lands, not where it is looked
+# for, so `buri build` still never looks.
+lint {
+    fail_on_finding: true
+}

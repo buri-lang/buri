@@ -65,7 +65,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
 
     let mut built = 0;
     let mut failed = false;
-    for target in targets {
+    // By reference: the resolved list is the catalogue's input too, below.
+    for &target in &targets {
         // Only a binary produces an artifact; a library is checked, which is
         // what `buri build //lib/money` means.
         if target.kind == RuleKind::Library {
@@ -114,6 +115,13 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                 }
             }
         }
+    }
+    // `check_during_build`: the catalogue runs here too, but only over a build
+    // that held — findings on code that does not compile are noise stacked on
+    // top of the answer.
+    if !failed && session.workspace.repo.lint.check_during_build {
+        let findings = crate::commands::lint::findings_for(&mut session, &targets);
+        failed |= session.print(&findings);
     }
     if failed {
         return 1;

@@ -8,6 +8,20 @@ this library is correct."
 With no target argument it builds the whole repository: bare `buri build` is
 `buri build //...`, from any directory in it.
 
+## Lint findings
+
+A build reports the lint catalogue as well where `REPO.buri` asks it to. With
+`lint { check_during_build: true }` the checks `buri lint` runs are run over the
+targets being built and reported beside the compiler's own diagnostics; with
+`fail_on_finding: true` as well, a finding is an error and the build does not
+go through. Both default to false, which is a build that says nothing the
+compiler did not say.
+
+The reason to turn the first on is that this is the command you run, and a
+structural finding is cheapest to act on while the shape it is about is still
+being made. The two fields, and why neither of them has an opposite, are in
+[`repo-config.md`](../build/repo-config.md#lint).
+
 ## Caching
 
 A build is a set of actions, each keyed on the toolchain version, the build

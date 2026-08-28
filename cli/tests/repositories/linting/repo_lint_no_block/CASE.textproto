@@ -1,0 +1,41 @@
+# The negative twin of the two cases beside this one. With no `lint` block,
+# `buri build` says nothing about the catalogue even though the code has a
+# finding in it — `nothing to build` is the whole of what a library build
+# prints — while `buri lint` reports it and exits nonzero, because asking the
+# linter is itself the request to be told.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "no lint block: build is silent about a finding the code has, and lint still exits 1 on it"
+
+run {
+  args: ["build", "//lib/money", "--verbose"]
+  exit: 0
+  golden: "build.txt"
+}
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The finding's own fix: the multiplication was dead, so it goes with the name.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let doubled = n * 2;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean_lint.txt"
+}

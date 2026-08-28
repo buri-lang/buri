@@ -295,10 +295,20 @@ fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
         }
     }
 
+    // `check_during_build`: the catalogue runs over a test pass too, but only
+    // one nothing already stopped — a suite that could not be built has an
+    // answer, and it is not a lint finding.
+    if !hard_error && session.workspace.repo.lint.check_during_build {
+        let findings = crate::commands::lint::findings_for(&mut session, &targets);
+        hard_error |= session.print(&findings);
+    }
+
     let elapsed = started.elapsed().as_secs_f64();
     if suites == 0 {
         out.line("no test suites");
-        return watch::Pass { code: 0, inputs, output: out.take(), quiet: false };
+        // Nothing ran, so the only thing that can have failed is the catalogue.
+        let code = i32::from(hard_error);
+        return watch::Pass { code, inputs, output: out.take(), quiet: false };
     }
     let note = if cached > 0 { format!(", {cached} cached") } else { String::new() };
     if printed {

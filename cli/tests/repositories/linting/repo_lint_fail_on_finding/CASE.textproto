@@ -1,0 +1,65 @@
+# `fail_on_finding: true` alongside `check_during_build: true`: the finding is
+# an error everywhere it is reported, and the command that reported it fails.
+# The label is checked in both renderings, because `--error-format=json` is
+# what a machine reads and a severity that moved in one and not the other would
+# be a bug nobody at the terminal could see.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "fail_on_finding with check_during_build: build, test and lint all report the finding as an error and all exit 1"
+
+run {
+  args: ["build", "//lib/money", "--verbose"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//lib/money", "--error-format=json"]
+  exit: 1
+  golden: "build.json"
+}
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 1
+  golden: "test.txt"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The finding's own fix: the multiplication was dead, so it goes with the name.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let doubled = n * 2;\n"
+  with: ""
+}
+
+run {
+  args: ["build", "//...", "--verbose"]
+  exit: 0
+  golden: "clean_build.txt"
+}
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "clean_test.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean_lint.txt"
+}
