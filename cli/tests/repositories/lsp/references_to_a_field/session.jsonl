@@ -1,0 +1,15 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# From the field's declaration: `self.price`, `item.price`, and the `price:`
+# that names it in the literal — not the parameter written beside it, which is
+# a different declaration spelled the same.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 15, "character": 10}, "context": {"includeDeclaration": true}}}
+# From an access in another file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 69}, "context": {"includeDeclaration": false}}}
+# A variant's record field, used only by the pattern that takes it apart.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 7, "character": 12}, "context": {"includeDeclaration": true}}}
+# A field whose only use is the literal that fills it in.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 16, "character": 10}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -119,6 +119,15 @@ impl State {
         std::fs::read_to_string(path).ok()
     }
 
+    /// The build graph on its own, with no analysis behind it.
+    ///
+    /// A question about a `BUILD.buri` is a question about the graph: what a
+    /// label names and where a package's file is are both answered by loading
+    /// the repository, and the front end has nothing to add.
+    pub fn session(&self) -> Option<Session> {
+        session::open(&Flags::default()).ok()
+    }
+
     /// Runs the whole front end for the target owning `path`.
     ///
     /// The overlay trick is `SourceMap::load` reusing an entry whose name
@@ -154,6 +163,42 @@ impl State {
             &mut session.map,
             &mut session.parsed,
             &unit,
+        );
+        Some(Analyzed { session, analysis })
+    }
+
+    /// Runs the whole front end for *every* target in the repository, as one
+    /// compilation.
+    ///
+    /// [`State::analyze`] answers a question about one file, and the target
+    /// owning it is enough for that. A question about a *name* is not: a
+    /// function is referred to from wherever it is imported, which is a set of
+    /// targets nothing about the file it was declared in narrows down. So the
+    /// answer has to be looked for everywhere, and `driver::analyze_all` is one
+    /// loader and one checker over the lot — a module two targets both reach is
+    /// parsed once and gets one id, which is what makes a single scan of the
+    /// result well defined.
+    ///
+    /// It is paid per request, with no cache. A cache here would need a key
+    /// saying which files and which revisions produced it, and the last field
+    /// that claimed to be one had neither.
+    pub fn analyze_workspace(&self) -> Option<Analyzed> {
+        let mut session = session::open(&Flags::default()).ok()?;
+        for (p, text) in &self.open {
+            let rel = session.workspace.rel_of(p);
+            session.map.add(rel, p.clone(), text.clone());
+        }
+        let units: Vec<Unit> = session
+            .workspace
+            .targets()
+            .into_iter()
+            .map(|target| Unit { target: Some(target), platform: None, with_tests: true })
+            .collect();
+        let analysis = crate::compiler::driver::analyze_all(
+            Some(&session.workspace),
+            &mut session.map,
+            &mut session.parsed,
+            &units,
         );
         Some(Analyzed { session, analysis })
     }

@@ -94,6 +94,19 @@ pub fn range(text: &str, span: Span) -> Value {
     ])
 }
 
+/// A `Location` pointing at the very start of a file.
+///
+/// What a path names is the whole file, so the file is where the editor is
+/// sent. An empty range at the top needs none of that file's text, which is
+/// what lets a jump land in a file nothing has read.
+pub fn top_of(path: &Path) -> Value {
+    let start = Position { line: 0, character: 0 };
+    Value::object(vec![
+        ("uri", Value::str(uri_of(path))),
+        ("range", Value::object(vec![("start", start.to_json()), ("end", start.to_json())])),
+    ])
+}
+
 /// `file:///a/b%20c.buri`. Percent-encoding is applied to everything outside
 /// the unreserved set, which is narrower than it needs to be and never wrong.
 pub fn uri_of(path: &Path) -> String {

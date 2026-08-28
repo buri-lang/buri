@@ -1,0 +1,9 @@
+library {
+    sources: ["cart.buri", "catalog.buri"]
+    tags: ["server"]
+    visibility: ["//visibility:public"]
+
+    testing {
+        sources: ["testing/fixtures.buri"]
+    }
+}

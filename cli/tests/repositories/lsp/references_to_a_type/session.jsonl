@@ -1,0 +1,14 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# From the struct literal: parameter and return annotations, the `let`'s
+# annotation, the `impl` head, the import clauses and the re-export.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 36, "character": 3}, "context": {"includeDeclaration": true}}}
+# From an annotation, which is the other side of the same question.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 28}, "context": {"includeDeclaration": false}}}
+# An enum, named in an annotation, in a field's type, and in `Stock.Out`.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 8, "character": 16}, "context": {"includeDeclaration": true}}}
+# A trait: the bound on `ticket`'s parameter and the `impl` head.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 20, "character": 15}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

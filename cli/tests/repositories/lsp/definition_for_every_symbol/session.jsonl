@@ -1,0 +1,33 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A type written in an annotation. Annotations are syntax the typed tree drops,
+# so this one is answered from the flat tree.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 8, "character": 17}}}
+# A field access goes to the field, not to the type that holds it.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 56}}}
+# A variant named in a match pattern.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 10, "character": 6}}}
+# A name a pattern binds goes to the pattern that bound it.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 11, "character": 16}}}
+# A local used below the `let` that introduced it.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 23, "character": 3}}}
+# A lambda parameter used inside the lambda's body.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 50}}}
+# A trait named in a generic bound.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 16, "character": 22}}}
+# A method reached through that bound goes to the trait's signature.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 17, "character": 10}}}
+# A field name written in a struct literal.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 36, "character": 10}}}
+# `Stock.Out` in expression position: the head names the enum,
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 36, "character": 44}}}
+# and the tail names the variant.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 36, "character": 49}}}
+# The trait named in an `impl` head.
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 25, "character": 8}}}
+# The standard library is compiled into the binary and has no file, so there is
+# nowhere to send the editor and the answer is nothing rather than a guess.
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 10}}}
+{"jsonrpc": "2.0", "id": 15, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

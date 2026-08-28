@@ -19,9 +19,11 @@
 //! responses deterministic, which is what lets a test record a session as a
 //! golden file.
 
+mod build_files;
 mod convert;
 mod features;
 mod state;
+mod symbols;
 
 use convert::Position;
 use crate::build::regenerate;
@@ -302,10 +304,27 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         }
 
         ("textDocument/definition", Some(id)) => {
-            let result = with_analysis(state, &params, |analyzed, path, text, position| {
-                features::definition(analyzed, path, text, position)
-            });
-            vec![response(&id, result.unwrap_or(Value::Null))]
+            vec![response(&id, definition(state, &params).unwrap_or(Value::Null))]
+        }
+
+        ("textDocument/references", Some(id)) => {
+            // Not `with_analysis`: this one analyses the whole repository
+            // rather than the target owning the file, because a name is
+            // referred to from wherever it is imported.
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let position = Position::from_json(params.get("position")?)?;
+                let text = state.text_of(&path)?;
+                // The protocol makes the declaration opt-in, and clients ask
+                // both ways: excluded is "where else is this used".
+                let include = matches!(
+                    params.at("context.includeDeclaration"),
+                    Some(&Value::Bool(true))
+                );
+                let analyzed = state.analyze_workspace()?;
+                features::references(&analyzed, &path, &text, position, include)
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
         ("textDocument/completion", Some(id)) => {
@@ -336,6 +355,7 @@ fn capabilities() -> Value {
                 ("textDocumentSync", Value::number(1)),
                 ("hoverProvider", Value::Bool(true)),
                 ("definitionProvider", Value::Bool(true)),
+                ("referencesProvider", Value::Bool(true)),
                 ("documentSymbolProvider", Value::Bool(true)),
                 ("documentFormattingProvider", Value::Bool(true)),
                 ("codeActionProvider", Value::Bool(true)),
@@ -373,6 +393,23 @@ fn whole(text: &str) -> Value {
         ("start", Position { line: 0, character: 0 }.to_json()),
         ("end", convert::position_of(text, text.len() as u32).to_json()),
     ])
+}
+
+/// Definition, routed by what kind of file the cursor is in.
+///
+/// A build file is textproto and is answered before any analysis, because
+/// `driver::analyze` never reads one — running it on a `BUILD.buri` would
+/// analyse the target that owns it and then look for a module that is not
+/// there. Everything else is a module and goes the ordinary way.
+fn definition(state: &mut State, params: &Value) -> Option<Value> {
+    let path = uri_param(params)?;
+    if build_files::is_build_file(&path) {
+        let position = Position::from_json(params.get("position")?)?;
+        let text = state.text_of(&path)?;
+        let session = state.session()?;
+        return build_files::definition(&session, &path, &text, position);
+    }
+    with_analysis(state, params, features::definition)
 }
 
 fn with_analysis<T>(

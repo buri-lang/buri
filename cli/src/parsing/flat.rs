@@ -813,6 +813,14 @@ impl Tree {
         &self.pnodes
     }
 
+    /// Every type this file wrote down, in one arena. The language server asks
+    /// which of them a cursor is inside, and a type is reached from whichever
+    /// declaration named it rather than by scanning — so without this there is
+    /// no way to ask the question of a whole file at once.
+    pub fn type_nodes(&self) -> &[TypeData] {
+        &self.types
+    }
+
     /// How many nodes, blocks and so on this tree holds. For the benchmark and
     /// for reporting; nothing in the compiler reads it.
     pub fn counts(&self) -> [usize; 6] {
