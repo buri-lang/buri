@@ -1,0 +1,15 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the callee's signature while the call is being typed, with the parameter the cursor is in — including the case the request exists for, an argument list that is still empty"
+
+# The one case here that opens a buffer, because the one thing signature help is
+# for is a call that is not finished, and an unfinished call only exists in an
+# editor. The diagnostics either notification publishes are part of the golden.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

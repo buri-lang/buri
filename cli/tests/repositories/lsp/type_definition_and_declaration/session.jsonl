@@ -1,0 +1,25 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A local: where the type it holds was declared, not where it was bound.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 8}}}
+# A field access, whose type is an enum in another file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 56}}}
+# A field whose type is a primitive. Those are declared in the standard
+# library, which has no file, so there is nowhere to send the editor.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 69}}}
+# A call: the type it returns.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 22}}}
+# A type written in an annotation is its own type definition.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 15}}}
+# An import path names a module, and a module is not a type.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 10}}}
+# `declaration` is `definition` under the protocol's other name: Buri declares
+# and defines a thing in one place, so answering differently would be inventing
+# a difference.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/declaration", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 22}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 22}}}
+# And it follows an import path, as definition does.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/declaration", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 10}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

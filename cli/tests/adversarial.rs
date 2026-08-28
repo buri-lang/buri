@@ -510,6 +510,15 @@ fn a_position_the_client_made_up_is_answered_rather_than_indexed() {
         (5, "textDocument/definition", "999999", "0"),
         (6, "textDocument/completion", "1", "4294967295"),
         (7, "textDocument/hover", "0", "0"),
+        // Every other request that takes a position, on the character that
+        // splits into a surrogate pair and on a line the file does not have.
+        (8, "textDocument/typeDefinition", "1", "4294967295"),
+        (9, "textDocument/declaration", "1", "13"),
+        (10, "textDocument/documentHighlight", "1", "13"),
+        (11, "textDocument/references", "999999", "999999"),
+        (12, "textDocument/signatureHelp", "1", "13"),
+        (13, "textDocument/signatureHelp", "4294967295", "0"),
+        (14, "textDocument/prepareRename", "1", "13"),
     ] {
         push(&format!(
             r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{{"textDocument":{{"uri":"{uri}"}},"position":{{"line":{line},"character":{character}}}}}}}"#
@@ -523,6 +532,23 @@ fn a_position_the_client_made_up_is_answered_rather_than_indexed() {
     push(r#"{"jsonrpc":"2.0","id":23,"method":"textDocument/hover"}"#);
     push(r#"{"jsonrpc":"2.0","id":24,"method":"textDocument/hover","params":{"textDocument":{"uri":42},"position":"nope"}}"#);
     push(r#"{"jsonrpc":"2.0","id":25,"method":"nonsense/method","params":{}}"#);
+    // The requests whose params are not only a position: a rename with no new
+    // name and one with a new name that is not a name, a selection range whose
+    // positions are not positions, and a query that is not a string.
+    push(&format!(
+        r#"{{"jsonrpc":"2.0","id":30,"method":"textDocument/rename","params":{{"textDocument":{{"uri":"{uri}"}},"position":{{"line":0,"character":10}}}}}}"#
+    ));
+    push(&format!(
+        r#"{{"jsonrpc":"2.0","id":31,"method":"textDocument/rename","params":{{"textDocument":{{"uri":"{uri}"}},"position":{{"line":0,"character":10}},"newName":"  "}}}}"#
+    ));
+    push(&format!(
+        r#"{{"jsonrpc":"2.0","id":32,"method":"textDocument/selectionRange","params":{{"textDocument":{{"uri":"{uri}"}},"positions":[1,"x",{{}}]}}}}"#
+    ));
+    push(&format!(
+        r#"{{"jsonrpc":"2.0","id":33,"method":"textDocument/foldingRange","params":{{"textDocument":{{"uri":"{uri}"}}}}}}"#
+    ));
+    push(r#"{"jsonrpc":"2.0","id":34,"method":"workspace/symbol","params":{"query":7}}"#);
+    push(r#"{"jsonrpc":"2.0","id":35,"method":"workspace/symbol","params":{}}"#);
     push(r#"{"jsonrpc":"2.0","id":26,"method":"shutdown"}"#);
     push(r#"{"jsonrpc":"2.0","method":"exit"}"#);
 
