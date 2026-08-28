@@ -23,10 +23,9 @@ commit = "67d32e76e5aab70f77309a89c4fa59a767316404"
 # apart. It lives beside the first for the same reason the first lives here.
 repository = "https://github.com/buri-lang/buri"
 path = "editors/tree-sitter-buri-build"
-# PENDING-REPIN: set this to the commit that lands `editors/tree-sitter-buri-build`.
-# Zed fetches the commit from GitHub, so until this names a pushed commit that
-# holds the grammar, the extension does not build.
-commit = "PENDING-REPIN"
+# Pinned to the commit that lands the grammar. Zed fetches it from GitHub, so
+# the extension builds only once that commit is pushed.
+commit = "536e85f90ca2f599897216817d411d201268f46d"
 
 [language_servers.buri]
 name = "Buri"
