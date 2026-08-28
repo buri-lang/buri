@@ -1,0 +1,31 @@
+name = "Buri Build"
+grammar = "buri_build"
+# A build file is textproto rather than Buri, and it is told apart by its whole
+# name rather than by its extension. Zed scores a suffix by the length of what
+# it matched, so `BUILD.buri` beats the `buri` the language next door claims.
+path_suffixes = ["BUILD.buri", "REPO.buri"]
+line_comments = ["# "]
+autoclose_before = ",]}"
+# Four spaces, which is what `buri format` writes: a build file and the code
+# beside it are read by the same person on the same screen.
+tab_size = 4
+hard_tabs = false
+
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = true
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = true
+
+[[brackets]]
+start = "\""
+end = "\""
+close = true
+newline = false
+not_in = ["string", "comment"]

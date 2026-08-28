@@ -599,6 +599,11 @@ jobs:
       - run: cargo build -p buri --example parse_verdicts
       - run: ./check.sh
         working-directory: editors/tree-sitter-buri
+      # The build-file grammar is the other half of the same directory: a
+      # BUILD.buri ends in `.buri` and is textproto, so it has a grammar of its
+      # own. It needs no `parse_verdicts`, so it is a step rather than a job.
+      - run: ./check.sh
+        working-directory: editors/tree-sitter-buri-build
 
   # ---------------------------------------------------------------------------
   # Packaging: the flake evaluates and the package builds. This is the
