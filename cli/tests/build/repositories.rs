@@ -39,8 +39,8 @@ fn tag_policy() {
 
 /// CLI.md: the exit codes, and the commands whose contract is about what they
 /// leave on disk rather than what they compute — `gen`, `run`, `clean`,
-/// `version`, the `out/` symlink, and the no-argument forms that mean "the
-/// package I am standing in".
+/// `version`, the `out/` symlink, and the no-argument forms that mean the whole
+/// repository from wherever they are run.
 #[test]
 fn cli_contract() {
     run_corpus(&tests_dir().join("repositories/cli"), "cli", 11);
@@ -88,5 +88,5 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 5);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 15);
 }

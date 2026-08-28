@@ -1,0 +1,38 @@
+//! What a shop sells, and how much of it is left.
+
+/// How much of an item is on the shelf.
+export enum Stock {
+  /// None left at all.
+  Out,
+  /// The number still on the shelf.
+  OnHand { count: I64 },
+}
+
+/// One thing for sale.
+export struct Item {
+  /// What the label on the shelf says.
+  export name: Str,
+  /// What it costs, in whole cents.
+  export price: I64,
+  export stock: Stock,
+}
+
+/// Something with a price in whole cents.
+export trait Priced {
+  /// What one of them costs.
+  fn cents(self): I64;
+}
+
+impl Priced for Item {
+  fn cents(self): I64 {
+    self.price
+  }
+}
+
+/// What an item costs when nothing says otherwise.
+export let defaultPrice: I64 = 100;
+
+/// An item nobody has stocked yet.
+export fn listing(name: Str, price: I64): Item {
+  Item { name: name, price: price, stock: Stock.Out }
+}

@@ -1,0 +1,26 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A dependency label is a package, and a package is its build file.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 1, "character": 25}}}
+# A testing surface is declared in the same file its library is.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 9, "character": 30}}}
+# A source entry is a path beside the build file, here in a subdirectory.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 8, "character": 22}}}
+# A data entry is a file the same way a source is, and need not be Buri.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 10, "character": 20}}}
+# A source of the library rule.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 1, "character": 16}}}
+# A source of the testing block, two levels into the file.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 6, "character": 22}}}
+# A tag is declared once, in REPO.buri, and the jump lands on the name.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 2, "character": 13}}}
+# `//visibility:public` is a label that names no package.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 3, "character": 20}}}
+# A field name is not a string, and neither is an enum value in a block.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 1, "character": 6}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 4, "character": 21}}}
+# REPO.buri is routed the same way, and a tag's own name names no other file.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri"}, "position": {"line": 3, "character": 12}}}
+{"jsonrpc": "2.0", "id": 13, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

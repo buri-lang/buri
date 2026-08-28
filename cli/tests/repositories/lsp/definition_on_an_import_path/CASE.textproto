@@ -1,0 +1,14 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "go-to-definition on the path string of an import or a re-export opens the file that path names, and answers with nothing for a standard-library path that has no file"
+
+# No `didOpen`: an unopened file is read from disk, and leaving the buffers out
+# keeps the golden about the answers rather than about the diagnostics.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

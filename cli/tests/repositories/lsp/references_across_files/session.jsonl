@@ -1,0 +1,22 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A module, named by its path: every import and re-export of it.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 12}, "context": {"includeDeclaration": false}}}
+# The same, with the declaration: a module has no name of its own, so its
+# declaration is the top of its file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 12}, "context": {"includeDeclaration": true}}}
+# A module-level `let`, asked from the binary that imports it two packages
+# away. An import of a name is a use of it, so the clauses are in the answer.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 7, "character": 40}, "context": {"includeDeclaration": true}}}
+# A trait method, called on a type variable, which is the one call the checker
+# leaves as a trait call rather than resolving to an implementation.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 22, "character": 6}, "context": {"includeDeclaration": true}}}
+# A variant, written in full in one file and with the leading-dot shorthand in
+# another. The shorthand names no enum, so it is a use of the variant only.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 5, "character": 3}, "context": {"includeDeclaration": true}}}
+# A function used inside an interpolation, in a file belonging to another
+# target than the one that declares it.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 8, "character": 34}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

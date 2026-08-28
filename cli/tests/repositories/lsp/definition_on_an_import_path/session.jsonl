@@ -1,0 +1,18 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A package's own label is that package's lib.buri, the whole of its surface.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 3, "character": 10}}}
+# The opening quote counts as inside the path: the span is the string literal.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 3, "character": 5}}}
+# A module inside a package, imported by another module of the same package.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 20}}}
+# A re-export names a path the same way an import does.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/lib.buri"}, "position": {"line": 1, "character": 18}}}
+# A testing surface is a path of its own, and it is testing/lib.buri.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/test/app.buri"}, "position": {"line": 0, "character": 20}}}
+# The standard library is compiled into the toolchain and has no file on disk,
+# so there is nowhere to send the editor.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 8}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

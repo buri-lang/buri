@@ -1,38 +1,34 @@
 //! The requests that answer a question about a name.
 //!
-//! All four are reads of what the compiler already computed. `typed::Expr`
+//! All five are reads of what the compiler already computed. `typed::Expr`
 //! carries its own type and span, `Tables` carries every declaration's span,
-//! and `ModuleScope` carries what a module exports — so hover, go-to-definition
-//! and completion need no index of their own. That is the whole reason this
-//! file is short: the answers were already in the analysis, waiting to be
-//! asked for.
+//! and `ModuleScope` carries what a module exports — so hover, go-to-definition,
+//! references and completion need no index of their own. That is the whole
+//! reason this file is short: the answers were already in the analysis, waiting
+//! to be asked for.
 
-use crate::compiler::semantics::types::{self, FnId};
+use crate::compiler::semantics::types;
 use crate::compiler::standard_library;
 use crate::json::Value;
 use crate::parsing::tree::Item;
 use std::path::Path;
 use super::convert::{self, Position};
 use super::state::Analyzed;
+use super::symbols;
 
-/// The innermost typed expression covering `offset`, and its rendered type.
+/// The symbol under the cursor, rendered; failing that, the type of the
+/// innermost expression covering it.
 pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
 
-    // A declaration's own name renders as its signature plus its doc comment,
-    // which is what you want when you point at `fn parse` — the type of the
-    // name is the least interesting thing about it.
-    if let Some((sig, docs, span)) = declaration_at(analyzed, path, offset) {
-        let mut markdown = format!("```buri\n{sig}\n```");
-        if !docs.is_empty() {
-            markdown.push_str("\n\n");
-            markdown.push_str(&docs.join("\n"));
-        }
-        return Some(Value::object(vec![
-            ("contents", markup(&markdown)),
-            ("range", convert::range(text, span)),
-        ]));
+    // A name renders as its signature plus its doc comment, at the use as well
+    // as at the declaration — pointing at a call is the commonest way to ask
+    // what a function is, and the type of the name is the least interesting
+    // thing about it.
+    if let Some(found) = symbols::at(analyzed, path, text, offset) {
+        let (signature, docs) = symbols::describe(analyzed, &found.symbol);
+        return Some(rendered(text, &signature, &docs, found.span));
     }
 
     // Otherwise the innermost expression whose span contains the offset. It is
@@ -53,45 +49,41 @@ pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -
             }
         });
     }
-    let (_, ty, span) = best?;
-    Some(Value::object(vec![
-        ("contents", markup(&format!("```buri\n{ty}\n```"))),
-        ("range", convert::range(text, span)),
-    ]))
+    if let Some((_, ty, span)) = best {
+        return Some(Value::object(vec![
+            ("contents", markup(&format!("```buri\n{ty}\n```"))),
+            ("range", convert::range(text, span)),
+        ]));
+    }
+
+    // Above the first declaration there is nothing to point at but the file,
+    // which is exactly where its `//!` lines are written.
+    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let first = module.ast.items.first().map_or(u32::MAX, |item| item.span().start);
+    if module.ast.docs.is_empty() || offset > first {
+        return None;
+    }
+    let at = crate::diagnostics::Span::point(file, offset as usize);
+    Some(rendered(text, &format!("from \"{}\"", module.path), &module.ast.docs, at))
+}
+
+/// The hover payload: the signature in a fence, then the doc comment under it.
+fn rendered(
+    text: &str,
+    signature: &str,
+    docs: &[String],
+    span: crate::diagnostics::Span,
+) -> Value {
+    let mut markdown = format!("```buri\n{signature}\n```");
+    if !docs.is_empty() {
+        markdown.push_str("\n\n");
+        markdown.push_str(&docs.join("\n"));
+    }
+    Value::object(vec![("contents", markup(&markdown)), ("range", convert::range(text, span))])
 }
 
 fn markup(markdown: &str) -> Value {
     Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(markdown))])
-}
-
-/// The declaration whose *name* covers `offset`, rendered the way the formatter
-/// would print it.
-fn declaration_at(
-    analyzed: &Analyzed,
-    path: &Path,
-    offset: u32,
-) -> Option<(String, Vec<String>, crate::diagnostics::Span)> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let m = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
-    for item in &m.ast.items {
-        // A function renders as its signature, which is what `buri format`
-        // prints; everything else renders as the keyword and its name, because
-        // a struct's whole body is not what you asked for by pointing at it.
-        let t = &m.ast.tree;
-        let (name, docs, sig) = match item {
-            Item::Fn(d) => (d.name, &d.docs, crate::formatting::signature(t, d)),
-            Item::Struct(d) => (d.name, &d.docs, format!("struct {}", t.name(d.name))),
-            Item::Enum(d) => (d.name, &d.docs, format!("enum {}", t.name(d.name))),
-            Item::TypeAlias(d) => (d.name, &d.docs, format!("type {}", t.name(d.name))),
-            Item::Let(d) => (d.name, &d.docs, format!("let {}", t.name(d.name))),
-            Item::Trait(d) => (d.name, &d.docs, format!("trait {}", t.name(d.name))),
-            _ => continue,
-        };
-        if name.span.start <= offset && offset <= name.span.end {
-            return Some((sig, docs.clone(), name.span));
-        }
-    }
-    None
 }
 
 /// Where the name under the cursor was declared.
@@ -102,35 +94,101 @@ pub fn definition(
     position: Position,
 ) -> Option<Value> {
     let offset = convert::offset_of(text, position);
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-
-    // The innermost call or function reference covering the offset. Walking to
-    // the innermost matters for `f(g(x))`, where both spans contain a cursor
-    // inside `g`.
-    let mut best: Option<(u32, FnId)> = None;
-    for (fid, body) in &analyzed.analysis.checked.bodies {
-        if analyzed.analysis.checked.tables.fn_info(*fid).span.file != file {
-            continue;
-        }
-        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
-            if e.span.file != file || e.span.start > offset || e.span.end < offset {
-                return;
-            }
-            let target = match &e.kind {
-                crate::compiler::semantics::typed::ExprKind::CallFn { func, .. }
-                | crate::compiler::semantics::typed::ExprKind::FnRef(func) => func.decl(),
-                _ => return,
-            };
-            let Some(target) = target else { return };
-            let width = e.span.end.saturating_sub(e.span.start);
-            if best.as_ref().is_none_or(|(w, _)| width < *w) {
-                best = Some((width, target));
-            }
-        });
+    // An import's path names a file, and the workspace resolves it whether or
+    // not the module behind it was loaded — a path whose package this target
+    // does not yet depend on is exactly when a reader wants to go and look.
+    if let Some(module_path) = import_path_at(analyzed, path, offset) {
+        return import_target(analyzed, &module_path);
     }
-    let (_, target) = best?;
-    let span = analyzed.analysis.checked.tables.fn_info(target).span;
-    location(analyzed, span)
+    let found = symbols::at(analyzed, path, text, offset)?;
+    location(analyzed, symbols::declaration(analyzed, &found.symbol))
+}
+
+/// The module path of the import or re-export whose path string covers the
+/// offset. The span is the one every import diagnostic is anchored on, so
+/// "inside the path" means the string with its quotes.
+fn import_path_at(analyzed: &Analyzed, path: &Path, offset: u32) -> Option<String> {
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    module.ast.items.iter().find_map(|item| {
+        let (written, span) = match item {
+            Item::Import(i) => (&i.path, i.path_span),
+            Item::ReExport(r) => (&r.path, r.path_span),
+            _ => return None,
+        };
+        let covered = span.file == file && span.start <= offset && offset <= span.end;
+        covered.then(|| written.clone())
+    })
+}
+
+/// The file a module path resolves to — the top of it, since a module has no
+/// name of its own to point at.
+///
+/// A `core/...` path resolves to a module that is `include_str!`d into the
+/// binary and has no file to open, so it answers with nothing rather than with
+/// a guess. So does a path that resolves to nothing at all.
+fn import_target(analyzed: &Analyzed, module_path: &str) -> Option<Value> {
+    let resolved = analyzed.session.workspace.resolve_module(module_path).ok()?;
+    Some(convert::top_of(&resolved.in_package()?.file))
+}
+
+/// Every place the repository names the symbol under the cursor.
+///
+/// The cursor may be on the declaration or on any use — both are the same
+/// question to [`symbols::at`], and the answer is the same list either way,
+/// which is what makes "find every use of this" work from wherever you happen
+/// to be reading.
+///
+/// `analyzed` here is the whole repository rather than one target, because a
+/// name is referred to from wherever it is imported and nothing about the file
+/// it was declared in bounds that set. See `State::analyze_workspace`.
+pub fn references(
+    analyzed: &Analyzed,
+    path: &Path,
+    text: &str,
+    position: Position,
+    include_declaration: bool,
+) -> Option<Value> {
+    let offset = convert::offset_of(text, position);
+    let found = symbols::at(analyzed, path, text, offset)?;
+    let mut spans = symbols::references(analyzed, &found.symbol);
+    if include_declaration {
+        spans.push(symbols::declaration(analyzed, &found.symbol));
+    }
+    // One file is reachable through several targets and a name can be written
+    // twice in one expression, so the same place arrives more than once. Sorted
+    // by file and then by position: the protocol imposes no order, and an
+    // editor's list should not depend on which body the scan met first.
+    let mut out: Vec<(String, crate::diagnostics::Span)> = spans
+        .into_iter()
+        .filter_map(|span| Some((uri_of(analyzed, span)?, span)))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)).then(a.1.end.cmp(&b.1.end)));
+    out.dedup_by(|a, b| a.0 == b.0 && a.1.start == b.1.start && a.1.end == b.1.end);
+    Some(Value::Array(
+        out.iter()
+            .map(|(uri, span)| {
+                let text = &analyzed.session.map.get(span.file).text;
+                Value::object(vec![
+                    ("uri", Value::str(uri.as_str())),
+                    ("range", convert::range(text, *span)),
+                ])
+            })
+            .collect(),
+    ))
+}
+
+/// The file a span is in, or nothing when it has none — a span with no file, or
+/// the embedded standard library, which is `include_str!`d into the binary.
+fn uri_of(analyzed: &Analyzed, span: crate::diagnostics::Span) -> Option<String> {
+    if span.is_none() {
+        return None;
+    }
+    let f = analyzed.session.map.get(span.file);
+    if f.abs_path.as_os_str().is_empty() {
+        return None;
+    }
+    Some(convert::uri_of(&f.abs_path))
 }
 
 fn location(analyzed: &Analyzed, span: crate::diagnostics::Span) -> Option<Value> {

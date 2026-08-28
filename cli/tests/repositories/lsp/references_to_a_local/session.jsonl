@@ -1,0 +1,17 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `plain` in `sample`. //cmd/app/main.buri binds a `plain` of its own, and it
+# is not in this answer: a local is matched by where it was bound, not by how
+# it is spelled.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 8}, "context": {"includeDeclaration": true}}}
+# From the use rather than the binding, and without the binding.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 23, "character": 4}, "context": {"includeDeclaration": false}}}
+# A lambda's parameter, used twice in the expression that follows it.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 26}, "context": {"includeDeclaration": true}}}
+# A name a pattern binds, which is a declaration like any other.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 11, "character": 26}, "context": {"includeDeclaration": true}}}
+# A function's own parameter.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 20}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

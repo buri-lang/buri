@@ -1,0 +1,33 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The call to `held`: the callee's signature and the doc comment above it.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 45}}}
+# `Item` written as a type annotation, declared in the other file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 28}}}
+# A lambda parameter: its name and its inferred type.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 50}}}
+# The field in `item.price`, with the comment written above the field.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 70}}}
+# `thing.cents()` resolves through the bound, so the answer is the trait's.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 17, "character": 10}}}
+# A variant named in a match pattern, with its payload and its comment.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 11, "character": 7}}}
+# A module-level `let` used from the other file.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 40}}}
+# The path of an import: the module's own `//!` lines.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 12}}}
+# A standard-library method. It has no file on disk, but it does have docs.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 10}}}
+# A field name written in a struct literal, which the typed tree keeps only as
+# an index.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 36, "character": 10}}}
+# A method declared in an `impl`, which the declaration walk used to skip.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 26, "character": 6}}}
+# Above the first declaration there is nothing to point at but the file, so the
+# answer is the module's own `//!` lines.
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 1, "character": 0}}}
+# A lambda is not a name, so the type of the expression is still the fallback.
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 30}}}
+{"jsonrpc": "2.0", "id": 15, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

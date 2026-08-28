@@ -1,0 +1,20 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# From a call site in //lib/shop, and the answer reaches //cmd/app: a name is
+# used wherever it is imported, and the file it was declared in says nothing
+# about which targets those are.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": false}}}
+# The same call site, with the declaration asked for.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+# The declaration's own name answers the same list: which end you ask from is
+# not a different question.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 12}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 12}, "context": {"includeDeclaration": false}}}
+# No context at all: the declaration is opt-in, so a client that sends none
+# gets the uses.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+# Whitespace names nothing, and nothing is an empty list rather than an error.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 34, "character": 0}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
