@@ -1,0 +1,69 @@
+# "With no argument, commands operate on the whole repository." A claim about
+# scope, so the only way to check it is to stand somewhere that is not the root
+# and find that the rest of the repository was reached anyway.
+#
+# `cmd/app` carries an `unused-import`, which is an error `buri lint` reports:
+# every no-argument run below happens outside `cmd/app` and each of them must
+# mention it. The last run names `//lib/money` in so many words and must not,
+# because a finding that appears whatever you asked for is evidence of nothing.
+#
+# The directory a run stands in includes `lib`, which holds no build file and is
+# no package at all. Under the old rule that was an error with nothing to
+# operate on; the repository is the same repository from there.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a command with no target operates on the whole repository, from any directory in it"
+
+# The one that carries the evidence: standing in the package that is clean, and
+# reporting the one that is not.
+run {
+  args: ["lint"]
+  cwd: "lib/money"
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The same golden, deliberately: that is the equality the default states.
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# `cmd/app` is the only package with a binary, so the artifact line is what
+# says the build reached past the directory it was run from.
+run {
+  args: ["build"]
+  cwd: "lib/money"
+  exit: 0
+  golden: "build_in_money.txt"
+}
+
+# A directory that is not a package and holds no build file. There is nothing
+# there to operate on, and the answer is still the repository — the same
+# artifact, now served from the cache the run above filled.
+run {
+  args: ["build"]
+  cwd: "lib"
+  exit: 0
+  golden: "build_in_lib.txt"
+}
+
+run {
+  args: ["test"]
+  cwd: "lib/money"
+  exit: 0
+  golden: "test.txt"
+}
+
+# The negative twin: a named package is still one package. The finding above
+# appears because the scope is the repository, not because `lint` always says
+# it.
+run {
+  args: ["lint", "//lib/money"]
+  cwd: "lib/money"
+  exit: 0
+  golden: "lint_scoped.txt"
+}

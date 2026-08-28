@@ -1,1 +1,3 @@
 error: `buri run` takes exactly one binary, and this matched 2
+  = matched: //cmd/echo, //cmd/quiet
+  = fix: name one, as in `buri run //cmd/echo`

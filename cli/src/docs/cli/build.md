@@ -5,7 +5,8 @@ Compiles the targets you name. A binary produces an artifact under
 has no artifact of its own — `buri build //lib/money` means "tell me whether
 this library is correct."
 
-With no target argument it builds the package containing the working directory.
+With no target argument it builds the whole repository: bare `buri build` is
+`buri build //...`, from any directory in it.
 
 ## Caching
 

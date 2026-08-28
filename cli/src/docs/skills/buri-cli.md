@@ -33,9 +33,9 @@ so a page cannot describe a flag the binary does not accept.
 | `buri version` | toolchain version; `--verbose` adds the executable's hash |
 
 Target arguments accept labels and patterns — `//lib/money`, `//lib/...`,
-`//...`. **With no argument, a command operates on the package containing the
-working directory** — except `buri gen`, where bare is `//...`. All commands are
-safe to run concurrently; a file lock serializes cache writes.
+`//...`. **With no argument, a command operates on the whole repository** — bare
+is `//...`, whatever directory you are standing in. All commands are safe to run
+concurrently; a file lock serializes cache writes.
 
 ## Exit codes
 

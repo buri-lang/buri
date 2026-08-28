@@ -17,8 +17,8 @@ buri — the toolchain for the Buri language
   buri version                        toolchain version, and --verbose its executable's hash
 
 Target arguments accept labels and patterns: //lib/money, //lib/..., //...
-With no argument, commands operate on the package containing the working
-directory — except `buri gen`, which regenerates the whole repository.
+With no argument, commands operate on the whole repository, wherever you
+happen to be standing in it.
 
   --verbose                say more about what was skipped and why
   --color[=<when>]         ANSI escapes; also honours NO_COLOR

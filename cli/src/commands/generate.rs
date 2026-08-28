@@ -7,13 +7,10 @@
 //! and every comment come back saying exactly what they said — see
 //! `crate::build::regenerate`, which does the rewriting.
 //!
-//! With no target argument it regenerates the whole repository, where `build`,
-//! `test` and `lint` with no argument mean the package containing the working
-//! directory. This command does not answer a question about the code in front
-//! of you; it restates what the tree contains, and a tree restated one
-//! directory at a time is one where `gen --check` passes where you are
-//! standing and fails one directory over. It is the default `buri format`
-//! already has, and the two commands are meant to agree about a file.
+//! With no target argument it regenerates the whole repository, which is what
+//! every command with no target argument does. A tree restated one directory
+//! at a time would be one where `gen --check` passes where you are standing
+//! and fails one directory over.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -30,12 +27,7 @@ use crate::commands::arguments;
 /// `test.platforms`, and every comment come back saying exactly what they
 /// said.
 pub fn command_generate(args: &arguments::Args) -> i32 {
-    // `buri gen` with no argument is `buri gen //...`, rather than the working
-    // directory's package: the module note above says why.
-    let whole_repository = [String::from("//...")];
-    let requested: &[String] =
-        if args.targets.is_empty() { &whole_repository } else { &args.targets };
-    let (mut session, targets) = match session::open_and_resolve(&args.flags, requested) {
+    let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,
     };

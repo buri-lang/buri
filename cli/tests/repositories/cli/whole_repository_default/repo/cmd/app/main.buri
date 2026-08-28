@@ -2,8 +2,9 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
 // Imported and never used: an `unused-import`, which is an error and which
-// `buri lint` reports. It is here so that a lint run scoped to //lib/money has
-// something it must *not* report.
+// `buri lint` reports. It is here so that a lint run made from inside
+// //lib/money has something it must report, and a run scoped to //lib/money has
+// something it must not.
 from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {

@@ -26,6 +26,16 @@ pub fn command_run(args: &arguments::Args) -> i32 {
             "error: `buri run` takes exactly one binary, and this matched {}",
             binaries.len()
         );
+        // With no argument the match is the whole repository, so the several it
+        // found are the choice the user has to make; naming them is the fix.
+        if let Some(first) = binaries.first() {
+            let labels: Vec<String> =
+                binaries.iter().map(|&t| session.workspace.label(t)).collect();
+            eprintln!("  = matched: {}", labels.join(", "));
+            eprintln!("  = fix: name one, as in `buri run {}`", session.workspace.label(*first));
+        } else {
+            eprintln!("  = fix: name a package that declares a binary, as in `buri run //cmd/app`");
+        }
         return 2;
     };
     let outputs = actions::selected_outputs(&session, target, &args.flags);
