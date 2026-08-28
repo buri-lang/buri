@@ -30,7 +30,7 @@ adapted-from: some-guide (https://example.invalid/some-guide) guides/the-file.md
 | Key | Required | What it is |
 |---|---|---|
 | `title` | yes | The line the docs index shows. **Never printed in a diagnostic.** A declarative sentence stating the rule — "A name is declared once", not "Duplicate declaration". |
-| `severity` | no, defaults to `error` | `error` or `warning`. It must match what the emission site used to build, and for a lint it is the difference between a finding that fails a run and one that does not. |
+| `severity` | no, defaults to `error` | `error` or `warning`. It must match what the emission site used to build. Every page under `lints/` writes `warning` — the catalogue has one severity, and whether a finding fails a run is `REPO.buri`'s question rather than the page's — so on a lint page this key is the one line that is the same on all of them, and a page omitting it would silently default to the wrong one. |
 | `message` | yes | The sentence after `error: ` / `warning: `. |
 | `label` | no | The phrase printed beside the carets, under the `^^^` span. |
 | `note` | no | One `= note:` line of background — *why* the rule exists, not what to do. A call site may push further notes, and they land after this one. |

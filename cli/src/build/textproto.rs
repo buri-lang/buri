@@ -503,12 +503,12 @@ const INDENT: usize = 4;
 /// something it did not recognise would be worse than one that left it alone.
 pub fn schema_order(message: &str) -> &'static [&'static str] {
     match message {
-        // A BUILD.buri holds `library`/`binary`; a REPO.buri holds `tag`. One
-        // table here because no file has both and the formatter does not know
-        // which kind it is looking at — which is why the top level is the one
-        // place `buildfile.rs` keeps its own lists, and a test below holds the
-        // two halves to this union.
-        "" => &["library", "binary", "tag"],
+        // A BUILD.buri holds `library`/`binary`; a REPO.buri holds `tag` and
+        // `lint`. One table here because no file has both and the formatter
+        // does not know which kind it is looking at — which is why the top
+        // level is the one place `buildfile.rs` keeps its own lists, and a test
+        // below holds the two halves to this union.
+        "" => &["library", "binary", "tag", "lint"],
         "library" => &[
             "sources",
             "proto_sources",
@@ -527,6 +527,7 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "tag" => &["name", "doc", "forbids", "requires"],
         "forbids" => &["tags"],
         "requires" => &["platforms"],
+        "lint" => &["check_during_build", "fail_on_finding"],
         _ => &[],
     }
 }
@@ -840,6 +841,21 @@ mod tests {
     fn repeated_blocks_keep_the_order_they_were_written_in() {
         let out = print(&p("tag { name: \"z\" }\ntag { name: \"a\" }\n"));
         assert!(out.find("\"z\"") < out.find("\"a\""), "{out}");
+    }
+
+    /// A `REPO.buri` carrying a `lint` block gets the same treatment from the
+    /// same table: the block sorts after `tag`, its two fields come back in the
+    /// schema's order, and formatting the result again changes nothing.
+    #[test]
+    fn a_lint_block_is_ordered_like_everything_else() {
+        let src = "lint {\n  fail_on_finding: true\n  check_during_build: false\n}\n";
+        let out = print(&p(&format!("{src}tag {{ name: \"a\" }}\n")));
+        assert_eq!(
+            out,
+            "tag {\n    name: \"a\"\n}\n\n\
+             lint {\n    check_during_build: false\n    fail_on_finding: true\n}\n"
+        );
+        assert_eq!(out, print(&p(&out)));
     }
 
     /// Four, the same as the source formatter's. A build file and the code

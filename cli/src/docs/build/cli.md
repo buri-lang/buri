@@ -46,7 +46,17 @@ a check can be talked about by name. `buri docs cli lint` covers `--fix`; the
 catalogue is here, because it is the list a repository argues about rather than
 a property of the command.
 
-Build-graph rules — always errors, not configurable:
+**Every finding in it is a warning.** One catalogue, one severity, the same in
+every repository, which is why no table below carries a column saying so — a
+column whose every row reads the same word is one nobody reads twice. What
+varies is not what a finding is but what it costs. `buri lint` exits nonzero if
+it reports anything at all, because invoking the linter is itself the request to
+be told and a report that exits zero is one no script can act on. `buri build`
+and `buri test` run the catalogue only where `REPO.buri` asks them to, and fail
+on what it finds only where it asks for that as well — both are fields on the
+[`lint` block](./repo-config.md#lint), and both default to today's behavior.
+
+Build-graph rules:
 
 | | |
 |---|---|
@@ -88,21 +98,21 @@ Build-graph rules — always errors, not configurable:
 
 Style and hygiene rules:
 
-| | Severity |
+| | |
 |---|---|
-| `dead-code` | error — a module-level `export` that nothing in the library imports and `lib.buri` does not re-export, so nothing reaches it |
-| `unused-import` | error — an imported name that appears nowhere else in the module |
-| `discarded-result` | warn — a call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md) |
-| `empty-test-suite` | warn — a `test` block with no `sources` |
-| `test-without-assertion` | warn — a `test` from which nothing reachable calls `core/testing/assert` |
-| `test-title-newline` | warn — a `test` title with a line break in it, which a report has to escape |
-| `duplicate-import` | warn — one module named by two `import` statements, both naming names |
-| `unused-variable` | warn — a `let` whose name nothing below it reads |
-| `warning-comment` | warn — a comment carrying `TODO`, `FIXME` or `HACK` |
-| `too-many-parameters` | warn — more than five parameters, counting neither `self` nor `ctx` |
-| `oversized-function` | warn — a body more than forty lines from its opening brace to its closing one |
-| `deep-nesting` | warn — a branch with more than four branches wrapped around it |
-| `ctx-rebinding` | warn — a `let ctx = ...` where no context may be built, which binds the name a function's context arrives under to something else |
+| `dead-code` | A module-level `export` that nothing in the library imports and `lib.buri` does not re-export, so nothing reaches it. |
+| `unused-import` | An imported name that appears nowhere else in the module. |
+| `discarded-result` | A call to `core/result.ignore`, the greppable escape hatch of [`SPEC.md` §6.8](../SPEC.md). |
+| `empty-test-suite` | A `test` block with no `sources`. |
+| `test-without-assertion` | A `test` from which nothing reachable calls `core/testing/assert`. |
+| `test-title-newline` | A `test` title with a line break in it, which a report has to escape. |
+| `duplicate-import` | One module named by two `import` statements, both naming names. |
+| `unused-variable` | A `let` whose name nothing below it reads. |
+| `warning-comment` | A comment carrying `TODO`, `FIXME` or `HACK`. |
+| `too-many-parameters` | More than five parameters, counting neither `self` nor `ctx`. |
+| `oversized-function` | A body more than forty lines from its opening brace to its closing one. |
+| `deep-nesting` | A branch with more than four branches wrapped around it. |
+| `ctx-rebinding` | A `let ctx = ...` where no context may be built, which binds the name a function's context arrives under to something else. |
 
 Two findings belong to a `buri test` run rather than to the graph, and both are
 about the suite as a whole rather than about one test in it:
@@ -118,9 +128,9 @@ thing is worse than no rule:
 
 - `unused-import` is **syntactic**. A name counts as used if it appears as an
   identifier token anywhere outside the import statements. That
-  over-approximates use, which is the safe direction at error severity: a
-  shadowed binding with the same spelling silences the finding rather than
-  producing a wrong one.
+  over-approximates use, which is the safe direction for a rule nobody can turn
+  off: a shadowed binding with the same spelling silences the finding rather
+  than producing a wrong one.
 - `discarded-result` cannot be about `let _ = <Result>`, because that is
   already a hard type error — `result-discarded`, in the error catalog. The only
   way a `Result` is dropped on purpose is `ignore`, so that is what the rule
@@ -150,10 +160,14 @@ thing is worse than no rule:
 Import order is not a lint. `buri format` sorts imports, so an unsorted import
 run is not a finding to report — it is a file that has not been formatted.
 
-None of this is configurable, and
-[`repo-config.md`](./repo-config.md#what-is-not-here) says why: there is no
-`lint` block in `REPO.buri`, no per-file suppression comment, and no way to
-promote or silence a check for one repository.
+No check here is configurable. `REPO.buri` has a `lint` block, and everything it
+can say is about the catalogue as a whole rather than about one rule in it:
+`check_during_build` runs these checks during `buri build` and `buri test`,
+`fail_on_finding` makes what they report fail the command. Both only tighten.
+There is no per-rule severity, no allow list, no per-directory exemption and no
+per-file suppression comment, and
+[`repo-config.md`](./repo-config.md#what-is-not-here) says why a linter you can
+argue with is one whose verdict is no longer a fact about the code.
 
 ## Diagnostics
 

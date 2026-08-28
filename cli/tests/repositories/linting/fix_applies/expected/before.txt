@@ -1,4 +1,4 @@
-error: Stdout is imported but not used [unused-import]
+warning: Stdout is imported but not used [unused-import]
  --> cmd/app/main.buri:4:36
   |
 4 | from "core/effect" import { Alloc, Stdout };
@@ -6,7 +6,7 @@ error: Stdout is imported but not used [unused-import]
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
-error: cmd/app/main.buri imports //lib/money, which is not in dependencies [missing-dep]
+warning: cmd/app/main.buri imports //lib/money, which is not in dependencies [missing-dep]
  --> cmd/app/main.buri:7:6
   |
 7 | from "//lib/money" import { fromCents };

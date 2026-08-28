@@ -1,5 +1,6 @@
 ---
 title: Every source file belongs to a library or a binary
+severity: warning
 message: "{package_path}/{source} belongs to no library or binary, so nothing builds it"
 fix: add it to the library's or the binary's `{field}`, or delete it — `buri gen //{package_path}` does this automatically
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/unused-file.md, © 2026 Ivett Ördög, used under the MIT license

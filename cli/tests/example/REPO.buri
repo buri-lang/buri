@@ -4,9 +4,11 @@
 #
 # Schema: buri.build.v1.RepoConfig — ../schema/repo.proto
 #
-# One thing: the tag vocabulary. There is no name, no defaults block, no lint
-# block, no toolchain pin, and no place to put a compiler flag — see
-# REPO-CONFIG.md for why each of those is absent.
+# Two things: the tag vocabulary, and a `lint` block saying how hard the lint
+# catalogue is run here — omitted below, so this repository gets the default,
+# which is `buri lint` and nothing else. There is no name, no defaults block, no
+# toolchain pin, and no place to put a compiler flag — see REPO-CONFIG.md for
+# why each of those is absent.
 # The whole tag vocabulary, and the whole of build policy. A build file says
 # what its code *is*; these blocks say what follows from that. Adding a library
 # that reuses one of these tags never edits this file.

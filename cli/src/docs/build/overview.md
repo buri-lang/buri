@@ -13,7 +13,7 @@ an incremental cache keyed on content rather than on timestamps.
 | [`libraries.md`](./libraries.md) | `lib.buri` as the only public surface, re-exports, import resolution |
 | [`tags.md`](./tags.md) | Build outputs, tags and the policy attached to them, platform restrictions |
 | [`testing.md`](./testing.md) | The `test` declaration, the test platform, what a test can reach |
-| [`repo-config.md`](./repo-config.md) | `REPO.buri`: the tag vocabulary, and what a repository-wide file deliberately does not hold |
+| [`repo-config.md`](./repo-config.md) | `REPO.buri`: the tag vocabulary, the lint policy, and what a repository-wide file deliberately does not hold |
 | [`cli.md`](./cli.md) | `buri build`, `test`, `run`, `format`, `lint`, `gen`, `query` |
 | [`hermeticity.md`](./hermeticity.md) | Sandboxing, action graph, cache keys, incrementality |
 | [`schema/build.proto`](../schema/build.proto) | The normative schema for `BUILD.buri` |
@@ -23,7 +23,7 @@ an incremental cache keyed on content rather than on timestamps.
 ## The shape of a repository
 
 ```
-REPO.buri                     # repository root, tag vocabulary
+REPO.buri                     # repository root, tag vocabulary, lint policy
 lib/
   money/
     BUILD.buri                # declares //lib/money

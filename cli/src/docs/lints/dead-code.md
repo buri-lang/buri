@@ -1,5 +1,6 @@
 ---
 title: Every declaration is reached from a `lib.buri` or a `main.buri`
+severity: warning
 message: nothing reaches `{name}`
 note: production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
 fix: delete it, or re-export it from {library_file} to put it on the library's surface

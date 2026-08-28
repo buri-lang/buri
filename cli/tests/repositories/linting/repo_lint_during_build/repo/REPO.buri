@@ -1,0 +1,6 @@
+# `check_during_build` on its own: the catalogue runs during `buri build` and
+# `buri test` as well as during `buri lint`. It does not change what a finding
+# is, so nothing here fails.
+lint {
+    check_during_build: true
+}

@@ -272,7 +272,7 @@ Three consequences worth stating outright:
   cannot see inside it.
 
 - **A method on an unexported type is unreachable**, which is the intended
-  behavior and is also a lint (`dead-code`, on by default).
+  behavior and is also a lint (`dead-code`, which every repository runs).
 
 One layout consequence, which surprises people once and then never again: a
 type's methods must be declared in the module that declares the type, so `Cents`

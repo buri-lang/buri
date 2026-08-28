@@ -11,6 +11,20 @@ implementations are bound in `main`.
 Exit status is `0` when every test passed and `1` when any did not — so `buri
 test` is usable directly as a gate.
 
+## Lint findings
+
+A test run reports the lint catalogue as well where `REPO.buri` asks it to.
+`lint { check_during_build: true }` runs the checks `buri lint` runs over the
+targets being tested and reports them alongside the verdicts; adding
+`fail_on_finding: true` makes a finding an error, and the run fails on one the
+way it fails on a failing test. Both default to false, and a repository that
+writes neither gets exactly the run described above.
+
+`buri test` is worth opting in on for the same reason `buri build` is, and a
+little more so: it is run more often than anything else, and a test suite is
+where a helper quietly grows past `oversized-function` first. The fields are
+documented in [`repo-config.md`](../build/repo-config.md#lint).
+
 ## Where a suite runs
 
 Natively, on the host, in the development profile. A suite that says otherwise in

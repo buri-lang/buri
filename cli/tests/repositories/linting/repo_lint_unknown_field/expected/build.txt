@@ -1,0 +1,7 @@
+error: unknown field `fail_on_findings` in a `lint` block [unknown-field]
+ --> REPO.buri:3:5
+  |
+3 |     fail_on_findings: true
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = fix: did you mean `fail_on_finding`?

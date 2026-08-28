@@ -50,8 +50,17 @@ dependent does, so it can only assert on what a dependent can call. Run it with
 `buri test //...`.
 
 The `REPO.buri` declares no tags. A repository with no build policy has nothing
-to say there, and the file is four comment lines telling the next reader where
-a `tag` block goes.
+to say there, and what stands in their place is a comment telling the next
+reader where a `tag` block goes.
+
+What it does declare is a `lint` block with both of its fields on, so `buri
+build` and `buri test` run the lint catalogue from the first commit and a
+finding fails them. Neither is the default, and a fresh repository is exactly
+where the strictest setting is free: there is no accumulated finding to clean up
+before adopting it, and every one raised from here on is raised on code somebody
+is still writing. Deleting the block is one edit; discovering that it could have
+been there is a year of findings nobody was shown
+([`repo-config.md`](../build/repo-config.md#lint)).
 
 ## It never writes over your work
 

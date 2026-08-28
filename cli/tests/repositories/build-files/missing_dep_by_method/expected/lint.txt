@@ -1,4 +1,4 @@
-error: //cmd/app uses //lib/money, which is not in dependencies [missing-dep]
+warning: //cmd/app uses //lib/money, which is not in dependencies [missing-dep]
  --> cmd/app/BUILD.buri:1:1
   |
 1 | binary {

@@ -176,8 +176,15 @@ whole check again from the files on disk. Build-file findings (`missing-dep`,
 `unused-import` is applied as bytes. `--fix` edits and does **not** reformat.
 Where two edits in one file overlap, none of that file's are applied.
 
-None of it is configurable: one catalogue, one severity per check, the same in
-every repository. There is no per-file suppression comment.
+Exits 1 if it reported anything at all: every finding is a warning, and severity
+does not gate the exit code, because running the linter is already the request
+to be told.
+
+None of it is configurable: one catalogue, one severity — warning — the same in
+every repository. There is no per-file suppression comment and no allow list.
+`REPO.buri`'s `lint` block can only tighten: `check_during_build` runs the
+catalogue during `buri build` and `buri test` too, `fail_on_finding` makes a
+finding fail whichever command reported it. Both default to false.
 
 ### `format`
 

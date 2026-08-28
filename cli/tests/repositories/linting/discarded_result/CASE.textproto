@@ -1,17 +1,17 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a call to core/result.ignore: discarded-result, a warning that leaves the exit code at 0"
+doc: "a call to core/result.ignore: discarded-result, a warning like every finding, and a report that has one exits nonzero"
 
 run {
   args: ["lint", "//cmd/app"]
-  exit: 0
+  exit: 1
   golden: "lint.txt"
 }
 
 run {
   args: ["lint", "//cmd/app", "--error-format=json"]
-  exit: 0
+  exit: 1
   golden: "lint.json"
 }
 

@@ -70,9 +70,13 @@ fn proto_schemas() {
 /// code rather than about the graph. Each case ends with the edit that makes
 /// the finding go away, because a rule nothing can turn off is a rule nobody
 /// can check the fix for.
+///
+/// The `repo_lint_*` cases are the other half: what `REPO.buri`'s `lint` block
+/// does to the same finding — when the catalogue runs, how hard a finding
+/// lands, and what a misspelled field in the block costs.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 14);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 19);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the

@@ -1,4 +1,4 @@
-error: render.buri is listed by two rules [duplicate-source]
+warning: render.buri is listed by two rules [duplicate-source]
  --> tools/report/BUILD.buri:9:15
   |
 9 |     sources: ["render.buri"]

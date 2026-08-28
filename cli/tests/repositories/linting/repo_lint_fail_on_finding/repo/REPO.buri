@@ -1,0 +1,6 @@
+# Both fields: the catalogue runs during every command, and a finding is an
+# error wherever it is reported.
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}

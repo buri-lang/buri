@@ -1,0 +1,47 @@
+# The `lint` block's field set is closed, and a misspelling in it is refused
+# before any command does its work — `build`, `test` and `lint` all stop at the
+# same diagnostic with the same exit code, because a repository whose policy
+# file does not parse has no policy to run under. The code is clean here: the
+# only thing that can be wrong in this case is the block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an unknown field in REPO.buri's lint block: unknown-field, with the near miss, and every command refuses to start"
+
+run {
+  args: ["build", "//lib/money", "--verbose"]
+  exit: 2
+  golden: "build.txt"
+}
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 2
+  golden: "test.txt"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 2
+  golden: "lint.txt"
+}
+
+# Taking the suggestion.
+edit {
+  file: "REPO.buri"
+  replace: "fail_on_findings: true"
+  with: "fail_on_finding: true"
+}
+
+run {
+  args: ["build", "//...", "--verbose"]
+  exit: 0
+  golden: "clean_build.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean_lint.txt"
+}

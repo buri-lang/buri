@@ -2,3 +2,13 @@
 #
 # No tags yet: this repository declares no build policy. Add a `tag` block here
 # before any BUILD.buri names one.
+#
+# The lint catalogue runs during `buri build` and `buri test`, and a finding
+# fails them. Neither is the default. Both are written here because a repository
+# with nothing in it yet is the one place the strictest setting is free: there is
+# no accumulated finding to clean up first. Deleting a line is easier than
+# discovering it exists.
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}
