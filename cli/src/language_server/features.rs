@@ -1,11 +1,11 @@
 //! The requests that answer a question about a name.
 //!
-//! All five are reads of what the compiler already computed. `typed::Expr`
+//! Every one is a read of what the compiler already computed. `typed::Expr`
 //! carries its own type and span, `Tables` carries every declaration's span,
-//! and `ModuleScope` carries what a module exports — so hover, go-to-definition,
-//! references and completion need no index of their own. That is the whole
-//! reason this file is short: the answers were already in the analysis, waiting
-//! to be asked for.
+//! and `ModuleScope` carries what a module exports — so hover, definition, type
+//! definition, references, highlights, a workspace query and completion need no
+//! index of their own. That is the whole reason this file is short: the answers
+//! were already in the analysis, waiting to be asked for.
 
 use crate::compiler::semantics::types;
 use crate::compiler::standard_library;
@@ -208,37 +208,167 @@ fn location(analyzed: &Analyzed, span: crate::diagnostics::Span) -> Option<Value
     ]))
 }
 
-/// The outline. Built from the AST alone, so it still works in a file that does
-/// not typecheck — which is when an outline is worth most.
+/// The same symbol, wherever else this one file names it.
 ///
-/// One parameter, not two. It took `text` and `source` separately, and the
-/// ranges it returns are byte offsets into the AST parsed out of `source`
-/// resolved against `text` — so the two had to be the same string for any
-/// answer to be right, and nothing said so. The one caller passed the same
-/// string twice.
-pub fn document_symbols(text: &str) -> Value {
-    let parsed = crate::parsing::parser::parse(text, crate::diagnostics::FileId(0));
+/// The references scan narrowed to the buffer — which is why this analyses the
+/// target owning the file rather than the repository: a highlight the editor
+/// paints is a highlight in the file you are looking at, and every one of them
+/// is inside a closure that target already compiles.
+///
+/// Every occurrence is reported as `Text`. The protocol distinguishes a read
+/// from a write, and Buri has no assignment: a name is bound once and read
+/// afterwards, so the distinction has nothing to mark.
+pub fn document_highlight(
+    analyzed: &Analyzed,
+    path: &Path,
+    text: &str,
+    position: Position,
+) -> Option<Value> {
+    let offset = convert::offset_of(text, position);
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let found = symbols::at(analyzed, path, text, offset)?;
+    let mut spans = symbols::references(analyzed, &found.symbol);
+    // The name rather than the whole declaration: a highlight is painted on
+    // the identifier, and a field's declaration span is `export price: I64`.
+    spans.push(symbols::declaration_name(analyzed, &found.symbol));
+    spans.retain(|span| !span.is_none() && span.file == file);
+    spans.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
+    spans.dedup_by(|a, b| a.start == b.start && a.end == b.end);
+    Some(Value::Array(
+        spans
+            .iter()
+            .map(|span| {
+                Value::object(vec![
+                    ("range", convert::range(text, *span)),
+                    // 1 = Text.
+                    ("kind", Value::number(1)),
+                ])
+            })
+            .collect(),
+    ))
+}
+
+/// Where the *type* of the thing under the cursor was declared.
+///
+/// A step sideways from definition rather than a different search: the cursor
+/// names a local, a field or a call, and the answer is where that value's type
+/// constructor was written. A primitive's is in the standard library and has no
+/// file, so it answers with nothing.
+pub fn type_definition(
+    analyzed: &Analyzed,
+    path: &Path,
+    text: &str,
+    position: Position,
+) -> Option<Value> {
+    let offset = convert::offset_of(text, position);
+    let found = symbols::at(analyzed, path, text, offset)?;
+    let con = symbols::type_of(analyzed, &found.symbol)?;
+    location(analyzed, analyzed.analysis.checked.tables.tycon(con).span)
+}
+
+/// Every declaration in the repository whose name contains `query`.
+///
+/// Read from the syntax of every module that has a file, for the reason the
+/// outline is: a query answered from the tables would drop a `test`, and a
+/// module that failed to check would vanish from a search that is most useful
+/// when something is broken.
+pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
+    let wanted = query.to_lowercase();
     let mut out = Vec::new();
-    for item in &parsed.module.items {
-        // 12 function, 23 struct, 10 enum, 5 class (trait), 14 constant,
-        // 26 type parameter (alias) — the protocol's SymbolKind numbers.
-        let (name, kind) = match item {
-            Item::Fn(d) => (d.name, 12),
-            Item::Struct(d) => (d.name, 23),
-            Item::Enum(d) => (d.name, 10),
-            Item::Trait(d) => (d.name, 5),
-            Item::Let(d) => (d.name, 14),
-            Item::TypeAlias(d) => (d.name, 26),
-            _ => continue,
-        };
-        out.push(Value::object(vec![
-            ("name", Value::str(parsed.module.tree.name(name))),
-            ("kind", Value::number(kind)),
-            ("range", convert::range(text, item.span())),
-            ("selectionRange", convert::range(text, name.span)),
-        ]));
+    for module in &analyzed.analysis.loaded.modules {
+        let file = analyzed.session.map.get(module.file);
+        // The standard library is compiled into the binary. It has declarations
+        // and no file, and a search result you cannot open is not one.
+        if file.abs_path.as_os_str().is_empty() {
+            continue;
+        }
+        let uri = convert::uri_of(&file.abs_path);
+        let tree = &module.ast.tree;
+        for item in &module.ast.items {
+            let (name, kind) = match item {
+                Item::Fn(d) => (tree.name(d.name).to_string(), 12),
+                Item::Struct(d) => (tree.name(d.name).to_string(), 23),
+                Item::Enum(d) => (tree.name(d.name).to_string(), 10),
+                Item::Trait(d) => {
+                    // A trait method is a declaration of its own — the `impl`
+                    // that supplies it is a second one — so both are findable.
+                    let container = tree.name(d.name).to_string();
+                    for m in &d.methods {
+                        let name = tree.name(m.name).to_string();
+                        if matches(&name, &wanted) {
+                            out.push(found(&name, 6, &uri, &file.text, m.name.span, &container));
+                        }
+                    }
+                    (container, 5)
+                }
+                Item::Let(d) => (tree.name(d.name).to_string(), 14),
+                Item::TypeAlias(d) => (tree.name(d.name).to_string(), 26),
+                Item::Context(d) => (tree.name(d.name).to_string(), 23),
+                Item::Test(d) => (d.name.clone(), 12),
+                Item::Impl(d) => {
+                    // An `impl` is not itself a searchable name, but the
+                    // methods it supplies are — and they are declared nowhere
+                    // else.
+                    let container = crate::formatting::type_text(tree, d.self_ty);
+                    for m in &d.methods {
+                        let name = tree.name(m.name).to_string();
+                        if matches(&name, &wanted) {
+                            out.push(found(&name, 6, &uri, &file.text, m.name.span, &container));
+                        }
+                    }
+                    continue;
+                }
+                Item::Import(_) | Item::ReExport(_) | Item::Derive(_) => continue,
+            };
+            if matches(&name, &wanted) {
+                let span = declared_name_span(item);
+                out.push(found(&name, kind, &uri, &file.text, span, &module.path));
+            }
+        }
     }
     Value::Array(out)
+}
+
+fn matches(name: &str, wanted: &str) -> bool {
+    wanted.is_empty() || name.to_lowercase().contains(wanted)
+}
+
+/// The span of the name a top-level item declares. `Item::span` is the whole
+/// declaration; a search result should land the cursor on the name.
+fn declared_name_span(item: &Item) -> crate::diagnostics::Span {
+    match item {
+        Item::Fn(d) => d.name.span,
+        Item::Struct(d) => d.name.span,
+        Item::Enum(d) => d.name.span,
+        Item::Trait(d) => d.name.span,
+        Item::Let(d) => d.name.span,
+        Item::TypeAlias(d) => d.name.span,
+        Item::Context(d) => d.name.span,
+        Item::Test(d) => d.name_span,
+        _ => item.span(),
+    }
+}
+
+fn found(
+    name: &str,
+    kind: i64,
+    uri: &str,
+    text: &str,
+    span: crate::diagnostics::Span,
+    container: &str,
+) -> Value {
+    Value::object(vec![
+        ("name", Value::str(name)),
+        ("kind", Value::number(kind)),
+        ("containerName", Value::str(container)),
+        (
+            "location",
+            Value::object(vec![
+                ("uri", Value::str(uri)),
+                ("range", convert::range(text, span)),
+            ]),
+        ),
+    ])
 }
 
 /// Completion, for the two places that need no type information and are the

@@ -1,0 +1,19 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The outline, nested: the enum holds its variants and a variant its record
+# fields, the struct holds its fields, the trait and the `impl` their methods.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# A test source: a test is named by a sentence and is listed under it.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/test/app.buri"}}}
+# What an editor may collapse. The imports are one region rather than one per
+# line, and a fold ends on the last line of the body so the `}` stays visible.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/foldingRange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/foldingRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# Expand-selection: the word, the expression around it, the declaration, the
+# file.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "positions": [{"line": 36, "character": 10}]}}
+# Two positions in one request, answered in the order they were asked.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "positions": [{"line": 11, "character": 8}, {"line": 22, "character": 8}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

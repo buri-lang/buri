@@ -22,8 +22,11 @@
 mod build_files;
 mod convert;
 mod features;
+mod rename;
+mod signature_help;
 mod state;
 mod symbols;
+mod syntax;
 
 use convert::Position;
 use crate::build::regenerate;
@@ -180,6 +183,10 @@ const NOT_INITIALIZED: i64 = -32002;
 /// `InvalidRequest`.
 const INVALID_REQUEST: i64 = -32600;
 
+/// `RequestFailed` — the protocol's code for a request the server understood
+/// and will not serve, which is what a refused rename is.
+const REQUEST_FAILED: i64 = -32803;
+
 fn notification(method: &str, params: Value) -> Value {
     Value::object(vec![
         ("jsonrpc", Value::str("2.0")),
@@ -287,11 +294,37 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
+        // The three that read a parse and nothing else. No workspace, no
+        // standard library, no analysis: they are questions about shape.
         ("textDocument/documentSymbol", Some(id)) => {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                Some(features::document_symbols(&text))
+                Some(syntax::document_symbols(&text))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        ("textDocument/foldingRange", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                Some(syntax::folding_ranges(&text))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        ("textDocument/selectionRange", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                let positions: Vec<Position> = params
+                    .get("positions")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(Position::from_json)
+                    .collect();
+                Some(syntax::selection_ranges(&text, &positions))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -303,8 +336,62 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
-        ("textDocument/definition", Some(id)) => {
+        // `declaration` and `definition` are one request here. The protocol
+        // separates them for languages that declare a thing in one file and
+        // define it in another; Buri has one place, so answering differently
+        // would mean inventing a difference.
+        ("textDocument/definition" | "textDocument/declaration", Some(id)) => {
             vec![response(&id, definition(state, &params).unwrap_or(Value::Null))]
+        }
+
+        ("textDocument/typeDefinition", Some(id)) => {
+            let result = with_analysis(state, &params, features::type_definition);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        ("textDocument/documentHighlight", Some(id)) => {
+            let result = with_analysis(state, &params, features::document_highlight);
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        ("textDocument/signatureHelp", Some(id)) => {
+            let result = with_analysis(state, &params, signature_help::help);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        ("textDocument/prepareRename", Some(id)) => {
+            let result = with_analysis(state, &params, rename::prepare);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        ("textDocument/rename", Some(id)) => {
+            // The whole repository, for the reason references analyses it: a
+            // rename that missed the file importing the name would leave the
+            // repository not building.
+            let prepared = (|| {
+                let path = uri_param(&params)?;
+                let position = Position::from_json(params.get("position")?)?;
+                let new_name = params.get("newName")?.as_str()?.to_string();
+                let text = state.text_of(&path)?;
+                let analyzed = state.analyze_workspace()?;
+                Some(rename::edits(&analyzed, &path, &text, position, &new_name))
+            })();
+            match prepared {
+                Some(Ok(edit)) => vec![response(&id, edit)],
+                // A refusal is an error rather than an empty edit: a rename
+                // that silently changed nothing looks like the server hung.
+                Some(Err(why)) => vec![error(&id, REQUEST_FAILED, why.message())],
+                None => vec![response(&id, Value::Null)],
+            }
+        }
+
+        ("workspace/symbol", Some(id)) => {
+            let result = (|| {
+                let query = params.get("query").and_then(|q| q.as_str()).unwrap_or("");
+                let analyzed = state.analyze_workspace()?;
+                Some(features::workspace_symbols(&analyzed, query))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
         ("textDocument/references", Some(id)) => {
@@ -355,10 +442,30 @@ fn capabilities() -> Value {
                 ("textDocumentSync", Value::number(1)),
                 ("hoverProvider", Value::Bool(true)),
                 ("definitionProvider", Value::Bool(true)),
+                // The same answer under the protocol's other name for it.
+                ("declarationProvider", Value::Bool(true)),
+                ("typeDefinitionProvider", Value::Bool(true)),
                 ("referencesProvider", Value::Bool(true)),
+                ("documentHighlightProvider", Value::Bool(true)),
                 ("documentSymbolProvider", Value::Bool(true)),
+                ("workspaceSymbolProvider", Value::Bool(true)),
                 ("documentFormattingProvider", Value::Bool(true)),
+                ("foldingRangeProvider", Value::Bool(true)),
+                ("selectionRangeProvider", Value::Bool(true)),
                 ("codeActionProvider", Value::Bool(true)),
+                // `prepareProvider` is what lets an editor ask whether a rename
+                // is possible before it prompts for a new name.
+                (
+                    "renameProvider",
+                    Value::object(vec![("prepareProvider", Value::Bool(true))]),
+                ),
+                (
+                    "signatureHelpProvider",
+                    Value::object(vec![(
+                        "triggerCharacters",
+                        Value::Array(vec![Value::str("("), Value::str(",")]),
+                    )]),
+                ),
                 (
                     "completionProvider",
                     Value::object(vec![(
@@ -698,7 +805,7 @@ mod tests {
     #[test]
     fn an_unknown_request_is_answered_and_an_unknown_notification_is_not() {
         let mut state = initialized();
-        let req = json::parse(r#"{"id":7,"method":"textDocument/rename"}"#).unwrap();
+        let req = json::parse(r#"{"id":7,"method":"textDocument/inlayHint"}"#).unwrap();
         let out = handle(&mut state, &req);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].get("id").and_then(|v| v.as_u32()), Some(7));

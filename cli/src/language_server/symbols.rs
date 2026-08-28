@@ -8,6 +8,11 @@
 //! Everything read here was already computed: the flat tree holds every type
 //! and pattern the source wrote, `Tables` holds every declaration's span, and a
 //! checked body holds every resolved use, so there is still no index of our own.
+//!
+//! Everything else that needs to know what a name refers to reads the same
+//! three answers: highlights and rename take the reference scan, type
+//! definition takes the symbol's type, and signature help takes its signature.
+//! One resolver means no two requests can disagree about what the cursor is on.
 
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::resolve::Sym;
@@ -88,6 +93,98 @@ pub fn declaration(analyzed: &Analyzed, symbol: &Symbol) -> Span {
             None => Span::NONE,
         },
         Symbol::Local { span, .. } => *span,
+    }
+}
+
+/// The span of the *name* a declaration writes, rather than of the whole
+/// declaration.
+///
+/// For most kinds the two are one thing: a table entry's span is the name it
+/// declares. Three are not — a field's span is `export price: I64`, a variant's
+/// is `OnHand { count: I64 }` and a trait method's is its whole signature — and
+/// an edit that replaced any of those with a name would not leave a file that
+/// parses. So those three go back to the syntax, where the name is its own
+/// node.
+///
+/// [`declaration`] is deliberately left as it is: pointing an editor at a whole
+/// field declaration is what you want to *read*, and narrowing to the name is
+/// what you need to *write*.
+pub fn declaration_name(analyzed: &Analyzed, symbol: &Symbol) -> Span {
+    let tables = &analyzed.analysis.checked.tables;
+    let narrowed = match symbol {
+        Symbol::Field { con, variant, index } => {
+            field_syntax(analyzed, *con, *variant, *index).map(|(_, f)| f.name.span)
+        }
+        Symbol::Variant { con, index } => {
+            let info = tables.tycon(*con);
+            match declaration_syntax(analyzed, info.module, info.span) {
+                Some((_, Item::Enum(d))) => d.variants.get(*index).map(|v| v.name.span),
+                _ => None,
+            }
+        }
+        Symbol::TraitMethod { trait_id, method } => {
+            let info = tables.trait_(*trait_id);
+            match declaration_syntax(analyzed, info.module, info.span) {
+                Some((_, Item::Trait(d))) => d.methods.get(*method).map(|m| m.name.span),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    narrowed.unwrap_or_else(|| declaration(analyzed, symbol))
+}
+
+/// The name the source spells for a symbol, where it has one.
+///
+/// A module has none: it is named by a path, and what a path names is a file.
+/// That is why rename refuses one — and why this returns an `Option` rather
+/// than an empty string, which would silently match nothing.
+pub fn name(analyzed: &Analyzed, symbol: &Symbol) -> Option<String> {
+    let tables = &analyzed.analysis.checked.tables;
+    match symbol {
+        Symbol::Function(id) => Some(tables.fn_info(*id).name.clone()),
+        Symbol::Type(id) => Some(tables.tycon(*id).name.clone()),
+        Symbol::Trait(id) => Some(tables.trait_(*id).name.clone()),
+        Symbol::TraitMethod { trait_id, method } => {
+            tables.trait_(*trait_id).methods.get(*method).map(|m| m.name.clone())
+        }
+        Symbol::Const(id) => Some(tables.const_(*id).name.clone()),
+        Symbol::Context(id) => tables.ctx_decls.get(id.index()).map(|c| c.name.clone()),
+        Symbol::Field { con, variant, index } => {
+            field_info(tables, *con, *variant, *index).map(|f| f.name.clone())
+        }
+        Symbol::Variant { con, index } => {
+            tables.tycon(*con).variants().get(*index).map(|v| v.name.clone())
+        }
+        Symbol::Module(_) => None,
+        Symbol::Local { name, .. } => Some(name.clone()),
+    }
+}
+
+/// The type constructor a symbol's value has, for `textDocument/typeDefinition`.
+///
+/// "The type of this" is a different question from "where is this", and for
+/// most kinds the answer is a step sideways: a local's type, a field's type, a
+/// call's return type. For a type itself it is the type — asking a struct name
+/// for its type definition and being sent nowhere would be a worse answer than
+/// being sent to itself.
+pub fn type_of(analyzed: &Analyzed, symbol: &Symbol) -> Option<TyConId> {
+    let tables = &analyzed.analysis.checked.tables;
+    match symbol {
+        Symbol::Type(id) => Some(*id),
+        Symbol::Variant { con, .. } => Some(*con),
+        Symbol::Local { ty, .. } => ty.head(),
+        Symbol::Const(id) => tables.const_(*id).ty.head(),
+        Symbol::Field { con, variant, index } => {
+            field_info(tables, *con, *variant, *index)?.ty.head()
+        }
+        Symbol::Function(id) => tables.fn_info(*id).ret.head(),
+        Symbol::TraitMethod { trait_id, method } => {
+            tables.trait_(*trait_id).methods.get(*method)?.ret.head()
+        }
+        // A trait is not a type, a context is a value of no nameable type, and
+        // a module is neither.
+        Symbol::Trait(_) | Symbol::Context(_) | Symbol::Module(_) => None,
     }
 }
 
@@ -226,6 +323,99 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             Vec::new(),
         ),
     }
+}
+
+/// A callable's signature, with the extent of each parameter inside the label.
+///
+/// The protocol lets a parameter be named by a substring of the label or by a
+/// pair of offsets into it. Offsets, because a substring match would pick the
+/// wrong `x` in `fn f(x: X, y: x)` and there would be no way to tell.
+pub struct Signature {
+    pub label: String,
+    /// UTF-16 offsets into `label`, one per parameter a call site writes —
+    /// `self` is the receiver rather than an argument, so it is not one.
+    pub parameters: Vec<(u32, u32)>,
+    pub docs: Vec<String>,
+}
+
+/// The signature of a callable symbol, for `textDocument/signatureHelp`.
+///
+/// Read from the syntax where there is any, so that what the editor shows above
+/// the cursor is the line the declaration actually wrote; from the tables
+/// otherwise, which is the primitives' methods and nothing else.
+pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
+    let tables = &analyzed.analysis.checked.tables;
+    if let Some((tree, declared)) = callable_syntax(analyzed, symbol) {
+        let mut label = format!(
+            "fn {}{}(",
+            tree.name(declared.name),
+            formatting::generics(tree, &declared.generics)
+        );
+        let mut parameters = Vec::new();
+        for p in declared.params.iter().filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam)) {
+            if !parameters.is_empty() {
+                label.push_str(", ");
+            }
+            let start = utf16_len(&label);
+            match p.written_type() {
+                Some(ty) => label.push_str(&format!(
+                    "{}: {}",
+                    tree.name(p.name),
+                    formatting::type_text(tree, ty)
+                )),
+                None => label.push_str(tree.name(p.name)),
+            }
+            parameters.push((start, utf16_len(&label)));
+        }
+        label.push_str(&format!("): {}", formatting::type_text(tree, declared.ret)));
+        return Some(Signature { label, parameters, docs: declared.docs.clone() });
+    }
+
+    let (generics, params, ret, written) = match symbol {
+        Symbol::Function(id) => {
+            let info = tables.fn_info(*id);
+            (&info.generics, &info.params, &info.ret, info.name.clone())
+        }
+        Symbol::TraitMethod { trait_id, method } => {
+            let m = tables.trait_(*trait_id).methods.get(*method)?;
+            (&m.generics, &m.params, &m.ret, m.name.clone())
+        }
+        _ => return None,
+    };
+    let mut label = format!("fn {written}(");
+    let mut parameters = Vec::new();
+    for p in params.iter().filter(|p| p.role != types::ParamRole::SelfParam) {
+        if !parameters.is_empty() {
+            label.push_str(", ");
+        }
+        let start = utf16_len(&label);
+        label.push_str(&format!("{}: {}", p.name, types::show(tables, None, generics, &p.ty)));
+        parameters.push((start, utf16_len(&label)));
+    }
+    label.push_str(&format!("): {}", types::show(tables, None, generics, ret)));
+    Some(Signature { label, parameters, docs: Vec::new() })
+}
+
+/// The declaration of a callable symbol, whichever of the two kinds it is.
+fn callable_syntax<'a>(
+    analyzed: &'a Analyzed,
+    symbol: &Symbol,
+) -> Option<(&'a flat::Tree, &'a tree::FnDecl)> {
+    match symbol {
+        Symbol::Function(id) => function_syntax(analyzed, *id),
+        Symbol::TraitMethod { trait_id, method } => {
+            let info = analyzed.analysis.checked.tables.trait_(*trait_id);
+            match declaration_syntax(analyzed, info.module, info.span) {
+                Some((t, Item::Trait(d))) => d.methods.get(*method).map(|m| (t, m)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn utf16_len(text: &str) -> u32 {
+    text.chars().map(|c| c.len_utf16() as u32).sum()
 }
 
 /// Every place the compilation writes `symbol` down.

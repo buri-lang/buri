@@ -1,0 +1,1 @@
+from "//lib/shop/testing/fixtures" export { sampleItem };

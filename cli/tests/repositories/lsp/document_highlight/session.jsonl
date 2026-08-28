@@ -1,0 +1,17 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A type used four times in this file. The declaration is in `catalog.buri`
+# and so is not in the answer: a highlight is painted on the file you are in.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 28}}}
+# A local, from its binding.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 8}}}
+# A function from a call: the import clause names it too.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 22}}}
+# The same function asked from its declaration, in the file that declares it —
+# where nothing else names it.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 12}}}
+# A doc comment names nothing, and nothing is an empty list.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 2, "character": 4}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

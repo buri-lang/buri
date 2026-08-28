@@ -1,0 +1,13 @@
+binary {
+    dependencies: ["//lib/shop"]
+    tags: ["server"]
+    outputs: [
+        { platform: JS },
+    ]
+
+    test {
+        sources: ["test/app.buri"]
+        dependencies: ["//lib/shop/testing"]
+        data: ["test/rates.csv"]
+    }
+}

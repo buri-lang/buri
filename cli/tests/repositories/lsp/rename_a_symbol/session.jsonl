@@ -1,0 +1,29 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The declaration. Prepare answers the range the editor should offer to edit,
+# and the name to put in the box.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 12}}}
+# The rename itself: the declaration, both import clauses, the re-export, and
+# every call — across two packages. `//cmd/app` imports it under an alias, so
+# there the clause is rewritten and the alias and its uses are left alone.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 12}, "newName": "catalogue"}}
+# A standard-library method. There is no file to edit, so prepare says no and
+# rename says why.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 9}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 9}, "newName": "collapse"}}
+# An import path names a module, and a module is renamed by moving its file.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 10}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 10}, "newName": "inventory"}}
+# A keyword is not a name the compiler would accept, so it is not one a rename
+# will write.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 35, "character": 12}, "newName": "match"}}
+# A local: bound in one body, so edited in one body, and the `plain` bound in
+# `//cmd/app/main.buri` is untouched.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 8}}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 8}, "newName": "cheapest"}}
+# A field. The parameter written beside it in `listing` is a different name and
+# keeps its spelling.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 15, "character": 10}, "newName": "amount"}}
+{"jsonrpc": "2.0", "id": 12, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

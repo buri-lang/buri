@@ -1,0 +1,18 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A function in one package, a testing-surface function in another, and the
+# sentence a test is named by.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/symbol", "params": {"query": "sample"}}
+# Case-insensitive, and substring rather than prefix.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/symbol", "params": {"query": "item"}}
+# A trait method and the `impl` method that supplies it are separate
+# declarations, and both are findable.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/symbol", "params": {"query": "cents"}}
+# The empty query is every declaration the repository has a file for. The
+# standard library is compiled into the binary and is not in it.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/symbol", "params": {"query": ""}}
+# A query nothing matches is an empty list rather than an error.
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/symbol", "params": {"query": "zzz"}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
