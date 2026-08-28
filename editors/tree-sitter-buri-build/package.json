@@ -1,0 +1,13 @@
+{
+  "name": "tree-sitter-buri-build",
+  "version": "0.3.0",
+  "description": "Buri build-file grammar for tree-sitter",
+  "main": "bindings/node",
+  "tree-sitter": [
+    {
+      "scope": "source.buri-build",
+      "file-types": ["BUILD.buri", "REPO.buri"],
+      "injection-regex": "^buri-build$"
+    }
+  ]
+}

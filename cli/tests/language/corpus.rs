@@ -369,6 +369,14 @@ fn the_editor_integration_is_whole() {
         "editors/zed/languages/buri/highlights.scm",
         "editors/zed/languages/buri/indents.scm",
         "editors/zed/languages/buri/outline.scm",
+        // The second grammar and the second language: a BUILD.buri ends in
+        // `.buri` and is textproto rather than Buri.
+        "editors/tree-sitter-buri-build/grammar.js",
+        "editors/tree-sitter-buri-build/check.sh",
+        "editors/zed/languages/buri-build/config.toml",
+        "editors/zed/languages/buri-build/highlights.scm",
+        "editors/zed/languages/buri-build/indents.scm",
+        "editors/zed/languages/buri-build/outline.scm",
     ] {
         assert!(repo_root().join(rel).is_file(), "{rel} is missing");
     }

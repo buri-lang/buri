@@ -1,0 +1,21 @@
+{
+  "grammars": [
+    {
+      "name": "buri_build",
+      "camelcase": "BuriBuild",
+      "scope": "source.buri-build",
+      "path": ".",
+      "file-types": [
+        "BUILD.buri",
+        "REPO.buri"
+      ],
+      "highlights": "../zed/languages/buri-build/highlights.scm",
+      "injection-regex": "^buri-build$"
+    }
+  ],
+  "metadata": {
+    "version": "0.3.0",
+    "license": "MIT",
+    "description": "Buri build-file grammar for tree-sitter"
+  }
+}

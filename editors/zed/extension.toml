@@ -15,8 +15,22 @@ path = "editors/tree-sitter-buri"
 # that tracks a moving grammar is an extension that breaks without a change.
 # Zed fetches this commit from GitHub, so it must be one that is pushed —
 # editing the grammar without repinning changes nothing an editor can see.
-commit = "1d9fe590ea2df8c21935d70e0207ef7a96bb201a"
+commit = "67d32e76e5aab70f77309a89c4fa59a767316404"
+
+[grammars.buri_build]
+# A second grammar, because a BUILD.buri is textproto rather than Buri: one
+# suffix, two languages, and matching the whole file name is what tells them
+# apart. It lives beside the first for the same reason the first lives here.
+repository = "https://github.com/buri-lang/buri"
+path = "editors/tree-sitter-buri-build"
+# PENDING-REPIN: set this to the commit that lands `editors/tree-sitter-buri-build`.
+# Zed fetches the commit from GitHub, so until this names a pushed commit that
+# holds the grammar, the extension does not build.
+commit = "PENDING-REPIN"
 
 [language_servers.buri]
 name = "Buri"
-languages = ["Buri"]
+# Both languages, because `buri lsp` formats a build file too — it dispatches on
+# the file name exactly as `buri format` does. Dropping "Buri Build" here would
+# take format-on-save away from the files this grammar was added for.
+languages = ["Buri", "Buri Build"]
