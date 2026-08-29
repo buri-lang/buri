@@ -701,9 +701,10 @@ Five counters, and they are the ones worth watching. `analyses` and `lints` are
 front-end runs and lint passes — a request that answers out of the cache does
 neither, and a keystroke should move them for the targets that can see the
 edited file and for no others. `sessions opened` counts the times `REPO.buri`
-and every `BUILD.buri` were read and parsed. `files hashed` is how many files
-were read to decide what had moved, and `bytes written` is what the answer came
-to. The milliseconds vary with the machine; the counters do not, which is why
+and every `BUILD.buri` were read and parsed — on a warm request that is `0`,
+because the repository is opened once and kept. `files hashed` is how many
+files were read to decide what had moved, which is every file the repository
+has read so far, and `bytes written` is what the answer came to. The milliseconds vary with the machine; the counters do not, which is why
 the test suite pins those and not the clock. The level is read from `initialize` as well, which is how a
 client sets it for the messages before it could have sent a `$/setTrace`; a
 value that is not one of the three levels leaves it where it was, because a
@@ -933,6 +934,20 @@ see that file answered, and the root is in the key too, so it leaves the other
 open repository alone. Nothing invalidates by hand — a keystroke, a save, a
 close and a file written behind the editor's back all move the hash on their
 own.
+
+**The repository is opened once, and a file is read and parsed once.** The
+first question of a session reads `REPO.buri` and every `BUILD.buri`; the ones
+after it reuse that, and reuse the text and the syntax tree of every source any
+earlier analysis loaded. What says a revision has moved is the same hash the
+cache key is built from, so an edit re-reads and re-parses the file that moved
+and nothing else — a file's id stands for the file rather than for one revision
+of it, and an analysis already in hand goes on reading the text it was built
+from. It is the same machinery `buri test --watch` reuses between passes.
+
+**The lint findings ride the analysis the diagnostics already ran.** Every rule
+in the catalogue asks about the build graph and about one closure's analysis,
+and the server has that analysis in hand by the time it asks — so a pull pays
+one front end rather than two.
 
 **How much was checked is part of the key.** A scoped analysis and a whole one
 are built from the same bytes and are not the same answer, so they are filed
