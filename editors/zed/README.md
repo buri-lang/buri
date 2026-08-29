@@ -32,6 +32,72 @@ a different compiler than the one `buri build` runs.
 Diagnostics, hover, go-to-definition, the outline, formatting, and completion
 inside a module path and inside an import clause. See `buri docs cli lsp`.
 
+## Colour, in three layers
+
+Nothing here is a fallback for anything else. Each layer answers a question the
+one below it cannot.
+
+1. **The lexer.** Keywords, literals and comments, in a file that does not
+   parse. The server's `semanticTokens` always has this much to say.
+2. **The grammar** — `languages/buri/highlights.scm`, tree-sitter. It knows
+   where a name is *written*: a declaration's name, a field label, a call's
+   callee, a struct literal's type. It cannot know what a name *means*, so
+   where a bare word could be a local, a parameter or a module alias, it leaves
+   the word alone rather than guessing. Buri's naming conventions
+   (`buri docs lang lexical`) cover the rest: a capitalized word is coloured as
+   a type.
+3. **The resolver**, over LSP semantic tokens. It knows what each identifier
+   resolves to — a trait rather than a type, a variant rather than a field, a
+   method rather than a function, a module alias rather than a local — and it
+   is the only layer that colours a local or a parameter at its use.
+
+`editors/tree-sitter-buri/check_highlighting.sh` holds layers two and three to
+a named colour for every token of one fixture file, so neither can quietly stop
+answering.
+
+### Turning on the third layer
+
+Zed reads semantic tokens only when asked. It is **off by default**, so a fresh
+install shows layers one and two and none of the third. In Zed's `settings.json`:
+
+```json
+{
+  "languages": {
+    "Buri": {
+      "semantic_tokens": "combined"
+    }
+  }
+}
+```
+
+`"combined"` puts the server's answers over the grammar's, which is the mode
+this extension is written for — the queries are a complete colouring on their
+own, and the server upgrades what it can. `"full"` turns tree-sitter off
+entirely and leaves a file with no colour at all while the server is starting
+or while the repository fails to load. `"off"` is the default.
+
+The server's legend uses the protocol's own type names — `namespace`, `type`,
+`interface`, `enumMember`, `property`, `function`, `method`, `variable`,
+`keyword`, `comment`, `string`, `number`, `operator` — so Zed maps every one of
+them to a theme style with no configuration. To style them differently, or to
+give the `declaration` modifier a look of its own:
+
+```json
+{
+  "global_lsp_settings": {
+    "semantic_token_rules": [
+      { "token_type": "interface", "style": ["type.interface", "type"] },
+      { "token_type": "enumMember", "style": ["constructor"] },
+      { "token_type": "variable", "token_modifiers": ["declaration"], "font_weight": "bold" }
+    ]
+  }
+}
+```
+
+`dev: open highlights tree view` in the command palette shows which layer won
+for the token under the cursor, and `editor: restart language server` is what
+picks up a settings change the server has to be re-asked about.
+
 ## Layout
 
 ```
@@ -53,3 +119,5 @@ languages/buri-build/
 The grammars are in `../tree-sitter-buri` and `../tree-sitter-buri-build`. Each
 has a `check.sh` that parses its half of the repository and compiles the queries
 in the language directory beside it — run the one whose grammar you touched.
+`../tree-sitter-buri/check.sh` also runs `check_highlighting.sh`, which is the
+one that says what colour each token comes out.
