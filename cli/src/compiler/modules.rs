@@ -309,7 +309,20 @@ impl<'a> Loader<'a> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
-        let file = self.map.add(path.to_string(), PathBuf::new(), text);
+        // Generated text has no file on disk, so the module path is its whole
+        // identity — and a map kept between compilations (`build::sources`)
+        // already holds the last one. Adding unconditionally minted a fresh id
+        // for the same module on every analysis, which re-parsed it and left
+        // the old entry in the map for good.
+        let file = match self.map.find(path) {
+            Some(id) if self.map.text(id) == text => id,
+            Some(id) => {
+                self.map.replace(id, text);
+                self.cache.forget(id);
+                id
+            }
+            None => self.map.add(path.to_string(), PathBuf::new(), text),
+        };
         let bodyless = matches!(role, Role::Std | Role::Platform);
         let (ast, errors) = self.cache.parse(self.map.text(file), file, bodyless);
         self.diags.extend(errors.iter().cloned());

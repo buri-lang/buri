@@ -25,6 +25,7 @@ pub enum Rendering {
     Json,
 }
 
+#[derive(Clone)]
 pub struct Session {
     pub root: PathBuf,
     pub map: SourceMap,
@@ -33,7 +34,9 @@ pub struct Session {
     /// this the same files are lexed and parsed once per target.
     pub parsed: crate::parsing::parser::Cache,
     pub diagnostics: Diagnostics,
-    pub workspace: Workspace,
+    /// Shared rather than owned, so that a session is cheap to copy: the
+    /// graph is read-only once loaded.
+    pub workspace: std::rc::Rc<Workspace>,
     pub rendering: Rendering,
 }
 
@@ -73,7 +76,7 @@ pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String>
         map,
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics,
-        workspace,
+        workspace: std::rc::Rc::new(workspace),
         rendering,
     })
 }

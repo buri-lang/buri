@@ -31,6 +31,9 @@ pub mod protogen;
 pub mod protoschema;
 pub mod regenerate;
 pub mod session;
+/// The loaded state of one repository, kept between the questions asked of
+/// it: the graph, the files read so far, and the parses of them.
+pub mod sources;
 /// SHA-256. Its own file, and not a private one, because `cli/build.rs`
 /// `#[path]`-includes it: the digests of the blobs the build script embeds are
 /// taken where the bytes are written, and a build script cannot use the crate
