@@ -47,3 +47,12 @@ run {
   exit: 1
   golden: "after_edit.txt"
 }
+
+# The edits a cached finding carries are byte ranges in a file this run never
+# analysed. They land all the same, and the pass that follows the rewrite finds
+# the tree clean.
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "fixed.txt"
+}
