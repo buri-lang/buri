@@ -21,7 +21,7 @@
 //!  * **the run side is still the incumbent's, and by much less than it was** —
 //!    the four kernels were 1.38×, from 1.86× before the slots-only `crt`
 //!    family (`design/native/CODEGEN-STENCIL.md` §5.1), and a fresh six-kernel
-//!    series after the removal reads 1.26× (`design/PERFORMANCE.md` §6.4). What
+//!    series after the removal reads 1.26× (`design/PERFORMANCE.md` §6.2). What
 //!    is left is one kernel — `core/list`'s closure surface — rather than the
 //!    runtime boundary;
 //!  * **it is three targets and the one it replaced was four** — `macos-arm64`,

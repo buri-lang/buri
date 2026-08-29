@@ -34,7 +34,7 @@ kernel (`core/list`'s closure surface, 2.9×) rather than the boundary. The two
 comparisons the trade turned on were re-taken after the removal — emission at
 **0.47×**, and the run side at **1.26×** on a fresh six-kernel series, because
 the four programs behind 1.38× and the `-O0` geomean have no harness in this
-tree to re-run. `design/PERFORMANCE.md` §6.1 and §6.4 carry both halves.
+tree to re-run. `design/PERFORMANCE.md` §6.1 and §6.2 carry both halves.
 
 Target coverage was the largest remaining difference at the time of the trade
 and is no longer one: `macos-arm64`, `linux-arm64` and `linux-x86_64` all emit,
@@ -1366,7 +1366,7 @@ and MEMORY.md §5.3's O(log k) promise holds on the debug backend too (§5.0.1).
   `opt_level=none`, improving from 1.86× and concentrated in one kernel —
   `core/list`'s closure surface, at 2.9× (§5.1). The debug profile is slower than
   it was, deliberately, and `design/PERFORMANCE.md` §6 is where that is tracked.
-  A fresh six-kernel series taken after the removal reads **1.26×** (§6.4).
+  A fresh six-kernel series taken after the removal reads **1.26×** (§6.2).
 * **A `buri` 5.06 MB larger, not smaller.** The machine-code section fell by
   5.35 MB — `__TEXT.__text` 8.37 MB to 3.03 MB — and the linked binary
   nonetheless grew, 17.57 MB to 22.63 MB, because the three baked stencil
@@ -1375,7 +1375,7 @@ and MEMORY.md §5.3's O(log k) promise holds on the debug backend too (§5.0.1).
   neither of them may be quoted without the other.
 * **The `-O0` geomean and the four-kernel run side are the two figures that are
   not post-removal.** Neither has a harness in this repository, so
-  `design/PERFORMANCE.md` §6.4 stands a fresh series beside them rather than
+  `design/PERFORMANCE.md` §6.2 stands a fresh series beside them rather than
   re-taking them. Every other native figure in §6 was re-taken on 2026-08-29,
   and §6's own banner says which.
 * **The benchmark's `lower+*` rows change emitter mid-series.** Goal 3's
