@@ -30,10 +30,11 @@ goal 3. On the run side the four kernels are **1.38×** Cranelift
 `opt_level=none`, from 1.86× before §5.1's slots-only `crt` family, and the
 geomean against LLVM `-O0` is **0.927** — the paper's own bar, met here for the
 first time, though Cranelift cleared it by more. What is left of the gap is one
-kernel (`core/list`'s closure surface, 2.9×) rather than the boundary. Those
-figures are from the week before 2026-08-29 and none of them has been re-taken
-since the removal; `design/PERFORMANCE.md` §6 says the same thing at more
-length.
+kernel (`core/list`'s closure surface, 2.9×) rather than the boundary. The two
+comparisons the trade turned on were re-taken after the removal — emission at
+**0.47×**, and the run side at **1.26×** on a fresh six-kernel series, because
+the four programs behind 1.38× and the `-O0` geomean have no harness in this
+tree to re-run. `design/PERFORMANCE.md` §6.1 and §6.4 carry both halves.
 
 Target coverage was the largest remaining difference at the time of the trade
 and is no longer one: `macos-arm64`, `linux-arm64` and `linux-x86_64` all emit,
@@ -1339,11 +1340,11 @@ with its subject, so the record is this section and the index points at it.
    not end it any more. What this backend needs from outside is a host `cc`,
    which is a platform interface and not a lockfile entry
    (BUILD-AND-WATCH.md §1.1).
-3. **A ~42% smaller `buri`.** 17.55 MB to 10.25 MB on a release build of the
-   same tree, with the machine-code section down 67% (8.35 MB to 2.73 MB).
-   Measured 2026-08-29 on macOS/arm64, two builds into one target directory,
-   with byte-identical stencil blobs on both sides so the delta is the removed
-   backend alone.
+3. **A clean release build in half the time.** 142.68 s to 73.94 s, median of
+   three interleaved runs on the same tree, and the bench binary from 2 m 02 s
+   to 1 m 01 s. Measured 2026-08-29 on macOS/arm64, two builds into one target
+   directory. The *shipped binary* did not shrink with it — that is the first
+   bullet of what was accepted, below.
 4. **x86-64 through CI rather than through a second code generator.** The
    incumbent covered four targets to this backend's two, and that was by a wide
    margin the largest item on the list — and it was a coverage difference rather
@@ -1365,11 +1366,18 @@ and MEMORY.md §5.3's O(log k) promise holds on the debug backend too (§5.0.1).
   `opt_level=none`, improving from 1.86× and concentrated in one kernel —
   `core/list`'s closure surface, at 2.9× (§5.1). The debug profile is slower than
   it was, deliberately, and `design/PERFORMANCE.md` §6 is where that is tracked.
-* **Every native figure in `design/PERFORMANCE.md` §6 and in this document was
-  taken against the removed backend**, in the week ending 2026-08-29, and none
-  has been re-taken. A verification wave re-runs them; nothing here has been
-  adjusted to guess at what it will find, and no number in either document is a
-  post-removal measurement.
+  A fresh six-kernel series taken after the removal reads **1.26×** (§6.4).
+* **A `buri` 5.06 MB larger, not smaller.** The machine-code section fell by
+  5.35 MB — `__TEXT.__text` 8.37 MB to 3.03 MB — and the linked binary
+  nonetheless grew, 17.57 MB to 22.63 MB, because the three baked stencil
+  libraries are 11.93 MB the old binary never selected and the linker
+  dead-stripped. `design/PERFORMANCE.md` §5 carries both rows and the rule that
+  neither of them may be quoted without the other.
+* **The `-O0` geomean and the four-kernel run side are the two figures that are
+  not post-removal.** Neither has a harness in this repository, so
+  `design/PERFORMANCE.md` §6.4 stands a fresh series beside them rather than
+  re-taking them. Every other native figure in §6 was re-taken on 2026-08-29,
+  and §6's own banner says which.
 * **The benchmark's `lower+*` rows change emitter mid-series.** Goal 3's
   `lower+macos-arm64` figure was Cranelift's and the row is this backend's now;
   `design/PERFORMANCE.md` §6.1 marks the break rather than continuing the series
