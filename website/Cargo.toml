@@ -1,0 +1,34 @@
+[package]
+name = "website"
+version = "0.3.0"
+edition = "2021"
+description = "The documentation site: cli/src/docs and the README, rendered to static HTML."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.87"
+# The site is a thing this repository builds, not a thing anybody installs.
+publish = false
+
+# The dependency bar is stated in the root manifest, and nothing here clears
+# it, so nothing here is a dependency. `buri` is *this repository's own crate*,
+# reached by path: the site is generated from the toolchain's own doc
+# registries — `documentation::topics`, `errors`, `lints`, `commands` — and its
+# `buri` snippets are highlighted by the toolchain's own lexer, so that a page
+# and the compiler cannot disagree about what a keyword is. Nothing is resolved
+# from crates.io, and `nothing_is_resolved_from_crates_io` says so.
+[dependencies]
+buri = { path = "../cli" }
+
+# The panic-free lint set, in the root manifest with the reasoning. It applies
+# here for a smaller reason than it does to the compiler: a site generator that
+# panics on a malformed page is one that cannot say which page.
+[lints]
+workspace = true
+
+[lib]
+name = "website"
+path = "src/lib.rs"
+
+[[bin]]
+name = "website"
+path = "src/main.rs"
