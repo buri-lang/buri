@@ -52,6 +52,52 @@ those two run the catalogue at all (`check_during_build`) and whether what it
 finds fails them (`fail_on_finding`). Both default to no. Neither can turn a
 check off — the block only ever tightens.
 
+## What a second run costs
+
+A finding depends on two things and no others: the build graph, and the bytes
+of the files the target's analysis read. So the answer is written down. Under
+`.buri/cache`, beside the build's own entries, each target keeps one record —
+the closure it read, each file with a hash of its bytes, and what the catalogue
+found. A run that finds every one of those files holding the bytes the record
+names reports what the record says; a run that finds any of them moved analyses
+the target again and writes the record back.
+
+That makes `buri lint //...` after a one-file edit re-analyse the targets whose
+closure holds that file, and no others. The report is the same either way, to
+the byte: a record carries findings and nothing else, so a cached finding is
+sorted, promoted and printed by the code that would have printed a fresh one.
+
+```
+buri lint //... --explain
+```
+
+says which was which, one line per target:
+
+```
+cached lint //lib/money - 8b2e77c1904a
+run    lint //cmd/web - 5fda356eb977
+```
+
+The fourth column is the platform for a build action, and `-` here: a lint asks
+one question of a target's whole closure whatever that target is built for. The
+key is over the target and the build graph rather than over the closure, so it
+does *not* move when a source is edited — what moved is inside the record, and
+one target keeps one entry however long you edit it.
+
+Three things can make a record unusable, and each of them ends in re-analysis
+rather than in a stale answer:
+
+- **A file moved.** Any file the record names, including one that appeared or
+  went away — the list of `.buri` files in the repository is part of the key.
+- **The graph moved.** A `BUILD.buri` or `REPO.buri` edit changes the key for
+  every target, because a build file decides what a closure *is*.
+- **The toolchain moved.** The key holds this `buri`'s version, so a record an
+  older one wrote is unreachable rather than trusted.
+
+`buri clean` drops the records with the rest of the cache. Two `buri lint` runs
+on one repository are safe to overlap: a record is written to a temporary and
+renamed into place, so a reader sees a whole one or none.
+
 ## `--fix`
 
 ```

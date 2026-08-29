@@ -120,7 +120,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     // that held — findings on code that does not compile are noise stacked on
     // top of the answer.
     if !failed && session.workspace.repo.lint.check_during_build {
-        let findings = crate::commands::lint::findings_for(&mut session, &targets);
+        let findings = crate::commands::lint::findings_for(&mut session, &targets, &args.flags);
         failed |= session.print(&findings);
     }
     if failed {

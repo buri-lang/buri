@@ -66,7 +66,7 @@ fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics), i3
     let (mut session, targets) =
         session::open_and_resolve(&args.flags, &args.targets).map_err(i32::from)?;
 
-    let diagnostics = findings_for(&mut session, &targets);
+    let diagnostics = findings_for(&mut session, &targets, &args.flags);
     Ok((session, diagnostics))
 }
 
@@ -75,18 +75,49 @@ fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics), i3
 /// Public because the language server reports the same findings the command
 /// does — an editor that showed only type errors would be showing half of what
 /// the toolchain knows, and the half that is easier to notice at the terminal.
-pub fn findings_for(session: &mut Session, targets: &[TargetId]) -> Diagnostics {
+pub fn findings_for(
+    session: &mut Session,
+    targets: &[TargetId],
+    flags: &arguments::Flags,
+) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
+    let mut store = super::lint_cache::Store::open(&session.root, flags);
     for target in targets {
+        // The package rules are asked once per package, so which of a record's
+        // three lists is replayed depends on what the loop has already said.
+        let first_in_package = !seen_packages.contains(&target.package);
+        if let Some(parts) = store.recall(session, *target, first_in_package) {
+            seen_packages.insert(target.package);
+            replay(&parts, first_in_package, &mut diagnostics);
+            continue;
+        }
         let analysis = analysis_of(session, *target);
-        one_target(session, *target, &analysis, &mut seen_packages, &mut diagnostics);
+        let marks = one_target(session, *target, &analysis, &mut seen_packages, &mut diagnostics);
+        store.remember(session, *target, &analysis, &marks.parts(&diagnostics));
     }
     check_cycles(session, &mut diagnostics);
 
     promote(session, &mut diagnostics);
     diagnostics.sort(&session.map);
     diagnostics
+}
+
+/// A recalled target's findings, put back in the order they were found in.
+///
+/// Through `push` rather than by concatenation, so that the deduplication a
+/// cold run applied — one error in a shared module, reported by every target
+/// whose closure holds it — applies here to the same effect.
+fn replay(
+    parts: &super::lint_cache::Parts,
+    first_in_package: bool,
+    diagnostics: &mut Diagnostics,
+) {
+    diagnostics.extend(parts.analysis.iter().cloned());
+    if first_in_package {
+        diagnostics.extend(parts.package.iter().cloned());
+    }
+    diagnostics.extend(parts.target.iter().cloned());
 }
 
 /// The same rules over one target, with its analysis already in hand.
@@ -107,7 +138,7 @@ pub fn findings_for_target(
 ) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
-    one_target(session, target, analysis, &mut seen_packages, &mut diagnostics);
+    let _ = one_target(session, target, analysis, &mut seen_packages, &mut diagnostics);
     check_cycles(session, &mut diagnostics);
 
     promote(session, &mut diagnostics);
@@ -132,6 +163,35 @@ pub fn analysis_of(
     )
 }
 
+/// Where in the report one target's three kinds of finding ended up.
+///
+/// Positions rather than three sinks of their own, because the report
+/// deduplicates: an error in a module two targets share is reported once, and
+/// slicing what one pass actually added is the only way to write down the same
+/// thing it added.
+struct Marks {
+    start: usize,
+    analysis_end: usize,
+    package_end: usize,
+    /// Whether this pass asked the package rules, which is what tells an empty
+    /// package list "nothing to report" from "somebody else reported it".
+    asked_the_package: bool,
+}
+
+impl Marks {
+    fn parts(&self, diagnostics: &Diagnostics) -> super::lint_cache::Parts {
+        let cut = |from: usize, to: usize| {
+            diagnostics.items.get(from..to).unwrap_or_default().to_vec()
+        };
+        super::lint_cache::Parts {
+            analysis: cut(self.start, self.analysis_end),
+            package: cut(self.analysis_end, self.package_end),
+            target: cut(self.package_end, diagnostics.items.len()),
+            asked_the_package: self.asked_the_package,
+        }
+    }
+}
+
 /// Every rule that is about one target, in the order they are asked.
 fn one_target(
     session: &Session,
@@ -139,15 +199,19 @@ fn one_target(
     analysis: &crate::compiler::driver::Analysis,
     seen_packages: &mut BTreeSet<crate::build::workspace::PackageId>,
     diagnostics: &mut Diagnostics,
-) {
+) -> Marks {
+    let start = diagnostics.items.len();
     // What the analysis found is part of the report, and it never displaces the
     // rest of it: a target that does not type check is still a target with an
     // import nothing uses, and the two are found by different questions.
     diagnostics.extend(analysis.diagnostics.items.clone());
-    if seen_packages.insert(target.package) {
+    let analysis_end = diagnostics.items.len();
+    let asked_the_package = seen_packages.insert(target.package);
+    if asked_the_package {
         check_sources_declared(session, target.package, diagnostics);
         check_test_suites(session, target.package, diagnostics);
     }
+    let package_end = diagnostics.items.len();
     // `lint` is not building, so it checks a binary against the platforms
     // its own `outputs` name, and a library against the question TAGS.md
     // asks at the target: can it be built at all?
@@ -155,6 +219,7 @@ fn one_target(
     crate::build::actions::check_tags(session, target, diagnostics);
     check_target_platforms(session, target, diagnostics);
     check_dependencies(session, target, analysis, diagnostics);
+    Marks { start, analysis_end, package_end, asked_the_package }
 }
 
 /// `fail_on_finding`: every finding from the catalogue becomes an error.
