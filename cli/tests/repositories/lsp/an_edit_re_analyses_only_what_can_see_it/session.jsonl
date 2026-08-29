@@ -36,6 +36,11 @@
 # here would be a cache that hides an error.
 {"jsonrpc": "2.0", "id": 10, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "3"}}
 # The whole repository, cold: every target's two passes, `analyses 3`.
+#
+# The sweep runs on the worker, and the corpus runs the synchronous schedule —
+# so this request waits for it and reports what it cost. The worker keeps a
+# warm repository of its own, which is the `sessions opened 1` here and the
+# doubled `files hashed`: two sides asking the same files whether they moved.
 {"jsonrpc": "2.0", "id": 11, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
 # A second keystroke, and the sweep again. Two targets can see the edited
 # file and two are analysed; `//lib/beta`'s findings are quoted from the

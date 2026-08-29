@@ -49,6 +49,7 @@ mod schema;
 mod semantic_tokens;
 mod signature_help;
 mod state;
+mod sweep;
 mod symbols;
 mod syntax;
 
@@ -60,44 +61,80 @@ use state::{State, Trace};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+/// Something the server has to act on: a message the client wrote, the end of
+/// that stream, or a sweep the worker finished.
+///
+/// The two arrive on one channel because the loop has to be able to wait for
+/// either — a person who types the last character and stops still wants the
+/// squiggle, and a server blocked in `read` would hold it until they typed
+/// again.
+pub enum Event {
+    Message(String),
+    Ended,
+    Broke(String),
+    Swept,
+}
+
+/// One thread reads the client, one sweeps whole repositories, and this one
+/// answers.
+///
+/// The reader **buffers** and does not interpret: messages are handed on in the
+/// order they arrived and dispatched in that order, so a `$/cancelRequest`
+/// still lands where it did — the outcome of a cancel does not depend on how
+/// the operating system chunked the client's write, which is the property
+/// wave 4e's design rests on. The one thing the extra threads decide is *when*
+/// a sweep's publishes land, and that is what [`sweep::Mode`] is for.
 #[expect(
     clippy::print_stderr,
-    reason = "a message that did not parse has no id to answer and no Session to route through, and stdout carries protocol only. The same line goes out as a `window/logMessage`; stderr stays as the floor, because a report about a corrupt stream must not depend on that stream"
+    reason = "a fatal read error has no id to answer and no Session to route through, and stdout carries protocol only. The same line goes out as a `window/logMessage`; stderr stays as the floor, because a report about a corrupt stream must not depend on that stream"
 )]
 pub fn command_language_server(_args: &arguments::Args) -> i32 {
-    let stdin = std::io::stdin();
-    let mut input = stdin.lock();
+    let mut state = State::new();
+    let state = &mut state;
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
-
-    let mut state = State::new();
-
-    loop {
-        match read_message(&mut input) {
-            Ok(None) => return 0,
-            Ok(Some(text)) => {
-                let incoming = match json::parse(&text) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        // stderr is the floor and the protocol's log channel is
-                        // the one an editor actually shows a reader.
-                        let said = format!("buri lsp: unparseable message: {e}");
-                        eprintln!("{said}");
-                        write_message(&mut output, &message("window/logMessage", ERROR, &said));
-                        continue;
-                    }
-                };
-                for reply in handle(&mut state, &incoming) {
-                    echoed_to_stderr(&reply);
-                    write_message(&mut output, &reply);
-                }
-                // Whether the loop is over is the lifecycle's answer, not a
-                // second reading of the method string.
-                if let Some(code) = state.lifecycle.exit_code() {
+    let (sender, events) = std::sync::mpsc::channel::<Event>();
+    state.sweeps.knock_on(sender.clone());
+    let reading = std::thread::Builder::new().name("buri-lsp-read".to_string()).spawn(move || {
+        let stdin = std::io::stdin();
+        let mut input = stdin.lock();
+        loop {
+            let event = match read_message(&mut input) {
+                Ok(None) => Event::Ended,
+                Ok(Some(text)) => Event::Message(text),
+                Err(e) => Event::Broke(e),
+            };
+            let over = !matches!(event, Event::Message(_));
+            if sender.send(event).is_err() || over {
+                return;
+            }
+        }
+    });
+    if reading.is_err() {
+        // Nothing can be read, so there is nothing to serve.
+        return 1;
+    }
+    while let Ok(event) = events.recv() {
+        match event {
+            Event::Message(text) => {
+                if let Some(code) = answered(state, &mut output, &text) {
                     return code;
                 }
             }
-            Err(e) => {
+            // A sweep finished with no request waiting for it, which is the
+            // ordinary case: the findings go out as publishes, and the client
+            // is asked to pull the workspace report again.
+            Event::Swept => {
+                if state.sweeps.mode == sweep::Mode::Asynchronous {
+                    let landed = state.take_swept();
+                    for reply in swept_publishes(state, landed) {
+                        echoed_to_stderr(&reply);
+                        write_message(&mut output, &reply);
+                    }
+                }
+            }
+            Event::Ended => return 0,
+            Event::Broke(e) => {
                 let said = format!("buri lsp: {e}");
                 eprintln!("{said}");
                 write_message(&mut output, &message("window/logMessage", ERROR, &said));
@@ -105,6 +142,75 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
             }
         }
     }
+    0
+}
+
+/// One message in, everything it came to written out, and the exit code if the
+/// lifecycle says the loop is over.
+#[expect(
+    clippy::print_stderr,
+    reason = "a message that did not parse has no id to answer, and stdout carries protocol only; the same line goes out as a `window/logMessage`"
+)]
+fn answered(state: &mut State, output: &mut impl Write, text: &str) -> Option<i32> {
+    let incoming = match json::parse(text) {
+        Ok(v) => v,
+        Err(e) => {
+            // stderr is the floor and the protocol's log channel is the one an
+            // editor actually shows a reader.
+            let said = format!("buri lsp: unparseable message: {e}");
+            eprintln!("{said}");
+            write_message(output, &message("window/logMessage", ERROR, &said));
+            return None;
+        }
+    };
+    for reply in handle(state, &incoming) {
+        echoed_to_stderr(&reply);
+        write_message(output, &reply);
+    }
+    // Whether the loop is over is the lifecycle's answer, not a second reading
+    // of the method string.
+    state.lifecycle.exit_code()
+}
+
+/// What a finished sweep has to say to a client that was not waiting for it.
+///
+/// Every file the sweep has a finding for, and every file the server has
+/// published about before — because a report saying "nothing here" is how the
+/// editor is told the error it is showing is fixed, and a file that simply
+/// dropped out of the report would keep its squiggle.
+fn swept_publishes(state: &mut State, roots: Vec<PathBuf>) -> Vec<Value> {
+    if roots.is_empty() {
+        return Vec::new();
+    }
+    let mut published = seeded(state, None);
+    for uri in state.published.keys().cloned().collect::<Vec<_>>() {
+        published.entry(uri).or_default();
+    }
+    for root in &roots {
+        for (uri, items) in state.reported_findings(root) {
+            published.insert(uri, items);
+        }
+    }
+    // A build file's own syntax, which no analysis reports and so no sweep
+    // carries. Only for the ones the editor has open: those are the ones a
+    // publish is for.
+    for path in state.open.keys().cloned().collect::<Vec<_>>() {
+        if !build_files::is_build_file(&path) {
+            continue;
+        }
+        let Some(text) = state.text_of(&path) else { continue };
+        let uri = convert::uri_of(&path);
+        let items = build_files::diagnostics(&text)
+            .iter()
+            .map(|d| convert::diagnostic(&text, d, &uri))
+            .collect::<Vec<_>>();
+        published.entry(uri).or_default().extend(items);
+    }
+    let mut out = remember(state, published);
+    // The report the client is holding was computed from bytes that have
+    // moved. This is the request the protocol has for saying so.
+    out.extend(refreshes(state));
+    out
 }
 
 /// The stderr floor under both log channels.
@@ -427,6 +533,17 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             }
             for folder in &named {
                 state.add_root(folder);
+            }
+            // Which schedule the whole-repository sweep runs on. The
+            // environment names the default and a client may name its own —
+            // the answers are the same either way, and what this decides is
+            // whether a report may arrive between two of them. See `sweep`.
+            if let Some(named) = params
+                .at("initializationOptions.analysis")
+                .and_then(|v| v.as_str())
+                .and_then(sweep::Mode::named)
+            {
+                state.sweeps.mode = named;
             }
             state.can_register_watchers = matches!(
                 params.at("capabilities.workspace.didChangeWatchedFiles.dynamicRegistration"),
@@ -1147,6 +1264,26 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = pull_diagnostics::workspace(state, &params);
             out.extend(progress_end(&params, ""));
             out.push(response(&id, result));
+            out
+        }
+
+        // Wait here until the worker has nothing left to do, and say what it
+        // did. The seam a recorded session needs and the answer to "is the
+        // server finished thinking" a client may want: a sweep runs on a
+        // thread, so where its publishes land in the stream is otherwise the
+        // scheduler's decision rather than the session's.
+        ("buri/awaitAnalysis", Some(id)) => {
+            let landed = state.settle_sweeps();
+            let mut out = swept_publishes(state, landed);
+            let counters = state.sweeps.counters;
+            out.push(response(
+                &id,
+                Value::object(vec![
+                    ("swept", Value::Int(counters.run as i64)),
+                    ("superseded", Value::Int(counters.superseded as i64)),
+                    ("abandoned", Value::Int(counters.abandoned as i64)),
+                ]),
+            ));
             out
         }
 
