@@ -1,0 +1,6 @@
+# The plural is the mistake, and it is one letter from the field that exists —
+# which is what makes this the ordinary way to arrive at a repository that will
+# not load.
+lint {
+    fail_on_findings: true
+}

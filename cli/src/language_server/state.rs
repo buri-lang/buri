@@ -94,6 +94,39 @@ impl Lifecycle {
     }
 }
 
+/// How much of what the server is doing the client asked to be told.
+///
+/// `$/setTrace` sets it and `$/logTrace` is what it turns on. The protocol
+/// spells the three levels `off`, `messages` and `verbose`, and the difference
+/// between the last two is detail on the same lines rather than more lines.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Trace {
+    Off,
+    Messages,
+    Verbose,
+}
+
+impl Trace {
+    /// The level a `$/setTrace` names, or `None` for a word that is not one of
+    /// the three.
+    pub fn named(value: &str) -> Option<Trace> {
+        match value {
+            "off" => Some(Trace::Off),
+            "messages" => Some(Trace::Messages),
+            "verbose" => Some(Trace::Verbose),
+            _ => None,
+        }
+    }
+}
+
+/// How many ids each of the two lists below remembers.
+///
+/// A cancel whose request never arrives is a leak of one id, and a client that
+/// sent nothing but cancels must not grow that without bound. Sixteen is far
+/// more than the number of requests a client has in flight at once against a
+/// server that answers them one at a time.
+const IDS_REMEMBERED: usize = 16;
+
 pub struct State {
     pub lifecycle: Lifecycle,
     /// The repository roots the client has open, in the order it named them.
@@ -150,6 +183,31 @@ pub struct State {
     pub applying: Applying,
     /// The result ids pull diagnostics have been answered with.
     diagnostic_results: DiagnosticResults,
+    /// How much the client asked to be told, from its `$/setTrace`.
+    pub trace: Trace,
+    /// The ids most recently answered, oldest first.
+    ///
+    /// A cancel that names one of these lost its race with the answer, which is
+    /// the ordinary case against a server that answers one message at a time.
+    /// Remembering them is what makes such a cancel a no-op on arrival rather
+    /// than a trap for a later request that happens to carry the same id.
+    answered: Vec<Value>,
+    /// Ids a `$/cancelRequest` named and no request has claimed yet.
+    ///
+    /// The request itself is what claims one: when its turn comes it is refused
+    /// rather than run. See `mod.rs` on why that is the whole of cancellation
+    /// in a server that reads and answers one message at a time.
+    cancelled: Vec<Value>,
+    /// Messages the server decided to send while it was serving something else.
+    ///
+    /// A repository that will not load is found where it is opened, which is
+    /// several calls below the request being answered — so the message goes
+    /// here and `handle` sends it with that request's replies.
+    outgoing: Vec<Value>,
+    /// Per repository: the analysis fingerprint its failure to load was last
+    /// announced at, so a broken repository says so once rather than once per
+    /// request.
+    announced: BTreeMap<PathBuf, u64>,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
 }
@@ -359,8 +417,93 @@ impl State {
             refreshes: Refreshes::default(),
             applying: Applying::default(),
             diagnostic_results: DiagnosticResults::default(),
+            trace: Trace::Off,
+            answered: Vec::new(),
+            cancelled: Vec::new(),
+            outgoing: Vec::new(),
+            announced: BTreeMap::new(),
             cache: Cache::default(),
         }
+    }
+
+    /// Remembers the id a `$/cancelRequest` named.
+    ///
+    /// A cancel for a request that is already answered is dropped here, which
+    /// is the no-op the protocol asks for.
+    pub fn cancel(&mut self, id: &Value) {
+        if self.answered.contains(id) || self.cancelled.contains(id) {
+            return;
+        }
+        if self.cancelled.len() >= IDS_REMEMBERED {
+            self.cancelled.remove(0);
+        }
+        self.cancelled.push(id.clone());
+    }
+
+    /// Records that a request has been answered, cancellably or not.
+    pub fn record_answered(&mut self, id: &Value) {
+        if self.answered.contains(id) {
+            return;
+        }
+        if self.answered.len() >= IDS_REMEMBERED {
+            self.answered.remove(0);
+        }
+        self.answered.push(id.clone());
+    }
+
+    /// Whether this request was cancelled before its turn came, and takes the
+    /// id — one cancel refuses one request.
+    pub fn was_cancelled(&mut self, id: &Value) -> bool {
+        let Some(at) = self.cancelled.iter().position(|c| c == id) else { return false };
+        self.cancelled.remove(at);
+        true
+    }
+
+    /// The messages produced while serving, handed over to be sent.
+    pub fn take_outgoing(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.outgoing)
+    }
+
+    /// Opens a repository, and says on screen when it does not load.
+    ///
+    /// This is the one failure in the server a reader cannot otherwise see. An
+    /// error in a `REPO.buri` or a `BUILD.buri` is an error in the repository's
+    /// *own* files: no analysis produced it, so no publish carries it, and what
+    /// a reader gets instead is a lint pass that quietly stops running and — if
+    /// the file cannot be read at all — every request answering `null`. Either
+    /// presents as the server doing nothing rather than as a file to fix.
+    ///
+    /// Said once per state of the repository: again when the file changes and
+    /// is still wrong, and not at all while it sits there unedited.
+    fn opened(&mut self, root: &Path) -> Option<Session> {
+        match session::open_at(root, &Flags::default()) {
+            Ok(session) => {
+                if let Some(why) = first_error(&session) {
+                    self.announce(root, &why);
+                }
+                Some(session)
+            }
+            Err(why) => {
+                self.announce(
+                    root,
+                    &format!(
+                        "this repository will not open: {why}. Nothing in it can be analysed until that is fixed."
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// Queues the message, unless this state of the repository has already been
+    /// announced.
+    fn announce(&mut self, root: &Path, said: &str) {
+        let now = self.fingerprint(root);
+        if self.announced.get(root) == Some(&now) {
+            return;
+        }
+        self.announced.insert(root.to_path_buf(), now);
+        self.outgoing.push(super::message("window/showMessage", super::ERROR, said));
     }
 
     /// The repository root that owns `path`, if the client has it open.
@@ -514,8 +657,9 @@ impl State {
     /// A question about a `BUILD.buri` is a question about the graph: what a
     /// label names and where a package's file is are both answered by loading
     /// the repository, and the front end has nothing to add.
-    pub fn session_for(&self, path: &Path) -> Option<Session> {
-        session::open_at(&self.root_of(path)?, &Flags::default()).ok()
+    pub fn session_for(&mut self, path: &Path) -> Option<Session> {
+        let root = self.root_of(path)?;
+        self.opened(&root)
     }
 
     /// The label of the target whose closure `path` is in, as a command line
@@ -525,7 +669,7 @@ impl State {
     /// from a lens runs over the target the file's diagnostics came from — a
     /// test source belongs to the rule that declared it, which is the library
     /// or the binary rather than a suite of its own.
-    pub fn target_label(&self, path: &Path) -> Option<String> {
+    pub fn target_label(&mut self, path: &Path) -> Option<String> {
         let session = self.session_for(path)?;
         let target = target_for(&session, path)?;
         Some(session.workspace.label(target))
@@ -635,7 +779,7 @@ impl State {
             return Some(hit);
         }
 
-        let mut session = session::open_at(&root, &Flags::default()).ok()?;
+        let mut session = self.opened(&root)?;
         if session.diagnostics.has_errors() {
             return None;
         }
@@ -669,7 +813,7 @@ impl State {
             return Some(Rc::clone(hit));
         }
 
-        let mut session = session::open_at(root, &Flags::default()).ok()?;
+        let mut session = self.opened(root)?;
         if session.diagnostics.has_errors() {
             return None;
         }
@@ -696,8 +840,8 @@ impl State {
     ///
     /// Public because `buri gen` writes through the session it is handed, and
     /// a cached one is shared by everything holding an `Rc` to it.
-    pub fn overlaid_session(&self, root: &Path) -> Option<Session> {
-        let mut session = session::open_at(root, &Flags::default()).ok()?;
+    pub fn overlaid_session(&mut self, root: &Path) -> Option<Session> {
+        let mut session = self.opened(root)?;
         for (p, text) in self.buffers_under(root) {
             let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
@@ -721,6 +865,20 @@ impl State {
         let target = target_for(generation.any_session()?, path)?;
         generation.lints.iter().find(|(t, _)| *t == target).map(|(_, l)| Rc::clone(l))
     }
+}
+
+/// The first error a session collected while loading the repository, named by
+/// the file it is in.
+///
+/// A repository reads its `REPO.buri` and every `BUILD.buri` before anything is
+/// compiled, so a failure there is the one that makes every later answer empty.
+fn first_error(session: &Session) -> Option<String> {
+    let d = session.diagnostics.items.iter().find(|d| d.is_error() && !d.span.is_none())?;
+    let name = &session.map.get(d.span.file).name;
+    Some(format!(
+        "{name}: {}. That file is the repository's own, so no analysis publishes the finding — and the lint pass does not run until it is fixed.",
+        d.message
+    ))
 }
 
 /// The target whose closure contains `path`.

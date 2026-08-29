@@ -47,6 +47,10 @@ end is a library, and `driver::analyze` is what the server calls.
 | `didChangeWatchedFiles` | Everything published again, when a `.buri` file changed on disk without the editor having done it. |
 | `didCreateFiles` / `didRenameFiles` / `didDeleteFiles` | The same, once it has happened. A deleted file's findings are cleared, and a renamed file's buffer follows it. |
 | `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
+| `$/cancelRequest` | A request you withdrew before its turn came is refused rather than run, so a workspace-wide analysis nobody is waiting for any more is not paid for. |
+| `$/progress` | The requests that analyse the whole repository report `begin` and `end` around the work, to the token the client sent with the request. |
+| `$/setTrace` / `$/logTrace` | What the server is doing, in the editor's own log: the method and the id of every message, and at `verbose` how long the answer took. |
+| `window/showMessage` / `window/logMessage` | The failures that have nowhere else to appear: a repository whose `REPO.buri` does not read, and the transcript of a test a lens ran. |
 
 **Diagnostics include the build-graph findings**, not only the type errors —
 `missing-dep`, `unused-import`, and the rest of what `buri lint` reports. An
@@ -526,6 +530,61 @@ whose repository has just been closed has no findings to show, and leaving them
 on screen would leave the editor asserting something the server can no longer
 stand behind.
 
+**A cancel can refuse a request; it cannot interrupt one.** Requests are served
+one at a time, so by the time a `$/cancelRequest` is read the request it names
+has usually been answered — and a cancel for an answered request is a no-op,
+which is what the protocol asks for and what this server does with it. What the
+id is kept for is the other order: a request whose turn has not come is answered
+`-32800 RequestCancelled` when it is dequeued, instead of analysing the whole
+repository for an answer nobody is waiting for. The recently answered ids are
+remembered too, so a client that counts its ids from the start again is not
+refused for a request it never withdrew. `initialize` and `shutdown` are not
+cancellable: withdrawing one would leave the session in a state neither side
+could get out of.
+
+There is deliberately no read-ahead. A server that drained the rest of the pipe
+before dispatching would widen this to the ordinary case — a cancel written
+after the request it withdraws — and would decide the outcome by how the
+operating system happened to chunk the client's write. That is not a property a
+recorded session can pin, and the sessions in `cli/tests/repositories/lsp/` are
+what this server is checked against.
+
+**Progress is reported to the client's token and to nothing else.** A request
+that carries a `workDoneToken` — `references`, `rename`, `workspace/symbol`,
+`workspace/diagnostic`, the four that analyse every target in the repository —
+gets a `$/progress` `begin` before the work and an `end` after it, with a count
+in the `end` where there is one to give. A `workspace/symbol` query reports a
+step per open repository, because that is the one loop whose length the client
+can be told. A request with no token is silent: nothing about the work changed,
+only whether anybody asked to hear about it.
+
+There is no `window/workDoneProgress/create`, and that is the same decision from
+the other side: a token the server invents has to be registered with a request
+the client is entitled to refuse, and a client that did not ask to be told is
+not missing anything by not being told. `window/workDoneProgress/cancel` is
+accepted and changes nothing — the work is one call into a front end with no
+interruption point in it, so the request finishes and the `end` the client is
+waiting for arrives on time. That is why every `begin` says
+`cancellable: false`: a cancel button that did nothing would be the lie.
+
+**`$/setTrace` turns the log on.** At `messages` the server writes a `$/logTrace`
+line when a message arrives and another when the request has been answered,
+each naming the method and the id. At `verbose` those same lines carry how long
+the answer took. The level is read from `initialize` as well, which is how a
+client sets it for the messages before it could have sent a `$/setTrace`; a
+value that is not one of the three levels leaves it where it was, because a
+notification has no error reply and guessing which level was meant would be
+worse than ignoring the one that was not.
+
+**A repository that does not load says so.** An error in a `REPO.buri` or a
+`BUILD.buri` is an error in the repository's *own* files: no analysis produces
+it, so no publish carries it, and the lint pass — which is what reports the
+build-graph findings — stops running entirely. What a reader sees without a
+message is findings that quietly stop arriving, or, when the file cannot be read
+at all, every request answering nothing. So it goes out as a
+`window/showMessage` error, once per state of the repository: again when the
+file changes and is still wrong, and not at all while it sits there unedited.
+
 ## The whole protocol, and what is left
 
 Everything the 3.17 specification defines for a language, and where this server
@@ -580,8 +639,11 @@ and **deferred**, which is work not yet done.
 | `codeLens`, `codeLens/resolve` | served | a run command above every `test` and a use count above every export. The full pass is a parse, and the count — which costs a whole-repository analysis — waits for `resolve`, which is what `resolveProvider: true` claims |
 | `workspace/executeCommand` | served | exactly three commands, each a call into an entry point `buri` already has: `buri.runTest`, `buri.regenerateBuildFile`, `buri.showReferences` |
 | `workspace/applyEdit` | served | how a command that edits writes: the server sends the file `buri gen` produced and the command's own answer is what the client says it did with it |
-| `window/showMessage`, `window/logMessage` | served | what a command has to report: the transcript of a test run in the log, its verdict on screen |
-| work-done progress | deferred | no request long enough to report progress on |
+| `window/showMessage`, `window/logMessage` | served | what a command has to report — the transcript of a test run in the log, its verdict on screen — and the one failure with nowhere else to appear: a repository whose own files do not read. Everything logged goes to standard error as well, which is the floor a client that shows neither still leaves |
+| `$/cancelRequest` | served | a request withdrawn before its turn is `-32800 RequestCancelled`; one withdrawn after its answer is a no-op. Requests are served one at a time and there is no read-ahead, which is what makes both of those the same rule rather than a race |
+| `$/progress`, `window/workDoneProgress/cancel` | served | `begin` and `end` around the four requests that analyse every target, reported to the token the client sent. A cancel is accepted and changes nothing: the work has no interruption point, which is what `cancellable: false` says |
+| `window/workDoneProgress/create` | complete and empty | never sent. Only the client's token is reported to, so there is no server-invented token to register — and a client that did not ask to be told is missing nothing |
+| `$/setTrace`, `$/logTrace` | served | the method and the id of every message on the way in and on the way out, and at `verbose` how long the answer took. The level comes from `initialize` as well, for the messages before a `$/setTrace` could have been sent |
 
 **Everything not in that table is refused**, with the protocol's own
 `-32601 MethodNotFound` and the method's name in the message. A refusal is still
@@ -699,12 +761,17 @@ the hash on their own.
 
 ## Two things worth knowing
 
-**Only the protocol goes to stdout.** Every log goes to stderr. A stray line on
+**Only the protocol goes to stdout.** Every log goes to stderr, and the same
+line goes out as a `window/logMessage` — stderr is the floor, because a message
+about a stream that is already corrupt has to survive the protocol, and the
+protocol channel is the one an editor actually shows a reader. A stray line on
 stdout corrupts the stream in a way that presents as the editor being broken.
 
 **Requests are handled one at a time**, in the order they arrive. That costs
 some latency on a slow analysis and buys determinism: a session is reproducible,
-which is what lets `cli/tests/repositories/lsp/` record one as a golden file.
+which is what lets `cli/tests/repositories/lsp/` record one as a golden file. It
+is also what a `$/cancelRequest` means here — a request can be refused before it
+runs, and one already running is not interrupted.
 
 ## Editors
 

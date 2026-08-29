@@ -1,0 +1,31 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The server reads one message and answers it before reading the next, so the
+# only thing a cancel can do is decide what happens when the withdrawn id's turn
+# comes. This session records both halves of that: an id withdrawn before its
+# turn, and one withdrawn after its answer already went out.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Withdrawn before its turn: the id is remembered, and the references request
+# below is refused with -32800 rather than analysing the repository for an
+# answer nobody is waiting for any more.
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 2}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+# The same request, not withdrawn, is answered.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+# And a cancel that lost its race with that answer says nothing at all: there is
+# no reply to a notification, and nothing left to refuse.
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 3}}
+# It does not linger, either. A client that counts its ids from the start again
+# is not answered with a refusal for a request it never withdrew.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+# An id is whatever the client says it is: a string one is withdrawn the same
+# way a number is.
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": "a-string-id"}}
+{"jsonrpc": "2.0", "id": "a-string-id", "method": "workspace/symbol", "params": {"query": "sub"}}
+# The lifecycle is not cancellable: a withdrawn `shutdown` would leave the
+# session in a state neither side could get out of, so the cancel is kept and
+# the request is served.
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 4}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

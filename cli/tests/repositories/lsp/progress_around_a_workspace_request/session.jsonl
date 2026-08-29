@@ -1,0 +1,28 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# Progress is reported to the client's own token and to nothing else: there is
+# no `window/workDoneProgress/create` in this server, because a token it
+# invented would need a request the client is entitled to refuse, and a client
+# that did not ask to be told is not missing anything.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# References with a token: begin, then the answer, with the end between them
+# saying how much of one there was.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}, "workDoneToken": "buri/references"}}
+# The same request with no token is silent. Nothing about the work changed —
+# only whether anybody asked to hear about it.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+# A workspace query analyses one repository per open folder, which is a loop the
+# client can be told the length of: one report per repository, then the end.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/symbol", "params": {"query": "sub", "workDoneToken": "buri/symbols"}}
+# A rename that has nothing to rename still closes its report. A begin with no
+# end is a spinner that never stops.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 34, "character": 0}, "newName": "whatever", "workDoneToken": "buri/rename"}}
+# The whole repository, pulled, is the other long one.
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/diagnostic", "params": {"previousResultIds": [], "workDoneToken": "buri/pull"}}
+# The client asking for the work to stop is accepted and changes nothing: this
+# server answers one request at a time and the analysis has no interruption
+# point in it, which is why every begin above says `cancellable: false`.
+{"jsonrpc": "2.0", "method": "window/workDoneProgress/cancel", "params": {"token": "buri/pull"}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

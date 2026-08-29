@@ -1,0 +1,28 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The level is read from `initialize` and then from `$/setTrace`, and it is
+# consulted twice per message: once when it arrives and once when it has been
+# answered. So a `$/setTrace` takes effect for its own second half — turning
+# tracing off is announced by the line saying it arrived, and turning it on is
+# not.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "messages"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A request at `messages`: the method and the id, on the way in and on the way
+# out, with the answer between them.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+# Off, and the server goes quiet.
+{"jsonrpc": "2.0", "method": "$/setTrace", "params": {"value": "off"}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+# On again.
+{"jsonrpc": "2.0", "method": "$/setTrace", "params": {"value": "messages"}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+# A word that is not one of the three levels leaves the level where it was: a
+# notification has no error reply, and guessing which level was meant would be
+# worse than ignoring the one that was not.
+{"jsonrpc": "2.0", "method": "$/setTrace", "params": {"value": "shout"}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+# `verbose` adds how long the answer took to the same lines, which is the one
+# thing in this stream a recorded session cannot pin — so the level is set here
+# and nothing is asked afterwards. A notification carries no timing either way.
+{"jsonrpc": "2.0", "method": "$/setTrace", "params": {"value": "verbose"}}
+{"jsonrpc": "2.0", "method": "exit"}
