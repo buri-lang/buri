@@ -430,6 +430,29 @@ side.** With §5.1's slots family landed, three of the four kernels are within
 went through it. Whatever is next for run time is in `lists.rs` and the thunk,
 not in `rtcall.rs`.
 
+### 5.0.1 `str.concat`, the one call with no table row
+
+The other two backends open-code MEMORY.md §5.3's three concatenation paths —
+in place when the left operand's block is uniquely owned and has room, grown
+when it is unique and out of room, exact otherwise. This backend cannot: a
+header load, two compares, three arms and a `memmove` are a dozen stencils and
+a block layout against one `crt` stencil for a call. It therefore emitted the
+*exact* path alone and always allocated, and that was a divergence rather than
+a missing optimisation, because `core/alloc`'s `count` and `total` are numbers
+a Buri program can read.
+
+So the three paths are `cli/runtime/text.rs`'s `buri_rt_str_concat` and this
+backend calls them, which is the shape MEMORY.md §5.3 already gives `[T]`
+append. A thousand concatenations onto a uniquely-owned string now allocate the
+same thirteen blocks a release build allocates, against a thousand and one
+before.
+
+The row is deliberately not in `runtime_table.rs`: the two length words go
+**unmasked**, because VALUE-MODEL.md §3.1's ASCII flag is an input to a
+concatenation rather than a tag to be stripped, and the flattening a table row
+drives masks every `Str` length. `rtcall.rs`'s `str_concat` is the one caller
+and is where that fact lives.
+
 ### 5.1 How the arguments get there
 
 `cli/runtime/lib.rs` §2's rule is: the flattened Buri arguments, then the
@@ -724,13 +747,6 @@ six conformance files:
   go — §10.1 says why. CI runs the programs (§10.2).
 * **Debug information** — neither DWARF nor `.buri_symbols`, which is the gap
   `cranelift/mod.rs` records for itself too.
-* **In-place `str.concat`.** `cranelift/helpers.rs`'s appends into the left
-  operand's block when it owns it alone (MEMORY.md §5.3); this always allocates.
-  The string is the same either way, so nothing observable through `Show`
-  differs — but the *allocation count* does, and `core/alloc`'s `count` and
-  `total` are observable, so it is a divergence and not a missing optimisation.
-  It is `malloc` calls that differ and not the model: `memory/allocators.buri`
-  passes, because MEMORY.md §7's cost model is *defined* from the types.
 * **An element wider than the staging room a frame keeps** (`lists.rs::STAGE`).
   A `zip`, a `flatten` and a `sortBy` move whole elements between two blocks
   through the frame, and the frame's scratch is a constant; past it the shape is

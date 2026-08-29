@@ -115,8 +115,6 @@
 //!    and the checklist a Linux CI run has to confirm.
 //!  * **Debug information.** Neither DWARF nor `.buri_symbols`, which is the
 //!    same gap `cranelift/mod.rs` records for itself.
-//!  * **In-place `str.concat`**, whose absence is an allocation count and not
-//!    an answer.
 //!
 //! What is refused by **every** backend — an inexact numeric conversion,
 //! `json.*`, and `core/math`'s thirteen transcendentals — is refused here for

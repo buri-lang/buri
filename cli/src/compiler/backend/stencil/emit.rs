@@ -1503,21 +1503,19 @@ impl<'a> Jit<'a> {
                 };
                 self.mv(d, n, 8);
             }
-            // `str.concat` is generated rather than called: there is no
-            // `buri_rt_*` entry for it, and the sequence is one allocation and
-            // two copies.
+            // `str.concat` is a runtime call with no table row, so its
+            // arguments are narrowed here rather than flattened: the two
+            // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
             "str.concat" => {
                 let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
-                let list: Vec<u32> = args
-                    .iter()
-                    .filter(|a| {
-                        !matches!(
-                            super::rtcall::source_ty(prog, code.ty_of(**a)),
-                            Some(crate::compiler::semantics::types::Ty::Ctx(_))
-                        )
-                    })
-                    .map(|a| st.at(*a))
-                    .collect();
+                let mut list: Vec<u32> = Vec::new();
+                for a in args {
+                    let t = code.ty_of(*a);
+                    if self.concat_drops(prog, t) {
+                        continue;
+                    }
+                    list.push(st.at(*a));
+                }
                 if let Err(why) = self.str_concat(st, &list, d) {
                     self.unsupported(why);
                 }
@@ -2459,21 +2457,15 @@ impl<'a> Jit<'a> {
             return;
         }
         if key == "str.concat" {
-            let list: Vec<u32> = prog
-                .funcs
-                .get(fi)
-                .map(|f| f.sig.params.clone())
-                .unwrap_or_default()
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| {
-                    !matches!(
-                        super::rtcall::source_ty(prog, **t),
-                        Some(crate::compiler::semantics::types::Ty::Ctx(_))
-                    )
-                })
-                .map(|(i, _)| p(i))
-                .collect();
+            let params =
+                prog.funcs.get(fi).map(|f| f.sig.params.clone()).unwrap_or_default();
+            let mut list: Vec<u32> = Vec::new();
+            for (i, t) in params.iter().enumerate() {
+                if self.concat_drops(prog, *t) {
+                    continue;
+                }
+                list.push(p(i));
+            }
             match self.str_concat(st, &list, ret0) {
                 Ok(()) => self.emit("ret", &[]),
                 Err(why) => self.unsupported(why),

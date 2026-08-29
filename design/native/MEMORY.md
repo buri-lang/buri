@@ -254,13 +254,24 @@ optimizing are the two that build the first two, and both are done:
   `max(needed * 2, 64)` so the next append is in place; *exact* otherwise. A
   loop of `n` pushes therefore allocates O(log n) times, which is where
   VALUE-MODEL.md §4.1's amortized O(1) comes from.
-- **`Str` concatenation — `cranelift/helpers.rs`'s `concat` and
-  `llvm/emit.rs`'s `concat`.** `str.concat` is open-coded by both backends
-  rather than called, so the fast path is written twice and pinned twice. The
-  same three paths, with the capacity test allowing for a view that starts
-  inside its block: `(ptr - base) + alen + blen <= cap`. A template of *k*
-  holes, or a fold that concatenates, is the shape this turns from O(k)
-  allocations into O(log k).
+- **`Str` concatenation — `cranelift/helpers.rs`'s `concat`, `llvm/emit.rs`'s
+  `concat`, and `cli/runtime/text.rs`'s `buri_rt_str_concat`.** The same three
+  paths, with the capacity test allowing for a view that starts inside its
+  block: `(ptr - base) + alen + blen <= cap`. A template of *k* holes, or a
+  fold that concatenates, is the shape this turns from O(k) allocations into
+  O(log k).
+
+  Three implementations rather than the list's one, because `str.concat` is
+  **open-coded** where a backend can afford it. Cranelift and LLVM emit the
+  three paths as instructions; the copy-and-patch backend cannot — a header
+  load, two compares, three arms and a `memmove` are a dozen stencils and a
+  block layout against one `crt` stencil for a call — so it calls the runtime,
+  which is what the `[T]` half does everywhere. This is a **promise about the
+  count and not about where the code lives**: whichever backend compiled it, a
+  chain of *n* appends onto a uniquely-owned string allocates O(log n) times,
+  and `core/alloc`'s `count` and `total` say the same numbers in a debug build
+  as in a release one. That the copy-and-patch backend once always allocated
+  was a divergence in an observable, and it is fixed rather than documented.
 
 **Why the in-place write is unobservable.** `rc == 1` means exactly one live
 value refers to the block. Every operation that produces a *new* view of a block
@@ -291,6 +302,14 @@ gets an exact allocation and no speculative capacity. The floor is
 `layout::GROWTH_FLOOR` for the backends and `BURI_RT_GROWTH_FLOOR` for the
 runtime — two constants for two crates that never link against each other, and a
 disagreement between them costs a reallocation rather than an answer.
+
+*What* is doubled differs between the two payloads, and deliberately. A `[T]`
+append doubles the **old capacity** (`buri_rt_grown_capacity`); a `Str`
+concatenation doubles the **result**, `max(n * 2, floor)`. Both are amortized
+O(1) and the reason they are not unified is the paragraph above: a `Str`'s
+growth is written in three places, and the three have to allocate the same
+number of times or `core/alloc` reports a different total for the same program
+depending on which backend compiled it.
 
 #### What is excluded, and why
 

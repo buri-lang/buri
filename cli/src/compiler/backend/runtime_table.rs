@@ -152,6 +152,14 @@ const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) ->
 /// Grouped by the module the key names, and in each group by the order
 /// `core/<module>` declares them, so that a reader comparing this against
 /// `str.buri` or `list.buri` can see at a glance what is absent.
+///
+/// `str.concat` is absent and is the one absence that is not a missing body:
+/// the archive exports `buri_rt_str_concat` and the copy-and-patch backend
+/// calls it. Its two `Str` lengths go **unmasked**, because VALUE-MODEL.md
+/// §3.1's ASCII flag is an input to a concatenation rather than a tag, and the
+/// flattening this table drives masks every length. So the call is emitted at
+/// the one site that knows that (`stencil/rtcall.rs`'s `str_concat`), and a row
+/// here would be a second and wrong way to reach the same symbol.
 pub const ENTRIES: &[Entry] = &[
     // -- core/str, pure -----------------------------------------------------
     //
@@ -461,6 +469,16 @@ mod tests {
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
+    }
+
+    /// `str.concat` has a body in the archive and deliberately no row, which
+    /// is the one case where those two are not the same question. [`ENTRIES`]'
+    /// own comment is the reason; this is the assertion that it stays true in
+    /// both directions.
+    #[test]
+    fn str_concat_has_a_symbol_and_no_row() {
+        assert_eq!(symbol_for("str.concat"), "buri_rt_str_concat");
+        assert!(entry("str.concat").is_none());
     }
 
     /// No two rows may claim the same key: `entry` answers the first, so a
