@@ -216,3 +216,4 @@ fn first_difference(want: &str, got: &str) -> String {
     };
     format!(", at byte {at}\n  whole closure: ...{}\n         scoped: ...{}", window(want), window(got))
 }
+
