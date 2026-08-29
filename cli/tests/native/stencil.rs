@@ -818,6 +818,145 @@ export fn main(): Result<(), Str> {
 }
 
 // -----------------------------------------------------------------------
+// MEMORY.md §5.3: uniqueness, in-place growth, and what must not move
+// -----------------------------------------------------------------------
+
+/// MEMORY.md §5.3, pinned by allocation count rather than by reading the
+/// emitted code.
+///
+/// This backend reaches the three paths through
+/// `cli/runtime/text.rs`'s `buri_rt_str_concat` rather than open-coding them
+/// (`rtcall.rs`'s `str_concat` says why), so what this asserts is that the
+/// call is emitted where the other backends emit instructions — the answer
+/// is the same either way, and the *count* is what used to differ.
+#[test]
+fn a_unique_concat_loop_allocates_logarithmically() {
+    if !supported() {
+        return;
+    }
+    let r = run_with(
+        "concat-loop",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn build(s: Str, i: Int): Str {
+  if (i == 0) { s } else { build(s.concat(alloc, "xy"), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let s = build("", 1000);
+  let _ = stdout.println("${s.len()} ${s.slice(0, 4)}");
+  .Ok(())
+}
+"#,
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(r.stdout, "2000 xyxy\n", "stderr: {}", r.stderr);
+    let (blocks, _) = probed(&r.stderr);
+    assert!(
+        blocks < 50,
+        "a thousand concatenations allocated {blocks} blocks: the fast path did not fire"
+    );
+}
+
+/// The observable-semantics guard: a string a second binding still holds
+/// has a count above one, so concatenating onto it must copy.
+///
+/// A fast path that fired on a shared string would print the wrong answer,
+/// not merely allocate less — which is why this is an output assertion.
+#[test]
+fn a_shared_concat_does_not_mutate_what_is_shared() {
+    if !supported() {
+        return;
+    }
+    let r = run(
+        "concat-shared",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let base = "ab".concat(alloc, "cd");
+  let a = base.concat(alloc, "-one");
+  let b = base.concat(alloc, "-two");
+  let _ = stdout.println(base);
+  let _ = stdout.println(a);
+  let _ = stdout.println(b);
+  let _ = stdout.println(base);
+  .Ok(())
+}
+"#,
+    );
+    assert_eq!(r.stdout, "abcd\nabcd-one\nabcd-two\nabcd\n", "stderr: {}", r.stderr);
+    assert_eq!(r.status, 0);
+}
+
+/// A `Str` view whose block someone else still holds is not a place to
+/// write either: two slices of one allocation, and appending to the first
+/// must leave the second and the whole alone.
+#[test]
+fn appending_to_a_view_does_not_disturb_its_siblings() {
+    if !supported() {
+        return;
+    }
+    let r = run(
+        "concat-view",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let whole = "left".concat(alloc, ",right");
+  let head = whole.slice(0, 4);
+  let tail = whole.slice(5, 10);
+  let grown = head.concat(alloc, "!!");
+  let _ = stdout.println(head);
+  let _ = stdout.println(tail);
+  let _ = stdout.println(grown);
+  let _ = stdout.println(whole);
+  .Ok(())
+}
+"#,
+    );
+    assert_eq!(r.stdout, "left\nright\nleft!!\nleft,right\n", "stderr: {}", r.stderr);
+    assert_eq!(r.status, 0);
+}
+
+/// A borrowed local handed to a construct **beside** a sibling that holds
+/// its last mention — `middle::rc`'s `children`, and a middle-end fact both
+/// backends show.
+///
+/// It is here as well as in `cranelift.rs` because the failure it guards
+/// against is a *wrong answer* rather than a leak: the concatenation chain
+/// holds three uncounted words out of `base` while the last hole computes
+/// `base.len()`, and an in-place append into a freed block prints rubbish.
+#[test]
+fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
+    if !supported() {
+        return;
+    }
+    let r = run(
+        "borrow-across-siblings",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let base = "ab".concat(alloc, "cd");
+  let a = base.concat(alloc, "-one");
+  let b = base.concat(alloc, "-two");
+  let _ = stdout.println("${base} ${a} ${b} ${base.len()}");
+  let _ = stdout.println("${b} ${b.len()}");
+  .Ok(())
+}
+"#,
+    );
+    assert_eq!(r.stdout, "abcd abcd-one abcd-two 4\nabcd-two 8\n", "stderr: {}", r.stderr);
+    assert_eq!(r.status, 0);
+}
+
+// -----------------------------------------------------------------------
 // The conformance corpus, as a census
 // -----------------------------------------------------------------------
 

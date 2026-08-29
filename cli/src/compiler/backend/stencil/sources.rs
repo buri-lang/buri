@@ -1324,7 +1324,9 @@ fn runtime_calls(o: &mut Out) {
 
     // A copy between two addresses held in frame slots, with the count in a
     // third. `mov/n` copies frame to frame with a constant size; this is the
-    // one a `str.concat` needs, where all three are values.
+    // form where all three are values. No emitter reaches it today —
+    // `str.concat` was its one caller and now calls the runtime — and it stays
+    // because the shape is the general one, not that operation's.
     o.push(
         "memcpy/p",
         "void $NAME(ARGS0) { memcpy((void *)AT(uint64_t, _JIT_D), \
