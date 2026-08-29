@@ -32,7 +32,7 @@
 //!   * On JavaScript the runtime is untyped, and `16 + n * stride(T)` needs
 //!     `stride(T)`, which is a compile-time fact it does not have.
 //!   * Natively a context argument is dropped from every `buri_rt_*` call by
-//!     the ABI itself (`cranelift/runtime.rs`), so the runtime function that
+//!     the ABI itself (`backend/runtime_table.rs`), so the runtime function that
 //!     builds the list never learns which allocator asked for it.
 //!
 //! Closing that gap is a piece of work in its own right, and it has to close on

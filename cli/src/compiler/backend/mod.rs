@@ -12,18 +12,14 @@
 //!   runtime_native.rs  the `libburi_rt.a` archive, and the symbol rule
 //!   runtime_table.rs   which keys have a `buri_rt_*` symbol, and its shape
 //!   js/                always compiled in
-//!   cranelift/         behind `backend-cranelift`, on by default
 //!   llvm/              behind `backend-llvm`, off by default
-//!   stencil/           behind `backend-stencil`, compiled in by default and
-//!                      never selected
+//!   stencil/           behind `backend-stencil`, on by default
 //! ```
 //!
-//! [`select`] still answers `cranelift` for every native debug build, so the
-//! stencil backend is compiled into every toolchain and reached by no build.
-//! It is held to this file's traits so that the seat it is meant to take is a
-//! decision about parity rather than about plumbing, and
-//! `design/native/CODEGEN-STENCIL.md` §9 is the list that decision is waiting
-//! on.
+//! [`select`] answers `stencil` for every native debug build it can, and
+//! refuses by triple where the stencil backend has no library or no entry
+//! point. There is no third native backend and no crate behind the default
+//! toolchain: `design/native/CODEGEN-STENCIL.md` is the whole of it.
 //!
 //! Design: `design/native/ARCHITECTURE.md` §3.
 
@@ -37,13 +33,9 @@ pub mod intrinsic_keys;
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;
 
-/// Which `buri_rt_*` entry a key names, and what shape the call has, for the
-/// two backends that emit the call the same way.
-#[cfg(any(feature = "backend-cranelift", feature = "backend-stencil"))]
+/// Which `buri_rt_*` entry a key names, and what shape the call has.
+#[cfg(feature = "backend-stencil")]
 pub mod runtime_table;
-
-#[cfg(feature = "backend-cranelift")]
-pub mod cranelift;
 
 #[cfg(feature = "backend-llvm")]
 pub mod llvm;
@@ -205,12 +197,12 @@ pub struct Emitted {
 /// feature unrepresentable, and the shape of it would have to be smuggled
 /// through `Options` or through the filesystem.
 pub trait Backend {
-    /// `js`, `cranelift`, `llvm`. Enters every cache key this backend
+    /// `js`, `stencil`, `llvm`. Enters every cache key this backend
     /// produces.
     fn name(&self) -> &'static str;
 
     /// The identity of everything outside the program that the bytes depend
-    /// on: the LLVM version, the Cranelift version, the runtime's own hash.
+    /// on: the LLVM version, the stencil libraries' hash, the runtime's own hash.
     /// Enters every cache key.
     ///
     /// A backend that returns a constant here is claiming its output cannot
@@ -267,7 +259,7 @@ pub trait Backend {
 
 /// Combining units into the final artifact.
 ///
-/// Separate from [`Backend`] because the two vary independently: `cranelift`
+/// Separate from [`Backend`] because the two vary independently: `stencil`
 /// and `llvm` both hand their objects to the platform linker, and the same
 /// backend links differently on macOS and on Linux.
 pub trait Linker {
@@ -294,7 +286,7 @@ pub trait Linker {
 ///
 /// ```text
 /// (Js,             _)        -> js
-/// (Linux | Macos,  Debug)    -> cranelift
+/// (Linux | Macos,  Debug)    -> stencil, where stencil has that target
 /// (Linux | Macos,  Release)  -> llvm
 /// ```
 ///
@@ -302,24 +294,36 @@ pub trait Linker {
 /// so a toolchain built `--no-default-features` still answers the diagnostic
 /// rather than failing to compile.
 ///
+/// The debug row is the only one that asks about the *target* as well as the
+/// platform, and it does not ask it here: [`stencil::supported`] is the one
+/// place a target is matched to a stencil library, so the day
+/// `stencil::asm::AVAILABLE_X86_64` flips, selection follows with no edit in
+/// this file. Asking it at selection rather than inside `emit` is what makes
+/// `build::actions::native_ready` honest — otherwise an x86-64 host reports a
+/// backend it has and then refuses every program deep inside an emission.
+///
 /// A toolchain built without `backend-llvm` refuses a native release build with
-/// a diagnostic naming the feature rather than silently falling back to
-/// Cranelift: `--release` producing different code depending on how the
-/// compiler was installed is the same class of bug as an unpinned toolchain.
+/// a diagnostic naming the feature rather than silently falling back to the
+/// development backend: `--release` producing different code depending on how
+/// the compiler was installed is the same class of bug as an unpinned
+/// toolchain.
 pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, String> {
     match (target.platform, profile) {
         // `Web` joins `Js` here because the question this match asks is
         // "which backend emits this artifact", and a page is JavaScript.
         (Platform::Js | Platform::Web, _) => Ok(Box::new(js::Js)),
-        #[cfg(feature = "backend-cranelift")]
+        #[cfg(feature = "backend-stencil")]
         (Platform::Linux | Platform::Macos, Profile::Debug) => {
-            Ok(Box::new(cranelift::Cranelift))
+            match stencil::supported(target) {
+                Ok(_) => Ok(Box::new(stencil::Stencil)),
+                Err(why) => Err(no_development_backend(target, &why)),
+            }
         }
         // Gated the other way, not left as a fallback: with the feature on the
         // arm above is total for a native debug build, and an arm nothing can
         // reach is a warning rather than a safety net.
-        #[cfg(not(feature = "backend-cranelift"))]
-        (platform, Profile::Debug) => Err(missing_backend(platform, "backend-cranelift")),
+        #[cfg(not(feature = "backend-stencil"))]
+        (platform, Profile::Debug) => Err(missing_backend(platform, "backend-stencil")),
         #[cfg(feature = "backend-llvm")]
         (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm)),
         // Gated the other way for the same reason the debug arm above is: with
@@ -329,12 +333,157 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
     }
 }
 
+/// A native debug build for a triple the development backend has not finished.
+///
+/// The triple leads because it is what the user chose and what would have to
+/// change; the backend's own sentence follows, because it is the one that says
+/// which of the three missing things is missing.
+#[cfg(feature = "backend-stencil")]
+fn no_development_backend(target: Target, why: &str) -> String {
+    let triple = triple_text(target).unwrap_or_else(|| target.platform.slug().to_string());
+    format!("no development backend for {triple}: {why}")
+}
+
 /// Both arms that call this are `#[cfg(not(...))]`, so a build with both
 /// backends has no caller.
-#[cfg(not(all(feature = "backend-cranelift", feature = "backend-llvm")))]
+#[cfg(not(all(feature = "backend-stencil", feature = "backend-llvm")))]
 fn missing_backend(platform: Platform, feature: &str) -> String {
     format!(
         "the {} backend is not implemented (it arrives with `{feature}`)",
         platform.slug()
     )
+}
+
+/// [`select`] over platform × profile × per-target availability.
+///
+/// The availability axis is real on every host: the two x86-64 rows are
+/// refused by constants this file does not own (`stencil` has no macOS x86-64
+/// library, and no SysV entry point for Linux x86-64), and the arm64 rows are
+/// checked against `stencil::supported` rather than against a second list —
+/// which is the property that makes the x86-64 flip a one-constant change.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(platform: Platform, arch: Option<Arch>) -> Target {
+        Target { platform, arch }
+    }
+
+    const NATIVE: [(Platform, Arch); 4] = [
+        (Platform::Macos, Arch::Arm64),
+        (Platform::Macos, Arch::X86_64),
+        (Platform::Linux, Arch::Arm64),
+        (Platform::Linux, Arch::X86_64),
+    ];
+
+    #[test]
+    fn a_page_is_javascript_in_both_profiles() {
+        for platform in [Platform::Js, Platform::Web] {
+            for profile in [Profile::Debug, Profile::Release] {
+                let backend = select(at(platform, None), profile)
+                    .unwrap_or_else(|e| panic!("{platform:?}/{profile:?} refused: {e}"));
+                assert_eq!(backend.name(), "js", "{platform:?}/{profile:?}");
+            }
+        }
+    }
+
+    #[cfg(feature = "backend-stencil")]
+    #[test]
+    fn a_native_debug_build_is_stencil_exactly_where_stencil_has_the_target() {
+        for (platform, arch) in NATIVE {
+            let target = at(platform, Some(arch));
+            let selected = select(target, Profile::Debug);
+            match stencil::supported(target) {
+                Ok(_) => assert_eq!(
+                    selected.map(|b| b.name()).unwrap_or("<refused>"),
+                    "stencil",
+                    "{platform:?}/{arch:?}"
+                ),
+                Err(_) => assert!(selected.is_err(), "{platform:?}/{arch:?} was selected anyway"),
+            }
+        }
+    }
+
+    #[cfg(feature = "backend-stencil")]
+    #[test]
+    fn the_two_x86_64_targets_are_refused_by_triple() {
+        for platform in [Platform::Macos, Platform::Linux] {
+            let target = at(platform, Some(Arch::X86_64));
+            let why = select(target, Profile::Debug)
+                .err()
+                .unwrap_or_else(|| panic!("{platform:?}/x86_64 debug was not refused"));
+            assert!(
+                why.starts_with("no development backend for "),
+                "{platform:?}: {why}"
+            );
+            let triple = triple_text(target).expect("a native target has a triple");
+            assert!(why.contains(&triple), "{platform:?} refusal names no triple: {why}");
+        }
+    }
+
+    /// A refusal is a sentence, not a panic: the whole point of asking the
+    /// target question in `select` is that the failure arrives before an
+    /// emission starts.
+    #[cfg(feature = "backend-stencil")]
+    #[test]
+    fn an_unfinished_target_refuses_rather_than_answering_a_backend() {
+        let target = at(Platform::Linux, Some(Arch::X86_64));
+        assert!(select(target, Profile::Debug).is_err());
+        assert!(
+            !crate::build::actions::native_ready(target, Profile::Debug),
+            "native_ready answered true for a target select refuses"
+        );
+    }
+
+    /// Where the two arm64 rows are available, the host's own unqualified
+    /// target has to reach the same backend the qualified one does.
+    #[cfg(feature = "backend-stencil")]
+    #[test]
+    fn an_unqualified_native_target_follows_the_host_architecture() {
+        let platform = if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux };
+        let arch = if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 };
+        let unqualified = select(at(platform, None), Profile::Debug);
+        let qualified = select(at(platform, Some(arch)), Profile::Debug);
+        assert_eq!(unqualified.is_ok(), qualified.is_ok());
+        assert_eq!(
+            unqualified.map(|b| b.name()).unwrap_or("<refused>"),
+            qualified.map(|b| b.name()).unwrap_or("<refused>")
+        );
+    }
+
+    /// The release path is unchanged by the development backend's arrival: a
+    /// toolchain without `backend-llvm` names the feature rather than handing
+    /// `--release` to whatever emits debug builds.
+    #[test]
+    fn a_native_release_build_answers_llvm_or_names_the_feature() {
+        for (platform, arch) in NATIVE {
+            let selected = select(at(platform, Some(arch)), Profile::Release);
+            if cfg!(feature = "backend-llvm") {
+                assert_eq!(
+                    selected.map(|b| b.name()).unwrap_or("<refused>"),
+                    "llvm",
+                    "{platform:?}/{arch:?}"
+                );
+            } else {
+                let why = selected
+                    .err()
+                    .unwrap_or_else(|| panic!("{platform:?}/{arch:?} release was not refused"));
+                assert!(why.contains("backend-llvm"), "{why}");
+            }
+        }
+    }
+
+    /// A `--no-default-features` toolchain answers the diagnostic rather than
+    /// failing to compile, and the diagnostic names the feature that carries
+    /// the backend.
+    #[cfg(not(feature = "backend-stencil"))]
+    #[test]
+    fn a_toolchain_with_no_development_backend_names_the_feature() {
+        for (platform, arch) in NATIVE {
+            let why = select(at(platform, Some(arch)), Profile::Debug)
+                .err()
+                .unwrap_or_else(|| panic!("{platform:?}/{arch:?} debug was not refused"));
+            assert!(why.contains("backend-stencil"), "{why}");
+        }
+    }
 }

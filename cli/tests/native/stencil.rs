@@ -288,6 +288,68 @@ export fn main(): Result<(), Str> { .Err("nope") }
     assert_eq!(ran.status, 1);
 }
 
+/// SPEC 6.2's abort fires for a divisor that is a **literal** zero, which is
+/// the case the immediate stencil had lost.
+///
+/// The guard lives in the stencil's C source, so in the `fi` variant it read
+/// `(uintptr_t)_JIT_K` — the address of an `extern char[]` — and clang deleted
+/// it as provably non-null. `jit.rs::zero_divisor` keeps a literal zero out of
+/// a frame slot's way instead. A constant divisor is the shape a user writes,
+/// so the variant that lost the guard was the likelier one of the two.
+#[test]
+fn a_literal_zero_divisor_still_aborts() {
+    if !supported() {
+        return;
+    }
+    for (name, expr) in [("divz", "n / 0"), ("remz", "n % 0")] {
+        let ran = run(
+            name,
+            &format!(
+                r#"
+from "core/host" import {{ stdout }};
+fn one(): Int {{ 1 }}
+export fn main(): Result<(), Str> {{
+  let n = one();
+  let _ = stdout.println("${{{expr}}}");
+  .Ok(())
+}}
+"#
+            ),
+        );
+        assert!(
+            ran.stderr.contains("division by zero"),
+            "{name}: {:?} / {:?}",
+            ran.stdout,
+            ran.stderr
+        );
+        assert_ne!(ran.status, 0, "{name} exited zero");
+    }
+}
+
+/// The fold the test above turns off is still on where it is sound: a non-zero
+/// literal divisor is an immediate, and the guard it loses is one that could
+/// not have fired.
+#[test]
+fn a_non_zero_literal_divisor_still_divides() {
+    if !supported() {
+        return;
+    }
+    let ran = run(
+        "divk",
+        r#"
+from "core/host" import { stdout };
+fn seven(): Int { 7 }
+export fn main(): Result<(), Str> {
+  let n = seven();
+  let _ = stdout.println("${n / 2} ${n % 2}");
+  .Ok(())
+}
+"#,
+    );
+    assert_eq!(ran.stdout, "3 1\n");
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+}
+
 /// A call, a branch and arithmetic: the frame-threaded convention end to end,
 /// with a callee's frame at `fp + frame_size` and no machine stack use at all.
 #[test]

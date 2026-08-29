@@ -92,11 +92,10 @@
 //! Nothing consumes it, and the reason is not that the transformation is hard:
 //! **the construction it would rewrite does not allocate.** A struct, a tuple,
 //! an enum and a closure record are register or stack values in both backends
-//! (`cranelift/emit.rs`'s `make_struct` is a stack slot), so
+//! (`stencil/emit.rs`'s `MakeStruct` writes into the frame), so
 //! `.Cons(f(h), t)` writing into the matched cell has no cell to write into.
-//! `cli/tests/native/cranelift.rs`'s
-//! `a_struct_update_loop_allocates_nothing_per_iteration` measures it: a
-//! thousand functional record updates allocate exactly as many blocks as ten.
+//! The allocation probe in `cli/tests/native/` measures it: a thousand
+//! functional record updates allocate exactly as many blocks as ten.
 //!
 //! What *does* allocate is a `Str`'s bytes and a `[T]`'s elements, and the
 //! in-place growth for both landed where each operation lives —
@@ -181,7 +180,7 @@
 //!
 //! **Both native backends build a [`Syntactic`] from the same `Program`** and
 //! ask it rather than their own layout table wherever they emit one half of a
-//! pair this pass completes (`cranelift::emit::Cx::rc_counted`). An oracle
+//! pair this pass completes (`stencil::emit`'s `rc_counted`). An oracle
 //! that answered differently there would be a retain with no release or a
 //! release with no retain, so the answer travelling *with* the program is what
 //! keeps the two halves from disagreeing.
@@ -388,7 +387,7 @@ pub trait Counted {
 ///
 /// **Both native backends build one of these from the same `Program`** and ask
 /// it rather than their own layout table wherever they emit one half of a pair
-/// this pass completes (`cranelift::emit::Cx::rc_counted`). So the shapes are
+/// this pass completes (`stencil::emit`'s `rc_counted`). So the shapes are
 /// the single source of the answer, and the two halves cannot disagree.
 ///
 /// The descriptor and body scans below stay as the answer for a `Program` that
@@ -396,7 +395,7 @@ pub trait Counted {
 /// every caller that assembles a `Program` by hand.
 ///
 /// The name is now narrower than the type: this is no longer only what syntax
-/// can say. It stays because `cranelift/mod.rs` and `llvm/emit.rs` name it, and
+/// can say. It stays because `stencil/mod.rs` and `llvm/emit.rs` name it, and
 /// a rename would be an edit to two files for a word.
 pub struct Syntactic {
     shapes: monomorphize::Shapes,
@@ -2114,8 +2113,8 @@ fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> {
         // [`ir::Inst::CallIndirect`] is "load `code` and `env`, then
         // `call_indirect`": the environment pointer is handed to the code and
         // neither half of it is released there. What frees an environment is
-        // the closure *value*'s own drop — `cranelift::helpers`'s environment
-        // glue and `stencil::glue::EnvGlue` — so an `Own` here was a release
+        // the closure *value*'s own drop — `stencil::glue::Helper::EnvGlue`
+        // — so an `Own` here was a release
         // nothing performed, and every closure that was ever called leaked its
         // environment.
         //
