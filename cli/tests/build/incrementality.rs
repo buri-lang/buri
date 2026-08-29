@@ -1015,3 +1015,164 @@ fn one_suites_failure_leaves_the_others_reported() {
         indent(&again.all())
     );
 }
+
+// ---------------------------------------------------------------------------
+// `buri lint`
+// ---------------------------------------------------------------------------
+
+/// A library package: the build file, the surface, and one source module.
+fn library_package(scratch: &Scratch, path: &str, exports: &str, deps: &str, source: &str) {
+    scratch.write(
+        &format!("{path}/BUILD.buri"),
+        &format!(
+            "library {{\n    sources: [\"unit.buri\"]\n{deps}    visibility: [\"//visibility:public\"]\n}}\n"
+        ),
+    );
+    scratch.write(
+        &format!("{path}/lib.buri"),
+        &format!("from \"//{path}/unit\" export {{ {exports} }};\n"),
+    );
+    scratch.write(&format!("{path}/unit.buri"), source);
+}
+
+/// Three libraries: a leaf, a dependent of it, and a stranger to both.
+fn three_libraries(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    library_package(&scratch, "lib/money", "cents", "", "export fn cents(): I64 { 1 }\n");
+    library_package(
+        &scratch,
+        "lib/ledger",
+        "total",
+        "    dependencies: [\"//lib/money\"]\n",
+        "from \"//lib/money\" import { cents };\n\nexport fn total(): I64 { cents() }\n",
+    );
+    library_package(&scratch, "lib/kit", "one", "", "export fn one(): I64 { 1 }\n");
+    scratch
+}
+
+/// The lint records are per target and keyed on the build graph, so a second
+/// run over an untouched tree analyses nothing, and an edit reaches exactly the
+/// targets whose closure holds the file that moved.
+#[test]
+fn a_lint_re_analyses_only_the_targets_an_edit_can_reach() {
+    let scratch = three_libraries("lint-incremental");
+
+    let first = scratch.run(&["lint", "//...", "--explain"]);
+    first.ok();
+    for label in ["//lib/money", "//lib/ledger", "//lib/kit"] {
+        assert_eq!(status(&first, &format!("lint {label}")), "run", "{label} came from nowhere");
+    }
+
+    let again = scratch.run(&["lint", "//...", "--explain"]);
+    again.ok();
+    for label in ["//lib/money", "//lib/ledger", "//lib/kit"] {
+        assert_eq!(
+            status(&again, &format!("lint {label}")),
+            "cached",
+            "{label} was analysed twice"
+        );
+    }
+
+    scratch.write("lib/money/unit.buri", "export fn cents(): I64 { 2 }\n");
+    let after = scratch.run(&["lint", "//...", "--explain"]);
+    after.ok();
+    assert_eq!(
+        (
+            status(&after, "lint //lib/money"),
+            status(&after, "lint //lib/ledger"),
+            status(&after, "lint //lib/kit")
+        ),
+        ("run".to_string(), "run".to_string(), "cached".to_string()),
+        "the edit did not reach exactly the closures that hold it:\n{}",
+        indent(&after.all())
+    );
+
+    // The key names *which* target under *which* graph; what a source edit
+    // moves is the closure inside the record, so one target keeps one entry
+    // however many times its sources are edited.
+    assert_eq!(keys(&first), keys(&after), "a source edit moved a lint key");
+    eprintln!("lint: incremental across invocations, one record per target");
+}
+
+/// `buri clean` drops the records with the rest of the cache: the run after it
+/// is a cold one.
+#[test]
+fn clean_drops_the_lint_records() {
+    let scratch = three_libraries("lint-clean");
+    scratch.run(&["lint", "//..."]).ok();
+    scratch.run(&["lint", "//...", "--explain"]).ok().says("cached lint");
+
+    scratch.run(&["clean"]).ok();
+    assert!(!scratch.path(".buri/cache").exists(), "clean left the cache behind");
+
+    // And the run after it re-analyses everything, which is what makes the
+    // directory being gone mean the records are.
+    scratch.run(&["lint", "//...", "--explain"]).ok().silent_about("cached lint");
+}
+
+/// A record this binary cannot read is a miss.
+///
+/// A record another toolchain wrote is unreachable rather than misread — its
+/// key holds that toolchain's version, and this one never computes it — so what
+/// is left to prove is that reaching a record which is not the shape this
+/// version writes ends in re-analysis rather than in a wrong answer or a panic.
+#[test]
+fn a_lint_record_this_toolchain_cannot_read_is_a_miss() {
+    let scratch = three_libraries("lint-garbled");
+    scratch.write(
+        "lib/kit/unit.buri",
+        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+    );
+    let cold = scratch.run(&["lint", "//..."]);
+    cold.exits(1).says("unused-import");
+
+    let mut records = Vec::new();
+    cache_files(&scratch.path(".buri/cache"), &mut records);
+    assert!(!records.is_empty(), "the lint run wrote no records");
+    for record in &records {
+        std::fs::write(record, b"not a record any version of this format wrote").unwrap();
+    }
+
+    let warm = scratch.run(&["lint", "//..."]);
+    assert_eq!(
+        (warm.code, warm.stderr.clone()),
+        (cold.code, cold.stderr.clone()),
+        "an unreadable record changed what the command said"
+    );
+}
+
+fn cache_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            cache_files(&path, out);
+        } else if path.file_name().is_some_and(|n| n != ".lock") {
+            out.push(path);
+        }
+    }
+}
+
+/// `REPO.buri`'s `fail_on_finding` reaches a finding that came out of a record.
+///
+/// Promotion happens once, over the assembled report, rather than per target —
+/// so a cached warning is promoted by the code that would have promoted a fresh
+/// one. This is the test that says so out loud, because it is the one place a
+/// per-target cache could plausibly have skipped a repository-wide rule.
+#[test]
+fn fail_on_finding_reaches_a_cached_finding() {
+    let scratch = three_libraries("lint-promote");
+    scratch.write("REPO.buri", "lint {\n    fail_on_finding: true\n}\n");
+    scratch.write(
+        "lib/kit/unit.buri",
+        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+    );
+
+    let cold = scratch.run(&["lint", "//..."]);
+    cold.exits(1).says("error: list is imported but not used");
+
+    let warm = scratch.run(&["lint", "//...", "--explain"]);
+    warm.exits(1);
+    assert_eq!(status(&warm, "lint //lib/kit"), "cached", "the finding was not a cached one");
+    assert_eq!(warm.stderr, cold.stderr, "a cached finding was not promoted");
+}

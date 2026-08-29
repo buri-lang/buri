@@ -28,6 +28,9 @@ pub mod format;
 pub mod generate;
 pub mod init;
 pub mod lint;
+/// What the last lint pass found for a target, kept in `.buri/cache` so that a
+/// second run re-analyses only the targets whose closure moved.
+pub mod lint_cache;
 pub mod query;
 pub mod run;
 pub mod test;
@@ -363,7 +366,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "static checks beyond type checking",
         doc: include_str!("../docs/cli/lint.md"),
-        flags: &["fix", "dense"],
+        flags: &["fix", "explain", "dense"],
         run: lint::command_lint,
         hidden: false,
     },
