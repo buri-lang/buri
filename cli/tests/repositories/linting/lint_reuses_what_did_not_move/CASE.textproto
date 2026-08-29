@@ -1,0 +1,49 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# The claim is byte-identity, and it is made by recording the third and the
+# fifth steps against **one** golden. The third is the incremental run — two of
+# the three targets come out of `.buri/cache` — and the fifth is the same
+# question asked of the same tree with the cache thrown away. A record that
+# went stale, that lost a note, or that put a span a byte out shows up as a
+# difference between two files that are required to be one.
+#
+# Which targets were re-analysed is not asked here: an `--explain` transcript
+# holds keys, and a key holds the toolchain version, so it would be a golden
+# that moved on every release. `build/incrementality.rs` reads that transcript
+# instead and asks the sharper question.
+
+doc: "a second lint reuses the findings of every target the edit could not reach, and says exactly what a run with no cache says"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "cold.txt"
+}
+
+# The import that findings the money library goes away. //lib/money and
+# //lib/ledger have it in their closures; //lib/kit does not, and its finding
+# below is therefore one nothing analysed a second time.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "after_edit.txt"
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+}
+
+# The same tree, with nothing remembered about it. Same golden, on purpose.
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "after_edit.txt"
+}
