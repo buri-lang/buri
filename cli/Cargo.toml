@@ -9,9 +9,7 @@ repository = "https://github.com/buri-lang/buri"
 # that it shows the introduction a reader meets on GitHub rather than a second
 # copy of it.
 readme = "../README.md"
-# Two floors, and this is the higher of them. Cranelift 0.123 — the wasmtime 36
-# LTS line, with its reasoning under `[dependencies]` below — wants 1.86; the
-# toolchain's own code wants 1.87, for `is_multiple_of` in the stencil
+# The toolchain's own code wants 1.87, for `is_multiple_of` in the stencil
 # backend's ELF and region writers. Clippy's `incompatible_msrv` is what holds
 # this number to the tree rather than to a memory of it: raise a use above the
 # floor and `cargo clippy --all-targets` names the line.
@@ -24,41 +22,15 @@ rust-version = "1.87"
 # `[[bench]]` stanza at the bottom of this file names the one real target.
 autobenches = false
 
-# The dependency bar is stated in the workspace manifest, and these are the
-# only things that clear it. Every one is optional, so the *dependency-free*
-# build is still `cargo build -p buri --no-default-features`, and every one is a
-# code generator this repository could not reasonably write.
+# The dependency bar is stated in the workspace manifest, and `inkwell` is the
+# only thing that clears it. It is optional, so the *default* build has no
+# dependency at all and `cargo build -p buri --no-default-features` resolves
+# nothing either.
 #
-# The two backend blocks below are chosen together rather than one at a time:
-# each carries its version into `Backend::identity()`'s cache keys, so a bump on
-# either side is an event to schedule against the other
-# (design/native/BUILD-AND-WATCH.md §2, §7).
+# It carries its version into `Backend::identity()`'s cache keys, so a bump
+# invalidates every cached release object in every repository — an event to
+# schedule rather than to inherit (design/native/BUILD-AND-WATCH.md §2, §7).
 [dependencies]
-
-# -- backend-cranelift --------------------------------------------------------
-#
-# 0.123.x is the wasmtime 36 LTS line — 24 months of support, MSRV 1.86 —
-# rather than the monthly-major latest, because `Backend::identity()` carries
-# the Cranelift version into every `codegen` cache key: a bump invalidates every
-# cached object in every repository, and that is an event to schedule rather
-# than to inherit (CODEGEN-CRANELIFT.md §8). Resolved 0.123.13 at the time of
-# writing; nothing on the line is yanked.
-#
-# `default-features = false` plus `all-arch` rather than the default
-# `host-arch`, so the ISA is selected by triple and ARCHITECTURE.md §9's refusal
-# to cross-compile stays a decision about the runtime archive rather than a
-# limit of the backend. `object` is deliberately *not* a direct dependency:
-# `cranelift-object` re-exports it, so version skew is a compile error.
-cranelift-codegen = { version = "0.123", optional = true, default-features = false, features = ["std", "unwind", "all-arch"] }
-cranelift-frontend = { version = "0.123", optional = true, default-features = false, features = ["std"] }
-cranelift-module = { version = "0.123", optional = true }
-cranelift-object = { version = "0.123", optional = true }
-# `infer_native_flags`, for the host CPU features.
-cranelift-native = { version = "0.123", optional = true }
-# Comes in with Cranelift; named directly because a `Target` has to be spelled
-# as a triple to select an ISA, and re-exporting it through `cranelift-codegen`
-# would be depending on a path rather than on a crate.
-target-lexicon = { version = "0.13", optional = true }
 
 # -- backend-llvm -------------------------------------------------------------
 #
@@ -90,28 +62,17 @@ inkwell = { version = "0.10", optional = true, features = ["llvm21-1-prefer-dyna
 inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
 
 [features]
-default = ["backend-cranelift", "backend-stencil"]
+default = ["backend-stencil"]
 
-# On by default. Cranelift is pure Rust with no system dependency and
-# cross-compiles anywhere Rust does, so having it on costs a contributor
-# nothing but compile time, and having it off would mean the default toolchain
-# cannot build a native artifact at all.
-backend-cranelift = [
-    "dep:cranelift-codegen",
-    "dep:cranelift-frontend",
-    "dep:cranelift-module",
-    "dep:cranelift-object",
-    "dep:cranelift-native",
-    "dep:target-lexicon",
-]
-
-# On by default, and off on a host with no `clang`. See `cli/build.rs`.
+# On by default, and off on a host with no `clang`. See `cli/build.rs`. It is
+# the whole of the default toolchain's native code generation and it needs no
+# crate, which is why the default build has no dependency at all.
 backend-stencil = []
 
 # Off by default. It needs LLVM 21 installed and `LLVM_SYS_211_PREFIX` set, and
 # `cargo install buri` must not require that. A toolchain without it refuses a
-# native `--release` build naming this feature rather than falling back to
-# Cranelift.
+# native `--release` build naming this feature rather than falling back to the
+# development backend.
 backend-llvm = ["dep:inkwell"]
 
 # The benchmark's counting global allocator. Off by default and not referenced

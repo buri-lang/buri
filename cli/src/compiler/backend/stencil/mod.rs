@@ -137,7 +137,7 @@ pub mod runtime;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
-use crate::compiler::backend::{Backend, Emitted, Options, Units};
+use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::layout::{EnumRepr, Layouts, Repr};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
 use crate::compiler::middle::{ir, lower};
@@ -332,7 +332,7 @@ impl Backend for Stencil {
         opts: &Options<'_>,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let target = match supported(opts) {
+        let target = match supported(opts.target) {
             Ok(t) => t,
             Err(e) => return Err(one(e)),
         };
@@ -416,26 +416,25 @@ fn one(message: String) -> Diagnostics {
     diags
 }
 
-/// The one target this backend has, stated as a refusal rather than as a
-/// silent wrong answer.
-///
-/// A stencil is the bytes `cc` emitted for an arm64 function, so there is no
-/// sense in which this backend can target another architecture, and
-/// `object.rs` writes Mach-O. Both halves are named here so that
-/// `--output=linux/arm64` fails with a sentence rather than with a link error.
-/// The target's stencil library, or the sentence saying why there is none.
+/// The stencil library a [`Target`] resolves to, or the sentence saying why
+/// there is none.
 ///
 /// Three things can be missing and each gets its own sentence, because a user
 /// who asked for a Linux artifact on a machine whose clang cannot cross-compile
 /// is in a different position from one who asked for a target this backend has
 /// not finished.
-fn supported(opts: &Options<'_>) -> Result<abi::StencilTarget, String> {
-    let arch = opts.target.arch.unwrap_or(if cfg!(target_arch = "aarch64") {
+///
+/// Public because `backend::select` asks it before answering: this is the one
+/// place the per-target answer is derived from `available_for` and
+/// `asm::AVAILABLE_X86_64`, so a target that lights up here lights up in
+/// selection with no second list to edit.
+pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
+    let arch = target.arch.unwrap_or(if cfg!(target_arch = "aarch64") {
         Arch::Arm64
     } else {
         Arch::X86_64
     });
-    let target = match (opts.target.platform, arch) {
+    let stencils = match (target.platform, arch) {
         (Platform::Macos, Arch::Arm64) => abi::StencilTarget::MacosArm64,
         (Platform::Linux, Arch::Arm64) => abi::StencilTarget::LinuxArm64,
         (Platform::Linux, Arch::X86_64) => abi::StencilTarget::LinuxX86_64,
@@ -450,27 +449,27 @@ fn supported(opts: &Options<'_>) -> Result<abi::StencilTarget, String> {
             ))
         }
     };
-    if !available_for(target) {
+    if !available_for(stencils) {
         return Err(format!(
             "this toolchain was built without {} stencils, so the stencil backend cannot \
              emit for that target (it needs a C compiler that can produce {} objects)",
-            target.slug(),
-            target.triple()
+            stencils.slug(),
+            stencils.triple()
         ));
     }
     // x86-64 has stencils and a patcher, and no `main`. Refused here rather
     // than at the end of a whole emission, and refused with the one sentence
     // that says what is missing: `asm.rs` is hand-written machine code and its
     // SysV counterpart is the remaining work.
-    if !target.is_arm64() && !asm::AVAILABLE_X86_64 {
+    if !stencils.is_arm64() && !asm::AVAILABLE_X86_64 {
         return Err(format!(
             "the stencil backend has {} stencils but no hand-written entry point for SysV \
              x86-64, so it can emit unit objects for that target but not a program \
              (design/native/CODEGEN-STENCIL.md, \"the x86-64 checklist\")",
-            target.slug()
+            stencils.slug()
         ));
     }
-    Ok(target)
+    Ok(stencils)
 }
 
 /// One codegen unit, from IR to object bytes.
