@@ -1,0 +1,19 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The file as it is on disk: nothing wrong with it, so an empty publish.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
+# A line typed in that does not type check. The buffer parses, so a keystroke
+# has nothing to add and takes nothing away.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 2}, "contentChanges": [{"text": "/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n\nlet broken: Str = 1;\n"}]}}
+# The save analyses what is in the buffer, not what was in it when the file
+# was opened, so the type error arrives here.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# The line comes out again. The buffer is now what it was at `didOpen`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 3}, "contentChanges": [{"text": "/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}]}}
+# And the second save publishes empty, so the error the editor is showing is
+# cleared. This is the answer a stale analysis would get wrong in the other
+# direction.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

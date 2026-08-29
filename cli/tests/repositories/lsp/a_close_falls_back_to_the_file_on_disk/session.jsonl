@@ -1,0 +1,22 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
+# The file as it is on disk answers `I64`.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 1, "character": 12}}}
+# The return type is changed and a line that does not type check is added,
+# neither of them saved. The buffer parses, so nothing is published.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 2}, "contentChanges": [{"text": "/// How many times the thing has happened.\nexport fn counter(): Str { \"one\" }\n\nlet broken: I64 = \"two\";\n"}]}}
+# The unsaved buffer is what is analysed, so the same position answers `Str`.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 1, "character": 12}}}
+# And a save publishes the finding the unsaved text has in it.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# The editor closes the file without writing it.
+{"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# The buffer is gone, so the file on disk is what answers: `I64` again.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 1, "character": 12}}}
+# Reopening it publishes empty, so the finding the buffer had is cleared
+# rather than left on screen.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 3, "text": "/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

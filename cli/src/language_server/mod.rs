@@ -616,12 +616,12 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
     // would be showing half of what the toolchain knows, and the half that is
     // easier to notice at the terminal — a missing dependency is exactly the
     // kind of thing you want told about while the import is still on screen.
-    if let Some((session, lint)) = state.lint(path) {
-        for d in &lint.items {
+    if let Some(linted) = state.lint(path) {
+        for d in &linted.diagnostics.items {
             if d.span.is_none() {
                 continue;
             }
-            let f = session.map.get(d.span.file);
+            let f = linted.session.map.get(d.span.file);
             if f.abs_path.as_os_str().is_empty() {
                 continue;
             }
@@ -694,11 +694,12 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         return Value::Array(Vec::new());
     }
 
-    let Some((mut session, lint)) = state.lint(&path) else { return Value::Array(Vec::new()) };
+    let Some(linted) = state.lint(&path) else { return Value::Array(Vec::new()) };
+    let session = &linted.session;
     let mut out = Vec::new();
     let mut regenerated: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
-    for d in &lint.items {
+    for d in &linted.diagnostics.items {
         let Some(code) = d.code.as_deref() else { continue };
         if !wanted.iter().any(|w| w == code) {
             continue;
@@ -736,14 +737,18 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         if !matches!(code, "missing-dep" | "unused-library" | "duplicate-source") {
             continue;
         }
-        let Some(package) = package_of(&session, d.span.file, &path) else { continue };
+        let Some(package) = package_of(session, d.span.file, &path) else { continue };
         if !regenerated.insert(session.workspace.package(package).path.clone()) {
             continue;
         }
-        let Ok(Some(update)) = regenerate::regenerate(&mut session, package) else { continue };
-        let build = session.workspace.package(package).build_path.clone();
-        let Some(id) = session.map.find(&session.workspace.rel_of(&build)) else { continue };
-        let text = session.map.get(id).text.clone();
+        // `buri gen` re-analyses the package to derive its dependencies and
+        // writes through the session it is handed, so it gets one of its own:
+        // the lint session is shared with everything else holding this answer.
+        let Some(mut writable) = state.overlaid_session() else { continue };
+        let Ok(Some(update)) = regenerate::regenerate(&mut writable, package) else { continue };
+        let build = writable.workspace.package(package).build_path.clone();
+        let Some(id) = writable.map.find(&writable.workspace.rel_of(&build)) else { continue };
+        let text = writable.map.get(id).text.clone();
         let whole = Value::object(vec![
             ("start", Position { line: 0, character: 0 }.to_json()),
             ("end", convert::position_of(&text, text.len() as u32).to_json()),

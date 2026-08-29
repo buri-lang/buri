@@ -1,0 +1,17 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a save analyses the buffer as it now stands: an error typed since the file was opened arrives on the save, and goes on the save after it is taken out again"
+
+# The claim is about the *key* the analysis is kept under. Two saves of one
+# file, with a change between them, must say two different things — and the
+# second save returns the buffer to the text the file was opened with, so the
+# third answer is the first one again. An analysis kept under anything less
+# than the bytes it read cannot do all three.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

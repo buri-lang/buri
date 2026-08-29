@@ -1,0 +1,16 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "closing a file with unsaved edits in it puts the copy on disk back: hover answers from the file again, and the findings the buffer had are gone once it is reopened"
+
+# `didClose` drops the buffer, and the buffer is part of what an analysis is
+# keyed on — so the same hover, at the same position, answers `Str` while the
+# edit is open and `I64` once it is closed. An analysis kept under the file's
+# name rather than its bytes would keep answering `Str`.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

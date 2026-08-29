@@ -1,14 +1,14 @@
 //! What the server knows between requests.
 //!
-//! Two things: where it is in the protocol's lifecycle, and the buffers the
-//! editor has open and may have edited since they were last saved. Not the
-//! analysis — that is recomputed and returned by value, because it was never
-//! keyed and so was never a cache.
+//! Three things: where it is in the protocol's lifecycle, the buffers the
+//! editor has open and may have edited since they were last saved, and the
+//! analyses those two produced.
 //!
 //! There is no incremental engine here, and the honest reason is that there is
 //! not one in the compiler either — `driver::analyze` is whole-closure. What
-//! makes that liveable is the scheduling in `mod.rs`: a keystroke re-parses one
-//! buffer, and only a save pays for the analysis.
+//! makes that liveable is the scheduling in `mod.rs`, and now also the
+//! [`Cache`]: an answer is kept under a hash of every byte it was computed
+//! from, so a second question about an unchanged repository is a lookup.
 
 use crate::build::session::{self, Session};
 use crate::build::workspace::TargetId;
@@ -17,7 +17,9 @@ use crate::compiler::driver::Analysis;
 use crate::compiler::modules::Unit;
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// Where the server is in the protocol's lifecycle.
 ///
@@ -110,11 +112,106 @@ pub struct State {
     /// The files whose last publish came from the parse rather than from the
     /// analysis. Only those need clearing when the buffer parses again.
     pub showing_parse_errors: BTreeSet<String>,
+    /// Analyses, under a hash of everything they were computed from.
+    cache: Cache,
 }
 
 pub struct Analyzed {
     pub session: Session,
     pub analysis: Analysis,
+}
+
+/// What `buri lint` found, and the session whose source map its spans point
+/// into. The two travel together because neither means anything alone.
+pub struct Linted {
+    pub session: Session,
+    pub diagnostics: crate::diagnostics::Diagnostics,
+}
+
+// ---------------------------------------------------------------------------
+// The cache
+// ---------------------------------------------------------------------------
+
+/// Everything computed from one state of the repository.
+///
+/// The key is a hash of every input an analysis reads, so a generation is
+/// valid entirely or not at all. That coarseness is the design and not a
+/// shortcut: the front end is whole-closure, so there is no smaller unit whose
+/// answer an edit elsewhere provably does not change, and a per-target scheme
+/// would have to prove exactly that.
+#[derive(Default)]
+struct Generation {
+    fingerprint: u64,
+    /// Keyed by the target owning the file rather than by the file, because
+    /// that is what the answer depends on — every source in one target shares
+    /// an entry.
+    targets: Vec<(Option<TargetId>, Rc<Analyzed>)>,
+    /// The whole-repository analysis, which has no target to key on.
+    whole: Option<Rc<Analyzed>>,
+    lints: Vec<(TargetId, Rc<Linted>)>,
+}
+
+/// How many fingerprints are kept at once. Two: the one being asked about, and
+/// the one before it, so that a keystroke and its undo both land on a hit.
+const GENERATIONS: usize = 2;
+
+/// How many targets one generation holds an analysis for. A person edits in a
+/// handful of files at a time, and an `Analysis` carries the whole closure —
+/// keeping one per target in a large repository is how a server ends up
+/// holding the repository several times over.
+const PER_GENERATION: usize = 4;
+
+#[derive(Default)]
+pub struct Cache {
+    /// Oldest first, so eviction is from the front.
+    generations: Vec<Generation>,
+}
+
+impl Cache {
+    fn find(&self, fingerprint: u64) -> Option<&Generation> {
+        self.generations.iter().find(|g| g.fingerprint == fingerprint)
+    }
+
+    /// The generation for this fingerprint, made if it is new — evicting the
+    /// oldest to keep at most [`GENERATIONS`] of them.
+    fn generation(&mut self, fingerprint: u64) -> Option<&mut Generation> {
+        if !self.generations.iter().any(|g| g.fingerprint == fingerprint) {
+            if self.generations.len() >= GENERATIONS {
+                self.generations.remove(0);
+            }
+            self.generations.push(Generation { fingerprint, ..Generation::default() });
+        }
+        self.generations.iter_mut().find(|g| g.fingerprint == fingerprint)
+    }
+}
+
+impl Generation {
+    /// Any session this generation holds, for the questions that need the
+    /// build graph and nothing else — which target owns a file, above all.
+    ///
+    /// Every session in a generation was opened from the same bytes, so which
+    /// one it is does not matter.
+    fn any_session(&self) -> Option<&Session> {
+        if let Some((_, analyzed)) = self.targets.first() {
+            return Some(&analyzed.session);
+        }
+        if let Some(analyzed) = &self.whole {
+            return Some(&analyzed.session);
+        }
+        self.lints.first().map(|(_, linted)| &linted.session)
+    }
+}
+
+/// Pushes onto a list that keeps only its last [`PER_GENERATION`] entries.
+fn remember<K: PartialEq, V>(list: &mut Vec<(K, V)>, key: K, value: V) {
+    if let Some(slot) = list.iter_mut().find(|(k, _)| *k == key) {
+        slot.1 = value;
+        return;
+    }
+    if list.len() >= PER_GENERATION {
+        list.remove(0);
+    }
+    list.push((key, value));
 }
 
 impl State {
@@ -124,7 +221,50 @@ impl State {
             open: BTreeMap::new(),
             published: BTreeMap::new(),
             showing_parse_errors: BTreeSet::new(),
+            cache: Cache::default(),
         }
+    }
+
+    /// A hash of every byte that feeds an analysis.
+    ///
+    /// That is every `.buri` file in the repository — sources, every
+    /// `BUILD.buri`, and `REPO.buri`, which all wear the one extension — plus
+    /// the open buffers layered over them, because the editor's copy is what
+    /// the analysis actually reads. The standard library is not in it: it is
+    /// compiled into this binary and cannot change while the server runs.
+    ///
+    /// Reading and hashing bytes is not parsing them, which is the whole
+    /// point — this is paid on every request and the analysis it replaces is
+    /// orders more expensive.
+    ///
+    /// `None` when there is no repository to fingerprint, and then nothing is
+    /// cached: an answer with no key is not one worth keeping.
+    fn fingerprint(&self) -> Option<u64> {
+        let cwd = std::env::current_dir().ok()?;
+        let root = crate::build::workspace::find_root(&cwd)?;
+        let mut files = Vec::new();
+        crate::commands::format::collect(&root, &mut files);
+        // `read_dir` order is the filesystem's, and the hash must not be.
+        files.sort();
+
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write(root.as_os_str().as_encoded_bytes());
+        for path in &files {
+            hasher.write(path.as_os_str().as_encoded_bytes());
+            match std::fs::read(path) {
+                Ok(bytes) => hasher.write(&bytes),
+                // A file that cannot be read still has to move the hash when
+                // it appears or goes away.
+                Err(_) => hasher.write_u8(0),
+            }
+        }
+        // The overlay, in the map's order so that which file was opened first
+        // is not part of the answer.
+        for (path, text) in &self.open {
+            hasher.write(path.as_os_str().as_encoded_bytes());
+            hasher.write(text.as_bytes());
+        }
+        Some(hasher.finish())
     }
 
     /// The buffer's text if it is open, otherwise the file on disk.
@@ -151,20 +291,22 @@ impl State {
     /// the name the loader will ask for means the loader never reaches the
     /// disk, and `compiler::modules` needs no notion of an editor at all.
     ///
-    /// Returned by value rather than stashed in a field. The field it used to
-    /// be written to was documented as a cache and was not one: it carried no
-    /// key saying which file or which revision produced it, and this method
-    /// overwrote it unconditionally on every call. What it actually did was
-    /// give the result somewhere to live long enough to be borrowed from, which
-    /// the caller can do for itself.
-    pub fn analyze(&self, path: &Path) -> Option<Analyzed> {
-        let mut session = session::open(&Flags::default()).ok()?;
-        for (p, text) in &self.open {
-            let rel = session.workspace.rel_of(p);
-            session.map.add(rel, p.clone(), text.clone());
+    /// Shared rather than returned by value, and keyed rather than stashed.
+    /// The field this used to be written to was documented as a cache and was
+    /// not one: it carried no key saying which file or which revision produced
+    /// it, and the method overwrote it unconditionally on every call. The key
+    /// is [`State::fingerprint`], and it is what makes reuse a claim rather
+    /// than a hope.
+    pub fn analyze(&mut self, path: &Path) -> Option<Rc<Analyzed>> {
+        let fingerprint = self.fingerprint();
+        if let Some(fingerprint) = fingerprint {
+            if let Some(hit) = self.cached_analysis(fingerprint, path) {
+                return Some(hit);
+            }
         }
 
-        let target = self.target_for(&session, path);
+        let mut session = self.overlaid_session()?;
+        let target = target_for(&session, path);
         let unit = Unit {
             target,
             // The editor is not building an output, and a file open in it
@@ -180,7 +322,11 @@ impl State {
             &mut session.parsed,
             &unit,
         );
-        Some(Analyzed { session, analysis })
+        let analyzed = Rc::new(Analyzed { session, analysis });
+        if let Some(generation) = fingerprint.and_then(|f| self.cache.generation(f)) {
+            remember(&mut generation.targets, target, Rc::clone(&analyzed));
+        }
+        Some(analyzed)
     }
 
     /// Runs the whole front end for *every* target in the repository, as one
@@ -195,15 +341,19 @@ impl State {
     /// parsed once and gets one id, which is what makes a single scan of the
     /// result well defined.
     ///
-    /// It is paid per request, with no cache. A cache here would need a key
-    /// saying which files and which revisions produced it, and the last field
-    /// that claimed to be one had neither.
-    pub fn analyze_workspace(&self) -> Option<Analyzed> {
-        let mut session = session::open(&Flags::default()).ok()?;
-        for (p, text) in &self.open {
-            let rel = session.workspace.rel_of(p);
-            session.map.add(rel, p.clone(), text.clone());
+    /// It was paid per request. It is now paid per *edit*: the key is a hash
+    /// of every file the analysis reads, so `references`, `rename` and
+    /// `workspace/symbol` asked one after another about an untouched
+    /// repository run this once between them.
+    pub fn analyze_workspace(&mut self) -> Option<Rc<Analyzed>> {
+        let fingerprint = self.fingerprint();
+        if let Some(hit) =
+            fingerprint.and_then(|f| self.cache.find(f)).and_then(|g| g.whole.as_ref())
+        {
+            return Some(Rc::clone(hit));
         }
+
+        let mut session = self.overlaid_session()?;
         let units: Vec<Unit> = session
             .workspace
             .targets()
@@ -216,16 +366,32 @@ impl State {
             &mut session.parsed,
             &units,
         );
-        Some(Analyzed { session, analysis })
+        let analyzed = Rc::new(Analyzed { session, analysis });
+        if let Some(generation) = fingerprint.and_then(|f| self.cache.generation(f)) {
+            generation.whole = Some(Rc::clone(&analyzed));
+        }
+        Some(analyzed)
     }
 
     /// The findings `buri lint` reports for the target owning `path`.
     ///
     /// A separate session and a second whole-closure analysis, because the
-    /// checks build their own. That is a real cost and it is why this runs on
+    /// checks build their own. That is a real cost, and it is why this ran on
     /// save and on open rather than on a keystroke — the same reason
-    /// `driver::analyze` does.
-    pub fn lint(&self, path: &Path) -> Option<(Session, crate::diagnostics::Diagnostics)> {
+    /// `driver::analyze` did. It is cached under the same key as the analysis
+    /// now, so the second question about one repository state does not pay it
+    /// at all.
+    ///
+    /// Shared, and therefore read-only. A caller that must write to the
+    /// session wants [`State::overlaid_session`].
+    pub fn lint(&mut self, path: &Path) -> Option<Rc<Linted>> {
+        let fingerprint = self.fingerprint();
+        if let Some(fingerprint) = fingerprint {
+            if let Some(hit) = self.cached_lint(fingerprint, path) {
+                return Some(hit);
+            }
+        }
+
         let mut session = session::open(&Flags::default()).ok()?;
         if session.diagnostics.has_errors() {
             return None;
@@ -234,35 +400,79 @@ impl State {
             let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
         }
-        let target = self.target_for(&session, path)?;
+        let target = target_for(&session, path)?;
         let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
-        Some((session, diagnostics))
+        let linted = Rc::new(Linted { session, diagnostics });
+        if let Some(generation) = fingerprint.and_then(|f| self.cache.generation(f)) {
+            remember(&mut generation.lints, target, Rc::clone(&linted));
+        }
+        Some(linted)
     }
 
-    /// The target whose closure contains `path`.
+    /// A session with the open buffers layered over the disk, and nothing
+    /// analysed in it yet.
     ///
-    /// A package holds a library and a binary at once, and their sources are
-    /// disjoint: `main.buri` and the binary's test suite are in the binary's
-    /// closure and in nothing else. Taking the package's first target analysed
-    /// the library for every file in the package, so a binary entry point and
-    /// its tests were never loaded at all — and a file no analysis reached has
-    /// no hover, no definition and no diagnostics, which is how a whole file
-    /// can look like the server is not running.
+    /// The overlay trick is `SourceMap::load` reusing an entry whose name
+    /// already exists (`diagnostics.rs`): seeding the map with each open buffer
+    /// under the name the loader will ask for means the loader never reaches
+    /// the disk, and `compiler::modules` needs no notion of an editor at all.
     ///
-    /// So the rule that decides which target owns a file is the build file's,
-    /// [`Workspace::rule_of_file`] — the same one `buri build` uses. The first
-    /// target is still the answer for a file the build file does not list,
-    /// which is a file being written before it is declared.
-    fn target_for(&self, session: &Session, path: &Path) -> Option<TargetId> {
-        let package = session.workspace.owning_package(path)?;
-        let targets = session.workspace.targets();
-        let declared = path
-            .strip_prefix(&session.workspace.package(package).dir)
-            .ok()
-            .map(|rel| rel.display().to_string().replace('\\', "/"))
-            .and_then(|rel| session.workspace.rule_of_file(package, &rel))
-            .map(|kind| TargetId { package, kind })
-            .filter(|t| targets.contains(t));
-        declared.or_else(|| targets.into_iter().find(|t| t.package == package))
+    /// Public because `buri gen` writes through the session it is handed, and
+    /// a cached one is shared by everything holding an `Rc` to it.
+    pub fn overlaid_session(&self) -> Option<Session> {
+        let mut session = session::open(&Flags::default()).ok()?;
+        for (p, text) in &self.open {
+            let rel = session.workspace.rel_of(p);
+            session.map.add(rel, p.clone(), text.clone());
+        }
+        Some(session)
     }
+
+    /// The analysis for the target owning `path`, if this fingerprint has one.
+    ///
+    /// Which target that is takes a loaded build graph, and a generation that
+    /// holds anything already has one — so a hit costs no `session::open`.
+    fn cached_analysis(&self, fingerprint: u64, path: &Path) -> Option<Rc<Analyzed>> {
+        let generation = self.cache.find(fingerprint)?;
+        let target = target_for(generation.any_session()?, path);
+        generation.targets.iter().find(|(t, _)| *t == target).map(|(_, a)| Rc::clone(a))
+    }
+
+    /// The same lookup for the lint pass.
+    fn cached_lint(&self, fingerprint: u64, path: &Path) -> Option<Rc<Linted>> {
+        let generation = self.cache.find(fingerprint)?;
+        let target = target_for(generation.any_session()?, path)?;
+        generation.lints.iter().find(|(t, _)| *t == target).map(|(_, l)| Rc::clone(l))
+    }
+}
+
+/// The target whose closure contains `path`.
+///
+/// A package holds a library and a binary at once, and their sources are
+/// disjoint: `main.buri` and the binary's test suite are in the binary's
+/// closure and in nothing else. Taking the package's first target analysed
+/// the library for every file in the package, so a binary entry point and
+/// its tests were never loaded at all — and a file no analysis reached has
+/// no hover, no definition and no diagnostics, which is how a whole file
+/// can look like the server is not running.
+///
+/// So the rule that decides which target owns a file is the build file's,
+/// [`Workspace::rule_of_file`] — the same one `buri build` uses. The first
+/// target is still the answer for a file the build file does not list,
+/// which is a file being written before it is declared.
+///
+/// A free function rather than a method: it reads the build graph and the
+/// path, and nothing else about the server — which is what lets a cache hit
+/// resolve a target from a session it is holding rather than opening one.
+fn target_for(session: &Session, path: &Path) -> Option<TargetId> {
+    let package = session.workspace.owning_package(path)?;
+    let targets = session.workspace.targets();
+    let declared = path
+        .strip_prefix(&session.workspace.package(package).dir)
+        .ok()
+        .map(|rel| rel.display().to_string().replace('\\', "/"))
+        .and_then(|rel| session.workspace.rule_of_file(package, &rel))
+        .map(|kind| TargetId { package, kind })
+        .filter(|t| targets.contains(t));
+    declared.or_else(|| targets.into_iter().find(|t| t.package == package))
 }
