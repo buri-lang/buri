@@ -3,8 +3,8 @@
 //! `generate::arm_chain` tested arms in order, which is O(arms) comparisons to
 //! reach the last one, and offered a release-mode shortcut that only helped the
 //! final arm. A decision tree over the scrutinee's discriminants is O(1) for an
-//! enum match and is the shape a `switch` wants in JavaScript, a `br_table`
-//! wants in Cranelift, and a `switch` wants in LLVM. One pass, three
+//! enum match and is the shape a `switch` wants in JavaScript, a jump table
+//! wants in a machine backend, and a `switch` wants in LLVM. One pass, three
 //! beneficiaries — which is the whole argument for it being here rather than in
 //! an emitter.
 //!

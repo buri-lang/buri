@@ -441,7 +441,7 @@ fn filtering_and_accepting_never_come_from_the_cache() {
 /// The `codegen` row of the incrementality table: a native build emits one
 /// object per codegen unit, an edit re-emits the unit it landed in, the
 /// siblings come out of the cache, and the link runs again because one of its
-/// inputs moved (`design/native/CODEGEN-CRANELIFT.md` §7.2).
+/// inputs moved.
 ///
 /// One test with two halves, because the honest boundary moves: until a native
 /// backend is compiled into this toolchain there is no `codegen` action to

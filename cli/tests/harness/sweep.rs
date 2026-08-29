@@ -1,7 +1,7 @@
 //! Taking back the scratch root from runs that are over.
 //!
 //! Most scratch is a [`super::Scratch`], which removes itself when it drops.
-//! The exception is the native suites' per-process trees — `native-cranelift-<pid>`,
+//! The exception is the native suites' per-process trees — `native-stencil-<pid>`,
 //! `backend-agreement-<pid>`, `float-parity-<pid>` and their siblings — which
 //! hold a runtime archive and a hundred-odd linked executables, are named for the
 //! process so that two overlapping `cargo test` runs cannot share one, and are
@@ -97,7 +97,7 @@ mod sweep_tests {
         let root = std::env::temp_dir()
             .join(format!("buri-sweep-{}-{}", env!("CARGO_CRATE_NAME"), std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let tree = root.join("native-cranelift-1234");
+        let tree = root.join("native-stencil-1234");
         std::fs::create_dir_all(tree.join("case")).unwrap();
         std::fs::write(root.join("loose-file"), b"not a tree").unwrap();
 

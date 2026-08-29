@@ -67,8 +67,8 @@
 //!
 //! That is also why SPEC 7.2's `NaN == NaN` ruling cost this pass nothing. A
 //! float field lowers to `PrimOp::Eq`, which is `BinOp::Eq`, which is the one
-//! place each backend spells float equality — `cranelift/emit.rs`'s and
-//! `llvm/emit.rs`'s `float_equality`. The JavaScript backend needed its own
+//! place each backend spells float equality — `stencil/emit.rs`'s `Binary` at
+//! `Float` and `llvm/emit.rs`'s `float_equality`. The JavaScript backend needed its own
 //! edit because it does *not* come through here: `eq_decl` in
 //! `backend/js/generate.rs` is a second implementation of derived equality,
 //! and `agreement.rs` is the only thing that compares the two.

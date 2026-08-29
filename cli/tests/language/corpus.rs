@@ -276,11 +276,10 @@ fn formatting_the_corpus_preserves_what_it_means() {
 ///   the toolchain rather than breaking it.
 ///
 /// This checks the two halves a file can check. **The admitted set is closed**:
-/// `cranelift-*`, `inkwell`, and `target-lexicon`, which comes in with
-/// Cranelift. And **every one of them is optional**, so
-/// `cargo build -p buri --no-default-features` still resolves nothing — which
-/// is the clause that makes the other two enforceable, because a feature that
-/// could not be turned off is a dependency by another name.
+/// `inkwell`, and nothing else. And **it is optional**, so the default build
+/// resolves nothing — which is the clause that makes the other two
+/// enforceable, because a feature that could not be turned off is a dependency
+/// by another name.
 ///
 /// It stays load-bearing for the reason it was written: a Zed extension has no
 /// choice about depending on `zed_extension_api`, so it lives outside the
@@ -288,10 +287,8 @@ fn formatting_the_corpus_preserves_what_it_means() {
 /// `cargo test -p buri` resolve crates.io with nothing else noticing.
 #[test]
 fn dependencies_stay_behind_the_bar() {
-    /// The whole admitted set, by prefix. `object` is deliberately not here:
-    /// `cranelift-object` re-exports it, so version skew is a compile error
-    /// rather than a second thing to pin.
-    const ADMITTED: &[&str] = &["cranelift-", "inkwell", "target-lexicon"];
+    /// The whole admitted set, by prefix.
+    const ADMITTED: &[&str] = &["inkwell"];
     const BAR: &str = "The bar is in the root Cargo.toml: a dependency is admissible only if \
                        it is a code generator or a platform interface this repository could not \
                        reasonably write, it is behind a cargo feature the default build can turn \
