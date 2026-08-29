@@ -1,0 +1,9 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/alpha" import { markup };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(markup(3).show(ctx));
+  .Ok(())
+}

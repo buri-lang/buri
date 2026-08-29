@@ -78,23 +78,78 @@ pub fn findings_for(session: &mut Session, targets: &[TargetId]) -> Diagnostics 
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
     for target in targets {
-        if seen_packages.insert(target.package) {
-            check_sources_declared(session, target.package, &mut diagnostics);
-            check_test_suites(session, target.package, &mut diagnostics);
-        }
-        // `lint` is not building, so it checks a binary against the platforms
-        // its own `outputs` name, and a library against the question TAGS.md
-        // asks at the target: can it be built at all?
-        crate::build::actions::check_visibility(session, *target, &mut diagnostics);
-        crate::build::actions::check_tags(session, *target, &mut diagnostics);
-        check_target_platforms(session, *target, &mut diagnostics);
-        check_dependencies(session, *target, &mut diagnostics);
+        let analysis = analysis_of(session, *target);
+        one_target(session, *target, &analysis, &mut seen_packages, &mut diagnostics);
     }
     check_cycles(session, &mut diagnostics);
 
     promote(session, &mut diagnostics);
     diagnostics.sort(&session.map);
     diagnostics
+}
+
+/// The same rules over one target, with its analysis already in hand.
+///
+/// The dependency and hygiene rules are read off a `driver::analyze` of the
+/// target's closure, and a caller that has just run one — the language server
+/// has, for the diagnostics it reports from the same pass — would otherwise pay
+/// for the closure a second time.
+///
+/// The batch form above is not written in terms of this one, and that is the
+/// point of having both: the package rules are asked once per *package*, so a
+/// loop over targets would ask twice for a package holding a library and a
+/// binary, and `buri lint` would print each of their findings twice.
+pub fn findings_for_target(
+    session: &mut Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+) -> Diagnostics {
+    let mut diagnostics = Diagnostics::new();
+    let mut seen_packages = BTreeSet::new();
+    one_target(session, target, analysis, &mut seen_packages, &mut diagnostics);
+    check_cycles(session, &mut diagnostics);
+
+    promote(session, &mut diagnostics);
+    diagnostics.sort(&session.map);
+    diagnostics
+}
+
+/// The whole front end over one target's closure, as the rules below ask about
+/// it: no output, and the tests included.
+pub fn analysis_of(
+    session: &mut Session,
+    target: TargetId,
+) -> crate::compiler::driver::Analysis {
+    // A lint is not a build, so it does not refuse a program for an output it
+    // was not asked about. See `Unit::platform`.
+    let unit = Unit { target: Some(target), platform: None, with_tests: true };
+    crate::compiler::driver::analyze(
+        Some(&session.workspace),
+        &mut session.map,
+        &mut session.parsed,
+        &unit,
+    )
+}
+
+/// Every rule that is about one target, in the order they are asked.
+fn one_target(
+    session: &mut Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+    seen_packages: &mut BTreeSet<crate::build::workspace::PackageId>,
+    diagnostics: &mut Diagnostics,
+) {
+    if seen_packages.insert(target.package) {
+        check_sources_declared(session, target.package, diagnostics);
+        check_test_suites(session, target.package, diagnostics);
+    }
+    // `lint` is not building, so it checks a binary against the platforms
+    // its own `outputs` name, and a library against the question TAGS.md
+    // asks at the target: can it be built at all?
+    crate::build::actions::check_visibility(session, target, diagnostics);
+    crate::build::actions::check_tags(session, target, diagnostics);
+    check_target_platforms(session, target, diagnostics);
+    check_dependencies(session, target, analysis, diagnostics);
 }
 
 /// `fail_on_finding`: every finding from the catalogue becomes an error.
@@ -391,24 +446,20 @@ fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
 
 /// `missing-dep`. Use is what requires a dep, and an import is not the only way
 /// to use: a method resolving into a library counts too.
-fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut Diagnostics) {
-    // A lint is not a build, so it does not refuse a program for an output it
-    // was not asked about. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: None, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(
-        Some(&session.workspace),
-        &mut session.map,
-        &mut session.parsed,
-        &unit,
-    );
+fn check_dependencies(
+    session: &mut Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+    diagnostics: &mut Diagnostics,
+) {
     if analysis.diagnostics.has_errors() {
-        diagnostics.extend(analysis.diagnostics.items);
+        diagnostics.extend(analysis.diagnostics.items.clone());
         return;
     }
 
     // The hygiene rules ask about the same modules this analysis already
     // loaded, so they ride along rather than paying for a second one.
-    check_hygiene(session, target, &analysis, diagnostics);
+    check_hygiene(session, target, analysis, diagnostics);
 
     let declared: Vec<crate::build::buildfile::Spanned<String>> =
         session.workspace.declared_deps(target).to_vec();
@@ -417,7 +468,7 @@ fn check_dependencies(session: &mut Session, target: TargetId, diagnostics: &mut
     // method resolves through its receiver's type rather than through scope,
     // so a call that lands in another library counts even though no import
     // names it (BUILD-FILES.md, "Dependencies").
-    let resolved: BTreeSet<String> = reached_by_resolution(session, &analysis, own);
+    let resolved: BTreeSet<String> = reached_by_resolution(session, analysis, own);
     // What an import already complained about, so a library reached both ways
     // is reported once, at the import, where there is something to point at.
     let mut reported: BTreeSet<String> = BTreeSet::new();

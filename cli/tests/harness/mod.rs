@@ -228,6 +228,12 @@ pub fn normalise(text: &str, root: &Path) -> String {
     s = replace_between(&s, "(", "s)", "(0.0s)");
     s = replace_between(&s, "(", " bytes)", "(N bytes)");
     s = replace_between(&s, "(", " bytes, cached)", "(N bytes, cached)");
+    // The language server's `verbose` trace line. The counters on it are the
+    // same number every run and are pinned; the milliseconds are not, and
+    // neither is the byte count — a report names the files it is about, and a
+    // scratch path carries this process's id.
+    s = replace_between(&s, "answered in ", "ms;", "answered in 0ms;");
+    s = replace_between(&s, "bytes written ", "\"", "bytes written N\"");
     s
 }
 

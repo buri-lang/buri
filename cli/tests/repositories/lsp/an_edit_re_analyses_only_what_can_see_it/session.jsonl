@@ -1,0 +1,46 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The claim is a cost, so what it is pinned on is the work each request did —
+# the counters the `verbose` trace reports beside the elapsed time, which is
+# the one number here a golden cannot hold and is normalised away.
+#
+# `//lib/alpha` is a library, `//cmd/app` a binary that depends on it, and
+# `//lib/beta` a library neither can see.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Three buffers, one in each target. Opening one runs its target's two
+# passes; opening the next reuses what the first read, which is why only the
+# first of the three says `sessions opened`.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/beta/clock.buri", "languageId": "buri", "version": 1, "text": "/// Whole minutes, which is the only unit this library counts in.\nexport fn minutes(hours: I64): I64 { hours * 60 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\nfrom \"//lib/alpha\" import { markup };\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(markup(3).show(ctx));\n  .Ok(())\n}\n"}}}
+# A pull about each, and each is answered out of the analysis the open
+# already ran: `analyses 0, lints 0`.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/beta/clock.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+# The same three, quoting the ids they were just given. Nothing has moved, so
+# each is `unchanged` and each cost a hash of one closure.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}, "previousResultId": "1"}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/beta/clock.buri"}, "previousResultId": "2"}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "3"}}
+# A keystroke in `//lib/alpha`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n\n// A keystroke, appended so that nothing above it moves.\n"}]}}
+# The edited file's own target is analysed again — `analyses 1, lints 1`.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}, "previousResultId": "1"}}
+# `//lib/beta` cannot see the edited file, so its report is quoted straight
+# back: `unchanged`, and `analyses 0`. This is the line the whole scheme is
+# for. A repository-wide key made this a full report and a full compilation.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/beta/clock.buri"}, "previousResultId": "2"}}
+# `//cmd/app` can see it, and pays for it. A cache that answered `unchanged`
+# here would be a cache that hides an error.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "3"}}
+# The whole repository, cold: every target's two passes, `analyses 3`.
+{"jsonrpc": "2.0", "id": 11, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A second keystroke, and the sweep again. Two targets can see the edited
+# file and two are analysed; `//lib/beta`'s findings are quoted from the
+# sweep before, and its entry in the report is `unchanged`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 3}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n\n// A keystroke, appended so that nothing above it moves.\n\n// And a second one.\n"}]}}
+{"jsonrpc": "2.0", "id": 12, "method": "workspace/diagnostic", "params": {"previousResultIds": [{"uri": "file://<scratch>/REPO.buri", "value": "6"}, {"uri": "file://<scratch>/cmd/app/BUILD.buri", "value": "5"}, {"uri": "file://<scratch>/cmd/app/main.buri", "value": "5"}, {"uri": "file://<scratch>/lib/alpha/BUILD.buri", "value": "4"}, {"uri": "file://<scratch>/lib/alpha/lib.buri", "value": "4"}, {"uri": "file://<scratch>/lib/alpha/rate.buri", "value": "4"}, {"uri": "file://<scratch>/lib/beta/BUILD.buri", "value": "2"}, {"uri": "file://<scratch>/lib/beta/clock.buri", "value": "2"}, {"uri": "file://<scratch>/lib/beta/lib.buri", "value": "2"}]}}
+{"jsonrpc": "2.0", "id": 13, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
