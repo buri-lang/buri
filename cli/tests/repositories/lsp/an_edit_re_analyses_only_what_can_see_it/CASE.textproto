@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a keystroke re-analyses the targets whose closure holds the edited file and no others, and a pull about a file in an untouched closure is answered unchanged — pinned on the work counters the verbose trace reports rather than on a clock"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

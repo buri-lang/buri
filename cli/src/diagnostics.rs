@@ -769,6 +769,18 @@ impl SourceMap {
         self.by_name.get(name).copied()
     }
 
+    /// Every file this map read from a path, in the order it read them.
+    ///
+    /// The embedded standard library and the snippets are skipped: neither has
+    /// a path, and the caller asking this is asking which files on disk an
+    /// answer was computed from.
+    pub fn paths(&self) -> impl Iterator<Item = &Path> {
+        self.files
+            .iter()
+            .map(|f| f.abs_path.as_path())
+            .filter(|p| !p.as_os_str().is_empty())
+    }
+
     /// The file an id names, or the empty stand-in if this map never minted it.
     pub fn get(&self, id: FileId) -> &SourceFile {
         self.files.get(id.0 as usize).unwrap_or(&self.missing)
