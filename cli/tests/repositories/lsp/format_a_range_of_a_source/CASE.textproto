@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "formatting a Buri source rather than a build file: the whole file, a range of it that is the whole-file answer with the rest withheld, a file already formatted, and one that does not parse"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

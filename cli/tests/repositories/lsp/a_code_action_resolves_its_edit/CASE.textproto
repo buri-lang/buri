@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a code action offered to a client that can resolve one: the list is a title and the squiggle it is under, and the `BUILD.buri` `buri gen` would write is computed for the one action a reader accepted"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

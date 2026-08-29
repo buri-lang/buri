@@ -122,6 +122,12 @@ pub struct State {
     /// and the findings it would have carried are what `workspace/diagnostic`
     /// is for.
     pub related_documents_supported: bool,
+    /// Whether a code action may be offered without its edit.
+    ///
+    /// Read from its `initialize` capabilities and not assumed. A client that
+    /// did not claim it will never send `codeAction/resolve`, so deferring the
+    /// edit would leave it holding a fix that does nothing.
+    pub code_action_resolve: bool,
     /// Open buffers, by absolute path. The editor's copy wins over the disk's
     /// for as long as the file is open — including after a save, where they
     /// agree anyway.
@@ -345,6 +351,7 @@ impl State {
             can_register_watchers: false,
             must_ask_for_folders: false,
             related_documents_supported: false,
+            code_action_resolve: false,
             open: BTreeMap::new(),
             published: BTreeMap::new(),
             showing_parse_errors: BTreeSet::new(),

@@ -1,0 +1,23 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This client names `edit` in its `resolveSupport`, which is the whole
+# difference between this session and `missing_dep_code_action`: the same
+# finding, the same fix, and the edit arrives a request later. A client that
+# says nothing gets the edit in the list, because deferring it to a request
+# that never comes would be offering a fix that does nothing.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"codeAction": {"resolveSupport": {"properties": ["edit"]}}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// Imports //lib/money, which `cmd/app/BUILD.buri` does not name in\n// `dependencies`. The module resolves — the loader searches the workspace —\n// so this builds, and the graph is a description of something other than the\n// code until `buri lint` says so.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nfrom \"//lib/money\" import { fromCents };\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"cents: ${fromCents(450).show(ctx)}\");\n  .Ok(())\n}\n"}}}
+# The list. A title, the diagnostic it is under — the protocol's own field for
+# that, which is what tells an editor which squiggle to hang the lightbulb on —
+# and a `data` to hand back. No `edit`: writing it means running `buri gen`,
+# and this request arrives every time the cursor lands on the squiggle.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "cmd/app/main.buri imports //lib/money, which is not in dependencies", "severity": 2, "source": "buri", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}]}}}
+# Accepted. The action comes back as it went out and is computed again from the
+# `data` it carries, which is why nothing is remembered between the two.
+{"jsonrpc": "2.0", "id": 3, "method": "codeAction/resolve", "params": {"title": "cmd/app/BUILD.buri: as `buri gen` would write it", "kind": "quickfix", "diagnostics": [{"code": "missing-dep", "message": "cmd/app/main.buri imports //lib/money, which is not in dependencies", "severity": 2, "source": "buri", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}], "data": {"uri": "file://<scratch>/cmd/app/main.buri", "code": "missing-dep", "title": "cmd/app/BUILD.buri: as `buri gen` would write it"}}}
+# An action whose `data` names a title nothing offers resolves to itself. A
+# `codeAction/resolve` has no legal null result, so the answer is the action.
+{"jsonrpc": "2.0", "id": 4, "method": "codeAction/resolve", "params": {"title": "not one of ours", "kind": "quickfix", "data": {"uri": "file://<scratch>/cmd/app/main.buri", "code": "missing-dep", "title": "not one of ours"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

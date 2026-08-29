@@ -21,6 +21,7 @@
 
 mod build_files;
 mod call_hierarchy;
+mod code_actions;
 mod code_lens;
 mod color;
 mod conformance;
@@ -28,6 +29,7 @@ mod convert;
 mod execute_command;
 mod features;
 mod file_operations;
+mod formatting;
 mod inlay_hints;
 mod links;
 mod pull_diagnostics;
@@ -39,7 +41,6 @@ mod symbols;
 mod syntax;
 
 use convert::Position;
-use crate::build::regenerate;
 use crate::build::session::Session;
 use crate::commands::arguments;
 use crate::json::{self, Value};
@@ -315,6 +316,14 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 params.at("capabilities.textDocument.diagnostic.relatedDocumentSupport"),
                 Some(&Value::Bool(true))
             );
+            // The `edit` property by name rather than the presence of
+            // `resolveSupport`: a client that lists other properties and not
+            // that one will never ask for the edit, and an action whose edit
+            // waited for a request nobody sends is a fix that does nothing.
+            state.code_action_resolve = params
+                .at("capabilities.textDocument.codeAction.resolveSupport.properties")
+                .and_then(|p| p.as_array())
+                .is_some_and(|p| p.iter().any(|v| v.as_str() == Some("edit")));
             let client_has_folders = matches!(
                 params.at("capabilities.workspace.workspaceFolders"),
                 Some(&Value::Bool(true))
@@ -456,27 +465,54 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             republish_open(state)
         }
 
+        // The same dispatch `buri format` uses, so the editor and the command
+        // cannot disagree: a `BUILD.buri` goes through the textproto printer
+        // and everything else through the source formatter. Either returns
+        // nothing for a file that does not parse, so a file mid-edit is left
+        // alone rather than mangled.
         ("textDocument/formatting", Some(id)) => {
+            vec![response(&id, whole_file_format(state, &params))]
+        }
+
+        // Format on save, and it is the *same* answer: an editor that formats
+        // on save and one that asks for the format are asking one question at
+        // two moments, and a server that computed them differently would be
+        // the reason a saved file and a formatted file could differ.
+        ("textDocument/willSaveWaitUntil", Some(id)) => {
+            vec![response(&id, whole_file_format(state, &params))]
+        }
+
+        // A range of the same canonical output. The file is formatted whole,
+        // the result is diffed against what is on screen, and only the hunks
+        // the range touches are handed back — so "format the selection" cannot
+        // disagree with "format the file", because it *is* that answer with
+        // the rest withheld. See `formatting`.
+        ("textDocument/rangeFormatting", Some(id)) => {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                // The same dispatch `buri format` uses, so the editor and the
-                // command cannot disagree: a `BUILD.buri` goes through the
-                // textproto printer and everything else through the source
-                // formatter. Either returns `None` for a file that does not
-                // parse, so a file mid-edit is left alone rather than mangled.
-                let name = std::path::Path::new(&path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let formatted = crate::commands::format::file(&name, &text)?;
-                if formatted == text {
+                let from =
+                    convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
+                let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
+                Some(formatting::ranged(&file_name(&path), &text, from, to))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        // The same, scoped to the declaration the typed `}` or `;` is inside.
+        // A build file has no such scope — it is textproto, and its printer
+        // rewrites the whole document — so a brace typed in one is answered
+        // with nothing rather than with the file.
+        ("textDocument/onTypeFormatting", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                if build_files::is_build_file(&path) {
                     return None;
                 }
-                Some(Value::Array(vec![Value::object(vec![
-                    ("range", whole(&text)),
-                    ("newText", Value::str(formatted)),
-                ])]))
+                let text = state.text_of(&path)?;
+                let offset = convert::offset_of(&text, Position::from_json(params.get("position")?)?);
+                let (from, to) = formatting::enclosing_item(&text, offset)?;
+                Some(formatting::ranged(&file_name(&path), &text, from, to))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -682,8 +718,31 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
+        // The prose, for the one item a reader has highlighted. The list
+        // carries what an editor draws in the row — a label, a kind and the
+        // signature — and the `///` lines of every name in a module are the
+        // part that would put a page of text on the wire to show one line of
+        // it. The item comes back as it went out and is resolved from the
+        // `data` it carries.
+        ("completionItem/resolve", Some(id)) => {
+            let result = (|| {
+                let path =
+                    params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+                let analyzed = state.analyze(&path)?;
+                Some(features::resolve_completion(&analyzed, &params))
+            })();
+            // An item with nothing to resolve is still a legal answer to this
+            // request, and it is the item itself: `null` is not one.
+            vec![response(&id, result.unwrap_or_else(|| params.clone()))]
+        }
+
+        // The offer, and then the work. See `code_actions`.
         ("textDocument/codeAction", Some(id)) => {
-            vec![response(&id, code_actions(state, &params))]
+            vec![response(&id, code_actions::list(state, &params))]
+        }
+
+        ("codeAction/resolve", Some(id)) => {
+            vec![response(&id, code_actions::resolve(state, &params))]
         }
 
         // The swatches. One target is enough: a colour is a constructor call
@@ -986,6 +1045,12 @@ fn capabilities() -> Value {
                             "save",
                             Value::object(vec![("includeText", Value::Bool(false))]),
                         ),
+                        // Format on save, with nothing for a reader to
+                        // configure. `willSave` is deliberately *not* claimed
+                        // beside it: the notification has no answer, and
+                        // asking for one would be asking a client to send a
+                        // message this server drops.
+                        ("willSaveWaitUntil", Value::Bool(true)),
                     ]),
                 ),
                 ("hoverProvider", Value::Bool(true)),
@@ -1102,9 +1167,28 @@ fn capabilities() -> Value {
                     ]),
                 ),
                 ("documentFormattingProvider", Value::Bool(true)),
+                // A range and a keystroke, both filtered out of the whole-file
+                // answer — see `formatting`. The trigger characters are the two
+                // that close something: a `}` ends a declaration and a `;` ends
+                // a statement, and neither is written mid-expression.
+                ("documentRangeFormattingProvider", Value::Bool(true)),
+                (
+                    "documentOnTypeFormattingProvider",
+                    Value::object(vec![
+                        ("firstTriggerCharacter", Value::str("}")),
+                        ("moreTriggerCharacter", Value::Array(vec![Value::str(";")])),
+                    ]),
+                ),
                 ("foldingRangeProvider", Value::Bool(true)),
                 ("selectionRangeProvider", Value::Bool(true)),
-                ("codeActionProvider", Value::Bool(true)),
+                // `resolveProvider: true` is where the cost went: the list is
+                // titles and their squiggles, and the edit — which for a build
+                // file means running `buri gen` — is computed for the one
+                // action a reader accepted.
+                (
+                    "codeActionProvider",
+                    Value::object(vec![("resolveProvider", Value::Bool(true))]),
+                ),
                 // `prepareProvider` is what lets an editor ask whether a rename
                 // is possible before it prompts for a new name.
                 (
@@ -1118,12 +1202,19 @@ fn capabilities() -> Value {
                         Value::Array(vec![Value::str("("), Value::str(",")]),
                     )]),
                 ),
+                // Every item carries its own replacement range, so the client
+                // stops guessing which characters a completion is meant to
+                // replace. `resolveProvider: true` keeps the `///` prose off
+                // the wire until one item is highlighted.
                 (
                     "completionProvider",
-                    Value::object(vec![(
-                        "triggerCharacters",
-                        Value::Array(vec![Value::str("\""), Value::str("{"), Value::str("/")]),
-                    )]),
+                    Value::object(vec![
+                        ("resolveProvider", Value::Bool(true)),
+                        (
+                            "triggerCharacters",
+                            Value::Array(vec![Value::str("\""), Value::str("{"), Value::str("/")]),
+                        ),
+                    ]),
                 ),
                 // Two open folders are two Buri repositories, kept apart.
                 // `changeNotifications` is what makes a folder opened after
@@ -1235,7 +1326,7 @@ fn folders(value: Option<&Value>) -> Vec<PathBuf> {
         .collect()
 }
 
-fn uri_param(params: &Value) -> Option<PathBuf> {
+pub(super) fn uri_param(params: &Value) -> Option<PathBuf> {
     params.at("textDocument.uri").and_then(|u| u.as_str()).and_then(convert::path_of)
 }
 
@@ -1245,11 +1336,32 @@ fn opened(params: &Value) -> Option<(PathBuf, String)> {
     Some((path, text))
 }
 
+/// The range covering a whole file, for the edits that replace one.
 fn whole(text: &str) -> Value {
     Value::object(vec![
         ("start", Position { line: 0, character: 0 }.to_json()),
-        ("end", convert::position_of(text, text.len() as u32).to_json()),
+        (
+            "end",
+            convert::position_of(text, u32::try_from(text.len()).unwrap_or(u32::MAX)).to_json(),
+        ),
     ])
+}
+
+/// Which formatter a file gets is decided by its name, exactly as it is at the
+/// terminal — a `BUILD.buri` is textproto and everything else is Buri.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+/// The whole file, formatted — what `formatting` and `willSaveWaitUntil` both
+/// answer.
+fn whole_file_format(state: &mut State, params: &Value) -> Value {
+    (|| {
+        let path = uri_param(params)?;
+        let text = state.text_of(&path)?;
+        Some(formatting::whole_file(&file_name(&path), &text))
+    })()
+    .unwrap_or(Value::Array(Vec::new()))
 }
 
 /// Definition, routed by what kind of file the cursor is in.
@@ -1456,152 +1568,6 @@ fn publish(uri: &str, items: Vec<Value>) -> Value {
         "textDocument/publishDiagnostics",
         Value::object(vec![("uri", Value::str(uri)), ("diagnostics", Value::Array(items))]),
     )
-}
-
-
-// ---------------------------------------------------------------------------
-// Code actions
-// ---------------------------------------------------------------------------
-
-/// The fixes for the diagnostics the client is asking about.
-///
-/// Two sources, and they are the same two `buri lint --fix` has: a finding that
-/// carries byte edits becomes a text edit, and one about a build file is handed
-/// to `buri gen`, which writes the whole file. Nothing here invents an answer —
-/// a `dep-cycle` has no action, because which edge to cut is a decision.
-fn code_actions(state: &mut State, params: &Value) -> Value {
-    let Some(path) = uri_param(params) else { return Value::Array(Vec::new()) };
-    let asked: Vec<&Value> = params
-        .at("context.diagnostics")
-        .and_then(|d| d.as_array())
-        .map(|d| d.iter().collect())
-        .unwrap_or_default();
-    if asked.is_empty() {
-        return Value::Array(Vec::new());
-    }
-    let wanted: Vec<String> = asked
-        .iter()
-        .filter_map(|d| d.get("code").and_then(|c| c.as_str()).map(String::from))
-        .collect();
-    if wanted.is_empty() {
-        return Value::Array(Vec::new());
-    }
-
-    let Some(linted) = state.lint(&path) else { return Value::Array(Vec::new()) };
-    let session = &linted.session;
-    let mut out = Vec::new();
-    let mut regenerated: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-
-    for d in &linted.diagnostics.items {
-        let Some(code) = d.code.as_deref() else { continue };
-        if !wanted.iter().any(|w| w == code) {
-            continue;
-        }
-
-        // A finding that already knows its bytes.
-        if !d.edits.is_empty() {
-            let mut by_file: std::collections::BTreeMap<String, Vec<Value>> =
-                std::collections::BTreeMap::new();
-            for e in &d.edits {
-                let f = session.map.get(e.at.file);
-                if f.abs_path.as_os_str().is_empty() {
-                    continue;
-                }
-                let range = Value::object(vec![
-                    ("start", convert::position_of(&f.text, e.at.start).to_json()),
-                    ("end", convert::position_of(&f.text, e.at.end).to_json()),
-                ]);
-                by_file.entry(convert::uri_of(&f.abs_path)).or_default().push(Value::object(vec![
-                    ("range", range),
-                    ("newText", Value::str(&e.replacement)),
-                ]));
-            }
-            if !by_file.is_empty() {
-                out.push(action(
-                    d.fix.as_deref().unwrap_or(code),
-                    code,
-                    by_file,
-                ));
-            }
-            continue;
-        }
-
-        // A finding whose answer is a build file `buri gen` already writes.
-        if !matches!(code, "missing-dep" | "unused-library" | "duplicate-source") {
-            continue;
-        }
-        let Some(package) = package_of(session, d.span.file, &path) else { continue };
-        if !regenerated.insert(session.workspace.package(package).path.clone()) {
-            continue;
-        }
-        // `buri gen` re-analyses the package to derive its dependencies and
-        // writes through the session it is handed, so it gets one of its own:
-        // the lint session is shared with everything else holding this answer.
-        let Some(root) = state.root_of(&path) else { continue };
-        let Some(mut writable) = state.overlaid_session(&root) else { continue };
-        let Ok(Some(update)) = regenerate::regenerate(&mut writable, package) else { continue };
-        let build = writable.workspace.package(package).build_path.clone();
-        let Some(id) = writable.map.find(&writable.workspace.rel_of(&build)) else { continue };
-        let text = writable.map.get(id).text.clone();
-        let whole = Value::object(vec![
-            ("start", Position { line: 0, character: 0 }.to_json()),
-            ("end", convert::position_of(&text, text.len() as u32).to_json()),
-        ]);
-        let mut by_file = std::collections::BTreeMap::new();
-        by_file.insert(
-            convert::uri_of(&build),
-            vec![Value::object(vec![
-                ("range", whole),
-                ("newText", Value::str(&update.text)),
-            ])],
-        );
-        out.push(action(
-            &format!(
-                "{}/BUILD.buri: {}",
-                session.workspace.package(package).path,
-                update.summary.join(", ")
-            ),
-            code,
-            by_file,
-        ));
-    }
-
-    Value::Array(out)
-}
-
-/// The package a diagnostic is about: the one owning the file it points at.
-fn package_of(
-    session: &Session,
-    file: crate::diagnostics::FileId,
-    fallback: &std::path::Path,
-) -> Option<crate::build::workspace::PackageId> {
-    let f = session.map.get(file);
-    if !f.abs_path.as_os_str().is_empty() {
-        if let Some(p) = session.workspace.owning_package(&f.abs_path) {
-            return Some(p);
-        }
-    }
-    session.workspace.owning_package(fallback)
-}
-
-fn action(
-    title: &str,
-    code: &str,
-    edits: std::collections::BTreeMap<String, Vec<Value>>,
-) -> Value {
-    Value::object(vec![
-        ("title", Value::str(title)),
-        // "quickfix" — the kind a client offers without being asked twice.
-        ("kind", Value::str("quickfix")),
-        ("diagnosticCode", Value::str(code)),
-        (
-            "edit",
-            Value::object(vec![(
-                "changes",
-                Value::Object(edits.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
-            )]),
-        ),
-    ])
 }
 
 #[cfg(test)]
