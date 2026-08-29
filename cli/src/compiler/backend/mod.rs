@@ -197,12 +197,12 @@ pub struct Emitted {
 /// feature unrepresentable, and the shape of it would have to be smuggled
 /// through `Options` or through the filesystem.
 pub trait Backend {
-    /// `js`, `cranelift`, `llvm`. Enters every cache key this backend
+    /// `js`, `stencil`, `llvm`. Enters every cache key this backend
     /// produces.
     fn name(&self) -> &'static str;
 
     /// The identity of everything outside the program that the bytes depend
-    /// on: the LLVM version, the Cranelift version, the runtime's own hash.
+    /// on: the LLVM version, the stencil libraries' hash, the runtime's own hash.
     /// Enters every cache key.
     ///
     /// A backend that returns a constant here is claiming its output cannot
@@ -259,7 +259,7 @@ pub trait Backend {
 
 /// Combining units into the final artifact.
 ///
-/// Separate from [`Backend`] because the two vary independently: `cranelift`
+/// Separate from [`Backend`] because the two vary independently: `stencil`
 /// and `llvm` both hand their objects to the platform linker, and the same
 /// backend links differently on macOS and on Linux.
 pub trait Linker {
