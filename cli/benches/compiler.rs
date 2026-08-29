@@ -660,7 +660,22 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
 // main
 // ---------------------------------------------------------------------------
 
+/// Runs the benchmark on the stack the toolchain gives itself.
+///
+/// Every stage after parsing walks a tree by recursion, and `main.rs` reserves
+/// `parallel::STACK` for exactly that; the process main thread's default is a
+/// fraction of it, and `wide-match/10k` overflowed it.
 fn main() {
+    std::thread::Builder::new()
+        .name("bench".into())
+        .stack_size(buri::parallel::STACK)
+        .spawn(run)
+        .expect("a thread")
+        .join()
+        .expect("the benchmark does not panic");
+}
+
+fn run() {
     let args = parse_args();
 
     if args.list {
