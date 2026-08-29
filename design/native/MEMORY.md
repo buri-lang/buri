@@ -172,7 +172,8 @@ data and the common case in linear data — which is what §5.3 exploits.
 
 Both are **open-coded by both backends**, never called. A call per reference
 operation is the single reason reference counting has a reputation, and both
-Cranelift and LLVM inline these to a handful of instructions with no spills. The
+native backends emit these as a handful of instructions with no spills — two
+stencils in the debug one (CODEGEN-STENCIL.md §6), inlined IR in LLVM. The
 `drop_T` in the cold path *is* a call, to a generated per-type function.
 
 Null checks: eliminated wherever the layout says the pointer is non-null, which is
@@ -217,7 +218,8 @@ On top of that, three local rules:
 - **Stack allocation for non-escaping aggregates.** The escape analysis §4
   declined to build a strategy on is a fine optimization: a struct constructed and
   consumed within one function, never stored and never returned, becomes an
-  `alloca` (LLVM) / stack slot (Cranelift) with no header and no counts. This is
+  `alloca` (LLVM) / a frame range (the debug backend) with no header and no
+  counts. This is
   the one place `alloca` is emitted, and it is emitted for a value that is never
   reloaded through a pointer, so CODEGEN-LLVM.md §0's second instruction is not
   violated — see CODEGEN-LLVM.md §2.3.
@@ -239,24 +241,28 @@ without the feature.
 
 The blocks in this implementation are not where a reader of the paragraph above
 would guess, so the list is worth having explicitly. A struct, a tuple, an enum
-and a closure record are **register or stack** values — `MakeStruct` is a
-Cranelift stack slot and an LLVM aggregate — and the only counted heap blocks
+and a closure record are **register or stack** values — `MakeStruct` is a frame
+range in the debug backend and an LLVM aggregate in the release one — and the
+only counted heap blocks
 are a `Str`'s bytes, a `[T]`'s elements, a closure *environment*, and the box a
 recursive field goes behind (VALUE-MODEL.md §5.2). So the two operations worth
 optimizing are the two that build the first two, and both are done:
 
 - **`[T]` append — `cli/runtime/list.rs`'s `append_dest`, behind `list.push`
   and `list.concat`.** Both are runtime calls on both backends
-  (`cranelift/runtime.rs`, `llvm/runtime.rs`), so the fast path is in the
+  (`stencil/runtime.rs`, `llvm/runtime.rs`), so the fast path is in the
   runtime and is shared. Three paths: *in place* when the block is uniquely
   owned and `cap >= (len + n) * stride`, writing past the end and taking one
   more reference; *grown* when it is unique and out of capacity, allocating
   `max(needed * 2, 64)` so the next append is in place; *exact* otherwise. A
   loop of `n` pushes therefore allocates O(log n) times, which is where
   VALUE-MODEL.md §4.1's amortized O(1) comes from.
-- **`Str` concatenation — `cranelift/helpers.rs`'s `concat` and
-  `llvm/emit.rs`'s `concat`.** `str.concat` is open-coded by both backends
-  rather than called, so the fast path is written twice and pinned twice. The
+- **`Str` concatenation — `llvm/emit.rs`'s `concat`.** `str.concat` is
+  open-coded rather than called. **The in-place path is the release backend's
+  alone** since 2026-08-29: the backend that carried the other copy was removed,
+  and the debug backend allocates unconditionally, which is observable in
+  `core/alloc`'s counts and is recorded as a divergence rather than as a missing
+  optimisation (CODEGEN-STENCIL.md §9, §13). The
   same three paths, with the capacity test allowing for a view that starts
   inside its block: `(ptr - base) + alen + blen <= cap`. A template of *k*
   holes, or a fold that concatenates, is the shape this turns from O(k)
@@ -300,8 +306,8 @@ disagreement between them costs a reallocation rather than an answer.
   reference that slot already held without a `decref`, because a slot past the
   end of one descriptor may hold an element a *longer*, now-dead descriptor put
   there. And the generated release glue for a `[T]` block walks **`cap /
-  stride`** elements (`cranelift/helpers.rs`'s `release_elems`,
-  `llvm/emit.rs`'s `Job::ReleaseElems`), so spare capacity would have the drop
+  stride`** elements (`stencil/glue.rs`'s `Elems`, `llvm/emit.rs`'s
+  `Job::ReleaseElems`), so spare capacity would have the drop
   walk slots nothing ever wrote. Lifting it means adding a per-element
   *release* glue beside the `retain` this ABI already passes, and making that
   walk follow the element count rather than the capacity. That is the growth
@@ -318,10 +324,9 @@ disagreement between them costs a reallocation rather than an answer.
   }
   ```
 
-  compiles to a stack slot and a store, not to a heap cell and a `decref`.
-  `cli/tests/native/cranelift.rs`'s
-  `a_struct_update_loop_allocates_nothing_per_iteration` is the measurement
-  rather than the claim: a thousand struct updates allocate exactly as many
+  compiles to a frame range and a store, not to a heap cell and a `decref`.
+  The native suite's `a_struct_update_loop_allocates_nothing_per_iteration` is
+  the measurement rather than the claim: a thousand struct updates allocate exactly as many
   blocks as ten. Emitting the conditional form — a `rc == 1` branch, a write,
   and an allocate-and-`decref` on the other side — would be two backends' worth
   of new IR to save an allocation that is not happening. The pairing therefore
@@ -571,7 +576,7 @@ The correction matters, because the paragraph reads as "the accounting is
 nearly free" and it is not.
 
 **A context argument is dropped from every `buri_rt_*` call, whatever it
-weighs** (`cranelift/runtime.rs`'s `runtime_call`). That is not an oversight to
+weighs** (`stencil/runtime.rs`, `llvm/runtime.rs`). That is not an oversight to
 undo: it was forced by the *first* program to bind a non-zero-sized allocator —
 `context { Alloc: alloc() }` from `core/testing/context` — which spread one
 extra argument into a C call that has no parameter for it and put every
