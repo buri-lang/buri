@@ -1,0 +1,2 @@
+/// Twice as many, in the same units.
+export fn fourB(n: I64): I64 { n * 2 }

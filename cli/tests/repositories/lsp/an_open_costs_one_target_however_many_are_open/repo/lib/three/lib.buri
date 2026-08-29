@@ -1,0 +1,2 @@
+from "//lib/three/a" export { threeA };
+from "//lib/three/b" export { threeB };
