@@ -1,0 +1,7 @@
+from "//lib/money/cents" import { Money, line };
+
+/// What a basket of one thing costs.
+export fn total(count: I64): Money {
+    let single = line(1, 250);
+    single
+}

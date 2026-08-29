@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This client accepts both refreshes. That is what makes the session a test of
+# the shared rule rather than of one family: the fingerprint is computed once
+# for the pair, each keeps its own last-seen value and its own counter, and the
+# two go out in the order `capabilities()` declares them.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": true}, "inlayHint": {"refreshSupport": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Opening records the state the hints are about. Nothing has gone stale yet,
+# so nothing is asked for.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/money/cents\" import { Money, line };\n\n/// What a basket of one thing costs.\nexport fn total(count: I64): Money {\n    let single = line(1, 250);\n    single\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
+# A keystroke. Hints are not recomputed here — the client asks for those when
+# it wants them — and nothing is published, because the buffer parses.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "version": 2}, "contentChanges": [{"text": "from \"//lib/money/cents\" import { Money, line };\n\n/// What a basket of one thing costs.\nexport fn total(count: I64): Money {\n    let single = line(count, 250);\n    single\n}\n"}]}}
+# The save. The fingerprint has moved since the open, so both refreshes go out
+# after the diagnostics — colours first, hints second.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}}}
+# The client answers both, as it must for any request a server sends.
+{"jsonrpc": "2.0", "id": "buri/semanticTokensRefresh/1", "result": null}
+{"jsonrpc": "2.0", "id": "buri/inlayHintRefresh/1", "result": null}
+# And the hints are different now: the argument spelled `count` has stopped
+# being labelled `count`, which is exactly the kind of change a refresh exists
+# to tell a client about.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
+# A second save with nothing edited in between. The fingerprint is where the
+# last one left it, so this one is silent for both families.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

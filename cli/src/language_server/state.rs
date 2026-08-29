@@ -130,6 +130,8 @@ pub struct State {
     pub showing_parse_errors: BTreeSet<String>,
     /// What the client is holding for `textDocument/semanticTokens`.
     pub semantic_tokens: SemanticTokens,
+    /// What each `workspace/*/refresh` family has said and when.
+    pub refreshes: Refreshes,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
 }
@@ -149,14 +151,34 @@ pub struct SemanticTokens {
     /// client quoting a stale one is told so by the mismatch rather than by a
     /// wrong delta.
     pub issued: u64,
-    /// Whether the client said it accepts `workspace/semanticTokens/refresh`.
-    /// Read from its `initialize` capabilities and not assumed.
-    pub refresh_supported: bool,
-    /// The analysis fingerprint the client's tokens were computed from, so a
+}
+
+/// One family of server-sent refresh, and everything deciding whether the next
+/// one goes out.
+///
+/// Two of these exist and they behave identically, which is the reason they are
+/// one type: semantic tokens and inlay hints are both answers computed from an
+/// analysis, so both go stale exactly when the analysis fingerprint moves, and
+/// a second copy of that rule would be a second place for it to drift.
+#[derive(Default)]
+pub struct Refresh {
+    /// Whether the client said it accepts this request. Read from its
+    /// `initialize` capabilities and not assumed: a request a client never
+    /// claimed is one it is entitled to reject.
+    pub supported: bool,
+    /// The analysis fingerprint the client's answers were computed from, so a
     /// save that changed nothing can be told from one that did.
     pub fingerprint: Option<u64>,
-    /// How many refreshes have gone out, so each carries an id of its own.
-    pub refreshes: u64,
+    /// How many have gone out, so each carries an id of its own — one still in
+    /// flight must not be reused.
+    pub sent: u64,
+}
+
+/// Every refresh family, in the order they are sent.
+#[derive(Default)]
+pub struct Refreshes {
+    pub semantic_tokens: Refresh,
+    pub inlay_hints: Refresh,
 }
 
 pub struct Analyzed {
@@ -268,6 +290,7 @@ impl State {
             published: BTreeMap::new(),
             showing_parse_errors: BTreeSet::new(),
             semantic_tokens: SemanticTokens::default(),
+            refreshes: Refreshes::default(),
             cache: Cache::default(),
         }
     }
@@ -355,6 +378,17 @@ impl State {
             hasher.write_u64(self.fingerprint(root));
         }
         hasher.finish()
+    }
+
+    /// Records the state every refresh family's answers were computed from,
+    /// and announces nothing.
+    ///
+    /// This is what opening a document does: nothing has gone stale yet, and a
+    /// comparison a later save makes needs something to compare against.
+    pub fn record_refresh_fingerprint(&mut self) {
+        let now = self.analysis_fingerprint();
+        self.refreshes.semantic_tokens.fingerprint = Some(now);
+        self.refreshes.inlay_hints.fingerprint = Some(now);
     }
 
     /// Files an encoded semantic-token result under a fresh id, and hands the
