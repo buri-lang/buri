@@ -1,0 +1,13 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository, and it is one that
+# does not load.
+
+doc: "a REPO.buri the toolchain cannot read is said out loud once, as a window/showMessage error, rather than presenting as every request quietly answering nothing"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

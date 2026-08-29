@@ -18,6 +18,16 @@
 //! Requests are handled one at a time, in the order they arrive. That makes
 //! responses deterministic, which is what lets a test record a session as a
 //! golden file.
+//!
+//! **What that makes of a cancel.** One message is read, answered, and only
+//! then is the next one read — so a `$/cancelRequest` usually names a request
+//! that has already been answered, which the protocol says is a no-op and which
+//! this server treats as one. What it can still do is refuse an id whose turn
+//! has not come: the id is remembered, and when the request is dequeued it is
+//! answered `-32800 RequestCancelled` instead of being run. There is
+//! deliberately no read-ahead — a server that pulled the rest of the pipe
+//! before dispatching would decide the outcome by how the operating system
+//! chunked the client's write, and a recorded session must not depend on that.
 
 mod build_files;
 mod call_hierarchy;
@@ -44,13 +54,13 @@ use convert::Position;
 use crate::build::session::Session;
 use crate::commands::arguments;
 use crate::json::{self, Value};
-use state::State;
+use state::{State, Trace};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
 #[expect(
     clippy::print_stderr,
-    reason = "a message that did not parse has no id to answer and no Session to route through, and stdout carries protocol only — stderr is the log channel this server is specified to have"
+    reason = "a message that did not parse has no id to answer and no Session to route through, and stdout carries protocol only. The same line goes out as a `window/logMessage`; stderr stays as the floor, because a report about a corrupt stream must not depend on that stream"
 )]
 pub fn command_language_server(_args: &arguments::Args) -> i32 {
     let stdin = std::io::stdin();
@@ -64,14 +74,18 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
         match read_message(&mut input) {
             Ok(None) => return 0,
             Ok(Some(text)) => {
-                let message = match json::parse(&text) {
+                let incoming = match json::parse(&text) {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("buri lsp: unparseable message: {e}");
+                        // stderr is the floor and the protocol's log channel is
+                        // the one an editor actually shows a reader.
+                        let said = format!("buri lsp: unparseable message: {e}");
+                        eprintln!("{said}");
+                        write_message(&mut output, &message("window/logMessage", ERROR, &said));
                         continue;
                     }
                 };
-                for reply in handle(&mut state, &message) {
+                for reply in handle(&mut state, &incoming) {
                     write_message(&mut output, &reply);
                 }
                 // Whether the loop is over is the lifecycle's answer, not a
@@ -81,7 +95,9 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
                 }
             }
             Err(e) => {
-                eprintln!("buri lsp: {e}");
+                let said = format!("buri lsp: {e}");
+                eprintln!("{said}");
+                write_message(&mut output, &message("window/logMessage", ERROR, &said));
                 return 1;
             }
         }
@@ -206,6 +222,23 @@ const METHOD_NOT_FOUND: i64 = -32601;
 /// and will not serve, which is what a refused rename is.
 const REQUEST_FAILED: i64 = -32803;
 
+/// `RequestCancelled` — what a request the client withdrew is answered with.
+/// Withdrawn is still answered: a client that got nothing back waits forever.
+const REQUEST_CANCELLED: i64 = -32800;
+
+/// The protocol's `MessageType`, for `window/showMessage` and
+/// `window/logMessage`.
+pub(super) const ERROR: i64 = 1;
+pub(super) const INFO: i64 = 3;
+
+/// One `window/showMessage` or `window/logMessage`.
+pub(super) fn message(method: &str, kind: i64, text: &str) -> Value {
+    notification(
+        method,
+        Value::object(vec![("type", Value::number(kind)), ("message", Value::str(text))]),
+    )
+}
+
 fn notification(method: &str, params: Value) -> Value {
     Value::object(vec![
         ("jsonrpc", Value::str("2.0")),
@@ -252,7 +285,64 @@ const REFRESH_FAMILIES: [(&str, &str); 4] = [
     ("workspace/diagnostic/refresh", "buri/diagnosticRefresh"),
 ];
 
+/// One message in, and everything the server has to say about it out.
+///
+/// [`dispatch`] is the answer. What is wrapped around it is the bookkeeping
+/// that is about the conversation rather than about the question: the trace
+/// lines a `$/setTrace` asked for, and the messages a handler decided to send
+/// from somewhere below the request it was serving — a repository that will not
+/// load is found several calls down, and the reader has to be told.
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
+    let named = traced_name(msg);
+    // A request is an id and a method together: a response carries no method,
+    // and a notification no id.
+    let request_id = msg.get("id").filter(|_| msg.get("method").is_some());
+    let mut out = Vec::new();
+    if let (Trace::Messages | Trace::Verbose, Some(name)) = (state.trace, &named) {
+        out.push(log_trace(&format!("received {name}"), None));
+    }
+    let started = std::time::Instant::now();
+    let replies = dispatch(state, msg);
+    // Before the answer: what went wrong was found while the answer was being
+    // computed, and the answer is what it came to.
+    out.extend(state.take_outgoing());
+    if let Some(id) = request_id {
+        state.record_answered(id);
+    }
+    out.extend(replies);
+    if let (Trace::Messages | Trace::Verbose, Some(name), Some(_)) =
+        (state.trace, &named, request_id)
+    {
+        // Timing is the difference between the two levels, and it is the one
+        // thing in this stream a golden session cannot pin — so it is at
+        // `verbose` and nowhere else.
+        let detail = (state.trace == Trace::Verbose)
+            .then(|| format!("answered in {}ms", started.elapsed().as_millis()));
+        out.push(log_trace(&format!("answered {name}"), detail.as_deref()));
+    }
+    out
+}
+
+/// What a `$/logTrace` line calls the message being handled, or `None` for a
+/// client's *response* to one of the server's own requests — which is not a
+/// message the server is handling in this sense.
+fn traced_name(msg: &Value) -> Option<String> {
+    let method = msg.get("method")?.as_str()?;
+    Some(match msg.get("id") {
+        Some(id) => format!("request {method} ({})", id.to_string()),
+        None => format!("notification {method}"),
+    })
+}
+
+fn log_trace(text: &str, verbose: Option<&str>) -> Value {
+    let mut fields = vec![("message", Value::str(text))];
+    if let Some(verbose) = verbose {
+        fields.push(("verbose", Value::str(verbose)));
+    }
+    notification("$/logTrace", Value::object(fields))
+}
+
+fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
     // A message with an id and no method is a *response* to one of the two
     // requests this server sends, and answering it would be answering an answer.
     if msg.get("method").is_none() {
@@ -272,6 +362,15 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         }
         (_, None) if !state.lifecycle.is_running() => return vec![],
         _ => {}
+    }
+
+    // A request the client has withdrawn is refused rather than run. The two
+    // lifecycle requests are exempt: a cancelled `initialize` or `shutdown`
+    // would leave the session in a state neither side can get out of.
+    if let Some(id) = &id {
+        if !matches!(method, "initialize" | "shutdown") && state.was_cancelled(id) {
+            return vec![error(id, REQUEST_CANCELLED, "the client cancelled this request")];
+        }
     }
 
     match (method, id) {
@@ -331,6 +430,12 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             // A client that knows about folders and named none is asked; one
             // that does not can only have meant where it started the server.
             state.must_ask_for_folders = named.is_empty() && client_has_folders;
+            // The level a client can set before it is able to send a
+            // `$/setTrace`, which is every message up to this reply.
+            if let Some(level) = params.get("trace").and_then(|t| t.as_str()).and_then(Trace::named)
+            {
+                state.trace = level;
+            }
             if named.is_empty() && !client_has_folders {
                 if let Ok(cwd) = std::env::current_dir() {
                     state.add_root(&cwd);
@@ -356,6 +461,34 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         },
         ("exit", _) => {
             state.lifecycle.exit();
+            vec![]
+        }
+
+        // The client withdrawing a request it has already sent.
+        //
+        // This server reads one message and answers it before reading the
+        // next, so by the time a cancel is read the request it names has
+        // usually been answered — and a cancel for an answered request is a
+        // no-op, which is what the protocol asks for. What the id is kept for
+        // is the other order: a client that cancels a request this server has
+        // not reached yet gets that request refused when its turn comes,
+        // rather than waiting out an analysis nobody is going to read.
+        ("$/cancelRequest", _) => {
+            if let Some(cancelled) = params.get("id") {
+                state.cancel(cancelled);
+            }
+            vec![]
+        }
+
+        // How much the client wants to be told. A word that is not one of the
+        // three levels leaves it where it was: the protocol has no error reply
+        // for a notification, and guessing would be worse than ignoring.
+        ("$/setTrace", _) => {
+            if let Some(level) =
+                params.get("value").and_then(|v| v.as_str()).and_then(Trace::named)
+            {
+                state.trace = level;
+            }
             vec![]
         }
 
@@ -665,6 +798,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             // The whole repository, for the reason references analyses it: a
             // rename that missed the file importing the name would leave the
             // repository not building.
+            let mut out = progress_begin(&params, "Renaming across the repository");
             let prepared = (|| {
                 let path = uri_param(&params)?;
                 let position = Position::from_json(params.get("position")?)?;
@@ -674,27 +808,47 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 let analyzed = state.analyze_workspace(&root)?;
                 Some(rename::edits(&analyzed, &path, &text, position, &new_name))
             })();
-            match prepared {
-                Some(Ok(edit)) => vec![response(&id, edit)],
+            // The `end` goes out before the answer on every path, refusals
+            // included: a report left open is a spinner that never stops.
+            out.extend(progress_end(&params, ""));
+            out.push(match prepared {
+                Some(Ok(edit)) => response(&id, edit),
                 // A refusal is an error rather than an empty edit: a rename
                 // that silently changed nothing looks like the server hung.
-                Some(Err(why)) => vec![error(&id, REQUEST_FAILED, why.message())],
-                None => vec![response(&id, Value::Null)],
-            }
+                Some(Err(why)) => error(&id, REQUEST_FAILED, why.message()),
+                None => response(&id, Value::Null),
+            });
+            out
         }
 
         // Every open repository, in the order the client named them: the
         // request asks about the workspace and the workspace is all of them.
         ("workspace/symbol", Some(id)) => {
             let query = params.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
+            let roots = state.roots.clone();
+            // The one request whose work is a loop the client can be told the
+            // length of: a repository analysed is a step, and there are as many
+            // steps as the client has folders open.
+            let mut out = progress_begin(&params, "Searching the workspace");
             let mut found = Vec::new();
-            for root in state.roots.clone() {
-                let Some(analyzed) = state.analyze_workspace(&root) else { continue };
-                if let Value::Array(items) = features::workspace_symbols(&analyzed, &query) {
-                    found.extend(items);
+            for (done, root) in roots.iter().enumerate() {
+                if let Some(analyzed) = state.analyze_workspace(root) {
+                    if let Value::Array(items) = features::workspace_symbols(&analyzed, &query) {
+                        found.extend(items);
+                    }
                 }
+                let step = u32::try_from(done).unwrap_or(u32::MAX).saturating_add(1);
+                let total = u32::try_from(roots.len()).unwrap_or(u32::MAX).max(1);
+                out.extend(progress_report(
+                    &params,
+                    &format!("repository {step} of {total}"),
+                    step.saturating_mul(100).checked_div(total).unwrap_or(100),
+                ));
             }
-            vec![response(&id, Value::Array(found))]
+            let result = Value::Array(found);
+            out.extend(progress_end(&params, &counted(&result, "symbol")));
+            out.push(response(&id, result));
+            out
         }
 
         ("textDocument/references", Some(id)) => {
@@ -705,10 +859,16 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             // ways: excluded is "where else is this used".
             let include =
                 matches!(params.at("context.includeDeclaration"), Some(&Value::Bool(true)));
+            // The whole-repository analysis is the most expensive thing this
+            // server does, and it is what the client asked to be told about.
+            let mut out = progress_begin(&params, "Finding references");
             let result = with_workspace(state, &params, |analyzed, path, text, position| {
                 features::references(analyzed, path, text, position, include)
-            });
-            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+            })
+            .unwrap_or(Value::Array(Vec::new()));
+            out.extend(progress_end(&params, &counted(&result, "reference")));
+            out.push(response(&id, result));
+            out
         }
 
         ("textDocument/completion", Some(id)) => {
@@ -914,7 +1074,11 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         // The whole repository, which is the half push cannot reach: a finding
         // about a file nobody opened has no publish to ride on.
         ("workspace/diagnostic", Some(id)) => {
-            vec![response(&id, pull_diagnostics::workspace(state, &params))]
+            let mut out = progress_begin(&params, "Analysing every file");
+            let result = pull_diagnostics::workspace(state, &params);
+            out.extend(progress_end(&params, ""));
+            out.push(response(&id, result));
+            out
         }
 
         // The verbs. Each is a call into an entry point `buri` already has at
@@ -946,8 +1110,15 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         // Buri module belongs to a target declared in a `BUILD.buri`, and a
         // notebook cell has no target, so `notebookDocumentSync` is not
         // advertised and a cell is not something this toolchain can compile.
+        //
+        // `window/workDoneProgress/cancel`: the progress this server reports is
+        // around one call into the front end, which nothing interrupts — so the
+        // work the client asked to stop finishes, and the `end` it is already
+        // waiting for arrives on time. That is why the `begin` says
+        // `cancellable: false`: a button that did nothing would be the lie.
         (
             "textDocument/willSave"
+            | "window/workDoneProgress/cancel"
             | "workspace/didChangeConfiguration"
             | "notebookDocument/didOpen"
             | "notebookDocument/didChange"
@@ -982,6 +1153,70 @@ fn semantic_tokens_of(state: &mut State, path: &std::path::Path, text: &str) -> 
     }
     let analyzed = state.analyze(path);
     semantic_tokens::encoded(analyzed.as_deref(), path, text)
+}
+
+// ---------------------------------------------------------------------------
+// Work-done progress
+// ---------------------------------------------------------------------------
+
+/// The token a client sent to be told how a long request is going, if it sent
+/// one.
+///
+/// **Only the client's token is honoured.** A token the *server* invents has to
+/// be registered first, with a `window/workDoneProgress/create` the client is
+/// entitled to refuse — and a client that did not ask to be told is not missing
+/// anything by not being told. So there is no `create` in this server: the
+/// requests that report progress report it to whoever asked for it.
+fn progress_of(params: &Value, kind: &str, mut fields: Vec<(&str, Value)>) -> Vec<Value> {
+    let Some(token) = params.get("workDoneToken") else { return Vec::new() };
+    fields.insert(0, ("kind", Value::str(kind)));
+    vec![notification(
+        "$/progress",
+        Value::object(vec![("token", token.clone()), ("value", Value::object(fields))]),
+    )]
+}
+
+/// The `begin` that opens a report, with the title an editor puts in its status
+/// bar.
+///
+/// `cancellable: false` is a fact rather than a default: the work is one call
+/// into a front end with no interruption point in it, and an editor that drew a
+/// cancel button on the strength of this would be drawing one that does
+/// nothing.
+fn progress_begin(params: &Value, title: &str) -> Vec<Value> {
+    progress_of(
+        params,
+        "begin",
+        vec![("title", Value::str(title)), ("cancellable", Value::Bool(false))],
+    )
+}
+
+/// One step of a report, for a request whose work is a loop over something the
+/// client can be told the size of.
+fn progress_report(params: &Value, text: &str, percentage: u32) -> Vec<Value> {
+    progress_of(
+        params,
+        "report",
+        vec![("message", Value::str(text)), ("percentage", Value::number(percentage))],
+    )
+}
+
+/// The `end` that closes it. Sent on every path out of the request, including
+/// the ones that answer nothing: a report left open is a spinner that never
+/// stops.
+fn progress_end(params: &Value, text: &str) -> Vec<Value> {
+    let fields =
+        if text.is_empty() { Vec::new() } else { vec![("message", Value::str(text))] };
+    progress_of(params, "end", fields)
+}
+
+/// How many items an answer carries, for the `end` message that says so.
+fn counted(result: &Value, what: &str) -> String {
+    match result.as_array() {
+        Some(items) if items.len() == 1 => format!("1 {what}"),
+        Some(items) => format!("{} {what}s", items.len()),
+        None => String::new(),
+    }
 }
 
 /// The `workspace/*/refresh` requests a save or a watched change earns.
@@ -1633,8 +1868,49 @@ mod tests {
         assert_eq!(out[0].at("error.code"), Some(&Value::Int(METHOD_NOT_FOUND)));
         assert!(out[0].get("result").is_none());
 
-        let note = json::parse(r#"{"method":"$/setTrace"}"#).unwrap();
+        let note = json::parse(r#"{"method":"buri/notANotification"}"#).unwrap();
         assert!(handle(&mut state, &note).is_empty());
+    }
+
+    /// The two orders a cancel can arrive in, and the trap between them: an id
+    /// withdrawn before its turn is refused, and one withdrawn after its answer
+    /// is a no-op that must not refuse a *later* request carrying the same id.
+    #[test]
+    fn a_cancel_refuses_the_request_it_names_and_nothing_else() {
+        let mut state = initialized();
+        let cancel = json::parse(r#"{"method":"$/cancelRequest","params":{"id":7}}"#).unwrap();
+        assert!(handle(&mut state, &cancel).is_empty());
+
+        let request = json::parse(r#"{"id":7,"method":"textDocument/hover"}"#).unwrap();
+        let out = handle(&mut state, &request);
+        assert_eq!(out[0].at("error.code"), Some(&Value::Int(REQUEST_CANCELLED)));
+
+        // Answered, then cancelled: the cancel has nothing to withdraw.
+        let out = handle(&mut state, &request);
+        assert!(out[0].get("result").is_some(), "{}", out[0].to_string());
+        assert!(handle(&mut state, &cancel).is_empty());
+        let out = handle(&mut state, &request);
+        assert!(out[0].get("result").is_some(), "{}", out[0].to_string());
+    }
+
+    /// A trace level the client asked for, and the lines it turns on.
+    #[test]
+    fn setting_a_trace_level_turns_the_log_on_and_off() {
+        let mut state = initialized();
+        let request = json::parse(r#"{"id":1,"method":"textDocument/hover"}"#).unwrap();
+        assert_eq!(handle(&mut state, &request).len(), 1, "off says nothing");
+
+        let on = json::parse(r#"{"method":"$/setTrace","params":{"value":"messages"}}"#).unwrap();
+        assert!(handle(&mut state, &on).is_empty());
+        let out = handle(&mut state, &request);
+        assert_eq!(out.len(), 3, "a line on the way in and one on the way out");
+        assert_eq!(out[0].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
+        assert_eq!(out[2].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
+
+        // A word that is not a level leaves the level where it was.
+        let bad = json::parse(r#"{"method":"$/setTrace","params":{"value":"shout"}}"#).unwrap();
+        handle(&mut state, &bad);
+        assert_eq!(handle(&mut state, &request).len(), 3);
     }
 
     #[test]

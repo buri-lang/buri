@@ -25,10 +25,6 @@ pub const REGENERATE: &str = "buri.regenerateBuildFile";
 /// promise nothing keeps.
 pub const COMMANDS: [&str; 3] = [code_lens::RUN_TEST, REGENERATE, code_lens::SHOW_REFERENCES];
 
-/// The protocol's `MessageType`.
-const ERROR: i64 = 1;
-const INFO: i64 = 3;
-
 pub fn execute(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     let command = params.get("command").and_then(|c| c.as_str()).unwrap_or("");
     let empty: &[Value] = &[];
@@ -95,14 +91,14 @@ fn run_test(state: &mut State, id: &Value, arguments: &[Value]) -> Vec<Value> {
     let transcript = transcript.trim_end().to_string();
     let summary = transcript.lines().last().unwrap_or("the suite did not run");
     vec![
-        message(
+        super::message(
             "window/logMessage",
-            INFO,
+            super::INFO,
             &format!("buri test {label} --filter \"{name}\"\n{transcript}"),
         ),
-        message(
+        super::message(
             "window/showMessage",
-            if code == 0 { INFO } else { ERROR },
+            if code == 0 { super::INFO } else { super::ERROR },
             &format!("{label}: {summary}"),
         ),
         // What the run did is in the two messages above, which is where a
@@ -150,9 +146,9 @@ fn regenerate_build_file(state: &mut State, id: &Value, arguments: &[Value]) -> 
         // the command owes a reader who invoked it from a palette.
         Ok(None) => {
             return vec![
-                message(
+                super::message(
                     "window/showMessage",
-                    INFO,
+                    super::INFO,
                     &format!("{label}: BUILD.buri is already what buri gen would write"),
                 ),
                 super::response(id, Value::Null),
@@ -191,11 +187,4 @@ fn regenerate_build_file(state: &mut State, id: &Value, arguments: &[Value]) -> 
             ),
         ]),
     )]
-}
-
-fn message(method: &str, kind: i64, text: &str) -> Value {
-    super::notification(
-        method,
-        Value::object(vec![("type", Value::number(kind)), ("message", Value::str(text))]),
-    )
 }
