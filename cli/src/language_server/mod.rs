@@ -833,7 +833,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                     let session = state.session_for(&path)?;
                     return Some(build_files::links(&session, &path, &text));
                 }
-                let analyzed = state.analyze(&path);
+                let analyzed = state.analyze_for_query(&path);
                 Some(links::document_links(analyzed.as_deref(), &path, &text))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -957,7 +957,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path =
                     params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 Some(completion::resolve_completion(&analyzed, &params))
             })();
             // An item with nothing to resolve is still a legal answer to this
@@ -980,7 +980,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 color::document_colors(&analyzed, &path, &text)
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -1026,7 +1026,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let data = if build_files::is_build_file(&path) {
                     Vec::new()
                 } else {
-                    let analyzed = state.analyze(&path);
+                    let analyzed = state.analyze_for_query(&path);
                     semantic_tokens::encoded_range(analyzed.as_deref(), &path, &text, from, to)
                 };
                 Some(Value::object(vec![("data", semantic_tokens::numbers(&data))]))
@@ -1078,7 +1078,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let text = state.text_of(&path)?;
                 let from = convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
                 let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 inlay_hints::hints(&analyzed, &path, &text, from, to)
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -1093,7 +1093,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
                 let text = state.text_of(&path)?;
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 Some(inlay_hints::resolve(&analyzed, &path, &text, &params))
             })();
             // A hint with nothing to resolve is still a legal answer to this
@@ -1220,7 +1220,7 @@ fn semantic_tokens_of(state: &mut State, path: &std::path::Path, text: &str) -> 
     if build_files::is_build_file(path) {
         return Vec::new();
     }
-    let analyzed = state.analyze(path);
+    let analyzed = state.analyze_for_query(path);
     semantic_tokens::encoded(analyzed.as_deref(), path, text)
 }
 
@@ -1744,7 +1744,10 @@ fn with_analysis<T>(
     let path = uri_param(params)?;
     let position = Position::from_json(params.get("position")?)?;
     let text = state.text_of(&path)?;
-    let analyzed = state.analyze(&path)?;
+    // Every one of these reads the bodies of the file the cursor is in and
+    // filters the rest out by file id, so the rest were never worth checking.
+    // See `State::analyze_for_query`.
+    let analyzed = state.analyze_for_query(&path)?;
     f(&analyzed, &path, &text, position)
 }
 

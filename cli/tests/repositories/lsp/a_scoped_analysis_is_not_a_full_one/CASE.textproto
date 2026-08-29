@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a position query checks the bodies of the file under the cursor and is cached apart from a whole analysis, so a keystroke costs one scoped analysis however many questions follow it, and a problem list about the other file of the same target still reports the error in it"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

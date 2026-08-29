@@ -903,22 +903,45 @@ The reason for the split is that the front end has no incremental mode:
 `driver::analyze` is whole-closure. Analysing on every keystroke would mean
 re-checking the standard library on every keystroke.
 
+**A question about one position checks one file's bodies.** Loading, resolving
+and elaborating every signature, type, trait and module-level `let` is the whole
+closure either way — that is what makes the answer the same one — but the
+function bodies are type-checked only for the file the cursor is in. Hover,
+definition, completion, signature help, the highlights, the tokens, the hints,
+the links and the colours all read the bodies of that file and filter every
+other one out by file id, so checking the rest was work whose result they threw
+away. Diagnostics do not take this route: a file whose bodies were not checked
+reports nothing, so a problem list built from one would go quiet everywhere but
+under the cursor.
+
 An unsaved buffer is not a problem — the server hands the editor's copy to the
 loader in place of the file on disk, so what you see reported is what you are
 looking at.
 
-**An analysis is kept until something changes.** The key is a hash of every byte
-that fed it: every `.buri` file in that repository — sources, every
-`BUILD.buri`, and `REPO.buri` — plus the buffers the editor has open in it,
-because those are what the loader actually reads. Reading and hashing bytes is
-not parsing them, so the key costs a fraction of the answer it stands for, and a
-second question about a repository nobody has touched is a lookup. Any change
-anywhere in that repository invalidates all of its answers: the front end is
-whole-closure, so there is no smaller unit whose answer an edit elsewhere
-provably does not change. The root is in the key too, so a keystroke in one open
-repository does not invalidate the other's. Nothing invalidates by hand — a
-keystroke, a save, a close and a file written behind the editor's back all move
-the hash on their own.
+**An analysis is kept until something it read changes.** The key is a hash of
+the build graph — the `.buri` listing, `REPO.buri` and every `BUILD.buri` — and
+then of the bytes of each file in the analysis's own *closure*, which is the set
+of modules it actually loaded, taken off the answer rather than guessed at. The
+buffers the editor has open stand in for their files, because those are what the
+loader actually reads. Reading and hashing bytes is not parsing them, so the key
+costs a fraction of the answer it stands for, and asking whether an answer still
+holds does not touch a file the analysis never read. Both halves are needed: the
+closure's bytes are what was read, and the graph is what decided the closure is
+that set — a `BUILD.buri` edit can add a dependency, and a new file can turn a
+lint finding on. So a keystroke in one library leaves every target that cannot
+see that file answered, and the root is in the key too, so it leaves the other
+open repository alone. Nothing invalidates by hand — a keystroke, a save, a
+close and a file written behind the editor's back all move the hash on their
+own.
+
+**How much was checked is part of the key.** A scoped analysis and a whole one
+are built from the same bytes and are not the same answer, so they are filed
+apart: the scoped ones are keyed by the file whose bodies they checked rather
+than by that file's target, since two open files of one target want one each. A
+whole analysis whose closure has not moved is a superset and answers a position
+query for free — a hover right after a save costs nothing — and never the other
+way round, which is also why a result id, which stands for a report, can only
+ever be minted against an analysis that checked everything.
 
 ## Two things worth knowing
 

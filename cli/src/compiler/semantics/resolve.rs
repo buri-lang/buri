@@ -22,7 +22,7 @@ use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span, SecondarySpan};
+use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span, SecondarySpan};
 use crate::parsing::flat::{self, TypeId};
 use crate::parsing::tree;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -59,6 +59,23 @@ pub struct ModuleScope {
     pub own: HashMap<String, Sym>,
     /// Namespace imports, by local name.
     pub namespaces: HashMap<String, ModuleId>,
+}
+
+/// Which function bodies an analysis is asked to type-check.
+///
+/// Everything another body can *see* — signatures, type definitions, traits,
+/// impls, module-level `let`s, `context` declarations — is elaborated for the
+/// whole closure either way. This chooses only how much of step 5 runs, and it
+/// is what lets an editor query cost the file under the cursor rather than the
+/// repository.
+#[derive(Clone, Debug)]
+pub enum Bodies {
+    /// Every body in the closure. What a build, a lint pass and a published
+    /// diagnostic all need.
+    All,
+    /// Only the bodies written in these files. [`Checked::bodies`] simply has
+    /// no entry for the rest.
+    In(Vec<FileId>),
 }
 
 pub struct Checked {
@@ -155,6 +172,9 @@ pub struct Checker<'a> {
     /// Whether the declaration being elaborated is a trait, an effect, or an
     /// `impl`, which are the only places `Self` means anything.
     in_self_scope: bool,
+    /// Which bodies step 5 is asked for. [`Bodies::All`] unless a caller said
+    /// otherwise.
+    pub wanted: Bodies,
 }
 
 impl<'a> Checker<'a> {
@@ -186,6 +206,26 @@ impl<'a> Checker<'a> {
             pending_ctx_rules: Vec::new(),
             resolving: Vec::new(),
             in_self_scope: false,
+            wanted: Bodies::All,
+        }
+    }
+
+    /// Narrows step 5 to the bodies written in one set of files.
+    pub fn checking(mut self, bodies: Bodies) -> Checker<'a> {
+        self.wanted = bodies;
+        self
+    }
+
+    /// The file a declaration's body is written in, for anything that has one.
+    pub fn file_of(&self, ast: AstRef) -> Option<FileId> {
+        ast.item().map(|(module, _)| self.module(module).file)
+    }
+
+    /// Whether step 5 is being asked for the bodies in this file.
+    pub fn wants_file(&self, file: FileId) -> bool {
+        match &self.wanted {
+            Bodies::All => true,
+            Bodies::In(files) => files.contains(&file),
         }
     }
 
@@ -213,6 +253,10 @@ impl<'a> Checker<'a> {
         // hold a static style. It must also run before `monomorphize` inlines a
         // constant, or a module-level `let` of `Style` would be extracted once
         // per use site instead of once.
+        let only: Option<Vec<FileId>> = match &self.wanted {
+            Bodies::All => None,
+            Bodies::In(files) => Some(files.clone()),
+        };
         let (styles, style_con) = crate::compiler::semantics::styles::run(
             self.loaded,
             &self.tables,
@@ -220,6 +264,7 @@ impl<'a> Checker<'a> {
             &mut self.bodies,
             &mut self.const_values,
             self.diags,
+            only.as_deref(),
         );
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
         // up `Style`: by module path in the loaded set, then by name in that
