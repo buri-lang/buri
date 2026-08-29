@@ -1,0 +1,2 @@
+from "//lib/two/a" export { twoA };
+from "//lib/two/b" export { twoB };

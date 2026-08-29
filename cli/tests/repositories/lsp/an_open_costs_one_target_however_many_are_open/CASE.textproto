@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an open costs the target it opened and nothing per buffer already open: twelve `didOpen`s across four targets, and the eight that land in a target already asked about report `analyses 0, lints 0` and one publish, however many buffers are open behind them"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

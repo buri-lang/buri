@@ -1,0 +1,38 @@
+# Twelve buffers in four targets, opened the way an editor restores a session:
+# every tab it had, one `didOpen` after another. The claim is that the twelfth
+# open costs what the first open of its target cost and nothing more — which is
+# what the `verbose` trace's work counters say, request by request and now
+# notification by notification.
+#
+# A `didOpen` used to ask every open buffer's target for its findings and
+# recompile the ones the eight-deep analysis cache had dropped, so the
+# hundred-and-eleventh open of a real repository was 823 ms of front end.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+#
+# The first four opens are four targets nobody has asked about yet:
+# `analyses 1, lints 1` each, and the first of them opens the repository.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/a.buri", "languageId": "buri", "version": 1, "text": "/// One step, in whole units.\nexport fn oneA(n: I64): I64 { n + 1 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/a.buri", "languageId": "buri", "version": 1, "text": "/// One step, in whole units.\nexport fn twoA(n: I64): I64 { n + 1 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/three/a.buri", "languageId": "buri", "version": 1, "text": "/// One step, in whole units.\nexport fn threeA(n: I64): I64 { n + 1 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/four/a.buri", "languageId": "buri", "version": 1, "text": "/// One step, in whole units.\nexport fn fourA(n: I64): I64 { n + 1 }\n"}}}
+#
+# The next eight are targets already asked about, and the buffer count is
+# four, then five, then twelve. Every one of them is `analyses 0, lints 0`:
+# the closure a target read is where it was, so its findings are a lookup.
+# `published 1` throughout — the file just opened, and nothing else, because
+# a publish carrying what the editor already holds says nothing.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/b.buri", "languageId": "buri", "version": 1, "text": "/// Twice as many, in the same units.\nexport fn oneB(n: I64): I64 { n * 2 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/b.buri", "languageId": "buri", "version": 1, "text": "/// Twice as many, in the same units.\nexport fn twoB(n: I64): I64 { n * 2 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/three/b.buri", "languageId": "buri", "version": 1, "text": "/// Twice as many, in the same units.\nexport fn threeB(n: I64): I64 { n * 2 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/four/b.buri", "languageId": "buri", "version": 1, "text": "/// Twice as many, in the same units.\nexport fn fourB(n: I64): I64 { n * 2 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/one/a\" export { oneA };\nfrom \"//lib/one/b\" export { oneB };\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/two/a\" export { twoA };\nfrom \"//lib/two/b\" export { twoB };\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/three/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/three/a\" export { threeA };\nfrom \"//lib/three/b\" export { threeB };\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/four/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/four/a\" export { fourA };\nfrom \"//lib/four/b\" export { fourB };\n"}}}
+#
+# `files hashed 17` is the whole repository, and it is the same on the twelfth
+# open as on the first: asking whether a closure moved reads a file's bytes once
+# per message however many buffers name it. That is a hash, not a front end.
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
