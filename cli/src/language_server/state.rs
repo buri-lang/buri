@@ -249,6 +249,17 @@ pub struct State {
     /// large repository is holding the repository several times over, and what
     /// the report needs off each of them is a few hundred bytes of JSON.
     target_findings: BTreeMap<(PathBuf, TargetId), TargetFindings>,
+    /// The same, for the publish path: per repository and target, what the two
+    /// passes last said and the closure state they said it about.
+    ///
+    /// Filed apart from [`State::target_findings`] because the two are answers
+    /// to different questions — a sweep reports every target, a publish reports
+    /// the targets the editor has buffers in — and a report must not be quoted
+    /// back as if the other side had computed it. What this buys is the cost of
+    /// an open: a `didOpen` asks about every open buffer's target, and the
+    /// analysis cache holds eight, so a session with more targets open than
+    /// that recompiled all of them on every open.
+    publish_findings: BTreeMap<(PathBuf, Option<TargetId>), TargetFindings>,
     /// What has been done since the server started. `handle` reads it either
     /// side of a request and reports the difference.
     work: Work,
@@ -380,8 +391,9 @@ pub struct Linted {
 /// keystroke in one library re-analyses one target and not three" is the claim
 /// the speed rests on, and these counters are how a recorded session states it.
 ///
-/// Reported by `handle` as the difference either side of one request, at
-/// `verbose` and nowhere else.
+/// Reported by `handle` as the difference either side of one message, at
+/// `verbose` and nowhere else. A notification is one of them: an open and a
+/// change are where the work of an editing session actually is.
 #[derive(Clone, Copy, Default)]
 pub struct Work {
     /// Front-end runs: one per target analysed, and one per whole-repository
@@ -394,6 +406,9 @@ pub struct Work {
     pub sessions_opened: u64,
     /// Files whose bytes were read to answer "has anything moved".
     pub files_hashed: u64,
+    /// `textDocument/publishDiagnostics` notifications sent. A publish the
+    /// client already holds is not one of them: see `super::remember`.
+    pub published: u64,
     /// Bytes of JSON the answers came to.
     pub bytes_written: u64,
     /// Sweeps asked for that never ran, because a newer edit replaced them
@@ -409,6 +424,7 @@ impl Work {
             lints: self.lints.saturating_sub(before.lints),
             sessions_opened: self.sessions_opened.saturating_sub(before.sessions_opened),
             files_hashed: self.files_hashed.saturating_sub(before.files_hashed),
+            published: self.published.saturating_sub(before.published),
             bytes_written: self.bytes_written.saturating_sub(before.bytes_written),
             sweeps_superseded: self.sweeps_superseded.saturating_sub(before.sweeps_superseded),
         }
@@ -422,6 +438,7 @@ impl Work {
             lints: self.lints.saturating_add(other.lints),
             sessions_opened: self.sessions_opened.saturating_add(other.sessions_opened),
             files_hashed: self.files_hashed.saturating_add(other.files_hashed),
+            published: self.published.saturating_add(other.published),
             bytes_written: self.bytes_written.saturating_add(other.bytes_written),
             sweeps_superseded: self
                 .sweeps_superseded
@@ -439,8 +456,8 @@ impl Work {
     /// and it does that by reading to the end of the line.
     pub fn spelled(&self) -> String {
         let mut said = format!(
-            "analyses {}, lints {}, sessions opened {}, files hashed {}",
-            self.analyses, self.lints, self.sessions_opened, self.files_hashed
+            "analyses {}, lints {}, sessions opened {}, files hashed {}, published {}",
+            self.analyses, self.lints, self.sessions_opened, self.files_hashed, self.published
         );
         if self.sweeps_superseded > 0 {
             said.push_str(&format!(", sweeps superseded {}", self.sweeps_superseded));
@@ -561,6 +578,7 @@ impl State {
             cache: Cache::default(),
             sources: BTreeMap::new(),
             target_findings: BTreeMap::new(),
+            publish_findings: BTreeMap::new(),
             work: Work::default(),
             sweeps: super::sweep::Sweeps::new(),
         }
@@ -608,6 +626,11 @@ impl State {
     /// Records the bytes an answer came to, for the trace line that reports it.
     pub fn wrote(&mut self, bytes: u64) {
         self.work.bytes_written = self.work.bytes_written.saturating_add(bytes);
+    }
+
+    /// The same for the publishes one message sent.
+    pub fn publishes(&mut self, count: u64) {
+        self.work.published = self.work.published.saturating_add(count);
     }
 
     /// Files a buffer the editor opened or edited.
@@ -883,6 +906,11 @@ impl State {
             .iter()
             .find(|c| c.root == root && c.target == target)
             .map(|c| Rc::clone(&c.closure))
+            .or_else(|| {
+                self.publish_findings
+                    .get(&(root.to_path_buf(), target))
+                    .map(|known| Rc::clone(&known.closure))
+            })
             .or_else(|| {
                 self.target_findings
                     .get(&(root.to_path_buf(), target?))
@@ -1384,6 +1412,48 @@ impl State {
             .collect()
     }
 
+    /// The repository and target one open buffer belongs to, which is what a
+    /// publish asks its two passes about.
+    ///
+    /// Two buffers with the same key are one question, and a `didOpen` with
+    /// fifty buffers behind it used to ask fifty.
+    pub fn target_key(&mut self, path: &Path) -> Option<(PathBuf, Option<TargetId>)> {
+        let root = self.root_of(path)?;
+        let target = self.target_of(&root, path);
+        Some((root, target))
+    }
+
+    /// What a publish last found for the target owning `path`, if the closure
+    /// it read is where it was.
+    ///
+    /// This is what makes an open cost one target rather than all of them. A
+    /// `didOpen` asks every open buffer's target for its findings, and the
+    /// analyses that answer are held eight at a time — so a session with more
+    /// targets open than that missed on every one of them and recompiled the
+    /// lot. The findings themselves are a few hundred bytes each and are kept
+    /// per target without a bound.
+    pub fn cached_publish(&mut self, path: &Path) -> Option<super::Published> {
+        let root = self.root_of(path)?;
+        let target = self.target_of(&root, path);
+        let filed = self.publish_findings.get(&(root.clone(), target))?;
+        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
+        let now = self.closure_key(&root, &closure);
+        let filed = self.publish_findings.get(&(root, target))?;
+        (was == now).then(|| filed.found.clone())
+    }
+
+    /// Files what the two passes just found, under the closure they read.
+    pub fn keep_publish(&mut self, path: &Path, found: &super::Published) {
+        let Some(root) = self.root_of(path) else { return };
+        let target = self.target_of(&root, path);
+        // A target nothing has analysed has no closure to key on, so there is
+        // nothing here that a later question could safely be answered from.
+        let Some(closure) = self.known_closure(&root, target) else { return };
+        let key = self.closure_key(&root, &closure);
+        self.publish_findings
+            .insert((root, target), TargetFindings { key, closure, found: found.clone() });
+    }
+
     /// What was last said about this target, if the closure it was said about
     /// is where it was.
     fn cached_findings(&mut self, root: &Path, target: TargetId) -> Option<super::Published> {
@@ -1463,7 +1533,7 @@ struct TargetFindings {
 /// so the same words at the same place arrive several times, and they are one
 /// squiggle. The rule is [`super::same_finding`]'s, the same one a publish
 /// merges by.
-fn merge_findings(into: &mut super::Published, from: &super::Published) {
+pub(super) fn merge_findings(into: &mut super::Published, from: &super::Published) {
     for (uri, items) in from {
         let bucket = into.entry(uri.clone()).or_default();
         for item in items {

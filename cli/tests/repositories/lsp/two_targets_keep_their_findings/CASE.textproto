@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "opening and saving a buffer in one target leaves the findings of a buffer in another target on screen, because every open buffer's own target is asked rather than only the one that prompted the analysis"
+doc: "opening and saving a buffer in one target leaves the findings of a buffer in another target on screen: every open buffer's own target is asked rather than only the one that prompted the analysis, and a target whose answer has not moved is not published over"
 
 run {
   args: ["lsp"]

@@ -6,5 +6,4 @@
 {"id":5,"jsonrpc":"2.0","result":null}
 {"id":6,"jsonrpc":"2.0","result":null}
 {"id":7,"jsonrpc":"2.0","result":null}
-{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/counter/counter.buri"}}
 {"id":8,"jsonrpc":"2.0","result":null}
