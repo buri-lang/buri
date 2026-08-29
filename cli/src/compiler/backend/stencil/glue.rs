@@ -1,7 +1,7 @@
 //! The functions one unit generates for itself.
 //!
-//! `cranelift/helpers.rs` is the same set under the same argument, and the
-//! reason each exists is the reason it gives:
+//! Every register-machine backend here generates the same set under the same
+//! argument, and the reason each exists is:
 //!
 //! | Helper | Why it is generated rather than called |
 //! |---|---|
@@ -79,8 +79,8 @@ pub fn symbol(i: usize) -> String {
 }
 
 /// The environment record starts one word into its block; the word before it is
-/// the block's own release function. `cranelift/emit.rs::ENV_FIELDS` is the
-/// same eight bytes, and the two must agree because both write the same shape.
+/// the block's own release function. Every backend writes the same eight bytes,
+/// and they must agree because they write the same shape.
 pub const ENV_FIELDS: u32 = 8;
 
 /// Where the closure's environment pointer sits inside `{ code, env }`.
@@ -136,8 +136,7 @@ impl Jit<'_> {
     /// The environment block: its own release function in the first word, the
     /// captured record at [`ENV_FIELDS`].
     ///
-    /// `cranelift/emit.rs::build_env` allocates the same shape for the same
-    /// reason — `Ty::Fn` does not record what was captured, so a `decref` of a
+    /// `llvm/emit.rs::build_env` allocates the same shape for the same reason — `Ty::Fn` does not record what was captured, so a `decref` of a
     /// closure has no type to derive the release from and the block has to
     /// carry it. Eight bytes per closure, against a closure that could not be
     /// freed.
@@ -245,7 +244,7 @@ impl Jit<'_> {
     ///
     /// The count is `cap / stride`, and `cap` is the second header word
     /// (VALUE-MODEL.md §2) — which is what makes a drop glue taking only a
-    /// pointer enough for a whole list. `cranelift/helpers.rs::release_elems`
+    /// pointer enough for a whole list. `llvm/emit.rs::release_elems_glue`
     /// reads the same word and divides by the same stride.
     fn elems_glue(&mut self, ty: Ty) {
         let l = self.layouts_of(ty.clone());
@@ -415,7 +414,7 @@ impl Jit<'_> {
     /// where a `Str` a lambda only reads is `Borrow` and is never released by
     /// the body. A thunk is the only thing a code pointer ever points at, so it
     /// is the only place the two can be reconciled, and
-    /// `cranelift/helpers.rs::thunk` reconciles them the same two ways:
+    /// every backend's thunk reconciles them the same two ways:
     ///
     ///  * an argument the callee **borrows** is released here, after the call;
     ///  * the environment record is **retained** where the callee owns it,

@@ -1,11 +1,10 @@
 //! What more than one backend suite needs, and none of them owns.
 //!
-//! `cranelift`, `llvm` and `stencil` compile the same programs through three
-//! pipelines and assert the same things about what came out. Where the
-//! assertion is shared, the machinery has to be too: three copies of an
-//! allocation probe cannot be said to agree on an allocation count, and three
-//! copies of the corpus loader are three chances for one backend to be reading
-//! a different repository.
+//! `llvm` and `stencil` compile the same programs through two pipelines and
+//! assert the same things about what came out. Where the assertion is shared,
+//! the machinery has to be too: two copies of an allocation probe cannot be
+//! said to agree on an allocation count, and two copies of the corpus loader
+//! are two chances for one backend to be reading a different repository.
 
 // Which backends are built decides which of these are read.
 #![allow(dead_code)]

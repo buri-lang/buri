@@ -520,7 +520,7 @@ pub const ENTRIES: &[Entry] = &[
     },
     // `take(self, ctx, n)` and `drop(self, ctx, n)` are one `slice` each in the
     // archive, and the same three-word shape as `slice` here. They were absent
-    // from this table and present in `cranelift/runtime.rs`, which is a
+    // from this table and present in the debug backend's, which is a
     // disagreement between two transcriptions of one contract rather than a
     // difference between the backends — `data/lists.buri` under
     // `buri test --release` is what found it.
@@ -618,7 +618,7 @@ pub const ENTRIES: &[Entry] = &[
     // `cli/runtime/testing.rs`'s header is the argument for these being in the
     // archive rather than open-coded: each names a slot in one mutable table,
     // which is `runtime.js`'s `$t.h` written for a language that has statics.
-    // The rows are `cranelift/runtime.rs`'s, one for one.
+    // The rows are `stencil/runtime.rs`'s, one for one.
     //
     // Two things are not obvious and are the same in both tables:
     //
@@ -729,8 +729,8 @@ pub const ENTRIES: &[Entry] = &[
     // `len`, it passes the length alone and the callee reads a pointer out of
     // it. That is what the first draft of these rows said, and it linked, ran,
     // and crashed `text/bytes.buri` and `proto/binary.buri` under `--release`
-    // while Cranelift compiled both — because that backend spreads from the IR
-    // and has no per-argument table to get wrong.
+    // while the debug backend compiled both — it spreads from the IR and has no
+    // per-argument table to get wrong.
     Entry {
         key: "bytes.toUtf8",
         symbol: "buri_rt_bytes_to_utf8",
@@ -970,9 +970,9 @@ pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `3` div.
 ///
 /// A call rather than open-coded for [`I128_DIVMOD`]'s reason: the overflow test
-/// both backends use at 64 bits is a widening multiply, which Cranelift does not
-/// define at `i128`, and a hand-rolled 128-bit one in two code generators is two
-/// places to get it wrong. The `Entry` beside the first exists so that
+/// both backends use at 64 bits is a widening multiply, which neither has at
+/// `i128`, and a hand-rolled 128-bit one in two code generators is two places to
+/// get it wrong. The `Entry` beside the first exists so that
 /// `Unit::call_sum` — which translates an `i32` discriminant into whatever
 /// `middle::layout` chose for the `Option` — can be driven by something that is
 /// not an [`ENTRIES`] row: this operation has no intrinsic key of its own, it is
@@ -1051,7 +1051,7 @@ pub const HASH_CHAR: &str = "buri_rt_hash_char";
 /// Transcribed rather than reached: it is a Rust `const` in
 /// `cli/runtime/hash.rs` and not an exported symbol, so a backend that wants to
 /// start a hash has to write it down. `middle::derives`'s `HASH_SEED` and
-/// `cranelift/runtime.rs`'s `SEED` are the same number for the same reason, and
+/// `stencil/emit.rs`'s `HASH_SEED` are the same number for the same reason, and
 /// `cli/runtime/hash.rs`'s own tests pin it — which is what keeps four copies
 /// of one constant from drifting into four different hashes.
 pub const HASH_SEED: u64 = 0x811c_9dc5;

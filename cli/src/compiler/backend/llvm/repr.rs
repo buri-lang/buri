@@ -258,8 +258,8 @@ impl<'a> Reprs<'a> {
             // to a real zero-byte block. That is a branch and possibly an
             // allocation per call, at every one of them, to save a null test
             // that only the ones that can be empty ever fail — and it would
-            // have to be repeated in the Cranelift backend, where the same
-            // runtime answers the same null.
+            // have to be repeated in the debug backend, where the same runtime
+            // answers the same null.
             LayoutRepr::List => {
                 slots.push(Slot { offset: layout.field(layout::LIST_PTR), ty: ptr() });
                 slots.push(Slot {
@@ -557,8 +557,8 @@ pub enum Site {
     /// list used to drop it: a variant field whose type is the enum's own is
     /// behind a pointer (VALUE-MODEL.md §5.2), and walking it *in place*
     /// reads the pointer's bytes as if the pointee were inline and then
-    /// descends into the enum's own type again. `cranelift/emit.rs` had the
-    /// identical defect and it is fixed there in the same words.
+    /// descends into the enum's own type again. `stencil/emit.rs::box_into`
+    /// writes the same boxed field for the same reason.
     Tagged { tag: Scalar, variants: Vec<(u32, Ty, u32, bool)> },
     /// A niche-encoded `Option`: walk the payload only where it is `.Some`.
     Guarded { null_at: u32, ty: Ty },

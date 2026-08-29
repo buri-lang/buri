@@ -185,8 +185,8 @@ fn two_objects_link_into_a_program_that_runs() {
 }
 
 /// The manifest is the answer to "which objects changed", and it is the only
-/// thing that makes the claim observable from outside (CODEGEN-CRANELIFT.md
-/// §7.4).
+/// thing that makes the claim observable from outside (CODEGEN-STENCIL.md
+/// §12.4).
 #[test]
 fn the_manifest_records_where_every_object_came_from() {
     let Some(target) = linkable() else { return };
@@ -340,7 +340,7 @@ fn every_unit_cached_never_reaches_the_backend() {
 
 /// Editing one module re-emits one unit. The sibling's object comes out of the
 /// cache and says so, which is the observable form of "a codegen unit whose IR
-/// hash is unchanged is not recompiled" (CODEGEN-CRANELIFT.md §7.2).
+/// hash is unchanged is not recompiled" (CODEGEN-STENCIL.md §12.2).
 #[test]
 fn editing_one_unit_re_emits_exactly_that_unit() {
     let root = workspace("one-unit");

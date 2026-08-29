@@ -54,8 +54,8 @@ pub struct BuriList {
 /// One byte, so that the empty string has an address.
 ///
 /// VALUE-MODEL.md §6 niches `Option<Str>` on `Str::ptr`, so a null `ptr` *is*
-/// `.None`. The compiler already honours that — `cranelift/emit.rs`'s `bytes`
-/// appends a NUL to every literal precisely so the empty one has a non-null
+/// `.None`. The compiler already honours that — every backend's string-literal
+/// emission appends a NUL precisely so the empty one has a non-null
 /// address — and a runtime that answered a null `ptr` for an empty slice would
 /// make `"".splitOnce(",")`'s first half read back as `.None`. So the empty
 /// string points here.

@@ -72,9 +72,9 @@ impl StencilTarget {
         }
     }
 
-    /// What `clang -target` is given. The same two spellings
-    /// `cranelift/mod.rs::triple_of` and `llvm/target.rs::triple` produce, so
-    /// three backends name a target one way.
+    /// What `clang -target` is given. The same spelling
+    /// `llvm/target.rs::triple` produces, so both native backends name a target
+    /// one way.
     pub fn triple(self) -> &'static str {
         match self {
             StencilTarget::MacosArm64 => "arm64-apple-darwin",
