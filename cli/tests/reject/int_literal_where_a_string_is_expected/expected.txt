@@ -1,13 +1,13 @@
-error: expected `F64`, found an integer literal [type-mismatch]
- --> cmd/int_literal_plus_float_literal/main.buri:5:19
+error: expected `Str`, found an integer literal [type-mismatch]
+ --> cmd/int_literal_where_a_string_is_expected/main.buri:7:20
   |
-5 | fn mixed(): Float {
-  |                   ^ the declared return type is `F64`
+7 |   let myStr: Str = 1;
+  |                    ^ the annotation is `Str`
   |
-  = expected: `F64`
+  = expected: `Str`
   = actual: an integer literal
-  = there is no implicit promotion of any kind
-  = fix: annotate the literal, as in `let x: F64 = ...`
+  = an integer literal takes any integer type, and `Str` is not one
+  = fix: produce a `Str` here, or change what surrounds it to accept an integer literal
 
     What to do
     ──────────
@@ -28,13 +28,3 @@ error: expected `F64`, found an integer literal [type-mismatch]
     expression's shape rather than of what was written, and the one place it
     matters is the one place nobody looks.
 
-error: expected an integer literal, found a float literal [type-mismatch]
- --> cmd/int_literal_plus_float_literal/main.buri:6:7
-  |
-6 |   1 + 1.0
-  |       ^^^ the left operand's type is an integer literal
-  |
-  = expected: an integer literal
-  = actual: a float literal
-  = there is no implicit promotion of any kind
-  = fix: write both literals in the same kind, either both integers or both floats

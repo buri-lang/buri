@@ -567,27 +567,34 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn unify_at(&mut self, span: Span, actual: &Ty, expected: &Ty, what: &str) {
         if let Err((a, b)) = self.subst.unify(&self.c.tables, actual, expected) {
-            let a = show(&self.c.tables, Some(&self.subst), &self.generics, &a);
-            let b = show(&self.c.tables, Some(&self.subst), &self.generics, &b);
+            let a = show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, &a);
+            let b = show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, &b);
+            let (found, wanted) = (a.quoted(), b.quoted());
             let mut d = Diagnostic::templated("type-mismatch", span)
-                .with_bind("expected", b.clone())
-                .with_bind("found", a.clone())
-                .with_mismatch(format!("`{b}`"), format!("`{a}`"));
+                .with_bind("expected", wanted.clone())
+                .with_bind("found", found.clone())
+                .with_mismatch(wanted.clone(), found);
             if !what.is_empty() {
-                d = d.with_label(format!("{what} is `{b}`"));
+                d = d.with_label(format!("{what} is {wanted}"));
             }
             // There is no implicit promotion of any kind, and the most common
             // way to hit this is expecting one. The conversion is named
             // explicitly, because which one it is depends on whether the value
             // can fail to fit.
-            d = if is_numeric_mismatch(&self.c.tables, &a, &b) {
-                d.with_note("there is no implicit promotion of any kind")
-                    .with_fix(numeric_fix(&a, &b))
+            if is_numeric_mismatch(&a, &b) {
+                d = d
+                    .with_note("there is no implicit promotion of any kind")
+                    .with_fix(numeric_fix(&a, &b));
             } else {
-                d.with_fix(format!(
-                    "produce a `{b}` here, or change what surrounds it to accept a `{a}`"
-                ))
-            };
+                if let Some(note) = unpinned_literal_note(&a, &b) {
+                    d = d.with_note(note);
+                }
+                d = d.with_fix(format!(
+                    "produce {} here, or change what surrounds it to accept {}",
+                    b.noun_phrase(),
+                    a.noun_phrase()
+                ));
+            }
             self.c.diags.push(d);
         }
     }
@@ -913,15 +920,28 @@ impl<'a, 'b> Infer<'a, 'b> {
 /// The conversion to reach for, named exactly. Which one it is depends on
 /// whether the value can fail to fit, so a generic "convert it" would leave the
 /// reader to work out the return type for themselves.
-fn numeric_fix(actual: &str, expected: &str) -> String {
-    // A literal has not been pinned to a type yet, so an annotation is the
-    // edit, not a conversion.
-    if actual.starts_with('{') {
-        return format!("annotate the literal, as in `let x: {expected} = ...`");
+fn numeric_fix(actual: &Spelling, expected: &Spelling) -> String {
+    match (actual, expected) {
+        // Neither side is pinned, so there is no conversion to name: one of the
+        // two literals has to be written in the other's kind.
+        (Spelling::Literal(_), Spelling::Literal(_)) => {
+            return "write both literals in the same kind, either both integers or both floats"
+                .to_string();
+        }
+        // A literal has not been pinned to a type yet, so an annotation is the
+        // edit, not a conversion.
+        (Spelling::Literal(_), _) => {
+            return format!("annotate the literal, as in `let x: {} = ...`", expected.name());
+        }
+        (_, Spelling::Literal(_)) => {
+            return format!(
+                "write a literal of the right kind, or convert with `.to{}()`",
+                actual.name()
+            );
+        }
+        _ => {}
     }
-    if expected.starts_with('{') {
-        return format!("write a literal of the right kind, or convert with `.to{actual}()`");
-    }
+    let (actual, expected) = (actual.name(), expected.name());
     let exact = matches!(
         (actual, expected),
         ("I8", "I16" | "I32" | "I64" | "I128" | "F64")
@@ -944,15 +964,32 @@ fn numeric_fix(actual: &str, expected: &str) -> String {
     }
 }
 
-fn is_numeric_mismatch(tables: &Tables, a: &str, b: &str) -> bool {
-    let _ = tables;
-    let numericish = |s: &str| {
-        s.starts_with('I')
-            || s.starts_with('U')
-            || s.starts_with('F')
-            || s == "{integer}"
-            || s == "{float}"
+fn is_numeric_mismatch(a: &Spelling, b: &Spelling) -> bool {
+    let numericish = |s: &Spelling| match s {
+        Spelling::Code(name) => {
+            name.starts_with('I') || name.starts_with('U') || name.starts_with('F')
+        }
+        Spelling::Literal(_) => true,
+        Spelling::Unconstrained => false,
     };
     numericish(a) && numericish(b) && a != b
+}
+
+/// A literal did not fail to match a type; it has not been given one yet, and
+/// nothing in the source says so.
+fn unpinned_literal_note(a: &Spelling, b: &Spelling) -> Option<String> {
+    let (class, other) = match (a, b) {
+        (Spelling::Literal(class), Spelling::Code(other))
+        | (Spelling::Code(other), Spelling::Literal(class)) => (class, other),
+        _ => return None,
+    };
+    let kind = match class {
+        NumClass::Int => "integer",
+        NumClass::Float => "float",
+    };
+    Some(format!(
+        "{} takes any {kind} type, and `{other}` is not one",
+        class.literal_phrase()
+    ))
 }
 

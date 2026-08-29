@@ -1,13 +1,10 @@
-// EXPECT: expected `F64`, found an integer literal
+// EXPECT: expected `Str`, found an integer literal
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 
-fn mixed(): Float {
-  1 + 1.0
-}
-
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${mixed()}");
+  let myStr: Str = 1;
+  let _ = ctx.println(myStr);
   .Ok(())
 }
