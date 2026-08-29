@@ -97,8 +97,8 @@ fn language_server() {
     run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 87);
 }
 
-/// Every method a 3.17 client can send is answered by name, and is sent by at
-/// least one recorded session.
+/// Every method a 3.17 client can send is answered by the dispatch, and is
+/// sent by at least one recorded session.
 ///
 /// `cli/src/docs/cli/lsp.md`'s table says "there is no third column of things
 /// left for later", and until this test nothing held it to that: the claim was
@@ -106,17 +106,248 @@ fn language_server() {
 /// nor a golden while the table read complete. The list is
 /// `language_server::CLIENT_TO_SERVER`, beside the dispatch it describes.
 ///
-/// Two things are asked of every name, because either alone is passable and
-/// the pair is not:
+/// The answer has to come from a **running server**. The first version of this
+/// test looked the names up in the text of `cli/src/language_server/` — the
+/// directory `CLIENT_TO_SERVER` is itself written in — so the list was its own
+/// witness: the `$/progress` arm could be deleted with every name still found.
 ///
-///  * **it is answered by name** — a string literal somewhere in
-///    `cli/src/language_server/`, which is how every arm is written, or a
-///    golden that records the `-32601` refusal *naming it*. The catch-all
-///    matches anything and proves nothing;
+/// So each name is asked of one `buri lsp` over a small repository:
+///
+///  * **a request is sent and answered**, and anything but `-32601` is an arm.
+///    A `-32601` counts only where a golden records that refusal naming the
+///    method, which is how `documentLink/resolve` and `workspaceSymbol/resolve`
+///    are decisions written down rather than omissions;
+///  * **a notification is sent** and the request behind it still answers, and
+///    its name has to appear in a *pattern* of `dispatch`'s match. That last
+///    half is the one thing a running server cannot show: a notification the
+///    server handled and one that fell through the catch-all both say nothing;
 ///  * **a recorded session sends it**, so the answer is a thing that ran rather
 ///    than a branch nobody has taken.
 #[test]
 fn the_protocol_surface_is_covered() {
+    let surface = buri::language_server::CLIENT_TO_SERVER;
+    let (sessions, refusals, cases) = recorded_sessions();
+    assert!(cases > 50, "found {cases} lsp cases; the walk is broken");
+    let source = std::fs::read_to_string(repo_root().join("cli/src/language_server/mod.rs"))
+        .expect("the dispatch's own module");
+    let arms = dispatch_arms(&source);
+    assert!(arms.len() > 40, "{} arms read out of the dispatch; the scan is broken", arms.len());
+    for method in NOTIFICATIONS {
+        assert!(
+            surface.contains(method),
+            "`{method}` is not a method a client sends; the notification list is stale"
+        );
+    }
+    let (notifications, requests): (Vec<&str>, Vec<&str>) =
+        surface.iter().copied().partition(|m| NOTIFICATIONS.contains(m));
+
+    let scratch = Scratch::repo("lsp-surface");
+    scratch.binary_package("cmd/app", SURFACE_PROGRAM);
+    let mut editor = Editor::open(&scratch.root);
+    let params = surface_params(&editor.uri("cmd/app/main.buri"), SURFACE_PROGRAM);
+    let mut missing = Vec::new();
+
+    // The notifications first, `exit` excepted: that one ends the session. One
+    // of them closes the buffer the requests below need, so the file is opened
+    // again once they have all been sent.
+    for &method in notifications.iter().filter(|m| **m != "exit") {
+        editor.notify(method, &params);
+        let alive = editor.ask("textDocument/linkedEditingRange", &params);
+        assert!(
+            alive.contains(r#""result""#),
+            "the server stopped answering after the `{method}` notification: {alive}"
+        );
+        if !arms.iter().any(|arm| arm == method) {
+            missing.push(format!("  {method}: no arm in the dispatch's match"));
+        }
+    }
+    editor.notify("textDocument/didOpen", &params);
+
+    // Then every request, `shutdown` last for the reason `exit` is not here.
+    for &method in requests.iter().filter(|m| **m != "shutdown") {
+        missing.extend(unanswered(&mut editor, method, &params, &refusals));
+    }
+    missing.extend(unanswered(&mut editor, "shutdown", &params, &refusals));
+    if !arms.iter().any(|arm| arm == "exit") {
+        missing.push("  exit: no arm in the dispatch's match".to_string());
+    }
+    editor.notify("exit", &params);
+    let stopped = editor.process.wait().expect("the language server did not stop");
+    assert!(stopped.success(), "the server left the whole surface badly: {stopped}");
+
+    for method in surface {
+        let sent = sessions.contains(&format!("{q}method{q}: {q}{method}{q}", q = '"'))
+            || sessions.contains(&format!("{q}method{q}:{q}{method}{q}", q = '"'));
+        if !sent {
+            missing.push(format!("  {method}: no recorded session sends it"));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} of {} client methods are not covered:\n{}\n\nEither answer them in the \
+         dispatch and record a session under the lsp corpus, or take them out of \
+         `language_server::CLIENT_TO_SERVER` with the reason — but do not leave the \
+         `lsp` reference page claiming a surface no case exercises.",
+        missing.len(),
+        surface.len(),
+        missing.join("\n")
+    );
+    eprintln!("protocol surface: {} client methods, all dispatched and all sent", surface.len());
+}
+
+/// One request put to a live server, and what is wrong with the answer.
+///
+/// `-32601` is the catch-all, so it is a hole unless a golden session records
+/// that refusal by name — which is what makes a refusal a decision.
+fn unanswered(editor: &mut Editor, method: &str, params: &str, refusals: &str) -> Option<String> {
+    let answer = editor.ask(method, params);
+    let refused = answer.contains(r#""code":-32601"#);
+    let recorded = refusals.contains(&format!("`{method}` is not implemented"));
+    (refused && !recorded)
+        .then(|| format!("  {method}: answered -32601, and no golden records that refusal"))
+}
+
+/// The methods a client sends as notifications rather than as requests.
+///
+/// Written out because nothing in a name says which it is —
+/// `textDocument/willSave` is a notification and `willSaveWaitUntil` is a
+/// request — and the test holds every entry to being a method
+/// `CLIENT_TO_SERVER` lists.
+const NOTIFICATIONS: &[&str] = &[
+    "initialized",
+    "exit",
+    "$/cancelRequest",
+    "$/progress",
+    "$/setTrace",
+    "workspace/didChangeWorkspaceFolders",
+    "workspace/didChangeConfiguration",
+    "workspace/didChangeWatchedFiles",
+    "workspace/didCreateFiles",
+    "workspace/didRenameFiles",
+    "workspace/didDeleteFiles",
+    "textDocument/didOpen",
+    "textDocument/didChange",
+    "textDocument/willSave",
+    "textDocument/didSave",
+    "textDocument/didClose",
+    "notebookDocument/didOpen",
+    "notebookDocument/didChange",
+    "notebookDocument/didSave",
+    "notebookDocument/didClose",
+    "window/workDoneProgress/cancel",
+];
+
+/// The program the surface is driven against: one file, one import and one
+/// call, so that a position request has something under it.
+const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn answer(): Int { 41 }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("answer=${answer()}");
+  .Ok(())
+}
+"#;
+
+/// One params object carrying every field any client method reads, so that a
+/// single envelope drives the whole surface: a handler that wants a field finds
+/// it, and one that does not ignores it.
+///
+/// The values are minimal rather than meaningful — position `0:0`, an empty
+/// query, a command no server implements. What is being asked is whether the
+/// method reaches an arm, and an arm answers a request it cannot serve with
+/// something other than `-32601`.
+fn surface_params(uri: &str, text: &str) -> String {
+    let at = r#"{"line":0,"character":0}"#;
+    let range = format!(r#"{{"start":{at},"end":{at}}}"#);
+    // What a hierarchy item and a resolvable item both carry: the round trip
+    // is through `data`, so that is the whole of either.
+    let data = format!(r#"{{"uri":"{uri}","position":{at}}}"#);
+    let fields = [
+        format!(
+            r#""textDocument":{{"uri":"{uri}","languageId":"buri","version":2,"text":{}}}"#,
+            quoted(text)
+        ),
+        format!(r#""position":{at},"positions":[{at}],"range":{range}"#),
+        r#""context":{"diagnostics":[],"includeDeclaration":true}"#.to_string(),
+        format!(r#""contentChanges":[{{"text":{}}}]"#, quoted(text)),
+        format!(r#""item":{{"data":{data}}},"data":{data}"#),
+        format!(r#""files":[{{"uri":"{uri}","oldUri":"{uri}","newUri":"{uri}"}}]"#),
+        r#""event":{"added":[],"removed":[]},"changes":[]"#.to_string(),
+        r#""query":"","command":"buri.notACommand","arguments":[]"#.to_string(),
+        r#""newName":"renamed","previousResultIds":[],"settings":{}"#.to_string(),
+        // `off` so that the `$/setTrace` does not fill the rest of the session
+        // with `$/logTrace`, and an id this client never sends for the cancel.
+        r#""value":"off","token":"buri/surface","id":0"#.to_string(),
+    ];
+    format!("{{{}}}", fields.join(","))
+}
+
+/// The method names in the *pattern* position of `dispatch`'s match — the arms
+/// the server has, rather than the strings its sources mention.
+///
+/// A scan rather than a parse: `//` comments and string bodies are stepped
+/// over, brackets are counted, and a name counts when it is read before its
+/// arm's `=>` at the match's own depth.
+fn dispatch_arms(source: &str) -> Vec<String> {
+    const OPENS: &str = "match (method, id) {";
+    let start = source.find(OPENS).expect("dispatch's match on the method") + OPENS.len();
+    let body: Vec<char> = source[start..].chars().collect();
+    let mut arms = Vec::new();
+    let mut depth = 0i32;
+    let mut in_pattern = true;
+    let mut i = 0;
+    while i < body.len() {
+        match body[i] {
+            '/' if body.get(i + 1) == Some(&'/') => {
+                while i < body.len() && body[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '"' => {
+                let mut literal = String::new();
+                i += 1;
+                while i < body.len() && body[i] != '"' {
+                    if body[i] == '\\' {
+                        i += 1;
+                    }
+                    if let Some(c) = body.get(i) {
+                        literal.push(*c);
+                    }
+                    i += 1;
+                }
+                if in_pattern {
+                    arms.push(literal);
+                }
+            }
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => {
+                depth -= 1;
+                // Below the match's own depth is the brace that closes it.
+                if depth < 0 {
+                    break;
+                }
+                if depth == 0 {
+                    in_pattern = true;
+                }
+            }
+            '=' if depth == 0 && body.get(i + 1) == Some(&'>') => {
+                in_pattern = false;
+                i += 1;
+            }
+            ',' if depth == 0 => in_pattern = true,
+            _ => {}
+        }
+        i += 1;
+    }
+    arms
+}
+
+/// Every recorded lsp session's text, every golden's text, and the number of
+/// cases the two were read from.
+fn recorded_sessions() -> (String, String, usize) {
     let dir = tests_dir().join("repositories/lsp");
     let mut sessions = String::new();
     let mut refusals = String::new();
@@ -140,55 +371,7 @@ fn the_protocol_surface_is_covered() {
             refusals.push_str(&text);
         }
     }
-    assert!(cases > 50, "found {cases} lsp cases; the walk is broken");
-
-    let mut source = String::new();
-    walk_rust(&repo_root().join("cli/src/language_server"), &mut source);
-    assert!(source.len() > 10_000, "the language server's sources did not read");
-
-    let mut missing = Vec::new();
-    for method in buri::language_server::CLIENT_TO_SERVER {
-        let named = source.contains(&format!("{q}{method}{q}", q = '"'))
-            || refusals.contains(&format!("`{method}` is not implemented"));
-        let sent = sessions.contains(&format!("{q}method{q}: {q}{method}{q}", q = '"'))
-            || sessions.contains(&format!("{q}method{q}:{q}{method}{q}", q = '"'));
-        if !named || !sent {
-            missing.push(format!(
-                "  {method}: {}{}",
-                if named { "" } else { "no dispatch arm and no golden refusal naming it; " },
-                if sent { "" } else { "no recorded session sends it" }
-            ));
-        }
-    }
-    assert!(
-        missing.is_empty(),
-        "{} of {} client methods are not covered:\n{}\n\nEither answer them in the \
-         dispatch and record a session under the lsp corpus, or take them out of \
-         `language_server::CLIENT_TO_SERVER` with the reason — but do not leave the \
-         `lsp` reference page claiming a surface no case exercises.",
-        missing.len(),
-        buri::language_server::CLIENT_TO_SERVER.len(),
-        missing.join("\n")
-    );
-    eprintln!(
-        "protocol surface: {} client methods, all answered and all sent",
-        buri::language_server::CLIENT_TO_SERVER.len()
-    );
-}
-
-/// Every `.rs` file under `dir`, concatenated, for the test above.
-fn walk_rust(dir: &Path, out: &mut String) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-    entries.sort_by_key(std::fs::DirEntry::path);
-    for e in entries {
-        let p = e.path();
-        if p.is_dir() {
-            walk_rust(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs") {
-            out.push_str(&std::fs::read_to_string(&p).unwrap_or_default());
-        }
-    }
+    (sessions, refusals, cases)
 }
 
 // ---------------------------------------------------------------------------
@@ -517,21 +700,28 @@ impl Editor {
     /// Sends one request and waits for its own answer, which is what the clock
     /// is on. Notifications the server sends meanwhile are read and dropped.
     fn timed(&mut self, method: &str, params: &str) -> (String, std::time::Duration) {
+        let started = std::time::Instant::now();
+        self.ask(method, params);
+        (method.to_string(), started.elapsed())
+    }
+
+    /// Sends one request and returns its own answer, error replies included.
+    /// Notifications the server sends meanwhile are read and dropped.
+    fn ask(&mut self, method: &str, params: &str) -> String {
         self.next_id = self.next_id.saturating_add(1);
         let id = self.next_id;
-        let started = std::time::Instant::now();
         self.write(&format!(
             r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{params}}}"#
         ));
-        // The keys are sorted, so an answer to this request begins with its id
-        // and carries no `"method":` — which a *request* the server sends
-        // would. The colon matters: `"method"` on its own is one of the
-        // semantic-token types the `initialize` answer lists.
-        let wanted = format!(r#"{{"id":{id},"#);
+        // The keys are sorted, so `"jsonrpc"` follows the id in every answer —
+        // behind `"error"` in a refusal, which is why this is not a prefix.
+        // The ids of the requests the *server* sends are strings, so a number
+        // here can only be this client's.
+        let wanted = format!(r#""id":{id},"jsonrpc""#);
         loop {
             let message = self.read();
-            if message.starts_with(&wanted) && !message.contains(r#""method":"#) {
-                return (method.to_string(), started.elapsed());
+            if message.contains(&wanted) {
+                return message;
             }
         }
     }
