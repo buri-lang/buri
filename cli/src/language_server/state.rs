@@ -1297,8 +1297,11 @@ impl State {
     /// request *for*.
     pub fn workspace_findings(&mut self, root: &Path) -> Option<super::Published> {
         // Three rounds is one for the answer, one for a sweep that was
-        // overtaken, and one to spare. Nothing writes to the repository while
-        // a message is being answered, so the first is normally the last.
+        // overtaken, and one to spare — and then the report as it stands,
+        // because a repository nothing can sweep is still a repository this
+        // request has to answer about. Nothing writes to it while a message is
+        // being answered, so the first round is normally the last.
+        let mut last = super::Published::new();
         for _ in 0..3 {
             let targets = self.graph(root)?.workspace.targets();
             let mut merged = super::Published::new();
@@ -1330,9 +1333,10 @@ impl State {
             if !unknown && self.sweeps.mode != super::sweep::Mode::Synchronous {
                 return Some(merged);
             }
+            last = merged;
             self.settle_sweeps();
         }
-        None
+        Some(last)
     }
 
     /// Waits for every sweep asked for, and believes what they found.
