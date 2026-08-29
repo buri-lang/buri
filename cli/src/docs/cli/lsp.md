@@ -423,7 +423,7 @@ squiggle it fixed stayed on screen until you typed in the buffer. So after
 pattern covers a source, a `BUILD.buri` and a `REPO.buri`, because all three
 wear the one extension, and the schemas a rule lists in `proto_sources`, which
 are compiled into modules like any other file — and a `didChangeWatchedFiles`
-notification re-publishes for every open buffer. `buri gen` at the terminal and
+notification asks every open buffer's target again. `buri gen` at the terminal and
 a `git checkout` under the editor arrive the same way and are answered the same
 way.
 
@@ -648,10 +648,10 @@ repository, and answering out of a repository that is merely open would be
 answering a question nobody asked.
 
 Folders opened and closed while the server runs arrive as
-`didChangeWorkspaceFolders`, and every open buffer is published again — a buffer
-whose repository has just been closed has no findings to show, and leaving them
-on screen would leave the editor asserting something the server can no longer
-stand behind.
+`didChangeWorkspaceFolders`, and every open buffer's target is asked again — a
+buffer whose repository has just been closed has no findings to show, and
+leaving them on screen would leave the editor asserting something the server can
+no longer stand behind.
 
 **A cancel can refuse a request; it cannot interrupt one.** Requests are served
 one at a time, so by the time a `$/cancelRequest` is read the request it names
@@ -737,7 +737,7 @@ nothing, and a golden pins that it is nothing.
 | Request | | |
 |---|---|---|
 | `initialize`, `initialized`, `shutdown`, `exit` | served | the handshake, and the four ways a client gets it wrong: a second `initialize` is `-32600` and not a restart, because answering it would move the root out from under every open document; a request before the first one is `-32002`, because a root is what there is to answer about; a request after `shutdown` is `-32002` again; and `exit` without a `shutdown` before it exits 1. A notification that arrives outside the handshake is dropped rather than refused — a notification has no reply to put an error in |
-| `didOpen`, `didChange`, `didSave`, `didClose` | served | `textDocumentSync` is sent as options rather than as the bare number, which is what negotiates `didSave` at all: the number form advertises `change` and nothing else, and a spec-strict client reading it never saves. An open and a save publish for every open buffer, each out of its own target, because a publish replaces what the editor holds for a file. A closed buffer's text falls back to the file on disk, and everything keyed by that buffer — the semantic-token result id among it — dies with it |
+| `didOpen`, `didChange`, `didSave`, `didClose` | served | `textDocumentSync` is sent as options rather than as the bare number, which is what negotiates `didSave` at all: the number form advertises `change` and nothing else, and a spec-strict client reading it never saves. An open and a save ask every open buffer's target, each out of its own, and publish the files whose findings moved — a publish replaces what the editor holds for a file, so one carrying what it already holds says nothing, and an editor restoring a hundred tabs would otherwise send a hundred of them per tab. A closed buffer's text falls back to the file on disk, and everything keyed by that buffer — the semantic-token result id among it — dies with it |
 | `publishDiagnostics` | served | |
 | `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when nothing in the file's closure has moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
 | `workspace/diagnostic` | served | one report per `.buri` file in every open repository, clean ones included — which is how a client is told a finding is gone, and the only shape that reaches a file no editor has open |

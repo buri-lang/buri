@@ -65,6 +65,7 @@ mod syntax;
 
 use convert::Position;
 use crate::build::session::Session;
+use crate::build::workspace::TargetId;
 use crate::commands::arguments;
 use crate::json::{self, Value};
 use state::{State, Trace};
@@ -463,9 +464,10 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
     let written: usize = replies.iter().map(|r| r.to_string().len()).sum();
     state.wrote(written as u64);
     out.extend(replies);
-    if let (Trace::Messages | Trace::Verbose, Some(name), Some(_)) =
-        (state.trace, &named, request_id)
-    {
+    // Counted here rather than where each one is built, so that the number
+    // covers the publishes a landed sweep brought with it too.
+    state.publishes(out.iter().filter(|m| is_publish(m)).count() as u64);
+    if let (Trace::Messages | Trace::Verbose, Some(name)) = (state.trace, &named) {
         // Timing is the difference between the two levels, and it is the one
         // thing in this stream a golden session cannot pin — so it is at
         // `verbose` and nowhere else, next to the work it came from. The
@@ -492,6 +494,12 @@ fn traced_name(msg: &Value) -> Option<String> {
         Some(id) => format!("request {method} ({})", id.to_string()),
         None => format!("notification {method}"),
     })
+}
+
+/// Whether one outgoing message is a publish, for the counter that reports how
+/// many a message came to.
+fn is_publish(message: &Value) -> bool {
+    message.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
 }
 
 fn log_trace(text: &str, verbose: Option<&str>) -> Value {
@@ -1996,6 +2004,10 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
 /// publishing that alone deleted the findings of every buffer outside its
 /// closure: opening a file in one target cleared another target's squiggles,
 /// and nothing brought them back until something re-analysed that target.
+///
+/// Asked about, and published only where the answer moved. What the other
+/// buffers cost is a hash of their closures — a hundred restored tabs are a
+/// hundred opens, and each of them is the one target it opened.
 fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
     // The file that prompted this always gets a message, empty or not.
     let mut published = seeded(state, Some(path));
@@ -2020,11 +2032,25 @@ fn republish_open(state: &mut State) -> Vec<Value> {
 
 /// Each open buffer's own target, asked again and merged.
 ///
-/// One analysis per target rather than per buffer: the cache is keyed on what
-/// was read, so two buffers in one closure ask the same question once.
+/// One question per target rather than per buffer, and each answer kept under
+/// the closure it was read from — so a hundred buffers in twelve targets are
+/// twelve hashes and no compilation at all when nothing has moved.
 fn open_findings(state: &mut State, published: &mut Published) {
+    let mut asked: Vec<(PathBuf, Option<TargetId>)> = Vec::new();
     for path in state.open.keys().cloned().collect::<Vec<_>>() {
-        findings_for(state, &path, published);
+        // A build file's own syntax is a fact about that file, so every buffer
+        // is asked for it.
+        build_file_findings(state, &path, published);
+        // The two passes are facts about a target, so a target is asked once
+        // however many of its files the editor has open. Fifty buffers in
+        // twelve targets are twelve questions, and the answer to each is
+        // already merged into the report by the first buffer that asked.
+        match state.target_key(&path) {
+            Some(key) if asked.contains(&key) => continue,
+            Some(key) => asked.push(key),
+            None => {}
+        }
+        closure_findings(state, &path, published);
     }
 }
 
@@ -2043,24 +2069,44 @@ fn seeded(state: &State, path: Option<&std::path::Path>) -> Published {
 
 type Published = std::collections::BTreeMap<String, Vec<Value>>;
 
-/// Everything both passes have to say about the closure `path` is in.
+/// Everything both passes have to say about the closure `path` is in, and what
+/// the file itself is if it is a build file.
 fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Published) {
-    // A build file's own syntax. No analysis reports it — `driver::analyze`
-    // never opens one — so an unreadable `BUILD.buri` used to be a repository
-    // that quietly stopped answering rather than a file with a squiggle in it.
-    if build_files::is_build_file(path) {
-        if let Some(text) = state.text_of(path) {
-            let uri = convert::uri_of(path);
-            let items: Vec<Value> = build_files::diagnostics(&text)
-                .iter()
-                .map(|d| convert::diagnostic(&text, d, &uri))
-                .collect();
-            published.entry(uri).or_default().extend(items);
-        }
+    build_file_findings(state, path, published);
+    closure_findings(state, path, published);
+}
+
+/// A build file's own syntax. No analysis reports it — `driver::analyze` never
+/// opens one — so an unreadable `BUILD.buri` used to be a repository that
+/// quietly stopped answering rather than a file with a squiggle in it.
+fn build_file_findings(state: &mut State, path: &std::path::Path, published: &mut Published) {
+    if !build_files::is_build_file(path) {
+        return;
     }
+    if let Some(text) = state.text_of(path) {
+        let uri = convert::uri_of(path);
+        let items: Vec<Value> = build_files::diagnostics(&text)
+            .iter()
+            .map(|d| convert::diagnostic(&text, d, &uri))
+            .collect();
+        published.entry(uri).or_default().extend(items);
+    }
+}
+
+/// What the analysis and the lint pass say about the target owning `path`.
+fn closure_findings(state: &mut State, path: &std::path::Path, published: &mut Published) {
+    // Both passes are per target, so what they found is kept per target and a
+    // second question about a closure nothing moved under is a lookup. See
+    // `State::cached_publish`: this is what stops an open costing one
+    // compilation per open buffer.
+    if let Some(found) = state.cached_publish(path) {
+        state::merge_findings(published, &found);
+        return;
+    }
+    let mut found = Published::new();
     if let Some(analyzed) = state.analyze(path) {
         for d in &analyzed.analysis.diagnostics.items {
-            add_finding(published, &analyzed.session, d);
+            add_finding(&mut found, &analyzed.session, d);
         }
     }
     // The build-graph findings too. An editor that showed only type errors
@@ -2069,9 +2115,11 @@ fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Publi
     // kind of thing you want told about while the import is still on screen.
     if let Some(linted) = state.lint(path) {
         for d in &linted.diagnostics.items {
-            add_finding(published, &linted.analyzed.session, d);
+            add_finding(&mut found, &linted.analyzed.session, d);
         }
     }
+    state.keep_publish(path, &found);
+    state::merge_findings(published, &found);
 }
 
 /// One finding, published once.
@@ -2127,10 +2175,20 @@ fn add_finding_rendering(
 }
 
 /// Publishes, and keeps a copy so that a keystroke can put it back.
+///
+/// A publish replaces everything the editor holds for a file, so one carrying
+/// exactly what it already holds says nothing — and an open with fifty buffers
+/// behind it used to send fifty of them. The exception is a file showing parse
+/// errors: what is on screen there is not what was last published, so it is
+/// published again.
 fn remember(state: &mut State, published: Published) -> Vec<Value> {
     let mut out = Vec::new();
     for (uri, items) in published {
-        out.push(publish(&uri, items.clone()));
+        let held = state.published.get(&uri) == Some(&items)
+            && !state.showing_parse_errors.contains(&uri);
+        if !held {
+            out.push(publish(&uri, items.clone()));
+        }
         state.showing_parse_errors.remove(&uri);
         state.published.insert(uri, items);
     }
@@ -2244,8 +2302,12 @@ mod tests {
         let request = json::parse(r#"{"id":1,"method":"textDocument/hover"}"#).unwrap();
         assert_eq!(handle(&mut state, &request).len(), 1, "off says nothing");
 
+        // The level is read either side of the handler, so the notification that
+        // turns tracing on is not announced on the way in and is on the way out.
         let on = json::parse(r#"{"method":"$/setTrace","params":{"value":"messages"}}"#).unwrap();
-        assert!(handle(&mut state, &on).is_empty());
+        let out = handle(&mut state, &on);
+        assert_eq!(out.len(), 1, "answered, not received");
+        assert_eq!(out[0].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
         let out = handle(&mut state, &request);
         assert_eq!(out.len(), 3, "a line on the way in and one on the way out");
         assert_eq!(out[0].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
