@@ -93,7 +93,7 @@
 //! quietly becomes compilable is a failing test rather than a stale comment.
 use buri::build::buildfile::Platform;
 use buri::build::workspace::Workspace;
-use buri::compiler::backend::stencil::{Stencil, AVAILABLE as STENCILS};
+use buri::compiler::backend::stencil::{unavailable_reason as stencil_unavailable_reason, Stencil};
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Options, Profile, Target};
 use buri::compiler::driver;
@@ -341,13 +341,33 @@ const PACKAGES: &[Case] = &[
     ),
 ];
 
-/// Whether this host can build and run a native artifact at all.
+/// Why this host cannot build and run a native artifact, or `None`.
 ///
-/// The host question belongs to `stencil::AVAILABLE`, which is "this host has a
-/// stencil library and an entry point to put in front of it" — so this suite
-/// runs unchanged wherever the backend does.
+/// The host question belongs to `stencil::unavailable_reason`, which is "this
+/// host has a stencil library and an entry point to put in front of it"
+/// answered as a sentence — so this suite runs unchanged wherever the backend
+/// does, and says which half is missing where it does not.
+fn skip_reason() -> Option<String> {
+    if !AVAILABLE {
+        return Some(String::from("this toolchain carries no native runtime archive"));
+    }
+    stencil_unavailable_reason()
+}
+
+/// Whether this host can build and run a native artifact at all, printing the
+/// reason where it cannot.
+///
+/// The print is the point: the corpus is 26 files and 1187 test blocks, and a
+/// host that ran none of them reports the same four passing tests as a host
+/// that ran all of them.
 fn supported() -> bool {
-    AVAILABLE && STENCILS
+    match skip_reason() {
+        Some(why) => {
+            eprintln!("native conformance: skipped ({why})");
+            false
+        }
+        None => true,
+    }
 }
 
 fn host_platform() -> Platform {
