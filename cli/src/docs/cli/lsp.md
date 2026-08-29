@@ -15,7 +15,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `publishDiagnostics` | Every finding the front end has, for every file it looked at — including files you did not open, because a change in one module is usually reported in another. |
 | `diagnostic` | The same findings, when the editor asks for them instead of waiting to be told. Quoting the result id of the last answer gets `unchanged` back for the price of a hash. |
 | `workspace/diagnostic` | Every file of every open repository, whether or not anything has it open — which is the half a publish cannot reach, because a `BUILD.buri` that does not describe its package is a finding about a file nobody opens. |
-| `hover` | On any name — a call, a type, a field, a variant, a local — the declaration's signature and its doc comment, wherever the declaration is. On something that is not a name, the type of the innermost expression under the cursor. |
+| `hover` | On any name — a call, a type, a field, a variant, a local — the declaration's signature and its doc comment, wherever the declaration is. On something that is not a name, the type of the innermost expression under the cursor. In a `BUILD.buri` or a `REPO.buri`, the field's declaration in the normative `.proto` schema and the prose written above it there. |
 | `definition` | Where the name under the cursor was declared, for every kind of name a file can write: functions and methods, types in expressions and in annotations, traits in bounds and in `impl` heads, module-level `let`s, locals and parameters, fields, variants, and the names in an import clause. Also the path of an import, and — in a `BUILD.buri` — a dependency label, a source entry and a tag. |
 | `typeDefinition` | Where the *type* of the thing under the cursor was declared: a local's type, a field's type, a call's return type. |
 | `declaration` | The same answer as `definition`. Buri declares and defines a thing in one place, so answering differently would mean inventing a difference. |
@@ -35,7 +35,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `formatting` | `buri format`, which refuses to emit anything that does not parse, so a file mid-edit is left alone rather than mangled. |
 | `rangeFormatting` / `onTypeFormatting` | The same canonical output with the rest withheld: the file is formatted whole, the result is diffed against what is on screen, and only the edits your range — or the declaration the `}` or `;` you just typed closes — actually touches come back. |
 | `willSaveWaitUntil` | Format on save, with nothing to configure. Exactly what `formatting` returns, because it is the same function. |
-| `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. Each item carries the range it replaces, its kind, and the signature of what it names. Those two places are the whole of it: a cursor in ordinary code, after a `.`, or part-way through a keyword answers with nothing. |
+| `completion` | As you type. In ordinary code: the locals and parameters bound above the cursor, everything the module can say unqualified — its own declarations, what it imported, and the primitives — and the keywords. After a `.`: the fields and methods of the receiver's type, an enum's variants after the type's own name, and what a namespace import publishes. After a bare `.`: the variants of the type expected there, which is the inferred-variant form. Inside a written type: the types, and not the values. Inside a module path or an import's `{ … }`: the modules you may import and what one exports. In a `BUILD.buri` or a `REPO.buri`: the schema's field names and enum constants, the packages, the files beside it and the tags `REPO.buri` declares. Each item carries the range it replaces, its kind, and the signature of what it names. |
 | `completionItem/resolve` | The `///` prose for the one item you are on. Every doc comment in a module on the wire to show one of them is what this exists to avoid. |
 | `codeAction` / `codeAction/resolve` | The fix for a finding that has exactly one, and the diagnostic it is under. Which fixes those are is decided by the *range* you asked about, so a client that echoes no diagnostics back gets the same answer as one that does. The list is titles; the edit — which for a build file means running `buri gen` — is computed for the action you accept. A client that cannot resolve gets the edit in the list. |
 | `codeLens` / `codeLens/resolve` | A run command above every `test`, and above every exported declaration how many places the repository uses it. The count is computed when the editor is about to draw that one lens, not when it scrolls past the file. |
@@ -301,6 +301,53 @@ the letters typed so far, and the client narrows the list against that range as
 you type — which is what keeps the list from being recomputed on every
 keystroke. So a clause prefix that matches nothing answers with everything, and
 the editor shows nothing. Both halves are pinned.
+
+**Everywhere else the answer is what the analysis already holds.** Zed asks for
+a completion on every letter typed, with no trigger character — so what this has
+to be is cheap, and it is: a module's scope is the list of what it can say
+unqualified, a checked body is the list of what is bound inside a function, and
+`Tables` holds every field, variant and method of a type. Each is one scan of
+one table, and the resolver is asked about at most one name — the receiver of a
+`.`.
+
+**A receiver is looked up by name before it is looked up in the tree**, and that
+order is the whole of why member completion works while you are typing.
+`money.la` is an access to a field that does not exist yet, so the checker
+replaced the whole expression — receiver included — with poison, and asking the
+typed tree what `money` is answers nothing at exactly the moment the answer is
+wanted. A parameter's type is on its declaration and a module's names are in its
+scope, and neither depends on the body checking. The tree is still asked
+afterwards, because it is what knows a receiver that is not a name:
+`listing("x").` resolves there and nowhere else.
+
+**A bare `.` needs to know what is expected**, which is the price of the
+inferred-variant form. Two things say it and both are already computed: a
+`match` says it with its scrutinee, and every other position says it with the
+type the checker gave the expression the cursor is inside. Where neither
+answers — `let paid: Status = .` does not parse at all, a `.` with no name after
+it being no expression — the annotation on the line is read from the buffer. If
+nothing says, nothing is offered: every variant in the repository is not an
+answer to "which variant goes here".
+
+**A file being typed in is a file that does not parse.** Nothing here may depend
+on the analysis succeeding, so a file it could not load at all falls back to the
+words already written in the buffer — no kind and no signature, because none is
+known, but the name bound two lines up beats an empty list. A string and a
+comment answer nothing at all: both are prose, and completing inside one offers
+to corrupt a sentence.
+
+**A build file is completed from its schema.** `BUILD.buri` and `REPO.buri` are
+textproto, and the analysis has nothing to say about either — so they are routed
+by filename before any of it, the way `definition` is. A field name and an enum
+constant come from `docs/schema/build.proto` and `docs/schema/repo.proto`, which
+are compiled into this binary for `buri docs` and read here as text: the
+declaration becomes the item's `detail` and the comment written above it becomes
+its documentation, so what an editor shows and what the schema says cannot
+drift. Everything else in one of these files names something the repository
+holds — a package, a file beside this one, a tag `REPO.buri` declares — and each
+comes from the same place the build already reads it from. The `sources` list is
+the walk `buri gen` derives that field from, so what is offered and what `gen`
+would write are one list.
 
 **Three requests read a parse and nothing else** — the outline, the folds and
 the selection chain. No workspace, no standard library, no analysis: they are
@@ -667,7 +714,7 @@ nothing, and a golden pins that it is nothing.
 | `publishDiagnostics` | served | |
 | `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when the analysis fingerprint has not moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
 | `workspace/diagnostic` | served | one report per `.buri` file in every open repository, clean ones included — which is how a client is told a finding is gone, and the only shape that reaches a file no editor has open |
-| `hover` | served | markdown, or plain text for a client whose `contentFormat` named formats and not `markdown` |
+| `hover` | served | markdown, or plain text for a client whose `contentFormat` named formats and not `markdown`. Routed by file: a build file is answered from the build schema, in a `proto` fence, and never from an analysis |
 | `definition` | served | |
 | `declaration` | served | the same answer; Buri has one place |
 | `typeDefinition` | served | |
@@ -686,7 +733,7 @@ nothing, and a golden pins that it is nothing.
 | `formatting` | served | whole file. `FormattingOptions` — `tabSize`, `insertSpaces` — is accepted and ignored: the formatter is canonical, and a repository whose indentation depended on the editor that saved it would be one nobody could review |
 | `rangeFormatting`, `onTypeFormatting` | served | the whole-file answer, diffed against the buffer and filtered to the hunks the range touches. Nothing partial is computed, so the two cannot disagree with `buri format`. `onTypeFormatting` triggers on `}` and `;` and scopes to the declaration around them; a build file has no such scope and gets nothing |
 | `willSaveWaitUntil` | served | the same edits `formatting` returns, from the same function |
-| `completion` | served | module paths and import clauses, each item with its own replacement range — and those two places only: an expression position, a member after a `.` and a half-typed keyword all answer `[]`, which is pinned rather than left to be discovered |
+| `completion` | served | seven contexts, each item with its own replacement range: a module path, an import clause, a member after a `.`, a variant after a bare `.`, a written type, ordinary code, and a build file's own fields. `triggerCharacters` is `" { / .` — the `.` is what opens a member list before a letter is typed, which is exactly when a reader does not know what to type. A file the analysis could not load falls back to the words the lexer sees in it; a string and a comment answer `[]`, which is pinned rather than left to be discovered |
 | `completionItem/resolve` | served | the doc comment, which is the half worth withholding |
 | `codeAction`, `codeAction/resolve` | served | `resolveProvider: true`, and `codeActionKinds: ["quickfix"]`, which is every kind this server produces. The range is what decides which fixes are offered, as the protocol asks: a client that echoed no `context.diagnostics` is answered from the server's own findings the range touches. A `context.only` naming another family is answered `[]`. The list carries the standard `diagnostics` array — this used to be a `diagnosticCode` string, which is not a field the protocol has |
 | `documentColor`, `colorPresentation` | served | `ui/style`'s `Color`, where every argument is a literal |
@@ -740,7 +787,14 @@ server that keeps up with typing and one that does not:
   publishes nothing at all, so the type errors the last analysis found stay on
   screen with the editor moving them as the text moves. A buffer that does not
   parse publishes its parse errors instead, and when it parses again what the
-  analysis last said goes back.
+  analysis last said goes back. **Which parser is decided by what kind of file it
+  is.** A `BUILD.buri` is textproto and is read by the textproto reader, here and
+  on every other path — the Buri lexer refused its every `# comment`, which is
+  the comment syntax textproto has and Buri does not, and reported a syntax error
+  on a file that was never in that syntax. That reader is also the only thing
+  that reports a build file's own syntax at all: no analysis opens one, so an
+  unreadable `BUILD.buri` used to be a repository that quietly stopped answering
+  rather than a file with a squiggle in it.
 - **On open and on save** the server runs the whole front end over the target's
   closure and publishes everything, then runs the lint pass and publishes that
   too. The lint checks build their own analysis, so a save costs two — which is
