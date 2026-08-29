@@ -468,9 +468,9 @@ fn supported(opts: &Options<'_>) -> Result<abi::StencilTarget, String> {
     // is what a fourth target would arrive in.
     if !target.is_arm64() && !asm::AVAILABLE_X86_64 {
         return Err(format!(
-            "the stencil backend has {} stencils but no hand-written entry point for SysV \
-             x86-64, so it can emit unit objects for that target but not a program \
-             (design/native/CODEGEN-STENCIL.md, \"the x86-64 checklist\")",
+            "the stencil backend has {} stencils but no hand-written entry point for that \
+             machine, so it can emit unit objects for the target but not a program \
+             (design/native/CODEGEN-STENCIL.md §10.3)",
             target.slug()
         ));
     }
