@@ -291,6 +291,56 @@ fn a_protobuf_schema_with_many_fields_builds() {
     run.ok();
 }
 
+/// One arm per variant of a wide enum: flat source, but the JavaScript backend
+/// makes it an `else if` chain one link per arm that `minify` walks by
+/// recursion before `switches` flattens it — so the arm count is stack, in a
+/// pass no parser bound covers. Fifty thousand arms go through JavaScript
+/// alone: the shape is that backend's, and native emission of the same program
+/// is a minute of work for no more coverage of it.
+#[test]
+fn a_match_with_an_arm_per_variant_builds() {
+    let s = Scratch::repo("adversarial-wide-match");
+    for (arms, native) in [(10_000usize, true), (50_000, false)] {
+        s.write("app/BUILD.buri", &wide_match_build_file(native));
+        s.write("app/main.buri", &wide_match_source(arms));
+        let run = s.run(&["build", "//app"]);
+        survived(&run, &format!("a match with {arms} arms"));
+        run.ok();
+    }
+}
+
+/// A binary that emits JavaScript, and the host's native platform beside it.
+fn wide_match_build_file(native: bool) -> String {
+    let host = if cfg!(target_os = "macos") {
+        Some("MACOS")
+    } else if cfg!(target_os = "linux") {
+        Some("LINUX")
+    } else {
+        None
+    };
+    match host.filter(|_| native) {
+        Some(platform) => {
+            format!("binary {{\n  outputs: [{{ platform: JS }}, {{ platform: {platform} }}]\n}}\n")
+        }
+        None => JS_BINARY.to_string(),
+    }
+}
+
+/// An enum of `arms` variants and a match that covers every one of them.
+fn wide_match_source(arms: usize) -> String {
+    let mut s = String::from("export enum Wide {\n");
+    for i in 0..arms {
+        s.push_str(&format!("  V{i}(I32),\n"));
+    }
+    s.push_str("}\n\nfn classify(w: Wide): I32 {\n  match (w) {\n");
+    for i in 0..arms {
+        s.push_str(&format!("    .V{i}(n) => n + {i},\n"));
+    }
+    s.push_str("  }\n}\n\nexport fn main(): Result<(), Str> {\n");
+    s.push_str("  if (classify(.V0(1)) == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
+    s
+}
+
 // ---------------------------------------------------------------------------
 // Volume
 // ---------------------------------------------------------------------------
