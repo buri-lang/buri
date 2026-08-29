@@ -32,14 +32,15 @@ use super::convert;
 use super::links::inside_quotes;
 use super::state::State;
 
-/// The files these operations are about.
+/// The files these operations are about, and the ones the server asks to have
+/// watched.
 ///
 /// One glob for both source languages: a `.buri` module and a `.proto` schema
 /// are both listed by a rule, in `sources` and `proto_sources` respectively.
 /// `matches: "file"` and not a folder — a folder is not a module, and the
 /// modules inside one arrive as their own operations if the client sends them
 /// at all.
-const GLOB: &str = "**/*.{buri,proto}";
+pub const GLOB: &str = "**/*.{buri,proto}";
 
 /// The `sources`-family fields a rule can hold, in the order they are searched
 /// for an entry.

@@ -16,7 +16,7 @@
 //! of it would be a second place for it to drift.
 
 use crate::build::session::Session;
-use crate::build::sources::{Overlay, Sources};
+use crate::build::sources::{closure_of, Overlay, Sources};
 use crate::build::workspace::TargetId;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
@@ -534,18 +534,6 @@ fn remember<T>(list: &mut Vec<Cached<T>>, entry: Cached<T>) {
     list.push(entry);
 }
 
-/// The files on disk an analysis read, which is what its answer depends on.
-///
-/// The standard library is not among them: it is compiled into this binary and
-/// its modules carry no path.
-fn closure_of(analysis: &Analysis) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> =
-        analysis.loaded.modules.iter().filter_map(|m| m.disk.clone()).collect();
-    files.sort();
-    files.dedup();
-    files
-}
-
 impl State {
     pub fn new() -> State {
         State {
@@ -1011,7 +999,7 @@ impl State {
             &mut session.parsed,
             &unit,
         );
-        let closure = closure_of(&analysis);
+        let closure = closure_of(&session.workspace, &analysis);
         self.keep(root, &session);
         let analyzed = Rc::new(Analyzed { session, analysis });
         let key = self.closure_key(root, &closure);
@@ -1085,7 +1073,7 @@ impl State {
         // same set of files [`State::analyze`] would have keyed on — plus the
         // queried file itself, which a scoped analysis reads the bodies of and
         // which no rule need have claimed.
-        let mut closure = closure_of(&analysis);
+        let mut closure = closure_of(&session.workspace, &analysis);
         if !closure.contains(&path.to_path_buf()) {
             closure.push(path.to_path_buf());
             closure.sort();
@@ -1181,7 +1169,8 @@ impl State {
             target,
             &analyzed.analysis,
         );
-        let closure = Rc::new(closure_of(&analyzed.analysis));
+        let closure =
+            Rc::new(closure_of(&analyzed.session.workspace, &analyzed.analysis));
         let linted = Rc::new(Linted { analyzed, diagnostics });
         let key = self.closure_key(root, &closure);
         remember(
@@ -1268,7 +1257,7 @@ impl State {
                     super::add_finding_rendering(&mut found, &mut rendered, &session, d);
                 }
             }
-            let closure = Rc::new(closure_of(&analysis));
+            let closure = Rc::new(closure_of(&session.workspace, &analysis));
             let key = self.closure_key(root, &closure);
             self.target_findings.insert(
                 (root.to_path_buf(), target),

@@ -101,11 +101,22 @@ pub fn command_format(args: &arguments::Args) -> i32 {
 
 /// Every `.buri` file under `dir`, skipping the directories nothing in a
 /// repository is written by hand into.
+pub fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+    walk(dir, out, false);
+}
+
+/// The same, and every `.proto` beside them: the whole set of files an
+/// analysis reads.
 ///
 /// Shared with the language server's fingerprint, so that what `buri format`
 /// considers part of the repository and what an analysis is keyed on are one
-/// list rather than two that can drift apart.
-pub fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+/// list rather than two that can drift apart. A schema is on this list and not
+/// on the one above because it is compiled and not formatted.
+pub fn collect_with_schemas(dir: &Path, out: &mut Vec<PathBuf>) {
+    walk(dir, out, true);
+}
+
+fn walk(dir: &Path, out: &mut Vec<PathBuf>, schemas: bool) {
     if dir.is_file() {
         out.push(dir.to_path_buf());
         return;
@@ -118,8 +129,8 @@ pub fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().is_some_and(|x| x == "buri") {
+            walk(&p, out, schemas);
+        } else if p.extension().is_some_and(|x| x == "buri" || (schemas && x == "proto")) {
             out.push(p);
         }
     }

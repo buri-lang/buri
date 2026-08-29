@@ -116,15 +116,16 @@ fn retract(state: &mut State, asked: &str, related: &mut Published) {
 /// told that a file it was showing squiggles for is clean now, so a repository
 /// whose last error was just fixed has to name that file and say `items: []`.
 /// The list is the one the fingerprint walks — every `.buri` file under the
-/// root, which is sources, every `BUILD.buri` and `REPO.buri` — so what is
-/// reported on and what the result id is computed from cannot drift apart.
+/// root, which is sources, every `BUILD.buri` and `REPO.buri`, and every
+/// `.proto` schema beside them — so what is reported on and what the result id
+/// is computed from cannot drift apart.
 pub fn workspace(state: &mut State, params: &Value) -> Value {
     let quoted = previous_result_ids(params);
     let mut items = Vec::new();
     for root in state.roots.clone() {
         let mut found = Published::new();
         let mut files = Vec::new();
-        crate::commands::format::collect(&root, &mut files);
+        crate::commands::format::collect_with_schemas(&root, &mut files);
         for file in files {
             let uri = convert::uri_of(&file);
             // A build file's own syntax, which no analysis reports: the report

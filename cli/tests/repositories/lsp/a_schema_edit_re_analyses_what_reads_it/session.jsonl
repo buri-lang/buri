@@ -1,0 +1,39 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+#
+# `//lib/wire` declares `point.proto` in `proto_sources`; `//lib/reader` reads
+# the module that schema becomes; `//lib/other` sees neither. What the session
+# is about is that a generated module carries no path on disk, so a key built
+# from the modules alone cannot see a schema move — and every answer below is
+# one a stale key would get wrong.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "capabilities": {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": "buri/watchers", "result": null}
+# Two buffers, in the two targets that will answer differently.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/reader/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/wire\" import { Point, defaultPoint };\n\n/// The point every reader starts from.\nexport fn origin(): Point {\n  Point { ..defaultPoint(), x: .Some(0), y: .Some(0) }\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/other/lib.buri", "languageId": "buri", "version": 1, "text": "/// Whole minutes, which is the only unit this library counts in.\nexport fn minutes(hours: I64): I64 {\n  hours * 60\n}\n"}}}
+# Both clean, and each answered out of the analysis its open already ran.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/reader/lib.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/other/lib.buri"}}}
+# Nothing has moved: both are `unchanged`, and neither cost an analysis.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/reader/lib.buri"}, "previousResultId": "1"}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/other/lib.buri"}, "previousResultId": "2"}}
+# The schema is edited on disk — `y` goes away — and the client says so. The
+# wait is what puts the write after the answer above rather than beside it.
+!wait 5
+!move lib/wire/point.proto.edited lib/wire/point.proto
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/lib/wire/point.proto", "type": 2}]}}
+# The line the whole case is for. `//lib/reader` names a field the schema no
+# longer has, and its buffer did not move — so the only thing that can report
+# this is a key that holds the schema. A server keyed on the modules alone
+# answers `unchanged` here and shows a clean file over broken code.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/reader/lib.buri"}, "previousResultId": "1"}}
+# And the other half of the claim: `//lib/other` cannot see the schema, so it
+# is quoted straight back at `analyses 0`. A key that noticed the edit by
+# hashing the whole repository would re-analyse this too.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/other/lib.buri"}, "previousResultId": "2"}}
+# The whole repository, which is where a `.proto` reaches the report about the
+# file that reads it rather than about itself.
+{"jsonrpc": "2.0", "id": 8, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

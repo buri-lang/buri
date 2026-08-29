@@ -29,7 +29,7 @@
 use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder, Status};
 use crate::build::session::Session;
 use crate::build::sources::{Overlay, Sources};
-use crate::build::workspace::{ModuleLocation, RuleKind, TargetId};
+use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments::{BuildMode, Flags};
 use crate::compiler::driver::Analysis;
 use crate::diagnostics::{Diagnostic, Edit, FileId, SecondarySpan, Severity, SourceMap, Span};
@@ -165,7 +165,7 @@ impl Store {
         self.say(Status::Run, session, target, &key);
         let mut out = FORMAT.to_vec();
         out.push(u8::from(parts.asked_the_package));
-        let closure = closure_of(session, analysis);
+        let closure = crate::build::sources::closure_of(&session.workspace, analysis);
         put_u32(&mut out, closure.len() as u32);
         for path in &closure {
             put_text(&mut out, &session.workspace.rel_of(path));
@@ -194,34 +194,6 @@ impl Store {
             key,
         );
     }
-}
-
-/// The files on disk one analysis read, which is what its findings depend on.
-///
-/// The modules' own files, and the schema behind each generated `.proto`
-/// module — a generated module carries no path of its own, so stopping at the
-/// modules would let a schema edit go unnoticed. The standard library is not
-/// among them: it is compiled into this binary, and its identity is the
-/// toolchain version the key already holds.
-fn closure_of(session: &Session, analysis: &Analysis) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for module in &analysis.loaded.modules {
-        if let Some(disk) = &module.disk {
-            files.push(disk.clone());
-            continue;
-        }
-        if !module.path.ends_with(".proto") {
-            continue;
-        }
-        if let Ok(ModuleLocation::InPackage(schema)) =
-            session.workspace.resolve_module(&module.path)
-        {
-            files.push(schema.file);
-        }
-    }
-    files.sort();
-    files.dedup();
-    files
 }
 
 // ---------------------------------------------------------------------------

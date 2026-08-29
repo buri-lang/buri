@@ -860,6 +860,7 @@ fn frame_requests(text: &str) -> Vec<u8> {
 /// !apply 2       wait for the response to request 2, then write the workspace
 ///                edit its first code action carried
 /// !edit 2        the same, for a response that is a workspace edit itself
+/// !wait 2        read up to the response to request 2 and do nothing else
 /// !move a.buri b.buri   move a file, as the editor is about to
 /// !remove a.buri        delete one
 /// ```
@@ -926,11 +927,12 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
 
 /// One `!` line: the harness doing what an editor would do between messages.
 ///
-/// The two that wait take a request id and read up to its response first, which
-/// is the whole reason these exist — piping the session and touching the disk
-/// partway through would leave which side of the change each request landed on
-/// to the scheduler rather than to the case. The three that touch the file tree
-/// need no wait: nothing has been sent since the last flush.
+/// The three that wait take a request id and read up to its response first,
+/// which is the whole reason these exist — piping the session and touching the
+/// disk partway through would leave which side of the change each request
+/// landed on to the scheduler rather than to the case. A `!move` or `!remove`
+/// that has to land after a particular answer says so with a `!wait` in front
+/// of it.
 fn act(
     case: &str,
     dir: &Path,
@@ -964,6 +966,15 @@ fn act(
                 _ => parsed.at("result"),
             };
             apply_workspace_edit(case, edit, &body);
+        }
+        // The answer itself is the golden's business; this only says that it
+        // arrived before whatever the next line does to the file tree.
+        "wait" => {
+            let id = rest
+                .parse::<u32>()
+                .unwrap_or_else(|_| panic!("{case}: `!{directive}` does not name a request id"));
+            read_until(output, id, read_early)
+                .unwrap_or_else(|| panic!("{case}: the server never answered request {id}"));
         }
         "move" => {
             let (from, to) = rest

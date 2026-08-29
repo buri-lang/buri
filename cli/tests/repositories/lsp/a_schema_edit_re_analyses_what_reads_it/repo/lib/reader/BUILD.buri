@@ -1,0 +1,5 @@
+library {
+    dependencies: ["//lib/wire"]
+
+    visibility: ["//visibility:public"]
+}

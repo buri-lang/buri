@@ -1723,13 +1723,17 @@ fn capabilities() -> Value {
     ])
 }
 
-/// Watch every `.buri` file in every folder, and tell me when one changes.
+/// Watch every file an analysis reads, in every folder, and tell me when one
+/// changes.
 ///
-/// One pattern covers all three kinds, and that is a property of the language
-/// rather than a shortcut: a source, a `BUILD.buri` and a `REPO.buri` all wear
-/// the `.buri` extension, and `**/` in the protocol's glob matches any number
-/// of path segments *including none*, so `REPO.buri` at the root of a folder
-/// matches it as surely as `lib/money/BUILD.buri` does.
+/// One pattern covers all four kinds: a source, a `BUILD.buri` and a
+/// `REPO.buri` all wear the `.buri` extension, and a `.proto` a rule lists in
+/// `proto_sources` is compiled into a module like any of them — so an edit to
+/// one is an edit to the code, and a server that did not hear about it would
+/// keep answering from the module the old schema became. `**/` in the
+/// protocol's glob matches any number of path segments *including none*, so
+/// `REPO.buri` at the root of a folder matches it as surely as
+/// `lib/money/BUILD.buri` does.
 ///
 /// `kind` is spelled out as create-change-delete rather than left to its
 /// default, because all three change the answer: a build file appearing is as
@@ -1748,7 +1752,7 @@ fn watcher_registration() -> Value {
                     Value::object(vec![(
                         "watchers",
                         Value::Array(vec![Value::object(vec![
-                            ("globPattern", Value::str("**/*.buri")),
+                            ("globPattern", Value::str(file_operations::GLOB)),
                             ("kind", Value::number(7)),
                         ])]),
                     )]),
