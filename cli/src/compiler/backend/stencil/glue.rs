@@ -42,7 +42,7 @@
               before anything is emitted"
 )]
 
-use super::asm::{Asm, SP};
+use super::asm::{Asm, RDI, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::CLOSURE_ENV;
@@ -97,6 +97,10 @@ const SCRATCH_BYTES: u32 = super::jit::SCRATCH_WORDS as u32 * 8;
 /// The stub forms it with `sub sp, sp, #imm`, whose immediate is twelve bits
 /// unshifted. A type whose walk needs more than this is refused with a sentence
 /// rather than given a shifted encoding nothing else in this file would use.
+///
+/// x86-64's `sub rsp, imm32` has no such limit and is held to the same number
+/// anyway: a refusal that depended on the machine would mean a program compiled
+/// for one target and refused for another with nothing a user could act on.
 const MAX_GLUE_FRAME: u32 = 4080;
 
 fn round8(n: u32) -> u32 {
@@ -195,6 +199,18 @@ impl Jit<'_> {
     /// makes is an indirect **tail** call — there is nothing to do after it —
     /// and no stencil in the library has that shape.
     fn env_glue(&mut self) {
+        if !self.target.is_arm64() {
+            let mut a = X86::new();
+            a.ldr(RSI, RDI, 0);
+            let done = a.cbz_x(RSI);
+            a.add_imm(RDI, ENV_FIELDS);
+            a.jmp_reg(RSI);
+            a.here(done);
+            a.ret();
+            let (bytes, _) = a.finish();
+            self.region.put(&bytes);
+            return;
+        }
         let mut a = Asm::new();
         a.ldr(1, 0, 0);
         let done = a.cbz_x(1);
@@ -317,6 +333,10 @@ impl Jit<'_> {
             self.emit("ret", &[]);
             return false;
         }
+        if !self.target.is_arm64() {
+            self.glue_stub_x86_64(frame);
+            return true;
+        }
         let mut a = Asm::new();
         a.str_pre16(30, SP);
         a.sub_imm(SP, SP, frame);
@@ -330,6 +350,30 @@ impl Jit<'_> {
         let (bytes, _) = a.finish();
         self.region.put(&bytes);
         true
+    }
+
+    /// [`Jit::glue_stub`] for SysV x86-64.
+    ///
+    /// The return address is already on the machine stack — `call` put it
+    /// there — so nothing has to be saved the way `x30` does, and the one
+    /// `push` here is alignment: `rsp % 16` is 8 on entry, and SysV wants 0 at
+    /// the `call` below. `frame` is a multiple of sixteen, so the push is the
+    /// whole of the correction and the frame base stays sixteen-aligned, which
+    /// is what every `middle::layout` offset in the body is computed against.
+    fn glue_stub_x86_64(&mut self, frame: u32) {
+        let mut a = X86::new();
+        a.push_rbp();
+        a.sub_imm(RSP, frame);
+        a.str_off(RDI, RSP, G_PTR);
+        a.mov_reg(RDI, RSP);
+        // `add rsp` is seven bytes and `pop`/`ret` one each: nine bytes stand
+        // between the end of this call and the body.
+        a.call_ahead(9);
+        a.add_imm(RSP, frame);
+        a.pop_rbp();
+        a.ret();
+        let (bytes, _) = a.finish();
+        self.region.put(&bytes);
     }
 
     /// The per-function state a generated body needs: no values, no registers,

@@ -135,11 +135,38 @@ pub struct Hole {
     pub lo12: Vec<(u32, u32)>,
 }
 
+/// A place where a stencil reads bytes clang spilled, and where in
+/// [`Stencil::consts`] those bytes are.
+///
+/// Not a [`Hole`]: nothing is patched into the instruction and there is no
+/// value to bind. What the emitter does is copy [`Stencil::consts`] into the
+/// unit's own constant pool and aim the reference at the copy, which is the
+/// same thing the linker would have done with clang's `.rodata`.
+#[derive(Clone, Copy, Debug)]
+pub struct ConstRef {
+    /// Byte offset of the four-byte `disp32` field within the stencil.
+    pub field: u32,
+    /// Byte offset of the end of the instruction the field belongs to, which
+    /// is where the processor measures a rip-relative displacement from.
+    pub insn_end: u32,
+    /// Byte offset within [`Stencil::consts`] of the datum being read.
+    pub at: u32,
+}
+
 #[derive(Clone, Debug)]
 pub struct Stencil {
     pub name: String,
     pub code: Vec<u8>,
     pub holes: Vec<Hole>,
+    /// Read-only bytes this stencil reads and no hole can hold. **Empty for
+    /// every AArch64 stencil**, where a constant that would need one is an
+    /// error the extractor refuses (`extract.rs`); on x86-64 an SSE sign mask
+    /// and the two biases of a `u64`-to-`double` conversion arrive this way.
+    pub consts: Vec<u8>,
+    /// The alignment [`Stencil::consts`] must be copied at. Sixteen for an SSE
+    /// constant, and reading one at less is a fault rather than a slowdown.
+    pub consts_align: u32,
+    pub const_refs: Vec<ConstRef>,
     /// Index in `holes` of the continuation whose `b` is the body's very last
     /// instruction. Copy-and-patch elides that branch when the continuation is
     /// laid out immediately after (the paper's "control is passed directly to
@@ -148,6 +175,21 @@ pub struct Stencil {
 }
 
 impl Stencil {
+    /// The three spill fields of a stencil that has none, for the struct-update
+    /// syntax. Every AArch64 stencil is one: `extract.rs` refuses an object
+    /// that spilled anything at all.
+    pub fn unspilled() -> Stencil {
+        Stencil {
+            name: String::new(),
+            code: Vec::new(),
+            holes: Vec::new(),
+            consts: Vec::new(),
+            consts_align: 0,
+            const_refs: Vec::new(),
+            tail: None,
+        }
+    }
+
     pub fn find(&self, name: &str) -> Option<usize> {
         self.holes.iter().position(|h| h.name == name)
     }
@@ -190,7 +232,7 @@ impl Library {
 
 /// The magic and the layout revision, checked on decode so that a stale
 /// `OUT_DIR` is a build error rather than a wrong instruction stream.
-const MAGIC: [u8; 8] = *b"STENCIL1";
+const MAGIC: [u8; 8] = *b"STENCIL2";
 
 struct Cursor<'a> {
     bytes: &'a [u8],
@@ -301,6 +343,15 @@ impl Library {
                 put_u32s(&mut out, &h.conds);
                 put_pairs(&mut out, &h.lo12);
             }
+            put_u32(&mut out, s.consts.len() as u32);
+            out.extend_from_slice(&s.consts);
+            put_u32(&mut out, s.consts_align);
+            put_u32(&mut out, s.const_refs.len() as u32);
+            for c in &s.const_refs {
+                put_u32(&mut out, c.field);
+                put_u32(&mut out, c.insn_end);
+                put_u32(&mut out, c.at);
+            }
         }
         for s in &self.stencils {
             out.extend_from_slice(&s.code);
@@ -347,11 +398,22 @@ impl Library {
                     lo12: c.pairs()?,
                 });
             }
+            let nc = c.usize()?;
+            let consts = c.take(nc)?.to_vec();
+            let consts_align = c.u32()?;
+            let nr = c.usize()?;
+            let mut const_refs = Vec::with_capacity(nr);
+            for _ in 0..nr {
+                const_refs.push(ConstRef { field: c.u32()?, insn_end: c.u32()?, at: c.u32()? });
+            }
             lengths.push(len);
             stencils.push(Stencil {
                 name,
                 code: Vec::new(),
                 holes,
+                consts,
+                consts_align,
+                const_refs,
                 tail: (tail != u32::MAX).then_some(tail as usize),
             });
         }
@@ -379,6 +441,9 @@ mod tests {
                 conds: vec![],
                 lo12: vec![(4, 8)],
             }],
+            consts: vec![9, 9, 9, 9, 9, 9, 9, 9],
+            consts_align: 16,
+            const_refs: vec![ConstRef { field: 2, insn_end: 6, at: 0 }],
             tail: Some(0),
         };
         let mut index = HashMap::new();
@@ -404,6 +469,12 @@ mod tests {
         assert_eq!(h.pairs, vec![(0, 4)]);
         assert_eq!(h.branches, vec![8]);
         assert_eq!(h.lo12, vec![(4, 8)]);
+        // The spilled constants travel with the stencil, because there is
+        // nothing else that could supply them at emission time.
+        assert_eq!(s.consts, vec![9, 9, 9, 9, 9, 9, 9, 9]);
+        assert_eq!(s.consts_align, 16);
+        assert_eq!(s.const_refs.len(), 1);
+        assert_eq!(s.const_refs.first().map(|c| (c.field, c.insn_end, c.at)), Some((2, 6, 0)));
         // The relocation records are the build script's working notes and are
         // deliberately not carried.
         assert!(h.sites.is_empty());

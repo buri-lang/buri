@@ -803,12 +803,13 @@ fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
 ///
 /// The host's own platform where this toolchain can compile, link and run a
 /// binary for it in this profile, and JavaScript where it cannot — which is
-/// `--no-default-features`, a host outside macOS and Linux, a host whose
-/// architecture the development backend has no entry point for, a machine with
-/// no C toolchain, and `--release` without `backend-llvm`. The last of those is
-/// why the profile comes from the flags rather than being pinned to `Debug`:
-/// the release profile routes to LLVM (`backend::select`), and a toolchain that
-/// does not have it must not be quietly handed the debug backend.
+/// `--no-default-features`, a host outside macOS and Linux, a host the
+/// development backend has no stencil library for (macOS on x86-64), a machine
+/// with no C toolchain, and `--release` without `backend-llvm`. The last of
+/// those is why the profile comes from the flags rather than being pinned to
+/// `Debug`: the release profile routes to LLVM (`backend::select`), and a
+/// toolchain that does not have it must not be quietly handed the debug
+/// backend.
 ///
 /// This is the *toolchain's* half of the answer, and it is the same for every
 /// suite in a pass. The suite's half — whether the native backend has a body

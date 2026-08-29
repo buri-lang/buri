@@ -229,6 +229,22 @@ pub struct State {
     announced: BTreeMap<PathBuf, u64>,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
+    /// The build graph of each open repository, kept for as long as the files
+    /// that decide it are unchanged.
+    graphs: BTreeMap<PathBuf, (u64, Rc<Session>)>,
+    /// Per repository and target: what the two passes said about that target,
+    /// already converted, and the closure state they said it about.
+    ///
+    /// Kept as findings rather than as analyses because a `workspace/diagnostic`
+    /// asks about every target at once: holding one `Analysis` per target in a
+    /// large repository is holding the repository several times over, and what
+    /// the report needs off each of them is a few hundred bytes of JSON.
+    target_findings: BTreeMap<(PathBuf, TargetId), TargetFindings>,
+    /// What the message being handled has already read off the disk.
+    reads: Reads,
+    /// What has been done since the server started. `handle` reads it either
+    /// side of a request and reports the difference.
+    work: Work,
 }
 
 /// The edits this server has asked the client to write, and the command each
@@ -248,23 +264,30 @@ pub struct Applying {
     pub sent: u64,
 }
 
-/// The `resultId`s pull diagnostics have gone out with, one per repository.
+/// The `resultId`s pull diagnostics have gone out with.
 ///
 /// The protocol asks a result id to be opaque and asks the server never to call
 /// a report unchanged against an id it did not itself hand out. A counter is
-/// both, where the fingerprint alone would be only the first: an id issued is
-/// an id this server produced, so "unchanged" is a fact rather than a client's
-/// claim about a number it could have made up.
+/// both, where a hash alone would be only the first: an id issued is an id this
+/// server produced, so "unchanged" is a fact rather than a client's claim about
+/// a number it could have made up.
 ///
-/// One id per repository rather than per file, because that is the granularity
-/// the analysis has — the front end is whole-closure, so there is no file whose
-/// answer an edit elsewhere provably does not change.
+/// One id per *closure*, and the same id whichever of the two pulls asked. It
+/// used to be one id per repository, which meant a keystroke in one library
+/// made every report in it stale — so the answer to "has this file's report
+/// changed" was "yes" for a hundred files it could not have changed for, and
+/// each of them got its whole report sent again.
+///
+/// One id space and not two, because a client keeps one id per file and does
+/// not remember which request gave it: Zed quotes the id from a
+/// `workspace/diagnostic` back in the next `textDocument/diagnostic`. Two
+/// spaces would make every such quote a miss, which is correct and useless.
 #[derive(Default)]
 struct DiagnosticResults {
-    /// Per root: the analysis fingerprint the last id stood for, and that id.
-    issued: BTreeMap<PathBuf, (u64, String)>,
-    /// The counter behind them, shared across roots so no two ids are ever the
-    /// same string.
+    /// Per root and target: the closure key the last id stood for, and that
+    /// id. `None` is the target for a file no rule in the graph claims.
+    documents: BTreeMap<(PathBuf, Option<TargetId>), (u64, String)>,
+    /// The counter behind them all, so no two ids are ever the same string.
     count: u64,
 }
 
@@ -329,95 +352,164 @@ pub struct Linted {
 }
 
 // ---------------------------------------------------------------------------
+// What a request cost
+// ---------------------------------------------------------------------------
+
+/// What the server has done, counted in work rather than in milliseconds.
+///
+/// A wall clock cannot be pinned by a test — a debug build on a loaded runner
+/// is an order slower than a release build on an idle one — but the work is the
+/// same number every time, and it is where the milliseconds come from. "A
+/// keystroke in one library re-analyses one target and not three" is the claim
+/// the speed rests on, and these counters are how a recorded session states it.
+///
+/// Reported by `handle` as the difference either side of one request, at
+/// `verbose` and nowhere else.
+#[derive(Clone, Copy, Default)]
+pub struct Work {
+    /// Front-end runs: one per target analysed, and one per whole-repository
+    /// analysis.
+    pub analyses: u64,
+    /// Lint passes, counted the same way.
+    pub lints: u64,
+    /// `session::open_at` calls. Each reads `REPO.buri` and every `BUILD.buri`
+    /// and parses them.
+    pub sessions_opened: u64,
+    /// Files whose bytes were read to answer "has anything moved".
+    pub files_hashed: u64,
+    /// Bytes of JSON the answers came to.
+    pub bytes_written: u64,
+}
+
+impl Work {
+    /// What happened between two readings of the counters.
+    pub fn since(self, before: Work) -> Work {
+        Work {
+            analyses: self.analyses.saturating_sub(before.analyses),
+            lints: self.lints.saturating_sub(before.lints),
+            sessions_opened: self.sessions_opened.saturating_sub(before.sessions_opened),
+            files_hashed: self.files_hashed.saturating_sub(before.files_hashed),
+            bytes_written: self.bytes_written.saturating_sub(before.bytes_written),
+        }
+    }
+
+    /// The `$/logTrace` line. Every number here is deterministic, which is what
+    /// lets a golden session hold it.
+    pub fn spelled(&self) -> String {
+        format!(
+            "analyses {}, lints {}, sessions opened {}, files hashed {}, bytes written {}",
+            self.analyses,
+            self.lints,
+            self.sessions_opened,
+            self.files_hashed,
+            self.bytes_written
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What one message read
+// ---------------------------------------------------------------------------
+
+/// Every `.buri` file under one root, and a hash of their names alone.
+///
+/// The names are a key of their own: a file appearing or going away changes
+/// what the build graph and the lint pass see without changing the bytes of
+/// any file that already existed.
+struct Listing {
+    files: Vec<PathBuf>,
+    names: u64,
+}
+
+/// What the message being handled has already read off the disk.
+///
+/// The server answers one message at a time and nothing under it writes to the
+/// repository, so a file cannot change while one is being served — which makes
+/// reading it a second time waste rather than caution. It used to be read
+/// three or four times per request, once for each of the fingerprints
+/// `analyze`, `lint` and `diagnostic_result_id` each computed for themselves.
+///
+/// Emptied by [`State::begin_message`], and by any change to the buffers the
+/// overlay is made of.
+#[derive(Default)]
+struct Reads {
+    /// Per root, from one directory walk.
+    listings: BTreeMap<PathBuf, Rc<Listing>>,
+    /// Per file: a hash of the bytes an analysis would read for it — the open
+    /// buffer's if the editor has one, the disk's otherwise.
+    contents: BTreeMap<PathBuf, u64>,
+}
+
+// ---------------------------------------------------------------------------
 // The cache
 // ---------------------------------------------------------------------------
 
-/// Everything computed from one state of the repository.
+/// One answer, and the state of the files it was computed from.
 ///
-/// The key is a hash of every input an analysis reads, so a generation is
-/// valid entirely or not at all. That coarseness is the design and not a
-/// shortcut: the front end is whole-closure, so there is no smaller unit whose
-/// answer an edit elsewhere provably does not change, and a per-target scheme
-/// would have to prove exactly that.
-#[derive(Default)]
-struct Generation {
-    fingerprint: u64,
-    /// Keyed by the target owning the file rather than by the file, because
-    /// that is what the answer depends on — every source in one target shares
-    /// an entry.
-    targets: Vec<(Option<TargetId>, Rc<Analyzed>)>,
-    /// The whole-repository analysis, which has no target to key on.
-    whole: Option<Rc<Analyzed>>,
-    lints: Vec<(TargetId, Rc<Linted>)>,
-    /// The lint pass over every target at once, which has no target to key on
-    /// either. `workspace/diagnostic` is what asks for it.
-    whole_lint: Option<Rc<Linted>>,
+/// The key used to be a hash of the whole repository, which made every answer
+/// in it valid entirely or not at all: a keystroke in one library threw away
+/// the analysis of every target, including the ones that cannot see that file.
+/// A closure is the honest unit — `driver::analyze` reads exactly the modules
+/// it names, and `Analyzed` says which those were — so the key is a hash of
+/// *those* files, and the graph the closure was derived from.
+struct Cached<T> {
+    root: PathBuf,
+    /// `None` for a file no rule in the build graph claims.
+    target: Option<TargetId>,
+    key: u64,
+    /// The files the answer read, so a later request asks whether *those*
+    /// moved rather than whether anything in the repository did.
+    closure: Rc<Vec<PathBuf>>,
+    value: Rc<T>,
 }
 
-/// How many fingerprints are kept at once. Two: the one being asked about, and
-/// the one before it, so that a keystroke and its undo both land on a hit.
-const GENERATIONS: usize = 2;
-
-/// How many targets one generation holds an analysis for. A person edits in a
-/// handful of files at a time, and an `Analysis` carries the whole closure —
-/// keeping one per target in a large repository is how a server ends up
-/// holding the repository several times over.
-const PER_GENERATION: usize = 4;
+/// How many per-target answers of each kind are kept.
+///
+/// A person edits in a handful of files at a time, and an `Analysis` carries
+/// its whole closure — keeping one per target in a large repository is how a
+/// server ends up holding the repository several times over. Eight is enough
+/// for every buffer a person has open at once to keep its own.
+const REMEMBERED: usize = 8;
 
 #[derive(Default)]
 pub struct Cache {
     /// Oldest first, so eviction is from the front.
-    generations: Vec<Generation>,
-}
-
-impl Cache {
-    fn find(&self, fingerprint: u64) -> Option<&Generation> {
-        self.generations.iter().find(|g| g.fingerprint == fingerprint)
-    }
-
-    /// The generation for this fingerprint, made if it is new — evicting the
-    /// oldest to keep at most [`GENERATIONS`] of them.
-    fn generation(&mut self, fingerprint: u64) -> Option<&mut Generation> {
-        if !self.generations.iter().any(|g| g.fingerprint == fingerprint) {
-            if self.generations.len() >= GENERATIONS {
-                self.generations.remove(0);
-            }
-            self.generations.push(Generation { fingerprint, ..Generation::default() });
-        }
-        self.generations.iter_mut().find(|g| g.fingerprint == fingerprint)
-    }
-}
-
-impl Generation {
-    /// Any session this generation holds, for the questions that need the
-    /// build graph and nothing else — which target owns a file, above all.
+    analyses: Vec<Cached<Analyzed>>,
+    lints: Vec<Cached<Linted>>,
+    /// The whole-repository analysis, which has no closure smaller than the
+    /// repository and is keyed on all of it.
     ///
-    /// Every session in a generation was opened from the same bytes, so which
-    /// one it is does not matter.
-    fn any_session(&self) -> Option<&Session> {
-        if let Some((_, analyzed)) = self.targets.first() {
-            return Some(&analyzed.session);
-        }
-        if let Some(analyzed) = &self.whole {
-            return Some(&analyzed.session);
-        }
-        if let Some((_, linted)) = self.lints.first() {
-            return Some(&linted.session);
-        }
-        self.whole_lint.as_ref().map(|linted| &linted.session)
-    }
+    /// The questions that need it are the ones about a *name* — references,
+    /// rename, the workspace outline — where one compilation is what makes a
+    /// single scan of the result well defined. Diagnostics are not among them
+    /// any more: see [`State::workspace_findings`].
+    whole: Option<(PathBuf, u64, Rc<Analyzed>)>,
 }
 
-/// Pushes onto a list that keeps only its last [`PER_GENERATION`] entries.
-fn remember<K: PartialEq, V>(list: &mut Vec<(K, V)>, key: K, value: V) {
-    if let Some(slot) = list.iter_mut().find(|(k, _)| *k == key) {
-        slot.1 = value;
+/// Files an answer, evicting the oldest to keep at most [`REMEMBERED`].
+fn remember<T>(list: &mut Vec<Cached<T>>, entry: Cached<T>) {
+    if let Some(slot) =
+        list.iter_mut().find(|c| c.root == entry.root && c.target == entry.target)
+    {
+        *slot = entry;
         return;
     }
-    if list.len() >= PER_GENERATION {
+    if list.len() >= REMEMBERED {
         list.remove(0);
     }
-    list.push((key, value));
+    list.push(entry);
+}
+
+/// The files on disk an analysis read, which is what its answer depends on.
+///
+/// The standard library is not among them: it is compiled into this binary and
+/// its modules carry no path.
+fn closure_of(analysis: &Analysis) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> =
+        analysis.loaded.modules.iter().filter_map(|m| m.disk.clone()).collect();
+    files.sort();
+    files.dedup();
+    files
 }
 
 impl State {
@@ -445,7 +537,48 @@ impl State {
             outgoing: Vec::new(),
             announced: BTreeMap::new(),
             cache: Cache::default(),
+            graphs: BTreeMap::new(),
+            target_findings: BTreeMap::new(),
+            reads: Reads::default(),
+            work: Work::default(),
         }
+    }
+
+    /// A new message has arrived, so nothing read for the last one may be
+    /// reused.
+    ///
+    /// The server answers one message at a time and nothing under it writes to
+    /// the repository, which is what makes reading a file twice while serving
+    /// one message waste rather than caution. Between two messages the client
+    /// may have written anything, so this is where that reasoning stops.
+    pub fn begin_message(&mut self) {
+        self.reads = Reads::default();
+    }
+
+    /// What the server has done since it started.
+    pub fn work(&self) -> Work {
+        self.work
+    }
+
+    /// Records the bytes an answer came to, for the trace line that reports it.
+    pub fn wrote(&mut self, bytes: u64) {
+        self.work.bytes_written = self.work.bytes_written.saturating_add(bytes);
+    }
+
+    /// Files a buffer the editor opened or edited.
+    ///
+    /// Not a bare `open.insert`: the overlay is what a fingerprint hashes, so
+    /// a buffer that moved invalidates everything this message has read.
+    pub fn set_buffer(&mut self, path: PathBuf, text: String) {
+        self.open.insert(path, text);
+        self.reads = Reads::default();
+    }
+
+    /// Drops one, by the same rule.
+    pub fn drop_buffer(&mut self, path: &Path) -> Option<String> {
+        let was = self.open.remove(path);
+        self.reads = Reads::default();
+        was
     }
 
     /// Remembers the id a `$/cancelRequest` named.
@@ -498,6 +631,7 @@ impl State {
     /// Said once per state of the repository: again when the file changes and
     /// is still wrong, and not at all while it sits there unedited.
     fn opened(&mut self, root: &Path) -> Option<Session> {
+        self.work.sessions_opened = self.work.sessions_opened.saturating_add(1);
         match session::open_at(root, &Flags::default()) {
             Ok(session) => {
                 if let Some(why) = first_error(&session) {
@@ -559,43 +693,106 @@ impl State {
         self.roots.retain(|r| *r != root);
     }
 
-    /// A hash of every byte that feeds an analysis of one repository.
+    /// Every `.buri` file under a root, sorted, from one directory walk.
     ///
-    /// That is every `.buri` file under the root — sources, every `BUILD.buri`,
-    /// and `REPO.buri`, which all wear the one extension — plus the open
-    /// buffers layered over them, because the editor's copy is what the
-    /// analysis actually reads. The standard library is not in it: it is
-    /// compiled into this binary and cannot change while the server runs.
-    ///
-    /// The root itself is hashed, and only the buffers inside it are, so two
-    /// open repositories key their answers separately and a keystroke in one
-    /// does not invalidate the other's.
-    ///
-    /// Reading and hashing bytes is not parsing them, which is the whole
-    /// point — this is paid on every request and the analysis it replaces is
-    /// orders more expensive.
-    fn fingerprint(&self, root: &Path) -> u64 {
+    /// Sources, every `BUILD.buri` and `REPO.buri` — they all wear the one
+    /// extension. `read_dir` order is the filesystem's and no key may be, so
+    /// the list is sorted before anything hashes it.
+    fn listing(&mut self, root: &Path) -> Rc<Listing> {
+        if let Some(known) = self.reads.listings.get(root) {
+            return Rc::clone(known);
+        }
         let mut files = Vec::new();
         crate::commands::format::collect(root, &mut files);
-        // `read_dir` order is the filesystem's, and the hash must not be.
         files.sort();
-
         let mut hasher = crate::hash::FxHasher::default();
         hasher.write(root.as_os_str().as_encoded_bytes());
         for path in &files {
             hasher.write(path.as_os_str().as_encoded_bytes());
-            match std::fs::read(path) {
-                Ok(bytes) => hasher.write(&bytes),
-                // A file that cannot be read still has to move the hash when
-                // it appears or goes away.
-                Err(_) => hasher.write_u8(0),
-            }
         }
-        // The overlay, in the map's order so that which file was opened first
-        // is not part of the answer.
-        for (path, text) in self.buffers_under(root) {
+        let listing = Rc::new(Listing { files, names: hasher.finish() });
+        self.reads.listings.insert(root.to_path_buf(), Rc::clone(&listing));
+        listing
+    }
+
+    /// A hash of the bytes an analysis would read for one file.
+    ///
+    /// The open buffer's if the editor has one, because the editor's copy is
+    /// what the analysis actually reads; the disk's otherwise. A file that
+    /// cannot be read at all still has to move the hash when it appears or
+    /// goes away, so it hashes as one byte rather than as nothing.
+    ///
+    /// Reading and hashing bytes is not parsing them, which is the whole
+    /// point — this is paid per request and the analysis it replaces is orders
+    /// more expensive.
+    fn content_hash(&mut self, path: &Path) -> u64 {
+        if let Some(known) = self.reads.contents.get(path) {
+            return *known;
+        }
+        let mut hasher = crate::hash::FxHasher::default();
+        match self.open.get(path) {
+            Some(text) => hasher.write(text.as_bytes()),
+            None => match std::fs::read(path) {
+                Ok(bytes) => hasher.write(&bytes),
+                Err(_) => hasher.write_u8(0),
+            },
+        }
+        let hash = hasher.finish();
+        self.work.files_hashed = self.work.files_hashed.saturating_add(1);
+        self.reads.contents.insert(path.to_path_buf(), hash);
+        hash
+    }
+
+    /// A hash of the files named in `closure`, under the graph they were
+    /// resolved through.
+    ///
+    /// Two halves, and both are needed. The closure's own bytes are what the
+    /// analysis read. The graph is what decided the closure *is* that set: a
+    /// `BUILD.buri` edit can add a dependency, and a file appearing can turn a
+    /// lint finding on, neither of which shows up in the bytes of any file
+    /// already in the closure.
+    fn closure_key(&mut self, root: &Path, closure: &[PathBuf]) -> u64 {
+        let graph = self.graph_key(root);
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write_u64(graph);
+        for path in closure {
             hasher.write(path.as_os_str().as_encoded_bytes());
-            hasher.write(text.as_bytes());
+            hasher.write_u64(self.content_hash(path));
+        }
+        hasher.finish()
+    }
+
+    /// A hash of everything that decides the build graph: which `.buri` files
+    /// exist, and the bytes of `REPO.buri` and every `BUILD.buri`.
+    fn graph_key(&mut self, root: &Path) -> u64 {
+        let listing = self.listing(root);
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write_u64(listing.names);
+        for path in &listing.files {
+            if !is_graph_file(path) {
+                continue;
+            }
+            hasher.write(path.as_os_str().as_encoded_bytes());
+            hasher.write_u64(self.content_hash(path));
+        }
+        hasher.finish()
+    }
+
+    /// A hash of every byte that feeds an analysis of one repository.
+    ///
+    /// That is every `.buri` file under the root, read through the open
+    /// buffers layered over them. The standard library is not in it: it is
+    /// compiled into this binary and cannot change while the server runs.
+    ///
+    /// The root itself is hashed, and only the files inside it are, so two
+    /// open repositories key their answers separately and a keystroke in one
+    /// does not invalidate the other's.
+    fn fingerprint(&mut self, root: &Path) -> u64 {
+        let listing = self.listing(root);
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write_u64(listing.names);
+        for path in &listing.files {
+            hasher.write_u64(self.content_hash(path));
         }
         hasher.finish()
     }
@@ -605,10 +802,11 @@ impl State {
     /// [`State::fingerprint`] answers for one repository, which is what an
     /// analysis is keyed by. "Has anything the client is looking at moved" is
     /// the other question, and it is every root's answer together.
-    pub fn analysis_fingerprint(&self) -> u64 {
+    pub fn analysis_fingerprint(&mut self) -> u64 {
         let mut hasher = crate::hash::FxHasher::default();
-        for root in &self.roots {
-            hasher.write_u64(self.fingerprint(root));
+        for root in self.roots.clone() {
+            let one = self.fingerprint(&root);
+            hasher.write_u64(one);
         }
         hasher.finish()
     }
@@ -626,23 +824,66 @@ impl State {
         self.refreshes.diagnostics.fingerprint = Some(now);
     }
 
-    /// The `resultId` a pull-diagnostics answer for this repository carries.
+    /// The id the last `textDocument/diagnostic` report about this document
+    /// went out with, if what that report was computed from has not moved.
     ///
-    /// The same id for as long as the analysis fingerprint does not move, and a
-    /// fresh one the moment it does — so a client quoting the id it was last
-    /// given is asking exactly "is anything my report was computed from
-    /// different now", and the answer costs a hash rather than a compilation.
-    pub fn diagnostic_result_id(&mut self, root: &Path) -> String {
-        let now = self.fingerprint(root);
-        if let Some((seen, id)) = self.diagnostic_results.issued.get(root) {
+    /// This is the whole of the unchanged path, and it costs a hash of one
+    /// closure. A client quoting the id it was last given is asking "is
+    /// anything my report was computed from different now", and for a file in
+    /// a library nobody has touched the answer is no however much of the rest
+    /// of the repository has changed.
+    pub fn current_result_id(&mut self, path: &Path) -> Option<String> {
+        let root = self.root_of(path)?;
+        let target = self.target_of(&root, path);
+        let closure = self.known_closure(&root, target)?;
+        let now = self.closure_key(&root, &closure);
+        let (seen, id) = self.diagnostic_results.documents.get(&(root, target))?;
+        (*seen == now).then(|| id.clone())
+    }
+
+    /// The id a report just computed goes out with: the one already issued if
+    /// nothing moved, and a fresh one if it did.
+    pub fn issue_result_id(&mut self, path: &Path) -> Option<String> {
+        let root = self.root_of(path)?;
+        let target = self.target_of(&root, path);
+        // A file no rule in the graph claims has no closure to key on — and no
+        // findings either, because nothing analyses it. What could give it
+        // some is a build file that starts claiming it, so the graph is the
+        // key: `REPO.buri` then keeps its id through a keystroke in a source
+        // rather than being restated on every one.
+        let now = match self.known_closure(&root, target) {
+            Some(closure) => self.closure_key(&root, &closure),
+            None => self.graph_key(&root),
+        };
+        Some(self.issued((root, target), now))
+    }
+
+    /// The id filed under this key, minting one when the state it stands for
+    /// has moved.
+    fn issued(&mut self, key: (PathBuf, Option<TargetId>), now: u64) -> String {
+        if let Some((seen, id)) = self.diagnostic_results.documents.get(&key) {
             if *seen == now {
                 return id.clone();
             }
         }
         self.diagnostic_results.count = self.diagnostic_results.count.saturating_add(1);
         let id = self.diagnostic_results.count.to_string();
-        self.diagnostic_results.issued.insert(root.to_path_buf(), (now, id.clone()));
+        self.diagnostic_results.documents.insert(key, (now, id.clone()));
         id
+    }
+
+    /// The files the last analysis of this target read, if there was one.
+    fn known_closure(&self, root: &Path, target: Option<TargetId>) -> Option<Rc<Vec<PathBuf>>> {
+        self.cache
+            .analyses
+            .iter()
+            .find(|c| c.root == root && c.target == target)
+            .map(|c| Rc::clone(&c.closure))
+            .or_else(|| {
+                self.target_findings
+                    .get(&(root.to_path_buf(), target?))
+                    .map(|known| Rc::clone(&known.closure))
+            })
     }
 
     /// Files an encoded semantic-token result under a fresh id, and hands the
@@ -679,9 +920,38 @@ impl State {
     /// A question about a `BUILD.buri` is a question about the graph: what a
     /// label names and where a package's file is are both answered by loading
     /// the repository, and the front end has nothing to add.
-    pub fn session_for(&mut self, path: &Path) -> Option<Session> {
+    ///
+    /// Shared, and kept for as long as the files that decide the graph are
+    /// unchanged. It used to be opened afresh on every call, which meant
+    /// re-reading and re-parsing `REPO.buri` and every `BUILD.buri` to answer
+    /// which target owns a file — a question asked several times per request.
+    pub fn session_for(&mut self, path: &Path) -> Option<Rc<Session>> {
         let root = self.root_of(path)?;
-        self.opened(&root)
+        self.graph(&root)
+    }
+
+    /// The loaded graph of one repository, from the cache when the files it is
+    /// made of have not moved.
+    fn graph(&mut self, root: &Path) -> Option<Rc<Session>> {
+        let key = self.graph_key(root);
+        if let Some((seen, session)) = self.graphs.get(root) {
+            if *seen == key {
+                return Some(Rc::clone(session));
+            }
+        }
+        let session = Rc::new(self.opened(root)?);
+        self.graphs.insert(root.to_path_buf(), (key, Rc::clone(&session)));
+        Some(session)
+    }
+
+    /// The target whose closure `path` is in, read off the graph alone.
+    ///
+    /// The overlay does not reach this: `Workspace::load` has already run by
+    /// the time a buffer is layered into a session's map, so which rule owns a
+    /// file is the disk's answer either way.
+    fn target_of(&mut self, root: &Path, path: &Path) -> Option<TargetId> {
+        let session = self.graph(root)?;
+        target_for(&session, path)
     }
 
     /// The label of the target whose closure `path` is in, as a command line
@@ -705,20 +975,31 @@ impl State {
     /// disk, and `compiler::modules` needs no notion of an editor at all.
     ///
     /// Shared rather than returned by value, and keyed rather than stashed.
-    /// The field this used to be written to was documented as a cache and was
-    /// not one: it carried no key saying which file or which revision produced
-    /// it, and the method overwrote it unconditionally on every call. The key
-    /// is [`State::fingerprint`], and it is what makes reuse a claim rather
-    /// than a hope.
+    /// The key is the *closure* — the files this analysis read, and the graph
+    /// that decided which those are — so a keystroke in one library leaves
+    /// every target that cannot see that file with its answer intact. A
+    /// repository-wide key threw all of them away on every character typed.
     pub fn analyze(&mut self, path: &Path) -> Option<Rc<Analyzed>> {
         let root = self.root_of(path)?;
-        let fingerprint = self.fingerprint(&root);
-        if let Some(hit) = self.cached_analysis(fingerprint, path) {
+        let target = self.target_of(&root, path);
+        self.analyze_target(&root, target)
+    }
+
+    /// The same, for a target named rather than found from a file.
+    ///
+    /// `workspace/diagnostic` asks about every target and has no file to ask
+    /// through, and asking through one of the target's sources would mean
+    /// finding one first.
+    pub fn analyze_target(
+        &mut self,
+        root: &Path,
+        target: Option<TargetId>,
+    ) -> Option<Rc<Analyzed>> {
+        if let Some(hit) = self.cached_analysis(root, target) {
             return Some(hit);
         }
 
-        let mut session = self.overlaid_session(&root)?;
-        let target = target_for(&session, path);
+        let mut session = self.overlaid_session(root)?;
         let unit = Unit {
             target,
             // The editor is not building an output, and a file open in it
@@ -728,16 +1009,26 @@ impl State {
             // server would be blind in exactly the files most often edited.
             with_tests: true,
         };
+        self.work.analyses = self.work.analyses.saturating_add(1);
         let analysis = crate::compiler::driver::analyze(
             Some(&session.workspace),
             &mut session.map,
             &mut session.parsed,
             &unit,
         );
+        let closure = closure_of(&analysis);
         let analyzed = Rc::new(Analyzed { session, analysis });
-        if let Some(generation) = self.cache.generation(fingerprint) {
-            remember(&mut generation.targets, target, Rc::clone(&analyzed));
-        }
+        let key = self.closure_key(root, &closure);
+        remember(
+            &mut self.cache.analyses,
+            Cached {
+                root: root.to_path_buf(),
+                target,
+                key,
+                closure: Rc::new(closure),
+                value: Rc::clone(&analyzed),
+            },
+        );
         Some(analyzed)
     }
 
@@ -753,14 +1044,13 @@ impl State {
     /// parsed once and gets one id, which is what makes a single scan of the
     /// result well defined.
     ///
-    /// It was paid per request. It is now paid per *edit*: the key is a hash
-    /// of every file the analysis reads, so `references`, `rename` and
-    /// `workspace/symbol` asked one after another about an untouched
-    /// repository run this once between them.
+    /// Its closure is the repository, so this one is keyed on all of it.
     pub fn analyze_workspace(&mut self, root: &Path) -> Option<Rc<Analyzed>> {
         let fingerprint = self.fingerprint(root);
-        if let Some(hit) = self.cache.find(fingerprint).and_then(|g| g.whole.as_ref()) {
-            return Some(Rc::clone(hit));
+        if let Some((at, seen, hit)) = self.cache.whole.as_ref() {
+            if at == root && *seen == fingerprint {
+                return Some(Rc::clone(hit));
+            }
         }
 
         let mut session = self.overlaid_session(root)?;
@@ -770,6 +1060,7 @@ impl State {
             .into_iter()
             .map(|target| Unit { target: Some(target), platform: None, with_tests: true })
             .collect();
+        self.work.analyses = self.work.analyses.saturating_add(1);
         let analysis = crate::compiler::driver::analyze_all(
             Some(&session.workspace),
             &mut session.map,
@@ -777,9 +1068,7 @@ impl State {
             &units,
         );
         let analyzed = Rc::new(Analyzed { session, analysis });
-        if let Some(generation) = self.cache.generation(fingerprint) {
-            generation.whole = Some(Rc::clone(&analyzed));
-        }
+        self.cache.whole = Some((root.to_path_buf(), fingerprint, Rc::clone(&analyzed)));
         Some(analyzed)
     }
 
@@ -788,52 +1077,29 @@ impl State {
     /// A separate session and a second whole-closure analysis, because the
     /// checks build their own. That is a real cost, and it is why this ran on
     /// save and on open rather than on a keystroke — the same reason
-    /// `driver::analyze` did. It is cached under the same key as the analysis
-    /// now, so the second question about one repository state does not pay it
-    /// at all.
+    /// `driver::analyze` did. It is keyed on the same closure as the analysis
+    /// now, so the second question about one state of that closure does not
+    /// pay it at all.
     ///
     /// Shared, and therefore read-only. A caller that must write to the
     /// session wants [`State::overlaid_session`].
     pub fn lint(&mut self, path: &Path) -> Option<Rc<Linted>> {
         let root = self.root_of(path)?;
-        let fingerprint = self.fingerprint(&root);
-        if let Some(hit) = self.cached_lint(fingerprint, path) {
-            return Some(hit);
-        }
-
-        let mut session = self.opened(&root)?;
-        if session.diagnostics.has_errors() {
-            return None;
-        }
-        for (p, text) in self.buffers_under(&root) {
-            let rel = session.workspace.rel_of(p);
-            session.map.add(rel, p.clone(), text.clone());
-        }
-        let target = target_for(&session, path)?;
-        let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
-        let linted = Rc::new(Linted { session, diagnostics });
-        if let Some(generation) = self.cache.generation(fingerprint) {
-            remember(&mut generation.lints, target, Rc::clone(&linted));
-        }
-        Some(linted)
+        let target = self.target_of(&root, path)?;
+        self.lint_target(&root, target)
     }
 
-    /// The findings `buri lint //...` reports, over every target at once.
-    ///
-    /// [`State::lint`] answers for the target owning one file, which is what a
-    /// publish about that file needs. `workspace/diagnostic` asks about the
-    /// repository, and a per-target loop would run the checks that are about a
-    /// *package* once per target in it — and would report each of their
-    /// findings as many times.
-    ///
-    /// The promotion `REPO.buri`'s `fail_on_finding` asks for happens inside
-    /// `lint::findings_for`, so a pulled finding wears the severity the
-    /// terminal prints for exactly the same reason a pushed one does.
-    pub fn lint_workspace(&mut self, root: &Path) -> Option<Rc<Linted>> {
-        let fingerprint = self.fingerprint(root);
-        if let Some(hit) = self.cache.find(fingerprint).and_then(|g| g.whole_lint.as_ref()) {
-            return Some(Rc::clone(hit));
+    /// The same, for a target named rather than found from a file.
+    pub fn lint_target(&mut self, root: &Path, target: TargetId) -> Option<Rc<Linted>> {
+        if let Some(hit) = self.cached_lint(root, target) {
+            return Some(hit);
         }
+        // What the pass will read is what its own `driver::analyze` reads, and
+        // that is the analysis of this target — which is already in hand. Its
+        // closure is therefore the key, and asking the *session* afterwards
+        // would answer with every open buffer instead, because the overlay
+        // seeds them all whether the target can see them or not.
+        let closure = self.analyze_target(root, Some(target)).map(|a| closure_of(&a.analysis));
 
         let mut session = self.opened(root)?;
         if session.diagnostics.has_errors() {
@@ -843,13 +1109,95 @@ impl State {
             let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
         }
-        let targets = session.workspace.targets();
-        let diagnostics = crate::commands::lint::findings_for(&mut session, &targets);
+        self.work.lints = self.work.lints.saturating_add(1);
+        let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
         let linted = Rc::new(Linted { session, diagnostics });
-        if let Some(generation) = self.cache.generation(fingerprint) {
-            generation.whole_lint = Some(Rc::clone(&linted));
-        }
+        // No analysis to ask means no closure to key on, and every file the
+        // pass touched is the answer that is never stale.
+        let closure = closure.unwrap_or_else(|| read_from_disk(&linted.session));
+        let key = self.closure_key(root, &closure);
+        remember(
+            &mut self.cache.lints,
+            Cached {
+                root: root.to_path_buf(),
+                target: Some(target),
+                key,
+                closure: Rc::new(closure),
+                value: Rc::clone(&linted),
+            },
+        );
         Some(linted)
+    }
+
+    /// Everything both passes have to say about every target in a repository.
+    ///
+    /// This is `workspace/diagnostic`, and what makes it liveable is that it is
+    /// asked again after every keystroke. It used to be one whole-repository
+    /// analysis and one lint pass over every target — a fixed cost of a few
+    /// hundred milliseconds, paid in full for a character typed in a library
+    /// most of those targets cannot see. Now each target's findings are kept
+    /// under the closure they were read from, so a keystroke recomputes the
+    /// targets that can see the edited file and quotes the rest back.
+    ///
+    /// The recomputed ones share one session: opening the repository, reading
+    /// its build files and parsing a module are each paid once however many
+    /// targets went stale together.
+    pub fn workspace_findings(&mut self, root: &Path) -> Option<super::Published> {
+        let targets = self.graph(root)?.workspace.targets();
+        let mut merged = super::Published::new();
+        let mut stale = Vec::new();
+        for target in targets {
+            match self.cached_findings(root, target) {
+                Some(found) => merge_findings(&mut merged, &found),
+                None => stale.push(target),
+            }
+        }
+        if stale.is_empty() {
+            return Some(merged);
+        }
+
+        let mut session = self.overlaid_session(root)?;
+        // A repository whose own files will not load has no lint pass: the
+        // checks read the graph, and there is no graph. The analysis still
+        // runs, and what it finds is still worth saying.
+        let graph_loads = !session.diagnostics.has_errors();
+        // Shared across the targets: what a shared library says is said again
+        // by every target that reaches it, and rendering it once is the
+        // difference between a sweep and a stall. See `add_finding_rendering`.
+        let mut rendered = super::Rendered::new();
+        for target in stale {
+            self.work.analyses = self.work.analyses.saturating_add(1);
+            let analysis = crate::commands::lint::analysis_of(&mut session, target);
+            let mut found = super::Published::new();
+            for d in &analysis.diagnostics.items {
+                super::add_finding_rendering(&mut found, &mut rendered, &session, d);
+            }
+            if graph_loads {
+                self.work.lints = self.work.lints.saturating_add(1);
+                let linted =
+                    crate::commands::lint::findings_for_target(&mut session, target, &analysis);
+                for d in &linted.items {
+                    super::add_finding_rendering(&mut found, &mut rendered, &session, d);
+                }
+            }
+            let closure = Rc::new(closure_of(&analysis));
+            let key = self.closure_key(root, &closure);
+            self.target_findings.insert(
+                (root.to_path_buf(), target),
+                TargetFindings { key, closure, found: found.clone() },
+            );
+            merge_findings(&mut merged, &found);
+        }
+        Some(merged)
+    }
+
+    /// What was last said about this target, if the closure it was said about
+    /// is where it was.
+    fn cached_findings(&mut self, root: &Path, target: TargetId) -> Option<super::Published> {
+        let closure = self.known_closure(root, Some(target))?;
+        let now = self.closure_key(root, &closure);
+        let known = self.target_findings.get(&(root.to_path_buf(), target))?;
+        (known.key == now).then(|| known.found.clone())
     }
 
     /// A session with the open buffers layered over the disk, and nothing
@@ -871,22 +1219,68 @@ impl State {
         Some(session)
     }
 
-    /// The analysis for the target owning `path`, if this fingerprint has one.
+    /// The analysis for the target owning `path`, if the closure it read is
+    /// where it was.
     ///
-    /// Which target that is takes a loaded build graph, and a generation that
-    /// holds anything already has one — so a hit costs no `session::open`.
-    fn cached_analysis(&self, fingerprint: u64, path: &Path) -> Option<Rc<Analyzed>> {
-        let generation = self.cache.find(fingerprint)?;
-        let target = target_for(generation.any_session()?, path);
-        generation.targets.iter().find(|(t, _)| *t == target).map(|(_, a)| Rc::clone(a))
+    /// The cost of asking is a hash of that closure and nothing else — which
+    /// is the point: the files an edit did not touch are not read at all.
+    fn cached_analysis(&mut self, root: &Path, target: Option<TargetId>) -> Option<Rc<Analyzed>> {
+        let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
+        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
+        let now = self.closure_key(root, &closure);
+        let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
+        (was == now).then(|| Rc::clone(&filed.value))
     }
 
     /// The same lookup for the lint pass.
-    fn cached_lint(&self, fingerprint: u64, path: &Path) -> Option<Rc<Linted>> {
-        let generation = self.cache.find(fingerprint)?;
-        let target = target_for(generation.any_session()?, path)?;
-        generation.lints.iter().find(|(t, _)| *t == target).map(|(_, l)| Rc::clone(l))
+    fn cached_lint(&mut self, root: &Path, target: TargetId) -> Option<Rc<Linted>> {
+        let wanted = Some(target);
+        let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
+        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
+        let now = self.closure_key(root, &closure);
+        let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
+        (was == now).then(|| Rc::clone(&filed.value))
     }
+}
+
+/// Whether a path is one of the build graph's own files rather than a source.
+fn is_graph_file(path: &Path) -> bool {
+    matches!(path.file_name().and_then(|n| n.to_str()), Some("BUILD.buri" | "REPO.buri"))
+}
+
+/// What a `workspace/diagnostic` last said about one target, and the state of
+/// the closure it said it about.
+struct TargetFindings {
+    key: u64,
+    closure: Rc<Vec<PathBuf>>,
+    found: super::Published,
+}
+
+/// Adds one target's findings to the report being built, without saying the
+/// same thing twice.
+///
+/// Two targets in one closure both report what the shared library said, and
+/// the package rules are asked once per target rather than once per package —
+/// so the same words at the same place arrive several times, and they are one
+/// squiggle. The rule is [`super::same_finding`]'s, the same one a publish
+/// merges by.
+fn merge_findings(into: &mut super::Published, from: &super::Published) {
+    for (uri, items) in from {
+        let bucket = into.entry(uri.clone()).or_default();
+        for item in items {
+            if !bucket.iter().any(|existing| super::same_finding(existing, item)) {
+                bucket.push(item.clone());
+            }
+        }
+    }
+}
+
+/// The files a session read from disk, deduplicated and sorted.
+fn read_from_disk(session: &Session) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = session.map.paths().map(Path::to_path_buf).collect();
+    files.sort();
+    files.dedup();
+    files
 }
 
 /// The first error a session collected while loading the repository, named by

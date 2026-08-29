@@ -296,11 +296,11 @@ pub trait Linker {
 ///
 /// The debug row is the only one that asks about the *target* as well as the
 /// platform, and it does not ask it here: [`stencil::supported`] is the one
-/// place a target is matched to a stencil library, so the day
-/// `stencil::asm::AVAILABLE_X86_64` flips, selection follows with no edit in
-/// this file. Asking it at selection rather than inside `emit` is what makes
-/// `build::actions::native_ready` honest — otherwise an x86-64 host reports a
-/// backend it has and then refuses every program deep inside an emission.
+/// place a target is matched to a stencil library. `linux-x86_64` became a
+/// supported target with no edit in this file, and a fourth would arrive the
+/// same way. Asking it at selection rather than inside `emit` is what makes
+/// `build::actions::native_ready` honest — otherwise a host reports a backend
+/// it has and then refuses every program deep inside an emission.
 ///
 /// A toolchain built without `backend-llvm` refuses a native release build with
 /// a diagnostic naming the feature rather than silently falling back to the
@@ -356,11 +356,11 @@ fn missing_backend(platform: Platform, feature: &str) -> String {
 
 /// [`select`] over platform × profile × per-target availability.
 ///
-/// The availability axis is real on every host: the two x86-64 rows are
-/// refused by constants this file does not own (`stencil` has no macOS x86-64
-/// library, and no SysV entry point for Linux x86-64), and the arm64 rows are
-/// checked against `stencil::supported` rather than against a second list —
-/// which is the property that makes the x86-64 flip a one-constant change.
+/// The availability axis is real on every host: `macos-x86_64` is refused by a
+/// constant this file does not own — no stencil library is built for it — and
+/// the other three rows are checked against `stencil::supported` rather than
+/// against a second list, which is the property that let `linux-x86_64` light
+/// up here with no edit to this file at all.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,21 +404,29 @@ mod tests {
         }
     }
 
+    /// The one native target selection refuses, and the other x86-64 row,
+    /// which it must not.
+    ///
+    /// Both halves are here on purpose: a test that only checked the refusal
+    /// would still pass if `linux-x86_64` had quietly stopped being selected,
+    /// and that row is the one the arm64 host this usually runs on cannot
+    /// otherwise vouch for.
     #[cfg(feature = "backend-stencil")]
     #[test]
-    fn the_two_x86_64_targets_are_refused_by_triple() {
-        for platform in [Platform::Macos, Platform::Linux] {
-            let target = at(platform, Some(Arch::X86_64));
-            let why = select(target, Profile::Debug)
-                .err()
-                .unwrap_or_else(|| panic!("{platform:?}/x86_64 debug was not refused"));
-            assert!(
-                why.starts_with("no development backend for "),
-                "{platform:?}: {why}"
-            );
-            let triple = triple_text(target).expect("a native target has a triple");
-            assert!(why.contains(&triple), "{platform:?} refusal names no triple: {why}");
-        }
+    fn macos_x86_64_is_refused_by_triple_and_linux_x86_64_is_not() {
+        let refused = at(Platform::Macos, Some(Arch::X86_64));
+        let why = select(refused, Profile::Debug)
+            .err()
+            .expect("macos/x86_64 debug was not refused");
+        assert!(why.starts_with("no development backend for "), "{why}");
+        let triple = triple_text(refused).expect("a native target has a triple");
+        assert!(why.contains(&triple), "the refusal names no triple: {why}");
+
+        let supported = at(Platform::Linux, Some(Arch::X86_64));
+        assert_eq!(
+            select(supported, Profile::Debug).map(|b| b.name()).unwrap_or("<refused>"),
+            "stencil"
+        );
     }
 
     /// A refusal is a sentence, not a panic: the whole point of asking the
@@ -426,8 +434,8 @@ mod tests {
     /// emission starts.
     #[cfg(feature = "backend-stencil")]
     #[test]
-    fn an_unfinished_target_refuses_rather_than_answering_a_backend() {
-        let target = at(Platform::Linux, Some(Arch::X86_64));
+    fn an_unsupported_target_refuses_rather_than_answering_a_backend() {
+        let target = at(Platform::Macos, Some(Arch::X86_64));
         assert!(select(target, Profile::Debug).is_err());
         assert!(
             !crate::build::actions::native_ready(target, Profile::Debug),
@@ -435,8 +443,8 @@ mod tests {
         );
     }
 
-    /// Where the two arm64 rows are available, the host's own unqualified
-    /// target has to reach the same backend the qualified one does.
+    /// Where the host's own row is available, its unqualified target has to
+    /// reach the same backend the qualified one does.
     #[cfg(feature = "backend-stencil")]
     #[test]
     fn an_unqualified_native_target_follows_the_host_architecture() {

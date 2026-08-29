@@ -734,8 +734,8 @@ fn runtime_archive_hash() -> &'static str {
 ///
 /// `backend::select` answers the *target* question and not merely the platform
 /// one, which is what this relies on: the development backend has a triple it
-/// has no entry point for, and without that a host of that architecture would
-/// be told the build is ready and then refused inside the emission.
+/// has no stencil library for, and without that a host of that kind would be
+/// told the build is ready and then refused inside the emission.
 pub fn native_ready(target: Target, profile: Profile) -> bool {
     target.platform.is_native()
         && backend::select(target, profile).is_ok()

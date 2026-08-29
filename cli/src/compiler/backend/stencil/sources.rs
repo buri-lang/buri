@@ -1161,10 +1161,58 @@ fn regmoves(o: &mut Out, level: Level) {
 /// Two areas rather than one because the two register banks are assigned
 /// independently: a double in argument position three still goes in `d0` if it
 /// is the first float.
+/// The result shapes a `crt` stencil is generated for.
+///
+/// **A shape per C return type, and that is the whole point of the list.** A
+/// stencil declares the entry it calls, and a declaration that is wider than
+/// what the entry returns is not a rounding error: both psABIs leave the upper
+/// bits of a narrower integer return **unspecified**, so `uint64_t` against a
+/// `u8` reads whatever was in the register. AAPCS64 happened to hide it — Rust's
+/// arm64 codegen zeroes the register on the way out — and SysV does not, which
+/// is where it was found. `rtcall::scalar_kind` picks the letter from the
+/// destination's own width, which is the same fact the other two backends build
+/// their call signature from.
+///
+/// `w` is the odd one and stays: it is the **signed** 32-bit shape a fallible
+/// entry's `BURI_*` discriminant comes back in (`cli/runtime/lib.rs` §2), not a
+/// width a Buri value has.
+const RETURN_SHAPES: [&str; 7] = ["v", "i", "w", "d", "b", "h", "u"];
+
+/// The C return type one shape declares.
+fn return_ctype(ret: &str) -> &'static str {
+    match ret {
+        "i" => "uint64_t",
+        "w" => "int32_t",
+        "d" => "double",
+        "b" => "uint8_t",
+        "h" => "uint16_t",
+        "u" => "uint32_t",
+        _ => "void",
+    }
+}
+
+/// How the answer reaches the destination slot.
+///
+/// A frame slot holds an integer **zero-extended**, so every narrow shape casts
+/// through its own unsigned width first: that cast is the `movzx` the psABI
+/// leaves to the caller, and clang emits it inside the stencil where it costs
+/// nothing extra.
+fn return_store(ret: &str, call: &str) -> String {
+    match ret {
+        "i" => format!("AT(uint64_t, _JIT_D) = {call};"),
+        "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){call};"),
+        "u" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){call};"),
+        "h" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint16_t){call};"),
+        "b" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint8_t){call};"),
+        "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({call});"),
+        _ => format!("(void){call};"),
+    }
+}
+
 fn runtime_calls(o: &mut Out) {
     for ni in 0..=MAX_INT_ARGS {
         for nf in 0..=MAX_FLOAT_ARGS {
-            for ret in ["v", "i", "w", "d"] {
+            for ret in RETURN_SHAPES {
                 let sym = format!("_{}", super::abi::rt_callee(ni, nf, ret));
                 let ptypes: Vec<&str> = std::iter::repeat_n("uint64_t", ni)
                     .chain(std::iter::repeat_n("double", nf))
@@ -1173,23 +1221,13 @@ fn runtime_calls(o: &mut Out) {
                     .map(|i| format!("ia[{i}]"))
                     .chain((0..nf).map(|i| format!("fa[{i}]")))
                     .collect();
-                let cret = match ret {
-                    "i" => "uint64_t",
-                    "w" => "int32_t",
-                    "d" => "double",
-                    _ => "void",
-                };
+                let cret = return_ctype(ret);
                 let decl = format!(
                     "extern {cret} {sym}({}) HID;",
                     if ptypes.is_empty() { String::from("void") } else { ptypes.join(", ") }
                 );
                 let call = format!("{sym}({})", args.join(", "));
-                let store = match ret {
-                    "i" => format!("AT(uint64_t, _JIT_D) = {call};"),
-                    "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){call};"),
-                    "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({call});"),
-                    _ => format!("(void){call};"),
-                };
+                let store = return_store(ret, &call);
                 let bind = format!(
                     "{}{}",
                     if ni > 0 {
@@ -1233,12 +1271,7 @@ fn runtime_calls(o: &mut Out) {
                     )
                     .collect();
                 let scall = format!("{sym}({})", sargs.join(", "));
-                let sstore = match ret {
-                    "i" => format!("AT(uint64_t, _JIT_D) = {scall};"),
-                    "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){scall};"),
-                    "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({scall});"),
-                    _ => format!("(void){scall};"),
-                };
+                let sstore = return_store(ret, &scall);
                 o.push(
                     &format!("crts/{ni}/{nf}/{ret}"),
                     format!("{decl}\nvoid $NAME(ARGS0) {{ {sstore} TAIL0; }}"),
@@ -1886,15 +1919,19 @@ fn shard_library(
     .map_err(|e| format!("stencil shard {i} ({}): {e}", target.slug()))
 }
 
-/// How many stencils one x86-64 shard may lose to a spilled constant.
+/// How many stencils one x86-64 shard may lose.
 ///
-/// The three families are `un/neg/f32`, `un/neg/f64` and `cvt/u2f`, plus
-/// `chk/div/i128`; sharding puts at most a family or two in any one translation
-/// unit, and the observed maximum is well inside this. It is a ceiling on a
-/// *silent* loss rather than an exact count, because the exact count is a
-/// property of how `shard` happened to split the generators and would be a test
-/// of nothing. The exact set is asserted at the library level, by
-/// `stencil::tests::the_x86_64_library_drops_only_the_spilled_constant_families`.
+/// **Nothing is dropped today.** A constant clang spilled into `.rodata` used
+/// to cost a key — `un/neg/f32`, `un/neg/f64`, `cvt/u2f` and `chk/div/i128`
+/// were the four — and now travels with the stencil into the emitted unit's own
+/// constant pool (`x86.rs::spilled`), so the three libraries cover the same
+/// operations. The ceiling stays because `x86.rs` still *can* drop: a spilled
+/// reference whose addend is not a distance to an instruction's end, or one
+/// into a section with no bytes. It is a ceiling on a *silent* loss rather than
+/// an exact count, because the exact count would be a property of how `shard`
+/// happened to split the generators and would be a test of nothing. That the
+/// set is empty is asserted at the library level, by
+/// `stencil::tests::the_x86_64_library_covers_what_the_arm64_ones_do`.
 const MAX_DROPPED_PER_SHARD: usize = 40;
 
 /// The library's identity, which enters `Backend::identity` and therefore every
