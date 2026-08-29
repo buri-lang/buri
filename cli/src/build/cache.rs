@@ -394,8 +394,11 @@ impl KeyBuilder {
     /// outside the program that they depend on.
     ///
     /// Two fields rather than one because they answer different questions.
-    /// `name` is which of `js`/`cranelift`/`llvm` ran, which a key that did not
-    /// name it could not tell apart. `identity` is what neither the name nor
+    /// `name` is which of `js`/`stencil`/`llvm` ran, which a key that did not
+    /// name it could not tell apart — and which is why a `.buri` written by a
+    /// toolchain whose debug backend was a different one is not *stale*, it is
+    /// unreachable: every one of its `codegen` keys names a backend this
+    /// toolchain never asks for. `identity` is what neither the name nor
     /// the toolchain version catches: `llvm-sys` links against whatever
     /// `llvm-config` found at build time, so two `buri` binaries with
     /// identical Rust source and the same version can have

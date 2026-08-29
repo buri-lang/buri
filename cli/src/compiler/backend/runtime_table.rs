@@ -1,19 +1,19 @@
-//! The `buri_rt_*` table the frame-threaded backends share: which intrinsic
+//! The `buri_rt_*` table the frame-threaded backend reads: which intrinsic
 //! keys have a symbol, and what shape the call has.
 //!
 //! `cli/runtime/lib.rs`'s module comment is the contract; this is the
-//! transcription of it that Cranelift's and the copy-and-patch backend's
-//! generated code is emitted against. It is one table because a table
-//! describes `cli/runtime`, which is one library — two transcriptions of one
-//! library disagreeing about a row is one of them being wrong, and the two
-//! were kept in step by hand until they were this file.
+//! transcription of it that the copy-and-patch backend's generated code is
+//! emitted against. It is one table because a table describes `cli/runtime`,
+//! which is one library — two transcriptions of one library disagreeing about
+//! a row is one of them being wrong. It sits here rather than under
+//! `stencil/` because that is what the file has always been: a description of
+//! the runtime, not of a code generator.
 //!
 //! The LLVM backend keeps its own (`llvm/runtime.rs`), and that one is a
-//! different table rather than a third copy: it reconstructs the C argument
-//! list from the row, so every entry there carries an `args` column that the
-//! two backends below have no use for. The two tables also do not name quite
-//! the same keys, which is a fact about what each backend has implemented and
-//! not a naming convention.
+//! different table rather than a copy: it reconstructs the C argument list
+//! from the row, so every entry there carries an `args` column this one has no
+//! use for. The two tables also do not name quite the same keys, which is a
+//! fact about what each backend has implemented and not a naming convention.
 //!
 //! # The four shapes, and the one emission rule
 //!
@@ -32,10 +32,10 @@
 //! column here — the IR is the argument list, and a second description of it
 //! would be a thing to disagree with.
 //!
-//! Steps 2 and 3 are what [`Extra`] and [`Ret`] select. What each backend
-//! supplies for itself is where an argument *is*: Cranelift builds a value
-//! list, and the copy-and-patch backend's convention is frame-threaded, so a
-//! leaf there is a byte offset copied into a scratch area (`stencil/rtcall.rs`).
+//! Steps 2 and 3 are what [`Extra`] and [`Ret`] select. What the backend
+//! supplies for itself is where an argument *is*: its convention is
+//! frame-threaded, so a leaf is a byte offset copied into a scratch area
+//! (`stencil/rtcall.rs`).
 //!
 //! # Why a table and not a mangling
 //!
