@@ -13,7 +13,7 @@
 //! | [`float_parity`] | none | Does a native `show` of a `Float` print what a JavaScript one prints, over 3 807 072 doubles? Needs a JavaScript engine and takes seconds; `--skip float_parity` leaves the rest fast. |
 //! | [`stencil`] | `backend-stencil` | The same for the copy-and-patch backend: the frame-threaded convention, the hand-written `main`, the constant pool as its own section, and that a refusal is a diagnostic. |
 //! | [`cranelift`] | `backend-cranelift` | Programs through the whole pipeline, linked, run, and asserted on what they printed. |
-//! | [`conformance`] | `backend-cranelift` | The `conformance/` corpus again, compiled natively rather than to JavaScript — the other half of `language::conformance`. |
+//! | [`conformance`] | `backend-stencil` | The `conformance/` corpus again, compiled natively rather than to JavaScript — the other half of `language::conformance`. |
 //! | [`llvm`] | `backend-llvm` | The same for the LLVM backend, plus the attribute discipline read off the optimized IR. |
 //! | [`agreement`] | either backend | VALUE-MODEL.md §12's fourteen rows, run under both backends and compared. |
 //!
@@ -55,7 +55,7 @@ mod shared;
 
 #[cfg(any(feature = "backend-cranelift", feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
-#[cfg(feature = "backend-cranelift")]
+#[cfg(feature = "backend-stencil")]
 mod conformance;
 #[cfg(feature = "backend-cranelift")]
 mod cranelift;

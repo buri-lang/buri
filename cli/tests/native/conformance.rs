@@ -5,15 +5,15 @@
 //! it is the suite that says what the language does. This
 //! file asks the other half of the question — whether the native backend
 //! *agrees* — by taking the same `.buri` files, compiling each one through
-//! `middle::run` → `middle::native` → `middle::lower` → `backend::cranelift`,
+//! `middle::run` → `middle::native` → `middle::lower` → `backend::stencil`,
 //! linking, running, and checking that every `test` block in it passed.
 //!
 //! # How a test file becomes a program
 //!
 //! It does not. The file is compiled exactly as it is, with
-//! `monomorphize::Roots::Tests`, and the Cranelift backend emits a `main` that
-//! calls every `test` block in order (`cranelift/mod.rs`'s
-//! `test_entry_point`) — which is the other half of what this file needs:
+//! `monomorphize::Roots::Tests`, and the stencil backend emits a `main` that
+//! calls every `test` block in order (`stencil/asm.rs`'s
+//! `test_entry`) — which is the other half of what this file needs:
 //! without a native test entry point there is nothing to run, and without
 //! `core/testing/assert`'s three bodies there is nothing to assert.
 //!
@@ -93,7 +93,7 @@
 //! quietly becomes compilable is a failing test rather than a stale comment.
 use buri::build::buildfile::Platform;
 use buri::build::workspace::Workspace;
-use buri::compiler::backend::cranelift::Cranelift;
+use buri::compiler::backend::stencil::{Stencil, AVAILABLE as STENCILS};
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Options, Profile, Target};
 use buri::compiler::driver;
@@ -188,7 +188,7 @@ const PACKAGES: &[Case] = &[
     // merely different.
     included("memory/allocators.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
-    // (`cranelift/emit.rs`'s `list_closure`), and
+    // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what
     // said so on the day it stopped being true.
     included("canary/canary.buri"),
@@ -341,8 +341,13 @@ const PACKAGES: &[Case] = &[
     ),
 ];
 
+/// Whether this host can build and run a native artifact at all.
+///
+/// The host question belongs to `stencil::AVAILABLE`, which is "this host has a
+/// stencil library and an entry point to put in front of it" — so this suite
+/// runs unchanged wherever the backend does.
 fn supported() -> bool {
-    AVAILABLE && cfg!(any(target_os = "macos", target_os = "linux"))
+    AVAILABLE && STENCILS
 }
 
 fn host_platform() -> Platform {
@@ -415,7 +420,7 @@ fn workspace(name: &str) -> PathBuf {
 }
 
 /// The runtime archive, written once for the process rather than once per
-/// case, for the reason `native/cranelift.rs::archive` gives.
+/// case, for the reason `native/stencil.rs::archive` gives.
 fn archive() -> &'static Path {
     static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
     WRITTEN.get_or_init(|| {
@@ -450,7 +455,7 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut backend = Cranelift;
+    let mut backend = Stencil;
     let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
     assert!(missing.is_empty(), "{name}: the backend is missing {missing:?}");
     let units = match backend.emit(&program, &analysis.checked.tables, &opts) {
@@ -527,13 +532,13 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
-    let missing = Cranelift.missing_intrinsics(&program, &analysis.checked.tables);
+    let missing = Stencil.missing_intrinsics(&program, &analysis.checked.tables);
     if !missing.is_empty() {
         return Ok(missing.join("; "));
     }
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    match Cranelift.emit(&program, &analysis.checked.tables, &opts) {
+    match Stencil.emit(&program, &analysis.checked.tables, &opts) {
         Ok(_) => Ok(String::new()),
         Err(d) => {
             Ok(d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "))
@@ -567,7 +572,7 @@ fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
     }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
-    Ok(Cranelift.missing_intrinsics(&program, &analysis.checked.tables))
+    Ok(Stencil.missing_intrinsics(&program, &analysis.checked.tables))
 }
 
 /// `calendar/date.buri` names `lib/calendar/test/date.buri`: the corpus
