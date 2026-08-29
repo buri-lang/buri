@@ -1,8 +1,8 @@
 # Native backends: architecture
 
 Two native backends, one middle end, and a link step that reuses object files.
-LLVM through `inkwell` for `--release`; Cranelift through `cranelift-object` for
-everything else. This document says where the code goes, what the interface
+LLVM through `inkwell` for `--release`; the copy-and-patch backend of
+CODEGEN-STENCIL.md, written here and depending on nothing, for everything else. This document says where the code goes, what the interface
 between the middle end and a backend is, how the build graph grows, and what
 `--check-reproducible` means once an artifact is an executable.
 
@@ -47,11 +47,10 @@ cli/src/compiler/
     mod.rs              the `Backend` and `Linker` traits, and `Emitted`
     runtime_native.rs   the embedded `libburi_rt.a`, and its hash
     js/                 generate.rs  javascript.rs  intrinsics.rs  runtime.js
-    cranelift/          mod.rs  emit.rs  helpers.rs  abi.rs  runtime.rs
     llvm/               mod.rs  emit.rs  repr.rs  attrs.rs  runtime.rs  target.rs
     stencil/            the copy-and-patch backend, eighteen files
-                        (CODEGEN-STENCIL.md); compiled in by default and
-                        deliberately not returned by `select` (§4)
+                        (CODEGEN-STENCIL.md); on by default, and what `select`
+                        returns for every native debug build (§4)
 cli/src/build/
   link.rs               the incremental link
 cli/src/commands/
@@ -94,12 +93,14 @@ zero: everything JavaScript needs from the shared work is in layer A.
 The counter-proposal — no layer B, and each native backend builds its own SSA —
 is rejected on CODEGEN-LLVM.md §0's second instruction. "Avoid `mem2reg`,
 generate optimized SSA form" is one the frontend can only honour by having SSA
-*before* it reaches LLVM. Cranelift would build it for us (its `FunctionBuilder` runs the Braun
-algorithm over `Variable` def/use), LLVM would not, and having one backend's SSA
+*before* it reaches LLVM. LLVM will not build it, and having one backend's SSA
 be real and the other's be an artifact of `alloca` is exactly the divergence that
 makes two backends disagree. Build it once, in the middle, in the block-argument
-form — which is Cranelift's native shape and is a mechanical transliteration into
-LLVM phis (see CODEGEN-LLVM.md §2).
+form: a block parameter is a frame slot the predecessor writes in the
+copy-and-patch backend (CODEGEN-STENCIL.md §0) and a mechanical transliteration
+into LLVM phis (see CODEGEN-LLVM.md §2). The form was chosen when the debug
+backend was Cranelift and CLIF was block-argument SSA itself; it outlived that
+reason rather than depending on it.
 
 ### 2.2 What each new layer-A pass is for
 
@@ -124,8 +125,9 @@ LLVM phis (see CODEGEN-LLVM.md §2).
   is O(arms) comparisons to reach the last one — its own comment says so
   and offers a release-mode shortcut that only helps the final arm. A decision
   tree over the scrutinee's discriminants is O(1) for an enum match and is the
-  shape a `switch` wants in JavaScript, a `br_table` wants in Cranelift, and a
-  `switch` wants in LLVM. One pass, three beneficiaries.
+  shape a `switch` wants in JavaScript and in LLVM, and a tree of tests wants in
+  an emitter with no instruction selection at all. One pass, three
+  beneficiaries.
 - **`closures.rs`.** `ExprKind::Lambda { captures }` already carries the capture
   list. Conversion turns a lambda into a top-level function taking an environment
   as its first parameter plus a construction of that environment. It is sound
@@ -133,8 +135,9 @@ LLVM phis (see CODEGEN-LLVM.md §2).
   so an environment is always plain immutable data.
 - **`layout.rs`.** The value model of VALUE-MODEL.md, computed once per type and
   memoised. It is in the middle end rather than in a backend because both native
-  backends must agree byte for byte — an `[T]` whose element stride Cranelift and
-  LLVM disagree about is a miscompile that only shows up between profiles.
+  backends must agree byte for byte — an `[T]` whose element stride the debug and
+  release backends disagree about is a miscompile that only shows up between
+  profiles.
 
 ### 2.3 What the JavaScript backend loses and gains
 
@@ -155,7 +158,7 @@ monomorphize -> inline -> dce -> tail_calls -> decision
                                                                                      |
                                                                    +-----------------+-------------+
                                                                    |                               |
-                                                              cranelift                           llvm
+                                                               stencil                            llvm
 ```
 
 Folding is not a stage of its own: it is inside `inline`, interleaved with it,
@@ -253,12 +256,12 @@ pub enum Units<'a> {
 }
 
 pub trait Backend {
-    /// `js`, `cranelift`, `llvm`. Enters every cache key this backend produces.
+    /// `js`, `stencil`, `llvm`. Enters every cache key this backend produces.
     fn name(&self) -> &'static str;
 
     /// The identity of everything outside the program that the bytes depend on:
-    /// the LLVM version, the Cranelift version, the runtime's own hash. Enters
-    /// every cache key. A backend that returns a constant here is claiming its
+    /// the LLVM version, the stencil library's digest, the runtime's own hash.
+    /// Enters every cache key. A backend that returns a constant here is claiming its
     /// output cannot change without the toolchain hash changing, which is true
     /// of `js` and of nothing else.
     fn identity(&self) -> String;
@@ -353,26 +356,39 @@ programs and not about JavaScript.
 
 ```
 (Js | Web,       _)        -> js
-(Linux | Macos,  Debug)    -> cranelift
+(Linux | Macos,  Debug)    -> stencil
 (Linux | Macos,  Release)  -> llvm
 ```
 
 `Web` joins `Js` because the question this match asks is "which backend emits
 this artifact", and a page is JavaScript.
 
-There is a fourth backend and it is not in the table. `stencil`
-(CODEGEN-STENCIL.md) is **compiled in by default** — `cli/Cargo.toml`'s
-`default = ["backend-cranelift", "backend-stencil"]` — and deliberately never
-returned by `select`, so every native debug build is still Cranelift's. It is
-held to §3's traits so that the seat it is meant to take is a decision about
-parity rather than about plumbing, and CODEGEN-STENCIL.md §9 is the list that
-decision is waiting on.
+**There is no third native backend, and there was until 2026-08-29.** The debug
+row read `cranelift` for as long as `stencil` was compiled in and never
+returned — the arrangement that kept taking the seat a decision about parity
+rather than about plumbing. Parity was met, the seat was taken, and the
+retargetable backend was removed from the tree with its design document;
+CODEGEN-STENCIL.md §13 is the reversal, its reasons and its costs, and
+DECISIONS.md's three rows point at it.
 
-The published measurements this split was weighed against — Cranelift's standing
-between LLVM `-O0` and a template JIT — are Xu and Kjolstad's *Copy-and-Patch
-Compilation* and Schwarz, Kamm and Engelke's *TPDE: A Fast Adaptable Compiler
-Back-End Framework*, both linked from
-[../../reference/README.md](../../reference/README.md).
+The debug row is not every native triple. `stencil` carries one stencil library
+per (instruction set, container) pair and refuses a target it has no library
+for, so `select` returning it is necessary and not sufficient:
+`actions::native_ready` still asks the backend. The libraries are `macos-arm64`,
+`linux-arm64` and `linux-x86_64` (CODEGEN-STENCIL.md §3.2).
+<!-- PLACEHOLDER, coordinator: macOS/x86-64 has no library and is therefore the
+one native target with no debug backend. Either (a) it stays an honest
+unsupported target — a macOS/x86-64 host answers `Js` from `host_platform()` and
+`buri build` refuses with a sentence naming the target — or (b) a fourth library
+is built and this paragraph gains it. Settle it here and in
+CODEGEN-STENCIL.md §3.2. -->
+
+The published measurements the split was weighed against — a retargetable
+generator's standing between LLVM `-O0` and a template JIT — are Xu and
+Kjolstad's *Copy-and-Patch Compilation* and Schwarz, Kamm and Engelke's *TPDE: A
+Fast Adaptable Compiler Back-End Framework*, both linked from
+[../../reference/README.md](../../reference/README.md). They are also why the
+debug row could change hands on a measurement rather than on an opinion.
 
 Two things sit on top of the table:
 
@@ -387,7 +403,7 @@ Two things sit on top of the table:
   names the row (VALUE-MODEL.md §12).
 - A build of the toolchain without the `backend-llvm` feature refuses a native
   release build with a diagnostic naming the feature, rather than silently
-  falling back to Cranelift. Falling back would mean `--release` produced
+  falling back to the debug backend. Falling back would mean `--release` produced
   different code depending on how the compiler was installed, which is the same
   class of bug as an unpinned toolchain. See BUILD-AND-WATCH.md §2.
 
@@ -605,8 +621,8 @@ re-running codegen. `Cache::get` already returns bytes; the link step writes the
 into the link directory under stable filenames, hard-linking where the filesystem
 allows it so a large object is not copied twice.
 
-The manifest is the input to CODEGEN-CRANELIFT.md §6's incremental relink, and it
-is also what `--explain` reads to print one `codegen` line per unit with its
+The manifest is the input to CODEGEN-STENCIL.md §12.2's incremental relink, and
+it is also what `--explain` reads to print one `codegen` line per unit with its
 status. `buri clean` takes `.buri/link` with the rest.
 
 `actions::artifact_path` already produces
@@ -672,16 +688,16 @@ those that nothing checks. What remains open is in `design/TODO.md`, under
 
 ## 9. What this does not do
 
-- **No cross-*linking*.** Cross *codegen* works and is exercised. Cranelift is
-  compiled with `all-arch`, so an ISA is selected by triple rather than by the
-  running CPU, and LLVM targets all of them: the benchmark suite takes
-  `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu` and
-  `aarch64-unknown-linux-gnu` as default rows on whichever machine it is run on
-  (`design/PERFORMANCE.md` §3), and the stencil backend cross-builds both of its
-  Linux libraries on a macOS host with no Linux sysroot (CODEGEN-STENCIL.md
-  §3.2). A cross triple is in fact *more* reproducible than the host one,
-  because the host ISA is inferred from the running CPU's features and a cross
-  ISA is the baseline for its triple.
+- **No cross-*linking*.** Cross *codegen* works and is exercised. The debug
+  backend bakes one stencil library per target and looks one up by triple rather
+  than by the running CPU, cross-building both of its Linux libraries on a macOS
+  host with no Linux sysroot (CODEGEN-STENCIL.md §3.2), and LLVM targets
+  everything: the benchmark suite takes `aarch64-apple-darwin`,
+  `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` as default rows on
+  whichever machine it is run on (`design/PERFORMANCE.md` §3). A cross triple is
+  in fact *more* reproducible than the host one, because the host ISA is
+  inferred from the running CPU's features and a cross ISA is the baseline for
+  its triple.
 
   What is still refused is producing a runnable artifact for another host:
   `buri build --output=linux/x86_64` on a macOS host is an error naming the host
