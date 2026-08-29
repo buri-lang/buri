@@ -734,6 +734,12 @@ one of two things, and both are decisions with reasons rather than gaps nobody
 noticed: **served**, or **complete and empty** — the honest answer for Buri is
 nothing, and a golden pins that it is nothing.
 
+**The client-to-server half of this table is a list a test reads, not prose.**
+`language_server::CLIENT_TO_SERVER` names every method a 3.17 client may send,
+and `repositories::the_protocol_surface_is_covered` holds each one to an arm
+that answers it by name and to a recorded session that sends it. A row here
+that nothing exercises fails that test rather than reading complete.
+
 | Request | | |
 |---|---|---|
 | `initialize`, `initialized`, `shutdown`, `exit` | served | the handshake, and the four ways a client gets it wrong: a second `initialize` is `-32600` and not a restart, because answering it would move the root out from under every open document; a request before the first one is `-32002`, because a root is what there is to answer about; a request after `shutdown` is `-32002` again; and `exit` without a `shutdown` before it exits 1. A notification that arrives outside the handshake is dropped rather than refused — a notification has no reply to put an error in |
@@ -784,7 +790,8 @@ nothing, and a golden pins that it is nothing.
 | `workspace/applyEdit` | served | how a command that edits writes: the server sends the file `buri gen` produced and the command's own answer is what the client says it did with it |
 | `window/showMessage`, `window/logMessage` | served | what a command has to report — the transcript of a test run in the log, its verdict on screen — and the one failure with nowhere else to appear: a repository whose own files do not read. Every line either of them carries is written to standard error as well, which is the floor a client that displays neither still leaves |
 | `$/cancelRequest` | served | a request withdrawn before its turn is `-32800 RequestCancelled`; one withdrawn after its answer is a no-op. Requests are served one at a time and there is no read-ahead, which is what makes both of those the same rule rather than a race |
-| `$/progress`, `window/workDoneProgress/cancel` | served | `begin` and `end` around the four requests that analyse every target, reported to the token the client sent. A cancel is accepted and changes nothing: the work has no interruption point, which is what `cancellable: false` says |
+| `$/progress` | served | it runs both ways. Outbound: `begin` and `end` around the four requests that analyse every target, reported to the token the client sent. Inbound: accepted and dropped, because it could only report under a token the *server* issued and this server issues none — and a progress token is the client's own value rather than a request id, so nothing is cancelled on the strength of one |
+| `window/workDoneProgress/cancel` | served | accepted, and it changes nothing: the work has no interruption point, which is what `cancellable: false` says |
 | `window/workDoneProgress/create` | complete and empty | never sent. Only the client's token is reported to, so there is no server-invented token to register — and a client that did not ask to be told is missing nothing |
 | `telemetry/event` | complete and empty | never sent. This toolchain collects nothing about the person using it, so there is no event to hand a client's telemetry channel |
 | `window/showMessageRequest` | complete and empty | never sent. It is `showMessage` with buttons, and nothing the server has to say puts a choice to the reader: a repository that does not load is a file to fix, and the answer is in the file rather than in a dialog |

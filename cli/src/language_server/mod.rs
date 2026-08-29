@@ -502,6 +502,100 @@ fn log_trace(text: &str, verbose: Option<&str>) -> Value {
     notification("$/logTrace", Value::object(fields))
 }
 
+/// Every method a client may send this server under LSP 3.17: the
+/// `clientToServer` surface plus the two `$/` methods the specification marks
+/// as running both ways.
+///
+/// It is here, beside the dispatch it describes, because the coverage claim
+/// used to live only in `cli/src/docs/cli/lsp.md`'s prose — where nothing
+/// checked it, and where one method (`$/progress`) had neither an arm nor a
+/// golden for a whole campaign. `repositories::the_protocol_surface_is_covered`
+/// holds every name here to a dispatch arm or a named refusal, *and* to at
+/// least one recorded session that sends it.
+///
+/// The two 3.18-proposed methods are out: this server is written to 3.17, and a
+/// proposal is not a surface a client can rely on. Adding one here is the
+/// registration that makes the test ask for its arm and its golden.
+pub const CLIENT_TO_SERVER: &[&str] = &[
+    // Lifecycle, and the three `$/` methods.
+    "initialize",
+    "initialized",
+    "shutdown",
+    "exit",
+    "$/cancelRequest",
+    "$/progress",
+    "$/setTrace",
+    // Workspace.
+    "workspace/didChangeWorkspaceFolders",
+    "workspace/didChangeConfiguration",
+    "workspace/didChangeWatchedFiles",
+    "workspace/symbol",
+    "workspaceSymbol/resolve",
+    "workspace/executeCommand",
+    "workspace/willCreateFiles",
+    "workspace/didCreateFiles",
+    "workspace/willRenameFiles",
+    "workspace/didRenameFiles",
+    "workspace/willDeleteFiles",
+    "workspace/didDeleteFiles",
+    "workspace/diagnostic",
+    // Document synchronization, and the notebook half of it.
+    "textDocument/didOpen",
+    "textDocument/didChange",
+    "textDocument/willSave",
+    "textDocument/willSaveWaitUntil",
+    "textDocument/didSave",
+    "textDocument/didClose",
+    "notebookDocument/didOpen",
+    "notebookDocument/didChange",
+    "notebookDocument/didSave",
+    "notebookDocument/didClose",
+    // Language features.
+    "textDocument/declaration",
+    "textDocument/definition",
+    "textDocument/typeDefinition",
+    "textDocument/implementation",
+    "textDocument/references",
+    "textDocument/prepareCallHierarchy",
+    "callHierarchy/incomingCalls",
+    "callHierarchy/outgoingCalls",
+    "textDocument/prepareTypeHierarchy",
+    "typeHierarchy/supertypes",
+    "typeHierarchy/subtypes",
+    "textDocument/documentHighlight",
+    "textDocument/documentLink",
+    "documentLink/resolve",
+    "textDocument/hover",
+    "textDocument/codeLens",
+    "codeLens/resolve",
+    "textDocument/foldingRange",
+    "textDocument/selectionRange",
+    "textDocument/documentSymbol",
+    "textDocument/semanticTokens/full",
+    "textDocument/semanticTokens/full/delta",
+    "textDocument/semanticTokens/range",
+    "textDocument/inlineValue",
+    "textDocument/inlayHint",
+    "inlayHint/resolve",
+    "textDocument/moniker",
+    "textDocument/completion",
+    "completionItem/resolve",
+    "textDocument/diagnostic",
+    "textDocument/signatureHelp",
+    "textDocument/codeAction",
+    "codeAction/resolve",
+    "textDocument/documentColor",
+    "textDocument/colorPresentation",
+    "textDocument/formatting",
+    "textDocument/rangeFormatting",
+    "textDocument/onTypeFormatting",
+    "textDocument/rename",
+    "textDocument/prepareRename",
+    "textDocument/linkedEditingRange",
+    // Window, the one direction of it a client sends.
+    "window/workDoneProgress/cancel",
+];
+
 fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
     // A message with an id and no method is a *response* to one of the two
     // requests this server sends, and answering it would be answering an answer.
@@ -672,6 +766,14 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             }
             vec![]
         }
+
+        // `$/progress` runs both ways; inbound it can only report under a token
+        // the *server* issued, and this server issues none (`progress_of`), so
+        // there is no work for one to name. Accepted and dropped, rather than
+        // falling through to the catch-all unread. Nothing is cancelled on the
+        // strength of one: a progress token is the client's own value and would
+        // withdraw whichever request id shared its number.
+        ("$/progress", _) => vec![],
 
         // How much the client wants to be told. A word that is not one of the
         // three levels leaves it where it was: the protocol has no error reply
