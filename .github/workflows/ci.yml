@@ -603,13 +603,13 @@ jobs:
   # architecture is the one thing about it that can be matched.
   #
   # **Required, not advisory, and measured before it was made so.** The bar is
-  # 50 ms a request; on this runner, over two runs, the slowest request of a
-  # 69-request session was 6 ms and then 7 ms, the slowest of 145 opens was
-  # 5 ms both times, and the restore's two halves were 1 ms and 2 ms an open
-  # both times. A request has to take seven times longer than it
-  # does before this job has an opinion, so a red X here is a regression and
-  # not a noisy neighbour — which is the whole bar for a timing gate, because
-  # one that cries wolf gets deleted. If a future runner is genuinely slower,
+  # 50 ms a request. Over three runs on this runner the slowest request of the
+  # 69-request session was 6, 7 and 6 ms, the slowest of the 145 opens was 5, 5
+  # and 6 ms, and the restore's two halves were 1 ms and 2 ms an open every
+  # time. A request has to take seven times longer than it does before this job
+  # has an opinion, so a red X here is a regression and not a noisy neighbour —
+  # which is the whole bar for a timing gate, because one that cries wolf gets
+  # deleted. If a future runner is genuinely slower,
   # the tests read `BURI_PERF_BUDGET_SCALE` — a multiplier on the 50 ms,
   # defaulting to 1 — so the widening is one `env:` line here rather than an
   # edit to the assertion. Nothing sets it today, and the numbers above are why.
