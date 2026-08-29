@@ -713,7 +713,7 @@ impl<'a> Jit<'a> {
         }
     }
 
-    /// One value's counted blocks, in the order `middle::rc`'s oracle names
+    /// One value's counted blocks, in the order `middle::rc`'s classifier names
     /// them.
     ///
     /// `depth` bounds the walk the same way `cranelift/emit.rs` bounds its own,
@@ -982,7 +982,7 @@ impl<'a> Jit<'a> {
     }
 
     /// Whether a source type owns a counted block anywhere inside it, which is
-    /// the same question `middle::rc`'s oracle asks.
+    /// the same question `middle::rc`'s classifier asks.
     /// The answer is **memoised, and recorded before the descent**, which is
     /// what makes this terminate and what makes it linear in the *distinct*
     /// types a program holds rather than in the paths through them.

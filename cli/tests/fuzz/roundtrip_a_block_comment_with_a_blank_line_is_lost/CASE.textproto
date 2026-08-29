@@ -1,3 +1,3 @@
 doc:    "A `/* … */` comment containing a blank line did not survive formatting, so `format::source` refused its own output and `buri format` left the whole file alone. It was not confined to a body or to an empty comment: `/* a\\n\\nb */` at top level did it too, so an ordinary block comment with a paragraph break in it made a file permanently unformattable and invisible to `format --check`. Fixed by `Doc::HardBreak`: the break between two lines of one comment is written whether or not the output already ends in one, because a blank line inside a comment is one of its lines."
-oracle: "roundtrip"
+property: "roundtrip"
 status: FIXED
