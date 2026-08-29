@@ -33,8 +33,11 @@ end is a library, and `driver::analyze` is what the server calls.
 | `foldingRange` | What an editor may collapse: every declaration taller than a line, the methods inside an `impl` or a `trait`, and the run of imports at the top as one region. |
 | `selectionRange` | Expand-selection: the word, the expression around it, the declaration, the file. |
 | `formatting` | `buri format`, which refuses to emit anything that does not parse, so a file mid-edit is left alone rather than mangled. |
-| `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. |
-| `codeAction` | The fix for a finding that has exactly one. |
+| `rangeFormatting` / `onTypeFormatting` | The same canonical output with the rest withheld: the file is formatted whole, the result is diffed against what is on screen, and only the edits your range — or the declaration the `}` or `;` you just typed closes — actually touches come back. |
+| `willSaveWaitUntil` | Format on save, with nothing to configure. Exactly what `formatting` returns, because it is the same function. |
+| `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. Each item carries the range it replaces, its kind, and the signature of what it names. |
+| `completionItem/resolve` | The `///` prose for the one item you are on. Every doc comment in a module on the wire to show one of them is what this exists to avoid. |
+| `codeAction` / `codeAction/resolve` | The fix for a finding that has exactly one, and the diagnostic it is under. The list is titles; the edit — which for a build file means running `buri gen` — is computed for the action you accept. A client that cannot resolve gets the edit in the list. |
 | `codeLens` / `codeLens/resolve` | A run command above every `test`, and above every exported declaration how many places the repository uses it. The count is computed when the editor is about to draw that one lens, not when it scrolls past the file. |
 | `executeCommand` | The three verbs the lenses invoke: run one test, regenerate a package's `BUILD.buri`, and show the places a count counted. |
 | `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
@@ -265,6 +268,20 @@ makes the answer arrive while the call is still being written, which is the
 only time it is any use. A cursor inside a string or a comment answers nothing
 rather than answering about the call that string is an argument to.
 
+**A completion item says what it replaces.** A module path has a `/` in it and a
+client's idea of a word does not, so an item that carried only a label left the
+editor guessing which characters an accepted `core/order` was meant to stand in
+for — and it guessed `order`. Every item now carries the range: the path typed
+so far inside the quotes, or the partial name inside the braces. `detail` says
+the thing the label cannot: for a path, whether it is this package, one your
+target already declares, or the standard library; for an exported name, the
+signature the formatter would print. Sorting is by kind before spelling, because
+alphabetical order puts every capitalized name above every lowercase one, which
+is a fact about ASCII rather than about what you are looking for. The `///`
+prose is the one thing left out, and `completionItem/resolve` supplies it for
+the row you are on — every doc comment in a module is a page of text on the wire
+to show one line of it.
+
 **Three requests read a parse and nothing else** — the outline, the folds and
 the selection chain. No workspace, no standard library, no analysis: they are
 questions about shape, and asking them of the buffer alone is what makes them
@@ -273,11 +290,41 @@ body rather than on the closing brace's own line, so collapsing a function
 leaves its `}` visible; that is exact rather than a guess, because `buri format`
 is canonical and puts a closing brace on a line of its own.
 
+**A range is the whole-file answer with the rest withheld.** `buri format` has
+no partial mode and is never asked for one: the file is formatted whole, the
+result is diffed against the buffer line by line, and the edits handed back are
+the ones the requested range touches. So "format the selection" cannot disagree
+with "format the file", because it *is* that answer minus what you did not ask
+for — and a formatter that could reindent a region differently from the file
+around it is a formatter a repository cannot check in. `onTypeFormatting` is the
+same computation with the range chosen for you: a `}` closes something, the
+something it closes is inside exactly one declaration, and that declaration is
+the scope. A `;` works the same way. A file mid-edit that does not parse is left
+alone, whole or by the range, because the formatter refuses to emit anything it
+could not read back.
+
+**Format on save is the same function.** `willSaveWaitUntil` returns exactly
+what `textDocument/formatting` returns, so a file written by a save and a file
+written by the format command cannot differ, and there is nothing to configure
+to make them agree. `willSave` — the notification — is deliberately not
+advertised: the server has nothing to do before a save that it does not do on
+`didSave`.
+
 **The fixes are the same ones `buri lint --fix` applies**, and they are applied
 the same way: a finding about a build file is handed to `buri gen`, which
 returns the whole file, so a `BUILD.buri` is never byte-edited and the three
 paths cannot end up disagreeing. A finding with no mechanical answer — which
 edge of a `dep-cycle` to cut — offers nothing rather than guessing.
+
+**A code action is offered before it is computed.** The request arrives every
+time the cursor lands on a squiggle, and the fix for a build file costs a
+`buri gen` — a writable session and a package walk that nothing caches. So the
+list is a title, the kind, and the `diagnostics` array that tells the editor
+which squiggle to hang the lightbulb on; `codeAction/resolve` computes the edit,
+once, for the action somebody accepted. A client whose `initialize` did not name
+`edit` in its `codeAction.resolveSupport` will never send that second request,
+so it gets the edit in the list — deferring it would be offering a fix that does
+nothing.
 
 **The file the fix writes is one the editor is not holding**, and that used to
 be the end of the story: you accepted the fix, the `BUILD.buri` changed, and the
@@ -508,13 +555,16 @@ and **deferred**, which is work not yet done.
 | `signatureHelp` | served | |
 | `foldingRange` | served | |
 | `selectionRange` | served | |
-| `formatting` | served | whole file |
-| `completion` | served | module paths and import clauses |
-| `codeAction` | served | |
+| `formatting` | served | whole file. `FormattingOptions` — `tabSize`, `insertSpaces` — is accepted and ignored: the formatter is canonical, and a repository whose indentation depended on the editor that saved it would be one nobody could review |
+| `rangeFormatting`, `onTypeFormatting` | served | the whole-file answer, diffed against the buffer and filtered to the hunks the range touches. Nothing partial is computed, so the two cannot disagree with `buri format`. `onTypeFormatting` triggers on `}` and `;` and scopes to the declaration around them; a build file has no such scope and gets nothing |
+| `willSaveWaitUntil` | served | the same edits `formatting` returns, from the same function |
+| `completion` | served | module paths and import clauses, each item with its own replacement range |
+| `completionItem/resolve` | served | the doc comment, which is the half worth withholding |
+| `codeAction`, `codeAction/resolve` | served | `resolveProvider: true`. The list carries the standard `diagnostics` array — this used to be a `diagnosticCode` string, which is not a field the protocol has |
 | `documentColor`, `colorPresentation` | served | `ui/style`'s `Color`, where every argument is a literal |
 | `linkedEditingRange` | complete and empty | `null` at every position. The request is for syntax that spells one name at both ends of a construct; Buri writes each name once, and an `impl … for … { }` closes with a brace |
 | `inlineValue` | complete and empty | `[]`. Only ever sent from a client stopped in a debug session, and there is no Buri debug adapter to stop in. It becomes real work the day one ships |
-| `willSave` | complete and empty | ignored: nothing happens before a save that does not happen on `didSave`, and doing the analysis twice would only make the save slower |
+| `willSave` | complete and empty | ignored, and **not** advertised beside `willSaveWaitUntil`: nothing happens before a save that does not happen on `didSave`, and asking a client to send a notification this server drops would be asking for traffic to throw away |
 | `didChangeConfiguration` | complete and empty | ignored: there is no setting to change. Every `Flags` the server builds is the default one, and the first real setting turns this into work |
 | `notebookDocument/didOpen`, `didChange`, `didSave`, `didClose` | complete and empty | ignored, and `notebookDocumentSync` is not advertised: a Buri module belongs to a target declared in a `BUILD.buri`, and a notebook cell has no target for the toolchain to compile it in |
 | `documentLink/resolve` | complete and empty | every link target is computed when the file is scanned — resolving a module path or a package label is a lookup in the workspace the answer came from, not a lazier second question — so `resolveProvider` is `false` and a client that sends it anyway is refused |
@@ -531,7 +581,6 @@ and **deferred**, which is work not yet done.
 | `workspace/executeCommand` | served | exactly three commands, each a call into an entry point `buri` already has: `buri.runTest`, `buri.regenerateBuildFile`, `buri.showReferences` |
 | `workspace/applyEdit` | served | how a command that edits writes: the server sends the file `buri gen` produced and the command's own answer is what the client says it did with it |
 | `window/showMessage`, `window/logMessage` | served | what a command has to report: the transcript of a test run in the log, its verdict on screen |
-| `rangeFormatting`, `onTypeFormatting` | deferred | `buri format` is whole-file and canonical. A formatter with no partial mode has nothing to give a range, and formatting part of a file is how an editor and the command come to disagree about it |
 | work-done progress | deferred | no request long enough to report progress on |
 
 **Everything not in that table is refused**, with the protocol's own
@@ -582,7 +631,22 @@ server that keeps up with typing and one that does not:
   quoted and whose files have not moved costs the hash and nothing else.
 - **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
   which is where the declaration is rather than where the hint is painted, and
-  asks the resolver once — for the one hint under the pointer.
+  asks the resolver once — for the one hint under the pointer. **On a
+  `completionItem/resolve`** it analyses the target owning the file the item
+  came from, which is the same analysis the list itself was built from.
+- **On any of the three formatting requests and on a `willSaveWaitUntil`** it
+  analyses **nothing**. The formatter reads a parse of the one buffer, and a
+  range answer is that same output diffed against the buffer — so the cost of
+  formatting a selection is the cost of formatting the file, which is a parse.
+- **On a `textDocument/codeAction`** it runs the lint pass over the target
+  owning the file, which is what knows the findings and their fixes; the answer
+  is titles. **On a `codeAction/resolve`** it does that again and then, for a
+  fix that rewrites a build file, opens a writable session of its own and makes
+  the package walk `buri gen` makes. That last part is not cached by anything,
+  which is exactly why it waits for the one action somebody accepted rather
+  than running on every cursor move onto a squiggle. A client that did not
+  claim `resolveSupport` pays it in the list, because it has no second request
+  to pay it in.
 - **On a `codeLens`** it analyses **nothing**: the lenses are a parse of the one
   buffer, which is why scrolling through a repository costs a parse per file and
   not a compilation per file. **On a `codeLens/resolve`** it analyses every

@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"completion": {"completionItem": {"resolveSupport": {"properties": ["documentation"]}}}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n"}}}
+# Mid-path. The `textEdit` range starts where the path does and not where the
+# client's idea of a word does — `core/o` is one thing being typed, and a
+# client left to guess replaces `o`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "from \"core/o"}]}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 12}}}
+# A `//` prefix, from the binary. Two labels come back and neither is in the
+# standard library: the package the file is in, and the one its target already
+# depends on. `detail` is what tells them apart, and it is the thing a reader
+# cannot see in the path itself. A label the target does *not* depend on is not
+# offered at all — offering one would be offering a `missing-dep`.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"//"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 8}}}
+# The prose for one of them. It is not in the list: every module's `//!` lines
+# on the wire to show one of them is what `resolveProvider` exists to avoid.
+{"jsonrpc": "2.0", "id": 4, "method": "completionItem/resolve", "params": {"label": "core/order", "kind": 9, "detail": "standard library", "sortText": "2core/order", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order"}}}
+# Inside the `{ … }`, partway through a name. The range is the name, so
+# accepting an item replaces what was typed rather than inserting beside it.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/order\" import { Or"}]}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
+# A trait's `///` lines, resolved.
+{"jsonrpc": "2.0", "id": 6, "method": "completionItem/resolve", "params": {"label": "Ord", "kind": 8, "sortText": "0Ord", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order", "name": "Ord"}}}
+# A name that has none resolves to itself. An item with nothing to add is
+# still an item, and `null` is not a legal answer to this request.
+{"jsonrpc": "2.0", "id": 7, "method": "completionItem/resolve", "params": {"label": "Order", "kind": 13, "sortText": "0Order", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order", "name": "Order"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

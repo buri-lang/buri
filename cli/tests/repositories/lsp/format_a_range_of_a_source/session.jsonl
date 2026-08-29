@@ -1,0 +1,35 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The buffer is the canonical file with two spots un-formatted: the signature of
+# `fromCents` on line 3, and the signature and body of `triple` on lines 11 and
+# 12. `double`, between them, is already what the formatter would write — which
+# is what makes a range answer observable rather than a whole-file one under
+# another name.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents( c : I64 ):Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c:Cents):Cents {\n    fromCents( c.0+c.0+c.0 )\n}\n"}}}
+# The whole file: one edit, the canonical text. `buri format` has no partial
+# mode, so this is the answer everything below is filtered out of.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "options": {"tabSize": 2, "insertSpaces": true}}}
+# `fromCents` alone. The `triple` hunk is outside the range and is withheld.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 3, "character": 0}, "end": {"line": 5, "character": 1}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# `triple` alone, and the other way round.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 11, "character": 0}, "end": {"line": 13, "character": 1}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# `double`, which is already formatted: a range with no hunk in it is empty
+# even though the file around it is not.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 7, "character": 0}, "end": {"line": 9, "character": 1}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# The whole file as a range: both hunks, and between them the lines the
+# formatter agreed with are left alone.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 14, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# Now the canonical text. A file already formatted has nothing to say, whole or
+# by the range.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 14, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# And a buffer mid-edit, which does not parse. The formatter refuses to emit
+# anything it cannot re-read, so a range of it is left alone rather than
+# mangled — the same rule the whole-file answer follows.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n"}]}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 3, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 10, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

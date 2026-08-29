@@ -825,7 +825,7 @@ fn builtin_type(tables: &Tables, name: &str) -> Option<TyConId> {
     Some(tables.prim_id(prim))
 }
 
-fn symbol_of(sym: &Sym) -> Option<Symbol> {
+pub(super) fn symbol_of(sym: &Sym) -> Option<Symbol> {
     match sym {
         Sym::Ty(id) => Some(Symbol::Type(*id)),
         Sym::Fn(id) => Some(Symbol::Function(*id)),

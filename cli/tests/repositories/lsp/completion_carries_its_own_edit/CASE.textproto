@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "what a completion item carries: the range it replaces, so the client stops guessing where a `/` in a module path begins a word; where the module comes from; the signature of an exported name; and the `///` prose, which arrives only for the one item a reader is on"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

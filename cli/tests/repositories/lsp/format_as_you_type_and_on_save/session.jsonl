@@ -1,0 +1,29 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The same buffer the range case uses: canonical except for `fromCents` on line
+# 3 and `triple` on lines 11 and 12.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents( c : I64 ):Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c:Cents):Cents {\n    fromCents( c.0+c.0+c.0 )\n}\n"}}}
+# The `}` that closes `triple`, just typed. The declaration it closes is the
+# scope, so `fromCents` — un-formatted, and eight lines above — is not touched.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/onTypeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 13, "character": 1}, "ch": "}", "options": {"tabSize": 4, "insertSpaces": true}}}
+# A `;` at the end of the `derive`, which is already what the formatter would
+# write. The enclosing item has no hunk in it, so nothing comes back.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/onTypeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 26}, "ch": ";", "options": {"tabSize": 4, "insertSpaces": true}}}
+# A brace typed where no declaration encloses it — the blank line between two
+# of them — has no scope to format.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/onTypeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 6, "character": 0}, "ch": "}", "options": {"tabSize": 4, "insertSpaces": true}}}
+# The save. What comes back must be exactly what `textDocument/formatting`
+# returns, and the two lines below are the assertion: one function serves both,
+# so a file written by a save and a file written by the format command cannot
+# differ.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/willSaveWaitUntil", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "reason": 1}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# The save that follows, once the client has written the edit back.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n"}]}}
+# A second save has nothing to write: the formatter is idempotent, so
+# format-on-save settles rather than oscillating.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/willSaveWaitUntil", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "reason": 1}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
