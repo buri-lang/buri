@@ -358,19 +358,20 @@ fn fail(message: &str) -> ! {
 /// The two triples `design/PERFORMANCE.md` §4 names, plus JavaScript.
 ///
 /// Both native triples are asked for on whichever machine the suite runs on:
-/// Cranelift is compiled with `all-arch`, so an ISA for a cross triple costs
-/// nothing, and a cross ISA is *more* reproducible than the host's — the host
-/// one is inferred from the running CPU's features and a cross one is the
-/// baseline for its triple.
+/// the development backend bakes a stencil library per target into the
+/// toolchain, so a cross triple costs no extra work at run time, and a cross
+/// emission is *more* reproducible than the host's — nothing about it is
+/// inferred from the running CPU.
+///
 /// `linux-arm64` is a third default rather than one of the two the doc names,
-/// and it is here for a reason the first run of these rows found: **Cranelift
-/// refuses `main` on either x86_64 triple**, with
-/// `Too many return values to fit in registers` — `Result<(), Str>` is three
-/// scalars and SysV returns two. That is an architecture fact and not a
-/// cross-compilation one (it fails identically for `macos-x86_64`), so without
-/// a working cross triple in the defaults the report would say "cross codegen
-/// does not work" when what it means is "the return ABI does not". The
-/// `linux-x86_64` row stays, skipping and naming the reason, until it does.
+/// and it is here for a reason the first run of these rows found: **the
+/// development backend refuses both x86_64 triples**. It has no hand-written
+/// SysV entry point for `linux-x86_64` and no stencil library at all for
+/// `macos-x86_64`, so that is an architecture fact and not a
+/// cross-compilation one — without a working cross triple in the defaults the
+/// report would say "cross codegen does not work" when what it means is "one
+/// architecture is unfinished". The `linux-x86_64` row stays, skipping and
+/// naming `select`'s reason, until it lands.
 fn default_targets() -> Vec<Target> {
     vec![
         Target { platform: Platform::Js, arch: None },
@@ -412,7 +413,7 @@ fn target_name(t: Target) -> String {
 /// `lower+js` is unchanged, because a JSON consumer of today's output has to
 /// still parse tomorrow's. A release row is an LLVM row and says so, because
 /// `backend::select` maps `(native, Release)` to LLVM and `(native, Debug)` to
-/// Cranelift: they are not one backend at two settings, they are the two builds
+/// the stencil backend: they are not one backend at two settings, they are the two builds
 /// the toolchain actually performs.
 fn phase_name(t: Target, p: Profile) -> String {
     match (t.platform, p) {
@@ -560,7 +561,7 @@ fn pinned_plans(tier: Tier) -> Vec<Plan> {
 ///
 /// | Set | Native rows |
 /// |---|---|
-/// | `core` (default) | `mixed` at every scale, both triples, Cranelift. |
+/// | `core` (default) | `mixed` at every scale, both triples, the debug backend. |
 /// | `native` | Every realistic profile plus the three lowering-heavy stress ones. |
 /// | `full` | Everything. |
 fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec<Plan> {
@@ -575,11 +576,12 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
             }
             for name in family_profiles(Family::Stress) {
                 // Two of the stress profiles carry the default run's native
-                // rows, because `mixed` cannot yet take one: it calls
-                // `list.filter`, `list.fold` and `list.mapCtx`, which the
-                // Cranelift backend has no body for, so its native rows skip.
-                // A default run with no native row at all would be a suite
-                // that silently stopped covering goal 3's native half.
+                // rows. This was inherited from a backend with no body for
+                // `list.filter`, `list.fold` or `list.mapCtx`, which is what
+                // made `mixed`'s native rows skip; the stencil backend has all
+                // six, so the set this list could take is now wider and is
+                // worth revisiting against a measured run rather than widened
+                // on the strength of a refusal that no longer happens.
                 let native = matches!(name, "many-small-fns" | "enum-heavy");
                 work.push(generated(name, stress_scale, seed, native));
             }
@@ -613,12 +615,13 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
             // `middle::derives` runs only on the native branch, so a
             // regression in it is invisible in every JS row.
             //
-            // The last four are here because they are the profiles Cranelift
-            // can currently *take*: the realistic mix calls `list.filter`,
-            // `list.fold` and `list.mapCtx`, none of which the backend has a
-            // body for, so every realistic row skips until it does. Losing the
-            // whole set to that would leave nothing to watch native lowering
-            // with, and `enum-heavy` is where the first native gap showed up.
+            // The last four are here because they were the profiles the
+            // previous debug backend could *take*: the realistic mix calls
+            // `list.filter`, `list.fold` and `list.mapCtx`, which it had no
+            // body for, so every realistic row skipped. The stencil backend
+            // has all six, so this list is narrower than what the backend can
+            // now be asked — the same revisit the `Stress` arm above notes.
+            // `enum-heavy` is where the first native gap showed up.
             for name in [
                 "many-small-fns",
                 "few-large-fns",

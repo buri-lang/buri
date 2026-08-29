@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "the empty completion, which is most of them: ordinary code, a quote nobody closed, a path prefix nothing starts with, a member after a dot, and a module that does not exist — and the one list a prefix does not shorten, because the client filters it against the range each item replaces"
+doc: "the empty completion: a quote nobody closed, a path prefix nothing starts with, and a module that does not exist — and the one list a prefix does not shorten, because the client filters it against the range each item replaces"
 
 run {
   args: ["lsp"]

@@ -2,7 +2,7 @@
 //!
 //! This is the implementation of [`Linker`] for the native platforms, and the
 //! directory layout the link step works in. It lives under `build/` rather than
-//! under `backend/` on purpose: `cranelift` and `llvm` both hand their objects
+//! under `backend/` on purpose: `stencil` and `llvm` both hand their objects
 //! to the same linker, so a linker is not a property of a backend — and what is
 //! in here is *not* code generation. It is process invocation, `PATH` probing,
 //! a manifest file, and a cache key, which is the build system's subject
@@ -13,7 +13,7 @@
 //! # The invocation
 //!
 //! **The link is always driven through the platform C compiler**, never by
-//! invoking `ld` directly (CODEGEN-CRANELIFT.md §7.3). The driver is what knows
+//! invoking `ld` directly. The driver is what knows
 //! where `crt1.o`, `libc`, and `libSystem.tbd` live, which SDK is selected, and
 //! what a `-syslibroot` should be; reimplementing that is reimplementing the
 //! part of a toolchain that changes with every OS release. Which *linker* the
@@ -34,9 +34,8 @@
 //! because the toolchain's devShell puts it there, and a linker that came with
 //! the pinned toolchain is a linker that is the same on every machine — which
 //! is the property `--check-reproducible` is about. When it is absent the
-//! system linker does the job; CODEGEN-CRANELIFT.md §7.3 prefers the system
-//! linker for the opposite reason (it is what every macOS SDK assumption is
-//! built around), and either way the fallback is not a failure mode: **there is
+//! system linker does the job — it is what every macOS SDK assumption is built
+//! around — and either way the fallback is not a failure mode: **there is
 //! no case in which a build fails for want of a particular linker**, and no
 //! flag that has to be set to get a working one.
 //!
@@ -74,7 +73,7 @@
 //!
 //! It exists because a linker takes paths and [`Linker::link`] takes bytes, and
 //! because the manifest is what makes "which objects changed" answerable from
-//! outside (CODEGEN-CRANELIFT.md §7.4).
+//! outside.
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::hash_bytes;
@@ -570,8 +569,8 @@ impl Linker for CDriver {
     ///
     /// `unchanged` is used for exactly what it can honestly buy. No shipping
     /// linker links incrementally — mold rejected it as irreproducible, LLD
-    /// calls it a non-goal, and Zig's Mach-O in-place patcher is unfinished
-    /// (CODEGEN-CRANELIFT.md §7.1) — so "swap only the files that changed"
+    /// calls it a non-goal, and Zig's Mach-O in-place patcher is unfinished —
+    /// so "swap only the files that changed"
     /// happens *above* the linker: an object whose bytes are already on disk is
     /// not rewritten, and the link itself is always full. The saving that
     /// matters is upstream of here, in the codegen units that were never

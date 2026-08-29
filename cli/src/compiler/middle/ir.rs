@@ -1,22 +1,24 @@
 //! Block-argument SSA, native backends only.
 //!
 //! A per-function control-flow graph of basic blocks with **block parameters**
-//! and no phi instruction, every value defined once. That is Cranelift's own IR
-//! shape, which is not a coincidence: it was chosen so that lowering to CLIF is
-//! a transliteration and lowering to LLVM is a mechanical block-parameters-to-
-//! phis rewrite, rather than a compromise between the two.
+//! and no phi instruction, every value defined once. It is the shape a
+//! retargetable code generator wants, which is not a coincidence: it was chosen
+//! so that lowering to a machine backend is a transliteration and lowering to
+//! LLVM is a mechanical block-parameters-to-phis rewrite, rather than a
+//! compromise between the two.
 //!
 //! The alternative — no shared CFG, and each native backend building its own
 //! SSA — is rejected on `design/native/CODEGEN-LLVM.md` §0's second
-//! instruction, "avoid `mem2reg`; generate optimized SSA form". Cranelift's `FunctionBuilder` would build SSA for us and LLVM
-//! would not, so one backend's SSA would be real and the other's an artifact of
-//! `alloca`, which is exactly the divergence that makes two backends disagree.
+//! instruction, "avoid `mem2reg`; generate optimized SSA form". A backend with
+//! an SSA-building frontend would build SSA for us and LLVM would not, so one
+//! backend's SSA would be real and the other's an artifact of `alloca`, which
+//! is exactly the divergence that makes two backends disagree.
 //!
 //! The JavaScript backend does not consume this, deliberately: everything it
 //! needs from the shared work is in layer A, and going from a CFG back to
 //! structured JavaScript needs a relooper.
 //!
-//! The shape, from `design/native/CODEGEN-CRANELIFT.md` §1: `Func { sig,
+//! The shape (`design/native/ARCHITECTURE.md` §2.1): `Func { sig,
 //! blocks, unit, facts }`, `Block { params, insts, term }`, and a `Term` of
 //! `Jump` / `Branch` / `Switch` / `Return` / `Unreachable`, where `Switch`'s
 //! `default` is `None` wherever the middle end proved the table total — which
@@ -52,8 +54,8 @@
 //!
 //! Zero-sized values are kept, not dropped: `()` and a context of empty
 //! implementations are ordinary values of [`Type::Unit`] and [`Type::Agg`]
-//! here, and CODEGEN-CRANELIFT.md §2.2 drops them where a *signature* is
-//! built, from the layout table. Dropping them here would mean lowering
+//! here, and a backend drops them where a *signature* is built, from the
+//! layout table. Dropping them here would mean lowering
 //! deciding what is zero-sized, which is the same second implementation of the
 //! value model.
 //!
@@ -183,8 +185,8 @@ pub enum Const {
     /// One producer: the padding of a merged tail-call group's argument list.
     /// A member with fewer parameters than the widest one has nothing to pass
     /// for the extra slots, and the entry it selects never reads them. LLVM
-    /// spells it `poison`; Cranelift has no such value and a zero of each leaf
-    /// type is the honest stand-in, since the claim is that nothing observes
+    /// spells it `poison`; a machine backend has no such value and a zero of
+    /// each leaf type is the honest stand-in, since the claim is that nothing observes
     /// it.
     Undef,
 }
@@ -303,7 +305,7 @@ pub enum Inst {
     /// A field of the payload of a *known* variant. Reaching one whose tag is
     /// something else is a lowering bug, not a run-time condition: a payload
     /// projection is only ever emitted where a test has just established the
-    /// tag (CODEGEN-CRANELIFT.md §3.1).
+    /// tag.
     GetPayload {
         dest: ValueId,
         agg: ValueId,
@@ -347,7 +349,7 @@ pub enum Inst {
         args: Vec<ValueId>,
     },
     /// A call through a closure value: load `code` and `env`, then
-    /// `call_indirect` (CODEGEN-CRANELIFT.md §3.2).
+    /// `call_indirect`.
     CallIndirect {
         dests: Vec<ValueId>,
         callee: ValueId,
@@ -490,8 +492,7 @@ pub enum Term {
     },
     /// A discriminant switch. `default` is `None` where the middle end proved
     /// the table total, which for an enum is always; `Profile::defensive_aborts`
-    /// is what decides whether a backend emits an unreachable default anyway
-    /// (CODEGEN-CRANELIFT.md §3.1).
+    /// is what decides whether a backend emits an unreachable default anyway.
     Switch {
         on: ValueId,
         cases: Vec<(u64, Target)>,
@@ -577,8 +578,8 @@ pub enum Purity {
 /// `Effectful`, and abort-capable are all the answer that costs performance
 /// and cannot be wrong. `middle::rc` computes the ownership column and the
 /// purity fixpoint, and `lower` copies them on from its plan; where a field
-/// keeps the conservative answer, LLVM emits fewer attributes and Cranelift
-/// emits more reference counting, which is the correct direction to be wrong
+/// keeps the conservative answer, LLVM emits fewer attributes and the debug
+/// backend emits more reference counting, which is the correct direction to be wrong
 /// in.
 ///
 /// `nounwind` is not a field. It is true of every function in the language —
@@ -855,8 +856,8 @@ impl Program {
 ///
 /// This is not a debug assertion that fires in a developer's build and is
 /// absent in a user's: it is a function the tests call on real lowered
-/// programs, and a backend may call it behind `cfg!(debug_assertions)` the way
-/// CODEGEN-CRANELIFT.md §4 sets Cranelift's own verifier.
+/// programs, and a backend calls it behind `cfg!(debug_assertions)`
+/// (`stencil/mod.rs::emit_units`).
 ///
 /// What it checks, and why each one is a bug worth a check rather than a
 /// convention worth a comment:
@@ -867,9 +868,9 @@ impl Program {
 ///    a mismatch there is an `add_incoming` with the wrong arity, which LLVM
 ///    accepts and miscompiles.
 ///  * **Every value is defined before it is used**, in the dominance sense.
-///    An SSA form where that does not hold is one where Cranelift's verifier
-///    reports "instruction result used before definition" a wave later, with
-///    no lowering site to point at.
+///    An SSA form where that does not hold is one where a backend's own
+///    verifier reports "instruction result used before definition" a wave
+///    later, with no lowering site to point at.
 ///  * **Every value is defined exactly once.**
 ///  * **An abort ends its block.** `buri_abort` does not return, so anything
 ///    after it in the same block is unreachable code the backends would have

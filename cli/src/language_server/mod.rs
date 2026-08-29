@@ -34,6 +34,7 @@ mod call_hierarchy;
 mod code_actions;
 mod code_lens;
 mod color;
+mod completion;
 mod conformance;
 mod convert;
 mod execute_command;
@@ -44,6 +45,7 @@ mod inlay_hints;
 mod links;
 mod pull_diagnostics;
 mod rename;
+mod schema;
 mod semantic_tokens;
 mod signature_help;
 mod state;
@@ -753,9 +755,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
 
         ("textDocument/hover", Some(id)) => {
             let markup = state.hover_markup;
-            let result = with_analysis(state, &params, |analyzed, path, text, position| {
-                features::hover(analyzed, path, text, position, markup)
-            });
+            let result = hover(state, &params, markup);
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
@@ -833,7 +833,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                     let session = state.session_for(&path)?;
                     return Some(build_files::links(&session, &path, &text));
                 }
-                let analyzed = state.analyze(&path);
+                let analyzed = state.analyze_for_query(&path);
                 Some(links::document_links(analyzed.as_deref(), &path, &text))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -938,10 +938,12 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             out
         }
 
+        // Routed by what kind of file the cursor is in, the way `definition`
+        // is: a build file's names come from the build schema and from the
+        // graph, and nothing about them is in an analysis of the module the
+        // package declares.
         ("textDocument/completion", Some(id)) => {
-            let result = with_analysis(state, &params, |analyzed, path, text, position| {
-                Some(features::completion(analyzed, path, text, position))
-            });
+            let result = complete(state, &params);
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
@@ -955,8 +957,8 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path =
                     params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
-                let analyzed = state.analyze(&path)?;
-                Some(features::resolve_completion(&analyzed, &params))
+                let analyzed = state.analyze_for_query(&path)?;
+                Some(completion::resolve_completion(&analyzed, &params))
             })();
             // An item with nothing to resolve is still a legal answer to this
             // request, and it is the item itself: `null` is not one.
@@ -978,7 +980,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 color::document_colors(&analyzed, &path, &text)
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -1024,7 +1026,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let data = if build_files::is_build_file(&path) {
                     Vec::new()
                 } else {
-                    let analyzed = state.analyze(&path);
+                    let analyzed = state.analyze_for_query(&path);
                     semantic_tokens::encoded_range(analyzed.as_deref(), &path, &text, from, to)
                 };
                 Some(Value::object(vec![("data", semantic_tokens::numbers(&data))]))
@@ -1076,7 +1078,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let text = state.text_of(&path)?;
                 let from = convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
                 let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 inlay_hints::hints(&analyzed, &path, &text, from, to)
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -1091,7 +1093,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
                 let text = state.text_of(&path)?;
-                let analyzed = state.analyze(&path)?;
+                let analyzed = state.analyze_for_query(&path)?;
                 Some(inlay_hints::resolve(&analyzed, &path, &text, &params))
             })();
             // A hint with nothing to resolve is still a legal answer to this
@@ -1218,7 +1220,7 @@ fn semantic_tokens_of(state: &mut State, path: &std::path::Path, text: &str) -> 
     if build_files::is_build_file(path) {
         return Vec::new();
     }
-    let analyzed = state.analyze(path);
+    let analyzed = state.analyze_for_query(path);
     semantic_tokens::encoded(analyzed.as_deref(), path, text)
 }
 
@@ -1524,7 +1526,17 @@ fn capabilities() -> Value {
                         ("resolveProvider", Value::Bool(true)),
                         (
                             "triggerCharacters",
-                            Value::Array(vec![Value::str("\""), Value::str("{"), Value::str("/")]),
+                            Value::Array(vec![
+                                Value::str("\""),
+                                Value::str("{"),
+                                Value::str("/"),
+                                // A member list has to open on the dot itself:
+                                // a client that waits for the first letter of
+                                // the name shows nothing for `total.` — which
+                                // is exactly when a reader does not know what
+                                // to type.
+                                Value::str("."),
+                            ]),
                         ),
                     ]),
                 ),
@@ -1693,6 +1705,37 @@ fn definition(state: &mut State, params: &Value) -> Option<Value> {
     with_analysis(state, params, features::definition)
 }
 
+/// Hover, routed the way [`definition`] is.
+///
+/// A build file's answer comes from the schema its fields are declared in, and
+/// asking the analysis about one would be asking about a module the package
+/// declares rather than about the file the cursor is in.
+fn hover(state: &mut State, params: &Value, markup: features::Markup) -> Option<Value> {
+    let path = uri_param(params)?;
+    if build_files::is_build_file(&path) {
+        let position = Position::from_json(params.get("position")?)?;
+        let text = state.text_of(&path)?;
+        return build_files::hover(&text, position, markup);
+    }
+    with_analysis(state, params, |analyzed, path, text, position| {
+        features::hover(analyzed, path, text, position, markup)
+    })
+}
+
+/// Completion, routed the same way.
+fn complete(state: &mut State, params: &Value) -> Option<Value> {
+    let path = uri_param(params)?;
+    if build_files::is_build_file(&path) {
+        let position = Position::from_json(params.get("position")?)?;
+        let text = state.text_of(&path)?;
+        let session = state.session_for(&path)?;
+        return Some(build_files::completion(&session, &path, &text, position));
+    }
+    with_analysis(state, params, |analyzed, path, text, position| {
+        Some(completion::completion(analyzed, path, text, position))
+    })
+}
+
 fn with_analysis<T>(
     state: &mut State,
     params: &Value,
@@ -1701,7 +1744,10 @@ fn with_analysis<T>(
     let path = uri_param(params)?;
     let position = Position::from_json(params.get("position")?)?;
     let text = state.text_of(&path)?;
-    let analyzed = state.analyze(&path)?;
+    // Every one of these reads the bodies of the file the cursor is in and
+    // filters the rest out by file id, so the rest were never worth checking.
+    // See `State::analyze_for_query`.
+    let analyzed = state.analyze_for_query(&path)?;
     f(&analyzed, &path, &text, position)
 }
 
@@ -1762,9 +1808,16 @@ fn hierarchy_symbol(
 /// parse publishes its parse errors, and when it parses again what the analysis
 /// last said goes back.
 fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> Vec<Value> {
-    let parsed = crate::parsing::parser::parse(text, crate::diagnostics::FileId(0));
+    // Which parser reads the buffer is decided by what kind of file it is. A
+    // `BUILD.buri` is textproto, and the Buri lexer refused its every
+    // `# comment` — a syntax error on a file that is not in that syntax.
+    let errors = if build_files::is_build_file(path) {
+        build_files::diagnostics(text)
+    } else {
+        crate::parsing::parser::parse(text, crate::diagnostics::FileId(0)).errors
+    };
     let uri = convert::uri_of(path);
-    if parsed.errors.is_empty() {
+    if errors.is_empty() {
         if !state.showing_parse_errors.remove(&uri) {
             return Vec::new();
         }
@@ -1772,8 +1825,7 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
         return vec![publish(&uri, items)];
     }
     state.showing_parse_errors.insert(uri.clone());
-    let items: Vec<Value> =
-        parsed.errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
+    let items: Vec<Value> = errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
     vec![publish(&uri, items)]
 }
 
@@ -1837,6 +1889,19 @@ type Published = std::collections::BTreeMap<String, Vec<Value>>;
 
 /// Everything both passes have to say about the closure `path` is in.
 fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Published) {
+    // A build file's own syntax. No analysis reports it — `driver::analyze`
+    // never opens one — so an unreadable `BUILD.buri` used to be a repository
+    // that quietly stopped answering rather than a file with a squiggle in it.
+    if build_files::is_build_file(path) {
+        if let Some(text) = state.text_of(path) {
+            let uri = convert::uri_of(path);
+            let items: Vec<Value> = build_files::diagnostics(&text)
+                .iter()
+                .map(|d| convert::diagnostic(&text, d, &uri))
+                .collect();
+            published.entry(uri).or_default().extend(items);
+        }
+    }
     if let Some(analyzed) = state.analyze(path) {
         for d in &analyzed.analysis.diagnostics.items {
             add_finding(published, &analyzed.session, d);

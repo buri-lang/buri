@@ -126,7 +126,12 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
         let mut files = Vec::new();
         crate::commands::format::collect(&root, &mut files);
         for file in files {
-            found.insert(convert::uri_of(&file), Vec::new());
+            let uri = convert::uri_of(&file);
+            // A build file's own syntax, which no analysis reports: the report
+            // walks every `BUILD.buri` in the repository, so this is the one
+            // request that finds an unreadable one nobody has open.
+            let items = build_file_findings(state, &file, &uri);
+            found.insert(uri, items);
         }
         // Both passes over every target — which is the whole point of asking
         // about the repository rather than about a file. Per target and not as
@@ -168,6 +173,19 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
         }
     }
     Value::object(vec![("items", Value::Array(items))])
+}
+
+/// One build file's syntax errors, read from the buffer where the editor has
+/// one and from the disk otherwise. Empty for every other kind of file.
+fn build_file_findings(state: &State, path: &std::path::Path, uri: &str) -> Vec<Value> {
+    if !super::build_files::is_build_file(path) {
+        return Vec::new();
+    }
+    let Some(text) = state.text_of(path) else { return Vec::new() };
+    super::build_files::diagnostics(&text)
+        .iter()
+        .map(|d| convert::diagnostic(&text, d, uri))
+        .collect()
 }
 
 /// The document version a workspace report is about.

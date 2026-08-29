@@ -734,7 +734,7 @@ fn run_on(
 /// `buri build` cannot disagree about what this toolchain can do. The profile
 /// comes from the flags rather than being pinned to `Debug`, so that
 /// `buri test --release` on a toolchain without `backend-llvm` is refused
-/// rather than quietly run through Cranelift.
+/// rather than quietly run through the development backend.
 fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     actions::native_ready(actions::target_of(&output), actions::profile_of(flags))
@@ -803,11 +803,13 @@ fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
 ///
 /// The host's own platform where this toolchain can compile, link and run a
 /// binary for it in this profile, and JavaScript where it cannot — which is
-/// `--no-default-features`, a host outside macOS and Linux, a machine with no C
-/// toolchain, and `--release` without `backend-llvm`. The last of those is why
-/// the profile comes from the flags rather than being pinned to `Debug`: the
-/// release profile routes to LLVM (`backend::select`), and a toolchain that
-/// does not have it must not be quietly handed Cranelift.
+/// `--no-default-features`, a host outside macOS and Linux, a host the
+/// development backend has no stencil library for (macOS on x86-64), a machine
+/// with no C toolchain, and `--release` without `backend-llvm`. The last of
+/// those is why the profile comes from the flags rather than being pinned to
+/// `Debug`: the release profile routes to LLVM (`backend::select`), and a
+/// toolchain that does not have it must not be quietly handed the debug
+/// backend.
 ///
 /// This is the *toolchain's* half of the answer, and it is the same for every
 /// suite in a pass. The suite's half — whether the native backend has a body

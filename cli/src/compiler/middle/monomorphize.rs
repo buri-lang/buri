@@ -241,7 +241,7 @@ pub struct Program {
 /// could not classify got no reference operations at all, which is a leaked
 /// block per value of it. Both native backends ask *rc's* question rather than
 /// the layout table's wherever they generate one half of a pair rc completes
-/// (`cranelift::emit::Cx::rc_counted`), and they build their classifier from a
+/// (`stencil::emit`'s `rc_counted`), and they build their classifier from a
 /// `Program` too, so the answer has to travel with the program or the two
 /// halves disagree.
 ///

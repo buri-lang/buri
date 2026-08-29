@@ -3,7 +3,7 @@
 //! Sizes, alignments, strides, field offsets, discriminant encodings and the
 //! two niches, computed once per type and memoised. It is in the middle end
 //! rather than in a backend because both native backends must agree byte for
-//! byte: an `[T]` whose element stride Cranelift and LLVM disagree about is a
+//! byte: an `[T]` whose element stride the two native backends disagree about is a
 //! miscompile that only shows up between profiles.
 //!
 //! It is also the reason this directory is called `middle` and not `transform`.

@@ -29,19 +29,17 @@ resolver = "2"
 # enforceable: if turning a feature off broke the toolchain, the feature would
 # not stay off.
 #
-# The admitted set, in full: `cranelift-{codegen,frontend,module,object,native}`
-# behind `backend-cranelift`, `inkwell` behind `backend-llvm`, and
-# `target-lexicon`, which comes in with Cranelift. `object` is not a direct
-# dependency — `cranelift-object` re-exports it, so version skew is a compile
-# error. `notify` is not admitted and is not needed: the watch loop polls the
-# declared source set rather than watching the filesystem
+# The admitted set, in full: `inkwell` behind `backend-llvm`. Native debug code
+# generation was a second entry until the stencil backend replaced it, and it
+# needs no crate, so the *default* toolchain is back to no dependencies at all.
+# `notify` is not admitted and is not needed: the watch loop polls the declared
+# source set rather than watching the filesystem
 # (design/native/BUILD-AND-WATCH.md §1.2).
 #
-# All of them are in the lockfile, and all of them are optional, so
-# `cargo build -p buri --no-default-features` still resolves nothing and the
-# gates are still compiled both ways. `cli/tests/language/corpus.rs`'s
-# `dependencies_stay_behind_the_bar` is what holds the paragraph above to a
-# closed set rather than to a habit.
+# It is in the lockfile and it is optional, so `cargo build -p buri` resolves
+# nothing and the gates are still compiled both ways.
+# `cli/tests/language/corpus.rs`'s `dependencies_stay_behind_the_bar` is what
+# holds the paragraph above to a closed set rather than to a habit.
 
 # The lints that pin the toolchain's central promise: **no input may panic the
 # compiler**. A malformed source file, build file, schema, flag, or
@@ -106,8 +104,8 @@ print_stderr = "deny"
 # it. `debug-assertions` stays on, so overflow is still a panic in a test run
 # and `arithmetic_side_effects` still means what it says.
 #
-# Scoped to `buri` rather than written as a bare `[profile.dev]` so that
-# Cranelift is left alone. Optimizing it is a two-minute rebuild that no suite
+# Scoped to `buri` rather than written as a bare `[profile.dev]` so that the
+# optional backend crate is left alone. Optimizing it is a rebuild that no suite
 # is waiting on: `native` is bound by the hundred and twenty binaries it links
 # and executes rather than by the code that emits them, and measures the same
 # either way.
