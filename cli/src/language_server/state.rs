@@ -155,6 +155,25 @@ pub struct State {
     /// and the findings it would have carried are what `workspace/diagnostic`
     /// is for.
     pub related_documents_supported: bool,
+    /// Per pulled document: the related documents its last report carried
+    /// findings for.
+    ///
+    /// A related file that is clean now is absent from the new report, and an
+    /// absent entry says nothing — so the client went on showing an error that
+    /// was fixed. Remembering what was named is what lets the next report name
+    /// it again with empty `items`, which is how a finding is retracted.
+    pub related_reported: BTreeMap<String, Vec<String>>,
+    /// Whether the outline goes out as the nested `DocumentSymbol` tree.
+    ///
+    /// Read from its `initialize` capabilities and not assumed. A client that
+    /// did not claim `hierarchicalDocumentSymbolSupport` is entitled to read
+    /// the reply as `SymbolInformation[]`, whose required `location` the tree
+    /// does not carry — so it gets that flat shape instead.
+    pub hierarchical_symbols: bool,
+    /// Which `MarkupKind` a hover is rendered in, from the client's
+    /// `contentFormat`. A plaintext-only client draws a markdown fence as three
+    /// literal backticks.
+    pub hover_markup: super::features::Markup,
     /// Whether a code action may be offered without its edit.
     ///
     /// Read from its `initialize` capabilities and not assumed. A client that
@@ -409,6 +428,9 @@ impl State {
             can_register_watchers: false,
             must_ask_for_folders: false,
             related_documents_supported: false,
+            related_reported: BTreeMap::new(),
+            hierarchical_symbols: false,
+            hover_markup: super::features::Markup::Markdown,
             code_action_resolve: false,
             open: BTreeMap::new(),
             published: BTreeMap::new(),

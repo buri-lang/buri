@@ -8,5 +8,17 @@
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "imports //lib/money, which is not in dependencies", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
 # A finding with no mechanical answer offers nothing.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "dep-cycle", "message": "x", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
-{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+# The same fix, from a client that echoed nothing back. The protocol's own
+# sentence is that the range is the primary parameter, and the cursor here is
+# inside the `missing-dep` the server itself published — so the answer is the
+# fix, carrying that finding rather than the client's copy of it.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 10}, "end": {"line": 8, "character": 10}}, "context": {"diagnostics": []}}}
+# And the range really is what decides: the same empty context over a line with
+# no finding on it answers with nothing.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": []}}}
+# A client asking for a kind this server does not produce. Every action here is
+# a `quickfix`, which is what `codeActionKinds` advertises, so the honest answer
+# is an empty list rather than fixes the client would filter out.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 10}, "end": {"line": 8, "character": 10}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "imports //lib/money, which is not in dependencies", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}], "only": ["source.organizeImports"]}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

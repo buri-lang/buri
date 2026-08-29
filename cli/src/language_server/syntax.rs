@@ -39,6 +39,45 @@ pub fn document_symbols(text: &str) -> Value {
     Value::Array(out)
 }
 
+/// The same outline as the protocol's other shape: a flat
+/// `SymbolInformation[]`.
+///
+/// This is what a client that did not claim `hierarchicalDocumentSymbolSupport`
+/// is entitled to read the reply as, and the two shapes differ in more than
+/// nesting — a `SymbolInformation` requires a `location`, which a
+/// `DocumentSymbol` does not carry at all. The nesting becomes `containerName`,
+/// which is the only place the flat shape has to put it.
+pub fn flattened(outline: &Value, uri: &str) -> Value {
+    let mut out = Vec::new();
+    flatten_into(outline, uri, None, &mut out);
+    Value::Array(out)
+}
+
+fn flatten_into(symbols: &Value, uri: &str, container: Option<&str>, out: &mut Vec<Value>) {
+    let Some(items) = symbols.as_array() else { return };
+    for item in items {
+        let Some(name) = item.get("name").and_then(|n| n.as_str()) else { continue };
+        let mut fields = vec![
+            ("name", Value::str(name)),
+            ("kind", item.get("kind").cloned().unwrap_or(Value::Null)),
+            (
+                "location",
+                Value::object(vec![
+                    ("uri", Value::str(uri)),
+                    ("range", item.get("range").cloned().unwrap_or(Value::Null)),
+                ]),
+            ),
+        ];
+        if let Some(container) = container {
+            fields.push(("containerName", Value::str(container)));
+        }
+        out.push(Value::object(fields));
+        if let Some(children) = item.get("children") {
+            flatten_into(children, uri, Some(name), out);
+        }
+    }
+}
+
 /// The protocol's `SymbolKind` numbers, named where they are used rather than
 /// spelled as bare integers at seven call sites.
 mod kind {

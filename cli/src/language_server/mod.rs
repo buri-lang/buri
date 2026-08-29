@@ -86,6 +86,7 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
                     }
                 };
                 for reply in handle(&mut state, &incoming) {
+                    echoed_to_stderr(&reply);
                     write_message(&mut output, &reply);
                 }
                 // Whether the loop is over is the lifecycle's answer, not a
@@ -101,6 +102,29 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
                 return 1;
             }
         }
+    }
+}
+
+/// The stderr floor under both log channels.
+///
+/// A client is free to show neither `window/showMessage` nor
+/// `window/logMessage`, and stdout carries protocol only — so every line the
+/// server says out loud is written to stderr too. That is where a reader looks
+/// when the editor is showing nothing, and it is the one channel a corrupt
+/// protocol stream cannot take with it.
+#[expect(
+    clippy::print_stderr,
+    reason = "stderr is the floor this function exists to be: the message also goes out on the protocol channel, and stdout carries protocol only"
+)]
+fn echoed_to_stderr(reply: &Value) {
+    if !matches!(
+        reply.get("method").and_then(|m| m.as_str()),
+        Some("window/showMessage" | "window/logMessage")
+    ) {
+        return;
+    }
+    if let Some(said) = reply.at("params.message").and_then(|m| m.as_str()) {
+        eprintln!("buri lsp: {said}");
     }
 }
 
@@ -415,6 +439,28 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 params.at("capabilities.textDocument.diagnostic.relatedDocumentSupport"),
                 Some(&Value::Bool(true))
             );
+            // The outline has two shapes and the client picks: the nested
+            // `DocumentSymbol` tree, or the flat `SymbolInformation` list whose
+            // required `location` the tree does not carry. A client that did
+            // not claim the tree is entitled to read the reply as the list.
+            state.hierarchical_symbols = matches!(
+                params
+                    .at("capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport"),
+                Some(&Value::Bool(true))
+            );
+            // `contentFormat` is the client's `MarkupKind`s, best first. Naming
+            // formats and leaving `markdown` out of them is the one case where
+            // a fence would be drawn as three backticks; saying nothing at all
+            // leaves the markdown every editor renders.
+            state.hover_markup = match params
+                .at("capabilities.textDocument.hover.contentFormat")
+                .and_then(|f| f.as_array())
+            {
+                Some(formats) if !formats.iter().any(|f| f.as_str() == Some("markdown")) => {
+                    features::Markup::PlainText
+                }
+                _ => features::Markup::Markdown,
+            };
             // The `edit` property by name rather than the presence of
             // `resolveSupport`: a client that lists other properties and not
             // that one will never ask for the edit, and an action whose edit
@@ -528,6 +574,8 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 // The colours the client held were about a buffer it no longer
                 // has, and the id it would quote is now meaningless.
                 state.semantic_tokens.results.remove(&path);
+                // Nothing left to retract for a document nobody will pull about.
+                state.related_reported.remove(&convert::uri_of(&path));
             }
             vec![]
         }
@@ -653,10 +701,15 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // The three that read a parse and nothing else. No workspace, no
         // standard library, no analysis: they are questions about shape.
         ("textDocument/documentSymbol", Some(id)) => {
+            let nested = state.hierarchical_symbols;
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                Some(syntax::document_symbols(&text))
+                let outline = syntax::document_symbols(&text);
+                if nested {
+                    return Some(outline);
+                }
+                Some(syntax::flattened(&outline, &convert::uri_of(&path)))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -686,8 +739,9 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         }
 
         ("textDocument/hover", Some(id)) => {
+            let markup = state.hover_markup;
             let result = with_analysis(state, &params, |analyzed, path, text, position| {
-                features::hover(analyzed, path, text, position)
+                features::hover(analyzed, path, text, position, markup)
             });
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
@@ -1420,9 +1474,19 @@ fn capabilities() -> Value {
                 // titles and their squiggles, and the edit — which for a build
                 // file means running `buri gen` — is computed for the one
                 // action a reader accepted.
+                //
+                // `codeActionKinds` is the other half of that claim: every fix
+                // here is a `quickfix`, and saying so is what lets a client
+                // asking for `source.organizeImports` know not to bother.
                 (
                     "codeActionProvider",
-                    Value::object(vec![("resolveProvider", Value::Bool(true))]),
+                    Value::object(vec![
+                        (
+                            "codeActionKinds",
+                            Value::Array(vec![Value::str(code_actions::QUICKFIX)]),
+                        ),
+                        ("resolveProvider", Value::Bool(true)),
+                    ]),
                 ),
                 // `prepareProvider` is what lets an editor ask whether a rename
                 // is possible before it prompts for a new name.
@@ -1705,10 +1769,17 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
 /// Diagnostics are published per file, and a file that had findings a moment
 /// ago and has none now must be published *empty* — otherwise the editor keeps
 /// showing the errors you just fixed.
+///
+/// Every open buffer is asked about too, and not only the file that prompted
+/// this. The seed publishes each of them empty, so analysing one target and
+/// publishing that alone deleted the findings of every buffer outside its
+/// closure: opening a file in one target cleared another target's squiggles,
+/// and nothing brought them back until something re-analysed that target.
 fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
     // The file that prompted this always gets a message, empty or not.
     let mut published = seeded(state, Some(path));
     findings_for(state, path, &mut published);
+    open_findings(state, &mut published);
     remember(state, published)
 }
 
@@ -1722,10 +1793,18 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
 /// publish per file.
 fn republish_open(state: &mut State) -> Vec<Value> {
     let mut published = seeded(state, None);
-    for path in state.open.keys().cloned().collect::<Vec<_>>() {
-        findings_for(state, &path, &mut published);
-    }
+    open_findings(state, &mut published);
     remember(state, published)
+}
+
+/// Each open buffer's own target, asked again and merged.
+///
+/// One analysis per target rather than per buffer: the cache is keyed on what
+/// was read, so two buffers in one closure ask the same question once.
+fn open_findings(state: &mut State, published: &mut Published) {
+    for path in state.open.keys().cloned().collect::<Vec<_>>() {
+        findings_for(state, &path, published);
+    }
 }
 
 /// An empty publish for every file that must hear something, so that a file

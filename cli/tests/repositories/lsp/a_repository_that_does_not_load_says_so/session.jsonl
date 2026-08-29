@@ -5,7 +5,7 @@
 # carries it, and the lint pass refuses to run at all. Without a message none of
 # that is visible — the build-graph findings simply stop arriving and nothing
 # says why.
-{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"documentSymbol": {"hierarchicalDocumentSymbolSupport": true}}}}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # Opening a file is the first thing that has to open the repository, so this is
 # where it is said.

@@ -2,7 +2,7 @@
 # but not a Buri file: only repo/ below is a Buri repository, and it is one that
 # does not load.
 
-doc: "a REPO.buri the toolchain cannot read is said out loud once, as a window/showMessage error, rather than presenting as every request quietly answering nothing"
+doc: "a REPO.buri the toolchain cannot read is said out loud once, as a window/showMessage error and on stderr, rather than presenting as every request quietly answering nothing"
 
 run {
   args: ["lsp"]
@@ -10,4 +10,16 @@ run {
   stdin: "session.jsonl"
   stream: OUT
   golden: "session.txt"
+}
+
+# The same session recorded on the other stream. A client is free to display
+# neither log channel, so stderr is the floor under both — and until this step
+# every case in this corpus asked for `stream: OUT`, which is why the promise
+# went unchecked.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: ERR
+  golden: "stderr.txt"
 }

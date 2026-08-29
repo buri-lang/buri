@@ -23,8 +23,12 @@ use crate::build::session::Session;
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use super::convert;
+use super::convert::{self, Position};
 use super::state::State;
+
+/// The one `CodeActionKind` this server produces, advertised in
+/// `codeActionKinds` so a client knows in advance that it is all there is.
+pub const QUICKFIX: &str = "quickfix";
 
 /// One offered fix, before it is written as protocol.
 struct Action {
@@ -36,13 +40,26 @@ struct Action {
 }
 
 /// `textDocument/codeAction`.
+///
+/// **The range is the primary parameter**, which is the protocol's own sentence
+/// about it: `context.diagnostics` is a client's echo of what it happens to be
+/// showing, and a client whose findings came from `textDocument/diagnostic`, or
+/// that invokes actions from a palette rather than from a lightbulb, echoes
+/// nothing. So an empty context is answered from the server's own findings that
+/// intersect the range instead of with an empty list.
 pub fn list(state: &mut State, params: &Value) -> Value {
     let Some(path) = super::uri_param(params) else { return Value::Array(Vec::new()) };
-    let asked: Vec<&Value> = params
+    if !kinds_wanted(params) {
+        return Value::Array(Vec::new());
+    }
+    let mut asked: Vec<Value> = params
         .at("context.diagnostics")
         .and_then(|d| d.as_array())
-        .map(|d| d.iter().collect())
+        .map(<[Value]>::to_vec)
         .unwrap_or_default();
+    if asked.is_empty() {
+        asked = in_range(state, &path, params);
+    }
     let wanted: Vec<String> = asked
         .iter()
         .filter_map(|d| d.get("code").and_then(|c| c.as_str()).map(String::from))
@@ -58,6 +75,43 @@ pub fn list(state: &mut State, params: &Value) -> Value {
             .map(|action| rendered(action, &uri, &asked))
             .collect(),
     )
+}
+
+/// Whether `context.only` leaves anything this server offers.
+///
+/// Every action here is a `quickfix`, which is what `codeActionKinds`
+/// advertises, so a client that asked for some other family is told so with an
+/// empty list rather than handed fixes it will filter out anyway.
+fn kinds_wanted(params: &Value) -> bool {
+    let Some(only) = params.at("context.only").and_then(|o| o.as_array()) else { return true };
+    only.iter().any(|kind| matches!(kind.as_str(), Some("" | QUICKFIX)))
+}
+
+/// The findings this server itself has in `path` that the request's range
+/// touches, as diagnostics.
+///
+/// A zero-width range — the cursor, which is what a palette invocation sends —
+/// counts as touching the finding it sits in.
+fn in_range(state: &mut State, path: &Path, params: &Value) -> Vec<Value> {
+    let Some(text) = state.text_of(path) else { return Vec::new() };
+    let Some(range) = params.get("range") else { return Vec::new() };
+    let Some(start) = range.get("start").and_then(Position::from_json) else { return Vec::new() };
+    let Some(end) = range.get("end").and_then(Position::from_json) else { return Vec::new() };
+    let (from, to) = (convert::offset_of(&text, start), convert::offset_of(&text, end));
+    let uri = convert::uri_of(path);
+    let Some(linted) = state.lint(path) else { return Vec::new() };
+    let mut out = Vec::new();
+    for d in &linted.diagnostics.items {
+        if d.span.is_none() || d.span.start > to || d.span.end < from {
+            continue;
+        }
+        let file = linted.session.map.get(d.span.file);
+        if file.abs_path != path {
+            continue;
+        }
+        out.push(convert::diagnostic(&file.text, d, &uri));
+    }
+    out
 }
 
 /// `codeAction/resolve`. The action comes back as it went out and is computed
@@ -89,11 +143,11 @@ pub fn resolve(state: &mut State, action: &Value) -> Value {
 /// `diagnostics` is what associates the fix with the squiggle it is under —
 /// this used to be a `diagnosticCode` string, which is not a field the protocol
 /// has and which no client could read.
-fn rendered(action: &Action, uri: &str, asked: &[&Value]) -> Value {
+fn rendered(action: &Action, uri: &str, asked: &[Value]) -> Value {
     let mut fields = vec![
         ("title", Value::str(action.title.clone())),
         // "quickfix" — the kind a client offers without being asked twice.
-        ("kind", Value::str("quickfix")),
+        ("kind", Value::str(QUICKFIX)),
         (
             "diagnostics",
             Value::Array(
@@ -102,7 +156,7 @@ fn rendered(action: &Action, uri: &str, asked: &[&Value]) -> Value {
                     .filter(|d| {
                         d.get("code").and_then(|c| c.as_str()) == Some(action.code.as_str())
                     })
-                    .map(|d| (*d).clone())
+                    .cloned()
                     .collect(),
             ),
         ),

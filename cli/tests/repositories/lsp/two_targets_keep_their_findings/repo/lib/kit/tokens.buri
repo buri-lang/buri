@@ -1,0 +1,6 @@
+export struct Token(export I64);
+
+derive Eq, Show for Token;
+
+// The finding that has to survive a save in the other target.
+export fn widen(t: Token): I64 { undefinedName }

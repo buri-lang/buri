@@ -1,5 +1,5 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
-{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"documentSymbol": {"hierarchicalDocumentSymbolSupport": true}}}}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # A buffer with two whole declarations and a third that stops mid-signature.
 # The `unexpected-token` in the publish below is the proof that this file does

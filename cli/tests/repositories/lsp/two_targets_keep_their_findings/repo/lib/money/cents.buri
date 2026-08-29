@@ -1,0 +1,7 @@
+export struct Cents(export I64);
+
+derive Eq, Show for Cents;
+
+// Clean, and in a target of its own. Saving this is what used to erase the
+// finding in //lib/kit.
+export fn fromCents(c: I64): Cents { Cents(c) }

@@ -20,9 +20,14 @@
 # The cursor in a body, with nothing around it to complete. Completion is the
 # two places that need no type information, and this is neither.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 2, "character": 8}}}
+# And after a `.`, which is the other thing a reader expects a completion for.
+# There is none: what this server completes is module paths and import clauses,
+# and this pins that boundary rather than leaving it to be discovered.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n    count.\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 10}}}
 # An import clause for a module that does not exist. There is nothing to list
 # and nothing to say about it — the missing module is a diagnostic's business.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "from \"core/nowhere\" import { "}]}}
-{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/nowhere\" import { "}]}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

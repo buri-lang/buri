@@ -35,9 +35,9 @@ end is a library, and `driver::analyze` is what the server calls.
 | `formatting` | `buri format`, which refuses to emit anything that does not parse, so a file mid-edit is left alone rather than mangled. |
 | `rangeFormatting` / `onTypeFormatting` | The same canonical output with the rest withheld: the file is formatted whole, the result is diffed against what is on screen, and only the edits your range — or the declaration the `}` or `;` you just typed closes — actually touches come back. |
 | `willSaveWaitUntil` | Format on save, with nothing to configure. Exactly what `formatting` returns, because it is the same function. |
-| `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. Each item carries the range it replaces, its kind, and the signature of what it names. |
+| `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. Each item carries the range it replaces, its kind, and the signature of what it names. Those two places are the whole of it: a cursor in ordinary code, after a `.`, or part-way through a keyword answers with nothing. |
 | `completionItem/resolve` | The `///` prose for the one item you are on. Every doc comment in a module on the wire to show one of them is what this exists to avoid. |
-| `codeAction` / `codeAction/resolve` | The fix for a finding that has exactly one, and the diagnostic it is under. The list is titles; the edit — which for a build file means running `buri gen` — is computed for the action you accept. A client that cannot resolve gets the edit in the list. |
+| `codeAction` / `codeAction/resolve` | The fix for a finding that has exactly one, and the diagnostic it is under. Which fixes those are is decided by the *range* you asked about, so a client that echoes no diagnostics back gets the same answer as one that does. The list is titles; the edit — which for a build file means running `buri gen` — is computed for the action you accept. A client that cannot resolve gets the edit in the list. |
 | `codeLens` / `codeLens/resolve` | A run command above every `test`, and above every exported declaration how many places the repository uses it. The count is computed when the editor is about to draw that one lens, not when it scrolls past the file. |
 | `executeCommand` | The three verbs the lenses invoke: run one test, regenerate a package's `BUILD.buri`, and show the places a count counted. |
 | `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
@@ -96,6 +96,13 @@ with the report it asked for, what the same two passes found in the *other*
 files of that file's closure — a type error in the library, the finding about
 the build file. A client that did not claim it is not left without them:
 `workspace/diagnostic` is where they go.
+
+A related document that has just been fixed is named again with an empty
+`items`, exactly as the asked-about document is. The rule is the same one and
+the reason is the same one: a report is how a client is told a finding is gone,
+and a file that simply dropped out of the map says nothing at all — so the
+squiggle would have stayed on screen until a save. Once a file has been reported
+empty it stops being named, because it has nothing left to say.
 
 **Hover and go-to-definition ask one question**, in one place: what does the
 name under the cursor refer to? Hover renders the answer and definition returns
@@ -339,6 +346,22 @@ once, for the action somebody accepted. A client whose `initialize` did not name
 so it gets the edit in the list — deferring it would be offering a fix that does
 nothing.
 
+**The range decides which fixes those are, not the diagnostics you echoed.**
+That is the protocol's own rule, and it matters here because
+`context.diagnostics` is a copy of what the client happens to be showing: a
+client whose findings came from `textDocument/diagnostic` rather than from a
+publish, or one that invokes actions from a command palette rather than from a
+lightbulb, sends an empty list. So an empty context is answered from the
+server's *own* findings that the range touches — which are the same findings,
+carried back in the action's `diagnostics` array — and a client that did echo
+them is answered from what it sent. A range with no finding on it gets nothing,
+which is what makes the range load-bearing rather than decorative.
+
+Every action offered is a `quickfix`, and `codeActionKinds` says so in the
+handshake. A `context.only` naming some other family — `source.organizeImports`,
+`refactor.extract` — is answered with an empty list rather than with fixes the
+client would filter out anyway.
+
 **The file the fix writes is one the editor is not holding**, and that used to
 be the end of the story: you accepted the fix, the `BUILD.buri` changed, and the
 squiggle it fixed stayed on screen until you typed in the buffer. So after
@@ -376,6 +399,16 @@ not rewritten either. What they should have said instead is a judgement, and a
 server that guessed would be editing code nobody asked it to; a
 `module-not-found` on the line that named it is the honest answer, and it says
 where the decision is.
+
+**One cross-package rename produces an import the language forbids**, and no
+`buri gen` fixes that one. Moving a module that its own package's modules
+import — `lib/money/parse.buri` into `lib/ledger` — rewrites those imports to
+the new path faithfully, and the new path names another package's *internal*
+module, which is an `internal-import` rather than a missing dependency. The
+edits are right about where the file went and the repository is what tells you
+the move was the wrong shape: what a module the rest of a package reaches
+through should become when it leaves is a decision about the surface, and it
+belongs to whoever made the move.
 
 **A colour is a constructor call, not a string.** `ui/style` declares
 `Color.Rgb(Int, Int, Int)` and `Color.Rgba(Int, Int, Int, Float)`, and a swatch
@@ -523,6 +556,31 @@ request — each of the four is gated on its own `refreshSupport`, which the
 protocol spells `workspace.diagnostics` for the last of them and in the
 singular for the other three.
 
+**What the client says it can do is read, not assumed.** Ten things in an
+`initialize` change what this server sends, and each is a question the protocol
+exists to negotiate:
+
+- `textDocument.documentSymbol.hierarchicalDocumentSymbolSupport` picks the
+  outline's shape. With it, the nested `DocumentSymbol` tree; without it, the
+  flat `SymbolInformation[]` — which is not the same answer with the nesting
+  dropped, because a `SymbolInformation` requires a `location` that a
+  `DocumentSymbol` does not carry at all. The nesting becomes `containerName`.
+- `textDocument.hover.contentFormat` picks how a hover is rendered. A client
+  that named its formats and left `markdown` out of them gets the same signature
+  and the same doc comment as `plaintext`, without the fence it would otherwise
+  print as three literal backticks. A client that named nothing gets markdown.
+- `textDocument.codeAction.resolveSupport.properties` decides whether the edit
+  waits for `codeAction/resolve`, by the name `edit` rather than by the presence
+  of the object.
+- `textDocument.diagnostic.relatedDocumentSupport` decides whether a pull report
+  carries the other files of the closure.
+- `workspace.didChangeWatchedFiles.dynamicRegistration` decides whether the
+  watcher is registered after `initialized`.
+- The four `refreshSupport` flags decide whether each `workspace/*/refresh` is
+  sent — spelled `workspace.diagnostics`, plural, for the last of them.
+- `workspace.workspaceFolders` decides whether a client that named no folder is
+  asked for its folders.
+
 **Two open folders are two repositories.** A Buri repository is rooted at a
 `REPO.buri`, so a client holding two of them is holding two build graphs, two
 closures and two sets of labels. The server keeps the roots the client named —
@@ -605,11 +663,11 @@ nothing, and a golden pins that it is nothing.
 | Request | | |
 |---|---|---|
 | `initialize`, `initialized`, `shutdown`, `exit` | served | the handshake, and the four ways a client gets it wrong: a second `initialize` is `-32600` and not a restart, because answering it would move the root out from under every open document; a request before the first one is `-32002`, because a root is what there is to answer about; a request after `shutdown` is `-32002` again; and `exit` without a `shutdown` before it exits 1. A notification that arrives outside the handshake is dropped rather than refused — a notification has no reply to put an error in |
-| `didOpen`, `didChange`, `didSave`, `didClose` | served | `textDocumentSync` is sent as options rather than as the bare number, which is what negotiates `didSave` at all: the number form advertises `change` and nothing else, and a spec-strict client reading it never saves. A closed buffer's text falls back to the file on disk, and everything keyed by that buffer — the semantic-token result id among it — dies with it |
+| `didOpen`, `didChange`, `didSave`, `didClose` | served | `textDocumentSync` is sent as options rather than as the bare number, which is what negotiates `didSave` at all: the number form advertises `change` and nothing else, and a spec-strict client reading it never saves. An open and a save publish for every open buffer, each out of its own target, because a publish replaces what the editor holds for a file. A closed buffer's text falls back to the file on disk, and everything keyed by that buffer — the semantic-token result id among it — dies with it |
 | `publishDiagnostics` | served | |
 | `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when the analysis fingerprint has not moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
 | `workspace/diagnostic` | served | one report per `.buri` file in every open repository, clean ones included — which is how a client is told a finding is gone, and the only shape that reaches a file no editor has open |
-| `hover` | served | |
+| `hover` | served | markdown, or plain text for a client whose `contentFormat` named formats and not `markdown` |
 | `definition` | served | |
 | `declaration` | served | the same answer; Buri has one place |
 | `typeDefinition` | served | |
@@ -619,7 +677,7 @@ nothing, and a golden pins that it is nothing.
 | `references` | served | |
 | `documentHighlight` | served | every occurrence is `Text`: Buri has no assignment, so there is no write to distinguish from a read |
 | `rename`, `prepareRename` | served | |
-| `documentSymbol` | served | nested |
+| `documentSymbol` | served | nested for a client that claimed `hierarchicalDocumentSymbolSupport`, and the flat `SymbolInformation[]` — `location` and `containerName` — for one that did not |
 | `workspace/symbol` | served | |
 | `workspaceSymbol/resolve` | complete and empty | the query already returns a full `Location`, computed from what the scan had in hand, so `resolveProvider` is `false` and there is nothing a resolve could add |
 | `signatureHelp` | served | |
@@ -628,9 +686,9 @@ nothing, and a golden pins that it is nothing.
 | `formatting` | served | whole file. `FormattingOptions` — `tabSize`, `insertSpaces` — is accepted and ignored: the formatter is canonical, and a repository whose indentation depended on the editor that saved it would be one nobody could review |
 | `rangeFormatting`, `onTypeFormatting` | served | the whole-file answer, diffed against the buffer and filtered to the hunks the range touches. Nothing partial is computed, so the two cannot disagree with `buri format`. `onTypeFormatting` triggers on `}` and `;` and scopes to the declaration around them; a build file has no such scope and gets nothing |
 | `willSaveWaitUntil` | served | the same edits `formatting` returns, from the same function |
-| `completion` | served | module paths and import clauses, each item with its own replacement range |
+| `completion` | served | module paths and import clauses, each item with its own replacement range — and those two places only: an expression position, a member after a `.` and a half-typed keyword all answer `[]`, which is pinned rather than left to be discovered |
 | `completionItem/resolve` | served | the doc comment, which is the half worth withholding |
-| `codeAction`, `codeAction/resolve` | served | `resolveProvider: true`. The list carries the standard `diagnostics` array — this used to be a `diagnosticCode` string, which is not a field the protocol has |
+| `codeAction`, `codeAction/resolve` | served | `resolveProvider: true`, and `codeActionKinds: ["quickfix"]`, which is every kind this server produces. The range is what decides which fixes are offered, as the protocol asks: a client that echoed no `context.diagnostics` is answered from the server's own findings the range touches. A `context.only` naming another family is answered `[]`. The list carries the standard `diagnostics` array — this used to be a `diagnosticCode` string, which is not a field the protocol has |
 | `documentColor`, `colorPresentation` | served | `ui/style`'s `Color`, where every argument is a literal |
 | `linkedEditingRange` | complete and empty | `null` at every position. The request is for syntax that spells one name at both ends of a construct; Buri writes each name once, and an `impl … for … { }` closes with a brace |
 | `inlineValue` | complete and empty | `[]`. Only ever sent from a client stopped in a debug session, and there is no Buri debug adapter to stop in. It becomes real work the day one ships |
@@ -650,10 +708,16 @@ nothing, and a golden pins that it is nothing.
 | `codeLens`, `codeLens/resolve` | served | a run command above every `test` and a use count above every export. The full pass is a parse, and the count — which costs a whole-repository analysis — waits for `resolve`, which is what `resolveProvider: true` claims |
 | `workspace/executeCommand` | served | exactly three commands, each a call into an entry point `buri` already has: `buri.runTest`, `buri.regenerateBuildFile`, `buri.showReferences` |
 | `workspace/applyEdit` | served | how a command that edits writes: the server sends the file `buri gen` produced and the command's own answer is what the client says it did with it |
-| `window/showMessage`, `window/logMessage` | served | what a command has to report — the transcript of a test run in the log, its verdict on screen — and the one failure with nowhere else to appear: a repository whose own files do not read. Everything logged goes to standard error as well, which is the floor a client that shows neither still leaves |
+| `window/showMessage`, `window/logMessage` | served | what a command has to report — the transcript of a test run in the log, its verdict on screen — and the one failure with nowhere else to appear: a repository whose own files do not read. Every line either of them carries is written to standard error as well, which is the floor a client that displays neither still leaves |
 | `$/cancelRequest` | served | a request withdrawn before its turn is `-32800 RequestCancelled`; one withdrawn after its answer is a no-op. Requests are served one at a time and there is no read-ahead, which is what makes both of those the same rule rather than a race |
 | `$/progress`, `window/workDoneProgress/cancel` | served | `begin` and `end` around the four requests that analyse every target, reported to the token the client sent. A cancel is accepted and changes nothing: the work has no interruption point, which is what `cancellable: false` says |
 | `window/workDoneProgress/create` | complete and empty | never sent. Only the client's token is reported to, so there is no server-invented token to register — and a client that did not ask to be told is missing nothing |
+| `telemetry/event` | complete and empty | never sent. This toolchain collects nothing about the person using it, so there is no event to hand a client's telemetry channel |
+| `window/showMessageRequest` | complete and empty | never sent. It is `showMessage` with buttons, and nothing the server has to say puts a choice to the reader: a repository that does not load is a file to fix, and the answer is in the file rather than in a dialog |
+| `window/showDocument` | complete and empty | never sent. Every answer that names a place is a `Location` in a reply the client navigates to when its reader asks; a server that opened a file nobody asked for would be driving the editor |
+| `workspace/configuration` | complete and empty | never sent. There is no setting to read — the same fact `didChangeConfiguration` is ignored for — and asking would be asking about options that do not exist |
+| `client/unregisterCapability` | complete and empty | never sent. The one dynamic registration is the `**/*.buri` watcher, and it is wanted for as long as the session is |
+| `workspace/inlineValue/refresh` | complete and empty | never sent, and it is the one refresh family with no request behind it: `inlineValue` is itself complete and empty, so there is no answer a client could be told to ask for again |
 | `$/setTrace`, `$/logTrace` | served | the method and the id of every message on the way in and on the way out, and at `verbose` how long the answer took. The level comes from `initialize` as well, for the messages before a `$/setTrace` could have been sent |
 
 **Everything not in that table is refused**, with the protocol's own
@@ -681,7 +745,12 @@ server that keeps up with typing and one that does not:
   closure and publishes everything, then runs the lint pass and publishes that
   too. The lint checks build their own analysis, so a save costs two — which is
   the other reason this does not happen on a keystroke. A finding's severity is
-  the one the terminal prints, `REPO.buri`'s `fail_on_finding` included.
+  the one the terminal prints, `REPO.buri`'s `fail_on_finding` included. Every
+  *other* open buffer's target is asked as well, and that is not thoroughness
+  but arithmetic: a publish replaces everything the editor holds for a file, so
+  a server that analysed one target and published for all of them would be
+  deleting the findings of every buffer outside that closure. Two buffers in one
+  target still cost one analysis, because the cache is keyed on what was read.
 - **On a hover, a definition, a type definition, a highlight, a completion, a
   signature help, a moniker, a `documentColor`, a semantic-token request or a
   `prepareRename`** the server analyses the target owning the file — everything
@@ -777,11 +846,14 @@ the hash on their own.
 
 ## Two things worth knowing
 
-**Only the protocol goes to stdout.** Every log goes to stderr, and the same
-line goes out as a `window/logMessage` — stderr is the floor, because a message
-about a stream that is already corrupt has to survive the protocol, and the
-protocol channel is the one an editor actually shows a reader. A stray line on
-stdout corrupts the stream in a way that presents as the editor being broken.
+**Only the protocol goes to stdout.** Every line the server says out loud —
+every `window/showMessage`, every `window/logMessage`, and the two framing
+failures that have no request to answer — is written to stderr as well. Stderr
+is the floor, because a client is free to display neither log channel and
+because a message about a stream that is already corrupt has to survive the
+protocol; the protocol channel is the one an editor actually shows a reader. A
+stray line on stdout corrupts the stream in a way that presents as the editor
+being broken.
 
 **Requests are handled one at a time**, in the order they arrive. That costs
 some latency on a slow analysis and buys determinism: a session is reproducible,
