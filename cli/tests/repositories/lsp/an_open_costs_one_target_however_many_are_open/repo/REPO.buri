@@ -1,0 +1,4 @@
+# Four libraries of three files each, so that twelve open buffers are four
+# targets. Nothing here depends on anything else here: what the case is about
+# is the cost of an open, and a shared library would only add analyses that
+# have nothing to do with the count of buffers.
