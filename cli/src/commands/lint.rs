@@ -85,8 +85,7 @@ pub fn findings_for(
     let mut store = super::lint_cache::Store::open(&session.root, flags);
     for target in targets {
         // The package rules are asked once per package, so which of a record's
-        // three lists is replayed depends on what the loop has already said —
-        // exactly as it depends on `seen_packages` for a target being analysed.
+        // three lists is replayed depends on what the loop has already said.
         let first_in_package = !seen_packages.contains(&target.package);
         if let Some(parts) = store.recall(session, *target, first_in_package) {
             seen_packages.insert(target.package);

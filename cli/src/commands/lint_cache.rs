@@ -424,10 +424,8 @@ fn read_diagnostic(
         secondary_spans,
         code,
         edits,
-        // The page a templated diagnostic took its wording from is not stored:
-        // `message`, `label`, `notes` and `fix` are ordinary strings by the
-        // time anything renders one, and the template is read only by the
-        // debug invariant that checks the emission site bound every hole.
+        // Not stored: the rendered fields are ordinary strings by now, and the
+        // template is read only by a debug invariant about the emission site.
         template: None,
     })
 }
