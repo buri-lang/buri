@@ -731,6 +731,11 @@ fn runtime_archive_hash() -> &'static str {
 /// every native build passes through: nothing here changes what a
 /// `--output=linux/x86_64` build does on a toolchain with no native backend
 /// compiled in.
+///
+/// `backend::select` answers the *target* question and not merely the platform
+/// one, which is what this relies on: the development backend has a triple it
+/// has no entry point for, and without that a host of that architecture would
+/// be told the build is ready and then refused inside the emission.
 pub fn native_ready(target: Target, profile: Profile) -> bool {
     target.platform.is_native()
         && backend::select(target, profile).is_ok()
@@ -1805,6 +1810,27 @@ mod tests {
             codegen_key(&output, &flags, "llvm", "id", "a", "b", "layout"),
             codegen_key(&output, &flags, "llvm", "id", "ab", "", "layout")
         );
+    }
+
+    /// A `.buri` filled by a toolchain whose debug backend was a different one
+    /// is not reused: the backend's name is a term of the key, so the old
+    /// entries are unreachable rather than stale.
+    ///
+    /// This is what replaces a scheme-version bump. A bump would have to be
+    /// remembered on the next swap; the name is in the key on every build.
+    #[test]
+    fn a_codegen_key_names_the_backend_that_made_it() {
+        let output = Output::for_platform(Platform::Macos, Span::NONE);
+        let flags = Flags::default();
+        let key = |name: &str, identity: &str| {
+            codegen_key(&output, &flags, name, identity, "lib/money", "ir", "layout")
+        };
+        assert_ne!(key("stencil", "id"), key("cranelift", "id"));
+        assert_ne!(key("stencil", "id"), key("llvm", "id"));
+        assert_ne!(key("stencil", "id"), key("none", "id"));
+        // And the identity beside it, so two toolchains with different stencil
+        // libraries under one name do not share an entry either.
+        assert_ne!(key("stencil", "one"), key("stencil", "two"));
     }
 
     /// The shared runner file is one file, so two holders of it at once would be

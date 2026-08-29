@@ -45,14 +45,14 @@
           # The toolchain's dependencies are held to the bar stated in the root
           # `Cargo.toml`: a code generator or a platform interface, behind a
           # cargo feature the default build can turn off, whose absence degrades
-          # rather than breaks. Two families have cleared it -- `cranelift-*`
-          # behind `backend-cranelift` and `inkwell` behind `backend-llvm` --
-          # so the lockfile now names their closures and vendoring fetches
-          # them. `cargoLock.lockFile` reads the hashes out of the lockfile, so
-          # there is still no `cargoHash` to keep in sync by hand.
+          # rather than breaks. One crate has cleared it -- `inkwell` behind
+          # `backend-llvm` -- so the lockfile names its closure and vendoring
+          # fetches it. `cargoLock.lockFile` reads the hashes out of the
+          # lockfile, so there is still no `cargoHash` to keep in sync by hand.
           cargoLock.lockFile = ./Cargo.lock;
 
-          # Default features, which is `backend-cranelift` alone.
+          # Default features, which is `backend-stencil` alone -- and it needs
+          # no crate, so the default build fetches nothing.
           #
           # design/native/BUILD-AND-WATCH.md §3.2 wants this built **with**
           # `backend-llvm`, because a `nix build` produces the release
@@ -105,7 +105,7 @@
         # C toolchain and neither is optional: `llvm-sys`'s build script wants
         # a C++ compiler, and the link step drives `cc` because the C driver is
         # what knows where `crt1.o`, `libc` and `libSystem.tbd` live
-        # (design/native/CODEGEN-CRANELIFT.md §7.3).
+        # (`cli/src/build/link.rs`).
         devShells.default = pkgs.mkShell {
           # `llvm-sys` refuses to guess. Without this the `backend-llvm` build
           # fails at its build script rather than at a link.
@@ -135,12 +135,12 @@
               pkgs.pkg-config
               # -- the native backends -------------------------------------
               #
-              # Nothing here is needed for `backend-cranelift`, which is pure
-              # Rust and is the default: `cargo build` works in a shell with
-              # none of it. These are for `--features backend-llvm` and for
-              # the link step, and they are in the shell rather than in a
-              # `nix-shell -p` incantation because a contributor who cannot
-              # build both backends cannot check that they agree.
+              # Nothing here is needed for `backend-stencil`, which is the
+              # default and depends on no crate: `cargo build` works in a
+              # shell with none of it. These are for `--features backend-llvm`
+              # and for the link step, and they are in the shell rather than
+              # in a `nix-shell -p` incantation because a contributor who
+              # cannot build both backends cannot check that they agree.
               llvm.dev
               llvm
               # `llvm-config --system-libs` asks for these on most
@@ -156,7 +156,7 @@
           ]
           # mold is ELF-only -- it fails with "mold does not support macOS",
           # and the Mach-O fork was archived in November 2024 with its author
-          # recommending Apple's linker (CODEGEN-CRANELIFT.md §7.3).
+          # recommending Apple's linker (BUILD-AND-WATCH.md §3).
           ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.mold;
         };
       }
